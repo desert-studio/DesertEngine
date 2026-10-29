@@ -1,6 +1,8 @@
 #include "MemoryReadout.hpp"
 
 #include <atomic>
+#include <format>
+#include <iterator>
 #include <cstdio>
 
 namespace Desert::Graphic
@@ -29,6 +31,9 @@ namespace Desert::Graphic
         std::atomic<uint64_t> g_BaselineDeviceUsage{ 0 };
         std::atomic<uint64_t> g_PeakResident{ 0 };
         std::atomic<uint64_t> g_PeakDeviceUsage{ 0 };
+        // Capacity in the high word, live in the low one, so a reader never sees one frame's live against another
+        // frame's capacity. 0 = no table: a made table always has a non-zero capacity.
+        std::atomic<uint64_t> g_LastBindless{ 0 };
 
         void RaisePeak( std::atomic<uint64_t>& peak, const uint64_t value )
         {
@@ -72,6 +77,11 @@ namespace Desert::Graphic
             text += " = resident " + Bytes( Process.Resident ) + ", peak " + Bytes( Process.Peak );
         }
 
+        // 4. The bindless texture table: one slot per uploaded texture, so live tracks the textures resident.
+        if ( Bindless )
+            std::format_to( std::back_inserter( text ), "\n  Bindless: {} live / {}", Bindless->Live,
+                            Bindless->Capacity );
+
         return text;
     }
 
@@ -91,6 +101,18 @@ namespace Desert::Graphic
 
         RaisePeak( g_PeakResident, resident );
         RaisePeak( g_PeakDeviceUsage, deviceUsage );
+        g_LastBindless.store(
+             readout.Bindless ? ( uint64_t{ readout.Bindless->Capacity } << 32U ) | readout.Bindless->Live : 0,
+             std::memory_order_relaxed );
+    }
+
+    std::optional<BindlessOccupancy> MemoryWatch::LastBindless()
+    {
+        const uint64_t packed = g_LastBindless.load( std::memory_order_relaxed );
+        if ( packed == 0 )
+            return std::nullopt;
+        return BindlessOccupancy{ .Live     = static_cast<uint32_t>( packed & 0xFFFFFFFFU ),
+                                  .Capacity = static_cast<uint32_t>( packed >> 32U ) };
     }
 
     uint64_t MemoryWatch::FramesSampled()
@@ -164,6 +186,7 @@ namespace Desert::Graphic
         g_BaselineDeviceUsage.store( 0, std::memory_order_relaxed );
         g_PeakResident.store( 0, std::memory_order_relaxed );
         g_PeakDeviceUsage.store( 0, std::memory_order_relaxed );
+        g_LastBindless.store( 0, std::memory_order_relaxed );
     }
 
 } // namespace Desert::Graphic

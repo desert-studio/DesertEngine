@@ -9,6 +9,9 @@
 #include <glm/glm.hpp>
 
 #include <optional>
+#include <span>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
+#include <Editor/Import/ImportResult.hpp>
 #include <vector>
 
 namespace Desert::Editor
@@ -25,6 +28,11 @@ namespace Desert::Editor
     Common::Math::AABB SourceToEngineBounds( const Common::Math::AABB&         box,
                                              const Assets::MeshImportSettings& settings );
 
+    // THE FILE'S LIGHTS IN THE ENGINE'S SPACE, as the import record states them (ImportRecord.hpp `Lights`):
+    // positions under C = SourceToEngine(settings), directions under its rotation (renormalised), a radius times
+    // Uniform Scale; the radiance split into a colour whose brightest channel is 1 and the multiplier.
+    std::vector<Assets::Serialization::ImportRecordLight>
+    SourceLightsToEngine( std::span<const ImportedLight> lights, const Assets::MeshImportSettings& settings );
     // THE SAME OPTIONS ON A SKINNED FILE (UE applies FBX Import Options to skeletal meshes, their skeleton and
     // their animations alike). A static mesh keeps its source untransformed and has the mapping applied by the
     // deriver (MeshDeriver); a skinned mesh, its skeleton and its clips are written in render form at import,

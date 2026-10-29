@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
 #include <Engine/Assets/CloudLayout.hpp>
 #include <Engine/Assets/CloudProceduralVolume.hpp>
@@ -13,6 +13,7 @@
 namespace Desert::Assets
 {
     class AssetManager;
+    class CloudLayoutAsset;
 }
 namespace Desert::Graphic
 {
@@ -129,6 +130,9 @@ namespace Desert::Editor
     public:
         CloudLayoutPanel( const Assets::AssetHandle& subject, std::shared_ptr<::Desert::Core::Scene> scene,
                           Assets::AssetManager* assets );
+        ~CloudLayoutPanel() override;
+        CloudLayoutPanel( const CloudLayoutPanel& )            = delete;
+        CloudLayoutPanel& operator=( const CloudLayoutPanel& ) = delete;
 
         // NEVER — see CloudNoiseVolumePanel::HoldsView. The "sky" in this panel's right-hand pane is
         // a CPU-evaluated top-down map uploaded as a Graphic::Image2D, not a rendered frame: there is no
@@ -146,6 +150,12 @@ namespace Desert::Editor
         [[nodiscard]] bool HoldsView() const override
         {
             return false;
+        }
+
+        // The painting is judged in the scene's sky, so the viewport stays visible beside it.
+        [[nodiscard]] bool OpensBesideViewport() const override
+        {
+            return true;
         }
 
         // ...and never will — see CloudNoiseVolumePanel::ClaimsView.
@@ -280,6 +290,10 @@ namespace Desert::Editor
         /// function, not a second reading of what a picture means.
         void RebuildLayout();
 
+        // The subject's loaded asset, and the in-place edit that hands it the canvas (see PushToScene).
+        [[nodiscard]] std::shared_ptr<Assets::CloudLayoutAsset> SubjectAsset() const;
+        void                                                    PushToScene();
+
         /// True when the canvas is a surface the brush can paint on: square, and inside the layout's own
         /// resolution bounds. It is the SAME condition the import accepts, asked before the fact rather
         /// than after, so the canvas cannot exist in a state the bake would refuse.
@@ -334,6 +348,8 @@ namespace Desert::Editor
         // not open has no file to be clean against.
         Assets::CloudLayoutCanvas m_OnDiskCanvas;
         bool                      m_Tracked = false;
+        // The loaded asset holds pixels the file does not (PushToScene); closing unsaved reloads the file.
+        bool m_PushedLive = false;
 
         // Bakes the canvas and writes @p target. The body of the Bake button, lifted out so SaveDocument
         // runs the same sequence rather than a second route to the same bytes.

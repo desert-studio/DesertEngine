@@ -14,7 +14,10 @@ namespace Desert::Graphic
         // Written by the GPU only (a compute pass), never by the host: device-local, no CPU copy, created
         // with storage usage beside its own (vertex) usage. The per-component morphed vertices
         // (MeshRendererMorph.cpp, UE FMorphVertexBuffer) are the one producer.
-        GpuWritten = 3
+        GpuWritten = 3,
+        // A GeometryPool arena (GeometryPool.hpp): device-local, created empty at a capacity, written in ranges
+        // (RT_WriteRange); never grown (the pool adds a page instead).
+        Pooled = 4
     };
 
     // `enum class BindUsage { Bind, Unbind }` STOOD HERE AND EXISTED ONLY TO BE THE PARAMETER OF A

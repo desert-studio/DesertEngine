@@ -16,6 +16,7 @@
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/WriteDescriptorSetBuilder.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanViewDescriptorPools.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -58,41 +59,28 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
 
-        // Create a dummy buffer to initialize unused bindings
-        VmaAllocator allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-                                      ->GetVulkanAllocator()
-                                      ->GetVMAAllocator();
-
-        VkBufferCreateInfo      bufferInfo = { .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-                                               .size  = 65536,
-                                               .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT };
-        // Host-visible + zero-initialized. Every uniform/storage binding starts out pointing at this
-        // dummy buffer (see WriteFallbacks). If it held uninitialized GPU memory, any binding
-        // sampled before its real resource is bound — or one that is never bound — would read garbage,
-        // which the lighting blows up into white/NaN (or near-zero black). Defined zeros make those
-        // cases render as a stable black instead of flickering garbage.
-        VmaAllocationCreateInfo allocInfo  = { .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT,
-                                               .usage = VMA_MEMORY_USAGE_CPU_TO_GPU };
-
-        VmaAllocationInfo dummyAllocInfo{};
-        VK_CHECK_RESULT( vmaCreateBuffer( allocator, &bufferInfo, &allocInfo, &m_DummyBuffer, &m_DummyAllocation, &dummyAllocInfo ) );
-
-        if ( dummyAllocInfo.pMappedData )
+        // Every uniform/storage binding starts out pointing at the device's ONE zero buffer (WriteFallbacks):
+        // defined zeros render a binding read before its real resource is bound as a stable black instead of
+        // garbage. One per device, as UE's global null resources (GEmptyStructuredBuffer, GBlackTexture): it
+        // used to be one 64 KB buffer PER MATERIAL BACKEND, which on Bistro was 7753 buffers, 485 MB that no
+        // ledger saw (BISTRO-MEM-2 p4).
+        auto zero = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                         ->GetVulkanAllocator()
+                         ->RT_ZeroBuffer();
+        if ( !zero.IsSuccess() )
         {
-            std::memset( dummyAllocInfo.pMappedData, 0, bufferInfo.size );
+            LOG_ERROR( "[Material] shader '{}': the zero buffer for unbound bindings is missing: {}",
+                       m_VulkanShader ? m_VulkanShader->GetName() : std::string( "<null>" ), zero.GetError() );
+        }
+        else
+        {
+            m_DummyBuffer = zero.GetValue();
         }
     }
 
-    VulkanMaterialBackend::~VulkanMaterialBackend()
-    {
-        // DEFERRED, like every other GPU object a mid-session destruction releases: a material dropped
-        // while its sets are still in a command buffer in flight would otherwise free them under the GPU.
-        // The dummy buffer goes the same way: the sets being released (m_ViewSets frees every view's copy
-        // through the same queue) still point at it.
-        const auto& allocator =
-             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
-        allocator->RT_DestroyBuffer( m_DummyBuffer, m_DummyAllocation );
-    }
+    // The zero buffer is the device's (VulkanAllocator::RT_ZeroBuffer), alive until the device goes: the sets
+    // this backend releases may still point at it from a command buffer in flight, and that stays valid.
+    VulkanMaterialBackend::~VulkanMaterialBackend() = default;
 
     IViewDescriptorSetCopy* VulkanMaterialBackend::ActiveSets( const uint32_t frameIndex )
     {
@@ -277,7 +265,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return;
 
-        const uint32_t                                binding = vulkanBuffer->GetBinding();
+        const uint32_t                                binding = storageProp->GetBinding();
         ShaderResources::API::Vulkan::ViewCopyBinding copy;
         const auto                                    resolved = vulkanBuffer->BindActiveCopy( frameIndex, copy );
         if ( !resolved.IsSuccess() )
@@ -311,6 +299,37 @@ namespace Desert::Graphic::API::Vulkan
         record.NoteWritten( binding, copy.CopyId, storageProp->GetVersion() );
     }
 
+    bool VulkanMaterialBackend::WriteTextureWithSampler( IViewDescriptorSetCopy& sets, uint32_t frameIndex,
+                                                         uint32_t binding, std::optional<uint32_t> samplerBinding,
+                                                         const VkDescriptorImageInfo& info, uint64_t handle,
+                                                         uint64_t version )
+    {
+        // A bound texture property is a separate texture plus its own sampler state (`<name>Sampler`): the view at
+        // its binding, the state at the paired one. Both are recorded as written, so a pass's set takes both.
+        if ( !samplerBinding )
+            return false;
+        const VkDescriptorImageInfo texture{ VK_NULL_HANDLE, info.imageView, info.imageLayout };
+        const VkDescriptorImageInfo sampler{ info.sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED };
+        UpdateDescriptorSets(
+             { DescriptorSetBuilder::GetSampledImageWDS( this, frameIndex, 0, binding, &texture ),
+               DescriptorSetBuilder::GetSamplerStateWDS( this, frameIndex, 0, *samplerBinding, &sampler ) } );
+        NoteDescriptorWrite( sets, binding, handle );
+        NoteDescriptorWrite( sets, *samplerBinding, handle );
+        sets.BoundCopies.NoteWritten( binding, handle, version );
+        sets.BoundCopies.NoteWritten( *samplerBinding, handle, version );
+        return true;
+    }
+
+    void VulkanMaterialBackend::ReportMissingSamplerState( uint32_t binding )
+    {
+        // Once per material lifetime per binding: the cause is the shader's text, not this frame.
+        if ( !m_BindRefusalReported.insert( binding ).second )
+            return;
+        LOG_ERROR( "[Materials] shader '{}': the texture property at binding {} has no sampler state of its own "
+                   "(`<texture>{}`); the texture is not bound",
+                   m_VulkanShader->GetName(), binding, Core::Formats::kMaterialTextureSamplerSuffix );
+    }
+
     void VulkanMaterialBackend::ApplyTexture2D( MaterialProperty* prop )
     {
         auto textureProp = static_cast<Texture2DProperty*>( prop );
@@ -338,6 +357,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( textureProp->SamplesEncoded() )
             if ( const auto* image = dynamic_cast<const VulkanImage2D*>( textureProp->GetImage() ) )
                 descriptorImageInfo.imageView = image->GetEncodedView();
+        // An image with no view yet (not resident) reads the 2D fallback until it is, as the combined write did.
+        if ( descriptorImageInfo.imageView == VK_NULL_HANDLE || descriptorImageInfo.sampler == VK_NULL_HANDLE )
+            if ( auto fallback = sp_cast<VulkanImage2D>(
+                      FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F ) ) )
+                descriptorImageInfo = fallback->GetResource().GetDescriptorInfo();
         const auto handle = std::bit_cast<uint64_t>( descriptorImageInfo.imageView );
 
         // A set that already points at this image view with this version has nothing to learn; a new set
@@ -354,11 +378,9 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        auto wds = DescriptorSetBuilder::GetSampler2DWDS( this, frameIndex, 0, binding, 1U, &descriptorImageInfo );
-
-        UpdateDescriptorSets( { wds } );
-        NoteDescriptorWrite( *sets, binding, handle );
-        record.NoteWritten( binding, handle, textureProp->GetVersion() );
+        if ( !WriteTextureWithSampler( *sets, frameIndex, binding, vulkanImage->GetSamplerBinding(),
+                                       descriptorImageInfo, handle, textureProp->GetVersion() ) )
+            ReportMissingSamplerState( binding );
     }
 
     void VulkanMaterialBackend::ApplyTextureCube( MaterialProperty* prop )
@@ -396,12 +418,15 @@ namespace Desert::Graphic::API::Vulkan
             return;
         }
 
-        auto wds =
-             DescriptorSetBuilder::GetSamplerCubeWDS( this, frameIndex, 0, binding, 1U, &descriptorImageInfo );
-
-        UpdateDescriptorSets( { wds } );
-        NoteDescriptorWrite( *sets, binding, handle );
-        record.NoteWritten( binding, handle, textureProp->GetVersion() );
+        // A cube property with no image (TextureCubeProperty::RestoreDefault clears it) reads the fallback cube,
+        // the documented "no cubemap set" state of a skybox or preview material.
+        if ( descriptorImageInfo.imageView == VK_NULL_HANDLE || descriptorImageInfo.sampler == VK_NULL_HANDLE )
+            if ( auto fallback = sp_cast<VulkanImageCube>(
+                      FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F ) ) )
+                descriptorImageInfo = fallback->GetResource().GetDescriptorInfo();
+        if ( !WriteTextureWithSampler( *sets, frameIndex, binding, vulkanImage->GetSamplerBinding(),
+                                       descriptorImageInfo, handle, textureProp->GetVersion() ) )
+            ReportMissingSamplerState( binding );
     }
 
     void VulkanMaterialBackend::ReportShapeDriftOnce()
@@ -444,7 +469,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( sets == nullptr )
             return false; // named once by ActiveSets
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): AllocateViewSets makes only this type
-        const auto& handles = static_cast<VulkanViewSets*>( sets )->GetSets();
+        std::vector<VkDescriptorSet> handles = static_cast<VulkanViewSets*>( sets )->GetSets();
+        // Material textures are read through the bindless table (BindlessTextures.glslh): its set is the one live
+        // update-after-bind set of the device, taken at bind time because growth replaces it (EndFrame).
+        if ( const VulkanBindlessTextureTable* table = BindlessTableIn( m_Layouts ) )
+            handles[kBindlessSetIndex] = table->GetDescriptorSet();
 
         vkCmdBindDescriptorSets( cmdBuffer, bindPoint, layout, 0, static_cast<uint32_t>( handles.size() ),
                                  handles.data(), 0, nullptr );
@@ -482,9 +511,7 @@ namespace Desert::Graphic::API::Vulkan
             // Every write below stores a POINTER into this vector, so it must not reallocate:
             // the reserve has to count every image binding that follows, 3D included.
             std::vector<VkDescriptorImageInfo> imageInfos;
-            imageInfos.reserve( descriptorSet.Image2DSamplers.size() + descriptorSet.ImageCubeSamplers.size() +
-                                descriptorSet.StorageImage2DSamplers.size() +
-                                descriptorSet.Image3DSamplers.size() +
+            imageInfos.reserve( descriptorSet.StorageImage2DSamplers.size() +
                                 descriptorSet.StorageImage3DSamplers.size() );
 
             std::vector<VkDescriptorBufferInfo> bufferInfos;
@@ -520,44 +547,6 @@ namespace Desert::Graphic::API::Vulkan
             {
                 switch ( kind )
                 {
-                    case ShaderResource::FallbackImageKind::Sampled2D:
-                    {
-                        auto fallback =
-                             FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA32F );
-                        if ( auto vulkanImage = sp_cast<VulkanImage2D>( fallback ) )
-                        {
-                            imageInfos.push_back( vulkanImage->GetResource().GetDescriptorInfo() );
-                            writes.push_back( DescriptorSetBuilder::GetSampler2DWDS(
-                                 this, frame, setIndex, binding, 1, &imageInfos.back() ) );
-                        }
-                        break;
-                    }
-                    case ShaderResource::FallbackImageKind::SampledCube:
-                    {
-                        auto fallback =
-                             FallbackTextures::Get().GetFallbackTextureCube( Core::Formats::ImageFormat::RGBA8F );
-                        if ( auto vulkanImage = sp_cast<VulkanImageCube>( fallback ) )
-                        {
-                            imageInfos.push_back( vulkanImage->GetResource().GetDescriptorInfo() );
-                            writes.push_back( DescriptorSetBuilder::GetSamplerCubeWDS(
-                                 this, frame, setIndex, binding, 1, &imageInfos.back() ) );
-                        }
-                        break;
-                    }
-                    case ShaderResource::FallbackImageKind::Sampled3D:
-                    {
-                        // A volume needs a VOLUME fallback: a 2D view in a `sampler3D` does not
-                        // fail, it samples the wrong thing.
-                        auto fallback =
-                             FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
-                        if ( auto vulkanImage = sp_cast<VulkanImage3D>( fallback ) )
-                        {
-                            imageInfos.push_back( vulkanImage->GetResource().GetDescriptorInfo() );
-                            writes.push_back( DescriptorSetBuilder::GetSampler3DWDS(
-                                 this, frame, setIndex, binding, 1, &imageInfos.back() ) );
-                        }
-                        break;
-                    }
                     case ShaderResource::FallbackImageKind::Storage2D:
                     {
                         // Dedicated storage fallback — it carries VK_IMAGE_USAGE_STORAGE_BIT,

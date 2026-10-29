@@ -1,0 +1,8 @@
+# GI-OVERRIDE-FORCE: an explicit machine override of GlobalIllumination.Method REPLACES the view's PostProcessSettings request (Starter's PPV asks ScreenSpace); a Scalability level stays only a ceiling.
+Дано state
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Когда state
+Тогда 0_override Starter в Lit с override GI = SoftwareTraced: кадр освещён, не чёрный; в editor.log строка «[RenderMethods] GI: ScreenSpace -> SoftwareTraced (machine override GlobalIllumination.Method = SoftwareTraced)», а не ScreenSpace
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Тогда 1_level override снят (machine.json чист): GI снова по уровню, кадр освещён

@@ -13,21 +13,21 @@
 #ifndef DESERT_SCENE_FOG_GLSLH
 #define DESERT_SCENE_FOG_GLSLH
 
-#define FOG_PARAMS_BINDING 31 // = Core::kSceneFogParamsBinding
+#define FOG_PARAMS_BINDING 45 // = Core::kSceneFogParamsBinding
 #include <Common/HeightFog.glslh>
 #include <Common/FogParams.glslh>
 #include <Common/ViewFog.glslh>
 
-layout( binding = 32 ) uniform sampler3D u_SceneFogAerialPerspective; // 32 = Core::kSceneFogAerialPerspectiveBinding
-layout( binding = 33 ) uniform sampler2D u_SceneFogDistantSkyLight;   // 33 = Core::kSceneFogDistantSkyLightBinding
-layout( binding = 34 ) uniform sampler3D u_SceneFogVolume;            // 34 = Core::kSceneFogVolumeBinding
+layout( binding = 46 ) uniform sampler3D u_SceneFogAerialPerspective; // 46 = Core::kSceneFogAerialPerspectiveBinding
+layout( binding = 47 ) uniform sampler2D u_SceneFogDistantSkyLight;   // 47 = Core::kSceneFogDistantSkyLightBinding
+layout( binding = 48 ) uniform sampler3D u_SceneFogVolume;            // 48 = Core::kSceneFogVolumeBinding
 
 // The fog between the camera and this fragment (@p worldPosition, world units): premultiplied inscattering in .rgb,
 // transmittance in .a. An alpha-blended surface writes colour * a + rgb (its coverage multiplies both); an additive
 // one writes colour * a (the fog's own light is already in the scene behind it).
 vec4 DesertSceneFog( vec3 worldPosition )
 {
-    const vec2 viewUv = gl_FragCoord.xy / max( u_FogView.xy, vec2( 1.0 ) );
+    const vec2 viewUv = gl_FragCoord.xy / max( FogView.xy, vec2( 1.0 ) );
     return ViewFogEvaluate( viewUv, worldPosition, true, u_SceneFogAerialPerspective, u_SceneFogDistantSkyLight,
                             u_SceneFogVolume );
 }

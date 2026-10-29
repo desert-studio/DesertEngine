@@ -198,6 +198,25 @@ namespace Desert::Core
 
     Common::BoolResultStr BeginPlay( Scene& scene, const Assets::AssetManager& assets, const PlayRequest& request )
     {
+        if ( request.Simulate )
+        {
+            // UE's Simulate In Editor: no player logs in, so nothing is spawned or possessed and the view stays
+            // the editor camera (UpdateActiveCameraSource with no view target). The game rules still begin.
+            if ( request.SpawnAt.has_value() || !request.PlayerStartTag.empty() )
+                return Common::MakeFormattedError(
+                     "level '{}': Simulate spawns no player, so it takes no start spot or Player Start tag",
+                     scene.GetSceneName() );
+            scene.SetPlayerPawn( entt::null );
+            scene.SetPlayerController( entt::null );
+            scene.SetPlayFromHere( false );
+            scene.SetSimulating( true );
+            scene.GetGameMode().Begin( {} );
+            for ( const auto e : scene.GetRegistry().view<ECS::UIAnimComponent>() )
+                scene.GetRegistry().get<ECS::UIAnimComponent>( e ).Data.Playback.reset();
+            scene.SetState( Scene::SceneState::Play );
+            return BOOLSUCCESS;
+        }
+        scene.SetSimulating( false );
         const auto pawn = SpawnDefaultPawn( scene, assets, request );
         if ( !pawn )
             return Common::MakeError( pawn.GetError() );

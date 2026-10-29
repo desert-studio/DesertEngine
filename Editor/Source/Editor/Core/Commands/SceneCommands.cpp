@@ -5,7 +5,7 @@
 #include "InstanceFold.hpp"
 
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Editor/Import/StaticMeshOutput.hpp>
+#include <Editor/Core/StaticMeshOutput.hpp>
 
 #include <Editor/Core/CommandHistory.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
@@ -17,17 +17,20 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
+#include <Engine/ECS/EntityLock.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
 #include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
 #include <glm/gtc/epsilon.hpp>
 
+#include <format>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -40,9 +43,30 @@ namespace Desert::Editor::Commands
         ::Desert::Core::Scene*                s_Scene        = nullptr;
         ::Desert::Assets::AssetManager*       s_AssetManager = nullptr;
 
+        // A captured subtree: one record per entity, pre-order, root first — and, per record, the prefab
+        // record path the entity was instantiated from (ECS::PrefabInstanceComponent).
+        //
+        // THE PATH IS CARRIED BESIDE THE RECORD because it is runtime-only and the serializer rightly does not
+        // write it. Restoring without it rebuilt a prefab instance whose every entity had lost its link to the
+        // prefab: the scene saver then counted them as "added inside the instance" and DROPPED them from the
+        // file — an undone delete, a redone Replace with Prefab or a pasted instance lost its lights on save.
+        struct SubtreeSnapshot
+        {
+            std::vector<Assets::EntityData> Records;
+            std::vector<std::vector<Common::UUID>>
+                 SourcePaths; // index-matched to Records; empty = not from a prefab
+
+            // The root alone (its children stay where they are).
+            void KeepRootOnly()
+            {
+                Records.resize( 1 );
+                SourcePaths.resize( 1 );
+            }
+        };
+
         // Editor clipboard: serialized subtree snapshots (NOT entity references), so pasting works even
         // after the originals were deleted or the scene changed.
-        std::vector<std::vector<Assets::EntityData>> s_Clipboard;
+        std::vector<SubtreeSnapshot> s_Clipboard;
 
         bool Ready()
         {
@@ -76,15 +100,19 @@ namespace Desert::Editor::Commands
 
         // Pre-order subtree snapshot through the prefab serialization path: full component fidelity,
         // root first. The root's own `parent` field records where the subtree hung in the scene.
-        std::vector<Assets::EntityData> CaptureSubtree( ECS::Entity root )
+        SubtreeSnapshot CaptureSubtree( ECS::Entity root )
         {
-            std::vector<Assets::EntityData> data;
+            SubtreeSnapshot data;
 
             std::function<void( ECS::Entity )> traverse = [&]( ECS::Entity e )
             {
                 if ( !e )
                     return;
-                data.push_back( ::Desert::Core::Serialize::EntitySerializer::SerializeEntity( e, *s_AssetManager ) );
+                data.Records.push_back(
+                     ::Desert::Core::Serialize::EntitySerializer::SerializeEntity( e, *s_AssetManager ) );
+                data.SourcePaths.push_back( e.HasComponent<ECS::PrefabInstanceComponent>()
+                                                 ? e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath
+                                                 : std::vector<Common::UUID>{} );
                 if ( e.HasComponent<ECS::RelationshipComponent>() )
                 {
                     for ( auto childHandle : e.GetComponent<ECS::RelationshipComponent>().Children )
@@ -112,8 +140,9 @@ namespace Desert::Editor::Commands
         // their own, because CaptureSubtree walks the LIVE subtree. So a record carrying a PrefabPath has
         // to be rebuilt from the snapshot like any other — instantiating its file again would duplicate
         // every child the snapshot already holds.
-        ECS::Entity RestoreSnapshot( const std::vector<Assets::EntityData>& data, bool preserveIds )
+        ECS::Entity RestoreSnapshot( const SubtreeSnapshot& snapshot, bool preserveIds )
         {
+            const std::vector<Assets::EntityData>& data = snapshot.Records;
             using ::Desert::Core::Rules::kNoSlot;
             using ::Desert::Core::Rules::PlanSceneStitch;
             using ::Desert::Core::Rules::PrefabRecordPolicy;
@@ -165,6 +194,15 @@ namespace Desert::Editor::Commands
                 const Assets::EntityData& ed = data[load.Record];
                 ECS::Entity               e  = created[load.Target];
                 ::Desert::Core::Serialize::EntitySerializer::DeserializeEntity( ed, e, *s_AssetManager );
+                if ( load.Record < snapshot.SourcePaths.size() && !snapshot.SourcePaths[load.Record].empty() )
+                {
+                    if ( e.HasComponent<ECS::PrefabInstanceComponent>() )
+                        e.GetComponent<ECS::PrefabInstanceComponent>().SourcePath =
+                             snapshot.SourcePaths[load.Record];
+                    else
+                        e.AddComponent<ECS::PrefabInstanceComponent>().SourcePath =
+                             snapshot.SourcePaths[load.Record];
+                }
 
                 if ( load.Parent != kNoSlot )
                 {
@@ -290,6 +328,54 @@ namespace Desert::Editor::Commands
             std::string  m_OldName, m_NewName;
         };
 
+        // A lock toggle (EntityLock.hpp) over one or more subtrees: every entity's lock state BEFORE, so undo puts
+        // a mixed subtree (a child locked on its own) back exactly, and the state every entity is set to on redo.
+        class LockCommand final : public ICommand
+        {
+        public:
+            LockCommand( std::vector<std::pair<Common::UUID, bool>> before, bool locked )
+                 : m_Before( std::move( before ) ), m_Locked( locked )
+            {
+            }
+
+            std::string GetLabel() const override
+            {
+                return m_Locked ? "Lock" : "Unlock";
+            }
+
+            bool Undo() override
+            {
+                bool any = false;
+                for ( const auto& [id, wasLocked] : m_Before )
+                    any |= Apply( id, wasLocked );
+                return any;
+            }
+            bool Redo() override
+            {
+                bool any = false;
+                for ( const auto& [id, wasLocked] : m_Before )
+                    any |= Apply( id, m_Locked );
+                return any;
+            }
+
+        private:
+            static bool Apply( const Common::UUID& id, bool locked )
+            {
+                auto e = FindEntity( id );
+                if ( !e )
+                    return false;
+                auto& registry = *e->GetRegistry();
+                if ( locked && !registry.has<ECS::LockComponent>( e->GetHandle() ) )
+                    registry.emplace<ECS::LockComponent>( e->GetHandle() );
+                else if ( !locked && registry.has<ECS::LockComponent>( e->GetHandle() ) )
+                    registry.remove<ECS::LockComponent>( e->GetHandle() );
+                return true;
+            }
+
+            std::vector<std::pair<Common::UUID, bool>> m_Before;
+            bool                                       m_Locked;
+        };
+
         // An edit of an entity's editable mesh (EditableMesh.hpp), UE's FMeshReplacementChange: the two meshes BY
         // REFERENCE. They are immutable once set on a component - an edit builds a new one - so holding the old
         // pointer IS the snapshot, with no copy and no serialization, and nothing can change it under the history.
@@ -406,8 +492,7 @@ namespace Desert::Editor::Commands
         class DeleteCommand final : public ICommand
         {
         public:
-            explicit DeleteCommand( std::vector<Assets::EntityData>&& snapshot )
-                 : m_Snapshot( std::move( snapshot ) )
+            explicit DeleteCommand( SubtreeSnapshot&& snapshot ) : m_Snapshot( std::move( snapshot ) )
             {
             }
 
@@ -418,7 +503,7 @@ namespace Desert::Editor::Commands
 
             bool Undo() override
             {
-                if ( m_Snapshot.empty() )
+                if ( m_Snapshot.Records.empty() )
                     return false;
                 ECS::Entity root = RestoreSnapshot( m_Snapshot, /*preserveIds=*/true );
                 OnStructuralChange();
@@ -430,8 +515,9 @@ namespace Desert::Editor::Commands
 
             bool Redo() override
             {
-                const Common::UUID root =
-                     m_Snapshot.empty() ? Common::UUID::Null() : m_Snapshot.front().id.value_or( Common::UUID::Null() );
+                const Common::UUID root = m_Snapshot.Records.empty()
+                                               ? Common::UUID::Null()
+                                               : m_Snapshot.Records.front().id.value_or( Common::UUID::Null() );
                 if ( !FindEntity( root ) )
                     return false;
                 DestroyByUUID( root );
@@ -440,7 +526,7 @@ namespace Desert::Editor::Commands
             }
 
         private:
-            std::vector<Assets::EntityData> m_Snapshot;
+            SubtreeSnapshot m_Snapshot;
         };
 
         // Groups sub-commands into ONE history entry (multi-selection operations). Undo runs the
@@ -499,7 +585,7 @@ namespace Desert::Editor::Commands
             Common::UUID                              m_Copy;
             std::shared_ptr<const Geometry::DynamicMesh3> m_Mesh;
             std::unique_ptr<ICommand>                 m_Alongside;
-            std::vector<Assets::EntityData>           m_Snapshot;
+            SubtreeSnapshot                               m_Snapshot;
         };
 
         // XForm: the state an entity is put in, and the command that walks a whole XForm edit back and forth.
@@ -574,13 +660,13 @@ namespace Desert::Editor::Commands
             {
                 Common::UUID                    Id;
                 XformEntityState                State;
-                std::vector<Assets::EntityData> Snapshot;
+                SubtreeSnapshot                 Snapshot;
             };
             struct Gone
             {
                 Common::UUID                                   Id;
                 std::shared_ptr<const Geometry::DynamicMesh3>  Mesh;
-                std::vector<Assets::EntityData>                Snapshot;
+                SubtreeSnapshot                                Snapshot;
             };
 
             XformCommand( std::string label, std::vector<Changed> changed, std::vector<Made> made,
@@ -670,6 +756,13 @@ namespace Desert::Editor::Commands
         class CompositeCommand final : public ICommand
         {
         public:
+            CompositeCommand() = default;
+            // A step that is ONE gesture to the person ("Replace with Prefab") names itself, rather than
+            // showing the count of the parts it was assembled from.
+            explicit CompositeCommand( std::string label ) : m_Label( std::move( label ) )
+            {
+            }
+
             void Add( std::unique_ptr<ICommand> command )
             {
                 m_Commands.push_back( std::move( command ) );
@@ -694,9 +787,11 @@ namespace Desert::Editor::Commands
 
             std::string GetLabel() const override
             {
+                if ( !m_Label.empty() )
+                    return m_Label;
                 if ( m_Commands.size() == 1 )
                     return m_Commands.front()->GetLabel();
-                return "Grouped edit (" + std::to_string( m_Commands.size() ) + ")";
+                return std::format( "Grouped edit ({})", m_Commands.size() );
             }
 
             bool Undo() override
@@ -717,6 +812,7 @@ namespace Desert::Editor::Commands
 
         private:
             std::vector<std::unique_ptr<ICommand>> m_Commands;
+            std::string                            m_Label;
         };
 
         // Keeps only the "top-level" entries: entities whose ancestor is ALSO in the list are dropped
@@ -789,8 +885,7 @@ namespace Desert::Editor::Commands
         class EntityStateCommand final : public ICommand
         {
         public:
-            EntityStateCommand( std::vector<Assets::EntityData>&& before,
-                                std::vector<Assets::EntityData>&& after )
+            EntityStateCommand( SubtreeSnapshot&& before, SubtreeSnapshot&& after )
                  : m_Before( std::move( before ) ), m_After( std::move( after ) )
             {
             }
@@ -810,11 +905,11 @@ namespace Desert::Editor::Commands
             }
 
         private:
-            bool Apply( const std::vector<Assets::EntityData>& state )
+            bool Apply( const SubtreeSnapshot& state )
             {
-                if ( state.empty() )
+                if ( state.Records.empty() )
                     return false;
-                const Common::UUID root = state.front().id.value_or( Common::UUID::Null() );
+                const Common::UUID root = state.Records.front().id.value_or( Common::UUID::Null() );
                 if ( root.IsNull() )
                     return false;
                 DestroyByUUID( root );
@@ -823,7 +918,7 @@ namespace Desert::Editor::Commands
                 return ok;
             }
 
-            std::vector<Assets::EntityData> m_Before, m_After;
+            SubtreeSnapshot m_Before, m_After;
         };
 
         // Records ALREADY-created entities. The snapshot is taken lazily on the first Undo — so it also
@@ -838,7 +933,7 @@ namespace Desert::Editor::Commands
 
             std::string GetLabel() const override
             {
-                return m_Roots.size() > 1 ? "Create (" + std::to_string( m_Roots.size() ) + ")" : "Create";
+                return m_Roots.size() > 1 ? std::format( "Create ({})", m_Roots.size() ) : "Create";
             }
 
             bool Undo() override
@@ -877,7 +972,7 @@ namespace Desert::Editor::Commands
 
         private:
             std::vector<Common::UUID>                    m_Roots;
-            std::vector<std::vector<Assets::EntityData>> m_Snapshots;
+            std::vector<SubtreeSnapshot>                 m_Snapshots;
         };
 
         // The file written and loaded, and the handle the component will hold; the component itself is not
@@ -1037,7 +1132,7 @@ namespace Desert::Editor::Commands
         {
             auto& tag = duplicate.GetComponent<ECS::TagComponent>().Tag;
             if ( tag.find( " Copy" ) == std::string::npos )
-                tag += " Copy";
+                tag = std::format( "{} Copy", tag );
         }
 
         const Common::UUID duplicateId = UUIDOf( duplicate );
@@ -1065,7 +1160,7 @@ namespace Desert::Editor::Commands
             {
                 auto& tag = duplicate.GetComponent<ECS::TagComponent>().Tag;
                 if ( tag.find( " Copy" ) == std::string::npos )
-                    tag += " Copy";
+                    tag = std::format( "{} Copy", tag );
             }
             duplicates.push_back( UUIDOf( duplicate ) );
         }
@@ -1122,6 +1217,45 @@ namespace Desert::Editor::Commands
         tag = newName;
     }
 
+    void SetLocked( const std::vector<Common::UUID>& roots, bool locked )
+    {
+        if ( !Ready() )
+            return;
+
+        // Every entity of every subtree, with its lock state before: the record names them all, so a
+        // partitioned save rewrites exactly their files (the lock is a field of each one's record).
+        std::vector<std::pair<Common::UUID, bool>> before;
+        std::vector<Common::UUID>                  touched;
+        for ( const auto& root : FilterTopLevel( roots ) )
+        {
+            auto e = FindEntity( root );
+            if ( !e )
+                continue;
+            auto&                     registry = *e->GetRegistry();
+            std::vector<entt::entity> pending{ e->GetHandle() };
+            while ( !pending.empty() )
+            {
+                const entt::entity entity = pending.back();
+                pending.pop_back();
+                if ( const auto* uuid = registry.try_get<ECS::UUIDComponent>( entity ) )
+                {
+                    before.emplace_back( uuid->UUID, ECS::IsLocked( registry, entity ) );
+                    touched.push_back( uuid->UUID );
+                }
+                if ( const auto* rel = registry.try_get<ECS::RelationshipComponent>( entity ) )
+                    for ( const auto child : rel->Children )
+                        if ( registry.valid( child ) )
+                            pending.push_back( child );
+            }
+        }
+        if ( before.empty() )
+            return;
+
+        auto command = std::make_unique<LockCommand>( std::move( before ), locked );
+        command->Redo();
+        CommandHistory::Get().PushEntityEdit( std::move( command ), touched );
+    }
+
     void RecordMeshChange( const Common::UUID& uuid, const std::string& label,
                            std::shared_ptr<const Geometry::DynamicMesh3> before,
                            std::unique_ptr<ICommand>                     alongside )
@@ -1155,15 +1289,18 @@ namespace Desert::Editor::Commands
                                                              static_cast<uint64_t>( uuid ) );
         // The entity alone: its children stay with the original (a child's record names its parent, so a
         // root-only snapshot re-parents nothing).
-        std::vector<Assets::EntityData> record = CaptureSubtree( *source );
-        record.resize( 1 );
+        SubtreeSnapshot record = CaptureSubtree( *source );
+        record.KeepRootOnly();
         const ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
         if ( !copy || !copy.HasComponent<ECS::StaticMeshComponent>() )
             return Common::MakeFormattedError<Common::UUID>( "{}: the copy of entity {} could not be made", label,
                                                              static_cast<uint64_t>( uuid ) );
         const Common::UUID copyId = UUIDOf( copy );
         if ( copy.HasComponent<ECS::TagComponent>() )
-            copy.GetComponent<ECS::TagComponent>().Tag += " Half";
+        {
+            std::string& tag = copy.GetComponent<ECS::TagComponent>().Tag;
+            tag              = std::format( "{} Half", tag );
+        }
         if ( auto set = ECS::SetEditableMesh( copy.GetComponent<ECS::StaticMeshComponent>(), otherHalf );
              !set.IsSuccess() )
         {
@@ -1200,25 +1337,16 @@ namespace Desert::Editor::Commands
             OnStructuralChange();
             return Common::MakeFormattedError<Out>( "{}: {}", label, why );
         };
-        for ( const XformEntityState& after : changes )
-        {
-            auto before =
-                 CaptureXformState( after.Entity, after.MaterialSlots.has_value(), after.Visible.has_value() );
-            if ( !before )
-                return rollback( fmt::format( "entity {} has no mesh or no transform",
-                                              static_cast<uint64_t>( after.Entity ) ) );
-            if ( auto r = ApplyXformState( after, after.Entity ); !r.IsSuccess() )
-                return rollback( r.GetError() );
-            changed.push_back( { std::move( *before ), after } );
-        }
+        // The copies are made BEFORE the changes: a copy is of the entity as it stands, not as this edit leaves
+        // it - a Boolean's "Hide inputs" hides the operand it copies, and a copy made after would inherit that.
         for ( const XformNewEntity& create : creates )
         {
             auto source = FindEntity( create.CopyOf );
             if ( !source )
                 return rollback(
                      fmt::format( "entity {} to copy is gone", static_cast<uint64_t>( create.CopyOf ) ) );
-            std::vector<Assets::EntityData> record = CaptureSubtree( *source );
-            record.resize( 1 );
+            SubtreeSnapshot record = CaptureSubtree( *source );
+            record.KeepRootOnly();
             ECS::Entity copy = RestoreSnapshot( record, /*preserveIds=*/false );
             if ( !copy )
                 return rollback( fmt::format( "the copy of entity {} could not be made",
@@ -1230,6 +1358,17 @@ namespace Desert::Editor::Commands
             made.back().State.Entity = id;
             if ( auto r = ApplyXformState( made.back().State, id ); !r.IsSuccess() )
                 return rollback( r.GetError() );
+        }
+        for ( const XformEntityState& after : changes )
+        {
+            auto before =
+                 CaptureXformState( after.Entity, after.MaterialSlots.has_value(), after.Visible.has_value() );
+            if ( !before )
+                return rollback( fmt::format( "entity {} has no mesh or no transform",
+                                              static_cast<uint64_t>( after.Entity ) ) );
+            if ( auto r = ApplyXformState( after, after.Entity ); !r.IsSuccess() )
+                return rollback( r.GetError() );
+            changed.push_back( { std::move( *before ), after } );
         }
         std::vector<XformCommand::Gone> gone;
         for ( const Common::UUID& id : deletes )
@@ -1311,7 +1450,7 @@ namespace Desert::Editor::Commands
         if ( !Ready() )
             return;
 
-        std::vector<std::vector<Assets::EntityData>> snapshots;
+        std::vector<SubtreeSnapshot> snapshots;
         for ( const auto& uuid : FilterTopLevel( uuids ) )
             if ( auto e = FindEntity( uuid ) )
                 snapshots.push_back( CaptureSubtree( *e ) );
@@ -1445,6 +1584,139 @@ namespace Desert::Editor::Commands
         OnStructuralChange();
         Core::SelectionManager::SetSelected( freshId );
         return freshId;
+    }
+
+    Common::ResultStr<std::vector<Common::UUID>> ReplaceWithPrefab( const std::vector<Common::UUID>& uuids,
+                                                                    const std::filesystem::path&     prefabFile,
+                                                                    ReplaceMeshSource                mesh )
+    {
+        using Result = std::vector<Common::UUID>;
+        if ( !Ready() )
+            return Common::MakeError<Result>( "Replace with Prefab: there is no open scene" );
+        const std::vector<Common::UUID> roots = FilterTopLevel( uuids );
+        if ( roots.empty() )
+            return Common::MakeError<Result>( "Replace with Prefab: nothing is selected" );
+        if ( prefabFile.extension() != Common::Constants::Extensions::PREFAB_EXTENSION )
+            return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}' is not a {} file",
+                                                       prefabFile.generic_string(),
+                                                       Common::Constants::Extensions::PREFAB_EXTENSION );
+
+        auto prefab = s_AssetManager->FindByPath<Assets::PrefabAsset>( prefabFile );
+        if ( !prefab )
+            prefab = s_AssetManager->CreateAsset<Assets::PrefabAsset>( prefabFile.generic_string() );
+        if ( !prefab )
+            return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}' could not be loaded",
+                                                       prefabFile.generic_string() );
+        if ( !prefab->IsReadyForUse() && !prefab->Load() )
+            return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}' could not be parsed",
+                                                       prefabFile.generic_string() );
+
+        // EVERY REFUSAL IS ASKED BEFORE THE FIRST ENTITY GOES, so a refused replace leaves the scene as it was
+        // rather than half-replaced.
+        if ( mesh == ReplaceMeshSource::KeepEntityMesh )
+        {
+            const auto& records = prefab->GetEntities();
+            if ( records.empty() || !records.front().Components.get( "StaticMesh" ).has_value() )
+                return Common::MakeFormattedError<Result>(
+                     "Replace with Prefab: '{}' has no static mesh on its root, so there is nothing to keep each "
+                     "entity's mesh on; replace without keeping meshes, or give the prefab's root a mesh",
+                     prefabFile.generic_string() );
+        }
+        for ( const Common::UUID& uuid : roots )
+            if ( !FindEntity( uuid ) )
+                return Common::MakeFormattedError<Result>( "Replace with Prefab: entity {} is not in the scene",
+                                                           static_cast<uint64_t>( uuid ) );
+
+        auto   composite = std::make_unique<CompositeCommand>( "Replace with Prefab" );
+        Result created;
+        created.reserve( roots.size() );
+        for ( const Common::UUID& uuid : roots )
+        {
+            ECS::Entity old = *FindEntity( uuid );
+
+            // What the instance takes over: place, name and (on request) geometry. Copied OUT before the
+            // destroy — the component storage goes with the entity.
+            const Common::UUID parentId = ParentUUIDOf( old );
+            glm::vec3          translation( 0.0f ), rotation( 0.0f ), scale( 1.0f );
+            if ( old.HasComponent<ECS::TransformComponent>() )
+            {
+                const auto& tc = old.GetComponent<ECS::TransformComponent>();
+                translation    = tc.Translation;
+                rotation       = tc.Rotation;
+                scale          = tc.Scale;
+            }
+            const std::string tag =
+                 old.HasComponent<ECS::TagComponent>() ? old.GetComponent<ECS::TagComponent>().Tag : std::string();
+            std::optional<ECS::StaticMeshComponent> keptMesh;
+            if ( mesh == ReplaceMeshSource::KeepEntityMesh && old.HasComponent<ECS::StaticMeshComponent>() )
+                keptMesh = old.GetComponent<ECS::StaticMeshComponent>();
+
+            auto snapshot = CaptureSubtree( old );
+            DestroyByUUID( uuid );
+            composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+
+            ECS::Entity parentEntity;
+            if ( !parentId.IsNull() )
+                if ( auto parent = FindEntity( parentId ) )
+                    parentEntity = *parent;
+
+            const auto placed = prefab->Instantiate( s_Scene, *s_AssetManager, parentEntity, &translation );
+            if ( !placed )
+            {
+                // Everything done so far is put back: a replace is all of the selection or none of it.
+                composite->Undo();
+                OnStructuralChange();
+                return Common::MakeFormattedError<Result>( "Replace with Prefab: {}", placed.GetError() );
+            }
+            ECS::Entity fresh = placed.GetValue();
+            if ( fresh.HasComponent<ECS::TransformComponent>() )
+            {
+                auto& tc       = fresh.GetComponent<ECS::TransformComponent>();
+                tc.Translation = translation;
+                tc.Rotation    = rotation;
+                tc.Scale       = scale;
+            }
+            if ( !tag.empty() && fresh.HasComponent<ECS::TagComponent>() )
+                fresh.GetComponent<ECS::TagComponent>().Tag = tag;
+            if ( keptMesh && fresh.HasComponent<ECS::StaticMeshComponent>() )
+            {
+                auto& smc      = fresh.GetComponent<ECS::StaticMeshComponent>();
+                smc.MeshHandle = keptMesh->MeshHandle;
+                smc.Primitive  = keptMesh->Primitive;
+                if ( keptMesh->EditableMesh )
+                {
+                    if ( auto set = ECS::SetEditableMesh( smc, keptMesh->EditableMesh ); !set.IsSuccess() )
+                    {
+                        composite->Add(
+                             std::make_unique<CreateCommand>( std::vector<Common::UUID>{ UUIDOf( fresh ) } ) );
+                        composite->Undo();
+                        OnStructuralChange();
+                        return Common::MakeFormattedError<Result>( "Replace with Prefab: '{}': {}", tag,
+                                                                   set.GetError() );
+                    }
+                }
+                else
+                {
+                    ECS::ClearEditableMesh( smc );
+                }
+                smc.MaterialSlots = keptMesh->MaterialSlots;
+                // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
+                smc.RuntimeMaterialInstances.clear();
+                smc.RuntimeSlots.reset();
+                smc.SeenMaterialsVersion = 0;
+            }
+
+            const Common::UUID freshId = UUIDOf( fresh );
+            composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ freshId } ) );
+            created.push_back( freshId );
+        }
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        Core::SelectionManager::SetSelection( created );
+        LOG_INFO( "[Prefab] replaced {} entit{} with '{}'", created.size(), created.size() == 1 ? "y" : "ies",
+                  prefabFile.generic_string() );
+        return Common::MakeSuccess( std::move( created ) );
     }
 
     namespace
@@ -1586,8 +1858,8 @@ namespace Desert::Editor::Commands
             // from "these two cubes are different cubes".
             std::string message = planned.GetError();
             if ( withoutAMesh > 0 )
-                message += " (" + std::to_string( withoutAMesh ) + " of the " + std::to_string( uuids.size() ) +
-                           " selected carry no static mesh)";
+                message = std::format( "{} ({} of the {} selected carry no static mesh)", message, withoutAMesh,
+                                       uuids.size() );
             return Common::MakeError<Common::UUID>( message );
         }
         const FoldPlan& plan = planned.GetValue();
@@ -1597,7 +1869,7 @@ namespace Desert::Editor::Commands
         std::string name = "Instanced Mesh";
         if ( auto first = FindEntity( plan.Sources.front() ); first && first->HasComponent<ECS::TagComponent>() )
             name = first->GetComponent<ECS::TagComponent>().Tag;
-        name += " x" + std::to_string( plan.InstanceTransforms.size() );
+        name = std::format( "{} x{}", name, plan.InstanceTransforms.size() );
 
         auto composite = std::make_unique<CompositeCommand>();
         for ( const Common::UUID& source : plan.Sources )
@@ -1630,10 +1902,36 @@ namespace Desert::Editor::Commands
         return Common::MakeSuccess( Common::UUID( folded ) );
     }
 
+    Common::ResultStr<Common::UUID> ReplaceWithNewEntity( const Common::UUID& source, const std::string& name,
+                                                          const std::function<void( ECS::Entity& )>& build )
+    {
+        if ( !Ready() )
+            return Common::MakeError<Common::UUID>( "No scene is open." );
+        auto found = FindEntity( source );
+        if ( !found )
+            return Common::MakeFormattedError<Common::UUID>( "entity {} is not in the scene",
+                                                             static_cast<uint64_t>( source ) );
+
+        auto composite = std::make_unique<CompositeCommand>();
+        auto snapshot  = CaptureSubtree( *found );
+        DestroyByUUID( source );
+        composite->Add( std::make_unique<DeleteCommand>( std::move( snapshot ) ) );
+
+        const Common::UUID created = Common::UUID::Generate();
+        ECS::Entity        entity  = s_Scene->CreateEntityWithUUID( created, name );
+        build( entity );
+        composite->Add( std::make_unique<CreateCommand>( std::vector<Common::UUID>{ created } ) );
+
+        CommandHistory::Get().PushCommand( std::move( composite ) );
+        OnStructuralChange();
+        Core::SelectionManager::SetSelected( created );
+        return Common::MakeSuccess( Common::UUID( created ) );
+    }
+
     struct EntityStateSnapshot
     {
         Common::UUID                    Root;
-        std::vector<Assets::EntityData> State;
+        SubtreeSnapshot                 State;
     };
 
     std::shared_ptr<const EntityStateSnapshot> CaptureEntityState( const Common::UUID& uuid )
@@ -1660,7 +1958,7 @@ namespace Desert::Editor::Commands
 
     void RevertEntityState( const std::shared_ptr<const EntityStateSnapshot>& before )
     {
-        if ( !Ready() || !before || before->State.empty() )
+        if ( !Ready() || !before || before->State.Records.empty() )
             return;
         DestroyByUUID( before->Root );
         (void)RestoreSnapshot( before->State, /*preserveIds=*/true );

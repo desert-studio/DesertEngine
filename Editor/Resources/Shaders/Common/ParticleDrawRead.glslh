@@ -1,7 +1,7 @@
 // The reads of a particle a renderer makes, through the emitter's ParticleDrawLayout (Common/ParticleDrawLayout.glslh;
 // UE NiagaraSpriteVertexFactory.ush GetVec3 / GetVec4 / GetFloat with the renderer's default when the offset is -1).
-// The consumer declares, BEFORE including this file, the emitter's float columns as `float u_DrawFloats[]` and its
-// layout as `ParticleDrawLayout u_DrawLayout` (the sprite vertex path and ParticleSort, each in its own binding
+// The consumer declares, BEFORE including this file, the emitter's float columns as `float DrawFloats[]` and its
+// layout as `ParticleDrawLayout DrawLayoutData` (the sprite vertex path and ParticleSort, each in its own binding
 // syntax).
 
 #ifndef PARTICLE_DRAW_READ_GLSLH
@@ -11,32 +11,39 @@
 
 float ParticleFloat( uint n, uint column, uint k, float fallback )
 {
-    return column == PARTICLE_ATTR_NONE ? fallback : u_DrawFloats[( column + k ) * u_DrawLayout.Range.x + n];
+    return column == PARTICLE_ATTR_NONE ? fallback : DrawFloats[( column + k ) * DrawLayoutData.Range.x + n];
 }
 
 // The range-local index of pool slot @p poolIndex (the alive lists hold pool indices).
 uint ParticleLocalIndex( uint poolIndex )
 {
-    return poolIndex - u_DrawLayout.Range.y;
+    return poolIndex - DrawLayoutData.Range.y;
 }
 
-// World position (cm): a Local emitter's particles are drawn at the emitter + their Position.
+// The frame a particle's attributes are stated in, to the world: a Local emitter's is the entity's full transform
+// (UE: the local-space emitter's LocalToWorld), a World emitter's the identity.
+mat4 ParticleSimulationToWorld()
+{
+    return DrawLayoutData.Range.z == 1u ? DrawLayoutData.LocalToWorld : mat4( 1.0 );
+}
+
+// World position (cm): a Local emitter's Position goes through the entity's full transform.
 vec3 ParticleWorldPosition( uint n )
 {
-    const uint c = u_DrawLayout.Columns0.x;
+    const uint c = DrawLayoutData.Columns0.x;
     const vec3 p = vec3( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ) );
-    return u_DrawLayout.Range.z == 1u ? u_DrawLayout.EmitterPos.xyz + p : p;
+    return ( ParticleSimulationToWorld() * vec4( p, 1.0 ) ).xyz;
 }
 
 vec2 ParticleSpriteSize( uint n )
 {
-    const uint c = u_DrawLayout.Columns0.y;
+    const uint c = DrawLayoutData.Columns0.y;
     return vec2( ParticleFloat( n, c, 0u, 50.0 ), ParticleFloat( n, c, 1u, 50.0 ) );
 }
 
 vec4 ParticleColor( uint n )
 {
-    const uint c = u_DrawLayout.Columns0.z;
+    const uint c = DrawLayoutData.Columns0.z;
     return vec4( ParticleFloat( n, c, 0u, 1.0 ), ParticleFloat( n, c, 1u, 1.0 ), ParticleFloat( n, c, 2u, 1.0 ),
                  ParticleFloat( n, c, 3u, 1.0 ) );
 }
@@ -44,17 +51,46 @@ vec4 ParticleColor( uint n )
 // Degrees, as the stack's InitializeRotation / UpdateRotation write it (UE SpriteRotation).
 float ParticleSpriteRotation( uint n )
 {
-    return ParticleFloat( n, u_DrawLayout.Columns0.w, 0u, 0.0 );
+    return ParticleFloat( n, DrawLayoutData.Columns0.w, 0u, 0.0 );
 }
 
 float ParticleAge( uint n )
 {
-    return ParticleFloat( n, u_DrawLayout.Columns1.x, 0u, 0.0 );
+    return ParticleFloat( n, DrawLayoutData.Columns1.x, 0u, 0.0 );
 }
 
 float ParticleLifetime( uint n )
 {
-    return ParticleFloat( n, u_DrawLayout.Columns1.y, 0u, 0.0 );
+    return ParticleFloat( n, DrawLayoutData.Columns1.y, 0u, 0.0 );
+}
+
+// UE Particles.RibbonWidth: a factor on the Ribbon row's Width (UE multiplies the bound attribute in the same way).
+float ParticleRibbonWidth( uint n )
+{
+    return ParticleFloat( n, DrawLayoutData.Columns1.z, 0u, 1.0 );
+}
+
+// UE Particles.RibbonLinkOrder: the key a ribbon links its particles by, ascending from the head. Unbound = the
+// age, so the youngest particle is the head and the oldest the tail (UE's default spawn-order link).
+float ParticleRibbonLinkOrder( uint n )
+{
+    return DrawLayoutData.Columns1.w == PARTICLE_ATTR_NONE ? ParticleAge( n )
+                                                        : ParticleFloat( n, DrawLayoutData.Columns1.w, 0u, 0.0 );
+}
+
+// UE Particles.Scale: the Mesh row's per-particle scale, on top of the row's own Scale. Unbound = 1.
+vec3 ParticleMeshScale( uint n )
+{
+    const uint c = DrawLayoutData.Columns2.y;
+    return vec3( ParticleFloat( n, c, 0u, 1.0 ), ParticleFloat( n, c, 1u, 1.0 ), ParticleFloat( n, c, 2u, 1.0 ) );
+}
+
+// UE Particles.MeshOrientation: a unit quaternion (xyz, w). Unbound = identity.
+vec4 ParticleMeshOrientation( uint n )
+{
+    const uint c = DrawLayoutData.Columns2.z;
+    return vec4( ParticleFloat( n, c, 0u, 0.0 ), ParticleFloat( n, c, 1u, 0.0 ), ParticleFloat( n, c, 2u, 0.0 ),
+                 ParticleFloat( n, c, 3u, 1.0 ) );
 }
 
 #endif // PARTICLE_DRAW_READ_GLSLH

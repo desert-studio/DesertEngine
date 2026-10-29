@@ -73,11 +73,6 @@ namespace
             return Common::MakeSuccess( true );
         }
 
-        [[nodiscard]] uint64_t HeldBytes() const noexcept override
-        {
-            return Bytes.size();
-        }
-
         std::vector<std::byte> Bytes;
     };
 
@@ -204,6 +199,10 @@ namespace
         [[nodiscard]] uint32_t GetSize() const override
         {
             return m_Block.GetSize();
+        }
+        Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
+        {
+            return Common::MakeError<bool>( "a stub has no device copy" );
         }
         [[nodiscard]] const void* GetData() const override
         {
@@ -483,6 +482,10 @@ TEST( StorageBufferFields, HasNoneAndTheReferenceOutlivesTheCall )
         uint32_t GetSize() const override
         {
             return 0;
+        }
+        Common::BoolResultStr ReadBack( void*, uint32_t, uint32_t ) override
+        {
+            return Common::MakeError<bool>( "a stub has no device copy" );
         }
         const void* GetData() const override
         {

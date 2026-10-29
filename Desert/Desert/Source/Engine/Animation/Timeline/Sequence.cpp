@@ -462,6 +462,20 @@ namespace Desert::Animation::Timeline
                 }
                 return Pass();
             }
+            if ( const auto* vfx = std::get_if<VFXSectionContent>( &section.Content ) )
+            {
+                if ( vfx->StartOffset.Value < 0 )
+                {
+                    return Common::MakeFormattedError<bool>( "VFX start offset {} ticks: an age is never negative",
+                                                             vfx->StartOffset.Value );
+                }
+                if ( section.Blend != SectionBlendType::Absolute || !section.Weight.empty() )
+                {
+                    return Common::MakeFormattedError<bool>(
+                         "a VFX section is Absolute at full weight (an effect's age does not blend)" );
+                }
+                return Pass();
+            }
             const auto& cut = std::get<CameraCutSectionContent>( section.Content );
             if ( section.Blend != SectionBlendType::Absolute || !section.Weight.empty() )
             {

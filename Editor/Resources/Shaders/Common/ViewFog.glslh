@@ -25,7 +25,7 @@
 // The distance (cm, along the camera forward) where froxel slice @p slice begins (the inverse of the slicing below).
 float ViewFogVolumetricDepthFromSlice(float slice)
 {
-    return (exp2(slice / u_FogVolumetric1.z) - u_FogVolumetric1.y) / u_FogVolumetric1.x;
+    return (exp2(slice / FogVolumetric1.z) - FogVolumetric1.y) / FogVolumetric1.x;
 }
 
 // @p viewUv          the point's position on the scene view, [0,1], top-left origin (the scene target's pixel grid)
@@ -34,12 +34,12 @@ float ViewFogVolumetricDepthFromSlice(float slice)
 vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D aerialPerspective,
                      sampler2D distantSkyLight, sampler3D volumetricFog)
 {
-    vec3 cameraPos = u_FogCamera.xyz;
+    vec3 cameraPos = FogCamera.xyz;
     vec3 cameraKm = cameraPos * (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
     vec3 worldKm  = worldPos * (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
 
-    bool fogOn        = u_FogGates.y > 0.5f;
-    bool volumetricOn = fogOn && u_FogVolumetric0.w > 0.5f;
+    bool fogOn        = FogGates.y > 0.5f;
+    bool volumetricOn = fogOn && FogVolumetric0.w > 0.5f;
 
     HeightFogResult fog;
     fog.Inscattering  = vec3(0.0f, 0.0f, 0.0f);
@@ -51,17 +51,17 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
         // UE's ExcludeDistance: the froxel grid owns the near range, the closed form starts where it ends.
         if (volumetricOn)
         {
-            float gridFarKm = ViewFogVolumetricDepthFromSlice(u_FogVolumetric1.w) *
+            float gridFarKm = ViewFogVolumetricDepthFromSlice(FogVolumetric1.w) *
                               (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
             params.StartDistanceKm    = max(params.StartDistanceKm, gridFarKm);
             params.DirectionalStartKm = max(params.DirectionalStartKm, gridFarKm);
         }
 
         // The physical sky's ambient: the distant sky light's full-sphere texel, scaled by the artist's colour.
-        if (u_FogAmbient.w > 0.5f)
+        if (FogAmbient.w > 0.5f)
         {
             vec3 distantSky = texelFetch(distantSkyLight, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
-            params.Inscattering = params.Inscattering + u_FogAmbient.rgb * distantSky;
+            params.Inscattering = params.Inscattering + FogAmbient.rgb * distantSky;
         }
 
         fog = HeightFogEvaluate(params, cameraKm, worldKm);
@@ -70,11 +70,11 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
     // UE CombineVolumetricFog: the integrated froxel volume in front of the analytic fog.
     if (volumetricOn)
     {
-        float depthCm = max(dot(worldPos - cameraPos, u_FogForward.xyz), 0.0f);
-        float slice   = log2(max(depthCm * u_FogVolumetric1.x + u_FogVolumetric1.y, 1e-6f)) * u_FogVolumetric1.z;
+        float depthCm = max(dot(worldPos - cameraPos, FogForward.xyz), 0.0f);
+        float slice   = log2(max(depthCm * FogVolumetric1.x + FogVolumetric1.y, 1e-6f)) * FogVolumetric1.z;
 
-        vec2 gridUv = viewUv * u_FogView.xy / (u_FogVolumetric0.yz * u_FogVolumetric0.x);
-        vec3 uvw    = vec3(gridUv, (clamp(slice, 1.0f, u_FogVolumetric1.w) - 0.5f) / u_FogVolumetric1.w);
+        vec2 gridUv = viewUv * FogView.xy / (FogVolumetric0.yz * FogVolumetric0.x);
+        vec3 uvw    = vec3(gridUv, (clamp(slice, 1.0f, FogVolumetric1.w) - 0.5f) / FogVolumetric1.w);
         vec4 volume = mix(vec4(0.0f, 0.0f, 0.0f, 1.0f), textureLod(volumetricFog, uvw, 0.0f), clamp(slice, 0.0f, 1.0f));
 
         fog.Inscattering  = volume.rgb + fog.Inscattering * volume.a;
@@ -83,10 +83,10 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
 
     // The sky's aerial perspective at the point's distance, behind the fog.
     vec4 ap = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    if (u_FogGates.x > 0.5f && reachesGeometry)
+    if (FogGates.x > 0.5f && reachesGeometry)
     {
-        float distanceKm = length(worldKm - cameraKm) * max(u_FogView.w, 0.0f);
-        float sliceUnit  = SkyApSliceUnitFromDistance(distanceKm, u_FogView.z);
+        float distanceKm = length(worldKm - cameraKm) * max(FogView.w, 0.0f);
+        float sliceUnit  = SkyApSliceUnitFromDistance(distanceKm, FogView.z);
         vec3  uvw        = vec3(SkyUnitToTexelUv(viewUv.x, SKY_AP_VOLUME_WIDTH),
                                 SkyUnitToTexelUv(viewUv.y, SKY_AP_VOLUME_HEIGHT),
                                 SkyUnitToTexelUv(sliceUnit, SKY_AP_VOLUME_DEPTH));
@@ -95,7 +95,9 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
 
     vec3  inscattering  = fog.Inscattering + ap.rgb * fog.Transmittance;
     float transmittance = fog.Transmittance * clamp(ap.a, 0.0f, 1.0f);
-    return vec4(inscattering, transmittance);
+    // The inscattering is radiance and goes into the pre-exposed scene colour; the transmittance is a ratio
+    // and does not (ViewFrame::PreExposure, FogGates.z).
+    return vec4(inscattering * FogGates.z, transmittance);
 }
 
 #endif // VIEW_FOG_GLSLH

@@ -534,7 +534,7 @@ namespace Desert::Tests::CloudFieldRef
         // The march's weather remap inputs, from the very functions the renderer uploads: the world weather
         // at its point (the map IS this field — Assets::BakeCloudFarWeatherMap samples it), and
         // CloudFarWeatherUniform of the bound bake's parameters, which CloudBindSpecies writes into
-        // CloudFieldParams::Weather as CloudUnpackFieldParams does from u_CloudWeather.
+        // CloudFieldParams::Weather as CloudUnpackFieldParams does from CloudWeather.
 #define CLOUD_SAMPLE_WEATHER( uv )                                                                                \
     Desert::Assets::CloudFarWeather( Desert::Assets::CloudFarWeatherSeed( ModellingVolume().Params ),             \
                                      ( uv ) * Desert::Assets::kCloudFarWeatherPeriodKm,                           \
@@ -587,7 +587,7 @@ namespace Desert::Tests::CloudFieldRef
 #include <Common/CloudField.glslh>
         DESERT_GLSL_AS_CPP_END
 
-        /// The clip-level windows of the bound sky, as Common/CloudParams.glslh unpacks u_CloudLevel[k]:
+        /// The clip-level windows of the bound sky, as Common/CloudParams.glslh unpacks CloudLevel[k]:
         /// xy the window's minimum corner, z one over its side.
         void CloudBindProceduralLevels( CloudFieldParams& params )
         {
@@ -598,7 +598,7 @@ namespace Desert::Tests::CloudFieldRef
                      vec4( state.LevelOriginKm[level].x, state.LevelOriginKm[level].y,
                            1.0f / Desert::Assets::CloudProceduralLevelSideKm( state.Params, level ), 0.0f );
             }
-            // The far path, as CloudUnpackFieldParams unpacks u_CloudWeather.x and u_CloudFar*.
+            // The far path, as CloudUnpackFieldParams unpacks CloudWeather.x and u_CloudFar*.
             params.FarScale = Desert::Assets::CloudFarWeatherUniform( state.Params ).x;
             for ( std::uint32_t band = 0; band < Desert::Assets::kCloudFarBands; ++band )
             {

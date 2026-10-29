@@ -2,6 +2,7 @@
 
 #include <Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 #include <Engine/Core/Glfw.hpp>
 #include <Engine/Core/PlayerStart.hpp>
@@ -45,6 +46,7 @@
 
 // 1. Engine Core
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingSceneCache.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -74,7 +76,7 @@
 // 2. Editor Base & Infrastructure
 #include "Editor/Core/GizmoState.hpp"
 #include "Editor/Core/CommandHistory.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Packaging/GamePackager.hpp"
@@ -84,6 +86,8 @@
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <fstream>
+#include <iterator>
 #include <Engine/Graphic/QualityBoot.hpp>
 #include "Editor/Core/ImGuiUtilities.hpp"
 #include <ImGui/imgui_internal.h>
@@ -91,6 +95,7 @@
 #include <array>
 #include <format>
 #include "Editor/Import/ImportManager.hpp"
+#include "Editor/Panels/WorldPartition/WorldPartitionPanel.hpp"
 #include "Editor/Splash/SplashControls.hpp"
 #include "Editor/Splash/SplashImage.hpp"
 #include "Editor/Widgets/WindowButtonStyle.hpp"
@@ -114,7 +119,7 @@
 #include "Editor/Core/DebugCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Foliage/FoliageCommands.hpp"
-#include "Editor/Core/Rigging/HumanoidCommands.hpp"
+#include "Editor/Panels/SceneHierarchy/HumanoidCommands.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
 #include "Editor/Core/OpenableAssets.hpp"
@@ -161,6 +166,13 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The file's raw bytes ("" when absent) — compared, never parsed: the question is "did anything write it".
+        std::string ReadWholeFile( const std::filesystem::path& file )
+        {
+            std::ifstream in( file, std::ios::binary );
+            return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+        }
+
         // The scene-open loading line (LOAD-SHOW): the stage, the read a worker is on, the count and its bar,
         // centred over the editor's window. Drawn only from loader counters (ContentProgressLine), never from a
         // timer, so a frame where nothing moves is a frame where nothing landed.
@@ -218,8 +230,20 @@ namespace Desert::Editor
         // renderer initialises its own copy of these values from this store, so one built before the load
         // would hold the schema defaults and push two of them into global sampler state.
         // The device exists here (the layer attaches after it), so the quality starts in one step.
-        m_QualityStart = Graphic::QualityBoot::Start( std::filesystem::path( ProjectContext::ConfigDirectory() ) /
-                                                      "machine.json" );
+        // An unattended run (scenario / capture) changes quality for this process only: a scenario's
+        // "Quality: GlobalIllumination.Method Off" must not become the machine's ceiling for every later run.
+        const std::filesystem::path machineJson =
+             std::filesystem::path( ProjectContext::ConfigDirectory() ) / "machine.json";
+        const bool unattended = Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
+                                                             Control::ControlChannelOptions::Get().Requested() );
+        if ( unattended )
+        {
+            m_UnattendedMachineJson  = machineJson;
+            m_UnattendedMachineBytes = ReadWholeFile( machineJson );
+        }
+        m_QualityStart = Graphic::QualityBoot::Start(
+             machineJson, unattended ? Graphic::QualityBoot::Persistence::ThisProcess
+                                     : Graphic::QualityBoot::Persistence::MachineFile );
 
         // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
@@ -380,7 +404,7 @@ namespace Desert::Editor
         // EditorQuiescence would answer Settled() — every flag false — and the very first request of a
         // session, which is the one a client sends while the editor is still cooking, would be answered
         // from an editor that has read nothing. An unsampled census must not read as a settled editor.
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
+        SampleControlQuiescence();
 
         return BOOLSUCCESS;
     }
@@ -402,6 +426,10 @@ namespace Desert::Editor
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
+        // HDR-OUTPUT p3: an HDR output renders its SDR rendition while a window shot waits (the shot's PNG is the
+        // SDR frame; the tonemap's HDR rendition carries the peak). Set before the scene renders this frame.
+        Graphic::SetSdrCaptureRendition( m_Control.WindowShotPending() );
+        m_ScriptDebug.Service();
 
         // THE EDITOR'S FRAME BOUNDARY FOR Core::OpenLevel (UEngine::TickWorldTravel for the PIE world context).
         // In Play the queued level replaces the PLAYED world and Stop still returns to the authored one
@@ -428,7 +456,7 @@ namespace Desert::Editor
         // the scene is NOT rendered — the frame is ImGui-only and the window it goes to is still hidden.
         if ( m_Startup.RunStartupFrame() )
         {
-            m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
+            SampleControlQuiescence();
             return BOOLSUCCESS;
         }
 
@@ -448,7 +476,6 @@ namespace Desert::Editor
         // The environment cache's readbacks land here and go to a worker for the encode (AL1-3).
         Graphic::EnvironmentCacheWriter::Get().Pump();
         m_Startup.UpdateContentSettling();
-        m_AssetCompiling.DrainBackgroundCook();
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         // A load that ran starts the content settle before the refused-load fallback and New Scene.
@@ -569,6 +596,9 @@ namespace Desert::Editor
 
         // The one thumbnail pump, gated by the reveal (EditorStartup::TickThumbnails).
         m_Startup.TickThumbnails();
+        // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
+        if ( m_WorldPartitionPanel )
+            m_WorldPartitionPanel->TickBuild();
 
         m_Dock.UpdateContextualPanels();
 
@@ -602,7 +632,7 @@ namespace Desert::Editor
         // answer has moved on, and the question the control channel needs answered is about the picture:
         // "did this frame have everything the command asked for in it, or was some of it still queued?"
         // Editor/Core/Control/ControlPipeline.hpp is where that question is judged.
-        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling() );
+        SampleControlQuiescence();
 
         // Multi-scene editing: drive EVERY open document each frame so all viewports render live. The active
         // one is m_Workspace.ActiveScene() (rebound on viewport focus); RigBuilder below acts on it only. The
@@ -617,17 +647,24 @@ namespace Desert::Editor
         if ( m_Workspace.ActiveScene() && m_AssetManager )
             RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
 
-        // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the --flight sample, and on the capture's last
-        // frame the profiler dump, the --flight CSV and the capture's status to close with.
-        if ( const auto finished = m_Shots.EndFrame( shotRecorded, m_Startup.StartupLoading(),
-                                                     m_Startup.ContentSettling(), m_Profiler ) )
-            m_Application->Close( *finished );
+        // Screenshot mode: this frame's render is recorded. It is read back, counted and written once it has
+        // been SUBMITTED (ShotDirector::EndFrame in OnFramePresented); read here, the image is the last frame's.
+        m_Shots.FrameRecorded( shotRecorded, m_Startup.StartupLoading(), m_Startup.ContentSettling() );
 
         return BOOLSUCCESS;
     }
 
     // The frame is out: the start-up's reveal, then the control channel keeps its promise (ControlService) — a
     // `quit` whose reply has gone out comes back as the status to close with.
+    void EditorLayer::SampleControlQuiescence()
+    {
+        m_Control.SampleFrameQuiescence( m_Startup.StartupLoading() || m_Startup.ContentSettling(),
+                                         m_Startup.ReflectionCapturesFilling(),
+                                         Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0,
+                                         m_WorldPartitionPanel && m_WorldPartitionPanel->IsBuildingHLODs(),
+                                         ViewportPanel::AnyMeshDropLoading() );
+    }
+
     bool EditorLayer::AdmitShotFrame()
     {
         ShotFrameConditions frame;
@@ -637,6 +674,7 @@ namespace Desert::Editor
         frame.ContentSettling  = m_Startup.ContentSettling();
         frame.AssetsCompiling   = m_AssetCompiling.RemainingAssets() > 0;
         frame.TexturesStreaming = Runtime::ResourceRegistry::GetTextureService()->InFlight() > 0;
+        frame.ReflectionCapturesFilling = m_Startup.ReflectionCapturesFilling();
         // The picture the writer reads back (ViewportCapture), at the size this frame renders at: the panels'
         // deferred resizes were applied just before this call.
         if ( m_Workspace.ActiveScene() )
@@ -650,8 +688,22 @@ namespace Desert::Editor
 
     void EditorLayer::OnFramePresented()
     {
+        // Screenshot mode, END OF FRAME (ShotDirector::EndFrame): the frame just submitted is read back and
+        // written, the --flight sampled, and on the capture's last frame the profiler dump, the --flight CSV
+        // and the capture's status to close with.
+        if ( const auto finished = m_Shots.EndFrame( m_Profiler ) )
+        {
+            m_Application->Close( *finished );
+            return;
+        }
         m_Startup.RevealWhenReady();
-        if ( const auto quit = m_Control.OnFramePresented() )
+        // What the frame just presented drew: displaced primitives still on their base mesh (ControlService).
+        const auto& scene = m_Workspace.ActiveScene();
+        const bool  displacementUnsettled =
+             scene && scene->GetRayTracingCache().GetDisplacement().GetStats().Unsettled > 0;
+        if ( const auto quit = m_Control.OnFramePresented(
+                  displacementUnsettled, m_Workspace.SubsurfaceHistoryConverging(),
+                  m_Workspace.MaterialPipelinesCompiling(), m_Workspace.GrassInstancesSettling() ) )
             m_Application->Close( *quit );
     }
 
@@ -852,6 +904,21 @@ namespace Desert::Editor
         // A scene names its views' renderers by raw pointer and owns none of them, so every renderer dies
         // after the scene that names it (FIX6) — the order is SceneWorkspace::Teardown's.
         m_Workspace.Teardown();
+
+        // The unattended run's promise (QualityBoot::Persistence::ThisProcess), checked on the way out.
+        if ( !m_UnattendedMachineJson.empty() )
+        {
+            if ( ReadWholeFile( m_UnattendedMachineJson ) == m_UnattendedMachineBytes )
+            {
+                LOG_INFO( "[Machine] unattended run: {} is byte-identical to its state at start ({} bytes)",
+                          m_UnattendedMachineJson.string(), m_UnattendedMachineBytes.size() );
+            }
+            else
+            {
+                LOG_ERROR( "[Machine] unattended run CHANGED {} — a quality or machine setting leaked to disk",
+                           m_UnattendedMachineJson.string() );
+            }
+        }
 
         return BOOLSUCCESS;
     }

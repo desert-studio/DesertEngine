@@ -117,12 +117,12 @@ namespace Desert::Assets
                                                     "' is not a readable material file: " + probe.GetError() );
         const auto wrongSchema = [&source]( int stated )
         {
-            return Common::MakeError<MaterialData>(
-                 "[Material] '" + std::string( source ) + "' states material schema v" + std::to_string( stated ) +
-                 " and this engine reads v" + std::to_string( kMaterialSchemaVersion ) +
-                 " only (v0 = no header, v1 = a MaterialId beside the GUID, v2 = texture and cloud slots by "
-                 "path-derived number, v3 = the shader by name, v4 = PatchStrength as a ramp's slope: run "
-                 "Tools/SceneMigrator over it once)" );
+            return Common::MakeError<MaterialData>( std::format(
+                 "[Material] '{}' states material schema v{} and this engine reads v{} only (v0 = no "
+                 "header, v1 = a MaterialId beside the GUID, v2 = texture and cloud slots by "
+                 "path-derived number, v3 = the shader by name, v4 = PatchStrength as a ramp's slope: "
+                 "run Tools/SceneMigrator over it once)",
+                 source, stated, kMaterialSchemaVersion ) );
         };
         // No header at all is schema v0: refused here, by name, before anything reads the header.
         if ( !probe.GetValue().Header.has_value() )
@@ -179,6 +179,13 @@ namespace Desert::Assets
         for ( const auto& ref : material.CloudAssets )
             if ( const auto ok = Detail::CheckStatedRef( source, "cloud asset", ref, deps ); !ok )
                 return Common::MakeError<MaterialData>( ok.GetError() );
+        if ( material.SubsurfaceProfile.has_value() )
+        {
+            const MaterialAssetRef profileRef{ "SubsurfaceProfile", material.SubsurfaceProfile->Guid,
+                                               material.SubsurfaceProfile->Path, {} };
+            if ( const auto ok = Detail::CheckStatedRef( source, "subsurface profile", profileRef, deps ); !ok )
+                return Common::MakeError<MaterialData>( ok.GetError() );
+        }
         // A stated thumbnail: a valid orbit, and a preview mesh that is never empty ("draw the primitive" is said
         // by stating none) and is named by the header like every other reference.
         if ( material.Thumbnail.has_value() )

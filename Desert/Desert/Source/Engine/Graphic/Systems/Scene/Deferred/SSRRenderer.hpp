@@ -5,63 +5,175 @@
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
-#include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/RayTracingPipeline.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
-#include <Engine/Graphic/View/PassHistory.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
+#include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <glm/glm.hpp>
 
 #include <array>
 #include <cstddef>
+#include <format>
 #include <optional>
 #include <span>
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRFrontLayerShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerNormalTexture );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRTraceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, SsrTraceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TraceRayTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRHitLightingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, SsrTraceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TraceRayTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
+        DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridWorldCellsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheIndirectionUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DFAssetData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DFIndirection );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DFObjects );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFObjectRowsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFCulledUB );
+    };
+
     // Screen-space reflections (SSR2): one compute dispatch that classifies and traces; the screen-space
     // denoiser (ScreenSpaceDenoiser, the reflections signal) turns the trace into the reflection the deferred
-    // lighting composes (DeferredLighting.shader u_SSR).
+    // lighting composes (DeferredLighting.shader SsrTexture).
     //  1) CLASSIFY + TRACE (SSR.shader, compute, one workgroup per kTileSize x kTileSize screen tile): the tile
     //     is marked in the tile mask when any pixel passes the trace's G-buffer gate (sky / too rough -
-    //     Common/SSRGate.glslh), and the same workgroup then traces at HALF resolution (as UE's SSR at its lower
-    //     qualities), from a block pixel that rotates every frame so the temporal accumulation sees all four:
+    //     Common/SSRGate.glslh), and the same workgroup then traces at the resolution Reflections.DownsampleFactor
+    //     names (UE r.Lumen.Reflections.DownsampleFactor): 1 = every pixel; 2 = HALF resolution, from the pixel of
+    //     each 2x2 block that rotates every frame so the temporal accumulation sees all four:
     //     Reflections.RaysPerPixel GGX-VNDF rays per texel, each walked over the closest-depth HZB
     //     (HZBRenderer, Common/HZBTrace.glslh), combined with the ratio estimator (rgb = radiance of the hits,
     //     a = the share of the lobe they answered) and written with the texel's representative hit point + pdf
     //     for the reconstruction. A hit's radiance is LAST frame's lit scene where the hit pixel's VELOCITY says
-    //     it was (a moving object is read where it was - no trail): the scene colour history this renderer owns,
-    //     which this frame's scene copy refills (UE: the previous frame's scene colour).
-    //  2) DENOISE (ScreenSpaceDenoiser::DenoiseReflections): reconstruction at full resolution (the ratio
+    //     it was (a moving object is read where it was - no trail): the view's scene colour history
+    //     (SceneColorHistoryRenderer, shared with SSGI), which this frame's scene copy refills (UE: the previous
+    //     frame's scene colour).
+    //  2) DENOISE (ScreenSpaceDenoiser::DenoiseReflections): reconstruction at full resolution from either trace
+    //     (the ratio
     //     estimator over the neighbouring trace texels, bilateral by depth plane and specular lobe), temporal
     //     accumulation through the reflected point with variance rejection, and the history convolution. The
     //     tile mask lets the reconstruction skip the tiles that reflect nothing.
     // Runs in the manual chain after the G-buffer and the HZB, BEFORE the deferred lighting.
+    //
+    // ONE PASS, THREE METHODS. ReflectionMethod::ScreenSpace runs the program's default compile (the screen
+    // alone); the traced methods the permutation DESERT_REFLECTIONS_TRACED under a GI tracer's defines
+    // (GlobalIllumination::TracerVariant of SceneRenderer::ReflectionsTracer): the rays the screen does not answer
+    // go on into the world - SoftwareTraced through the mesh SDFs and the global field, HardwareTraced by ray
+    // query over the view's TLAS (alpha-tested, UE Lumen HWRT reflections) - a hit lit from the surface cache (UE
+    // Lumen's reflections, SSR.shader's header). The tracer, the cards and the mesh SDFs are the GI's own frame
+    // records (TracedReads) - there is no second tracer - and the denoiser is the same, so the methods differ only
+    // in which rays come back answered.
     class SSRRenderer final : public RenderSystem
     {
     public:
         using RenderSystem::RenderSystem;
 
+        // WHICH SURFACE THE RAYS LEAVE FROM (UE ELumenReflectionPass: Opaque / FrontLayerTranslucency). Opaque: the
+        // G-buffer's. TranslucentFrontLayer: the nearest translucent surface of each pixel ("Translucency: Front
+        // Layer G-buffer", Reflections.TranslucentFrontLayer) - every program of this renderer is SSR.shader's
+        // DESERT_REFLECTIONS_FRONT_LAYER permutation, the trace's blocks carry FrontLayerInputs, and the denoiser's
+        // history is this renderer's own, as UE keeps the front layer's reflection history apart.
+        enum class ReflectingSurface : uint8_t
+        {
+            Opaque,
+            TranslucentFrontLayer,
+        };
+        static constexpr std::string_view kFrontLayerDefine = "DESERT_REFLECTIONS_FRONT_LAYER";
+
+        // Before Initialize: the surface this renderer reflects (Opaque until said otherwise).
+        void TraceFrom( const ReflectingSurface surface )
+        {
+            m_Surface = surface;
+        }
+        [[nodiscard]] ReflectingSurface Surface() const
+        {
+            return m_Surface;
+        }
+
+        // The front layer's G-buffer (Mesh/Surface/Pass_FrontLayer.glslh) the TranslucentFrontLayer programs start
+        // their rays from: normal + roughness and depth, as FrontLayerNormalTexture / FrontLayerDepthTexture.
+        struct FrontLayerInputs
+        {
+            RDG::TextureRef Normal;
+            RDG::TextureRef Depth;
+        };
+
         virtual Common::BoolResultStr Initialize() override
         {
-            m_TraceShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
+            m_TraceShader = m_Surface == ReflectingSurface::TranslucentFrontLayer
+                                 ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                                        "SSR", FrontLayerVariant() )
+                                 : Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
             if ( !m_TraceShader )
-                return Common::MakeError( "SSR shader not found (SSR)" );
-
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "SSR target framebuffer missing" );
-            // The scene colour history: last frame's lit opaque scene, the radiance a hit reflects.
-            FramebufferSpecification historySpec;
-            historySpec.DebugName = "SSRSceneColorHistory";
-            historySpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kSceneColorCopy );
-            m_SceneColorHistoryFB = Framebuffer::Create( historySpec );
-            m_SceneColorHistoryFB->Resize( target->GetFramebufferWidth(), target->GetFramebufferHeight() );
+                return Common::MakeError( m_Surface == ReflectingSurface::TranslucentFrontLayer
+                                               ? "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) "
+                                                 "did not compile"
+                                               : "SSR shader not found (SSR)" );
 
             const auto tracePipeline =
                  ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
@@ -72,12 +184,150 @@ namespace Desert::Graphic::System
             return m_Denoiser.Initialize();
         }
 
+        // What the traced permutation reads beside the screen's inputs (SSR.shader, bindings 10..41), all of this
+        // frame's graph: GIHitRadiance's inputs (the GI frame record, the lights and the world light grid, the
+        // radiance cache's read - a neutral one covering nothing when the GI does not run it -, the sky's cube,
+        // the G-buffer's albedo and emissive), the tracer (GlobalIllumination::TracerFrame: for the software
+        // tracer the view's mesh SDF near field too) and the surface cache's hits.
+        struct TracedReads
+        {
+            GlobalIllumination::TracerFrame Tracer;
+            // Hit lighting (Reflections.HitLighting): this frame's hit group table, whose templates built the
+            // hit-lit pipeline (EnsureHitLightingPipeline); null = the traced compute walks the world itself.
+            // Owned by the SceneRenderer for the frame (SceneRenderer::m_ReflectionHitGroups).
+            const RayTracing::RayTracingHitGroupTable*                      HitGroups = nullptr;
+            GlobalIllumination::SurfaceCacheFrame                           SurfaceCache;
+            GlobalIllumination::RadianceCacheFrame                          RadianceCache;
+            RDG::BufferRef                                                  GIFrame;
+            RDG::BufferRef                                                  PointLights;
+            RDG::BufferRef                                                  SpotLights;
+            RDG::BufferRef                                                  WorldGridParams;
+            RDG::BufferRef                                                  WorldGridCells;
+            RDG::TextureRef                                                 EnvSpecular;
+            RDG::TextureRef                                                 GBufferA;
+            RDG::TextureRef                                                 GBufferEmissive;
+        };
+
+        // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
+        // acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant TracedVariant( const GlobalIllumination::Pipeline& pipeline,
+                                                                const bool hitLighting, const ReflectingSurface surface )
+        {
+            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( pipeline );
+            variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
+            if ( hitLighting )
+                variant.Defines.emplace_back( "DESERT_REFLECTIONS_HIT_LIGHTING" );
+            if ( surface == ReflectingSurface::TranslucentFrontLayer )
+                variant.Defines.emplace_back( kFrontLayerDefine );
+            return variant;
+        }
+
+        // The untraced front layer's permutation (screen trace of the translucent front layer), cooked:
+        // ShippedByCook - the one statement Initialize acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant FrontLayerVariant()
+        {
+            return Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) }, .ShippedByCook = true };
+        }
+
+        // Every variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants): the
+        // untraced front layer (FrontLayerVariant); "SSR" under each tracer permutation
+        // (GlobalIllumination::kTracerPermutations) from either surface. A permutation is hit-lit exactly when its
+        // hits are lit in place (SceneRenderer::ReflectionsTracer: Hits = InPlace iff ReflectionsHitLit), and only
+        // then does it carry the ray generation ("SSR/HitLighting"). Like UE's ShouldCompilePermutation, a
+        // combination the renderer can never select (hit-lit over the surface cache: SSRTrace.glslh's #error) is
+        // not cooked at all.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
+        {
+            std::vector<Core::CookedProgramVariant> variants{ { "SSR", FrontLayerVariant() } };
+            for ( const ReflectingSurface surface : { ReflectingSurface::Opaque, ReflectingSurface::TranslucentFrontLayer } )
+                for ( const GlobalIllumination::Pipeline& pipeline : GlobalIllumination::kTracerPermutations )
+                {
+                    const bool hitLit = pipeline.Hits == GlobalIllumination::HitLighting::InPlace;
+                    variants.push_back( { "SSR", TracedVariant( pipeline, hitLit, surface ) } );
+                    if ( hitLit )
+                        variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
+                }
+            return variants;
+        }
+
+        // GRAPH BUILD, before DeclareTraceBindings of a traced frame: the traced permutation for @p pipeline's
+        // tracer, compiled on first use and again when the tracer changes. An error: the program did not compile.
+        // @p hitLighting: Reflections.HitLighting on the hardware tracer - the compute classifies only and the
+        // "SSR/HitLighting" ray generation traces (EnsureHitLightingPipeline); the permutation adds
+        // DESERT_REFLECTIONS_HIT_LIGHTING to both entry points.
+        [[nodiscard]] Common::BoolResultStr EnsureTracedProgram( const GlobalIllumination::Pipeline& pipeline,
+                                                                 const bool                          hitLighting )
+        {
+            if ( m_TracedPipeline && pipeline == m_TracedFor && hitLighting == m_TracedHitLit )
+                return BOOLSUCCESS;
+            Core::ShaderVariant variant = TracedVariant( pipeline, hitLighting, m_Surface );
+            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
+            if ( !shader )
+                return Common::MakeFormattedError<bool>(
+                     "SSR: the traced reflections' program ({}, {}) did not compile",
+                     GlobalIllumination::TracerDefine( pipeline.Tracer ),
+                     GlobalIllumination::HitLightingDefine( pipeline.Hits ) );
+            const auto compute = ComputePipeline::Create(
+                 { .Shader = shader,
+                   .DebugName =
+                        std::format( "SSRTrace ({})", GlobalIllumination::TracerDefine( pipeline.Tracer ) ) } );
+            if ( !compute )
+                return Common::MakeError( compute.GetError() );
+            m_TracedShader   = std::move( shader );
+            m_TracedPipeline = compute.GetValue();
+            m_TracedFor      = pipeline;
+            m_TracedHitLit   = hitLighting;
+            m_TracedVariant  = std::move( variant );
+            return BOOLSUCCESS;
+        }
+
+        // GRAPH BUILD, after EnsureTracedProgram( ..., true ): the ray tracing pipeline of the hit-lit trace - the
+        // "SSR/HitLighting" pass of the same permutation and one hit group per surface template of this frame's
+        // hit group table (@p templates = RayTracingHitGroupTable::Templates: each template's `RayTracing.Hit`
+        // cell, "<Template>/RayTracing.Hit"). Rebuilt when the permutation or the template list changes. The table
+        // holds only templates with a compiled cell (BuildRayTracingHitGroupTable falls back to the default
+        // surface), so a missing cell here is a broken invariant; an error names it or what the pipeline refused.
+        [[nodiscard]] Common::BoolResultStr EnsureHitLightingPipeline( const std::vector<std::string>& templates )
+        {
+            if ( !m_TracedHitLit )
+                return Common::MakeError(
+                     "SSR: the hit-lit pipeline was asked for a permutation without hit lighting" );
+            if ( m_HitLightingPipeline && templates == m_HitLightingTemplates &&
+                 m_HitLightingFor == m_TracedVariant.Hash() )
+                return BOOLSUCCESS;
+            auto* shaders = Runtime::ResourceRegistry::GetShaderService();
+            auto  program = shaders->AcquireVariant( "SSR/HitLighting", m_TracedVariant );
+            if ( !program )
+                return Common::MakeError( "SSR: the hit-lit ray generation ('SSR/HitLighting') did not compile or "
+                                          "is not registered on this device" );
+            RayTracingPipelineSpecification spec{
+                 .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
+            for ( const std::string& name : templates )
+            {
+                const std::string cell = std::format( "{}/RayTracing.Hit", name );
+                auto              hit  = shaders->GetByName( cell );
+                if ( !hit || !hit->IsCompiled() )
+                    return Common::MakeFormattedError(
+                         "SSR: the hit group table names surface template '{}', whose "
+                         "hit group '{}' is not compiled",
+                         name, cell );
+                spec.HitGroups.push_back( std::move( hit ) );
+            }
+            auto pipeline = RayTracingPipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError( pipeline.GetError() );
+            m_HitLightingShader    = std::move( program );
+            m_HitLightingPipeline  = pipeline.GetValue();
+            m_HitLightingTemplates = templates;
+            m_HitLightingFor       = m_TracedVariant.Hash();
+            return BOOLSUCCESS;
+        }
+
         // The denoiser's history is a reprojection of the previous frame, and the previous frame is now a
         // different world — see IRenderSystem::OnSceneReplaced, kind 1.
         void OnSceneReplaced() override
         {
             m_Denoiser.InvalidateHistory();
-            m_SceneColorHistory.Invalidate();
         }
 
         // Camera cut — see IRenderSystem::OnTemporalHistoryReset. The frame index is the jitter/noise seed
@@ -87,50 +337,57 @@ namespace Desert::Graphic::System
         {
             m_FrameIndex = 0;
             m_Denoiser.InvalidateHistory();
-            m_SceneColorHistory.Invalidate();
         }
 
         // The two images the trace writes and the tiled passes read, both transients of this frame's graph
-        // (Builder::CreateTexture): the half-resolution trace and the tile mask (one texel per kTileSize tile).
+        // (Builder::CreateTexture): the trace (one texel per DownsampleFactor x DownsampleFactor pixel block) and the
+        // tile mask (one texel per kTileSize tile).
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
-            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader u_TraceRay)
+            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader TraceRayTexture)
             RDG::TextureDesc TileMask;
+            // The factor the targets were sized for: the trace's push (TraceSettings) and the denoiser's
+            // reconstruction (ReflectionsDenoiserInputs) take it from here, so all three agree within a frame.
+            uint32_t DownsampleFactor = 2;
         };
 
-        // Called while the frame graph is built, before any pass runs. The scene colour history stays this
-        // renderer's: it follows the scene target here and a resize invalidates it. The trace targets are sized
-        // from this frame's view and kept by no one. Nullopt: nothing to draw.
-        std::optional<TraceTargets> Prepare()
+        // The trace resolutions the shaders know (SSR.shader's source pixel, SSDReconstructReflections' block
+        // rotation): every pixel, or one pixel of each 2x2 block. Scalability Reflections.DownsampleFactor's range.
+        [[nodiscard]] static constexpr bool IsSupportedDownsampleFactor( const uint32_t factor )
+        {
+            return factor == 1u || factor == 2u;
+        }
+
+        // Called while the frame graph is built, before any pass runs. The trace targets are sized from this
+        // frame's view and @p downsampleFactor (IsSupportedDownsampleFactor; the caller reports any other) and kept
+        // by no one. Nullopt: nothing to draw.
+        std::optional<TraceTargets> Prepare( const uint32_t downsampleFactor )
         {
             const auto& target = m_TargetFramebuffer.lock();
-            if ( !target || !m_TracePipeline || !m_SceneColorHistoryFB )
+            if ( !target || !m_TracePipeline )
                 return std::nullopt;
             const uint32_t w = target->GetFramebufferWidth();
             const uint32_t h = target->GetFramebufferHeight();
-            if ( w == 0u || h == 0u )
+            if ( w == 0u || h == 0u || !IsSupportedDownsampleFactor( downsampleFactor ) )
                 return std::nullopt;
-            if ( m_SceneColorHistoryFB->GetFramebufferWidth() != w ||
-                 m_SceneColorHistoryFB->GetFramebufferHeight() != h )
-            {
-                m_SceneColorHistoryFB->Resize( w, h );
-                m_SceneColorHistory.Invalidate();
-            }
+            const uint32_t traceW = TraceExtent( w, downsampleFactor );
+            const uint32_t traceH = TraceExtent( h, downsampleFactor );
             return TraceTargets{
-                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                 .Trace    = RDG::TextureDesc{ .Size   = { .Width = traceW, .Height = traceH },
                                                .Format = ViewTargetFormats::kSSRTrace },
-                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = HalfRes( w ), .Height = HalfRes( h ) },
+                 .TraceRay = RDG::TextureDesc{ .Size   = { .Width = traceW, .Height = traceH },
                                                .Format = ViewTargetFormats::kSSRTraceRay },
                  .TileMask = RDG::TextureDesc{ .Size   = { .Width = TileGrid( w ), .Height = TileGrid( h ) },
                                                .Format = ViewTargetFormats::kSSRTileMask },
+                 .DownsampleFactor = downsampleFactor,
             };
         }
 
-        // Pass 1, the "Deferred: SSR" compute node: classify + half-resolution trace, one dispatch (one workgroup
+        // Pass 1, the "Deferred: SSR" compute node: classify + trace, one dispatch (one workgroup
         // per tile), writing @p trace and @p tiles. gbuffer = the camera G-buffer's graph textures (albedo/normal/
-        // depth at 0/1/2); sceneHistory = GetSceneColorHistoryImage(), imported (last frame's lit opaque scene);
-        // hzb = this frame's closest-depth hierarchy (HZBRenderer); velocity = the view's velocity target
+        // depth at 0/1/2); sceneHistory = the view's scene colour history, imported (last frame's lit opaque
+        // scene); hzb = this frame's closest-depth hierarchy (HZBRenderer); velocity = the view's velocity target
         // (FrameTransients::Velocity, written by the G-buffer pass): where a hit was on last frame's screen.
         // The G-buffer textures the three passes sample, as graph textures: albedo, normal, depth (world positions
         // are reconstructed from it, Common/ReconstructPosition.glslh).
@@ -141,7 +398,10 @@ namespace Desert::Graphic::System
         {
             glm::vec4 CameraPos; // xyz = camera, w = per-frame seed (ray sequence + 2x2 rotation)
             glm::vec4 Params;    // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness
-            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's
+            glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
+                                 // z = mesh SDF trace distance, w = mesh SDF end distance from the camera
+            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor),
+                                 // y = 1 / PrevPreExposure (the scene history's scale), zw unused
         };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
@@ -168,39 +428,90 @@ namespace Desert::Graphic::System
         }
 
         // SETUP of the "Deferred: SSR" compute node: declares its one block (block 0) - the G-buffer normal/depth,
-        // @p sceneHistory and @p hzb (all mips, point) sampled with the sampler the pipeline-setter route sampled
-        // them with (the images' own: linear, REPEAT; the deferred composite reads the same G-buffer with it), @p
+        // @p sceneHistory, @p hzb (all mips) and the velocity as separate textures read through the pass's shared
+        // sampler states (the normal linear REPEAT, as the deferred composite reads it; the scene history linear
+        // clamped; depth, HZB and velocity point-clamped: SSR.shader names each one's state), @p
         // trace / @p tiles as storage writes, @p uniforms (UploadTraceUniforms) as SSRTraceUB, the TracePush
         // bytes; the pipeline's own setters are the other route. Not prepared: nothing.
+        // @p traced: the traced permutation's reads (EnsureTracedProgram first), or null for the screen alone.
+        // @p frontLayer: the TranslucentFrontLayer surface's G-buffer (null for an Opaque renderer).
         void DeclareTraceBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
                                    RDG::TextureRef tiles, const GBufferInputs& gbuffer, RDG::TextureRef velocity,
-                                   RDG::TextureRef sceneHistory, RDG::TextureRef hzb,
-                                   RDG::BufferRef uniforms ) const
+                                   RDG::TextureRef sceneHistory, RDG::TextureRef hzb, RDG::BufferRef uniforms,
+                                   const TracedReads* traced = nullptr, const FrontLayerInputs* frontLayer = nullptr ) const
         {
-            if ( !m_TracePipeline )
+            const bool tracedProgram = traced != nullptr && m_TracedPipeline;
+            if ( !m_TracePipeline || ( traced != nullptr && !tracedProgram ) )
                 return;
-            pass.Bindings( m_TraceLayout.Get( m_TraceShader ), Renderer::GetPipelineRouteFill( *m_TracePipeline ) )
-                 .Sampled( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::LinearRepeat() )
-                 .Sampled( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::LinearClamp() )
-                 .Sampled( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Sampled( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All(),
-                           RDG::SamplerDesc::PointClamp() )
-                 .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
-                 .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
-                 .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
-                 .Uniform( "SSRTraceUB", uniforms )
+            const std::shared_ptr<Shader>& shader   = tracedProgram ? m_TracedShader : m_TraceShader;
+            ComputePipeline&               pipeline = tracedProgram ? *m_TracedPipeline : *m_TracePipeline;
+            ShaderBindingLayoutCache&      layout   = tracedProgram ? m_TracedLayout : m_TraceLayout;
+            auto block = pass.Bindings( layout.Get( shader ), Renderer::GetPipelineRouteFill( pipeline ) );
+            block.Texture( SSRTraceShaderParameters::GBufferNormalTexture, gbuffer[1], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSRTraceShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( SSRTraceShaderParameters::GBufferDepthTexture, gbuffer[2], RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( SSRTraceShaderParameters::SceneColorTexture, sceneHistory, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSRTraceShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SSRTraceShaderParameters::HzbTexture, hzb, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( SSRTraceShaderParameters::VelocityTexture, velocity, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSRTraceShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( SSRTraceShaderParameters::SsrTraceTexture, trace, RDG::Access::StorageWrite )
+                 .Storage( SSRTraceShaderParameters::TraceRayTexture, traceRay, RDG::Access::StorageWrite )
+                 .Storage( SSRTraceShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageWrite )
+                 .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+            if ( tracedProgram )
+                DeclareTracedReads( block, *traced );
+            DeclareFrontLayerReads( block, frontLayer );
+        }
+
+        // SETUP of the "Deferred: Reflections (HitLighting)" node (after the classify): the hit-lit trace's block
+        // - DeclareTraceBindings' reads and writes against the ray generation's program, the tile mask READ (the
+        // classify wrote it), the view block @p camera (ShaderProtocols::Camera, for the hit cells' SurfaceInput
+        // and the ray cone) and the traced reads. EnsureHitLightingPipeline first.
+        void DeclareHitLightingBindings( RDG::PassBuilder& pass, RDG::TextureRef trace, RDG::TextureRef traceRay,
+                                         RDG::TextureRef tiles, const GBufferInputs& gbuffer,
+                                         RDG::TextureRef velocity, RDG::TextureRef sceneHistory,
+                                         RDG::TextureRef hzb, RDG::BufferRef uniforms, RDG::BufferRef camera,
+                                         const TracedReads& traced,
+                                         const FrontLayerInputs* frontLayer = nullptr ) const
+        {
+            if ( !m_HitLightingPipeline )
+                return;
+            auto block = pass.Bindings( m_HitLightingLayout.Get( m_HitLightingShader ), RDG::OtherRouteFill{} );
+            block.Texture( SSRHitLightingShaderParameters::GBufferNormalTexture, gbuffer[1],
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRHitLightingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( SSRHitLightingShaderParameters::GBufferDepthTexture, gbuffer[2],
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( SSRHitLightingShaderParameters::SceneColorTexture, sceneHistory,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRHitLightingShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SSRHitLightingShaderParameters::HzbTexture, hzb, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( SSRHitLightingShaderParameters::VelocityTexture, velocity, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSRHitLightingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( SSRHitLightingShaderParameters::SsrTraceTexture, trace, RDG::Access::StorageWrite )
+                 .Storage( SSRHitLightingShaderParameters::TraceRayTexture, traceRay, RDG::Access::StorageWrite )
+                 .Storage( SSRHitLightingShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageRead )
+                 .Uniform( SSRHitLightingShaderParameters::SSRTraceUB, uniforms )
+                 .Uniform( SSRHitLightingShaderParameters::CameraUB, camera )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
+            DeclareTracedReads( block, traced );
+            DeclareFrontLayerReads( block, frontLayer );
         }
 
         // EXEC of the same node: the block DeclareTraceBindings declared + this frame's push constants.
         // maxDistance and thickness are WORLD distances (a world unit is a centimetre - convert through
         // Common::Units). raysPerPixel / iterations: Reflections.RaysPerPixel / Reflections.MaxSteps.
-        // sceneHistoryReadable: SceneColorHistoryReadableIn of this frame (false: the trace answers nothing).
+        // sceneHistoryReadable: whether the scene colour history holds the previous frame (false: the trace
+        // answers nothing).
         // seed: NextTraceSeed() of this frame, taken at graph build (the denoiser's reconstruction reads it too).
         struct TraceSettings
         {
@@ -209,6 +520,14 @@ namespace Desert::Graphic::System
             float MaxDistance  = 0.0f;
             float Intensity    = 1.0f;
             float Thickness    = 0.0f;
+            // A traced method: the traced permutation (EnsureTracedProgram).
+            bool Traced = false;
+            // TraceTargets::DownsampleFactor of this frame's targets.
+            uint32_t DownsampleFactor = 2;
+            // 1 / ViewFrame::PrevPreExposure: the scene colour history is stored at LAST frame's pre-exposure; a
+            // screen hit's radiance is multiplied by this so the trace's output stays absolute (the deferred
+            // composite applies this frame's PreExposure to it).
+            float InvPrevPreExposure = 1.0f;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -218,23 +537,49 @@ namespace Desert::Graphic::System
             // Each pass is timed on its own because EnableSSR's default is a budget decision
             // (SceneSettings.hpp), and the whole-pass line cannot say which part to cut.
             DESERT_PROFILE_PASS( "SSR: Classify + Trace" );
-            const TracePush push{
-                 glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
-                 glm::vec4( static_cast<float>( settings.RaysPerPixel ), static_cast<float>( settings.Iterations ),
-                            settings.Intensity, settings.Thickness ),
-                 glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ) };
+            const TracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed );
+            ComputePipeline* const pipeline = settings.Traced ? m_TracedPipeline.get() : m_TracePipeline.get();
+            if ( pipeline == nullptr )
+                return Common::MakeError( "SSR: the traced reflections' program was not made this frame" );
 
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::GetInstance().DispatchCompute( bindings, *m_TracePipeline, TileGrid( Width() ),
+            return Renderer::GetInstance().DispatchCompute( bindings, *pipeline, TileGrid( Width() ),
                                                             TileGrid( Height() ), 1 );
         }
 
-        // GRAPH BUILD: this frame's trace seed (the ray sequence and the 2x2 block rotation), advancing the frame
+        // EXEC of the hit-lit node: the same push constants as the classify's, one ray generation per trace texel,
+        // the shader binding table from @p hits (this frame's RayTracingHitGroupTable, whose Templates built the
+        // pipeline).
+        [[nodiscard]] Common::BoolResultStr
+        RecordHitLighting( const RDG::PassContext& context, const glm::vec4& cameraPos,
+                           const TraceSettings& settings, const bool sceneHistoryReadable, const uint32_t seed,
+                           const RayTracing::RayTracingHitGroupTable& hits ) const
+        {
+            DESERT_PROFILE_PASS( "SSR: Hit-lit trace" );
+            if ( !m_HitLightingPipeline )
+                return Common::MakeError( "SSR: the hit-lit pipeline was not made this frame" );
+            const TracePush push = MakeTracePush( cameraPos, settings, sceneHistoryReadable, seed );
+            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+            return Renderer::TraceRays( bindings, *m_HitLightingPipeline, hits,
+                                        TraceExtent( Width(), settings.DownsampleFactor ),
+                                        TraceExtent( Height(), settings.DownsampleFactor ) );
+        }
+
+        // GRAPH BUILD: this frame's trace seed (the ray sequence and, at factor 2, the 2x2 block rotation), advancing the frame
         // count. Taken once per frame, before the trace and the denoiser's reconstruction are added.
         [[nodiscard]] uint32_t NextTraceSeed()
         {
             return m_FrameIndex++ % 1024u;
+        }
+
+        // The view's temporal upscaler takes this signal raw this frame (ITemporalUpscaler::
+        // TakesRawLightingSignals: DLSS Ray Reconstruction denoises it): the denoiser does not run, so its history
+        // stops being the previous frame's and is dropped - the frame it resumes on starts it afresh.
+        void SkipDenoise()
+        {
+            m_Denoiser.InvalidateHistory();
         }
 
         // Pass 2 (GRAPH BUILD): the screen-space denoiser over this frame's trace - see ScreenSpaceDenoiser.
@@ -245,23 +590,62 @@ namespace Desert::Graphic::System
             return m_Denoiser.DenoiseReflections( graph, trace, scene, frame, Width(), Height() );
         }
 
-        // The scene colour history: the image this frame's scene copy writes (SceneRenderer::AddFrameSceneCopy)
-        // and next frame's trace reads. Whether it holds the view's previous frame (PassHistory.hpp), asked while
-        // the graph is built; stamped by the copy's exec (StampSceneColorHistory) once it was recorded.
-        [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorHistoryImage() const
+    private:
+        // The push constants of both trace entry points (SSR.shader's compute and its "HitLighting" ray generation).
+        static TracePush MakeTracePush( const glm::vec4& cameraPos, const TraceSettings& settings,
+                                        const bool sceneHistoryReadable, const uint32_t seed )
         {
-            return m_SceneColorHistoryFB ? m_SceneColorHistoryFB->GetColorAttachmentImage( 0 ) : nullptr;
-        }
-        [[nodiscard]] bool SceneColorHistoryReadableIn( const ViewFrame& frame ) const
-        {
-            return m_SceneColorHistory.ReadableIn( frame );
-        }
-        void StampSceneColorHistory( const uint64_t viewFrameIndex )
-        {
-            m_SceneColorHistory.Stamp( viewFrameIndex );
+            return TracePush{ glm::vec4( glm::vec3( cameraPos ), static_cast<float>( seed ) ),
+                              glm::vec4( static_cast<float>( settings.RaysPerPixel ),
+                                         static_cast<float>( settings.Iterations ), settings.Intensity,
+                                         settings.Thickness ),
+                              glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ),
+                              glm::vec4( static_cast<float>( settings.DownsampleFactor ),
+                                         settings.InvPrevPreExposure, 0.0f, 0.0f ) };
         }
 
-    private:
+        // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a
+        // TranslucentFrontLayer renderer's programs declare them, an Opaque one's do not - an absent @p frontLayer
+        // on the former leaves the slots unbound and the node refused by name, never a trace from the wrong surface.
+        static void DeclareFrontLayerReads( RDG::BindingBlockBuilder& block, const FrontLayerInputs* frontLayer )
+        {
+            if ( frontLayer == nullptr )
+                return;
+            block.Texture( SSRFrontLayerShaderParameters::FrontLayerNormalTexture, frontLayer->Normal,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( SSRFrontLayerShaderParameters::FrontLayerDepthTexture, frontLayer->Depth,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRFrontLayerShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+        }
+
+        // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes
+        // declare.
+        static void DeclareTracedReads( RDG::BindingBlockBuilder& block, const TracedReads& traced )
+        {
+            constexpr RDG::Access kR  = RDG::Access::StorageRead;
+            constexpr RDG::Access kS  = RDG::Access::SampledCompute;
+            const auto            all = RDG::SubresourceRange::All();
+            block.Storage( SSRShaderParameters::GIFrameUB, traced.GIFrame, kR )
+                 .Storage( SSRShaderParameters::PointLightsUB, traced.PointLights, kR )
+                 .Storage( SSRShaderParameters::SpotLightsUB, traced.SpotLights, kR )
+                 .Storage( SSRShaderParameters::LightGridParamsUB, traced.WorldGridParams, kR )
+                 .Storage( SSRShaderParameters::LightGridWorldCellsUB, traced.WorldGridCells, kR )
+                 .Storage( SSRShaderParameters::RadianceCacheParamsUB, traced.RadianceCache.Params, kR )
+                 .Storage( SSRShaderParameters::RadianceCacheIndirectionUB, traced.RadianceCache.Indirection, kR )
+                 .Storage( SSRShaderParameters::RadianceCacheProbesUB, traced.RadianceCache.Probes, kR )
+                 .Texture( SSRShaderParameters::RadianceCacheIrradianceTexture, traced.RadianceCache.Irradiance,
+                           kS, all )
+                 .Texture( SSRShaderParameters::RadianceCacheDepthTexture, traced.RadianceCache.Depth, kS, all )
+                 .Texture( SSRShaderParameters::EnvironmentSpecularTexture, traced.EnvSpecular, kS, all )
+                 .Sampler( SSRShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SSRShaderParameters::GBufferATexture, traced.GBufferA, kS, all )
+                 .Texture( SSRShaderParameters::GBufferEmissiveTexture, traced.GBufferEmissive, kS, all )
+                 .Sampler( SSRShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+            GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
+            if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
+                GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );
+        }
+
         // Screen pixels per tile edge. The grid is ceil(size / kTileSize) and SSR.shader stretches the
         // tiles over the target, so every pixel belongs to exactly one tile.
         static constexpr uint32_t kTileSize = 8;
@@ -269,7 +653,7 @@ namespace Desert::Graphic::System
         {
             return ( pixels + kTileSize - 1u ) / kTileSize;
         }
-        // The trace's size: one texel per 2x2 block, rounded up so an odd edge column still has a block.
+        // The view's size in pixels (the trace's is TraceExtent of it).
         [[nodiscard]] uint32_t Width() const
         {
             return m_TargetFramebuffer.lock()->GetFramebufferWidth();
@@ -278,20 +662,34 @@ namespace Desert::Graphic::System
         {
             return m_TargetFramebuffer.lock()->GetFramebufferHeight();
         }
-        static uint32_t HalfRes( uint32_t pixels )
+        // The trace's size along one axis: one texel per @p factor pixels, rounded up so a partial edge block still
+        // has a texel.
+        static uint32_t TraceExtent( const uint32_t pixels, const uint32_t factor )
         {
-            return ( pixels + 1u ) / 2u;
+            return ( pixels + factor - 1u ) / factor;
         }
 
         std::shared_ptr<Shader>               m_TraceShader;
         // The trace's block layout, derived from the shader's reflection once per compile (not per frame).
         mutable ShaderBindingLayoutCache      m_TraceLayout;
         std::shared_ptr<ComputePipeline>      m_TracePipeline;
+        // The traced permutation (EnsureTracedProgram) and the tracer it was compiled for.
+        std::shared_ptr<Shader>          m_TracedShader;
+        mutable ShaderBindingLayoutCache m_TracedLayout;
+        std::shared_ptr<ComputePipeline> m_TracedPipeline;
+        GlobalIllumination::Pipeline     m_TracedFor{};
+        bool                             m_TracedHitLit = false;
+        Core::ShaderVariant              m_TracedVariant;
+        // The hit-lit trace (Reflections.HitLighting): its ray generation program (the traced permutation's
+        // "SSR/HitLighting" pass), its ray tracing pipeline and the templates whose hit groups it was built with.
+        std::shared_ptr<Shader>               m_HitLightingShader;
+        mutable ShaderBindingLayoutCache      m_HitLightingLayout;
+        std::shared_ptr<RayTracingPipeline>   m_HitLightingPipeline;
+        std::vector<std::string>              m_HitLightingTemplates;
+        uint64_t                              m_HitLightingFor = 0;
         ScreenSpaceDenoiser                   m_Denoiser{ DenoiserSignal::Reflections };
+        ReflectingSurface                     m_Surface = ReflectingSurface::Opaque;
 
-        std::shared_ptr<Framebuffer> m_SceneColorHistoryFB;
-
-        PassHistoryStamp m_SceneColorHistory; // which view frame wrote GetSceneColorHistoryImage()
-        uint32_t         m_FrameIndex = 0;
+        uint32_t m_FrameIndex = 0;
     };
 } // namespace Desert::Graphic::System

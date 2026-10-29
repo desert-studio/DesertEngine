@@ -14,7 +14,8 @@ namespace Desert::Graphic::API::Vulkan
         for ( auto format : formats )
         {
             CreateFallbackTexture2D( format );
-            CreateFallbackTextureCube( format );
+            CreateFallbackTextureCube( format, false );
+            CreateFallbackTextureCube( format, true );
             CreateFallbackStorageImage2D( format );
             CreateFallbackTexture3D( format );
             CreateFallbackStorageImage3D( format );
@@ -22,6 +23,7 @@ namespace Desert::Graphic::API::Vulkan
         // The integer sampled fallback (usampler2D; RDG System.ZeroUint): a float image in an integer binding is a
         // format mismatch. Sampled 2D only - no integer cube, volume or storage image is read anywhere.
         CreateFallbackTexture2D( Core::Formats::ImageFormat::RG32_UINT );
+        CreateBlackTexture3D();
     }
 
     const std::shared_ptr<Image2D>&
@@ -40,6 +42,12 @@ namespace Desert::Graphic::API::Vulkan
     VulkanFallbackTextures::GetFallbackTextureCube( Core::Formats::ImageFormat format ) const
     {
         return m_FallbackTexturesCube.at( format );
+    }
+
+    const std::shared_ptr<ImageCube>&
+    VulkanFallbackTextures::GetFallbackTextureCubeArray( Core::Formats::ImageFormat format ) const
+    {
+        return m_FallbackTexturesCubeArray.at( format );
     }
 
     const std::shared_ptr<Image3D>&
@@ -89,14 +97,16 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
-    void VulkanFallbackTextures::CreateFallbackTextureCube( Core::Formats::ImageFormat format )
+    void VulkanFallbackTextures::CreateFallbackTextureCube( Core::Formats::ImageFormat format, bool array )
     {
+        // @p array: the same black cube viewed as a cube array of one cube (GetFallbackTextureCubeArray).
         Core::Formats::ImageCubeSpecification spec = {
-             .Tag        = "VulkanFallbackTextures-Cube",
+             .Tag        = array ? "VulkanFallbackTextures-CubeArray" : "VulkanFallbackTextures-Cube",
              .FaceSize   = 4,
              .Format     = format,
              .Mips       = 1,
              .Properties = Core::Formats::ImageProperties::Sample,
+             .CubeArray  = array,
         };
 
         // NO `spec.Data`, AND THAT IS THE CORRECTION. It used to carry six white faces, which never
@@ -134,7 +144,7 @@ namespace Desert::Graphic::API::Vulkan
                        "so a cube binding that nothing has bound samples UNDEFINED texels: {}",
                        static_cast<uint32_t>( format ), cleared.GetError() );
 
-        m_FallbackTexturesCube[format] = texture;
+        ( array ? m_FallbackTexturesCubeArray : m_FallbackTexturesCube )[format] = texture;
     }
 
     void VulkanFallbackTextures::CreateFallbackStorageImage2D( Core::Formats::ImageFormat format )
@@ -209,6 +219,33 @@ namespace Desert::Graphic::API::Vulkan
         }
     }
 
+    const std::shared_ptr<Image3D>& VulkanFallbackTextures::GetBlackTexture3D() const
+    {
+        return m_BlackTexture3D;
+    }
+
+    // The zero volume: every channel 0, alpha too (a volume of light keeps a coefficient in alpha, so an opaque
+    // black would be light along +z).
+    void VulkanFallbackTextures::CreateBlackTexture3D()
+    {
+        const Core::Formats::Image3DSpecification spec = {
+             .Tag        = "VulkanFallbackTextures-Black3D",
+             .Width      = 1,
+             .Height     = 1,
+             .Depth      = 1,
+             .Format     = Core::Formats::ImageFormat::RGBA8F,
+             .Data       = std::vector<unsigned char>{ 0, 0, 0, 0 },
+             .Properties = Core::Formats::ImageProperties::Sample,
+        };
+        auto texture = std::make_shared<VulkanImage3D>( spec );
+        if ( const Common::BoolResultStr created = texture->RT_Invalidate(); !created )
+        {
+            LOG_ERROR( "VulkanFallbackTextures: the black volume could not be created: {}", created.GetError() );
+            return;
+        }
+        m_BlackTexture3D = texture;
+    }
+
     void VulkanFallbackTextures::CreateFallbackStorageImage3D( Core::Formats::ImageFormat format )
     {
         Core::Formats::Image3DSpecification spec = {
@@ -245,8 +282,8 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanFallbackTextures::Release()
     {
         // KEEP RELEASING AFTER THE FIRST FAILURE, and report the first message. This runs once at
-        // teardown over five independent caches; stopping at the first refusal would leak every image
-        // after it, and returning success unconditionally — which is what these five loops did by
+        // teardown over six independent caches; stopping at the first refusal would leak every image
+        // after it, and returning success unconditionally — which is what these loops did by
         // dropping every `Release()` result — makes the `[[nodiscard]]` on the caller's side a lie.
         std::string firstError;
         const auto  release = [&firstError]( auto& texture )
@@ -263,6 +300,9 @@ namespace Desert::Graphic::API::Vulkan
         for ( auto& textureCube : m_FallbackTexturesCube )
             release( textureCube.second );
 
+        for ( auto& textureCubeArray : m_FallbackTexturesCubeArray )
+            release( textureCubeArray.second );
+
         for ( auto& storageImage : m_FallbackStorageImages2D )
             release( storageImage.second );
 
@@ -271,6 +311,9 @@ namespace Desert::Graphic::API::Vulkan
 
         for ( auto& storageImage : m_FallbackStorageImages3D )
             release( storageImage.second );
+
+        if ( m_BlackTexture3D )
+            release( m_BlackTexture3D );
 
         if ( !firstError.empty() )
             return Common::MakeError( firstError );

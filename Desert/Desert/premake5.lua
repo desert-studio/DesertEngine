@@ -1,6 +1,8 @@
 -- THE ENGINE'S LEGACY LIBRARY, AS ONE STATIC LIBRARY PER MODULE (BUILD-MOD2). BuildScripts/DesertModuleLibs.lua
 -- reads the module table (BuildScripts/DesertModules.lua) and places every file under its LegacyRoot with the
--- table's own Placement rows; this file defines one library per module that got files, all through
+-- table's own Placement rows; this file defines one library per module that got files there or whose Folder
+-- holds sources and no premake5.lua of its own (DesertModuleLibs.FolderFiles - a phase that moves a module into
+-- its Folder writes no project), all through
 -- EngineModuleLibrary below, so pch, unity, defines, include directories, warnings and /bigobj are the same for
 -- every one. Only the files, the module's Deps and the one codegen prebuild differ.
 DesertModuleLibs.SetPrebuiltLibraries(deps.DesertSpecific.Libraries)
@@ -16,9 +18,13 @@ local kVendoredSources = {
     ImageCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_image.cpp" },
     TextCore  = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/stb/stb_truetype.cpp" },
     Audio     = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/miniaudio/miniaudio.cpp" },
+    -- MikkTSpace (Morten S. Mikkelsen, zlib licence, ThirdParty/mikktspace/mikktspace.h): mikktspace.c, unaltered,
+    -- compiled as C++ - the engine's one tangent generator (Engine/Geometry/MikkTangents.cpp, the mesh build) and UE's
+    -- Modeling Tangents tool "MikkTSpace" method (DynamicMeshMikkTWrapper).
+    GeometryCore = { "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace/mikktspace.cpp" },
 }
 for name in pairs(kVendoredSources) do
-    if not DesertModuleLibs.LegacyFiles()[name] then
+    if not DesertModuleLibs.HasTableLibrary(DesertModules.Find(name)) then
         error("Desert/Desert/premake5.lua: vendored sources assigned to '" .. name .. "', which builds no library", 0)
     end
 end
@@ -29,37 +35,71 @@ end
 -- routed-event handler of the engine and Common (misspelt, non-public or outside the event tree fails the build
 -- at file:line) and emits the DESERT_SUBSYSTEM lists of the application (Engine) and of every world (World,
 -- owned by Scene). It runs once, as the prebuild of DesertModuleLibs.CodegenLib().
+local kReflectArguments = ""
+for index, root in ipairs(DesertModuleLibs.ReflectRoots()) do
+    if index == 1 then
+        kReflectArguments = ' --reflect "' .. root.Root .. '" "' .. root.Dir .. '"'
+            .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
+    else
+        kReflectArguments = kReflectArguments .. ' --reflect-root "' .. root.Root .. '" "' .. root.Dir .. '"'
+    end
+end
+
 local kHeaderToolCommand =
     DesertPlatform.BuiltToolPath("DesertHeaderTool")
         .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
         .. ' --modules "' .. DesertModuleLibs.TableFile .. '"'
-        .. ' --reflect "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source" "Engine"'
-        .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/Reflection.gen.cpp"'
-        -- DesertUI's reflected UI*Data (UI-FW-4): its own project has no generator step, the engine's set
-        -- registers them (Reflection_DesertUI.gen.cpp, which its Placement row gives to DesertUI's legacy library). --reflect-root extends the
-        -- --reflect request above, so it must follow that request's three operands.
-        .. ' --reflect-root "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source" "UI"'
+        -- The trees with reflected types (DesertModuleLibs.ReflectRoots(): the legacy tree, then every module row
+        -- marked Reflected whose Folder exists - DesertUI's UI*Data since UI-FW-4, whose own project has no
+        -- generator step): the first is the --reflect request, each other one a --reflect-root, which extends that
+        -- request and so must follow its three operands.
+        .. kReflectArguments
         -- Enums only (no reflected types): a reflected field may be typed with Common's settings enums
-        -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp).
+        -- (PostProcessSettings' GIMethod / ReflectionMethod / ShadowMethod, Common/Settings/RenderMethods.hpp),
+        -- or with PhysicsCore's (ColliderData Shape / Axis, RigidBodyData Type, PhysicsWorld.hpp). Without the
+        -- second tree those three fields were generated as Struct with no StructType: neither written nor read.
         .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source/Common/Settings"'
+        .. ' --reflect-enums "' .. _MAIN_SCRIPT_DIR .. '/Desert/PhysicsCore/Source/PhysicsCore"'
         .. ' --reflect-components "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/ReflectedComponentBlocks.gen.hpp"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
-        .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
+        .. DesertModuleLibs.HeaderToolRoots("check") -- every engine source root
         .. ' --subsystems Engine Desert::Engine::Application Engine/Core/Application.hpp'
         .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/EngineSubsystems.gen.cpp"'
         .. ' --subsystems World Desert::Core::Scene Engine/Core/Scene.hpp'
         .. ' "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source/Engine/Generated/WorldSubsystems.gen.cpp"'
 
-local function EngineModuleLibrary(module, legacyFiles)
+local function EngineModuleLibrary(module)
     project(DesertModules.LegacyLibName(module.Name))
     kind "StaticLib"
     DesertUnity.EnableForProject() -- no-op without --unity (BuildScripts/UnityBuild.lua)
 
+    DesertModuleLibs.RequireSharedPch(module)
     pchheader "pch.hpp"
     pchsource "Source/pch.cpp"
     forceincludes { "pch.hpp" }
+
+    -- THE DERIVED-DATA BUILDERS ARE OPTIMISED IN EVERY CONFIGURATION (UE builds its editor's engine modules
+    -- optimised in DebugGame for the same reason: the cook-time builders are the hot loops). At -O0 one Bistro
+    -- facade's distance field (98 sign rays per band sample through the TriangleBvh, all glm dvec3 calls)
+    -- took minutes: 1291 queued, 0 built in 257 s on 8 workers (BISTRO-LOOK p4, `sample` showed every worker
+    -- in DfInsideByRays). Off the PCH: an -O2 source cannot take the -O0 .gch (__OPTIMIZE__ differs).
+    -- MSVC: /O2 per file (optimize "Speed" -> the file's <Optimization>MaxSpeed>) with the Debug /RTC1 off for
+    -- the same files (runtimechecks "Off" -> <BasicRuntimeChecks>Default>), as /RTC1 and /O2 together are D8016;
+    -- Debug is /Zi (Configurations.lua), which takes /O2.
+    filter { "configurations:Debug", "action:gmake*",
+             "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
+        flags { "NoPCH" }
+        buildoptions { "-O2" }
+    filter { "configurations:Debug", "action:vs*",
+             "files:**/Engine/Assets/MeshDistanceFieldBuild.cpp or **/Engine/Assets/MeshCardBuild.cpp" }
+        flags { "NoPCH" }
+        optimize "Speed"
+        runtimechecks "Off"
+    -- Objective-C++ sources (.mm, Platform/MacOS) are off the PCH: the .gch is built as C++ and clang refuses it
+    -- for an Objective-C translation unit ("Objective-C was disabled in PCH file but is currently enabled").
+    -- The forced include of pch.hpp stays, so the source sees the same headers, parsed as Objective-C++.
+    filter { "files:**.mm" }
+        flags { "NoPCH" }
+    filter {}
 
     if DesertModules.LegacyLibName(module.Name) == DesertModuleLibs.CodegenLib() then
         dependson { "DesertHeaderTool" }
@@ -68,22 +108,36 @@ local function EngineModuleLibrary(module, legacyFiles)
         DesertModuleLibs.DependOnCodegen()
     end
 
-    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only.
+    -- Platform/Windows and Platform/MacOS (and any .mm) compile on their own system only. So do the vendor
+    -- upscalers (Engine/Graphic/Upscalers/), every Streamline/ directory (the NVIDIA Streamline device
+    -- integration DLSS runs on) and every FidelityFX/ directory (the device the FSR Vulkan backend assumes):
+    -- their SDKs are built or shipped for Windows only (BuildScripts/ThirdParty/FidelityFX.lua,
+    -- ThirdParty/Streamline). One rule for the legacy tree (paths relative to LegacyRoot) and the Folder
+    -- (relative to the Folder).
     local commonFiles, windowsFiles, macFiles = { "Source/pch.cpp", "Source/pch.hpp" }, {}, {}
-    for _, file in ipairs(legacyFiles) do
+    local function Add(relative, projectPath)
         local target = commonFiles
-        if file:find("^Platform/Windows/") then
+        if relative:find("^Platform/Windows/") or relative:find("^Engine/Graphic/Upscalers/") or relative:find("/Streamline/")
+            or relative:find("/FidelityFX/") then
             target = windowsFiles
-        elseif file:find("^Platform/MacOS/") or file:find("%.mm$") then
+        elseif relative:find("^Platform/MacOS/") or relative:find("%.mm$") then
             target = macFiles
         end
-        table.insert(target, "Source/" .. file)
+        table.insert(target, projectPath)
+    end
+    for _, file in ipairs(DesertModuleLibs.LegacyFiles()[module.Name] or {}) do
+        Add(file, "Source/" .. file)
+    end
+    for _, file in ipairs(DesertModuleLibs.FolderFiles(module)) do
+        Add(file:sub(#module.Folder + 2), "%{_MAIN_SCRIPT_DIR}/" .. file)
     end
     files(commonFiles)
     files(kVendoredSources[module.Name] or {})
 
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
         "Source/",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/mikktspace",
         "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source",
         "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source",
@@ -105,6 +159,10 @@ local function EngineModuleLibrary(module, legacyFiles)
         -- Luau, by module path (<VM/include/lua.h>, <Compiler/include/luacode.h>): its lua.h shares a name with
         -- PUC Lua's (DesertHeaderTool's), so the two VMs' headers can never resolve to each other.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau",
+        -- Luau's C++ CodeGen API (<CodeGen/include/Luau/CodeGen.h>: the script debugger turns native execution
+        -- off while attached) includes its siblings as "Luau/...", from these two roots.
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/CodeGen/include",
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/Common/include",
     }
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
@@ -137,6 +195,7 @@ end
         "MeshOptimizer",
         "Voro",
         "OpenSubdiv",
+        "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "Dav1d",
         "Opus",
     }
@@ -162,6 +221,15 @@ end
         -- past it. Clang has no such limit, which is why this only bites the Windows build.
         buildoptions { "/bigobj" }
         files(windowsFiles)
+        -- The vendor upscalers (Engine/Graphic/API/UpscalerBuild.hpp reads the defines; the windowsFiles above
+        -- hold their sources). FSR 3.1: Upscalers/FSR on the FidelityFX SDK. DLSS: Upscalers/DLSS on NVIDIA
+        -- Streamline, whose device integration is API/Vulkan/Streamline (registered by VulkanDeviceExtensions.cpp).
+        defines { "DESERT_UPSCALER_FSR", "DESERT_UPSCALER_DLSS" }
+        externalincludedirs {
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/FidelityFX-SDK/sdk/include",
+            "%{_MAIN_SCRIPT_DIR}/ThirdParty/Streamline/include",
+        }
+        links { "FidelityFX" }
 
     filter { "system:macosx" }
         defines { "DESERT_PLATFORM_MACOS" }
@@ -171,8 +239,7 @@ end
 end
 
 for _, module in ipairs(DesertModules.Modules) do
-    local legacyFiles = DesertModuleLibs.LegacyFiles()[module.Name]
-    if legacyFiles then
-        EngineModuleLibrary(module, legacyFiles)
+    if DesertModuleLibs.HasTableLibrary(module) then
+        EngineModuleLibrary(module)
     end
 end

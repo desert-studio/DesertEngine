@@ -1,0 +1,19 @@
+# LOCAL-EXPOSURE: UE Local Exposure (Bilateral) — grid + blurred log luminance, applied per pixel in the tonemap.
+# High-dynamic-range proof on the Desert project's Starter scene: a low sun (travel -100,-12,-30 = 6.6 deg up)
+# at 100x its authored intensity, the camera in the cube's shadow looking toward the sunlit sand and the sky,
+# manual exposure set for the shadowed foreground (EV100 -1). Measured on the viewport frames (p6):
+# identity >=5% px with a channel >=250 (sunlit sand + sky blown); 0.8/0.8 pulls them back.
+Дано run View "View mode: Lit"
+Дано run Entity Sun
+Дано --subject selection set Translation -100,-12,-30
+Дано set 13376537502658031226 DirectionalLightData.Intensity 100
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 17921165617746467452 PostProcessVolumeData.Settings.ManualExposureEV100 -1
+Дано --subject viewport set Camera.Position -200,40,40
+Дано --subject viewport set Camera.Direction 1,0.1,0.4
+Тогда-вид 1_lowsun_before identity (Highlight/Shadow 1): the sunlit sand and the sky near the horizon blown white, the shadowed cube face readable; same as dev
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.LocalExposureHighlightContrastScale 0.8
+Когда set 17921165617746467452 PostProcessVolumeData.Settings.LocalExposureShadowContrastScale 0.8
+Тогда-вид 2_lowsun_after Highlight/Shadow 0.8: the sand and the sky regain tone (not blown), the cube face still readable, no halo along the cube's silhouette against the sky
+Когда run View "View mode: Local Exposure"
+Тогда-вид 3_visualize the Local Exposure view mode on the same view is not flat: sunlit sand and sky compressed (pink), the shadow differs

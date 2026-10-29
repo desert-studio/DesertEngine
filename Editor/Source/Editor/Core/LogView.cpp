@@ -93,38 +93,35 @@ namespace Desert::Editor
         return it != line.end();
     }
 
-    std::vector<LogRepeatRun> CollapseRepeats( const std::vector<std::pair<std::string, int>>& lines )
+    void AppendCollapsed( std::vector<LogRepeatRun>& runs, std::string text, int level )
     {
         // The event's identity: a parsed line is (level, severity, category, message) - its time is not part of
-        // it; an unparsed line has no parts and compares whole.
-        const auto sameEvent =
-             []( const LogLineParts& a, std::string_view aText, const LogLineParts& b, std::string_view bText )
+        // it; an unparsed line has no parts and compares whole. The run's Text is its first line, which carries
+        // the same identity as every line folded into it.
+        const LogLineParts parts = ParseLogLine( text );
+        if ( !runs.empty() && runs.back().Level == level )
         {
-            if ( a.Parsed != b.Parsed )
-                return false;
-            if ( !a.Parsed )
-                return aText == bText;
-            return a.Level == b.Level && a.Category == b.Category && a.Message == b.Message;
-        };
-
-        std::vector<LogRepeatRun> runs;
-        std::string_view          lastText;
-        LogLineParts              lastParts;
-        for ( const auto& [text, level] : lines )
-        {
-            const LogLineParts parts = ParseLogLine( text );
-            if ( !runs.empty() && runs.back().Level == level && sameEvent( lastParts, lastText, parts, text ) )
+            const LogLineParts last = ParseLogLine( runs.back().Text );
+            const bool same = last.Parsed == parts.Parsed &&
+                              ( parts.Parsed ? last.Level == parts.Level && last.Category == parts.Category &&
+                                                    last.Message == parts.Message
+                                             : runs.back().Text == text );
+            if ( same )
             {
                 ++runs.back().Count;
                 runs.back().LastTime = std::string( parts.Time );
+                return;
             }
-            else
-            {
-                runs.push_back( { text, level, 1, std::string( parts.Time ), std::string( parts.Time ) } );
-            }
-            lastText  = text;
-            lastParts = parts;
         }
+        std::string time( parts.Time );
+        runs.push_back( { std::move( text ), level, 1, time, time } );
+    }
+
+    std::vector<LogRepeatRun> CollapseRepeats( const std::vector<std::pair<std::string, int>>& lines )
+    {
+        std::vector<LogRepeatRun> runs;
+        for ( const auto& [text, level] : lines )
+            AppendCollapsed( runs, text, level );
         return runs;
     }
 } // namespace Desert::Editor

@@ -1,0 +1,58 @@
+#ifndef RADIANCE_CACHE_STATE_GLSLH
+#define RADIANCE_CACHE_STATE_GLSLH
+
+// THE RADIANCE CACHE UPDATE'S STATE, as every pass of the update declares it (Programs/GlobalIllumination/
+// RadianceCache*.shader; the C++ side is Graphic/GlobalIllumination/WorldRadianceCache). Persistent across frames:
+// the indirection (toroidal, Common/RadianceCache.glslh), the frame each entry was last read, the probe slots and
+// their free list. Per frame: the schedule (priority histogram, then the probes this frame traces).
+#include <Common/RadianceCache.glslh>
+
+ReadBuffer(0) RadianceCacheParamsUB
+{
+    RadianceCacheParams radianceCache;
+};
+Buffer(1) RadianceCacheIndirectionUB
+{
+    uint radianceCacheIndirection[];
+};
+Buffer(2) RadianceCacheLastUsedUB
+{
+    uint radianceCacheLastUsed[];
+};
+Buffer(3) RadianceCacheProbesUB
+{
+    RadianceCacheProbe radianceCacheProbes[];
+};
+// [0] = free slots, then the free slot indices.
+Buffer(4) RadianceCacheFreeListUB
+{
+    int radianceCacheFreeList[];
+};
+// [0, RC_PRIORITY_BUCKETS) the priority histogram, then the traced count, the threshold bucket's taken count, and
+// the traced probes.
+Buffer(5) RadianceCacheScheduleUB
+{
+    uint radianceCacheSchedule[];
+};
+
+#define RC_PRIORITY_BUCKETS 32u // RadianceCache::kPriorityBuckets
+#define RC_SCHEDULE_COUNT RC_PRIORITY_BUCKETS
+#define RC_SCHEDULE_TAKEN ( RC_PRIORITY_BUCKETS + 1u )
+#define RC_SCHEDULE_LIST ( RC_PRIORITY_BUCKETS + 2u )
+#define RC_PRIORITY_NEW ( RC_PRIORITY_BUCKETS - 1u )
+#define RC_PRIORITY_LIGHTS_CHANGED ( RC_PRIORITY_BUCKETS - 2u )
+
+PushConstant RadianceCachePush
+{
+    uint  FrameIndex;       // 1, 2, ... (0 = never)
+    uint  Reset;            // 1: the state is (re)initialised this frame
+    uint  MaxProbes;        // probe slots
+    uint  UnusedFrames;     // RadianceCache::kProbeUnusedFramesBeforeFree
+    uint  Width;            // G-buffer extent
+    uint  Height;
+    float HistoryWeight;          // RadianceCache::kHistoryWeight
+    float DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
+    uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
+};
+
+#endif // RADIANCE_CACHE_STATE_GLSLH

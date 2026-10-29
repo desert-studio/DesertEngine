@@ -18,7 +18,7 @@
 using Desert::Graphic::AutoExposureBin;
 using Desert::Graphic::AutoExposureBinLuminance;
 using Desert::Graphic::AutoExposureWindow;
-using Desert::Graphic::kSkyLuminanceClamp;
+using Desert::Graphic::kSkyLuminanceCeilingMax;
 
 namespace
 {
@@ -36,24 +36,25 @@ namespace
 
 TEST( AutoExposureWindowRule, ReachesTheBrightestLuminanceTheSkyCanWrite )
 {
-    // THE assertion. The sky pass clamps its output at kSkyLuminanceClamp; a meter that cannot represent
+    // THE assertion. The sky pass clamps its output at kSkyLuminanceCeilingMax; a meter that cannot represent
     // that value cannot tell the sun disc from a merely bright sky, because both land in the top bin. If
     // either number moves alone, this fails.
-    EXPECT_TRUE( kWindow.Covers( kSkyLuminanceClamp ) )
+    EXPECT_TRUE( kWindow.Covers( kSkyLuminanceCeilingMax ) )
          << "the meter's ceiling (2^" << kWindow.MaxLogLum << ") is below the sky's own luminance clamp ("
-         << kSkyLuminanceClamp << ")";
+         << kSkyLuminanceCeilingMax << ")";
 }
 
 TEST( AutoExposureWindowRule, TheLegacyWindowCouldNotSeeTheSunDisc )
 {
     // The bug, stated as a fact rather than a memory: the old ceiling of 2 (luminance 4) was eight stops
     // below what the sky writes, so a highlight at 4 and the sun at 1000 metered identically.
-    EXPECT_FALSE( kLegacyWindow.Covers( kSkyLuminanceClamp ) );
+    EXPECT_FALSE( kLegacyWindow.Covers( kSkyLuminanceCeilingMax ) );
     EXPECT_EQ( AutoExposureBin( kLegacyWindow, 4.0f, kBins ),
-               AutoExposureBin( kLegacyWindow, kSkyLuminanceClamp, kBins ) );
+               AutoExposureBin( kLegacyWindow, kSkyLuminanceCeilingMax, kBins ) );
 
     // And that the widened window does distinguish them, by a lot.
-    EXPECT_LT( AutoExposureBin( kWindow, 4.0f, kBins ), AutoExposureBin( kWindow, kSkyLuminanceClamp, kBins ) );
+    EXPECT_LT( AutoExposureBin( kWindow, 4.0f, kBins ),
+               AutoExposureBin( kWindow, kSkyLuminanceCeilingMax, kBins ) );
 }
 
 TEST( AutoExposureWindowRule, IsOrderedAndItsTailsAreAFraction )
@@ -130,8 +131,8 @@ TEST( AutoExposureResponse, TheSunDiscCannotVisiblyMoveAPixelCountWeightedMeter 
     // exposure lurch when a few dozen pixels change.
     constexpr float kDiscFraction = 40.0f / ( 1280.0f * 766.0f );
 
-    const float withoutSun = MeteredStops( 0.0f, kSkyLuminanceClamp, 1.0f, kWindow );
-    const float withSun    = MeteredStops( kDiscFraction, kSkyLuminanceClamp, 1.0f, kWindow );
+    const float withoutSun = MeteredStops( 0.0f, kSkyLuminanceCeilingMax, 1.0f, kWindow );
+    const float withSun    = MeteredStops( kDiscFraction, kSkyLuminanceCeilingMax, 1.0f, kWindow );
 
     EXPECT_LT( std::abs( withSun - withoutSun ), 0.01f )
          << "a 40-pixel disc moved the meter by " << ( withSun - withoutSun )
@@ -148,10 +149,10 @@ TEST( AutoExposureResponse, WideningTheOutlierTailDoesNotRescueIt )
 
     constexpr AutoExposureWindow looseTail{ -10.0f, 10.0f, 0.0f, 0.995f };
 
-    const float shipped = MeteredStops( kDiscFraction, kSkyLuminanceClamp, 1.0f, kWindow ) -
-                          MeteredStops( 0.0f, kSkyLuminanceClamp, 1.0f, kWindow );
-    const float loose = MeteredStops( kDiscFraction, kSkyLuminanceClamp, 1.0f, looseTail ) -
-                        MeteredStops( 0.0f, kSkyLuminanceClamp, 1.0f, looseTail );
+    const float shipped = MeteredStops( kDiscFraction, kSkyLuminanceCeilingMax, 1.0f, kWindow ) -
+                          MeteredStops( 0.0f, kSkyLuminanceCeilingMax, 1.0f, kWindow );
+    const float loose = MeteredStops( kDiscFraction, kSkyLuminanceCeilingMax, 1.0f, looseTail ) -
+                        MeteredStops( 0.0f, kSkyLuminanceCeilingMax, 1.0f, looseTail );
 
     EXPECT_LT( std::abs( loose ), 0.05f );
     EXPECT_LT( std::abs( loose - shipped ), 0.05f );
@@ -162,8 +163,8 @@ TEST( AutoExposureResponse, ALightSourceThatFillsTheFrameDoesMoveTheMeter )
     // The other side of the same coin, so the test above cannot be read as "the meter is broken". Give
     // the meter a bright source covering a real fraction of the frame and it stops down properly — the
     // mechanism works, the sun disc is simply too small to exercise it.
-    const float dim    = MeteredStops( 0.0f, kSkyLuminanceClamp, 1.0f, kWindow );
-    const float bright = MeteredStops( 0.30f, kSkyLuminanceClamp, 1.0f, kWindow );
+    const float dim    = MeteredStops( 0.0f, kSkyLuminanceCeilingMax, 1.0f, kWindow );
+    const float bright = MeteredStops( 0.30f, kSkyLuminanceCeilingMax, 1.0f, kWindow );
 
     EXPECT_GT( bright - dim, 1.0f ) << "a source covering 30% of the frame must move the meter by stops";
 }

@@ -1,0 +1,189 @@
+#ifndef TSR_SPATIAL_ANTI_ALIASING_GLSLH
+#define TSR_SPATIAL_ANTI_ALIASING_GLSLH
+//
+// TSR's spatial anti-aliaser — the edge search shared by TSR.SpatialAntiAliasing (on the LDR luma of the input) and
+// TSR.DilateVelocity (on the device depth, for the reprojection field's boundary). Ported from UE 5.8
+// Engine/Shaders/Private/TemporalSuperResolution/TSRSpatialAntiAliasing.ush: FindBrowsingDirection :60-110 (mono),
+// BrowseNeighborhoodBilinearOptimized :265-358 (the sign-bit latch written as booleans), ComputeDistanceToEdge
+// :448-494 and ComputeReprojectionBoundary :496-631 (the active `#if 1` branches), adapted: GLSL, one pixel per
+// lane, full precision; the bilinear sample is the includer's TSR_BROWSE_SAMPLE(pixelPosition) macro (a position
+// in render pixels, pixel p's centre at p + 0.5), already clamped by the includer to UE's bilinear viewport
+// [0.5, size - 0.5] (InputInfo_UVViewportBilinearMin / Max).
+//
+// Requires: TSR_BROWSE_SAMPLE(vec2) -> float, defined before this file is included.
+
+#ifndef TSR_BROWSE_SAMPLE
+#error "TSRSpatialAntiAliasing.glslh: define TSR_BROWSE_SAMPLE(pixelPosition) before including it"
+#endif
+
+const float kSpatialAntiAliaserMinLuminance = 0.05; // UE SPATIAL_ANTI_ALIASER_MIN_LUMIMANCE
+
+// UE FindBrowsingDirection: browse along the edge whose total variation across it is the larger; the noise filter
+// is how much the centre stands out of both its axes.
+void TsrFindBrowsingDirection(float c, float n, float s, float e, float w, float ne, float nw, float se, float sw,
+                              out float noiseFiltering, out ivec2 browseDirection, out ivec2 edgeSide,
+                              out float edgeInput)
+{
+    const float totalVarHN = abs(0.5 * (ne + nw) - n);
+    const float totalVarH  = abs(0.5 * (e + w) - c);
+    const float totalVarHS = abs(0.5 * (se + sw) - s);
+    const float totalVarVE = abs(0.5 * (ne + se) - e);
+    const float totalVarV  = abs(0.5 * (n + s) - c);
+    const float totalVarVW = abs(0.5 * (nw + sw) - w);
+
+    const float diffN = abs(n - c);
+    const float diffS = abs(s - c);
+    const float diffE = abs(e - c);
+    const float diffW = abs(w - c);
+
+    const bool browseVertically = (totalVarHN + totalVarH + totalVarHS) > (totalVarVE + totalVarV + totalVarVW);
+    browseDirection             = browseVertically ? ivec2(0, 1) : ivec2(1, 0);
+
+    noiseFiltering = clamp(2.0 * totalVarH - max(diffE, diffW), 0.0, 1.0);
+    noiseFiltering = max(noiseFiltering, clamp(2.0 * totalVarV - max(diffN, diffS), 0.0, 1.0));
+
+    edgeSide = ivec2(0);
+    if (browseVertically)
+    {
+        edgeSide.x = diffW > diffE ? -1 : 1;
+        edgeInput  = diffW > diffE ? w : e;
+    }
+    else
+    {
+        edgeSide.y = diffN > diffS ? -1 : 1;
+        edgeInput  = diffN > diffS ? n : s;
+    }
+}
+
+// UE BrowseNeighborhoodBilinearOptimized: walks @p iterations bilinear samples each way along the edge, half a pixel
+// toward the edge side, and latches where the sample leaves the [min, max] band around the edge's mid luma.
+void TsrBrowseNeighborhoodBilinear(int iterations, float inputC, float edgeLuma, ivec2 pixel, ivec2 browseDirection,
+                                   ivec2 edgeSide, out int edgeLengthP, out int edgeLengthN,
+                                   out bool stoppedByIncrementP, out bool stoppedByIncrementN,
+                                   out bool stoppedByDecrementP, out bool stoppedByDecrementN)
+{
+    const float bilinearInterp = 0.5;
+    const vec2  kernel         = vec2(pixel) + 0.5 + vec2(edgeSide) * bilinearInterp;
+    const float mergedEdgeLuma = bilinearInterp * (edgeLuma + inputC);
+    const float minLuma        = mergedEdgeLuma - bilinearInterp * 0.5 * abs(edgeLuma - inputC);
+    const float maxLuma        = mergedEdgeLuma + bilinearInterp * 0.5 * abs(edgeLuma - inputC);
+    const bool  edgeMoreLuminous = edgeLuma > inputC;
+
+    bool stoppedByMinP = false;
+    bool stoppedByMaxP = false;
+    bool stoppedByMinN = false;
+    bool stoppedByMaxN = false;
+    edgeLengthP        = iterations;
+    edgeLengthN        = iterations;
+    for (int i = 0; i < iterations; ++i)
+    {
+        const vec2  offset  = vec2(browseDirection) * float(i + 1);
+        const float sampleP = TSR_BROWSE_SAMPLE(kernel + offset);
+        const float sampleN = TSR_BROWSE_SAMPLE(kernel - offset);
+
+        // Both latches of a side read the other's state from before this sample (UE computes the four stops first).
+        const bool stopMinP = sampleP < minLuma && !stoppedByMaxP;
+        const bool stopMaxP = maxLuma < sampleP && !stoppedByMinP;
+        const bool stopMinN = sampleN < minLuma && !stoppedByMaxN;
+        const bool stopMaxN = maxLuma < sampleN && !stoppedByMinN;
+        stoppedByMinP       = stoppedByMinP || stopMinP;
+        stoppedByMaxP       = stoppedByMaxP || stopMaxP;
+        stoppedByMinN       = stoppedByMinN || stopMinN;
+        stoppedByMaxN       = stoppedByMaxN || stopMaxN;
+
+        edgeLengthP -= (stoppedByMinP || stoppedByMaxP) ? 1 : 0;
+        edgeLengthN -= (stoppedByMinN || stoppedByMaxN) ? 1 : 0;
+    }
+
+    stoppedByIncrementP = (edgeMoreLuminous && stoppedByMaxP) || (!edgeMoreLuminous && stoppedByMinP);
+    stoppedByIncrementN = (edgeMoreLuminous && stoppedByMaxN) || (!edgeMoreLuminous && stoppedByMinN);
+    stoppedByDecrementP = (edgeMoreLuminous && stoppedByMinP) || (!edgeMoreLuminous && stoppedByMaxP);
+    stoppedByDecrementN = (edgeMoreLuminous && stoppedByMinN) || (!edgeMoreLuminous && stoppedByMaxN);
+}
+
+// UE ComputeDistanceToEdge: the texel-centre offset toward the edge from the staircase the browse found.
+float TsrComputeDistanceToEdge(bool stoppedByIncrementN, bool stoppedByIncrementP, bool stoppedByDecrementN,
+                               bool stoppedByDecrementP, int edgeLengthN, int edgeLengthP)
+{
+    const float invLength = 1.0 / (1.0 + float(edgeLengthN) + float(edgeLengthP));
+    if (!stoppedByIncrementN && !stoppedByIncrementP && !stoppedByDecrementP && !stoppedByDecrementN)
+        return 0.0; // no aliasing in the neighbourhood
+    if (stoppedByIncrementN && stoppedByIncrementP)
+        return 0.5; // a concave detail
+    if (stoppedByDecrementN && stoppedByDecrementP)
+        return 0.0; // a convex detail (UE leaves the offset at 0)
+    if (stoppedByIncrementN)
+        return 0.5 - (float(edgeLengthN) + 0.5) * invLength; // staircase from - to +
+    if (stoppedByIncrementP)
+        return 0.5 - (float(edgeLengthP) + 0.5) * invLength; // staircase from + to -
+    return 0.0;
+}
+
+// UE ComputeReprojectionBoundary: the reprojection boundary inside the pixel, an absolute mid dilate (0.5) bounded by
+// the browsed edge extents, with the edge inclination applied.
+vec2 TsrComputeReprojectionBoundary(int browsingIterations, ivec2 edgeSide, int edgeLengthP, int edgeLengthN,
+                                    bool stoppedByIncrementP, bool stoppedByIncrementN, bool stoppedByDecrementP,
+                                    bool stoppedByDecrementN)
+{
+    const float maxEdgeInvLength = 1.0 / float(browsingIterations + 1);
+    const float fLengthN         = float(edgeLengthN);
+    const float fLengthP         = float(edgeLengthP);
+    const float edgeInvLength    = 1.0 / (1.0 + fLengthN + fLengthP);
+
+    float maxDistanceToEdge  = 1.0;
+    float maxEdgeInclination = 0.0;
+    if (stoppedByDecrementP && stoppedByDecrementN)
+    {
+        maxDistanceToEdge  = (min(fLengthP, fLengthN) + 0.5) * maxEdgeInvLength;
+        maxEdgeInclination = fLengthP < fLengthN ? -maxEdgeInvLength : (fLengthN < fLengthP ? maxEdgeInvLength : 0.0);
+    }
+    else if (stoppedByDecrementP)
+    {
+        maxDistanceToEdge  = (fLengthP + 0.5) * max(edgeInvLength, maxEdgeInvLength);
+        maxEdgeInclination = -max(edgeInvLength, maxEdgeInvLength);
+    }
+    else if (stoppedByDecrementN)
+    {
+        maxDistanceToEdge  = (fLengthN + 0.5) * max(edgeInvLength, maxEdgeInvLength);
+        maxEdgeInclination = max(edgeInvLength, maxEdgeInvLength);
+    }
+
+    float minDistanceToEdge  = 0.0;
+    float minEdgeInclination = 0.0;
+    if (stoppedByIncrementP && stoppedByIncrementN)
+    {
+        minDistanceToEdge  = 1.0 - (min(fLengthP, fLengthN) + 0.5) * maxEdgeInvLength;
+        minEdgeInclination = fLengthP < fLengthN ? maxEdgeInvLength : (fLengthN < fLengthP ? -maxEdgeInvLength : 0.0);
+    }
+    else if (stoppedByIncrementP)
+    {
+        minDistanceToEdge  = 1.0 - (fLengthP + 0.5) * max(maxEdgeInvLength, edgeInvLength);
+        minEdgeInclination = max(edgeInvLength, maxEdgeInvLength);
+    }
+    else if (stoppedByIncrementN)
+    {
+        minDistanceToEdge  = 1.0 - (fLengthN + 0.5) * max(maxEdgeInvLength, edgeInvLength);
+        minEdgeInclination = -max(edgeInvLength, maxEdgeInvLength);
+    }
+    minDistanceToEdge = max(minDistanceToEdge, 1.0 / 1023.0);
+
+    // Absolute mid dilate with spatial anti-aliasing.
+    const float dilateAmount   = 0.5;
+    const float distanceToEdge = max(minDistanceToEdge, min(maxDistanceToEdge, dilateAmount));
+    float       inclination    = 0.0;
+    inclination                = maxDistanceToEdge <= dilateAmount ? maxEdgeInclination : inclination;
+    inclination                = minDistanceToEdge > dilateAmount ? minEdgeInclination : inclination;
+
+    const vec2 fEdgeSide     = vec2(edgeSide);
+    const vec2 fDirectionP   = vec2(abs(fEdgeSide.y), abs(fEdgeSide.x));
+    vec2       edgeDirection = fEdgeSide + fDirectionP * inclination;
+    edgeDirection *= inversesqrt(dot(edgeDirection, edgeDirection));
+
+    const vec2  k         = clamp(sign(edgeDirection), vec2(0.0), vec2(1.0));
+    const vec2  e         = vec2(0.5) + fEdgeSide * (0.5 - distanceToEdge);
+    const float kFromEdge = dot(k - e, edgeDirection);
+    const vec2  l         = k - kFromEdge * edgeDirection;
+    return k - l;
+}
+
+#endif

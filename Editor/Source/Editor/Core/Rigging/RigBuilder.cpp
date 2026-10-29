@@ -11,6 +11,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace Desert::Editor
@@ -63,7 +64,7 @@ namespace Desert::Editor
     {
         if ( parent < -1 || parent >= static_cast<int>( s_Bones.size() ) )
             parent = -1;
-        s_Bones.push_back( { "Bone_" + std::to_string( s_Bones.size() ), head, parent } );
+        s_Bones.push_back( { std::format( "Bone_{}", s_Bones.size() ), head, parent } );
         s_Selected = static_cast<int>( s_Bones.size() ) - 1;
         return s_Selected;
     }

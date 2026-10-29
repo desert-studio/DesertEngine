@@ -1,0 +1,98 @@
+#ifndef MEGALIGHTS_VOLUME_GLSLH
+#define MEGALIGHTS_VOLUME_GLSLH
+
+// THE MEGALIGHTS TRANSLUCENCY VOLUME, read side (UE 5.5 MegaLights' volume + TranslucencyLightingVolume: the
+// forward and translucent surfaces take their local lights, shadowed, from a volume MegaLights lit, instead of
+// looping the lights unshadowed). The view's frustum is cut into froxels (Shadows.MegaLightsVolumeTilePixels square
+// screen tiles times Shadows.MegaLightsVolumeSlices logarithmic depth slices); each froxel holds the incident
+// radiance of the local lights at its centre, visibility traced, as L1 spherical harmonics - one RGBA16F volume per
+// colour channel: x = L0, yzw = L1 (x, y, z). Written by "MegaLights: Volume" (Programs/Shadows/MegaLightsVolume
+// .shader, System::MegaLightsVolumeRenderer); bound by name (Graphic::SceneViewInputs::MegaLightsVolume).
+//
+// The block and the volumes sit in the reserved scene-read range (Core::kMegaLightsVolumeParamsBinding,
+// kMegaLightsVolumeFirstBinding, ShaderGraphBindings.hpp). The includer declares `LinearClampSampler` first.
+// Off (Size.w == 0: any Shadows method but Stochastic, or no local light) the volumes are System.Black3D and
+// MegaLightsVolumeOn() is false.
+
+// std430 - Graphic::System::MegaLightsVolumeReadParams (MegaLightsVolume.hpp).
+struct MegaLightsVolumeReadParams
+{
+    mat4  View;    // world -> view (the camera looks down -z; depth = -(View * p).z), this frame, unjittered
+    vec4  ZParams; // x = near (cm), y = slices / log(far / near), z = far (cm), w = froxel edge in render pixels
+    uvec4 Size;    // xyz = froxels, w = on (1) / off (0)
+};
+
+layout( std430, binding = 31 ) readonly buffer MegaLightsVolumeUB
+{
+    MegaLightsVolumeReadParams megaLightsVolume;
+};
+layout( binding = 32 ) uniform texture3D MegaLightsVolumeRTexture;
+#define MegaLightsVolumeRTexture sampler3D(MegaLightsVolumeRTexture, LinearClampSampler)
+layout( binding = 33 ) uniform texture3D MegaLightsVolumeGTexture;
+#define MegaLightsVolumeGTexture sampler3D(MegaLightsVolumeGTexture, LinearClampSampler)
+layout( binding = 34 ) uniform texture3D MegaLightsVolumeBTexture;
+#define MegaLightsVolumeBTexture sampler3D(MegaLightsVolumeBTexture, LinearClampSampler)
+
+// SH basis constants (Y00, and Y1m without the direction).
+#define MEGALIGHTS_SH_L0 0.282094792
+#define MEGALIGHTS_SH_L1 0.488602512
+
+bool MegaLightsVolumeOn()
+{
+    return megaLightsVolume.Size.w != 0u;
+}
+
+// The volume coordinate of the fragment at @p fragCoord (render pixels) whose surface is at world @p p: texel k of
+// the depth axis has its centre at slice coordinate k + 0.5 (the writer's MegaLightsVolumeFroxelDepth), so the
+// trilinear read interpolates between froxel centres.
+vec3 MegaLightsVolumeUVW( vec2 fragCoord, vec3 p )
+{
+    const vec4  z     = megaLightsVolume.ZParams;
+    const vec3  size  = vec3( megaLightsVolume.Size.xyz );
+    const float depth = -( megaLightsVolume.View * vec4( p, 1.0 ) ).z;
+    const float slice = depth <= z.x ? 0.0 : log( depth / z.x ) * z.y;
+    return vec3( fragCoord / ( z.w * size.xy ), slice / size.z );
+}
+
+// The local lights at a point, as the volume holds them: the L1 part as ONE light (the luminance-weighted dominant
+// direction; per channel the radiance whose L1 coefficient along it is the stored one), and the L0 the light does
+// not explain as an isotropic remainder - incident radiance from every direction, which a Lambertian surface turns
+// into albedo * Ambient (DesertAmbient.Indirect's measure). UE TranslucencyLightingVolume splits its SH into the
+// same directional + ambient pair.
+struct MegaLightsVolumeLighting
+{
+    vec3 L;        // unit, toward the dominant light
+    vec3 Radiance; // DesertLight.Radiance of the dominant light (irradiance at normal incidence)
+    vec3 Ambient;  // isotropic incident radiance
+};
+
+MegaLightsVolumeLighting MegaLightsVolumeLightingAt( vec2 fragCoord, vec3 p, vec3 fallbackL )
+{
+    MegaLightsVolumeLighting lighting;
+    lighting.L        = fallbackL;
+    lighting.Radiance = vec3( 0.0 );
+    lighting.Ambient  = vec3( 0.0 );
+    if ( !MegaLightsVolumeOn() )
+        return lighting;
+    const vec3 uvw = MegaLightsVolumeUVW( fragCoord, p );
+    const vec4 r   = texture( MegaLightsVolumeRTexture, uvw );
+    const vec4 g   = texture( MegaLightsVolumeGTexture, uvw );
+    const vec4 b   = texture( MegaLightsVolumeBTexture, uvw );
+
+    const vec3  l1     = 0.2126 * r.yzw + 0.7152 * g.yzw + 0.0722 * b.yzw;
+    const float l1Size = length( l1 );
+    vec3        direct = vec3( 0.0 );
+    if ( l1Size > 1e-8 )
+    {
+        lighting.L = l1 / l1Size;
+        direct     = max( vec3( dot( r.yzw, lighting.L ), dot( g.yzw, lighting.L ), dot( b.yzw, lighting.L ) ), 0.0 ) /
+                 MEGALIGHTS_SH_L1;
+    }
+    lighting.Radiance = direct;
+    // L0 of a radiance Lamb from every direction is Lamb * Y00 * 4 pi.
+    const vec3 rest  = max( vec3( r.x, g.x, b.x ) - MEGALIGHTS_SH_L0 * direct, 0.0 );
+    lighting.Ambient = rest / ( MEGALIGHTS_SH_L0 * 4.0 * 3.14159265359 );
+    return lighting;
+}
+
+#endif // MEGALIGHTS_VOLUME_GLSLH

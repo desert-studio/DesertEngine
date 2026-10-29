@@ -13,7 +13,7 @@ namespace Desert::Core
      * declares there, and the key its authored values are filed under in a `.demat`.
      *
      * IT IS ONE HEADER BECAUSE ALL THREE ARE HALVES OF PAIRS. The emitter writes
-     * `layout( std430, binding = N ) ... CloudMediumParams u_CloudMedium;` into a Medium block; the
+     * `layout( std430, binding = N ) ... CloudMediumParams CloudMedium;` into a Medium block; the
      * renderer calls `SetStorageBuffer( N, ... )` and never consults reflection; the material editor
      * writes a value under a key and the renderer reads it back. Each of those is two files that must
      * spell the same thing, which is the defect shape this project has paid for repeatedly — so the
@@ -69,11 +69,11 @@ namespace Desert::Core
     // ---- The GLSL the emitter writes and the reflection has to find ------------------------------------
 
     /// The std430 block's type name, its instance name, and the block name. The instance is what a graph
-    /// node's expression reads (`u_CloudMedium.<Property>`), so it is part of the emitted expression and
+    /// node's expression reads (`CloudMedium.<Property>`), so it is part of the emitted expression and
     /// not merely cosmetic.
     inline constexpr const char* kCloudMediumStructName   = "CloudMediumParams";
     inline constexpr const char* kCloudMediumBlockName    = "CloudMediumParamsBuffer";
-    inline constexpr const char* kCloudMediumInstanceName = "u_CloudMedium";
+    inline constexpr const char* kCloudMediumInstanceName = "CloudMedium";
 
     // ---- Where the values live -------------------------------------------------------------------------
 

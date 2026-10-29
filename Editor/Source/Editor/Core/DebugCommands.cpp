@@ -1,5 +1,7 @@
 #include "DebugCommands.hpp"
 
+#include "Editor/Core/PanelRequests.hpp"
+
 #include <Common/Core/CrashHandler.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
@@ -46,5 +48,16 @@ namespace Desert::Editor
                        LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
                    return PaletteCommandDone();
                } } );
+    }
+
+    void AppendParticleDebuggerCommand( std::vector<PaletteCommand>& commands )
+    {
+        // Through PanelRequests, the one "show that panel" wire (it also brings a docked tab forward); the name is
+        // ParticleDebuggerPanel's IPanel name.
+        commands.push_back( { "Debug", "Particle Debugger", []
+                              {
+                                  Core::PanelRequests::Open( "Particle Debugger" );
+                                  return PaletteCommandDone();
+                              } } );
     }
 } // namespace Desert::Editor

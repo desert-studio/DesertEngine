@@ -7,8 +7,8 @@
 struct LocalShadowView {
     mat4 viewProj;   // world -> clip, standard Z (0 at the near plane)
     vec4 atlasRect;  // xy = the tile's top-left in atlas UV, zw = its size in atlas UV
-    vec4 params;     // x = near, y = far, z = world size of one texel at unit distance, w = depth bias (texels)
-    vec4 params2;    // x = slope bias (texels per unit slope), y = 1 / atlas side
+    vec4 params;     // x = near, y = far, z = world size of one texel at unit distance, w = unused
+    vec4 params2;    // x = unused, y = 1 / atlas side (the casters carry the bias)
 };
 
 #endif // LOCAL_LIGHT_SHADOW_VIEW_GLSLH

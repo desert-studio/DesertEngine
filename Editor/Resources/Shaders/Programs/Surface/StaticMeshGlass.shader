@@ -19,21 +19,20 @@ Shader "StaticMeshGlass"
         Color       GlassTint ("Glass Tint", Category("Glass")) = (1, 1, 1, 1)
         Float       IOR ("IOR", Range(1,2.5), Category("Glass")) = 1.5
         // Empty = flat (0.5,0.5,1): a normal map is unpacked with `2*t - 1`, and a white texel is not "no detail".
-        Texture2D   u_NormalTexture ("Normal Map", Category("Textures")) = "normal"
+        Texture2D   NormalTexture ("Normal Map", Category("Textures")) = "normal"
     }
 
     Surface
     {
-        layout( binding = 12 ) uniform sampler2D u_NormalTexture;
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
             SurfaceOutput s = DefaultSurfaceOutput();
-            s.BaseColor     = u_Material.GlassTint.rgb;
-            s.Refraction    = u_Material.IOR;
-            const ivec2 normalSize = textureSize( u_NormalTexture, 0 );
+            s.BaseColor     = Material.GlassTint.rgb;
+            s.Refraction    = Material.IOR;
+            const ivec2 normalSize = BindlessTextureSize( Material.NormalTexture, 0 );
             if ( normalSize.x > 1 && normalSize.y > 1 )
-                s.Normal = SurfaceSampleTangentNormal( u_NormalTexture, i.UV0 );
+                s.Normal = SurfaceSampleTangentNormal( Material.NormalTexture, i.UV0 );
             return s;
         }
     }

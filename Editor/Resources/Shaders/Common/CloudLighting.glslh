@@ -143,7 +143,7 @@ vec3 CloudScatterIntegral( vec3 scattering, float extinctionPerKm, float stepKm 
 // reason, as CLOUD_LIGHT_MARCH_MAX_SAMPLES's neighbour in CloudRaymarch.shader.
 #define CLOUD_MAX_SCATTER_OCTAVES 3
 
-// The series' parameters, unpacked from u_CloudMultiScatter once per pixel. A struct rather than four
+// The series' parameters, unpacked from CloudMultiScatter once per pixel. A struct rather than four
 // loose floats because the four are one calibration: the count decides how far the extinction ladder
 // reaches, and changing it without the steps moves the deepest octave by a square.
 struct CloudScatterSeries

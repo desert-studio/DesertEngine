@@ -22,6 +22,7 @@ namespace Desert::Graphic::API::Vulkan
 
         [[nodiscard]] virtual Common::BoolResultStr Invalidate() override;
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() override;
+        [[nodiscard]] Common::BoolResultStr RT_WriteRange( uint64_t offset, const void* data, uint64_t size ) override;
         [[nodiscard]] virtual Common::BoolResultStr Release() override;
 
         [[nodiscard]] virtual unsigned int GetSize() const override
@@ -33,7 +34,7 @@ namespace Desert::Graphic::API::Vulkan
             return m_Size / sizeof( uint32_t );
         }
 
-        VkBuffer GetVulkanBuffer()
+        [[nodiscard]] VkBuffer GetVulkanBuffer() const
         {
             return m_VulkanBuffer;
         }
@@ -42,6 +43,8 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t               m_Size = 0;
         BufferUsage            m_Usage;
         Common::Memory::Buffer m_StorageBuffer;
+        // The static upload released m_StorageBuffer (RT_Invalidate): the buffer cannot be uploaded again.
+        bool m_HostCopyReleased = false;
 
         VkBuffer      m_VulkanBuffer = nullptr;
         VmaAllocation m_MemoryAllocation;

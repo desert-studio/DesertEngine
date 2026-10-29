@@ -179,14 +179,14 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     // are all things this window can change, and a Discard that restored two of the three would be the
     // "middle link drops a property" shape -- both ends looking right with one field silently lost.
     MaterialData applied = Authored( "StaticMeshLit", { { "RoughnessFactor", 0.9f } } );
-    applied.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 1234u }, "" );
+    applied.SetTexture( "AlbedoTexture", Common::Content::AssetGuid{ 0, 1234u }, "" );
 
     MaterialData working = applied;
     working.SetShader( Common::Content::AssetGuid{ 0x5ull, 0x6ull }, "engine:Shaders/SomeGraphShader.shader" );
     working.SetParam( "RoughnessFactor", glm::vec4( 0.0f ) );
     working.SetParam( "MetallicFactor", glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) ); // a NEW row
-    working.SetTexture( "u_AlbedoTexture", Common::Content::AssetGuid{ 0, 5678u }, "" );
-    working.SetTexture( "u_NormalTexture", Common::Content::AssetGuid{ 0, 9999u }, "" ); // a NEW binding
+    working.SetTexture( "AlbedoTexture", Common::Content::AssetGuid{ 0, 5678u }, "" );
+    working.SetTexture( "NormalTexture", Common::Content::AssetGuid{ 0, 9999u }, "" ); // a NEW binding
 
     EXPECT_TRUE( MaterialEdit::EvaluateDirty( working, applied, applied ).Unapplied );
 
@@ -195,9 +195,9 @@ TEST( MaterialEditStates, DiscardRestoresEveryKindOfEdit )
     EXPECT_FALSE( MaterialEdit::EvaluateDirty( working, applied, applied ).Unapplied );
     EXPECT_FALSE( working.Shader.has_value() ) << "the picked shader survived the discard";
     EXPECT_EQ( working.Params.size(), applied.Params.size() ) << "the added row must be gone, not zeroed";
-    EXPECT_EQ( working.GetTexture( "u_AlbedoTexture" ),
+    EXPECT_EQ( working.GetTexture( "AlbedoTexture" ),
                static_cast<uint64_t>( MaterialData::HandleOf( Common::Content::AssetGuid{ 0, 1234u } ) ) );
-    EXPECT_EQ( working.GetTexture( "u_NormalTexture" ),
+    EXPECT_EQ( working.GetTexture( "NormalTexture" ),
                static_cast<uint64_t>( MaterialData::HandleOf( Common::Content::AssetGuid{ 0, 0u } ) ) )
          << "the added binding must be gone";
 }
@@ -922,7 +922,7 @@ TEST( MaterialEditStates, TheSlotAcceptsThePayloadTheBrowserActuallyEmitsAndPass
 TEST( MaterialEditStates, EngineSetParametersAreNotInTheDetailsPlan )
 {
     Formats::ShaderParam tint      = Value( "Tint", Formats::ShaderValueType::Float );
-    Formats::ShaderParam heightmap = Value( "u_Heightmap", Formats::ShaderValueType::Float );
+    Formats::ShaderParam heightmap = Value( "HeightmapTexture", Formats::ShaderValueType::Float );
     heightmap.IsTexture            = true;
     heightmap.EngineSet            = true;
     Formats::ShaderParam detail    = Value( "u_Detail", Formats::ShaderValueType::Float );

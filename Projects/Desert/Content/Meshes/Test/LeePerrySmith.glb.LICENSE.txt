@@ -1,0 +1,10 @@
+LeePerrySmith.glb
+Source:  three.js examples (examples/models/gltf/LeePerrySmith/LeePerrySmith.glb), scan by Infinite-Realities
+         (Lee Perry-Smith head, https://www.ir-ltd.net/)
+Author:  Infinite-Realities (Lee Perry-Smith)
+License: Creative Commons Attribution 3.0 Unported (CC BY 3.0) -- https://creativecommons.org/licenses/by/3.0/
+         Attribution: "Lee Perry-Smith head scan by Infinite-Realities, CC BY 3.0".
+SHA-256 prefix: 402b8a8ac9f03232
+
+Why it is here: the subsurface-scattering test object (SSS-PROFILE, CONTRACT §9 Q7) - a real human head scan,
+so the skin profile's bleed is judged at the terminator, nose and ears, as UE judges its Subsurface Profile.

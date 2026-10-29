@@ -20,7 +20,7 @@ Shader "CubemapSphere"
     // The previewed cube is the asset this material shows: a material parameter, not a pass input.
     Properties
     {
-        TextureCube u_CubeMap ("Cube Map")
+        TextureCube CubeMapTexture ("Cube Map")
     }
 
     Fragment
@@ -35,7 +35,11 @@ Shader "CubemapSphere"
             vec4 Params;    // x = sphere radius (world units); y > 0.5 = the cube is the backdrop too; z = lod; w > 0.5 = long-lat
         } u;
 
-        Uniform(1) samplerCube u_CubeMap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTextureCube).
+        Uniform(1) textureCube CubeMapTexture;
+        Uniform(3) sampler CubeMapTextureSampler;
+        #define CubeMapTexture samplerCube(CubeMapTexture, CubeMapTextureSampler)
         // The sky's look — how the two cubes above are read (Common/SkyLook.glslh). The Details
         // panel's ball beside the Rotation slider must turn with it.
         Uniform(2) SkyLookUB
@@ -53,7 +57,7 @@ Shader "CubemapSphere"
 
         vec3 SkyBy( vec3 direction )
         {
-            return ApplySkyGain( textureLod( u_CubeMap, SkyLookDirection( direction, skyLook.YawCosSin.xy ), u.Params.z ).rgb,
+            return ApplySkyGain( textureLod( CubeMapTexture, SkyLookDirection( direction, skyLook.YawCosSin.xy ), u.Params.z ).rgb,
                                  skyLook.Gain.rgb );
         }
 

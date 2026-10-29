@@ -1,11 +1,10 @@
 // Ported from UE 5.8
 // Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/Operations/PlanarHoleFiller.h:23-72 and
 // Private/Operations/PlanarHoleFiller.cpp:9-68, with HoleFillUtil.h:31-107,138-159 (FillOverlayElements,
-// FillColorOverlay for vertex loops), adapted: namespace Desert::Geometry, UE Core as std/glm. The caller-provided
-// 2D triangulation function (UE passes ConstrainedDelaunayTriangulate over an FPlanarComplex nest) is replaced by
-// the ported 3D ear clip, one loop at a time: a loop lying inside another (a section with a hole - a tube cut
-// across) is NOT filled but refused, naming the loops - a limitation of this port (v1), which P14b lifts by
-// porting ConstrainedDelaunay2 and PlanarComplex.
+// FillColorOverlay for vertex loops), adapted: namespace Desert::Geometry, UE Core as std/glm. UE's caller-provided
+// PlanarTriangulationFunc is always ConstrainedDelaunayTriangulate in the plane cut, so it is called directly: the
+// loops are nested by PlanarComplex::FindSolidRegions (counter-clockwise outers, clockwise holes) and each solid -
+// an outer loop with its holes, e.g. the ring of a tube cut across - is filled by the ported ConstrainedDelaunay2.
 #pragma once
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
@@ -36,8 +35,8 @@ namespace Desert::Geometry
         {
         }
 
-        /** @return false, with m_FailureReason, when a loop nests in another, a loop does not triangulate, or a
-         *  fill triangle could not join the mesh (that triangle is skipped, as UE skips it). */
+        /** @return false, with m_FailureReason, when a solid does not triangulate or a fill triangle could not join
+         *  the mesh (that triangle is skipped, as UE skips it). */
         bool Fill( int GroupID ) override;
     };
 } // namespace Desert::Geometry

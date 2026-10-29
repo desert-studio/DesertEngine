@@ -5,7 +5,9 @@
 // headers, which the core library is deliberately independent of. This translation unit used to be
 // Engine/imgui/ImGuiBuild.cpp — which is how the engine static library came to contain an interface
 // toolkit no engine code draws with.
-#define IMGUI_IMPL_API
+// No `#define IMGUI_IMPL_API` here: imgui.h defaults it to IMGUI_API (empty) when undefined, and imgui.h is
+// already in this TU through the editor's precompiled header (Editor/Source/EditorPCH.hpp), so a define here
+// would only redefine the macro.
 #include <vulkan/vulkan.h>
 #include <ImGui/imgui.h>
 

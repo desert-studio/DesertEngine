@@ -787,7 +787,8 @@ namespace Desert::Editor
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
         auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
-                                                           asset.Import.Settings.ColorSpace );
+                                                           asset.Import.Settings.ColorSpace,
+                                                           asset.Import.Settings.AlphaCoverageThresholds );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
@@ -1112,6 +1113,45 @@ namespace Desert::Editor
                  "texture asset '{}' was derived but its DDC entry {:016x} is not readable", asset.string(),
                  key.GetValue().DerivedDataKey );
         return Common::MakeSuccess( std::move( *entry ) );
+    }
+
+    Common::ResultStr<std::vector<TextureImporter::PlatformMip>>
+    TextureImporter::DecodePlatformMips( const std::filesystem::path& asset )
+    {
+        using Result = std::vector<PlatformMip>;
+        // The platform data the GPU uploads (a DDC miss cooks it through the registered builder), so the CPU sees
+        // the cooker's block compression and mip filter, not the source's.
+        const auto raw = Assets::LoadTexturePlatformData( asset );
+        if ( !raw.IsSuccess() )
+            return Common::MakeFormattedError<Result>( "texture '{}': {}", asset.string(), raw.GetError() );
+        auto decoded = Assets::Serialization::DecodeTextureBinary( raw.GetValue(), asset.string() );
+        if ( !decoded.IsSuccess() )
+            return Common::MakeFormattedError<Result>( "texture '{}': {}", asset.string(), decoded.GetError() );
+        const Assets::Serialization::TextureAssetData& data = decoded.GetValue();
+        if ( data.Kind != Assets::Serialization::TextureKind::Texture2D || data.LayerCount != 1 )
+            return Common::MakeFormattedError<Result>(
+                 "texture '{}' is kind {} with {} layers; the CPU reader samples one-layer 2D textures only",
+                 asset.string(), static_cast<uint32_t>( data.Kind ), data.LayerCount );
+
+        Result mips;
+        mips.reserve( data.Levels.size() );
+        for ( size_t l = 0; l < data.Levels.size(); ++l )
+        {
+            const Assets::Serialization::TextureLevel& level = data.Levels[l];
+            if ( level.ByteOffset + level.ByteSize > data.Pixels.size() )
+                return Common::MakeFormattedError<Result>( "texture '{}' level {} ends at {} of {} bytes",
+                                                           asset.string(), l, level.ByteOffset + level.ByteSize,
+                                                           data.Pixels.size() );
+            const std::span<const unsigned char> bytes( data.Pixels.data() + level.ByteOffset,
+                                                        static_cast<size_t>( level.ByteSize ) );
+            auto texels = DecodeCookedTextureLevel( data.Format, data.ColorSpace, bytes, level.Width, level.Height,
+                                                    level.RowPitch );
+            if ( !texels.IsSuccess() )
+                return Common::MakeFormattedError<Result>( "texture '{}' level {}: {}", asset.string(), l,
+                                                           texels.GetError() );
+            mips.push_back( { level.Width, level.Height, texels.ExtractValue() } );
+        }
+        return Common::MakeSuccess( std::move( mips ) );
     }
 
 } // namespace Desert::Editor

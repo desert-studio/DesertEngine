@@ -1,5 +1,7 @@
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanVertexBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanPooledBuffer.hpp>
+#include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
@@ -58,6 +60,12 @@ namespace Desert::Graphic::API::Vulkan
                               ->GetVulkanAllocator()
                               .get();
 
+        // A static buffer drops its host copy once the copy is on the device (below), so a second upload would
+        // send nothing: new contents are a new buffer (every mesh rebuild makes one).
+        if ( m_HostCopyReleased )
+            return Common::MakeFormattedError<bool>(
+                 "static vertex buffer of {} bytes uploaded again after its host copy was released", m_Size );
+
         if ( m_VulkanBuffer )
         {
             allocator->RT_DestroyBuffer( m_VulkanBuffer, m_MemoryAllocation );
@@ -67,15 +75,27 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( m_Usage == BufferUsage::GpuWritten )
         {
-            // Device-local, filled by a compute pass (the morph update) and read as vertices: nothing to upload.
+            // Device-local, filled by a compute pass (the morph update, the displacement emit) and read as vertices:
+            // nothing to upload. MeshBufferUsage's flags, as an uploaded mesh's: a displaced twin's vertices are also
+            // the input of its BLAS where the device builds one.
             const VkBufferCreateInfo bufferInfo = CreateVertexBufferInfo(
-                 m_Size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                 m_Size, MeshBufferUsage( MeshBufferRole::Vertex, allocator->GetDeviceCaps() ),
                  VK_SHARING_MODE_EXCLUSIVE );
             const auto allocation = allocator->RT_AllocateBuffer( "GpuWrittenVertexBuffer", bufferInfo,
                                                                   VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );
             if ( !allocation.IsSuccess() )
                 return Common::MakeError<bool>( allocation.GetError() );
             m_MemoryAllocation = allocation.GetValue();
+            return Common::MakeSuccess( true );
+        }
+
+        if ( m_Usage == BufferUsage::Pooled )
+        {
+            const auto created = RT_CreatePooledBuffer( *allocator, MeshBufferRole::Vertex, m_Size, "PooledVertexBuffer",
+                                                        m_VulkanBuffer );
+            if ( !created.IsSuccess() )
+                return Common::MakeError<bool>( created.GetError() );
+            m_MemoryAllocation = created.GetValue();
             return Common::MakeSuccess( true );
         }
 
@@ -149,14 +169,11 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
 
-            // STORAGE beside VERTEX: a static mesh's vertices are also what a compute pass reads them as - the
-            // morph update blends a skinned mesh's base vertices into a component's morphed copy
-            // (MeshRendererMorph.cpp, UE GPUMorphUpdateCS reading the base vertex buffer).
-            auto vertexBufferCreateInfo =
-                 CreateVertexBufferInfo( m_Size,
-                                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                                         VK_SHARING_MODE_EXCLUSIVE );
+            // The usage is MeshBufferUsage's: storage for the morph update, a BLAS build input where the device
+            // can build one.
+            auto vertexBufferCreateInfo = CreateVertexBufferInfo(
+                 m_Size, MeshBufferUsage( MeshBufferRole::Vertex, allocator->GetDeviceCaps() ),
+                 VK_SHARING_MODE_EXCLUSIVE );
 
             const auto buffer = allocator->RT_AllocateBuffer( "VertexBuffer", vertexBufferCreateInfo,
                                                               VMA_MEMORY_USAGE_GPU_ONLY, m_VulkanBuffer );
@@ -180,7 +197,16 @@ namespace Desert::Graphic::API::Vulkan
             vkCmdCopyBuffer( copyCmdVal, stagingBuffer, m_VulkanBuffer, 1, &copyRegion );
 
             const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
+            const bool uploaded = flushed.IsSuccess() && flushed.GetValue() == VK_SUCCESS;
             allocator->RT_ReleaseStaging( stagingBuffer, stagingBufferAllocationVAL, flushed );
+            // UE drops a static buffer's resource array once it is on the RHI (no bNeedsCPUAccess): nothing reads
+            // the host copy after the upload, and holding it doubled every mesh's geometry in the heap (~250 MB
+            // on B16_Bistro_Street). The mesh asset keeps its own arrays for the CPU readers.
+            if ( uploaded )
+            {
+                m_StorageBuffer.Release();
+                m_HostCopyReleased = true;
+            }
         }
         return Common::MakeSuccess( true );
     }
@@ -196,7 +222,7 @@ namespace Desert::Graphic::API::Vulkan
          : m_Size( size ), m_Usage( usage )
     {
         // A GPU-written buffer has no host copy: nothing ever uploads to it.
-        if ( usage != BufferUsage::GpuWritten )
+        if ( usage != BufferUsage::GpuWritten && usage != BufferUsage::Pooled )
             m_StorageBuffer.Allocate( size );
     }
 
@@ -224,4 +250,16 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanVertexBuffer" )
 
+    Common::BoolResultStr VulkanVertexBuffer::RT_WriteRange( const uint64_t offset, const void* data, const uint64_t size )
+    {
+        if ( m_Usage != BufferUsage::Pooled )
+            return Common::MakeError<bool>( "RT_WriteRange: not a Pooled buffer" );
+        if ( offset + size > m_Size )
+            return Common::MakeFormattedError<bool>( "RT_WriteRange: [{}, {}) past a {}-byte buffer", offset,
+                                                     offset + size, m_Size );
+        auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                              ->GetVulkanAllocator()
+                              .get();
+        return RT_WritePooledBuffer( *allocator, m_VulkanBuffer, offset, data, size );
+    }
 } // namespace Desert::Graphic::API::Vulkan

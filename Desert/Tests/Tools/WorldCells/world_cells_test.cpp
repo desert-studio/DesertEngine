@@ -615,7 +615,8 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
     std::ostringstream out;
     std::ostringstream err;
     const int          code = Desert::WorldCook::RunWorldCook(
-         { source.string(), "--out", ( root / "cooked" ).string(), "--no-registry", "--verify" }, out, err );
+         { source.string(), "--out", ( root / "cooked" ).string(), "--no-registry", "--no-project", "--verify" },
+         out, err );
     EXPECT_EQ( code, 0 ) << err.str();
     EXPECT_NE( out.str().find( "equal to the source" ), std::string::npos ) << out.str();
     EXPECT_NE( out.str().find( "stale removed: 1" ), std::string::npos ) << out.str();

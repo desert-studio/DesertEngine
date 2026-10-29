@@ -281,13 +281,10 @@ TEST( RendererSceneLifetime, EverySystemAnswersWhetherItSurvivesASceneChange )
          { "GraphColorResolveSystem", "Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp", false, false,
            "sample 0 of THIS frame's multisampled graph colour (the view's velocity); it holds only the shader, its "
            "block layout and one pipeline per format, none of which depends on the scene" },
-         // The two LAZY ones. They are registered by EnsureGIResources / EnsureSSRResources on first use
-         // rather than up front (a preview never enables either, and eager allocation multiplied six
-         // full-screen RGBA32F targets by the preview count), which is why they are here and not in the
-         // order the rest appear in. See the test below for what that laziness cost before Г11.
-         { "GISystem", "Graphic/Systems/Scene/Deferred/GIResolveRenderer.hpp", true, true,
-           "the temporally accumulated indirect light, blended at 0.92 against a reprojection of the "
-           "previous frame" },
+         // The LAZY one. It is registered by EnsureSSRResources on first use rather than up front (a preview
+         // never enables it, and eager allocation multiplied full-screen RGBA32F targets by the preview count),
+         // which is why it is here and not in the order the rest appear in. See the test below for what that
+         // laziness cost before Г11.
          { "SSRSystem", "Graphic/Systems/Scene/Deferred/SSRRenderer.hpp", true, true,
            "the temporally accumulated reflection, blended at 0.88 against a reprojection of the "
            "previous frame" },
@@ -580,7 +577,7 @@ TEST( RendererSceneLifetime, TheSkyFingerprintCoversEveryPackedFloatExceptTheSun
     // Non-round values so no field's mutation can land on another field's default and hide.
     const glm::vec3 towardSun = glm::normalize( glm::vec3( 0.31f, 0.72f, -0.62f ) );
 
-    const SkyGpuPayload base            = PackSky( towardSun, sky );
+    const SkyGpuPayload base            = PackSky( towardSun, sky, SkySunInputs{}, AtmosphereLight1{} );
     const uint32_t      panorama        = 1;
     const uint64_t      baseFingerprint = SkyBakeFingerprint( base, panorama );
 
@@ -630,7 +627,7 @@ TEST( RendererSceneLifetime, TheSkyFingerprintCoversEveryPackedFloatExceptTheSun
     // that vec4 a future reader is most likely to exclude along with its neighbours.
     SkySettings brighter = sky;
     brighter.SunIntensity += 1.0f;
-    EXPECT_NE( SkyBakeFingerprint( PackSky( towardSun, brighter ), panorama ), baseFingerprint )
+    EXPECT_NE( SkyBakeFingerprint( PackSky( towardSun, brighter, SkySunInputs{}, AtmosphereLight1{} ), panorama ), baseFingerprint )
          << "the sun's intensity shares vec4 0 with its direction and was excluded with it.";
 }
 

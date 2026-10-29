@@ -709,7 +709,7 @@ TEST( AssetEviction, AMaterialsTextureSurvivesBecauseTheMaterialNamesIt )
         // requires; a hand-typed body without them loads as substituted defaults and names no texture.
         MaterialData probe;
         StateProbeTemplate( probe );
-        probe.SetTexture( "u_AlbedoTexture", textureSource.Guid, "assets:Textures/EvictionProbe.detex" );
+        probe.SetTexture( "AlbedoTexture", textureSource.Guid, "assets:Textures/EvictionProbe.detex" );
         const auto written = WriteMaterialFile( materialPath, probe );
         ASSERT_TRUE( written ) << written.GetError();
     }

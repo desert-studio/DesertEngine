@@ -197,7 +197,9 @@ TOOLS = [
             "the GLFW callbacks, so ImGui and the routed event tree see it exactly as a hand's input. "
             "kind: move | click | press | release | key | keydown | keyup | drop. key taps a key; keydown holds "
             "it until a keyup of the same key (what a played pawn needs to walk). x, y are points inside 'panel' "
-            "when one is named (its title as the View menu shows it), else inside the editor window."
+            "when one is named (its title as the View menu shows it), else inside the editor window. Points, "
+            "not capture_window pixels: divide a capture_window pixel by the reply's pixelsPerPoint (2 on "
+            "Retina); capture_viewport pixels already are points."
         ),
         "inputSchema": {
             "type": "object",
@@ -217,7 +219,8 @@ TOOLS = [
         "description": (
             "The editor's state as JSON. Sections: scene, selection, documents (open in most-recently-"
             "used order, plus recently closed), panels, views (live count, bytes held, pending bytes, device-local budget and usage), log "
-            "(counts and tail), quiescence. Omit sections for all of them."
+            "(counts and tail), device (GPU name and the NN layer's kernel path, features and limits), "
+            "quiescence. Omit sections for all of them."
         ),
         "inputSchema": {
             "type": "object",

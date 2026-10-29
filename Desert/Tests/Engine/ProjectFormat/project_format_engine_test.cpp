@@ -12,9 +12,9 @@
 #include <Common/Core/Version.hpp>
 #include <DesertShared/EngineRegistry.hpp>
 #include <DesertShared/ProjectFormat.hpp>
-#include <Engine/Project/EngineRegistration.hpp>
-#include <Engine/Project/GameSettings.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/EngineRegistration.hpp>
+#include <Projects/GameSettings.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <chrono>
 #include <filesystem>

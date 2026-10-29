@@ -108,6 +108,20 @@ namespace Desert::Core::Formats
         // by the next draw.
         bool EngineSet = false;
 
+        // A `Texture2DArray` property (IsTexture is also true): its GLSL declaration is a `sampler2DArray`,
+        // bound to a 2D array image (Image2DSpecification::ArrayLayers). The landscape material's layer maps
+        // are the shape: one array per map kind, assembled by the engine from the Element textures below.
+        bool IsArrayTexture = false;
+
+        // `Element(Group, k)`: this property is element k of the group `Group` — UE's per-input pins of a
+        // LandscapeLayerBlend node, stated once in the template instead of by a naming convention a renderer
+        // would have to repeat. A Texture2D element is a CPU-side input and never a sampler of its own: the
+        // engine copies it into layer k's slot of the Texture2DArray property named `Group` (TerrainRenderer's
+        // layer arrays). An asset-reference element (the input's LandscapeLayerInfo) groups the same way.
+        // ElementIndex is -1 when the property is no element.
+        std::string ElementOf;
+        int32_t     ElementIndex = -1;
+
         std::optional<float> Min;                                // present => slider/clamped
         std::optional<float> Max;
 
@@ -302,7 +316,7 @@ namespace Desert::Core::Formats
     enum class SurfaceBlendMode : uint8_t
     {
         Opaque,
-        Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
+        Masked,      // the pass headers discard below Material.OpacityMaskClipValue
         Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
         // UE BLEND_Additive: everything Translucent is (Forward cells only, the translucency pass header, the
         // DESERT_SURFACE_TRANSLUCENT define) except how the pass composites it: colour x opacity ADDED to the
@@ -317,6 +331,58 @@ namespace Desert::Core::Formats
         return blend == SurfaceBlendMode::Translucent || blend == SurfaceBlendMode::Additive;
     }
 
+    // UE's OpacityMask input of a `BlendMode Masked` template, as its `OpacityMask` line states it
+    // (DShaderParser): WHICH texture parameter is the mask, which channel of it, read at which UV set through
+    // which UV transform, and which Float parameter is the clip threshold (UE's OpacityMaskClipValue). It is the
+    // one definition of the mask: the parser GENERATES the surface cells' DesertSurfaceOpacityMask() from it
+    // (every pass clips with that function, Mesh/Surface/SurfaceTypes.glslh DESERT_SURFACE_CLIP), and a reader
+    // outside the raster cells (ray- traced shadows' any-hit / alpha test) evaluates the same five values from the
+    // material's own parameters, so the two cannot cut a different shape. Present exactly when Blend == Masked.
+    struct SurfaceOpacityMask
+    {
+        std::string Texture;      // a Texture2D parameter of the template's Properties
+        std::string ChannelParam; // a Float parameter holding the channel (0 = R .. 3 = A); empty = Channel
+        uint32_t    Channel = 3;  // the fixed channel (0 = R .. 3 = A) when ChannelParam is empty
+        uint32_t    UVSet   = 0;  // 0 = SurfaceInput.UV0, 1 = UV1
+        // The UV transform (SurfaceTransformUV: uv * tiling rotated by rotation about 0.5, plus offset; a tiling
+        // component <= 0 reads as 1). All three empty = the UV set as it stands; otherwise all three are named.
+        std::string TilingParam;   // Vec2
+        std::string OffsetParam;   // Vec2
+        std::string RotationParam; // Float, radians
+        std::string ClipParam;     // the Float clip threshold: a texel whose mask is below it is cut
+        // UE bDitherOpacityMask: a Float parameter named kSurfaceMaskDitherParam, when the template declares one.
+        // A material that sets it > 0.5 keeps a pixel with PROBABILITY = mask (a per-pixel dither threshold that
+        // TAA integrates) instead of cutting at ClipParam: a leaf smaller than a texel of the level it samples
+        // keeps its share of the pixel, which no threshold on a mip can do. Empty = the template never dithers.
+        std::string DitherParam;
+
+        bool operator==( const SurfaceOpacityMask& ) const = default;
+    };
+
+    // THE SURFACE'S HEIGHT, as the template's `Height` line states it (DShaderParser). One definition read by
+    // parallax occlusion (the generated DesertSurfaceHeight*() of the surface cells, Mesh/Surface/SurfaceParallax.glslh)
+    // AND by mesh displacement (which evaluates the same values from the material row), so relief and silhouette
+    // cannot disagree. Mirrors SurfaceOpacityMask. The names a material uses are `Height` (Texture2D, 0..1) and
+    // `HeightScale` (Float, centimetres); the line names them, so no reader spells a literal. Present exactly when
+    // the template declares Height; a material that assigns the texture draws the template's `.Parallax` cells.
+    struct SurfaceHeight
+    {
+        std::string Texture;      // a Texture2D parameter of the template's Properties (0 = bottom, 1 = top)
+        std::string ChannelParam; // a Float parameter holding the channel (0 = R .. 3 = A); empty = Channel
+        uint32_t    Channel = 0;  // the fixed channel when ChannelParam is empty
+        uint32_t    UVSet   = 0;  // 0 = SurfaceInput.UV0, 1 = UV1
+        // The UV transform, as SurfaceOpacityMask's: all three empty = the UV set as it stands, or all three named.
+        std::string TilingParam;   // Vec2
+        std::string OffsetParam;   // Vec2
+        std::string RotationParam; // Float, radians
+        std::string ScaleParam;    // Float, CENTIMETRES between height 0 and height 1 (HeightScale)
+        std::string CenterParam;   // Float 0..1, the height that stays at the geometric surface (UE Displacement
+                                   // Center); empty = 0. Parallax shows relief BELOW the surface: a template that
+                                   // uses it names a centre (StandardSurface: HeightCenter, default 1)
+
+        bool operator==( const SurfaceHeight& ) const = default;
+    };
+
     struct ShaderProgramMeta
     {
         std::vector<ShaderParam> Params;
@@ -327,6 +393,16 @@ namespace Desert::Core::Formats
         // Each is a separate program registered in the ShaderService as "<Shader>/<Pass>";
         // empty for legacy single-program shaders.
         std::vector<std::string> PassNames;
+        // The passes of PassNames whose stages run in a ray tracing pipeline (RayGen / Miss / ClosestHit /
+        // AnyHit; a surface template's `RayTracing.Hit` cell). ShaderService builds them only on a device that
+        // offers the pipeline (CapabilityCatalog RayTracingMode::RayTracingPipeline): their SPIR-V needs the
+        // RayTracingKHR capability, which no other device can take a module of.
+        std::vector<std::string> RayTracingPassNames;
+        // THE NAMED PASS THE DEFAULT PROGRAM IS, or empty when the default program is the shader's own top-level
+        // stage set: a surface template's default cell (kSurfaceDefaultCell), or the first named pass of a shader
+        // that has no top-level stages (DShaderParser). "<Shader>/<DefaultPassName>" and "<Shader>" are ONE
+        // program - registered, cooked and built once (Preprocess::IsDefaultProgramPass), never compiled twice.
+        std::string DefaultPassName;
 
         // THE BODY OF A `Medium { ... }` BLOCK — a PROGRAM FRAGMENT, not a stage.
         //
@@ -343,8 +419,8 @@ namespace Desert::Core::Formats
         std::string MediumSource;
 
         // THE BODY OF A `Particle { ... }` BLOCK — the second program fragment, in `Domain Particle`
-        // (VFX-04): either one stack module (Engine/VFX/VFXStackCompiler.hpp ParseParticleModule reads its
-        // declarations) or the whole simulation body an emitter's stack compiles to. Like the medium it has
+        // (VFX-04): the whole simulation body an emitter's stack compiles to (a stack module is a `.dfxmod`,
+        // Engine/VFX/VFXModuleFormat.hpp, not a shader). Like the medium it has
         // no stages of its own: the simulation program includes it. Empty for every other program.
         std::string ParticleSource;
 
@@ -352,6 +428,11 @@ namespace Desert::Core::Formats
 
         // The `BlendMode` of a `Domain Surface` template (Opaque for every other program).
         SurfaceBlendMode Blend = SurfaceBlendMode::Opaque;
+        // The mask a Masked template cuts with (see SurfaceOpacityMask); nullopt for every other program.
+        std::optional<SurfaceOpacityMask> OpacityMask;
+        // The surface height a template declares with its `Height` line (see SurfaceHeight); nullopt for every other
+        // program. Assigning its texture selects the template's `.Parallax` cells (Graphic::ParallaxCellOf).
+        std::optional<SurfaceHeight> Height;
 
         // A program fragment and nothing else: no stages of its own, so it compiles to no modules and is
         // never used to build a pipeline. ShaderService registers it by name without complaining that it

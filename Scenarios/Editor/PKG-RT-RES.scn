@@ -1,0 +1,8 @@
+# PKG-RT-RES: the packaged Runtime renders the game view at the window's logical resolution (Retina: half per side,
+# UE r.SecondaryScreenPercentage.GameViewport auto) and builds no editor-only targets (JFA_Output, OverdrawAccum).
+# Same packaging as PKG-COOK-SSR-BISTRO; after PASS, outside the editor: run_capped packaged Runtime
+# --scene Content/Scenes/B16_Bistro_Street.desce --shot <png> --shot-frames 300.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Когда run Build "Package Game"
+Тогда rt_shot packaged Runtime не убит; кадр - освещённая улица Bistro; в логе «[Memory] census» пик < 5000 МБ, «[Runtime] game view» ниже окна, нет JFA_Output/OverdrawAccum

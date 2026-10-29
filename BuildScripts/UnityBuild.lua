@@ -1,7 +1,7 @@
 -- UNITY (JUMBO) BUILD FOR THE WINDOWS CI JOB, AND FOR NOTHING ELSE.
 --
 -- `premake5 vs2022 --unity` turns on MSBuild's own unity support (<EnableUnitySupport>) for the three
--- projects that hold almost all of the code -- Common, Desert and EditorCore -- through
+-- projects that hold almost all of the code -- Common, Desert and the editor libraries -- through
 -- DesertUnity.EnableForProject(), which each of those project scripts calls. MSBuild then writes
 -- unity_*.cpp files into IntDir, each #including up to MaxFilesInUnityFile of the project's sources,
 -- and compiles those instead of the sources one by one: the headers every source repeats are parsed
@@ -21,7 +21,7 @@
 
 newoption {
     trigger     = "unity",
-    description = "Visual Studio only: compile Common, Desert and EditorCore as MSBuild unity files (CI speed; see BuildScripts/UnityBuild.lua)",
+    description = "Visual Studio only: compile Common, Desert and the editor libraries as MSBuild unity files (CI speed; see BuildScripts/UnityBuild.lua)",
 }
 
 DesertUnity = {}
@@ -29,7 +29,7 @@ DesertUnity = {}
 -- Sources per unity file. MSBuild's own default has no upper bound, and one huge unity file per project
 -- would undo the only intra-project parallelism the CI build has (one cl.exe per source through the
 -- MultiToolTask, see BuildScripts/MSBuild/Ccache.props): Desert (~340 sources) would compile on one
--- core. 12 keeps Desert at ~30 unity files and EditorCore at ~13 -- enough to fill the runner's four cores
+-- core. 12 keeps Desert at ~30 unity files and the editor libraries at ~24 together -- enough to fill the runner's four cores
 -- -- while still sharing each group's header parse twelve ways.
 DesertUnity.MaxFilesInUnityFile = 12
 
@@ -57,6 +57,7 @@ DesertUnity.OptOut = {
     { pattern = "**Source/Common/Utilities/ContentManifest.cpp", why = "clang unity check: redefinition of 'kMagic'" },
     { pattern = "**Source/Engine/Animation/Rig/ControlShape.cpp", why = "clang unity check: redefinition of 'Finite'" },
     { pattern = "**Source/Engine/Assets/CloudNoiseVolume.cpp", why = "clang unity check: redefinition of 'kFormatRgba8'" },
+    { pattern = "**Source/Engine/Assets/CloudProceduralVolume.cpp", why = "clang unity check: includes CloudNoise.glslh inside its own namespace; after CloudNoiseVolumeGenerator.cpp the header guard leaves that namespace empty (no member named 'CloudPerlinPeriodic' in 'CloudShapeNoiseGlsl')" },
     { pattern = "**Source/Engine/Assets/CloudNoiseVolumeSheet.cpp", why = "clang unity check: redefinition of 'kBytesPerVoxel'" },
     { pattern = "**Source/Engine/Assets/Serialization/TextureBinary.cpp", why = "clang unity check: redefinition of 'kByteOrderTag'" },
     { pattern = "**Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp", why = "clang unity check: redefinition of 'BytesToMiB'" },

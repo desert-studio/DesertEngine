@@ -1,111 +1,189 @@
-// Surface cell vertex path: skinned mesh. A view pass skins from the view's ObjectBones at its row's BoneOffset /
+// Surface cell vertex path: skinned mesh. A view pass skins from the scene's ObjectBones at its row's BoneOffset /
 // PrevBoneOffset (binding 26); a light view from its pass's BoneMatrices[BoneOffset...] (binding 1) — the
-// vertex stage of Programs/Surface/SkinnedMeshLit.shader and, for the depth cell of an opaque template,
+// vertex stage of every surface template's Skinned cells and, for the depth cell of an opaque template,
 // Programs/Shadow/Shadow_Skinned.shader.
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-layout( location = 5 ) in ivec4 a_BoneIndices;
-layout( location = 6 ) in vec4 a_BoneWeights;
-// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
-// white / (0,0) buffer at the same stride.
-// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
-// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
-#endif
+// GPU SKIN CACHE (RayTracing/RayTracingSkinCache.hpp, Common/SkinCacheStreams.glslh): when the primitive carries
+// a streams address - a view pass in its GpuScenePrimitive row, a light view in its push block - it was skinned ONCE
+// this frame by "SkinCache: Skin" and this stage only FETCHES the posed position (and, where it needs them, last
+// frame's posed position and the posed tangent frame) by vertex index (UE FGPUSkinPassthroughVertexFactory).
+// Without one (skin cache off, or the entry refused) it skins here from the palettes.
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0, bone indices / weights) and the
+// optional streams at binding 1 (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at
+// the same stride) — and DesertMeshTextureUV, GENERATED from the C++ vertex format
+// (Graphic/ShaderProtocols/VertexInputs.hpp). The full set in every pass: an input a depth cell does not read costs
+// nothing, a subset would be a second list.
+#include <Mesh/MeshVertexInputsSkinned.glslh>
 
 #include <Common/CameraUB.glslh>
-#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#ifdef DESERT_SURFACE_CASTER_PASS
 #include <Common/ShadowCasterBias.glslh>
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-#define DESERT_OBJECT_MOTION_ROWS 1 // this stage reads its object's row
-#define DESERT_OBJECT_BONES 1       // ...and both of its palettes from the view's ObjectBones
+#define DESERT_GPU_SCENE_PRIMITIVES 1 // this stage reads its primitive's GpuScene row
+#define DESERT_GPU_SCENE_BONES 1      // ...and both of its palettes from the scene's ObjectBones
+#elif defined( DESERT_SURFACE_HAS_VARYINGS )
+// A light view with varyings (masked caster) reads its primitive's row too, for the skin-cache fields only: the
+// row is their one source, and MaterialTransport's block has no room for them (120 of the guaranteed 128 bytes).
+#define DESERT_GPU_SCENE_PRIMITIVES 1
 #endif
-#include <Common/ObjectMotion.glslh>
+#include <Common/GpuScene.glslh>
+#include <Common/Velocity.glslh>
+#include <Common/SkinCacheStreams.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
 #else
-// The shadow pass's own block: BoneOffset right after the transform (Shadow_Skinned.shader, offset 64), where
-// MaterialTransport keeps it at 68 behind MaterialIndex.
+// The light view's own block: BoneOffset right after the transform (offset 64), where MaterialTransport keeps it
+// at 68 behind MaterialIndex; then the primitive's skin-cache streams (MaterialShadowSkinned::SetSkinCache, from
+// its GpuScenePrimitive row; vertex count 0 = not cached, skin from the palette).
 layout( push_constant ) uniform constants
 {
     mat4 Transform;
-    uint BoneOffset;
+    uint BoneOffset;           // offset 64
+    uint SkinCacheVertexCount; // offset 68
+    uint SkinCacheAddressLo;   // offset 72
+    uint SkinCacheAddressHi;   // offset 76
 }
 m_PushConstants;
 #endif
 
 #ifdef DESERT_SURFACE_VIEW_PASS
-// View pass: both palettes come from the view's ObjectBones at the row's two offsets (Common/ObjectMotion.glslh).
+// View pass: both palettes come from the scene's ObjectBones at the row's two offsets (Common/GpuScene.glslh).
 #define DESERT_SKIN_MATRIX( base, i ) objectBones.Palettes[( base ) + ( i )]
 #else
-// Light view (shadow depth / RSM): the pass's own Bones buffer, this draw's slice named by the push block.
-layout( std430, binding = 1 ) readonly buffer Bones
-{
-    mat4 BoneMatrices[];
-}
-bones;
-#define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )]
+// Light view (shadow depth / RSM): the pass's own Bones buffer (generated from ShaderProtocols/SkinnedMaterialUB.hpp,
+// binding 1), this draw's slice named by the push block.
+#include <Mesh/SkinnedBones.glslh>
+#define DESERT_SKIN_MATRIX( base, i ) bones.BoneMatrices[( base ) + ( i )].Matrix
 #endif
 
 void main()
 {
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // View pass: see Vertex_Static. The previous pose is the palette the view drew this primitive with last
-    // frame, at the row's PrevBoneOffset in the same ObjectBones buffer.
-    const GpuObjectMotion row       = objectMotions.Motions[m_PushConstants.PrimitiveIndex];
-    const mat4            model     = row.World * m_PushConstants.Transform;
-    const mat4            prevModel = row.PrevWorld * m_PushConstants.Transform;
-    // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
-    const int  b        = int( row.BoneOffset );
-    const int  pb       = int( row.PrevBoneOffset );
-    const mat4 prevSkin = DESERT_SKIN_MATRIX( pb, a_BoneIndices.x ) * a_BoneWeights.x +
-                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.y ) * a_BoneWeights.y +
-                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.z ) * a_BoneWeights.z +
-                          DESERT_SKIN_MATRIX( pb, a_BoneIndices.w ) * a_BoneWeights.w;
+    // View pass: see Vertex_Static. The previous pose is the one the view drew this primitive with last frame:
+    // the skin cache's previous positions, or the palette at the row's PrevBoneOffset in the same ObjectBones.
+    const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
+    const mat4            model     = GpuScene_LocalToWorld( row ) * m_PushConstants.Transform;
+    const mat4            prevModel = GpuScene_PrevLocalToWorld( row ) * m_PushConstants.Transform;
+    vec3                  posed;
+    vec3                  prevPosed;
+    vec3                  skinnedNormal;
+    vec3                  skinnedTangent;
+    vec3                  skinnedBitangent;
+    if ( row.SkinCacheVertexCount != 0u )
+    {
+        SkinCacheStreams       streams = DesertSkinCacheStreams( row.SkinCacheAddressLo, row.SkinCacheAddressHi );
+        const uint             count   = row.SkinCacheVertexCount;
+        const uint             vertex  = uint( gl_VertexIndex );
+        posed                          = DesertSkinCachePosition( streams, vertex );
+        prevPosed                      = DesertSkinCachePrevPosition( streams, count, vertex );
+        skinnedNormal                  = DesertSkinCacheFrame( streams, count, vertex, 0u );
+        skinnedTangent                 = DesertSkinCacheFrame( streams, count, vertex, 1u );
+        skinnedBitangent               = DesertSkinCacheFrame( streams, count, vertex, 2u );
+    }
+    else
+    {
+        // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
+        const int  b        = int( row.BoneOffset );
+        const int  pb       = int( row.PrevBoneOffset );
+        const mat4 prevSkin = DESERT_SKIN_MATRIX( pb, a_BoneIndices.x ) * a_BoneWeights.x +
+                              DESERT_SKIN_MATRIX( pb, a_BoneIndices.y ) * a_BoneWeights.y +
+                              DESERT_SKIN_MATRIX( pb, a_BoneIndices.z ) * a_BoneWeights.z +
+                              DESERT_SKIN_MATRIX( pb, a_BoneIndices.w ) * a_BoneWeights.w;
+        const mat4 skin     = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
+        const mat3 skin3 = mat3( skin );
+        posed            = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+        prevPosed        = ( prevSkin * vec4( a_Position, 1.0 ) ).xyz;
+        skinnedNormal    = skin3 * a_Normal;
+        skinnedTangent   = skin3 * a_Tangent;
+        skinnedBitangent = skin3 * a_Bitangent;
+    }
 #else
+    // Light view (shadow depth): the cached pose when the push block names streams, else the pass's palette.
     const mat4 model = m_PushConstants.Transform;
-    const int  b     = int( m_PushConstants.BoneOffset );
+    vec3       posed;
+    vec3       casterNormal; // the posed normal the caster's slope bias reads (object space)
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    vec3 skinnedNormal;
+    vec3 skinnedTangent;
+    vec3 skinnedBitangent;
 #endif
-    const mat4 skin = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
-                      DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
-                      DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
-                      DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
-    const vec4 worldPos = model * ( skin * vec4( a_Position, 1.0 ) );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    // The masked caster names its row through PrimitiveIndex (MeshRendererShadow.cpp, MaskedCasterDraw).
+    const GpuScenePrimitive casterRow  = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
+    const uint            cacheCount   = casterRow.SkinCacheVertexCount;
+    const uint            cacheAddrLo  = casterRow.SkinCacheAddressLo;
+    const uint            cacheAddrHi  = casterRow.SkinCacheAddressHi;
+#else
+    // The depth cell's own block carries them (MaterialShadowSkinned::SetSkinCache, from the row).
+    const uint cacheCount  = m_PushConstants.SkinCacheVertexCount;
+    const uint cacheAddrLo = m_PushConstants.SkinCacheAddressLo;
+    const uint cacheAddrHi = m_PushConstants.SkinCacheAddressHi;
+#endif
+    if ( cacheCount != 0u )
+    {
+        SkinCacheStreams       streams = DesertSkinCacheStreams( cacheAddrLo, cacheAddrHi );
+        const uint             vertex  = uint( gl_VertexIndex );
+        posed                          = DesertSkinCachePosition( streams, vertex );
+        casterNormal                   = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+        skinnedNormal    = DesertSkinCacheFrame( streams, cacheCount, vertex, 0u );
+        skinnedTangent   = DesertSkinCacheFrame( streams, cacheCount, vertex, 1u );
+        skinnedBitangent = DesertSkinCacheFrame( streams, cacheCount, vertex, 2u );
+#endif
+    }
+    else
+    {
+        const int  b    = int( m_PushConstants.BoneOffset );
+        const mat4 skin = DESERT_SKIN_MATRIX( b, a_BoneIndices.x ) * a_BoneWeights.x +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.y ) * a_BoneWeights.y +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.z ) * a_BoneWeights.z +
+                          DESERT_SKIN_MATRIX( b, a_BoneIndices.w ) * a_BoneWeights.w;
+        posed           = ( skin * vec4( a_Position, 1.0 ) ).xyz;
+        casterNormal    = mat3( skin ) * a_Normal;
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+        const mat3 skin3 = mat3( skin );
+        skinnedNormal    = skin3 * a_Normal;
+        skinnedTangent   = skin3 * a_Tangent;
+        skinnedBitangent = skin3 * a_Bitangent;
+#endif
+    }
+#endif
+    const vec4 worldPos = model * vec4( posed, 1.0 );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
-    const mat3 skin3         = mat3( skin );
-    const vec3 T             = normalize( normalMatrix * ( skin3 * a_Tangent ) );
-    const vec3 B             = normalize( normalMatrix * ( skin3 * a_Bitangent ) );
-    const vec3 N             = normalize( normalMatrix * ( skin3 * a_Normal ) );
+    const vec3 T             = normalize( normalMatrix * skinnedTangent );
+    const vec3 B             = normalize( normalMatrix * skinnedBitangent );
+    const vec3 N             = normalize( normalMatrix * skinnedNormal );
     v_Surface.WorldPosition  = worldPos.xyz;
     v_Surface.Normal         = N;
-    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
-    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * ( prevSkin * vec4( a_Position, 1.0 ) ) );
+    v_Surface.PrevClip = cameraUB.PrevViewProjection * ( prevModel * vec4( prevPosed, 1.0 ) );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): an animated skeleton is the object's own
+    // motion (UE: a skeletal mesh writes velocity, so TemporalAA counts it dynamic), not a vertex deformation.
+    v_Surface.ObjectMoved = 1.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
     gl_Position = cameraUB.JitteredViewProjection * worldPos;
-#ifdef DESERT_SURFACE_PASS_ShadowDepth
+#ifdef DESERT_SURFACE_CASTER_PASS
     // The caster's slope depth bias, from the skinned vertex normal (UE: ShadowDepthVertexShader.usf).
     gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
-                                         transpose( inverse( mat3( model ) ) ) * ( mat3( skin ) * a_Normal ),
+                                         transpose( inverse( mat3( model ) ) ) * casterNormal,
                                          cameraUB.ShadowSlopeBias, cameraUB.ShadowSlopeClamp );
 #endif
 }

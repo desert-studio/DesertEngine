@@ -15,7 +15,7 @@
 //
 // It is split from Common/CloudShadowMap.glslh rather than living inside it, and the split is forced
 // rather than stylistic: that file is included by the PRODUCER too, and the producer declares
-// `u_CloudShadowMap` as a writeonly image2D it stores into. A receiver function naming the same symbol
+// `CloudShadowMapTexture` as a writeonly image2D it stores into. A receiver function naming the same symbol
 // as a sampler2D cannot be in the file the producer compiles.
 //
 // WHAT THE INCLUDER OWES IT — the same contract Mesh/AmbientIBL.glslh has with its three environment
@@ -24,14 +24,14 @@
 // one with the G-buffer pass; the terrain has a small layout of its own). The includer must declare, at
 // whatever slots are free in ITS layout:
 //
-//     Uniform(a) sampler2D u_CloudShadowMap;
+//     Uniform(a) sampler2D CloudShadowMapTexture;
 //     Uniform(b) CloudShadowUB {
-//         mat4 u_CloudShadowWorldToMap;
-//         vec4 u_CloudShadowParams;
+//         mat4 CloudShadowWorldToMap;
+//         vec4 CloudShadowParams;
 //     };
 //
 // The NAMES are what has to match, and they do because every material binds by name — see
-// Graphic::CloudShadowUpload (the block) and the pass's RDG::PassBindings (u_CloudShadowMap, FrameTransients::CloudShadowMap).
+// Graphic::CloudShadowUpload (the block) and the pass's RDG::PassBindings (CloudShadowMapTexture, FrameTransients::CloudShadowMap).
 
 #ifndef CLOUD_SHADOW_RECEIVER_GLSLH
 #define CLOUD_SHADOW_RECEIVER_GLSLH
@@ -60,26 +60,26 @@
 // and is never touched.
 float CloudShadowFactor(vec3 worldPos)
 {
-	if (u_CloudShadowParams.y < 0.5)
+	if (CloudShadowParams.y < 0.5)
 		return 1.0;
 
 	// The perspective divide is written out even though the map's projection is ORTHOGRAPHIC and its w is
 	// identically 1: the day a consumer is handed a different projection this line is already correct,
 	// and the divide costs nothing against the texture fetch below it.
-	vec4 mapClip = u_CloudShadowWorldToMap * vec4(worldPos, 1.0);
+	vec4 mapClip = CloudShadowWorldToMap * vec4(worldPos, 1.0);
 	mapClip     /= max(mapClip.w, 1e-6);
 	vec2 uv      = CloudShadowClipToUv(mapClip.xy);
 
 	// Outside the covered square there is no answer, and inventing one is worse than saying so: the
 	// shadow is faded out over the last few texels so the map's boundary is a gradient rather than a
 	// straight line of light across the terrain. See CLOUD_SHADOWMAP_BORDER_FADE_KM.
-	float border = CloudShadowBorderFade(uv, u_CloudShadowParams.z);
+	float border = CloudShadowBorderFade(uv, CloudShadowParams.z);
 	if (border <= 0.0)
 		return 1.0;
 
-	float depthKm       = CloudShadowDepthKm(mapClip.z, u_CloudShadowParams.x);
-	float transmittance = CloudShadowTransmittance(texture(u_CloudShadowMap, uv).rgb, depthKm,
-	                                               u_CloudShadowParams.w);
+	float depthKm       = CloudShadowDepthKm(mapClip.z, CloudShadowParams.x);
+	float transmittance = CloudShadowTransmittance(texture(CloudShadowMapTexture, uv).rgb, depthKm,
+	                                               CloudShadowParams.w);
 	return mix(1.0, transmittance, border);
 }
 

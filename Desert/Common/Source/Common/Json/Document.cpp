@@ -2,9 +2,13 @@
 
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Core/Logger.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <rflcpp/rfl/json.hpp>
 
+#include <algorithm>
+#include <format>
+#include <iterator>
 #include <limits>
 #include <string>
 
@@ -49,7 +53,7 @@ namespace Common::Json
                     text += '[' + segment.Text + ']';
                     break;
                 case SegmentKind::Record:
-                    text += "[id=" + segment.Text + ']';
+                    std::format_to( std::back_inserter( text ), "[id={}]", segment.Text );
                     break;
             }
         }
@@ -58,6 +62,8 @@ namespace Common::Json
 
     std::string Describe( const Issue& issue )
     {
+        if ( issue.Kind == IssueKind::MissingReference )
+            return issue.Path + ": no " + issue.Expected + " named " + issue.Found;
         return issue.Path + ": expected " + issue.Expected + ", found " + issue.Found;
     }
 
@@ -65,14 +71,47 @@ namespace Common::Json
     {
         if ( issues.empty() )
             return {};
-        std::string text = std::string( document ) + ": " + std::to_string( issues.size() ) +
-                           ( issues.size() == 1 ? " value" : " values" ) +
-                           " of the wrong type, each left at its current value: ";
-        for ( std::size_t i = 0; i < issues.size(); ++i )
+
+        // One group per kind (and, for a missing reference, per noun), in the order each first appears.
+        struct Group
         {
-            if ( i != 0 )
-                text += "; ";
-            text += Describe( issues[i] );
+            IssueKind                 Kind = IssueKind::WrongType;
+            std::string               Noun;
+            std::vector<const Issue*> Members;
+        };
+        std::vector<Group> groups;
+        for ( const Issue& issue : issues )
+        {
+            const std::string noun  = issue.Kind == IssueKind::MissingReference ? issue.Expected : std::string{};
+            auto              group = std::find_if( groups.begin(), groups.end(), [&]( const Group& candidate )
+                                                    { return candidate.Kind == issue.Kind && candidate.Noun == noun; } );
+            if ( group == groups.end() )
+            {
+                groups.push_back( { issue.Kind, noun, {} } );
+                group = std::prev( groups.end() );
+            }
+            group->Members.push_back( &issue );
+        }
+
+        std::string text = std::string( document ) + ": ";
+        for ( std::size_t g = 0; g < groups.size(); ++g )
+        {
+            const Group& group = groups[g];
+            const bool   one   = group.Members.size() == 1;
+            if ( g != 0 )
+                text += " | ";
+            text += std::to_string( group.Members.size() );
+            if ( group.Kind == IssueKind::MissingReference )
+                text += ( one ? " reference to a missing " : " references to a missing " ) + group.Noun + ": ";
+            else
+                text += std::string( one ? " value" : " values" ) +
+                        " of the wrong type, each left at its current value: ";
+            for ( std::size_t i = 0; i < group.Members.size(); ++i )
+            {
+                if ( i != 0 )
+                    text += "; ";
+                text += Describe( *group.Members[i] );
+            }
         }
         LOG_ERROR( "{}", text );
         return text;
@@ -119,11 +158,9 @@ namespace Common::Json
                 case Kind::String:
                     return KindName( kind ) + " " + rfl::json::write( value );
                 case Kind::Array:
-                    return "array of " + std::to_string( std::get<Value::Array>( value.variant() ).size() ) +
-                           " elements";
+                    return std::format( "array of {} elements", std::get<Value::Array>( value.variant() ).size() );
                 case Kind::Object:
-                    return "object with " + std::to_string( std::get<Object>( value.variant() ).size() ) +
-                           " members";
+                    return std::format( "object with {} members", std::get<Object>( value.variant() ).size() );
                 case Kind::Null:
                     break;
             }
@@ -254,8 +291,8 @@ namespace Common::Json
         yyjson_read_err error{};
         yyjson_doc*     doc = yyjson_read_opts( buffer.data(), buffer.size(), 0, nullptr, &error );
         if ( doc == nullptr )
-            return MakeError<Value>( "document: not JSON at byte " + std::to_string( error.pos ) + ": " +
-                                     ( error.msg != nullptr ? error.msg : "unknown error" ) );
+            return MakeError<Value>( std::format( "document: not JSON at byte {}: {}", error.pos,
+                                                  error.msg != nullptr ? error.msg : "unknown error" ) );
         try
         {
             auto parsed = rfl::json::read<Value>( rfl::json::InputVarType( yyjson_doc_get_root( doc ) ) );

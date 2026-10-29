@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 
 #include <ImGui/imgui.h> // the panel interface no longer hands the toolkit over (IPanel.hpp)
 #include <Engine/Desert.hpp>

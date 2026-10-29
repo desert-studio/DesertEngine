@@ -8,8 +8,10 @@
 #include <Engine/Assets/CloudTypeAsset.hpp>
 #include <Engine/Assets/CloudModellingVolumeAsset.hpp>
 #include <Engine/Assets/UIThemeAsset.hpp>
+#include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
 #include <Engine/Assets/LandscapeLayerInfoAsset.hpp>
 #include <Engine/Assets/Prefab/PrefabAsset.hpp>
+#include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -27,6 +29,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <format>
 #include <unordered_map>
 
 namespace Desert::Runtime
@@ -83,7 +86,9 @@ namespace Desert::Runtime
         PollCloudModellingVolumes( assetManager );
         PollUIThemes( assetManager );
         PollLandscapeLayerInfos( assetManager );
+        PollLandscapeGrassTypes( assetManager );
         PollPrefabs( assetManager );
+        PollVFXEffectTypes( assetManager );
         m_ContentWatch.Poll();
         m_FirstScan = false;
     }
@@ -266,6 +271,63 @@ namespace Desert::Runtime
             }
 
             LOG_INFO( "[HotReload] Landscape layer info '{}' reloaded — the next frame and stroke use it.", key );
+        }
+    }
+
+    void AssetHotReload::PollLandscapeGrassTypes( Assets::AssetManager& assetManager )
+    {
+        // No service to notify, for the layer info's reason: LandscapeGrassTypeService hands out the asset, the
+        // landscape system reads its varieties every frame and compares its Revision for what it derived from
+        // them.
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::LandscapeGrassTypeAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            const auto& path = asset->GetMetadata().Filepath;
+            if ( !TouchWatched( path ) )
+                continue;
+
+            const std::string key = path.generic_string();
+            if ( const auto reloaded = asset->Load(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] Landscape grass type '{}' could not be re-read: {}", key,
+                           reloaded.GetError() );
+                continue;
+            }
+
+            LOG_INFO( "[HotReload] Landscape grass type '{}' reloaded — the next frame grows it.", key );
+        }
+    }
+
+    void AssetHotReload::PollVFXEffectTypes( Assets::AssetManager& assetManager )
+    {
+        for ( const auto& [handle, asset] : assetManager.FindAllByType<Assets::VFXEffectTypeAsset>() )
+        {
+            if ( !asset )
+                continue;
+
+            // Touched before the readiness test, for the prefab's reason.
+            const auto& path    = asset->GetMetadata().Filepath;
+            const bool  changed = TouchWatched( path );
+            if ( !changed || !asset->IsReadyForUse() )
+                continue;
+
+            const std::string key = path.generic_string();
+            if ( const auto reloaded = asset->LoadFromFile(); !reloaded )
+            {
+                LOG_ERROR( "[HotReload] VFX effect type '{}' could not be re-read (the last good levels are kept): {}",
+                           key, reloaded.GetError() );
+                continue;
+            }
+
+            std::string levels;
+            for ( const auto& level : asset->GetData().Levels )
+                levels += std::format( "{}{:.0f} cm x{:.2f}", levels.empty() ? "" : ", ", level.MaxDistance,
+                                       level.SpawnCountScale );
+            LOG_INFO( "[HotReload] VFX effect type '{}' reloaded - levels (MaxDistance x SpawnCountScale): {}; the "
+                      "next VFX tick reads them.",
+                      key, levels );
         }
     }
 

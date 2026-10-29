@@ -1,0 +1,72 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "da6f3b0aa670b19942188f76183b1eda",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["acb8d06bbe1a49dc95c2f5ebdddb4c33", "c320b3a6a7ead6a1749c29d318c5c367", "581214599fdacd83280dcc9403b1a5c6", "b42a37efa528d89beab5492a1c440a8b", "e5839cb98b7253cebeb84a79865aaa72"]
+    },
+    "Shader": {
+        "Guid": "acb8d06bbe1a49dc95c2f5ebdddb4c33",
+        "Path": "engine:Shaders/Programs/Surface/FoliageSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.8999999761581421, 1.0, 0.8500000238418579, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        },
+        {
+            "Name": "OpacityMaskClipValue",
+            "Value": [0.20000000298023224, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "OpacityChannel",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "SubsurfaceColor",
+            "Value": [0.44999998807907104, 0.550000011920929, 0.15000000596046448, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "c320b3a6a7ead6a1749c29d318c5c367",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_leaves_diff_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "581214599fdacd83280dcc9403b1a5c6",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_leaves_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "b42a37efa528d89beab5492a1c440a8b",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_leaves_nor_gl_2k.detex"
+        },
+        {
+            "Name": "OpacityTexture",
+            "Guid": "e5839cb98b7253cebeb84a79865aaa72",
+            "Path": "assets:Textures/FieldBarn/tree_small_02_leaves_alpha_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

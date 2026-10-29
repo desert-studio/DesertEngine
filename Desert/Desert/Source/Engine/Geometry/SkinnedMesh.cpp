@@ -9,6 +9,8 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
+
 namespace Desert
 {
 
@@ -20,6 +22,37 @@ namespace Desert
     {
         m_Submeshes = submeshes;
         m_Vertices  = vertices; // retained on the CPU for viewport picking (posed-AABB)
+
+        // GetBoneBounds: per submesh, the box of each influencing bone's vertices.
+        for ( size_t s = 0; s < m_Submeshes.size(); ++s )
+        {
+            const Submesh& submesh = m_Submeshes[s];
+            const size_t   first   = std::min<size_t>( submesh.VertexOffset, vertices.size() );
+            const size_t   last    = std::min<size_t>( first + submesh.VertexCount, vertices.size() );
+            const size_t   begin   = m_BoneBounds.size();
+            for ( size_t v = first; v < last; ++v )
+            {
+                const SkinnedVertex& vertex = vertices[v];
+                for ( size_t k = 0; k < SkinnedVertex::MAX_BONE_INFLUENCES; ++k )
+                {
+                    if ( vertex.BoneWeights[k] <= 0.0f )
+                        continue;
+                    const glm::vec3 position = vertex.StaticVertex.Position;
+                    const auto known = std::find_if( m_BoneBounds.begin() + static_cast<std::ptrdiff_t>( begin ),
+                                                     m_BoneBounds.end(), [&]( const BoneBounds& b )
+                                                     { return b.Bone == vertex.BoneIDs[k]; } );
+                    if ( known == m_BoneBounds.end() )
+                    {
+                        m_BoneBounds.push_back( { .Submesh = static_cast<uint32_t>( s ),
+                                                  .Bone    = vertex.BoneIDs[k],
+                                                  .Box     = { .Min = position, .Max = position } } );
+                        continue;
+                    }
+                    known->Box.Min = glm::min( known->Box.Min, position );
+                    known->Box.Max = glm::max( known->Box.Max, position );
+                }
+            }
+        }
 
         // ONE BONE INDEX SPACE, CHECKED WHERE THE TWO SIDES MEET. This is the only moment a mesh and a rig
         // are joined, and until now nothing compared them: the property that a vertex's BoneIDs index the
@@ -48,11 +81,9 @@ namespace Desert
             }
         }
 
-        m_VertexBuffer =
-             Graphic::VertexBuffer::Create( (void*)vertices.data(), vertices.size() * sizeof( SkinnedVertex ) );
-        CreateStreamBuffer( streams );
-
-        m_IndexBuffer = Graphic::IndexBuffer::Create( indices.data(), indices.size() * sizeof( Index ) );
+        // Uploaded into the pool's skinned arena by Invalidate (the renderer thread).
+        StageGeometry( Graphic::GeometryArena::Skinned, VertexBytes( vertices ), streams,
+                       FlattenIndices( indices ) );
 
         // The morph deltas, dense per target (a vertex a target leaves alone carries a zero delta - the asset's
         // own layout, MorphTarget). A target whose arrays are shorter than the mesh is padded with zeros, the
@@ -66,8 +97,13 @@ namespace Desert
             {
                 const MorphTarget& target = morphTargets[k];
                 const size_t       first  = k * m_VertexCount * 2;
+                float              longest = 0.0f;
                 for ( size_t i = 0; i < std::min<size_t>( m_VertexCount, target.DeltaPositions.size() ); ++i )
+                {
                     deltas[first + i * 2] = glm::vec4( target.DeltaPositions[i], 0.0f );
+                    longest               = std::max( longest, glm::length( target.DeltaPositions[i] ) );
+                }
+                m_MorphTargetReach += longest;
                 for ( size_t i = 0; i < std::min<size_t>( m_VertexCount, target.DeltaNormals.size() ); ++i )
                     deltas[first + i * 2 + 1] = glm::vec4( target.DeltaNormals[i], 0.0f );
             }
@@ -89,30 +125,69 @@ namespace Desert
     {
         // Private default constructor: make_shared cannot reach it.
         std::shared_ptr<SkinnedMesh> twin( new SkinnedMesh() );
+        // The morph pass's own vertices (offset 0) over the base's pooled streams and indices at the base's
+        // offsets: not pooled as a whole, so it binds per mesh (MeshGeometry::MeshBinding).
+        const Graphic::MeshGeometry& baseGeometry = base.GetGeometry();
+        Graphic::MeshGeometry        geometry;
+        geometry.Vertices         = std::move( morphedVertices );
+        geometry.Streams          = baseGeometry.Streams;
+        geometry.Indices          = baseGeometry.Indices;
+        geometry.StreamByteOffset = baseGeometry.StreamByteOffset;
+        geometry.IndexByteOffset  = baseGeometry.IndexByteOffset;
+        geometry.VertexStride     = baseGeometry.VertexStride;
+        geometry.VertexCount      = baseGeometry.VertexCount;
+        geometry.IndexCount       = baseGeometry.IndexCount;
+        geometry.AuthoredStreams  = baseGeometry.AuthoredStreams;
+        twin->SetUnpooledGeometry( std::move( geometry ) );
+        twin->m_PoolAllocation   = base.m_PoolAllocation; // the base's spans outlive every twin reading them
         twin->m_Submeshes        = base.m_Submeshes;
-        twin->m_IndexBuffer      = base.m_IndexBuffer;
-        twin->m_StreamBuffer     = base.m_StreamBuffer;
         twin->m_Skeleton         = base.m_Skeleton;
         twin->m_VertexCount      = base.m_VertexCount;
         twin->m_MorphTargetCount = base.m_MorphTargetCount;
         twin->m_MorphDeltas      = base.m_MorphDeltas;
-        twin->m_VertexBuffer     = std::move( morphedVertices );
+        twin->m_BoneBounds       = base.m_BoneBounds;
+        twin->m_MorphReach       = base.m_MorphTargetReach;
+        twin->m_MorphTargetReach = base.m_MorphTargetReach;
+        // The morphed twin is what the skinned record draws, so it carries the base's displacement topology: the
+        // displaced pass reads the morphed, skinned vertices (same order) and moves that surface.
+        twin->m_DisplacementTopology = base.m_DisplacementTopology;
+        return twin;
+    }
+
+    std::shared_ptr<SkinnedMesh>
+    SkinnedMesh::MakeDisplacedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> vertices,
+                                    std::shared_ptr<Graphic::VertexBuffer> streams,
+                                    std::shared_ptr<Graphic::IndexBuffer> indices, std::vector<Submesh> submeshes,
+                                    const uint32_t vertexCount, const float boundsGrowthCm )
+    {
+        // Private default constructor: make_shared cannot reach it.
+        std::shared_ptr<SkinnedMesh> twin( new SkinnedMesh() );
+        // The displacement pass's own buffers, data from offset 0 (not pooled: GPU-written, per-mesh bind).
+        Graphic::MeshGeometry geometry;
+        geometry.AuthoredStreams = streams != nullptr;
+        geometry.IndexCount      = indices ? indices->GetCount() : 0u;
+        geometry.Vertices        = std::move( vertices );
+        geometry.Streams         = std::move( streams );
+        geometry.Indices         = std::move( indices );
+        geometry.VertexStride    = static_cast<uint32_t>( sizeof( SkinnedVertex ) );
+        geometry.VertexCount     = vertexCount;
+        twin->SetUnpooledGeometry( std::move( geometry ) );
+        twin->m_Submeshes    = std::move( submeshes );
+        twin->m_Skeleton     = base.m_Skeleton;
+        twin->m_VertexCount  = vertexCount;
+        twin->m_BoneBounds   = base.m_BoneBounds;
+        for ( BoneBounds& bounds : twin->m_BoneBounds )
+        {
+            bounds.Box.Min -= glm::vec3( boundsGrowthCm );
+            bounds.Box.Max += glm::vec3( boundsGrowthCm );
+        }
+        twin->m_MorphReach = base.m_MorphReach;
         return twin;
     }
 
     Common::BoolResultWithCodes<Desert::MeshError> SkinnedMesh::Invalidate()
     {
-        const auto vertices = m_VertexBuffer->RT_Invalidate();
-        if ( !vertices.IsSuccess() )
-            return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
-                                                                vertices.GetError() );
-
-        const auto indices = m_IndexBuffer->RT_Invalidate();
-        if ( !indices.IsSuccess() )
-            return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
-                                                                indices.GetError() );
-
-        return InvalidateStreamBuffer();
+        return UploadStagedGeometry();
     }
 
 } // namespace Desert

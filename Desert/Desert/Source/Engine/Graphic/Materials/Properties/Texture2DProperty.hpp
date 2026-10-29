@@ -22,6 +22,10 @@ namespace Desert::Graphic
         // material's schema), and it is born holding that parameter's default: the declared `= "kind"`, or
         // White when none is declared (ShaderParam::DefaultTexture). The first Apply binds it if nothing
         // else was assigned, so no slot of a material ever shows "whatever was bound last".
+        //
+        // A ROW texture (Core::Formats::IsRowTexture) has no @p uniform: it is no descriptor of the material's
+        // set. The shader reads it from the row through the bindless table, and the row slot is written from
+        // GetBindlessSlot / GetBindlessSampler when the row is copied (DataDrivenMaterial::GetParamRow).
         Texture2DProperty( std::shared_ptr<ShaderResources::UniformImage2D> uniform,
                            Core::Formats::DefaultTextureKind                defaultTexture )
              : m_Uniform( std::move( uniform ) ), m_Default( defaultTexture )
@@ -48,12 +52,19 @@ namespace Desert::Graphic
         {
             if ( m_Texture == nullptr && !RestoreDefault() )
                 return;
+            if ( IsRowTexture() )
+                return;
 
-            // The uniform is shared by every view, so it is re-pointed once per write, not per view.
-            if ( m_UniformVersion != GetVersion() )
+            // The uniform is shared by every view, so it is re-pointed once per write, not per view -- and when
+            // the image changed its device image under the same pointer (a streamed mip change,
+            // Image2D::TakeDeviceImageFrom, or a sampler change): the view it names is then a new one, and each
+            // view's set takes it because the handle it recorded differs.
+            const uint64_t generation = m_Texture->GetResourceGeneration();
+            if ( m_UniformVersion != GetVersion() || m_UniformGeneration != generation )
             {
                 m_Uniform->SetImage2D( m_Texture, m_Declared );
-                m_UniformVersion = GetVersion();
+                m_UniformVersion    = GetVersion();
+                m_UniformGeneration = generation;
             }
             // Asked every time: whether THIS view's set is behind is the set's record, not a flag here.
             backend->ApplyTexture2D( this );
@@ -130,9 +141,27 @@ namespace Desert::Graphic
         {
             return m_SamplesEncoded;
         }
+        /// The bindless slot of what this property draws NOW: the bound image's, or — while the texture is
+        /// Pending (AM2) and nothing is bound — the schema default's, the same image raster binds. The material is
+        /// on RebuildWhenReady, so its rebuild re-reads the real slot once the texture is resident.
+        [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const
+        {
+            const Image2D* image = m_Texture != nullptr ? m_Texture : DefaultTextures::Get().Resolve( m_Default );
+            return image != nullptr ? image->GetBindlessSlot() : BindlessTextureSlot{};
+        }
+        [[nodiscard]] BindlessSamplerSlot GetBindlessSampler() const
+        {
+            return BindlessSamplerFor( GetSamplerState() );
+        }
+
         [[nodiscard]] const Image2D* GetImage() const noexcept
         {
             return m_Texture;
+        }
+
+        [[nodiscard]] bool IsRowTexture() const noexcept
+        {
+            return m_Uniform == nullptr;
         }
 
         const auto& GetUniform() const
@@ -148,5 +177,6 @@ namespace Desert::Graphic
         Core::Formats::SamplerState                      m_Sampler;
         bool                                             m_SamplesEncoded = false;
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
+        uint64_t m_UniformGeneration                                      = 0; // the image's, at the last re-point
     };
 } // namespace Desert::Graphic

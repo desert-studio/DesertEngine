@@ -468,12 +468,12 @@ TEST( PipelineCacheKey, EveryFieldOfTheSpecificationIsAccountedFor )
     // 19 + 2 == 21 passes forever and checks nothing. Structured bindings must name every member of the
     // aggregate exactly, so adding or removing one in Pipeline.hpp fails to build right here.
     //
-    // Separating (22): the binding names them in declaration order.
+    // Separating (23): the binding names them in declaration order.
     // Deliberately inert (2): lineWidth is dynamic state, debugName is a label.
     GraphicsPipelineSpecification spec                                      = Baseline();
     auto& [shader, framebuffer, targetLayout, renderpass, layout, pullingConfig, depthTest, depthCompare,
            stencilTest, stencilFront, stencilBack, cullMode, depthWrite, blendEnable, srcBlend, dstBlend,
-           useLoadRenderPass, depthBiasConstant, depthBiasSlope, lineWidth, topology, polygonMode,
+           useLoadRenderPass, depthBiasConstant, depthBiasSlope, depthClamp, lineWidth, topology, polygonMode,
            patchControlPoints, debugName]                                   = spec;
 
     // Touch the two inert ones so the census also states WHICH members were excused, rather than leaving a
@@ -506,7 +506,7 @@ TEST( PipelineBlendState, AnIntegerAttachmentNeverBlendsWhateverTheMaterialAsks 
     EXPECT_EQ( ColourAttachmentBlendEnables( formats, false ), ( std::vector<bool>( 4, false ) ) );
 }
 
-// GBUF1g: an UNUSED colour slot (the RSM's slot 2: RenderTargetLayout std::nullopt / FramebufferAttachment::
+// GBUF1g: an UNUSED colour slot (RenderTargetLayout std::nullopt / FramebufferAttachment::
 // UnusedColourSlot) keeps the slots after it at their locations, still gets a blend entry (Vulkan wants one per
 // colour reference) that never blends, and separates the pipeline key from a layout with an image there.
 // Mutations: the unused entry dropped from ColourAttachmentBlendEnables (3 entries, slot 3 shifted) -> red; the
@@ -537,45 +537,7 @@ TEST( PipelineBlendState, AnUnusedColourSlotKeepsItsPlaceAndNeverBlends )
     EXPECT_EQ( FramebufferAttachment( ImageFormat::RGBA8F ).ColourSlotFormat(), ImageFormat::RGBA8F );
 }
 
-// The RSM's colour slots are one list (ViewTargetFormats::kRSMColourSlots) read by the framebuffer and by the
-// RSM pipeline's target layout; slot 2 is unused (no shading-word image: the DESERT_GBUFFER_RSM permutation
-// writes none) and the others keep the G-buffer's locations. Mutation: the RSM framebuffer or pipeline spelled
-// from its own list (or kRSMShadingWord back in slot 2) -> red.
-TEST( PipelineBlendState, TheRSMSlotsAreOneListWithSlotTwoUnused )
-{
-    namespace F = Desert::Graphic::ViewTargetFormats;
-    ASSERT_EQ( F::kRSMColourSlots.size(), 4u );
-    EXPECT_EQ( F::kRSMColourSlots[0], F::kGBufferA );
-    EXPECT_EQ( F::kRSMColourSlots[1], F::kGBufferB );
-    EXPECT_FALSE( F::kRSMColourSlots[2].has_value() );
-    EXPECT_EQ( F::kRSMColourSlots[3], F::kGBufferEmissive );
-
-    const auto read = []( const char* relative )
-    {
-        std::ifstream in( Desert::TestSupport::RepositoryRoot() / relative, std::ios::binary );
-        std::string   text( ( std::istreambuf_iterator<char>( in ) ), std::istreambuf_iterator<char>() );
-        std::erase_if( text, []( unsigned char c ) { return std::isspace( c ) != 0; } );
-        return text;
-    };
-    const std::string scene = read( "Desert/Desert/Source/Engine/Graphic/SceneRenderer.cpp" );
-    EXPECT_NE(
-         scene.find( "for(conststd::optional<Core::Formats::ImageFormat>&slot:ViewTargetFormats::kRSMColourSlots)"
-                     "rsmSpec.Attachments.Attachments.push_back(slot?FramebufferAttachment(*slot):"
-                     "FramebufferAttachment::UnusedColourSlot());" ),
-         std::string::npos )
-         << "the RSM framebuffer is not built from kRSMColourSlots.";
-    const std::string mesh =
-         read( "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDeferred.cpp" );
-    EXPECT_NE(
-         mesh.find( "rsmSpec.Framebuffer.reset();rsmSpec.TargetLayout=RenderTargetLayout{.ColorFormats="
-                    "std::vector<std::optional<Core::Formats::ImageFormat>>(ViewTargetFormats::kRSMColourSlots"
-                    ".begin(),ViewTargetFormats::kRSMColourSlots.end()),.DepthFormat=ViewTargetFormats::"
-                    "kRSMDepth};" ),
-         std::string::npos )
-         << "the RSM pipeline is not built against kRSMColourSlots.";
-}
-
-// An unused colour slot (FramebufferAttachment::UnusedColourSlot, the RSM's slot 2) has no image:
+// An unused colour slot (FramebufferAttachment::UnusedColourSlot) has no image:
 // GetColorAttachmentImage / GetMultisampleColorAttachmentImage return null and its graph ref is invalid. Every
 // code path that walks a framebuffer's colour slots by index is named here with the guard that skips the slot; a
 // new walker (a file outside the list calling GetColorAttachmentCount / GetMultisampleColorAttachmentImage) is red
@@ -708,11 +670,11 @@ TEST( PipelineBlendState, PipelineCreationTakesEveryBlendSwitchFromTheRule )
 
 // G-buffer slot 2 is the RG32_UINT shading word. A float sampler over it reinterprets the bits, so: no shader
 // declares a float sampler for a *ShadingWord, none reads one through texture()/textureLod (texelFetch only), the
-// one C++ binding is DeferredLighting's u_GBufferShadingWord fed from gbuffer[2], and the editor's buffer views of
+// one C++ binding is DeferredLighting's GBufferShadingWordTexture fed from gbuffer[2], and the editor's buffer views of
 // the word's three fields (Material Complexity = TEXTURES, Shading Model = INDEX, Sun Shadow Receive =
-// NO_SUN_SHADOWS) decode the one integer fetch. Mutations: `usampler2D u_GBufferShadingWord` -> `sampler2D`, or a
-// debug branch reading texture(u_GBufferShadingWord,
-// ...), or a second .Sampled("u_GBufferShadingWord", ...) anywhere -> red.
+// NO_SUN_SHADOWS) decode the one integer fetch. Mutations: `usampler2D GBufferShadingWordTexture` -> `sampler2D`, or a
+// debug branch reading texture(GBufferShadingWordTexture,
+// ...), or a second .Texture("GBufferShadingWordTexture", ...) anywhere -> red.
 TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
 {
     const auto read = []( const std::filesystem::path& path )
@@ -750,7 +712,7 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
     ASSERT_FALSE( lighting.empty() );
     EXPECT_NE( lighting.find( "Uniform(1)usampler2Du_GBufferShadingWord;" ), std::string::npos );
     const auto fetch =
-         lighting.find( "constuvec2word=texelFetch(u_GBufferShadingWord,ivec2(gl_FragCoord.xy),0).rg;" );
+         lighting.find( "constuvec2word=texelFetch(GBufferShadingWordTexture,ivec2(gl_FragCoord.xy),0).rg;" );
     ASSERT_NE( fetch, std::string::npos );
     for ( const char* branch : { "if(dbg==9){oColor=vec4(HeatColor(DesertSampledTextureCount(word)",
                                  "if(dbg==10){constfloathue=fract(float(shadingModel)",
@@ -774,16 +736,15 @@ TEST( GBufferShadingWord, NoFloatSamplerBindsTheShadingWord )
             const auto ext = entry.path().extension();
             if ( !entry.is_regular_file() || ( ext != ".cpp" && ext != ".hpp" ) )
                 continue;
-            if ( read( entry.path() ).find( "\"u_GBufferShadingWord\"" ) != std::string::npos )
+            if ( read( entry.path() ).find( "\"GBufferShadingWordTexture\"" ) != std::string::npos )
                 binders.push_back( entry.path().filename().string() );
         }
     EXPECT_EQ( binders, std::vector<std::string>{ "DeferredLightingRenderer.hpp" } );
     const std::string renderer = strip( read(
          root / "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" ) );
-    EXPECT_NE(
-         renderer.find( ".Sampled(\"u_GBufferShadingWord\",inputs.GBufferShadingWord,RDG::Access::SampledGraphics,"
-                        "RDG::SubresourceRange::All(),RDG::SamplerDesc::PointClamp())" ),
-         std::string::npos );
+    EXPECT_NE( renderer.find( ".Texture(DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,"
+                              "inputs.GBufferShadingWord,kRead,kWhole)" ),
+               std::string::npos );
     const std::string deferred =
          strip( read( root / "Desert/Desert/Source/Engine/Graphic/SceneRendererFrameDeferred.cpp" ) );
     EXPECT_NE( deferred.find( "inputs.GBufferShadingWord=gbuffer[2];" ), std::string::npos );

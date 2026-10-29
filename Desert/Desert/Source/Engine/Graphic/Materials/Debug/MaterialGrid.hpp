@@ -9,6 +9,12 @@
 
 namespace Desert::Graphic
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MaterialGridShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, GridUB );
+    };
+
     // Infinite ground-plane grid material. Feeds the "Grid" shader a single UB with the camera matrices
     // (+ inverses, for the per-pixel world ray) and grid appearance params. Drawn as a fullscreen triangle.
     class MaterialGrid final : public Material
@@ -33,7 +39,7 @@ namespace Desert::Graphic
             data.ThickColor    = glm::vec4( 0.55f, 0.55f, 0.62f, 0.75f );
             data.Params        = glm::vec4( 100.0f, 4000.0f, 40000.0f, 0.0f ); // baseCell, fadeStart, fadeEnd (cm)
 
-            if ( auto* ub = Get<UniformBufferProperty>( "GridUB" ) )
+            if ( auto* ub = Get<UniformBufferProperty>( MaterialGridShaderParameters::GridUB ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 

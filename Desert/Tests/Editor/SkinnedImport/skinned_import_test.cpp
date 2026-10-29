@@ -1125,8 +1125,8 @@ TEST_F( NormalSlotImport, TheShippedTemplateStatesTheNormalSlotsIntent )
     ASSERT_TRUE( text.IsSuccess() );
     const auto read = Editor::ReadImportTemplate( text.GetValue(), file );
     ASSERT_TRUE( read.IsSuccess() ) << read.GetError();
-    const auto it = read.GetValue().TextureIntents.find( "u_NormalTexture" );
-    ASSERT_NE( it, read.GetValue().TextureIntents.end() ) << "the template states no intent for u_NormalTexture";
+    const auto it = read.GetValue().TextureIntents.find( "NormalTexture" );
+    ASSERT_NE( it, read.GetValue().TextureIntents.end() ) << "the template states no intent for NormalTexture";
     EXPECT_EQ( it->second, Core::Formats::TextureIntent::NormalMap );
 }
 

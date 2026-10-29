@@ -44,6 +44,7 @@ namespace Desert::Graphic::API::Vulkan
         GetStorageBufferModels() const override; // flattened per call; read once per ShaderResourcesManager
         virtual const std::vector<ShaderResources::ShaderLayout::ImageCubeSampler> GetUniformImageCubeModels() const override;
         virtual const std::vector<ShaderResources::ShaderLayout::Image2DSampler>   GetUniformImage2DModels() const override;
+        [[nodiscard]] bool SamplesTexture( std::string_view name ) const override;
 
         virtual const Common::Filepath& GetFilepath() const override
         {
@@ -119,6 +120,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             return !m_PipelineShaderStageCreateInfos.empty();
         }
+        [[nodiscard]] std::string_view GetDeviceRefusal() const override
+        {
+            return m_DeviceRefusal;
+        }
+        [[nodiscard]] std::string_view GetCompileError() const override
+        {
+            return m_CompileError;
+        }
         /**
          * The layout for @p set, as a STRONG reference.
          *
@@ -163,6 +172,13 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReflectionData.VertexInputLocations;
         }
 
+        // The vertex stage's inputs by name and type (ShaderReflection::ReflectVertexInputs).
+        [[nodiscard]] const std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>&
+        GetVertexInputs() const
+        {
+            return m_ReflectionData.VertexInputs;
+        }
+
         // The colour locations the fragment stage writes (ShaderReflection::ReflectFragmentOutputLocations).
         [[nodiscard]] const std::vector<uint32_t>& GetFragmentOutputLocations() const
         {
@@ -189,7 +205,10 @@ namespace Desert::Graphic::API::Vulkan
         // shader with a named reason than to bind something of the wrong shape.
         Common::BoolResultStr Reflect( VkShaderStageFlagBits flag, const std::vector<uint32_t>& spirvBinary,
                                        ShaderResource::ReflectionData& into );
-        Common::BoolResultStr CreateDescriptorsLayout();
+        // Builds into @p layouts, never into the shader: it runs before the compile is committed, so a stage
+        // over a per-stage limit leaves the shader uncompiled (IsCompiled) and no pipeline is ever built on it.
+        Common::BoolResultStr CreateDescriptorsLayout( const ShaderResource::ReflectionData& reflection,
+                                                       std::vector<DescriptorSetLayoutRef>&  layouts ) const;
 
         Common::BoolResultStr BuildFromSpirv( const std::vector<Core::ShaderMapStage>& stages );
 
@@ -202,6 +221,10 @@ namespace Desert::Graphic::API::Vulkan
         std::filesystem::path                        m_ShaderPath;
         std::string                                  m_ShaderName;
         std::string                                  m_PassName; // empty = default program
+        // Set by BuildFromSpirv when a stage needs a capability this device lacks (GetDeviceRefusal).
+        std::string m_DeviceRefusal;
+        // The last Reload's failure, or empty after one that succeeded (GetCompileError).
+        std::string m_CompileError;
 
         // STORED **AND** HONOURED, which is the half its predecessor never had: this reaches
         // CompileProgram below, and through it the includer and the SPIR-V cache key. A variant that

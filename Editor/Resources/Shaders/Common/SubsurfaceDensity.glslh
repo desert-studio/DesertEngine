@@ -1,0 +1,13 @@
+#ifndef SUBSURFACE_DENSITY_GLSLH
+#define SUBSURFACE_DENSITY_GLSLH
+
+// UE SubsurfaceDensityFromOpacity (DeferredShadingCommon.ush): the density per cm a subsurface receiver's opacity
+// stands for, tuned for a linear depth falloff with opacity. Its own file because two kinds of reader need it: a
+// light's contact shadow (Common/ContactShadow.glslh, which needs the screen depth) and the cascades'
+// TransmissionShadow of a receiver with no screen (the surface cache's card texels).
+float ContactShadowSubsurfaceDensity(float opacity)
+{
+	return -0.05 * log(1.0 - min(opacity, 0.99));
+}
+
+#endif // SUBSURFACE_DENSITY_GLSLH

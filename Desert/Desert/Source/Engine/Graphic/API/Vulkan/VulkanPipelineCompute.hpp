@@ -31,6 +31,7 @@ namespace Desert::Graphic::API::Vulkan
         // --- Resource-binding API (see ComputePipeline) ---
         ComputePipeline& SetInput( uint32_t binding, Image* image, RDG::Access declared,
                                    RDG::SubresourceRange range ) override;
+        ComputePipeline& SetSampler( uint32_t binding, const RDG::SamplerDesc& desc ) override;
         ComputePipeline& SetOutput( uint32_t binding, Image* image, uint32_t mip = 0 ) override;
         ComputePipeline& SetStorageBuffer( uint32_t binding, ShaderResources::StorageBuffer* buffer ) override;
         ComputePipeline& SetPushConstants( const void* data, uint32_t size ) override;
@@ -64,8 +65,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_Layouts;
         }
-        // The set-0 bindings the pipeline's own setters (SetInput / SetOutput / SetStorageBuffer) fill: the
-        // "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
+        // The set-0 bindings the pipeline's own setters (SetInput / SetSampler / SetOutput / SetStorageBuffer)
+        // fill: the "other route" of an in-graph dispatch (Renderer::DispatchCompute), sorted and unique.
         [[nodiscard]] std::vector<uint32_t>      GetBoundBindings() const;
         [[nodiscard]] std::span<const std::byte> GetBoundPushConstants() const
         {
@@ -114,6 +115,7 @@ namespace Desert::Graphic::API::Vulkan
         };
         std::unordered_map<uint32_t, InputBinding>                    m_BoundInputs;
         std::unordered_map<uint32_t, OutputBinding>                   m_BoundOutputs;
+        std::unordered_map<uint32_t, RDG::SamplerDesc>                m_BoundSamplers;
         std::unordered_map<uint32_t, ShaderResources::StorageBuffer*> m_BoundStorageBuffers;
         std::vector<std::byte>                                        m_BoundPushConstants;
 

@@ -1,9 +1,12 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
 
+#include <Engine/Core/Serialize/SceneFormat.hpp>
+
 #include <memory>
+#include <optional>
 
 namespace Desert::Assets
 {
@@ -42,5 +45,8 @@ namespace Desert::Editor
         std::shared_ptr<::Desert::Core::Scene>          m_Scene;
         std::shared_ptr<::Desert::Assets::AssetManager> m_AssetManager;
         std::unique_ptr<UI::UIHelper> m_UIHelper; // texture-slot thumbnails + the CSM cascade depth maps
+
+        // The partition as it was when the Chunk Region Size drag began: the undo entry's "before".
+        std::optional<::Desert::Core::WorldPartitionSerialized> m_ChunkRegionBefore;
     };
 } // namespace Desert::Editor

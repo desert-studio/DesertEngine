@@ -10,6 +10,7 @@
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <format>
 #include <map>
 #include <mutex>
 
@@ -21,10 +22,9 @@ namespace Desert::Assets::ContentRegistry
 {
     std::string RefreshOutcome::Describe() const
     {
-        return std::to_string( Rows ) + " row(s) in the content registry: " + std::to_string( Added ) +
-               " added, " + std::to_string( Removed ) + " removed, " + std::to_string( Edges ) +
-               " dependency edge(s) recorded, " + std::to_string( Bounded ) + " row(s) with bounds; " +
-               ( Written ? "written" : "unchanged, not written" );
+        return std::format( "{} row(s) in the content registry: {} added, {} removed, {} dependency edge(s) "
+                            "recorded, {} row(s) with bounds; {}",
+                            Rows, Added, Removed, Edges, Bounded, Written ? "written" : "unchanged, not written" );
     }
 
     Common::ResultStr<RefreshOutcome> Refresh( AssetManager& manager )

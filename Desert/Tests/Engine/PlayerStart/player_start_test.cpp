@@ -344,13 +344,17 @@ TEST( PawnBody, NoControllerAnywhereIsASpectatorNotAnError )
     EXPECT_FALSE( block.GetValue().has_value() );
 }
 
-// WP24: in Play the residency follows the sources, never the view.
+// WP24 / WP19-REST: in Play the residency follows the sources; the only view that is one is the PLAYER's, and
+// only when it has no pawn (UE's APlayerController streams from GetPlayerViewPoint).
 TEST( PawnIsAStreamingSource, NoCameraDrivesResidencyInPlay )
 {
     const std::string src = ReadSource( "Desert/Desert/Source/Engine/Core/WorldStreamer.cpp" );
     EXPECT_EQ( src.find( "GetActiveCamera" ), std::string::npos )
-         << "WorldStreamer reads the active camera: the view would stream the world again";
+         << "WorldStreamer reads the active camera: any view would stream the world, not the player's";
     EXPECT_EQ( src.find( "CameraComponent" ), std::string::npos );
+    EXPECT_NE( src.find( "if ( scene.GetPlayerPawn() == entt::null )" ), std::string::npos )
+         << "the player's view is a source only when no pawn stands for the player";
+    EXPECT_NE( src.find( "scene.PlayerViewPoint()" ), std::string::npos );
     EXPECT_NE( src.find( "registry.view<ECS::StreamingSourceComponent>()" ), std::string::npos );
     EXPECT_NE( src.find( "if ( !data.Enabled )" ), std::string::npos ) << "a disabled source must not stream";
     EXPECT_NE( src.find( "Play has no streaming source" ), std::string::npos )

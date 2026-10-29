@@ -13,7 +13,7 @@
 namespace Desert::Graphic
 {
     // "Scene: DepthResolve": SceneDepthResolve.shader fetches sample 0 of the multisampled scene depth. The
-    // material holds nothing of its own: u_Depth is a pass parameter (not in the shader's Properties), bound by
+    // material holds nothing of its own: SourceDepthTexture is a pass parameter (not in the shader's Properties), bound by
     // SceneDepthResolveRenderer::Record through RDG::PassBindings from the node's SampledGraphics read.
     // Header-only.
     class MaterialSceneDepthResolve final : public Material
@@ -27,6 +27,13 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SceneDepthResolveBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
     // The compute passes that read scene depth (height fog, volumetric clouds) sample a SINGLE-SAMPLE depth: a
     // sampler2D over a multisampled image is invalid (VUID-RuntimeSpirv-samples-08725). At MSAA > 1 this system
     // owns SceneDepthResolved, a 1x depth-only framebuffer resized with the scene target, and records the raster
@@ -101,14 +108,16 @@ namespace Desert::Graphic::System
             return m_Resolved;
         }
 
-        // SETUP of "Scene: DepthResolve": the node's one block (block 0) - @p sceneDepth as u_Depth, fetched at
+        // SETUP of "Scene: DepthResolve": the node's one block (block 0) - @p sceneDepth as SourceDepthTexture, fetched at
         // sample 0 (PointClamp), the material as the other route. Not ready: nothing declared, Record refuses.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef sceneDepth ) const
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                 .Texture( SceneDepthResolveBindingShaderParameters::SourceDepthTexture, sceneDepth,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( SceneDepthResolveBindingShaderParameters::PointClampSampler,
                            RDG::SamplerDesc::PointClamp() );
         }
 

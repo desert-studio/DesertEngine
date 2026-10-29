@@ -1,0 +1,14 @@
+# FOLIAGE-ALPHA-MIPS: the leaves of FIELD_Barn are masked (clip 0.2); with a plain box filter each mip has fewer texels
+# above the clip than level 0, so a distant crown thins out and the sky shows through it. The opacity textures now
+# keep level 0's coverage in every mip (UE bPreserveAlphaCoverage). Tree 1 stands at (-1500, 221, -5200).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position -1500,1000,-2200
+Дано --subject viewport set Camera.Direction 0,0,-1
+Тогда-вид 1_near the crown of Tree 1 at 30 m is dense
+Когда --subject viewport set Camera.Position -1500,1200,6800
+Когда --subject viewport set Camera.Direction 0,-0.02,-1
+Тогда-вид 2_far the crown at 120 m keeps its silhouette: no more sky through it than at 1_near

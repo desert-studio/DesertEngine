@@ -18,8 +18,42 @@ const int DF_ASSET_MIP_STRIDE = 3;
 const int DF_ASSET_STRIDE     = 1 + DF_ASSET_MIP_STRIDE * DF_NUM_MIPS;
 // Per object in the object buffer (vec4s): world -> volume (three affine rows), the volume extent with the
 // volume -> world distance scale (the smallest axis'), the asset index with each volume axis' own volume -> world
-// scale (the box distance, exact under a non-uniform scale).
-const int DF_OBJECT_STRIDE = 5;
+// scale (the box distance, exact under a non-uniform scale), the world box's minimum and maximum corners (xyz, cm;
+// UE FDFObjectBounds - the near field's cull), last the object's flags (UE FDFObjectData's flags) in .x and its
+// instance-table row in .y (both uint bits; the row GDF_OBJECT_GRID_INVALID when the surface cache holds no cards):
+// what the object grid lists and what a near-field hit reads its cards by; then three affine rows taking a world
+// point on the object this frame to where it was last frame (previous world x inverse world; UE
+// GetPrevWorldPositionFromGPUSceneInstanceIndex: WorldToLocal then PrevLocalToWorld) - a near-field hit's world
+// velocity (the screen probe trace's moving test).
+const int DF_OBJECT_STRIDE = 11;
+const int DF_OBJECT_ROW_BOUNDS_MIN = 5;
+const int DF_OBJECT_ROW_BOUNDS_MAX = 6;
+const int DF_OBJECT_ROW_FLAGS = 7;
+const int DF_OBJECT_ROW_TO_PREVIOUS_WORLD = 8;
+// Flag bits of DF_OBJECT_ROW_FLAGS' .x: the mesh is mostly two-sided (foliage, UE bMostlyTwoSided).
+const int DF_OBJECT_FLAG_MOSTLY_TWO_SIDED = 1;
+
+// The near field a GI ray traces through the mesh distance fields before the global one (UE
+// r.Lumen.TraceMeshSDFs.TraceDistance 180 cm), and the view's froxel grid of object lists a ray looks its objects up
+// in by its origin (UE FLumenMeshSDFGridParameters, LumenMeshSDFCulling - culled on the GPU each frame): cells of
+// DF_MESH_SDF_GRID_PIXEL_SIZE pixels, slices of view depth log2(depth * LOG_Z_SCALE + LOG_Z_OFFSET) * Z_SCALE out to
+// DF_MESH_SDF_GRID_MAX_DISTANCE (UE r.Lumen.DiffuseIndirect.CullGridPixelSize 64,
+// CullGridDistributionLogZScale .01, LogZOffset 1, ZScale 4, CardTraceEndDistanceFromCamera 40 m - no mesh field is
+// traced from farther), each cell listing every object within the trace distance of it - no cap; the lists are
+// compacted into one buffer whose first frame holds DF_MESH_SDF_GRID_INITIAL_OBJECTS_PER_CELL entries per cell and
+// grows to what the GPU reports it needed (GlobalDistanceField::ReadNearFieldFeedback; a frame that needed more
+// than it had is refused and logged, never cut short).
+// A near-field ray leaves its surface by one voxel of the finest resident mip of the objects there, at least
+// DF_MESH_SDF_SURFACE_BIAS (UE's mesh-SDF trace starts a few cm off the surface; the global field's continuation
+// keeps its own voxel - GIRayBias).
+const float DF_MESH_SDF_TRACE_DISTANCE                = 180.0f;
+const int   DF_MESH_SDF_GRID_PIXEL_SIZE               = 64;
+const float DF_MESH_SDF_GRID_LOG_Z_SCALE              = 0.01f;
+const float DF_MESH_SDF_GRID_LOG_Z_OFFSET             = 1.0f;
+const float DF_MESH_SDF_GRID_Z_SCALE                  = 4.0f;
+const float DF_MESH_SDF_GRID_MAX_DISTANCE             = 4000.0f;
+const int   DF_MESH_SDF_GRID_INITIAL_OBJECTS_PER_CELL = 32;
+const float DF_MESH_SDF_SURFACE_BIAS                  = 4.0f;
 
 // The global distance field (UE GlobalDistanceField.cpp: four clipmaps of 128^3, Lumen's 25 m first extent
 // doubling per level, an influence range of four voxels).
@@ -28,5 +62,18 @@ const int   GDF_RESOLUTION                  = 128;
 const int   GDF_UPDATE_BRICK                = 8;   // the update granularity, voxels per side
 const float GDF_CLIPMAP0_EXTENT             = 2500.0f; // half-size of clipmap 0, centimetres
 const float GDF_INFLUENCE_RANGE_IN_VOXELS   = 4.0f;
+
+// The global distance field's object grid (GlobalDistanceField.hpp; UE GlobalDistanceFieldObjectGrid.ush): cells of
+// two voxels (UE DISTANCE_FIELD_OBJECT_GRID_PAGE_RESOLUTION 4 per 8-voxel page), four rows a cell
+// (DISTANCE_FIELD_OBJECT_GRID_CELL_SIZE), an object listed when its surface lies within 2.5 voxels of the cell's box.
+// UE lists within 1.5 (DISTANCE_FIELD_OBJECT_GRID_CARD_INTERPOLATION_RANGE_IN_VOXELS 3 in its half-voxel
+// ClipmapVoxelExtent); here a card holds a hit up to the tracer's tolerance (a voxel) off its surface, on the
+// expanded surface, so 1.5 misses rows the cards would accept (the Room scene: more hits lit in place than with
+// every row tried); 2.5 matches every row, and the cell's query (1.44 x its half size + this) stays inside the
+// four-voxel influence the composite's brick lists are culled with.
+const int   GDF_OBJECT_GRID_CELL_VOXELS          = 2;
+const int   GDF_OBJECT_GRID_RESOLUTION           = 64; // cells per side of a level: GDF_RESOLUTION / CELL_VOXELS
+const int   GDF_OBJECT_GRID_SLOTS                = 4;
+const float GDF_OBJECT_GRID_INTERPOLATION_VOXELS = 2.5f;
 
 #endif

@@ -3,9 +3,11 @@
 #include <vk-bootstrap/VkBootstrap.h>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDeviceExtensions.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSwapChain.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanPipeline.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Core/EngineContext.hpp>
@@ -123,15 +125,30 @@ namespace Desert::Graphic::API::Vulkan
             return VK_FALSE;
         }
 
-        LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  Message: {1}", (int)objectType, pMessage );
+        // A create-time fault arrives before the object has a debug name: name the pipeline being created.
+        const std::string_view creating = PipelineBeingCreatedOnThisThread();
+        if ( !creating.empty() )
+        {
+            LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  While creating pipeline: '{1}'\n  Message: {2}",
+                      (int)objectType, creating, pMessage != nullptr ? pMessage : "" );
+        }
+        else
+        {
+            LOG_WARN( "VulkanDebugCallback:\n  Object Type: {0}\n  Message: {1}", (int)objectType, pMessage );
+        }
         return VK_FALSE;
     }
 
-#ifdef DESERT_CONFIG_DEBUG
-    static bool s_DebugValidation = true;
-#else
-    static bool s_DebugValidation = false;
-#endif
+    // OPT-IN, AS IN UE (-vulkandebug / r.Vulkan.EnableValidation): the Khronos layer with synchronization
+    // validation tracks every buffer, descriptor and access range, and on the Bistro street that was
+    // 2.75 million host allocations, 1.36 GB of the Debug editor's 6 GB (heap -s, BISTRO-LOOK p10) - the
+    // editor died at its memory cap before its first frame. Asked for with DESERT_VULKAN_VALIDATION=1.
+    // NOLINTNEXTLINE(concurrency-mt-unsafe): read once at static initialisation, before any thread exists
+    static const bool s_DebugValidation = []
+    {
+        const char* value = std::getenv( "DESERT_VULKAN_VALIDATION" );
+        return value != nullptr && value[0] != '\0' && value[0] != '0';
+    }();
 
     VulkanContext::VulkanContext( const std::shared_ptr<Window>& window ) : m_Window( window )
     {
@@ -174,7 +191,7 @@ namespace Desert::Graphic::API::Vulkan
         // vk-bootstrap dlopen a second copy.
         //
         // API VERSION: 1.3 is what the engine is written against and what the instance advertises; the
-        // instance itself only has to be 1.1 (kMinimumDeviceApiVersion). A device older than 1.3 is still
+        // instance itself only has to be kMinimumDeviceApiVersion (1.2). A device older than 1.3 is still
         // driven at its own version — VMA and routing use min(device, 1.3), see DeviceCaps.
         vkb::InstanceBuilder builder( vkGetInstanceProcAddr );
         builder.set_app_name( "Desert Engine" )
@@ -200,6 +217,34 @@ namespace Desert::Graphic::API::Vulkan
                 LOG_ERROR( "Validation layer VK_LAYER_KHRONOS_validation not present, validation is disabled" );
             builder.enable_extension( VK_EXT_DEBUG_UTILS_EXTENSION_NAME )
                  .enable_extension( VK_EXT_DEBUG_REPORT_EXTENSION_NAME );
+        }
+
+        // HDR-OUTPUT: the surface lists its HDR format + colour-space pairs (scRGB / HDR10 — CapabilityCatalog::
+        // DisplayOutputs) only when VK_EXT_swapchain_colorspace is on the instance; MoltenVK maps them to the
+        // CAMetalLayer's EDR colour spaces. Optional: without it the catalog offers SDR alone, which is the truth.
+        if ( const auto system = vkb::SystemInfo::get_system_info( vkGetInstanceProcAddr );
+             system && system.value().is_extension_available( VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME ) )
+            builder.enable_extension( VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME );
+        else
+            LOG_INFO( "[Vulkan] {} absent: the display outputs are SDR only",
+                      VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME );
+
+        // What the platform's runtimes need on the instance (VulkanDeviceExtensions.hpp), each list already
+        // checked present by its runtime.
+        for ( IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+        {
+            const InstanceRequirements requirements = extension->InstanceExtensions();
+            for ( const char* name : requirements.Extensions )
+                builder.enable_extension( name );
+            // The layer still validates every call it sees; it only stops replacing the driver's handles with
+            // its own ids, which the runtime's SDK would otherwise carry to the driver past the layer.
+            if ( validationRequested && requirements.PassesHandlesBesideTheLayers )
+            {
+                builder.add_validation_feature_disable( VK_VALIDATION_FEATURE_DISABLE_UNIQUE_HANDLES_EXT );
+                LOG_INFO( "[Vulkan] validation layer without unique handles: {} hands the engine's handles to "
+                          "the driver past the layers",
+                          extension->Name() );
+            }
         }
 
         auto built = builder.build();

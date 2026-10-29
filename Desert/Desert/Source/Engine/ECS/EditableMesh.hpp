@@ -55,4 +55,11 @@ namespace Desert::ECS
     // Drops both: the entity falls back to its asset handle or primitive. What every "the mesh is now
     // something else" path calls (a primitive picked in Details, a photogrammetry result, a preview reset).
     void ClearEditableMesh( StaticMeshComponent& component );
+
+    // UE's UStaticMeshComponent::PostEditChangeProperty for the two reflected references: `before` is the
+    // component as it was before an edit (Details, DesertCtl `set`, undo), `after` the component now.
+    //   - a new MeshHandle IS the mesh: the Primitive and the edited mesh that would take priority over it in
+    //     the draw are dropped (UE SetStaticMesh), and the material slots are re-fitted to the new mesh;
+    //   - a changed MaterialSlots drops the runtime instances, so the draw builds them again from the slots.
+    void PostEditStaticMesh( const StaticMeshComponent& before, StaticMeshComponent& after );
 } // namespace Desert::ECS

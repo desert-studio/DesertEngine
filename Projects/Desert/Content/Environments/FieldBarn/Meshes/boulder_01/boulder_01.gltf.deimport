@@ -1,0 +1,15 @@
+{
+    "Header": {
+        "Kind": "StaticMesh",
+        "Guid": "0d8e27be1e6cbdd2bd4cdb498911c6bb",
+        "Versions": {
+            "DIMP": 2
+        },
+        "Dependencies": []
+    },
+    "Source": "boulder_01.gltf",
+    "Bounds": {
+        "Min": [-74.81597137451172, -7.364296913146973, -94.84404754638672],
+        "Max": [52.39759063720703, 93.01872253417969, 88.18937683105469]
+    }
+}

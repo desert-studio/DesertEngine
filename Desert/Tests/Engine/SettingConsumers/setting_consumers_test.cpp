@@ -179,11 +179,20 @@ namespace
     constexpr const char* kFogRenderer =
          "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Fog/HeightFogRenderer.cpp";
 
-    // The scene's clock (TOD-SPLIT): the time-of-day driver turns these five into the sun's transform.
+    // The scene's clock (TOD-SPLIT) and its calendar (TOD1): the time-of-day driver turns these into the sun's
+    // transform.
     constexpr Row kTimeOfDayRows[] = {
-         { "DriveSunFromTimeOfDay", kTimeOfDay }, { "TimeOfDay", kTimeOfDay },
-         { "DayLengthSeconds", kTimeOfDay },      { "Latitude", kTimeOfDay },
+         { "DriveSunFromTimeOfDay", kTimeOfDay },
+         { "TimeOfDay", kTimeOfDay },
+         { "DayLengthSeconds", kTimeOfDay },
+         { "Latitude", kTimeOfDay },
          { "NorthOffset", kTimeOfDay },
+         { "Longitude", kTimeOfDay },
+         { "TimeZone", kTimeOfDay },
+         { "DaylightSavingTime", kTimeOfDay },
+         { "Year", kTimeOfDay },
+         { "Month", kTimeOfDay },
+         { "Day", kTimeOfDay },
     };
 
     constexpr Row kFogRows[] = {
@@ -323,6 +332,11 @@ namespace
          // packer as an offset. WIND STAYS ON THE COMPONENT deliberately (the one named divergence from
          // the UE split): the collector may not touch Runtime::ResourceRegistry, and accumulating in the
          // renderer would let two viewports of one scene drift apart.
+         //
+         // CLOUD-OFFSET-BAKE: the AUTHORED start of that offset and the switch that lets game time move it
+         // both live on the layer and are both read by the system that integrates the drift.
+         { "WindOffset", kCloudSystem },
+         { "Drift", kCloudSystem },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -561,13 +575,12 @@ namespace
          { "DistanceFieldShadows", kRenderMethods },
          { "Tonemapper", kSceneRenderer },
          { "Exposure", kSceneRenderer },
-         { "Gamma", kSceneRenderer },
          { "WhitePoint", kSceneRenderer },
          { "AutoExposure", kSceneRenderer },
          { "AutoExposureKey", kSceneRenderer },
          { "AutoExposureSpeed", kSceneRenderer },
-         { "AutoExposureMin", kSceneRenderer },
-         { "AutoExposureMax", kSceneRenderer },
+         { "AutoExposureMinEV100", kSceneRenderer },
+         { "AutoExposureMaxEV100", kSceneRenderer },
          { "EnableBloom", kSceneRenderer },
          { "BloomThreshold", kSceneRenderer },
          { "BloomIntensity", kSceneRenderer },
@@ -646,6 +659,7 @@ namespace
          { "Color", kSpotLight },
          { "Intensity", kSpotLight },
          { "Range", kSpotLight },
+         { "MinRadius", kSpotLight },
          { "InnerConeAngle", kSpotLight },
          { "OuterConeAngle", kSpotLight },
          { "Falloff", kSpotLight },
@@ -931,11 +945,12 @@ namespace
          { "MaxSleepTime", kDestructibleSync },
          { "SlowMovingAsSleeping", kDestructibleSync },
          { "SlowMovingVelocityThreshold", kDestructibleSync },
-         // DST-05: the event flags are read where the events are published into the VFX data channels; the
-         // collision minimum (and the collision flag again, as the switch for recording) where the desc is built.
-         { "NotifyBreaks", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
-         { "NotifyCollisions", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
-         { "NotifyRemovals", "Desert/Desert/Source/Engine/ECS/System/DestructionVFXEvents.cpp" },
+         // The event flags gate which of the world's events are published as the entity's news (PublishEvents);
+         // the collision minimum (and the collision flag again, as the switch for recording) where the desc is
+         // built.
+         { "NotifyBreaks", kDestructibleSync },
+         { "NotifyCollisions", kDestructibleSync },
+         { "NotifyRemovals", kDestructibleSync },
          { "CollisionEventMinImpulse", kDestructibleSync },
     };
     // A water body (WATER-W2): every field is read by ECS::WaterBodyGather into the Water::WaterBodyState the
@@ -1000,6 +1015,8 @@ namespace
          { "ShapeOffset", kWorldStreamer },
          { "ShapeYaw", kWorldStreamer },
          { "UseVelocityForSorting", kWorldStreamer },
+         { "LookAheadTime", kWorldStreamer },
+         { "MaxLookAhead", kWorldStreamer },
     };
 
     constexpr Row kRetargetRows[] = {
@@ -1881,7 +1898,7 @@ TEST( SettingConsumers, TheShaderClampsTheShadowRayAtTheSameCeilingTheSliderOffe
 
     // The exact line the march clamps on. Written out in full rather than matched loosely, because a
     // regex that still matched after somebody rewrote the clamp would pass while testing nothing.
-    const std::string expected = "int   lightSamples = int(clamp(u_CloudSunColour.w, 1.0f, " +
+    const std::string expected = "int   lightSamples = int(clamp(CloudSunColour.w, 1.0f, " +
                                  std::to_string( Desert::ECS::kCloudLightMarchMaxSamples ) + ".0f));";
 
     EXPECT_NE( source.find( expected ), std::string::npos )
@@ -1948,7 +1965,7 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
          << "MakeInstanceWind takes an authored angle instead of the scene's wind";
 
     // Cloth and groom are seams (no stepping system yet): their contexts carry the query's answer, and say so.
-    for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+    for ( const char* seam : { "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
                                "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
                                "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp" } )
         EXPECT_NE( ReadFile( root / seam ).find( "ECS::WindAt" ), std::string::npos )

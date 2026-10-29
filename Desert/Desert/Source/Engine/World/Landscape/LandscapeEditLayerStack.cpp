@@ -15,11 +15,25 @@ namespace Desert::World::Landscape
         return nullptr;
     }
 
+    const LandscapeEditLayer* LandscapeEditLayerStack::FindSplinesLayer() const
+    {
+        for ( const LandscapeEditLayer& layer : Layers )
+            if ( layer.Kind == LandscapeEditLayerKind::Splines )
+                return &layer;
+        return nullptr;
+    }
+
     Common::BoolResultStr ValidateLandscapeEditLayerStack( const LandscapeEditLayerStack& stack )
     {
+        size_t splinesLayers = 0u;
         for ( size_t i = 0; i < stack.Layers.size(); ++i )
         {
             const LandscapeEditLayer& layer = stack.Layers[i];
+            // UE: ULandscapeEditLayerSplines::SupportsMultiple() == false.
+            if ( layer.Kind == LandscapeEditLayerKind::Splines && ++splinesLayers > 1u )
+                return Common::MakeFormattedError<bool>( "Landscape edit layer {} ('{}') is a second Splines layer; "
+                                                         "a landscape has at most one",
+                                                         i, layer.Name );
             if ( layer.Guid.IsNull() )
                 return Common::MakeFormattedError<bool>( "Landscape edit layer {} ('{}') has a null Guid", i,
                                                          layer.Name );

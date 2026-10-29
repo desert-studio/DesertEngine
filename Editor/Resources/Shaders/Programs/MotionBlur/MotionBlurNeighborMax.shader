@@ -8,27 +8,31 @@ Shader "MotionBlurNeighborMax"
         // CPU twin: Graphic::NeighborhoodMaxVelocity.
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_TileMax; // tile extent
-        layout(binding = 1, rg16f) restrict writeonly uniform image2D u_NeighborMax;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler PointClampSampler;
+        Uniform(0) texture2D TileMaxTexture; // tile extent
+        #define TileMaxTexture sampler2D(TileMaxTexture, PointClampSampler)
+        layout(binding = 1, rg16f) restrict writeonly uniform image2D NeighborMaxTexture;
 
         // The C++ side is Graphic::MotionBlurParams (View/MotionBlur.hpp), offsets pinned by static_asserts.
         layout(std430, binding = 2) readonly buffer MotionBlurBuffer
         {
-            vec2  u_RenderSize;
-            vec2  u_OutputSize;
-            vec2  u_TileCount;
-            float u_VelocityScale;
-            float u_MaxPixels;
-            int   u_Samples;
-            float u_Pad0;
-            float u_Pad1;
-            float u_Pad2;
+            vec2  RenderSize;
+            vec2  OutputSize;
+            vec2  TileCount;
+            float VelocityScale;
+            float MaxPixels;
+            int   Samples;
+            float Pad0;
+            float Pad1;
+            float Pad2;
         };
 
         void main()
         {
             const ivec2 tile  = ivec2(gl_GlobalInvocationID.xy);
-            const ivec2 count = ivec2(u_TileCount);
+            const ivec2 count = ivec2(TileCount);
             if (any(greaterThanEqual(tile, count)))
                 return;
             vec2  longest = vec2(0.0);
@@ -37,7 +41,7 @@ Shader "MotionBlurNeighborMax"
                 for (int dx = -1; dx <= 1; ++dx)
                 {
                     const ivec2 at       = clamp(tile + ivec2(dx, dy), ivec2(0), count - 1);
-                    const vec2  v        = texelFetch(u_TileMax, at, 0).xy;
+                    const vec2  v        = texelFetch(TileMaxTexture, at, 0).xy;
                     const float lengthSq = dot(v, v);
                     if (lengthSq > best)
                     {
@@ -45,7 +49,7 @@ Shader "MotionBlurNeighborMax"
                         longest = v;
                     }
                 }
-            imageStore(u_NeighborMax, tile, vec4(longest, 0.0, 0.0));
+            imageStore(NeighborMaxTexture, tile, vec4(longest, 0.0, 0.0));
         }
     }
 }

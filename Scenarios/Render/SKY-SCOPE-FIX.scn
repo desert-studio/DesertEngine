@@ -1,0 +1,8 @@
+# SKY-SCOPE-FIX: VIEW-CLOSE-LEAK (4e850efa5) blacked the sky by opening ActiveViewScope in SceneRenderer's
+# build/resize entry points; the fix books frame-context block copies to the device instead (ViewCopiedBlock::Resolve).
+Дано state
+Когда run View "View mode: Lit"
+Тогда 0_starter Starter в Lit: небо голубое, не чёрное
+Когда run Scene "New Scene View"
+Когда run Scene "Close Scene View Scene 2"
+Тогда 1_newview после New Scene View и её закрытия небо оставшегося вида всё ещё голубое; в editor.log нет «closed but N ledger rows»

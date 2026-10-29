@@ -210,7 +210,8 @@ TEST( SceneVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 // turns the message into "it did not work", which is where a user's afternoon goes.
 TEST( SceneVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 {
-    const std::string message = RefuseSceneVersion( "Resources/Assets/Scenes/Old.desce", 1, 0 );
+    const std::string message =
+         RefuseSceneVersion( "Resources/Assets/Scenes/Old.desce", 1, 0, Desert::Core::kWorldPartitionVersion );
 
     // The file.
     EXPECT_TRUE( Mentions( message, "Resources/Assets/Scenes/Old.desce" ) ) << message;
@@ -231,7 +232,7 @@ TEST( SceneVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 // assuming it is gone.
 TEST( SceneVersionGate, TheRefusalSaysNothingWasLoaded )
 {
-    const std::string message = RefuseSceneVersion( "Old.desce", 1, 0 );
+    const std::string message = RefuseSceneVersion( "Old.desce", 1, 0, Desert::Core::kWorldPartitionVersion );
     EXPECT_TRUE( Mentions( message, "NOTHING WAS LOADED" ) ) << message;
 }
 
@@ -239,10 +240,12 @@ TEST( SceneVersionGate, TheRefusalSaysNothingWasLoaded )
 // absent-is-zero rule. Two spellings of one message is how the two drift.
 TEST( SceneVersionGate, TheTreeOverloadReportsTheSameVersionsTheTreeCarries )
 {
-    EXPECT_EQ( RefuseSceneVersion( "S.desce", At( 3, 0 ) ), RefuseSceneVersion( "S.desce", 3, 0 ) );
+    EXPECT_EQ( RefuseSceneVersion( "S.desce", At( 3, 0 ) ),
+               RefuseSceneVersion( "S.desce", 3, 0, Desert::Core::kWorldPartitionVersion ) );
 
     SceneSerialized neither; // both absent
-    EXPECT_EQ( RefuseSceneVersion( "S.desce", neither ), RefuseSceneVersion( "S.desce", 0, 0 ) );
+    EXPECT_EQ( RefuseSceneVersion( "S.desce", neither ),
+               RefuseSceneVersion( "S.desce", 0, 0, Desert::Core::kWorldPartitionVersion ) );
 }
 
 // ---------------------------------------------------------------------------------------------------

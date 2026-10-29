@@ -28,7 +28,9 @@ void main()
     i.Particle.RelativeTime = v_ParticleTimeRandom.x;
     i.Particle.Random       = v_ParticleTimeRandom.y;
 
+    DESERT_SURFACE_CLIP( i );
     const SurfaceOutput s = EvaluateSurface( i );
+<<<<<<< HEAD
     DESERT_SURFACE_CLIP( s );
     const vec4 fog = DesertSceneFog( v_Surface.WorldPosition );
 #ifdef DESERT_SURFACE_TRANSLUCENT
@@ -42,10 +44,20 @@ void main()
     // Blended by its coverage (SrcAlpha): colour * transmittance + inscattering, both scaled by the coverage.
     oColor = vec4( ( s.BaseColor + s.Emissive ) * fog.a + fog.rgb, clamp( s.Opacity, 0.0, 1.0 ) );
 #endif
+=======
+#ifdef DESERT_SURFACE_TRANSLUCENT
+    if ( s.Opacity <= 0.0 )
+        discard;
+    oColor = vec4( ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure, clamp( s.Opacity, 0.0, 1.0 ) );
+>>>>>>> origin/dev
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, oColor.a );
 #endif
 #else
+<<<<<<< HEAD
     oColor = vec4( ( s.BaseColor + s.Emissive ) * fog.a + fog.rgb, 1.0 );
+=======
+    oColor = vec4( ( s.BaseColor + s.Emissive ) * cameraUB.PreExposure, 1.0 );
+>>>>>>> origin/dev
 #endif
 }

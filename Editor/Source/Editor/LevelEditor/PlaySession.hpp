@@ -28,6 +28,9 @@ namespace Desert::Editor
         PlaySession( SceneWorkspace& workspace, const std::shared_ptr<Assets::AssetManager>& assets );
 
         void Play( bool fromHere = false, const std::string& playerStartTag = {} );
+        // UE's Simulate In Editor: the same session as Play (snapshot, streamer, Stop) with no player - no pawn
+        // is spawned or possessed, the editor camera and the editor's overlays stay (PlayRequest::Simulate).
+        void Simulate();
         // Restores the authored snapshot. Called between frames only — see RequestStop.
         void Stop();
         // The one executor the toolbar, the palette and the control channel share.
@@ -74,6 +77,14 @@ namespace Desert::Editor
         void AppendPlayCommands( std::vector<PaletteCommand>& commands );
 
     private:
+        enum class StartKind
+        {
+            Play,
+            PlayFromHere,
+            Simulate,
+        };
+        void Start( StartKind kind, const std::string& playerStartTag );
+
         // Tears the played world down and plays the level at @p path in it (Runtime's LoadSceneInternal, with
         // the editor's scene): read and version-gated before anything is destroyed, then cleared, loaded,
         // initialised, Play begun and the world streamer started on the new level.

@@ -7,7 +7,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
@@ -26,6 +26,7 @@
 #include "Editor/LevelEditor/SessionRecovery.hpp"
 #include "Editor/LevelEditor/LevelEditorCommands.hpp"
 #include "Editor/LevelEditor/ControlService.hpp"
+#include "Editor/LevelEditor/ScriptDebugServer.hpp"
 #include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/EditorStartup.hpp"
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
@@ -93,6 +94,9 @@ namespace Desert::Editor
         // This frame's capture verdict (ShotDirector::AdmitFrame) from the layer's own state; false outside a
         // headless capture.
         bool AdmitShotFrame();
+        // What was still outstanding when this frame was made, for the control channel's reply gate: the
+        // start-up and content settle, plus what the --shot gate also waits for (ShotFrameConditions).
+        void SampleControlQuiescence();
 
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
@@ -187,7 +191,7 @@ namespace Desert::Editor
         LevelToolbar m_Toolbar{ m_Workspace, m_SceneFiles, m_Play, m_Preferences, m_Profiler.Shown() };
         // The bottom strip (UE: SStatusBar); the bottom drawer's chevron stays with the dock layout and arrives
         // as an action. See Editor/LevelEditor/StatusBar.hpp.
-        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling.CookQueue(),
+        StatusBar m_StatusBar{ m_Workspace, m_SceneFiles, m_Documents, m_AssetCompiling,
                                [this] { m_Dock.DrawBottomDrawerToggle(); } };
         // Headless capture: `--shot`, `--play`, `--camera`/`--look` (UE: the automation screenshot director). See
         // Editor/LevelEditor/ShotDirector.hpp.
@@ -195,6 +199,9 @@ namespace Desert::Editor
         // Autosave, the crash lock and its recovery pop-up, the device-lost save (UE: FPackageAutoSaver). See
         // Editor/LevelEditor/SessionRecovery.hpp.
         SessionRecovery m_Recovery{ m_Workspace, m_SceneFiles, m_Play, m_AssetManager };
+        // VS Code (any DAP client) debugging the worlds' scripts; started from the palette. See
+        // Editor/LevelEditor/ScriptDebugServer.hpp.
+        ScriptDebugServer m_ScriptDebug{ m_Play, m_Application };
         // The palette's dictionary, the Ctrl+P overlay and the level's global shortcuts (UE:
         // FLevelEditorCommands), after every module whose commands it lists. See
         // Editor/LevelEditor/LevelEditorCommands.hpp.
@@ -202,6 +209,7 @@ namespace Desert::Editor
              { .Workspace      = m_Workspace,
                .Files          = m_SceneFiles,
                .Play           = m_Play,
+               .ScriptDebug    = m_ScriptDebug,
                .Documents      = m_Documents,
                .Dock           = m_Dock,
                .Menu           = m_MainMenu,
@@ -221,6 +229,10 @@ namespace Desert::Editor
         // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
         // returned by OnAttach.
         Common::BoolResultStr m_QualityStart = Common::MakeSuccess( true );
+        // An unattended run's machine.json, byte for byte, as it was before the quality started (empty path:
+        // an attended run, which saves its changes). OnDetach compares and logs: the run left it untouched.
+        std::filesystem::path m_UnattendedMachineJson;
+        std::string           m_UnattendedMachineBytes;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after

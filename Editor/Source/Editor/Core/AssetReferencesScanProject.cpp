@@ -2,7 +2,7 @@
 
 #include <Common/Core/Constants.hpp>
 
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 namespace Desert::Editor
 {

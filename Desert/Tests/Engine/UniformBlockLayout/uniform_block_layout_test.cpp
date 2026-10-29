@@ -1,7 +1,7 @@
 // GBUF1 step 4b — EVERY UNIFORM BLOCK THE G-BUFFER RECONSTRUCTION CHANGED HAS ITS C++ TWIN, OFFSET FOR OFFSET.
 //
 // World position is rebuilt from the depth (Common/ReconstructPosition.glslh), so SSR's trace, the SSR/GI resolve,
-// SSAO, the GI gather and the deferred composite each gained u_InvJitteredViewProjection. Every block uploaded
+// SSAO, the GI gather and the deferred composite each gained InverseJitteredViewProjection. Every block uploaded
 // whole from a C++ struct (SetRawData / a graph buffer) is checked member for member: the GLSL names in order,
 // each one's std140 offset == offsetof() of the C++ member that fills it, the block size == sizeof (the parser:
 // TestSupport/std140_block.hpp).
@@ -12,7 +12,6 @@
 // shader name at the reflected offset (UploadRegisteredProperties + FlushFieldFilledUniformBuffers), so member
 // order on either side is free by design; the census there is the name + type set (mutation: a member renamed,
 // dropped or retyped on one side -> red).
-#include <Engine/Graphic/Materials/Deferred/MaterialGIResolve.hpp>
 #include <Engine/Graphic/Materials/Deferred/MaterialSSAO.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/ScreenSpaceDenoiser.hpp>
@@ -69,8 +68,8 @@ TEST( UniformBlockLayout, SSRTraceUBIsTheTraceUniforms )
 {
     using T = Desert::Graphic::System::SSRRenderer::TraceUniforms;
     ExpectTwin( "SSR.shader", "SSRTraceUB",
-                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                  { "u_JitteredViewProjection", offsetof( T, JitteredViewProjection ) } },
+                { { "InverseJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "JitteredWorldToClip", offsetof( T, JitteredViewProjection ) } },
                 sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 128u );
 }
@@ -80,12 +79,12 @@ TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
     using T = Desert::Graphic::System::ScreenSpaceDenoiser::ViewUniforms;
     // Every pass of the screen-space denoiser declares the same block (ScreenSpaceDenoiser::UploadViewUniforms).
     for ( const char* shader :
-          { "../Denoise/SSDReconstructReflections.shader", "../Denoise/SSDReconstructDiffuse.shader",
-            "../Denoise/SSDTemporalAccumulation.shader", "../Denoise/SSDHistoryConvolution.shader" } )
+          { "../Denoise/SSDReconstructReflections.shader", "../Denoise/SSDTemporalAccumulation.shader",
+            "../Denoise/SSDHistoryConvolution.shader" } )
         ExpectTwin( shader, "DenoiserViewUB",
-                    { { "u_ViewProjection", offsetof( T, ViewProjection ) },
-                      { "u_PrevViewProjection", offsetof( T, PrevViewProjection ) },
-                      { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
+                    { { "ViewProjection", offsetof( T, ViewProjection ) },
+                      { "PreviousViewProjection", offsetof( T, PrevViewProjection ) },
+                      { "InverseJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
                     sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 192u );
 }
@@ -95,28 +94,14 @@ TEST( UniformBlockLayout, SSAOUBIsTheSSAOMaterialsStruct )
     using T = Desert::Graphic::MaterialSSAO::SSAOUBData;
     ExpectTwin( "SSAO.shader", "SSAOUB",
                 {
-                     { "u_ViewProj", offsetof( T, ViewProj ) },
-                     { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                     { "u_CameraPos", offsetof( T, CameraPos ) },
-                     { "u_SSAOParams", offsetof( T, Params ) },
+                     { "InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                     { "WorldToView", offsetof( T, WorldToView ) },
+                     { "Target", offsetof( T, Target ) },
+                     { "Horizon", offsetof( T, Horizon ) },
+                     { "Temporal", offsetof( T, Temporal ) },
                 },
                 sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 160u );
-}
-
-TEST( UniformBlockLayout, GIResolveUBIsTheGatherMaterialsStruct )
-{
-    using T = Desert::Graphic::MaterialGIResolve::GIResolveUBData;
-    ExpectTwin( "GIResolve.shader", "GIResolveUB",
-                {
-                     { "u_RSMViewProj", offsetof( T, RSMViewProj ) },
-                     { "u_InvRSMViewProj", offsetof( T, InvRSMViewProj ) },
-                     { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                     { "u_SunColor", offsetof( T, SunColor ) },
-                     { "u_Params", offsetof( T, Params ) },
-                },
-                sizeof( T ) );
-    EXPECT_EQ( sizeof( T ), 224u );
+    EXPECT_EQ( sizeof( T ), 176u );
 }
 
 TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProperties )
@@ -139,5 +124,5 @@ TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProper
     EXPECT_FALSE( cpp.empty() ) << "no MPROPERTY parsed from MaterialDeferredLighting.hpp";
     EXPECT_EQ( glsl, cpp )
          << "DeferredUB (DeferredLighting.shader) and MaterialDeferredLighting's MPROPERTYs differ";
-    EXPECT_EQ( glsl.count( { "u_InvJitteredViewProjection", "mat4" } ), 1u );
+    EXPECT_EQ( glsl.count( { "InverseJitteredViewProjection", "mat4" } ), 1u );
 }

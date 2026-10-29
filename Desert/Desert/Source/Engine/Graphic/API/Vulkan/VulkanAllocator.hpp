@@ -1,5 +1,7 @@
 #pragma once
 
+#include <unordered_map>
+
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
@@ -11,6 +13,9 @@
 #include <chrono>
 #include <cstddef>
 #include <functional>
+#include <mutex>
+#include <string>
+#include <string_view>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -48,10 +53,36 @@ namespace Desert::Graphic::API::Vulkan
         uint32_t     FrameIndex;
     };
 
+    // The AS object only: its storage buffer is queued separately (RT_DestroyBuffer) on the same frame, and the
+    // drain destroys every AS before any buffer so the object never outlives the memory it was created in.
+    struct AccelerationStructureDeletionEntry
+    {
+        VkAccelerationStructureKHR            AccelerationStructure;
+        PFN_vkDestroyAccelerationStructureKHR Destroy; // the device's entry point (RayTracingDeviceFunctions)
+        uint32_t                              FrameIndex;
+    };
+
     struct QueryPoolDeletionEntry
     {
         VkQueryPool QueryPool;
         uint32_t    FrameIndex;
+    };
+
+    // A pipeline and the layout it was created with. A rebuilt pipeline (the ray tracing pipeline after its hit
+    // group set changed) may still be bound in a command buffer of a frame in flight, so both wait for that frame.
+    struct PipelineDeletionEntry
+    {
+        VkPipeline       Pipeline;
+        VkPipelineLayout Layout; // VK_NULL_HANDLE when the layout outlives the pipeline
+        uint32_t         FrameIndex;
+    };
+
+    // An object some other runtime owns on this device (a vendor upscaler SDK's context and the images, views and
+    // pipelines inside it), destroyed by its own call once the frame that last recorded with it has finished.
+    struct HostObjectDeletionEntry
+    {
+        std::function<void()> Destroy;
+        uint32_t              FrameIndex;
     };
 
     struct DescriptorPoolDeletionEntry
@@ -110,6 +141,11 @@ namespace Desert::Graphic::API::Vulkan
         // A timestamp pool the GPU profiler outgrew: the frame that last wrote into it may still be in
         // flight, so it waits for that frame like any other per-frame object.
         void RT_DestroyQueryPool( VkQueryPool queryPool );
+        // A pipeline (and its layout, when it owns one) a frame in flight may still have bound.
+        void RT_DestroyPipeline( VkPipeline pipeline, VkPipelineLayout layout );
+        // A BLAS or TLAS a frame in flight may still trace: waits for that frame like a buffer does.
+        void RT_DestroyAccelerationStructure( VkAccelerationStructureKHR            accelerationStructure,
+                                              PFN_vkDestroyAccelerationStructureKHR destroy );
         // Takes every set allocated from the pool with it, so it waits for the frame that last bound one of
         // them exactly as a buffer does: a material or a view destroyed mid-session may still have its sets
         // in a command buffer the GPU has not finished.
@@ -117,6 +153,10 @@ namespace Desert::Graphic::API::Vulkan
         // Frees @p sets back into @p pool once the frame that may still bind them has finished. The pool
         // must have been created with VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
         void RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets );
+        // Runs @p destroy once the frame current now has come back round, like every queued destruction: for
+        // GPU objects created and destroyed through a third-party runtime's own API (the FidelityFX context of a
+        // view whose extent changed), which the typed queues above cannot name.
+        void RT_DestroyLater( std::function<void()> destroy );
 
         /// The per-frame drain, called once per present: destroys what the ring has come back round to.
         void ProcessDeletionQueue();
@@ -124,6 +164,17 @@ namespace Desert::Graphic::API::Vulkan
         /// tags, and VMA's per-heap block/allocation bytes against the driver's usage, as one debug line. Growth
         /// inside the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
         void LogCensusIfDue();
+
+        /// ONE MEASUREMENT WINDOW PER SCENE OPEN (FIELD-MEM p4). The peak census above writes only past the run's
+        /// highest footprint + 128 MB, so a second open of the same world that stays under the first one's peak
+        /// was never measured. Called at the start of every scene open: writes the closing line of the previous
+        /// window, starts a new one at the current footprint and lets the census report again from it.
+        /// "[Memory] scene open #N '<scene>' peak P MB, owed O MB" is written whenever the window's peak climbs
+        /// (O = deferred destructions still queued at that peak); the last such line of a window is its peak.
+        void BeginSceneOpen( std::string_view scene );
+        /// Folds the process footprint now into the open window. Per present (ProcessDeletionQueue) and by the
+        /// opener at the end of the open, which runs without frames.
+        void SampleSceneOpen();
 
         /// Destroys EVERYTHING still queued, whatever frame it was queued on, and answers how many.
         /// For teardown only — see the argument at the definition. The caller must have idled the device.
@@ -150,7 +201,19 @@ namespace Desert::Graphic::API::Vulkan
 
         void Init( const std::shared_ptr<VulkanLogicalDevice>& device, VkInstance instance );
 
+        /// The capability rows of the device this allocator serves (copied at Init): what a buffer's usage
+        /// may name (MeshBufferUsage) is decided by what that device enabled.
+        [[nodiscard]] const DeviceCaps& GetDeviceCaps() const
+        {
+            return m_DeviceCaps;
+        }
+
         void Shutdown();
+
+        /// THE DEVICE'S ZERO BUFFER: 64 KB of zeros, host-visible, usable as a uniform or storage buffer, made on
+        /// first use and destroyed by Shutdown. A binding nothing has filled yet points here (UE's global null
+        /// resources), so a read before the real resource arrives is defined. One per device, never per user.
+        [[nodiscard]] Common::ResultStr<VkBuffer> RT_ZeroBuffer();
 
         static VmaAllocator& GetVMAAllocator();
 
@@ -173,15 +236,38 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The device this allocator was created for. See Init() for why it is held rather than looked up.
         VkDevice m_Device = VK_NULL_HANDLE;
+        DeviceCaps m_DeviceCaps;
 
         std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
         std::vector<RenderPassDeletionEntry>  m_RenderPassDeletionQueue;
         std::vector<QueryPoolDeletionEntry>      m_QueryPoolDeletionQueue;
+        std::vector<PipelineDeletionEntry>              m_PipelineDeletionQueue;
+        std::vector<AccelerationStructureDeletionEntry> m_AccelerationStructureDeletionQueue;
         std::vector<DescriptorPoolDeletionEntry> m_DescriptorPoolDeletionQueue;
+        std::vector<HostObjectDeletionEntry>     m_HostObjectDeletionQueue;
 
         AllocationLedger m_Ledger;
+        std::mutex                            m_ZeroBufferMutex;
+        VkBuffer                              m_ZeroBuffer           = VK_NULL_HANDLE;
+        VmaAllocation                         m_ZeroBufferAllocation = VK_NULL_HANDLE;
         std::chrono::steady_clock::time_point m_LastCensus{};
+        // The previous census's bytes per tag: the census names the tags that GREW since it, because a
+        // steady growth spread over tags below the largest six is otherwise invisible.
+        std::unordered_map<std::string, std::size_t> m_LastCensusBytes;
+        // The process resident peak (MemoryWatch) the last full census was written at: the next one is written
+        // when the peak has climbed kCensusPeakStep past it, so a run killed for its memory ends on a census
+        // taken at most one step below the kill.
+        uint64_t m_CensusPeakReported = 0;
+
+        /// Bytes of the buffers and images queued for deferred destruction (the census's "owed" row).
+        [[nodiscard]] std::size_t OwedBytes() const;
+        void                      LogSceneOpenPeak( std::string_view when ) const;
+        uint32_t                  m_SceneOpenIndex = 0; // 0 = no open yet
+        std::string               m_SceneOpenName;
+        uint64_t                  m_SceneOpenPeak       = 0;
+        std::size_t               m_SceneOpenOwedAtPeak = 0;
+        uint64_t                  m_SceneOpenPeakLogged = 0;
     };
 } // namespace Desert::Graphic::API::Vulkan

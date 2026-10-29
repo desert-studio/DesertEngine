@@ -92,12 +92,54 @@ namespace Desert::Core
     // GlobalIlluminationMethod and EnableSSR is ReflectionsMethod, on the method ladders of
     // Common/Settings/RenderMethods.hpp (Tools/SceneMigrator, MigrateRenderMethodsV52ToV53). v54 (SCR-DETAILS): a
     // script slot's Props are only the values that differ from the script's declared defaults
-    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54).
-    // v59 (VOLFOG): ExponentialHeightFog states the Volumetric Fog group and every light its
-    // VolumetricScatteringIntensity. Additive: the step rewrites nothing, a v58 record loads with the declared
+    // (Tools/SceneMigrator, MigrateScriptDefaultsV53ToV54). v56 (LIGHT-UNITS): point / spot lights state
+    // IntensityUnits (UE ELightUnits) and the exposure range is EV100 (Tools/SceneMigrator,
+    // MigrateLightUnitsV55ToV56); v55 is the SourceAngle step. v57 (LIGHT-UNITS-2): the Physical Atmosphere
+    // sky takes its sun from the atmosphere sun light (UE) and manual exposure is EV100 (Tools/SceneMigrator,
+    // MigrateSkySunFromLightV56ToV57). v58 (TOD1): the TimeOfDay clock has UE SunPosition's calendar - date,
+    // longitude, time zone, daylight saving (Tools/SceneMigrator, MigrateSunCalendarV57ToV58). v59..v63 are
+    // Windows' steps. v64 (GI-METHOD-RENUMBER): GlobalIlluminationMethod is stated on today's ladder, which lost
+    // ReflectiveShadowMaps (3) - every method above it is one number lower (Tools/SceneMigrator,
+    // MigrateGIMethodLadderV63ToV64). v65 (RENDER-LOOK round 05): the display transfer is the sRGB OETF and
+    // PostProcessSettings lost Gamma (Tools/SceneMigrator, MigrateDisplayTransferV64ToV65). v66 (WP22): a World
+    // Partition grid states its Name (what a RuntimeGrid block names) and Priority (Tools/SceneMigrator,
+    // MigrateGridNamesV65ToV66). v67 (WP-FAR-6B): a landscape tile's HeightFile is a content key ("assets:...")
+    // (Tools/SceneMigrator, MigrateLandscapeHeightKeysV66ToV67). v68 (WP22c): the HLOD layer is stated per GRID
+    // (UE FRuntimePartitionDesc::HLODSetups), not once for the world - the world's DefaultHLODLayer moved onto
+    // every grid (Tools/SceneMigrator, MigrateGridHLODLayerV67ToV68). v69 (PATH1): every asset reference is a
+    // content key - the assets-relative and project-relative spellings are restated (Tools/SceneMigrator,
+    // MigrateAssetKeysV68ToV69). v70 (WP17): a ROOT record of an external-entities scene states no siblingIndex -
+    // a streamed world persists no root order, as UE's OFPA (Tools/SceneMigrator,
+    // MigrateRootSiblingIndexV69ToV70).
+    // v71 (VOLFOG): ExponentialHeightFog states UE's Volumetric Fog group and every light its
+    // VolumetricScatteringIntensity. Additive: the step rewrites nothing, a v70 record loads with the declared
     // defaults and the save states them; the number moves so an older build refuses a file whose fog it would
-    // silently drop (Tools/SceneMigrator, kSceneVersionVolumetricFog). v55..v58 are other branches' steps.
-    inline constexpr int kSceneVersion = 59;
+    // silently drop (Tools/SceneMigrator, kSceneVersionVolumetricFog).
+    //
+    // A SUBSYSTEM THAT OWNS PART OF THE FORMAT COUNTS ITS OWN CHANGES (MIGRATE-SUBSYS, owner 2026-10-22; UE
+    // FCustomVersion). This number is no longer raised for World Partition: its block and its streamed records are
+    // versioned by kWorldPartitionVersion under Assets::kWorldPartitionSchemaTag, and Tools/SceneMigrator runs
+    // that subsystem's steps by the number the file states under that tag. The World Partition steps already taken
+    // (v50, v66, v68, v70) stay where they were written - a file below v70 still climbs them by this number.
+    inline constexpr int kSceneVersion = 71;
+
+    // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
+    // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,
+    // kWorldPartitionVersionTagged) states the tag and changes nothing else. The next World Partition change is
+    // v2 HERE, with its step in SceneMigrator's World Partition chain, never a kSceneVersion bump.
+    inline constexpr int kWorldPartitionVersion = 1;
+
+    // The reflected asset-reference format's own generation, stated under Assets::kAssetRefSchemaTag (its steps:
+    // Tools/SceneMigrator's asset-reference chain). v1 (STATICMESH-FORMAT): static meshes and materials are
+    // named {Guid, Path} by reflected fields, the Static Mesh's references are its reflected MeshHandle /
+    // MaterialSlots. A file stating no tag is v0.
+    inline constexpr int kAssetRefVersion = 1;
+
+    // The light components' own format generation, stated under Assets::kLightSchemaTag (its steps:
+    // Tools/SceneMigrator's light chain). v1 (PORT-SUN-ROTATION): a directional light is aimed by its Rotation
+    // (forward -Z), as in UE; before it, its Translation was the direction it travelled. The step restates every
+    // directional light's Translation as a Rotation and zeroes the Translation. A file stating no tag is v0.
+    inline constexpr int kLightVersion = 1;
 
     // World-unit generation of a .desce file. One world unit is a CENTIMETRE (Common/Core/Units.hpp).
     // Bump this only if the world unit changes again - and then, as above, add the step to SceneMigrator
@@ -136,6 +178,12 @@ namespace Desert::Core
     // kSceneVersion, and an older build refuses the file by name (SceneIsAtCurrentVersion).
     struct WorldPartitionGridSerialized
     {
+        // UE FSpatialHashRuntimeGrid::GridName. What a record names in its RuntimeGrid block to stream on this
+        // grid (UE AActor::RuntimeGrid); a record that names none streams on the FIRST grid, UE's main grid.
+        // Required, non-empty and unique within the world (Rules::PlanWorldPartition refuses the grids
+        // otherwise): a name is the only way a record reaches a grid, so two grids of one name would be a guess.
+        std::string Name;
+
         // Edge length of one level-0 cell in WORLD UNITS, and a world unit is a CENTIMETRE
         // (Common/Core/Units.hpp). Level L cells are CellSize * 2^L. The default is UE's own main grid,
         // 128 m, in our units; it is the number a world gets when switched on, nothing depends on it.
@@ -149,6 +197,17 @@ namespace Desert::Core
         // grid default, 256 m. Read by the streaming query (WP4); the partition itself does not depend
         // on it, which is why a cell's contents never change when it is edited.
         float LoadingRange = 25600.0f;
+
+        // UE FSpatialHashRuntimeGrid::Priority: among the cells one source wants at one source priority,
+        // this grid's load first when higher. It never changes WHICH cells are wanted (QueryStreamingCells).
+        int Priority = 0;
+
+        // The layer this grid's cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups: HLOD setup
+        // belongs to the runtime partition, so two grids of one world can stand in for their cells
+        // differently). Must name a layer of WorldPartitionSerialized::HLODLayers (Rules::ValidateHLODLayers).
+        // ABSENT = this grid's cells have no HLOD and a far cell draws nothing; optional so a grid with no
+        // HLOD writes no key and an empty string is not a second spelling of "none".
+        std::optional<std::string> HLODLayer;
 
         // Compared, not just written: the editor's World Partition panel keeps the plan it painted and
         // the partition that plan was made from, and a plan is remade when the two stop matching. Without
@@ -195,13 +254,16 @@ namespace Desert::Core
     struct WorldPartitionSerialized
     {
         std::vector<WorldPartitionGridSerialized> Grids;
-        // The world's HLOD layers (UE: the UHLODLayer assets a world's actors name) and the one every cell's
-        // HLOD is built with (UE AWorldSettings::DefaultHLODLayer). ABSENT DefaultHLODLayer = cells have no
-        // HLOD and a far cell draws nothing - UE's state for a world with no default layer. Optional, so a
-        // world with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
+        // The world's HLOD layers (UE: the UHLODLayer assets a world's grids name). Which layer a cell's HLOD
+        // is built with is its GRID's choice (WorldPartitionGridSerialized::HLODLayer). Optional, so a world
+        // with no layers writes no key (reflect-cpp omits a nullopt) and an empty list is not a second
         // spelling of "none".
         std::optional<std::vector<HLODLayerSerialized>> HLODLayers;
-        std::optional<std::string>                      DefaultHLODLayer;
+        // Side of the square region (cm) whose cells a packaged build ships in ONE on-demand content chunk
+        // (UE: a World Partition cell's content lands in a chunk the runtime mounts as the cell streams in).
+        // ABSENT = the world ships in the base chunk, as before - no migrator, the key is simply not written.
+        // Present must be > 0 and finite (ChunkLayoutOf refuses anything else).
+        std::optional<float> ChunkRegionSize;
 
         bool operator==( const WorldPartitionSerialized& ) const = default;
     };
@@ -232,15 +294,23 @@ namespace Desert::Core
     [[nodiscard]] inline bool SceneIsAtCurrentVersion( const SceneSerialized& scene )
     {
         return Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ) == kSceneVersion &&
-               Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion;
+               Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) == kUnitVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ) == kWorldPartitionVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kAssetRefSchemaTag ) == kAssetRefVersion &&
+               Assets::StatedVersion( scene.Header, Assets::kLightSchemaTag ) == kLightVersion;
     }
 
     // The subsystem versions a .desce / .deprefab of this build states, and the reading context built on them.
     [[nodiscard]] inline std::span<const Common::Content::SubsystemVersion> SceneTextSubsystems()
     {
-        static const std::array<Common::Content::SubsystemVersion, 2> versions = {
+        static const std::array<Common::Content::SubsystemVersion, 5> versions = {
              Common::Content::SubsystemVersion{ Assets::kSceneSchemaTag, static_cast<uint32_t>( kSceneVersion ) },
-             Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) } };
+             Common::Content::SubsystemVersion{ Assets::kUnitSchemaTag, static_cast<uint32_t>( kUnitVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kWorldPartitionSchemaTag,
+                                                static_cast<uint32_t>( kWorldPartitionVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kAssetRefSchemaTag,
+                                                static_cast<uint32_t>( kAssetRefVersion ) },
+             Common::Content::SubsystemVersion{ Assets::kLightSchemaTag, static_cast<uint32_t>( kLightVersion ) } };
         return versions;
     }
 
@@ -252,7 +322,8 @@ namespace Desert::Core
     // end for whoever hits it: the file is usually somebody's autosave or a scene saved outside the
     // repository, and they have one action to take.
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion,
-                                                  int foundUnitVersion );
+                                                  int foundUnitVersion, int foundWorldPartitionVersion,
+                                                  int foundAssetRefVersion, int foundLightVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0 - see SceneIsAtCurrentVersion).
     [[nodiscard]] std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene );
@@ -295,6 +366,7 @@ namespace Desert::Core
     // when the typed writer's output is not JSON (a NaN or an infinity in the scene), naming the reason.
     [[nodiscard]] Common::ResultStr<Common::Json::TextDocument>
     ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
-                          const Serialize::KeyIsOurs& entityKeyIsOurs );
+                          const Serialize::KeyIsOurs&          entityKeyIsOurs,
+                          const Common::Json::MemberKeyIsOurs& componentKeyIsOurs = {} );
 
 } // namespace Desert::Core

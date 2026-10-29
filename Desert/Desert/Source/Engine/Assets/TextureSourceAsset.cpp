@@ -17,6 +17,7 @@
 #include <fstream>
 #include <mutex>
 #include <span>
+#include <bit>
 #include <utility>
 
 namespace Desert::Assets
@@ -25,7 +26,8 @@ namespace Desert::Assets
 
     namespace
     {
-        constexpr uint32_t kImportInfoVersion = 2; // 1 = without ColorSpace (UpgradeTextureSourceAsset only)
+        // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds (UpgradeTextureSourceAsset only)
+        constexpr uint32_t kImportInfoVersion = 3;
 
         void PutU32( std::vector<std::byte>& out, const uint32_t v )
         {
@@ -44,7 +46,7 @@ namespace Desert::Assets
                 out.push_back( static_cast<std::byte>( c ) );
         }
 
-        struct Reader
+        struct TextureSourceReader
         {
             std::span<const std::byte> Bytes;
             size_t                     At = 0;
@@ -87,6 +89,8 @@ namespace Desert::Assets
             PutU64( out, info.SourceHash );
             PutString( out, Core::Formats::TextureIntentName( info.Settings.Intent ) );
             PutString( out, Core::Formats::TextureColorSpaceName( info.Settings.ColorSpace ) );
+            for ( const float threshold : info.Settings.AlphaCoverageThresholds )
+                PutU32( out, std::bit_cast<uint32_t>( threshold ) );
             return out;
         }
 
@@ -95,7 +99,7 @@ namespace Desert::Assets
         Common::ResultStr<TextureImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
                                                                const uint32_t expected = kImportInfoVersion )
         {
-            Reader            r{ bytes };
+            TextureSourceReader r{ bytes };
             TextureImportInfo info;
             const auto        version = static_cast<uint32_t>( r.Get( 4 ) );
             if ( r.Ok && version != expected )
@@ -105,6 +109,16 @@ namespace Desert::Assets
             info.SourceHash              = r.Get( 8 );
             const std::string intentName = r.String();
             const std::string spaceName  = expected >= 2 ? r.String() : std::string( "sRGB" );
+            if ( expected >= 3 )
+            {
+                for ( float& threshold : info.Settings.AlphaCoverageThresholds )
+                    threshold = std::bit_cast<float>( static_cast<uint32_t>( r.Get( 4 ) ) );
+                for ( const float threshold : info.Settings.AlphaCoverageThresholds )
+                    if ( !( threshold >= 0.0f && threshold <= 1.0f ) )
+                        return Common::MakeFormattedError<TextureImportInfo>(
+                             "texture ImportInfo has alpha coverage threshold {}; a threshold is in [0, 1]",
+                             threshold );
+            }
             if ( !r.Ok || r.At != bytes.size() )
                 return Common::MakeError<TextureImportInfo>(
                      "texture ImportInfo is truncated or has trailing bytes" );
@@ -135,7 +149,7 @@ namespace Desert::Assets
 
         Common::BoolResultStr DecodeCookedKey( std::span<const std::byte> bytes, TextureAssetKey& key )
         {
-            Reader     r{ bytes };
+            TextureSourceReader r{ bytes };
             const auto version = static_cast<uint32_t>( r.Get( 4 ) );
             if ( r.Ok && version != kCookedKeyVersion )
                 return Common::MakeFormattedError<bool>(
@@ -339,6 +353,8 @@ namespace Desert::Assets
         PutU32( out, static_cast<uint32_t>( settings.Import.Intent ) );
         PutU32( out, settings.EncoderVersion );
         PutU32( out, static_cast<uint32_t>( settings.Import.ColorSpace ) );
+        for ( const float threshold : settings.Import.AlphaCoverageThresholds )
+            PutU32( out, std::bit_cast<uint32_t>( threshold ) );
         return out;
     }
 
@@ -497,8 +513,16 @@ namespace Desert::Assets
             return Common::MakeSuccess( Out{} );
         if ( IsLegacyTextureIntentSidecar( file ) )
             return Common::MakeError<Out>( std::string( kLegacyTextureIntentSidecarRefusal ) );
+        // Version 2 (no AlphaCoverageThresholds) first, then version 1 (no ColorSpace either).
+        uint32_t                   from     = 2;
+        const CC::SubsystemVersion v2[]     = { { kTextureAssetSubsystemTag, 2 } };
         const CC::SubsystemVersion v1[]     = { { kTextureAssetSubsystemTag, 1 } };
-        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
+        auto                       envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v2 } );
+        if ( !envelope.IsSuccess() )
+        {
+            from     = 1;
+            envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ v1 } );
+        }
         if ( !envelope.IsSuccess() )
             return Common::MakeError<Out>( envelope.GetError() );
         const CC::AssetEnvelope& e = envelope.GetValue();
@@ -520,7 +544,7 @@ namespace Desert::Assets
             }
             else if ( s.Tag == CC::EnvelopeSection::ImportInfo )
             {
-                auto info = DecodeImportInfo( s.Bytes, 1 );
+                auto info = DecodeImportInfo( s.Bytes, from );
                 if ( !info.IsSuccess() )
                     return Common::MakeError<Out>( info.GetError() );
                 asset.Import = info.GetValue();
@@ -533,8 +557,10 @@ namespace Desert::Assets
             }
         }
         if ( !haveImport || !haveSource )
-            return Common::MakeError<Out>( "a version-1 texture asset without IMPT or SRCE cannot be raised" );
-        asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
+            return Common::MakeFormattedError<Out>(
+                 "a version-{} texture asset without IMPT or SRCE cannot be raised", from );
+        if ( from == 1 )
+            asset.Import.Settings.ColorSpace = DefaultTextureColorSpace( asset.Import.Settings.Intent, asset.Source );
         auto encoded                     = EncodeTextureSourceAsset( asset );
         if ( !encoded.IsSuccess() )
             return Common::MakeError<Out>( encoded.GetError() );
@@ -551,6 +577,25 @@ namespace Desert::Assets
         if ( asset.Import.Settings.ColorSpace == space )
             return Common::MakeSuccess( false );
         asset.Import.Settings.ColorSpace = space;
+        if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
+            return Common::MakeError<bool>( written.GetError() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::ResultStr<bool> SetTextureAlphaCoverage( const std::filesystem::path& path,
+                                                     const std::array<float, 4>&  thresholds )
+    {
+        for ( const float threshold : thresholds )
+            if ( !( threshold >= 0.0f && threshold <= 1.0f ) )
+                return Common::MakeFormattedError<bool>(
+                     "'{}': alpha coverage threshold {} is outside [0, 1]", path.generic_string(), threshold );
+        auto read = ReadTextureSourceAssetFile( path );
+        if ( !read.IsSuccess() )
+            return Common::MakeError<bool>( read.GetError() );
+        TextureSourceAsset asset = read.ExtractValue();
+        if ( asset.Import.Settings.AlphaCoverageThresholds == thresholds )
+            return Common::MakeSuccess( false );
+        asset.Import.Settings.AlphaCoverageThresholds = thresholds;
         if ( const auto written = WriteTextureSourceAssetFile( path, asset ); !written.IsSuccess() )
             return Common::MakeError<bool>( written.GetError() );
         return Common::MakeSuccess( true );

@@ -3,14 +3,17 @@ Shader "BakeProceduralSky"
 {
     Compute
     {
-        // Bakes the procedural sky into an equirect HDR panorama (Image2D, RGBA32F). The result is fed
-        // into the existing IBL pipeline (PanoramaToCubemap -> radiance, DiffuseIrradiance, PrefilterEnvMap)
-        // so the procedural sky lights the scene exactly like an HDR environment would. Both sky models
+        // Renders the procedural sky STRAIGHT INTO THE FACES of the sky light's radiance cube (imageCube,
+        // RGBA32F, mip 0, at the capture's face -- 128 by default), as UE's real-time sky light capture renders
+        // the sky material and the volumetric clouds per face at its capture resolution. There is no panorama
+        // and no resample: the cube's mips, the exact irradiance sum and the GGX prefilter follow
+        // (Graphic::System::SkyCapture). A dispatch covers BakeFace.x and the faces after it, one per z, so a
+        // time-sliced recapture renders one band of rows of one face per frame (BakeFace.y, the first row). Both sky models
         // are the SAME evaluations the screen pass runs (Common/Atmosphere.glslh for the gradient,
         // Common/SkyScattering.glslh's integrator for the physical atmosphere) — the baked environment
         // and the visible sky cannot drift apart.
         //
-        // AND THE CLOUDS ARE IN IT. The layer is marched into this panorama by the same field, the same
+        // AND THE CLOUDS ARE IN IT. The layer is marched into this capture by the same field, the same
         // lighting and the same quadrature the screen pass uses (Common/CloudField.glslh,
         // Common/CloudLighting.glslh) — not by an analytic dome standing beside them, which would be a
         // SECOND model of the clouds and therefore a mirror that drifts. This project has paid for that
@@ -18,34 +21,37 @@ Shader "BakeProceduralSky"
         // term had to keep as well.
         //
         // The physical branch marches the integrator directly per texel (32 samples, the Sky-View
-        // budget) instead of sampling the per-view Sky-View LUT: the bake is anchored at a fixed point,
+        // budget) instead of sampling the per-view Sky-View LUT: the capture is anchored at a fixed point,
         // not at the camera, and must not change when the camera does — its cadence is driven by the
         // sun and by the cloud settings alone. Deliberate divergences from the screen pass, all of them
         // invisible to the IBL or unavoidable, and all stated rather than discovered:
         //   * anchored at a fixed 0.2 km — the sky varies imperceptibly across ground-level altitudes,
         //     and anchoring at the camera would demand a rebake on every elevator ride;
-        //   * NO analytic sun disc — the disc's energy over a panorama texel is the whole direct sun
+        //   * NO analytic sun disc — the disc's energy over a face texel is the whole direct sun
         //     illuminance, and the directional light already delivers exactly that to every surface;
         //     baking it too would double-count the sun in the irradiance cube;
         //   * the cloud march's aerial perspective is INTEGRATED HERE rather than fetched from the
-        //     camera aerial-perspective volume. That volume is a view frustum of froxels and a panorama
-        //     has no frustum; the integrand is Common/SkyScattering.glslh's SkyApIntegrateSegment either
+        //     camera aerial-perspective volume. That volume is the camera's froxels and the capture
+        //     is anchored elsewhere; the integrand is Common/SkyScattering.glslh's SkyApIntegrateSegment either
         //     way, which is the same text the volume is filled from, so this is one model evaluated
         //     exactly instead of one model evaluated through a 32x32x16 interpolation;
         //   * the march is DITHERED ON THE TEXEL and not on a frame index. There is no temporal
         //     accumulation to converge a moving pattern here, and a fixed start offset would draw the
         //     step planes as concentric shells; a spatial hash makes the residual decorrelated noise,
-        //     which the 65 536-sample irradiance convolution integrates away and which keeps a rebake of
-        //     unchanged settings byte-identical to the one before it.
+        //     which the irradiance sum and the prefilter integrate away and which keeps a recapture of
+        //     unchanged settings byte-identical to the one before it;
+        //   * and NOT a cheaper cloud march: the capture marches at the screen's sample counts, because the
+        //     multiple-scattering octaves make a cloud marched in longer steps brighter (measured, see
+        //     Graphic::System::kSkyCaptureBandsPerFace); the cost is spread over frames, a band of rows of
+        //     one face per frame, instead.
         //
-        // Equirect mapping matches PanoramaToCubemap.glsl.comp's sampling:
-        //   phi = atan(dir.z, dir.x);  theta = acos(dir.y);  uv = (phi/2PI + 0.5, theta/PI)
-        // so here we invert it: uv -> (phi, theta) -> direction.
+        // Each face texel's direction is PanoramaToCubemap's face table (the one the .hdr path's cubes are
+        // laid out by, and the one every cube in the engine is sampled with), at the texel's centre.
 
         #include <Common/Atmosphere.glslh>
         #include <Common/SkyMedium.glslh>
 
-        layout(binding = 0, rgba32f) restrict writeonly uniform image2D outputPanorama;
+        layout(binding = 0, rgba32f) restrict writeonly uniform imageCube outputFaces;
 
         // The SAME sky parameter buffer the screen pass reads — not a second hand-packed mirror of it. The
         // bake used to receive these as a push-constant block, which meant two layouts to keep in step and
@@ -55,14 +61,23 @@ Shader "BakeProceduralSky"
         // equal to Graphic::kSkyPayloadBinding and to the number the graphics sky shader declares.
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // The cached atmosphere LUTs (Graphic::kSkyTransmittanceLutBinding / kSkyMultiScatterLutBinding).
         // SkyboxRenderer dispatches them immediately before a physical bake; on the gradient model the
         // C++ side binds fallbacks and the physical branch below never runs.
-        Uniform(2) sampler2D u_TransmittanceLut;
-        Uniform(3) sampler2D u_MultiScatterLut;
+        // Every input of this bake is a separate texture read through one of two shared states, the ones the
+        // screen passes read the same images with: GlobalFilterSampler (Graphic::kSkyBakeGlobalFilterSamplerBinding)
+        // for the LUTs and the distant sky light, LinearRepeatSampler (kSkyBakeLinearRepeatSamplerBinding) for
+        // the cloud volumes and maps.
+        Uniform(18) sampler GlobalFilterSampler;
+        Uniform(17) sampler LinearRepeatSampler;
+
+        Uniform(2) texture2D TransmittanceLutTexture;
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, GlobalFilterSampler)
+        Uniform(3) texture2D MultiScatterLutTexture;
+        #define MultiScatterLutTexture sampler2D(MultiScatterLutTexture, GlobalFilterSampler)
 
         // The same read-side mappings the SkyViewLut fill uses: raw uv for the transmittance LUT,
         // texel-centre remap for the multi-scatter LUT — each the exact inverse of its write side.
@@ -70,7 +85,7 @@ Shader "BakeProceduralSky"
         {
             vec2 uv = SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
-            return texture(u_TransmittanceLut, uv).rgb;
+            return texture(TransmittanceLutTexture, uv).rgb;
         }
 
         vec3 SkySampleMultiScatterLut(SkyAtmParams atm, float radiusKm, float sunZenithCos)
@@ -78,7 +93,7 @@ Shader "BakeProceduralSky"
             vec2 unit = SkyMultiScatterUnitFromParams(atm.BottomRadiusKm, atm.TopRadiusKm, radiusKm,
                                                       sunZenithCos);
             vec2 uv   = vec2(SkyUnitToTexelUv(unit.x, 32.0f), SkyUnitToTexelUv(unit.y, 32.0f));
-            return texture(u_MultiScatterLut, uv).rgb;
+            return texture(MultiScatterLutTexture, uv).rgb;
         }
 
         #define SKY_SCATTERING_SUN_TRANSMITTANCE(atm, radiusKm, sunZenithCos) SkySampleSunTransmittanceLut(atm, radiusKm, sunZenithCos)
@@ -102,57 +117,68 @@ Shader "BakeProceduralSky"
         // The four noise volumes a layer's species can name, deduplicated by
         // Graphic::ResolveCloudNoiseVolumes exactly as they are for the screen march. Separate bindings
         // and not an array: this engine's reflection refuses an array of descriptors.
-        Uniform(5) sampler3D u_CloudNoise;
-        Uniform(6) sampler3D u_CloudNoise1;
-        Uniform(7) sampler3D u_CloudNoise2;
-        Uniform(8) sampler3D u_CloudNoise3;
+        Uniform(5) texture3D CloudNoiseTexture;
+        #define CloudNoiseTexture sampler3D(CloudNoiseTexture, LinearRepeatSampler)
+        Uniform(6) texture3D CloudNoise1Texture;
+        #define CloudNoise1Texture sampler3D(CloudNoise1Texture, LinearRepeatSampler)
+        Uniform(7) texture3D CloudNoise2Texture;
+        #define CloudNoise2Texture sampler3D(CloudNoise2Texture, LinearRepeatSampler)
+        Uniform(8) texture3D CloudNoise3Texture;
+        #define CloudNoise3Texture sampler3D(CloudNoise3Texture, LinearRepeatSampler)
 
         // The procedural MODELLING VOLUME (256 x 32 x 256 RGBA8) this view's clouds are shaped by, and the
         // sculpted hero-cloud ATLAS beside it. Both borrowed from the VolumetricCloudRenderer of the same
-        // SceneRenderer, so the panorama is baked from the field the frame is about to march.
-        Uniform(9)  sampler3D u_CloudModelling;
+        // SceneRenderer, so the capture is baked from the field the frame is about to march.
+        Uniform(9) texture3D CloudModellingTexture;
+        #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
-        // of the baked profile by u_CloudWeather.
+        // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(14) sampler2D u_CloudFarWeather;
-        Uniform(15) sampler2D u_CloudLayoutPattern;
-        Uniform(16) sampler2D u_CloudLayoutMask;
-        Uniform(10) sampler3D u_CloudAuthoredAtlas;
+        Uniform(14) texture2D CloudFarWeatherTexture;
+        #define CloudFarWeatherTexture sampler2D(CloudFarWeatherTexture, LinearRepeatSampler)
+        Uniform(15) texture2D CloudLayoutPatternTexture;
+        #define CloudLayoutPatternTexture sampler2D(CloudLayoutPatternTexture, LinearRepeatSampler)
+        Uniform(16) texture2D CloudLayoutMaskTexture;
+        #define CloudLayoutMaskTexture sampler2D(CloudLayoutMaskTexture, LinearRepeatSampler)
+        Uniform(10) texture3D CloudAuthoredAtlasTexture;
+        #define CloudAuthoredAtlasTexture sampler3D(CloudAuthoredAtlasTexture, LinearRepeatSampler)
 
         // The sky's DISTANT SKY LIGHT: one texel holding the average radiance of the whole sky. It is the
-        // physical model's ambient and u_CloudAmbient.w decides whether it is read, which is the same gate
+        // physical model's ambient and CloudAmbient.w decides whether it is read, which is the same gate
         // the screen march applies.
-        Uniform(12) sampler2D u_DistantSkyLight;
+        Uniform(12) texture2D DistantSkyLightTexture;
+        #define DistantSkyLightTexture sampler2D(DistantSkyLightTexture, GlobalFilterSampler)
 
         // THE SKY-LIGHT OCCLUSION VOLUME, written by the previous frame's
         // Programs/Clouds/CloudSkyOcclusionVolume.shader over the modelling volume's own region. Read on
         // exactly the screen march's gate, so a deck that shades its own underside on screen shades it in
         // the bake too; without it the baked dome is brighter than the visible one by the whole of the
         // layer's self-occlusion.
-        Uniform(13) sampler3D u_CloudSkyOcclusionVolume;
+        Uniform(13) texture3D CloudSkyOcclusionVolumeTexture;
+        #define CloudSkyOcclusionVolumeTexture sampler3D(CloudSkyOcclusionVolumeTexture, LinearRepeatSampler)
 
         // The four-way select, a compare chain because a sampler is not indexable in this dialect. The CPU
         // deduplicates the slots, so the ordinary sky sends 0 for every species and this is one fetch.
         vec4 CloudFetchNoise( int slot, vec3 p )
         {
             if ( slot == 1 )
-                return texture( u_CloudNoise1, p );
+                return texture( CloudNoise1Texture, p );
             if ( slot == 2 )
-                return texture( u_CloudNoise2, p );
+                return texture( CloudNoise2Texture, p );
             if ( slot == 3 )
-                return texture( u_CloudNoise3, p );
-            return texture( u_CloudNoise, p );
+                return texture( CloudNoise3Texture, p );
+            return texture( CloudNoiseTexture, p );
         }
 
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         // textureLod AND NOT texture: a compute shader has no derivatives, so the implicit level of detail
         // is undefined. Both volumes have one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
-        #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
-        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
+        #define CLOUD_SAMPLE_MODELLING(p) textureLod(CloudModellingTexture, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(CloudFarWeatherTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(CloudLayoutPatternTexture, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(CloudLayoutMaskTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
 
         // Slot A's instance list, included BEFORE the seam because the seam's authored producer reads the
         // block this declares and GLSL has no forward declarations.
@@ -171,7 +197,7 @@ Shader "BakeProceduralSky"
         PushConstant SkyBakePush
         {
             // x = 1 when this view has a cloud layer to march and every cloud resource above is real; 0
-            //     when the panorama is the sky alone, in which case the whole march below is skipped and
+            //     when the capture is the sky alone, in which case the whole march below is skipped and
             //     the result is bit for bit what it was before clouds reached this shader.
             // y = 1 when the sky-light occlusion volume was written and may be read (the screen march's
             //     own gate, carried here for the same reason: the component's flag can be on while the
@@ -180,18 +206,21 @@ Shader "BakeProceduralSky"
             // z = the atmosphere's Aerial Perspective Start Depth in kilometres. It reaches the screen
             //     march baked into the aerial-perspective volume; this pass integrates the air itself and
             //     therefore has to be told, or a scene that pushes the haze out would still see it here.
-            // w = 1 when u_CloudSunColour.rgb carries the sun's OUTER-SPACE illuminance and this pass must
+            // w = 1 when CloudSunColour.rgb carries the sun's OUTER-SPACE illuminance and this pass must
             //     apply the atmosphere's transmittance at each cloud sample's own altitude itself. It is
             //     the SCREEN march's gate again (CloudPush::Frame.y), carried because both passes light
-            //     the field from ONE packed block: with the flag on and this lane at 0 the panorama would
+            //     the field from ONE packed block: with the flag on and this lane at 0 the capture would
             //     be lit by the sun as seen from space, which at a low sun is several times the light the
             //     scene is exposed for and reads as an exposure bug rather than a missing multiply.
             //     No binding travels with it — this pass already samples the SKY's own transmittance LUT
             //     at binding 2 and already derives the shell's radii from the sky block it reads.
-            vec4 u_BakeClouds;
+            vec4 BakeClouds;
+            // x = the first cube face this dispatch renders; gl_GlobalInvocationID.z counts from it.
+            // y = the first row; gl_GlobalInvocationID.y counts from it (a band of a time-sliced capture).
+            uvec4 BakeFace;
         };
 
-        const int   kBakeSampleCount      = 32;   // the Sky-View budget; the bake is off the frame path
+        const int   kBakeSampleCount      = 32;   // the Sky-View budget, per face texel
         const float kBakeAnchorAltitudeKm = 0.2f; // the fixed viewpoint (see the header)
 
         SkyAtmParams MakeBakeAtmosphere(SkyPacked s)
@@ -205,12 +234,19 @@ Shader "BakeProceduralSky"
         {
             vec3 originKm       = vec3(0.0f, atm.BottomRadiusKm + kBakeAnchorAltitudeKm, 0.0f);
             vec3 sunDir         = UnpackSunDirection(s);
-            vec3 sunIlluminance = UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s);
+            vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
 
             SkyScatterResult result = SkyIntegrateScatteredLuminance(atm, originKm, dir, sunDir,
                                                                      sunIlluminance, kBakeSampleCount);
 
             vec3 sky = result.Luminance * UnpackSkyAndAerialPerspectiveLuminanceFactor(s);
+
+            // Atmosphere light 1 (the moon): its in-scattering through the same air, so the IBL a moonlit sky
+            // casts on the scene is that sky. (Its lit-ground term below the horizon: REMAINDER.)
+            if (UnpackLight1Present(s))
+                sky += SkyIntegrateScatteredLuminance(atm, originKm, dir, UnpackLight1Direction(s),
+                                                      UnpackLight1Illuminance(s), kBakeSampleCount).Luminance *
+                       UnpackSkyAndAerialPerspectiveLuminanceFactor(s);
 
             // Below the horizon: the lit ground under the marched air — the same v1 formula the screen
             // pass applies, with the view transmittance coming from this texel's own march.
@@ -218,7 +254,7 @@ Shader "BakeProceduralSky"
             if (SkyIntersectsGround(r0, dir.y, atm.BottomRadiusKm))
             {
                 float sunZenithCos = clamp(sunDir.y, -1.0f, 1.0f);
-                vec3  sunT         = texture(u_TransmittanceLut,
+                vec3  sunT         = texture(TransmittanceLutTexture,
                                              SkyTransmittanceLutUvFromParams(
                                                   atm.BottomRadiusKm, atm.TopRadiusKm,
                                                   atm.BottomRadiusKm + SKY_PLANET_RADIUS_OFFSET_KM,
@@ -232,7 +268,7 @@ Shader "BakeProceduralSky"
             return sky * UnpackSkyLuminanceFactor(s);
         }
 
-        // What the cloud layer contributes along one panorama ray: premultiplied radiance and the
+        // What the cloud layer contributes along one capture ray: premultiplied radiance and the
         // transmittance of the layer, exactly the two lanes the screen march writes into its RGBA16F
         // target — so the composite over the sky is the same premultiplied over-operator the frame uses.
         struct CloudBakeResult
@@ -246,28 +282,28 @@ Shader "BakeProceduralSky"
         // reads rather than from a push constant, because this pass binds the sky and that one does not.
         // The arithmetic between them is SkySunAtAltitude's, once, in Common/SkyScattering.glslh.
         //
-        // WHY THIS PASS NEEDS IT AT ALL. The panorama is marched from the SAME packed block the screen
+        // WHY THIS PASS NEEDS IT AT ALL. The capture is marched from the SAME packed block the screen
         // march reads, and ECS::VolumetricCloudData::PerSampleAtmosphereTransmittance changes what
-        // u_CloudSunColour MEANS rather than adding a field beside it. A bake that ignored the lane would
+        // CloudSunColour MEANS rather than adding a field beside it. A bake that ignored the lane would
         // light every cloud in the IBL chain with the sun as seen from space.
         vec3 CloudSunColourAtForBake(SkyAtmParams atm, CloudLayer layer, vec3 positionKm, vec3 toSun)
         {
-            if (u_BakeClouds.w < 0.5f)
-                return u_CloudSunColour.rgb;
+            if (BakeClouds.w < 0.5f)
+                return CloudSunColour.rgb;
 
             float sunZenithCos = clamp(dot(CloudLocalUp(positionKm), toSun), -1.0f, 1.0f);
 
             SkySunAtPoint sun = SkySunAtAltitude(atm.BottomRadiusKm, atm.TopRadiusKm,
                                                  CloudAltitudeKm(layer, positionKm), sunZenithCos,
-                                                 vec2(textureSize(u_TransmittanceLut, 0)));
+                                                 vec2(textureSize(TransmittanceLutTexture, 0)));
 
             if (sun.PlanetShadow <= 0.0f)
                 return vec3(0.0f, 0.0f, 0.0f);
 
             // textureLod and not texture, for the reason every other fetch in this file gives: a compute
             // shader has no derivatives, so the implicit level of detail is undefined.
-            return u_CloudSunColour.rgb *
-                   (sun.PlanetShadow * textureLod(u_TransmittanceLut, sun.Uv, 0.0f).rgb);
+            return CloudSunColour.rgb *
+                   (sun.PlanetShadow * textureLod(TransmittanceLutTexture, sun.Uv, 0.0f).rgb);
         }
 
         CloudBakeResult MarchCloudsForBake(SkyPacked s, SkyAtmParams atm, vec3 dir, float jitter)
@@ -279,7 +315,7 @@ Shader "BakeProceduralSky"
             CloudLayer       layer  = CloudUnpackLayer();
             CloudFieldParams params = CloudUnpackFieldParams();
 
-            // WHERE THE PANORAMA STANDS IN THE CLOUD FIELD, and it is derived rather than sent.
+            // WHERE THE CAPTURE STANDS IN THE CLOUD FIELD, and it is derived rather than sent.
             //
             // The modelling volume covers one square region of the wind-shifted frame, snapped to the
             // lump lattice around the camera; the march asks the volume about `position - wind`. Putting
@@ -289,9 +325,9 @@ Shader "BakeProceduralSky"
             // does not rebake when the camera moves (the irradiance cube is a 65 536-sample cosine
             // convolution per texel: it integrates the arrangement of the field away and responds only to
             // the dome's mean).
-            float regionSizeKm = 1.0f / max(u_CloudLevel[2].z, 1e-6f);
-            vec2  anchorXz     = u_CloudLevel[2].xy + vec2(regionSizeKm * 0.5f) +
-                             vec2(u_CloudWind.x, u_CloudWind.z);
+            float regionSizeKm = 1.0f / max(CloudLevel[2].z, 1e-6f);
+            vec2  anchorXz     = CloudLevel[2].xy + vec2(regionSizeKm * 0.5f) +
+                             vec2(CloudWind.x, CloudWind.z);
 
             // The same planet-centred frame the screen march builds, at the same fixed altitude the sky
             // half of this bake is anchored at.
@@ -301,47 +337,47 @@ Shader "BakeProceduralSky"
 
             // The authored limits, measured FROM THE LAYER ENTRY exactly as the screen march measures them
             // — Unreal's DistanceFromCloudLayerEntryPoint mode.
-            segment.x = max(segment.x, u_CloudMarch.z);
-            segment.y = min(segment.y, segment.x + max(u_CloudLayer.w, 0.0f));
+            segment.x = max(segment.x, CloudMarch.z);
+            segment.y = min(segment.y, segment.x + max(CloudLayerGeometry.w, 0.0f));
 
             // A ray whose entry is past the cutoff is not traced, and one that never entered the shell —
-            // every ray below the horizon, which is half of this image — costs the two sphere tests above
+            // every ray below the horizon, which is half of the cube — costs the two sphere tests above
             // and nothing else.
-            if (segment.x > max(u_CloudPhase.w, 0.0f) || segment.y <= segment.x)
+            if (segment.x > max(CloudPhase.w, 0.0f) || segment.y <= segment.x)
                 return result;
 
             float length_km = segment.y - segment.x;
-            float stepCount = CloudStepCount(length_km, CLOUD_MIN_STEPS, max(u_CloudMarch.x, CLOUD_MIN_STEPS),
+            float stepCount = CloudStepCount(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                              CLOUD_DISTANCE_TO_MAX_STEPS_KM);
             int   stepTotal = int(stepCount);
 
-            float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(u_CloudMarch.x, CLOUD_MIN_STEPS),
+            float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                                  CLOUD_DISTANCE_TO_MAX_STEPS_KM);
             float coarseStepKm = CloudCoarseStepKm(stepKm);
 
-            vec3  sunDir       = normalize(u_CloudSun.xyz);
-            float phase        = CloudPhaseDualLobe(dot(dir, sunDir), u_CloudWind.w,
-                                                    u_CloudPhase.x, u_CloudPhase.y);
-            float extinction   = max(u_CloudMarch.w, 0.0f);
-            // PER COLOUR, and read from the same slot the screen march reads it from — a panorama lit by a
+            vec3  sunDir       = normalize(CloudSun.xyz);
+            float phase        = CloudPhaseDualLobe(dot(dir, sunDir), CloudWind.w,
+                                                    CloudPhase.x, CloudPhase.y);
+            float extinction   = max(CloudMarch.w, 0.0f);
+            // PER COLOUR, and read from the same slot the screen march reads it from — a capture lit by a
             // different albedo than the one the eye sees is the "second model of the clouds" this file's
             // own header refuses.
-            vec3  albedo       = clamp(u_CloudAlbedo.rgb, vec3(0.0f), vec3(1.0f));
-            float lightMarchKm = max(u_CloudSun.w, 0.0f);
-            int   lightSamples = int(clamp(u_CloudSunColour.w, 1.0f, 64.0f));
-            float stopT        = clamp(u_CloudMarch.y, 0.0f, 1.0f);
+            vec3  albedo       = clamp(CloudAlbedo.rgb, vec3(0.0f), vec3(1.0f));
+            float lightMarchKm = max(CloudSun.w, 0.0f);
+            int   lightSamples = int(clamp(CloudSunColour.w, 1.0f, 64.0f));
+            float stopT        = clamp(CloudMarch.y, 0.0f, 1.0f);
 
             CloudScatterSeries series;
-            series.Octaves     = u_CloudMultiScatter.x;
-            series.ScatterStep = u_CloudMultiScatter.y;
-            series.ExtinctStep = u_CloudMultiScatter.z;
-            series.PhaseStep   = u_CloudMultiScatter.w;
+            series.Octaves     = CloudMultiScatter.x;
+            series.ScatterStep = CloudMultiScatter.y;
+            series.ExtinctStep = CloudMultiScatter.z;
+            series.PhaseStep   = CloudMultiScatter.w;
 
-            vec3 ambientRadiance = u_CloudAmbient.rgb;
-            if (u_CloudAmbient.w > 0.5f)
+            vec3 ambientRadiance = CloudAmbient.rgb;
+            if (CloudAmbient.w > 0.5f)
             {
-                ambientRadiance = u_CloudAmbient.rgb *
-                                  texelFetch(u_DistantSkyLight, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
+                ambientRadiance = CloudAmbient.rgb *
+                                  texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
             }
 
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
@@ -407,12 +443,12 @@ Shader "BakeProceduralSky"
                     // The near-anchor fade. It fires for a layer whose base is inside the fade distance of
                     // the anchor, which is the same condition that makes it fire on screen for a camera
                     // inside the deck; carried so the artist's two distances are not dead in this pass.
-                    if (u_CloudFade.z > 0.0f)
-                        density *= smoothstep(u_CloudFade.w, u_CloudFade.z, t);
+                    if (CloudFadeParams.z > 0.0f)
+                        density *= smoothstep(CloudFadeParams.w, CloudFadeParams.z, t);
 
                     if (density > 0.0f)
                     {
-                        // Through the MEDIUM, exactly as the screen march does it — the panorama the
+                        // Through the MEDIUM, exactly as the screen march does it — the capture the
                         // scene is lit by must not judge the same sky by a second field.
                         float sigmaT = density * extinction *
                                        CloudSampleExtinctionFactor(params, field, fieldPos);
@@ -423,8 +459,8 @@ Shader "BakeProceduralSky"
                         // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by whichever of the two geometries this
                         // view is running. The gate is the screen march's own, so the baked dome carries
                         // the same self-occlusion the visible one does.
-                        float ambientOcclusion = CloudAmbientOcclusion(field.Profile, u_CloudPhase.z);
-                        if (u_BakeClouds.y > 0.5f)
+                        float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
+                        if (BakeClouds.y > 0.5f)
                         {
                             vec3 skyWindPos = vec3(fieldPos.x - params.WindOffsetKm.x,
                                                    fieldPos.y - params.WindOffsetKm.y,
@@ -435,8 +471,8 @@ Shader "BakeProceduralSky"
                                                                heightFraction, skyWindPos);
 
                             ambientOcclusion =
-                                CloudSkyOcclusion(textureLod(u_CloudSkyOcclusionVolume, skyUvw, 0.0f).r,
-                                                  u_CloudPhase.z);
+                                CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
+                                                  CloudPhase.z);
                         }
 
                         // The sun THIS sample sees, on the screen march's own terms — see the note at
@@ -453,7 +489,7 @@ Shader "BakeProceduralSky"
                                                            phase, sigmaT, sampleAlbedo, stepKm);
 
                         // Emission, attenuated by the ray's history only — see the note at the same line
-                        // of the screen march. A layer that glows has to glow in the panorama the scene is
+                        // of the screen march. A layer that glows has to glow in the capture the scene is
                         // LIT by, or the light in the world would come from a sky nobody can see.
                         luminance += transmittance * CloudSampleEmissive(params, field, fieldPos) * stepKm;
 
@@ -470,21 +506,21 @@ Shader "BakeProceduralSky"
                 t += stepKm;
             }
 
-            // AERIAL PERSPECTIVE, integrated rather than fetched. u_CloudAerial.z is the screen march's own
+            // AERIAL PERSPECTIVE, integrated rather than fetched. CloudAerial.z is the screen march's own
             // gate and is 1 only when the physical model published an aerial-perspective volume this frame,
             // so the artistic gradient takes this branch exactly as rarely as it takes the volume — never.
-            if (u_CloudAerial.z > 0.5f && aerialWeightSum > 0.0f)
+            if (CloudAerial.z > 0.5f && aerialWeightSum > 0.0f)
             {
                 // Clamped to the volume's far extent so a cloud past it gets what the screen's last froxel
                 // slice would have given it, rather than an integral the screen never performs.
                 float meanDistanceKm =
-                     min(CloudAerialMeanDistanceKm(aerialWeightedT, aerialWeightSum, u_CloudAerial.y),
-                         max(u_CloudAerial.x, 0.0f));
-                float startDepthKm = max(u_BakeClouds.z, 0.0f);
+                     min(CloudAerialMeanDistanceKm(aerialWeightedT, aerialWeightSum, CloudAerial.y),
+                         max(CloudAerial.x, 0.0f));
+                float startDepthKm = max(BakeClouds.z, 0.0f);
 
                 SkyScatterResult air =
                      SkyApIntegrateSegment(atm, originKm, dir, UnpackSunDirection(s),
-                                           UnpackSkyConfig(s).sunColor * UnpackSunIntensity(s),
+                                           UnpackAtmosphereLightIlluminance(s),
                                            startDepthKm, max(meanDistanceKm, startDepthKm),
                                            vec3(0.0f, 0.0f, 0.0f), vec3(1.0f, 1.0f, 1.0f));
 
@@ -498,7 +534,7 @@ Shader "BakeProceduralSky"
                 // only WHERE the air came from differs between the two passes.
                 luminance = CloudApplyAerialPerspective(
                      luminance, transmittance, inScatter, airT,
-                     CloudAerialAmount(meanDistanceKm, u_CloudFade.x, u_CloudFade.y));
+                     CloudAerialAmount(meanDistanceKm, CloudFadeParams.x, CloudFadeParams.y));
             }
 
             result.Luminance     = luminance;
@@ -506,25 +542,35 @@ Shader "BakeProceduralSky"
             return result;
         }
 
-        LocalSize(32, 32, 1);
+        // The direction of face texel @p st (its centre, in [0,1]^2) of cube face @p face: PanoramaToCubemap's
+        // face table, so a cube this pass writes is laid out exactly as every other cube the engine samples.
+        vec3 CaptureFaceDirection(uint face, vec2 st)
+        {
+            vec2 uv = 2.0 * vec2(st.x, 1.0 - st.y) - vec2(1.0);
+            vec3 d;
+            if (face == 0u)      d = vec3(1.0, uv.y, -uv.x);
+            else if (face == 1u) d = vec3(-1.0, uv.y, uv.x);
+            else if (face == 2u) d = vec3(uv.x, 1.0, -uv.y);
+            else if (face == 3u) d = vec3(uv.x, -1.0, uv.y);
+            else if (face == 4u) d = vec3(uv.x, uv.y, 1.0);
+            else                 d = vec3(-uv.x, uv.y, -1.0);
+            return normalize(d);
+        }
+
+        LocalSize(8, 8, 1);
         void main()
         {
-            ivec2 size  = imageSize(outputPanorama);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
-            if (coord.x >= size.x || coord.y >= size.y)
+            ivec2 size  = imageSize(outputFaces);
+            ivec2 coord = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y + BakeFace.y);
+            uint  face  = BakeFace.x + gl_GlobalInvocationID.z;
+            if (coord.x >= size.x || coord.y >= size.y || face >= 6u)
                 return;
 
-            vec2  uv    = (vec2(coord) + 0.5) / vec2(size);
-            float phi   = (uv.x - 0.5) * 2.0 * ATM_PI;
-            float theta = uv.y * ATM_PI;
-            float st    = sin(theta);
-
-            // Direction for this panorama texel (y-up, matching the engine's equirect convention).
-            vec3 dir = vec3(st * cos(phi), cos(theta), st * sin(phi));
+            vec3 dir = CaptureFaceDirection(face, (vec2(coord) + 0.5) / vec2(size));
 
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             SkyAtmParams atm = MakeBakeAtmosphere(s);
 
@@ -535,12 +581,12 @@ Shader "BakeProceduralSky"
                 color = EvaluateSky(dir, UnpackSunDirection(s), UnpackSunIntensity(s),
                                     UnpackSunAngularRadius(s), UnpackSkyConfig(s));
 
-            if (u_BakeClouds.x > 0.5f)
+            if (BakeClouds.x > 0.5f)
             {
                 // Hashed on the TEXEL and with no frame index in it — see the header. Deterministic, so
-                // two bakes of unchanged settings produce the same panorama byte for byte, which is what
+                // two captures of unchanged settings produce the same faces byte for byte, which is what
                 // makes the environment's own noise floor zero and a pixel diff of it mean something.
-                uint  jitterHash = CloudHashCell(uint(coord.x), uint(coord.y), 0u, 0x51ED270Bu);
+                uint  jitterHash = CloudHashCell(uint(coord.x), uint(coord.y), face, 0x51ED270Bu);
                 float jitter     = float(jitterHash & 0xFFFFu) * (1.0f / 65536.0f);
 
                 CloudBakeResult clouds = MarchCloudsForBake(s, atm, dir, jitter);
@@ -550,7 +596,7 @@ Shader "BakeProceduralSky"
                 color = clouds.Luminance + color * clouds.Transmittance;
             }
 
-            imageStore(outputPanorama, coord, vec4(color, 1.0));
+            imageStore(outputFaces, ivec3(coord, int(face)), vec4(color, 1.0));
         }
     }
 }

@@ -55,6 +55,7 @@
 #include <iostream>
 #include <iterator>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include <optional>
 #include <sstream>
@@ -67,6 +68,25 @@ namespace fs = std::filesystem;
 
 namespace
 {
+    // "A::B::C" from its non-empty parts, through the template engine the generated code is rendered with. A
+    // template that fails is a defect of this tool: it throws, and the entry point names it on stderr.
+    std::string QualifiedName( const std::vector<std::string>& parts )
+    {
+        static const auto kQualified = Common::Text::Compile( "{{ parts | join(\"::\") }}", "QualifiedName" );
+        if ( !kQualified.IsSuccess() )
+            throw std::runtime_error( kQualified.GetError() );
+        Common::Json::Value::Array names;
+        for ( const std::string& part : parts )
+            if ( !part.empty() )
+                names.emplace_back( part );
+        const Common::Json::Value model(
+             Common::Json::ObjectBuilder().Set( "parts", Common::Json::Value( std::move( names ) ) ).Build() );
+        auto rendered = Common::Text::Render( kQualified.GetValue(), Common::Json::Root( model ) );
+        if ( !rendered.IsSuccess() )
+            throw std::runtime_error( rendered.GetError() );
+        return rendered.ExtractValue();
+    }
+
     using Desert::HeaderTool::ComponentBlock;
     using Desert::HeaderTool::ExtractStringLiteral;
     using Desert::HeaderTool::ParenIdent;
@@ -183,6 +203,34 @@ namespace
         std::ostringstream ss;
         ss << in.rdbuf();
         return ss.str();
+    }
+
+    // Every regular file under `root` whose extension is one of `extensions`, generated files (".gen.") left out,
+    // in the byte order of their root-relative generic paths. recursive_directory_iterator walks in the
+    // filesystem's own order (NTFS by name, APFS by hash, ext4 by creation), and the generated text follows the
+    // scan order — includes, type registrations, component rows — so an unsorted walk made every machine
+    // regenerate the committed files differently.
+    std::vector<fs::path> SortedSourceTree( const fs::path&                         root,
+                                            std::initializer_list<std::string_view> extensions )
+    {
+        std::vector<std::pair<std::string, fs::path>> keyed;
+        for ( const auto& entry : fs::recursive_directory_iterator( root ) )
+        {
+            if ( !entry.is_regular_file() )
+                continue;
+            const std::string ext = entry.path().extension().string();
+            if ( std::find( extensions.begin(), extensions.end(), ext ) == extensions.end() )
+                continue;
+            if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
+                continue;
+            keyed.emplace_back( entry.path().lexically_relative( root ).generic_string(), entry.path() );
+        }
+        std::sort( keyed.begin(), keyed.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
+        std::vector<fs::path> files;
+        files.reserve( keyed.size() );
+        for ( auto& [key, path] : keyed )
+            files.push_back( std::move( path ) );
+        return files;
     }
 
     bool IsIdentChar( char c )
@@ -372,13 +420,11 @@ namespace
                         ++i;
                         EnumDef def;
                         def.shortName = name;
-                        std::string prefix;
+                        std::vector<std::string> parts;
                         for ( const auto& [n, d] : scopes )
-                        {
-                            if ( !prefix.empty() ) prefix += "::";
-                            prefix += n;
-                        }
-                        def.fqn = prefix.empty() ? name : prefix + "::" + name;
+                            parts.push_back( n );
+                        parts.push_back( name );
+                        def.fqn = QualifiedName( parts );
 
                         long long   running = 0;
                         std::string cur;
@@ -713,14 +759,10 @@ namespace
 
     std::string JoinScopes( const std::vector<Scope>& scopes )
     {
-        std::string fqn;
+        std::vector<std::string> parts;
         for ( const auto& s : scopes )
-        {
-            if ( s.name.empty() ) continue;
-            if ( !fqn.empty() ) fqn += "::";
-            fqn += s.name;
-        }
-        return fqn;
+            parts.push_back( s.name );
+        return QualifiedName( parts );
     }
 
     void ParseFile( const fs::path& file, const fs::path& sourceRoot, std::vector<ReflectedType>& out,
@@ -1050,15 +1092,27 @@ namespace
                             else if ( std::string elem = VectorElement( typeName ); !elem.empty() )
                             {
                                 std::string et = MapFieldType( elem );
-                                // Supported element types (scalars + asset handle). vector<struct/vec> later.
+                                // Supported element types: scalars, an asset handle, and a REFLECT( ScriptStruct )
+                                // (UE TArray<FStruct>): its JSON halves go through reflect-cpp like any block, its
+                                // Value through ValueTraits<ScriptStruct> (FunctionThunk.hpp). vector<vec> later.
                                 if ( et == "AssetHandle" || et == "Bool" || et == "Int" || et == "UInt" ||
-                                     et == "Float" || et == "Double" || et == "String" )
+                                     et == "Float" || et == "Double" || et == "String" || et == "Struct" )
                                 {
                                     f.isContainer   = true;
                                     f.elemFieldType = et;
                                 }
                             }
                         }
+                        // A reflected handle names its asset class (UE TSoftObjectPtr<T>): the Details panel draws
+                        // a picker over that class's rows and refuses an untyped handle, so refuse it here, at
+                        // the declaration, rather than as "(no Details slot)" in the editor.
+                        const bool handleField =
+                             f.fieldType == "AssetHandle" || ( f.isContainer && f.elemFieldType == "AssetHandle" );
+                        if ( handleField && f.meta.assetType.empty() )
+                            fail( start,
+                                  std::format( "PROPERTY {}: an AssetHandle needs Asset<T> naming its asset "
+                                               "type (the Details picker is typed)",
+                                               fieldName ) );
                         scopes.back().fields.push_back( f );
                     }
 
@@ -1317,18 +1371,8 @@ namespace
     std::vector<Desert::HeaderTool::ScannedFile> GatherSources( const fs::path& root, bool checked )
     {
         std::vector<Desert::HeaderTool::ScannedFile> files;
-        for ( const auto& entry : fs::recursive_directory_iterator( root ) )
-        {
-            if ( !entry.is_regular_file() )
-                continue;
-            const auto ext = entry.path().extension().string();
-            if ( ext != ".hpp" && ext != ".h" && ext != ".cpp" && ext != ".mm" )
-                continue;
-            if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
-                continue;
-            files.push_back( { entry.path(), ReadFile( entry.path() ), checked,
-                               fs::relative( entry.path(), root ).generic_string() } );
-        }
+        for ( const fs::path& path : SortedSourceTree( root, { ".hpp", ".h", ".cpp", ".mm" } ) )
+            files.push_back( { path, ReadFile( path ), checked, fs::relative( path, root ).generic_string() } );
         return files;
     }
 
@@ -1436,17 +1480,8 @@ namespace
                 std::cerr << "[DesertHeaderTool] scan root does not exist: " << root.ScanRoot << "\n";
                 return 1;
             }
-            for ( const auto& entry : fs::recursive_directory_iterator( root.ScanRoot ) )
-            {
-                if ( !entry.is_regular_file() )
-                    continue;
-                const auto ext = entry.path().extension().string();
-                if ( ext != ".hpp" && ext != ".h" )
-                    continue;
-                if ( entry.path().filename().string().find( ".gen." ) != std::string::npos )
-                    continue;
-                headers.emplace_back( entry.path(), &root );
-            }
+            for ( const fs::path& path : SortedSourceTree( root.ScanRoot, { ".hpp", ".h" } ) )
+                headers.emplace_back( path, &root );
         }
 
         // Pass 1: every enum definition, so a reflected field can reference an enum from any header.
@@ -1460,12 +1495,8 @@ namespace
                 std::cerr << "[DesertHeaderTool] enum root does not exist: " << enumRoot << "\n";
                 return 1;
             }
-            for ( const auto& entry : fs::recursive_directory_iterator( enumRoot ) )
-            {
-                const auto ext = entry.path().extension().string();
-                if ( entry.is_regular_file() && ( ext == ".hpp" || ext == ".h" ) )
-                    CollectEnums( StripComments( ReadFile( entry.path() ) ), enums );
-            }
+            for ( const fs::path& path : SortedSourceTree( enumRoot, { ".hpp", ".h" } ) )
+                CollectEnums( StripComments( ReadFile( path ) ), enums );
         }
 
         // Pass 2: reflected types, resolving enum field types against the collected enums.

@@ -17,14 +17,18 @@
         #include <Common/TerrainInstance.glslh>
         ReadBuffer(8) TerrainInstances
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
-        #define u_T u_Terrains[m_PushConstants.MaterialIndex]
+        #define CurrentTerrain Terrains[m_PushConstants.MaterialIndex]
 
         // A landscape tile's heights: the R16_UNORM copy of its uint16 samples (LandscapeECSSystem). Read
         // ONLY by texelFetch — a filtered read would blend samples the CPU never blends, and the decode
         // recovers the exact integer each texel was uploaded from.
-        Uniform(9) sampler2D u_Heightmap;
+        // A bound texture property: a separate texture read through its own sampler state `<name>Sampler`,
+        // which the material writes from the property (VulkanMaterialBackend::ApplyTexture2D).
+        Uniform(9) texture2D HeightmapTexture;
+        Uniform(11) sampler HeightmapTextureSampler;
+        #define HeightmapTexture sampler2D(HeightmapTexture, HeightmapTextureSampler)
 
         #include <Common/LandscapeHeight.glslh>
         #include <Common/LandscapeLod.glslh>
@@ -41,79 +45,26 @@
         Out(0) vec2 v_TileSample;
 #endif
 
-        // One sample of this tile in centimetres above the root's base, x and z in [-1, last + 1]. The
-        // heightmap carries a one-sample ring from the four neighbouring tiles (LandscapeBorderedSamples in
-        // LandscapeData.hpp), so texel (x + 1, z + 1) is sample (x, z).
-        float TileHeightCm( int x, int z )
-        {
-            return LandscapeHeightCmFromSample(
-                 LandscapeSampleFromUnorm( texelFetch( u_Heightmap, ivec2( x + 1, z + 1 ), 0 ).r ),
-                 u_T.LandscapeTile.w );
-        }
+        #include <Programs/Terrain/LandscapeVertexEval.glslh>
 
-        // 1 when this tile's neighbour on a side is loaded (its row is in the ring), 0 on the landscape's
-        // own edge. Params2.w is LandscapeNeighbourMask: West, East, South, North in bits 0..3.
-        float NeighbourPresent( int bit )
-        {
-            return float( ( int( u_T.Params2.w + 0.5 ) >> bit ) & 1 );
-        }
-
-        // dh/dx, dh/dz at a sample — the CPU's GradientAt (LandscapeData.cpp), the same .glslh functions on
-        // the same bordered samples. Central on a seam, so both tiles give it the same bits.
-        vec2 TileGradient( int x, int z )
-        {
-            float last    = u_T.LandscapeTile.z;
-            float xa      = LandscapeGradientLow( float( x ), NeighbourPresent( 0 ) );
-            float xb      = LandscapeGradientHigh( float( x ), last, NeighbourPresent( 1 ) );
-            float za      = LandscapeGradientLow( float( z ), NeighbourPresent( 2 ) );
-            float zb      = LandscapeGradientHigh( float( z ), last, NeighbourPresent( 3 ) );
-            float spacing = u_T.LandscapeFrame.w;
-            return vec2( LandscapeGradient( TileHeightCm( int( xa ), z ), TileHeightCm( int( xb ), z ), xb - xa, spacing ),
-                         LandscapeGradient( TileHeightCm( x, int( za ) ), TileHeightCm( x, int( zb ) ), zb - za, spacing ) );
-        }
-
-        // Everything that decides a vertex on a shared tile edge is exact and symmetric: the tile-local
-        // coordinate is an integer, the edge's LOD is the same max() on both sides, the snap keeps the last
-        // sample, the far column of one tile is the near column of the next, decoded by the same function.
-        // So both tiles place the vertex at the same bits, and no crack can open between LODs either.
         void main()
         {
-            int   iquads  = int( u_T.LandscapeTile.z + 0.5 );
-            float quads   = float( iquads );
-            int   gridLod = int( u_T.Params.w + 0.5 );
+            int   iquads  = int( CurrentTerrain.LandscapeTile.z + 0.5 );
+            int   gridLod = int( CurrentTerrain.Params.w + 0.5 );
             int   ix      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 0 );
             int   iz      = LandscapeLodGridCoord( gl_VertexIndex, iquads, gridLod, 1 );
 
-            float lod    = LandscapeCalcLod( float( ix ), float( iz ), quads, u_T.Params.y, u_T.LodEdges, u_T.LodCorners,
-                                             u_T.Params2.x );
-            int   lodLo  = int( floor( lod ) );
-            float morph  = lod - float( lodLo );
-            int   stride = LandscapeLodStride( lodLo );
-            int   x0     = LandscapeLodSnap( ix, stride, iquads );
-            int   z0     = LandscapeLodSnap( iz, stride, iquads );
-            int   x1     = LandscapeLodSnap( ix, stride * 2, iquads );
-            int   z1     = LandscapeLodSnap( iz, stride * 2, iquads );
-            float h0     = TileHeightCm( x0, z0 );
-            float h1     = TileHeightCm( x1, z1 );
-
-            // Morph toward the next LOD's vertex. At morph 0 this is the sample itself, bit for bit — the
-            // vertex Jolt's heightfield has there.
-            vec2  local   = vec2( LandscapeLodMorph( float( x0 ), float( x1 ), morph ), LandscapeLodMorph( float( z0 ), float( z1 ), morph ) );
-            float h       = LandscapeLodMorph( h0, h1, morph );
-            vec2  g       = u_T.LandscapeTile.xy + local;
-            vec2  worldXZ = u_T.LandscapeFrame.xz + g * u_T.LandscapeFrame.w;
-            vec4  worldPos = vec4( worldXZ.x, u_T.LandscapeFrame.y + h, worldXZ.y, 1.0 );
+            LandscapeMorphedVertex v = LandscapeEvaluateVertex( ix, iz );
+            vec4 worldPos = vec4( v.WorldPos, 1.0 );
             gl_Position    = m_PushConstants.Transform * worldPos;
 
-            vec2 d0     = TileGradient( x0, z0 );
-            vec2 d1     = TileGradient( x1, z1 );
-            vec2 d      = vec2( LandscapeLodMorph( d0.x, d1.x, morph ), LandscapeLodMorph( d0.y, d1.y, morph ) );
+            vec2 d      = LandscapeVertexGradient( v );
             vec3 normal = normalize( vec3( -d.x, 1.0, -d.y ) ); // the surface y = h(x, z)
 #ifndef TERRAIN_DEPTH_ONLY
             v_WorldPos = worldPos.xyz;
             v_Normal   = normal;
 #else
-            v_TileSample = local; // the sample coordinate within the tile, as the surface derives it
+            v_TileSample = v.Local; // the sample coordinate within the tile, as the surface derives it
             // The caster's slope depth bias, as every mesh caster's vertex stage adds it (UE:
             // ShadowDepthVertexShader.usf). One material draws every cascade, so the cascade's pair is pushed
             // beside its matrix (Material::SetShadowSlopeBias).

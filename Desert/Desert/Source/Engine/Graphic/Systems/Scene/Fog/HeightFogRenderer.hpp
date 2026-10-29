@@ -57,6 +57,34 @@ namespace Desert::Graphic::System
      * (Builder::CreateTexture, sized from this frame's view), created only on a fogged frame and published as
      * FrameTransients::HeightFog for the apply.
      */
+    // The Fog shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct HeightFogFogShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, FogApplyTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, GlobalFilterSampler );
+        DESERT_SHADER_PARAMETER( Texture, AerialPerspectiveTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, DistantSkyLightTexture );
+        // The frame's fog block (kSceneFogParamsBlockName) and the volumetric fog's integrated froxels.
+        DESERT_SHADER_PARAMETER( StorageBuffer, FogParamsBuffer );
+        DESERT_SHADER_PARAMETER( Texture, VolumetricFogTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( FogApplyTexture ),        RDG::Erase( SceneDepthTexture ),
+                                          RDG::Erase( GlobalFilterSampler ),    RDG::Erase( AerialPerspectiveTexture ),
+                                          RDG::Erase( LinearRepeatSampler ),    RDG::Erase( DistantSkyLightTexture ),
+                                          RDG::Erase( FogParamsBuffer ),        RDG::Erase( VolumetricFogTexture ),
+                                          RDG::Erase( LinearClampSampler ) };
+    };
+
+    // The Apply shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct HeightFogApplyShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FogApplyTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( FogApplyTexture ), RDG::Erase( PointClampSampler ) };
+    };
+
     class HeightFogRenderer final : public RenderSystem
     {
     public:

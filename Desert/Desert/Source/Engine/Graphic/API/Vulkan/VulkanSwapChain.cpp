@@ -5,6 +5,10 @@
 
 #include <algorithm>
 #include <Common/Settings/DisplaySettings.hpp>
+#include <Engine/Graphic/DisplayOutput.hpp>
+
+#include <format>
+#include <utility>
 #include <rflcpp/rfl/enums.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanAllocator.hpp>
@@ -86,6 +90,9 @@ namespace Desert::Graphic::API::Vulkan
 
         auto oldSwapchain = m_SwapChain;
 
+        // Before the present mode is resolved below: until a surface was probed the catalog offers FIFO alone,
+        // and VSync Off silently fell back to it.
+        vkLogicalDevice->GetPhysicalDevice()->ProbeSurface( m_Surface );
         const auto& pDevice = vkLogicalDevice->GetPhysicalDevice()->GetVulkanPhysicalDevice();
         
         VkSurfaceCapabilitiesKHR surfCaps;
@@ -147,11 +154,11 @@ namespace Desert::Graphic::API::Vulkan
              Graphic::ViewExtent{ surfCaps.currentExtent.width, surfCaps.currentExtent.height },
              Graphic::ViewExtent{ *width, *height } );
 
-        // REFUSED BEFORE ANYTHING IS CREATED. A 0-pixel extent reached vmaCreateImage in
-        // CreateColorAndDepthImages below, which refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that
-        // refusal goes through VK_CHECK_RESULT, which breaks into the debugger. That was the reported crash on
-        // minimising the editor on Windows. Rebuild() already declines to get this far, so reaching here means
-        // the surface lost its area between that check and this one; the frame loop retries.
+        // REFUSED BEFORE ANYTHING IS CREATED. A 0-pixel extent reached an image creation below, which
+        // refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that refusal goes through VK_CHECK_RESULT, which
+        // breaks into the debugger. That was the reported crash on minimising the editor on Windows. Rebuild()
+        // already declines to get this far, so reaching here means the surface lost its area between that check
+        // and this one; the frame loop retries.
         if ( !Graphic::IsUsableViewExtent( resolved ) )
             return Common::MakeFormattedError<bool>(
                  "the surface reports a {}x{} extent, which no swapchain image can be created at (a minimised "
@@ -206,7 +213,8 @@ namespace Desert::Graphic::API::Vulkan
         // NOT VK_CHECK_RESULT, and this is the line the whole task is named after. This function has an
         // error channel of its own, so a failure here can be REPORTED instead of aborting the process; the
         // macro's abort is for invariants, and "the device died while we were rebuilding" is not one.
-        const VkResult created = vkCreateSwapchainKHR( lDevice, &swapChainCreateInfo, nullptr, &m_SwapChain );
+        const VkResult created = vkLogicalDevice->GetPresentationDispatch().vkCreateSwapchainKHR(
+             lDevice, &swapChainCreateInfo, nullptr, &m_SwapChain );
         if ( created != VK_SUCCESS )
         {
             (void)NoteIfDeviceLost( created, "vkCreateSwapchainKHR", __FILE__, __LINE__ );
@@ -218,11 +226,12 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( auto& imageView : m_SwapChainImages.ImagesView )
                 vkDestroyImageView( lDevice, imageView, nullptr );
-            vkDestroySwapchainKHR( lDevice, oldSwapchain, nullptr );
+            vkLogicalDevice->GetPresentationDispatch().vkDestroySwapchainKHR( lDevice, oldSwapchain, nullptr );
         }
 
         uint32_t swapChainImagesCount = 0u;
-        VK_CHECK_RESULT( vkGetSwapchainImagesKHR( lDevice, m_SwapChain, &swapChainImagesCount, VK_NULL_HANDLE ) );
+        VK_CHECK_RESULT( vkLogicalDevice->GetPresentationDispatch().vkGetSwapchainImagesKHR(
+             lDevice, m_SwapChain, &swapChainImagesCount, VK_NULL_HANDLE ) );
         m_SwapChainImages.Images.resize( swapChainImagesCount );
         m_SwapChainImages.ImagesView.resize( swapChainImagesCount );
 
@@ -231,7 +240,8 @@ namespace Desert::Graphic::API::Vulkan
                  "the rebuilt swapchain has {} image(s) where the first had {}; the per-frame semaphores, fences "
                  "and command buffers are sized by the first count and cannot follow a change.",
                  swapChainImagesCount, Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
-        VK_CHECK_RESULT( vkGetSwapchainImagesKHR( lDevice, m_SwapChain, &swapChainImagesCount, m_SwapChainImages.Images.data() ) );
+        VK_CHECK_RESULT( vkLogicalDevice->GetPresentationDispatch().vkGetSwapchainImagesKHR(
+             lDevice, m_SwapChain, &swapChainImagesCount, m_SwapChainImages.Images.data() ) );
 
         for ( uint32_t i = 0; i < swapChainImagesCount; i++ )
         {
@@ -243,11 +253,6 @@ namespace Desert::Graphic::API::Vulkan
         }
         // The graph handles wrap the images just fetched; any handle of the previous images is dropped here.
         m_BackBufferGraphTextures.assign( swapChainImagesCount, nullptr );
-
-        const auto attachments = CreateColorAndDepthImages( vkLogicalDevice );
-        if ( !attachments.IsSuccess() )
-            return Common::MakeFormattedError<bool>( "the swapchain colour/depth attachments: {}",
-                                                     attachments.GetError() );
 
         if ( !m_Output )
         {
@@ -266,7 +271,7 @@ namespace Desert::Graphic::API::Vulkan
         // pass is what the runtime builds its present/UI pipelines against, so its attachment format must match
         // the back buffer the present graph node draws into (ImportBackBuffer) — else the pipeline is
         // render-pass-incompatible (was (ImageFormat)0 == RGBA8F, tripping VUID-vkCmdDraw-renderPass-02684).
-        fbSpec.Attachments.Attachments = { Core::Formats::ImageFormat::BGRA8F };
+        fbSpec.Attachments.Attachments = { BackBufferFormat() };
         fbSpec.PresentTarget           = true; // build its render pass to match the actual present pass
         m_CompositeFramebuffer = std::make_shared<VulkanFramebuffer>( fbSpec );
         // The wrapper whose render pass every present/UI pipeline is built against. A failure here is not
@@ -281,6 +286,24 @@ namespace Desert::Graphic::API::Vulkan
 
         return Common::MakeSuccess( true );
     }
+
+    namespace
+    {
+        // The log's names for the pairs the display outputs use (the scenario reads them from editor.log).
+        std::pair<std::string, std::string> SurfacePairName( VkFormat format, VkColorSpaceKHR space )
+        {
+            std::string f = format == VK_FORMAT_R16G16B16A16_SFLOAT ? "RGBA16F"
+                            : format == VK_FORMAT_B8G8R8A8_UNORM    ? "BGRA8_UNORM"
+                            : format == VK_FORMAT_A2B10G10R10_UNORM_PACK32
+                                 ? "A2B10G10R10"
+                                 : std::format( "VkFormat {}", static_cast<int>( format ) );
+            std::string c = space == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT ? "EXTENDED_SRGB_LINEAR"
+                            : space == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR     ? "SRGB_NONLINEAR"
+                            : space == VK_COLOR_SPACE_HDR10_ST2084_EXT       ? "HDR10_ST2084"
+                                 : std::format( "VkColorSpace {}", static_cast<int>( space ) );
+            return { f, c };
+        }
+    } // namespace
 
     Common::ResultStr<bool>
     VulkanSwapChain::GetImageFormatAndColorSpace( const std::shared_ptr<VulkanLogicalDevice>& device )
@@ -302,18 +325,52 @@ namespace Desert::Graphic::API::Vulkan
         }
         else
         {
-            // THE OUTPUT IS DisplayOutput::SDR_sRGB, the one CapabilityCatalog::DisplayOutputs entry every device
-            // has and the only encoding the tonemapper writes. HDR10_PQ / scRGB_Linear stay unselected until the
-            // tonemapper has their output transform (a selector for them today would be a dead setting).
-            DESERT_VERIFY( Common::Scalability::CapabilityCatalog::Offers(
-                                EngineContext::GetInstance().GetCapabilities().Catalog.DisplayOutputs,
-                                Common::Scalability::DisplayOutput::SDR_sRGB ),
+            // THE OUTPUT (HDR-OUTPUT): Display.Output, accepted only from CapabilityCatalog::DisplayOutputs
+            // (ResolveDisplayOutput) and only with the OS's luminance answer (QueryDisplayLuminance). A refused
+            // HDR output is LOGGED and the swapchain builds SDR: the frame must reach the screen, and the
+            // refusal names the setting; the published state says SDR, so nothing downstream pretends HDR.
+            using Common::Scalability::DisplayOutput;
+            const auto& catalog = EngineContext::GetInstance().GetCapabilities().Catalog;
+            DESERT_VERIFY( Common::Scalability::CapabilityCatalog::Offers( catalog.DisplayOutputs,
+                                                                           DisplayOutput::SDR_sRGB ),
                            "the catalog always offers SDR_sRGB" );
+            Graphic::DisplayOutputState state; // SDR
+            if ( m_Display.Output != DisplayOutput::SDR_sRGB )
+            {
+                const auto resolved = Common::Scalability::ResolveDisplayOutput( m_Display, catalog );
+                const auto os       = Graphic::QueryDisplayLuminance( const_cast<GLFWwindow*>( m_Window ) );
+                if ( !resolved.Error.empty() )
+                {
+                    LOG_ERROR( "[Display] {} — presenting SDR", resolved.Error );
+                }
+                else if ( !os )
+                {
+                    LOG_ERROR( "[Display] {} — presenting SDR", os.GetError() );
+                }
+                else if ( const auto hdr = Graphic::ResolveDisplayOutputState( resolved.Output, m_Display,
+                                                                              os.GetValue() );
+                          !hdr )
+                {
+                    LOG_ERROR( "[Display] {} — presenting SDR", hdr.GetError() );
+                }
+                else
+                {
+                    state = hdr.GetValue();
+                    LOG_INFO( "[Display] OS: {} EDR headroom {:.3f} (potential {:.3f}, reference {:.3f})",
+                              os.GetValue().Source, os.GetValue().EdrHeadroom, os.GetValue().PotentialHeadroom,
+                              os.GetValue().ReferenceHeadroom );
+                }
+            }
+            const VkFormat        wantFormat = state.Output == DisplayOutput::scRGB_Linear
+                                                    ? VK_FORMAT_R16G16B16A16_SFLOAT
+                                                    : VK_FORMAT_B8G8R8A8_UNORM;
+            const VkColorSpaceKHR wantSpace  = state.Output == DisplayOutput::scRGB_Linear
+                                                    ? VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT
+                                                    : VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
             bool found = false;
             for ( auto&& surfaceFormat : surfaceFormats )
             {
-                if ( surfaceFormat.format == VK_FORMAT_B8G8R8A8_UNORM &&
-                     surfaceFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR )
+                if ( surfaceFormat.format == wantFormat && surfaceFormat.colorSpace == wantSpace )
                 {
                     m_ColorFormat = surfaceFormat.format;
                     m_ColorSpace  = surfaceFormat.colorSpace;
@@ -323,9 +380,19 @@ namespace Desert::Graphic::API::Vulkan
             }
             if ( !found )
             {
+                // The catalog listed the pair from this very surface; not finding it is an invariant break.
+                DESERT_VERIFY( state.Output == DisplayOutput::SDR_sRGB, "the surface lost the {} pair",
+                               Common::Scalability::DisplayOutputName( state.Output ) );
+                state         = {};
                 m_ColorFormat = surfaceFormats[0].format;
                 m_ColorSpace  = surfaceFormats[0].colorSpace;
             }
+            Graphic::PublishDisplayOutput( state );
+            LOG_INFO( "[Display] output {}: format {} colour space {}; paper white {:.0f} nits, peak {:.0f} nits, "
+                      "headroom {:.3f}",
+                      Common::Scalability::DisplayOutputName( state.Output ), SurfacePairName( m_ColorFormat, m_ColorSpace ).first,
+                      SurfacePairName( m_ColorFormat, m_ColorSpace ).second, state.PaperWhiteNits, state.PeakNits,
+                      state.Headroom );
         }
         return BOOLSUCCESS;
     }
@@ -347,8 +414,9 @@ namespace Desert::Graphic::API::Vulkan
         // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
         // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
         const VkResult res =
-             vkAcquireNextImageKHR( vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX,
-                                    presentCompleteSemaphore, VK_NULL_HANDLE, imageIndex );
+             vkLogicalDevice->GetPresentationDispatch().vkAcquireNextImageKHR(
+                  vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX, presentCompleteSemaphore,
+                  VK_NULL_HANDLE, imageIndex );
         switch ( res )
         {
             case VK_SUCCESS:
@@ -457,7 +525,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             for ( auto& view : m_SwapChainImages.ImagesView ) vkDestroyImageView( device, view, nullptr );
             m_BackBufferGraphTextures.clear();
-            vkDestroySwapchainKHR( device, m_SwapChain, nullptr );
+            vkLogicalDevice->GetPresentationDispatch().vkDestroySwapchainKHR( device, m_SwapChain, nullptr );
             m_SwapChain = VK_NULL_HANDLE;
         }
 
@@ -471,7 +539,7 @@ namespace Desert::Graphic::API::Vulkan
         // obliged to destroy it. A8.
         if ( m_CaptureStaging != VK_NULL_HANDLE )
         {
-            // Same late-teardown hazard as the colour/depth pair below: with no renderer context there is
+            // Late-teardown hazard (as VulkanFramebuffer::Release): with no renderer context there is
             // no allocator to reach, and the device's own destruction takes the buffer with it.
             const auto ctx = EngineContext::GetInstance().GetRendererContext();
             if ( ctx )
@@ -482,42 +550,6 @@ namespace Desert::Graphic::API::Vulkan
             m_CaptureAllocation = nullptr;
             m_CaptureWidth      = 0;
             m_CaptureHeight     = 0;
-        }
-
-        if ( m_ColorImages.Image )
-        {
-            // Same late-teardown hazard as VulkanFramebuffer::Release: ~Application destroys the renderer
-            // context BEFORE the window (member order), so this can run with no context — and reaching
-            // through a null shared_ptr for the allocator segfaults on exit. Without it, just drop the
-            // handles; the GPU objects go with the device.
-            const auto   ctx = EngineContext::GetInstance().GetRendererContext();
-            VmaAllocator allocator =
-                 ctx ? SP_CAST( VulkanContext, ctx )->GetVulkanAllocator()->GetVMAAllocator() : nullptr;
-            if ( !allocator )
-            {
-                vkDestroyImageView( device, m_ColorImages.ImageView, nullptr );
-                vkDestroyImageView( device, m_DepthStencilImages.ImageView, nullptr );
-                m_VmaAllocation[0] = m_VmaAllocation[1] = nullptr;
-                m_ColorImages                           = {};
-                m_DepthStencilImages                    = {};
-                m_CompositeFramebuffer                  = nullptr;
-                return;
-            }
-            // Through the allocator's own door, as every other image is: its ledger recorded these two by tag
-            // on creation and drops the rows only when the deferred queue really destroys them, so a window
-            // resize leaves no dead rows and no untracked bytes behind.
-            const auto& vulkanAllocator = SP_CAST( VulkanContext, ctx )->GetVulkanAllocator();
-            // The header keeps the two allocations as `const void*` so it need not include vk_mem_alloc.h
-            // (see m_VmaAllocation); this is where the opaque handle is given its type back.
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
-            vulkanAllocator->RT_DestroyImage( m_ColorImages.Image, (VmaAllocation)m_VmaAllocation[0],
-                                              m_ColorImages.ImageView );
-            vulkanAllocator->RT_DestroyImage( m_DepthStencilImages.Image, (VmaAllocation)m_VmaAllocation[1],
-                                              m_DepthStencilImages.ImageView );
-            // NOLINTEND(cppcoreguidelines-pro-type-cstyle-cast,google-readability-casting)
-
-            m_VmaAllocation[0] = m_VmaAllocation[1] = nullptr;
-            m_ColorImages = {}; m_DepthStencilImages = {};
         }
 
         m_CompositeFramebuffer = nullptr;
@@ -536,7 +568,7 @@ namespace Desert::Graphic::API::Vulkan
         desc.Size.Depth  = 1;
         // The composite framebuffer's format (CreateCompositeFramebuffer): the pipelines that draw into the back
         // buffer are built against it.
-        desc.Format = Core::Formats::ImageFormat::BGRA8F;
+        desc.Format = BackBufferFormat();
 
         if ( !m_BackBufferGraphTextures[index] )
         {
@@ -584,6 +616,9 @@ namespace Desert::Graphic::API::Vulkan
                 case VK_FORMAT_R8G8B8A8_UNORM:
                 case VK_FORMAT_R8G8B8A8_SRGB:
                     out = Graphic::PackedPixelSource::RGBA8;
+                    return true;
+                case VK_FORMAT_R16G16B16A16_SFLOAT: // scRGB (HDR-OUTPUT): packed to its SDR rendition
+                    out = Graphic::PackedPixelSource::RGBA16F_ScRGB;
                     return true;
                 default:
                     return false;
@@ -746,6 +781,20 @@ namespace Desert::Graphic::API::Vulkan
         }
         release();
 
+        if ( source == Graphic::PackedPixelSource::RGBA16F_ScRGB )
+        {
+            // The brightest value the swapchain held, in paper-white units. On a capture frame the editor draws
+            // the SDR rendition (Graphic::SdrCaptureRenditionRequested; <= 1); the HDR peak of the same frame is
+            // the tonemap's HDR rendition's ("[Display] HDR rendition of the captured frame"). Above 1 here
+            // means a capture whose requester never asked for the rendition: the PNG clips those highlights.
+            const Graphic::ScRGBPeak peak = Graphic::FindScRGBPeak( raw.data(), raw.size(), pixels );
+            LOG_INFO( "[Display] capture of the scRGB swapchain (SDR rendition {}): peak {:.3f} x paper white "
+                      "({:.0f} nits) at "
+                      "pixel ({}, {}) of {}x{}",
+                      Graphic::SdrCaptureRenditionRequested() ? "requested" : "NOT requested", peak.Value,
+                      peak.Value * Graphic::CurrentDisplayOutput().PaperWhiteNits, peak.Pixel % w, peak.Pixel / w,
+                      w, h );
+        }
         Bytes out = Graphic::PackToRGBA8( raw.data(), raw.size(), pixels, source );
         if ( out.size() != pixels * 4u )
         {
@@ -783,53 +832,5 @@ namespace Desert::Graphic::API::Vulkan
     }
 
 #endif // DESERT_DEV_INSTRUMENTS
-
-    Common::ResultStr<VkResult> VulkanSwapChain::CreateColorAndDepthImages( const std::shared_ptr<VulkanLogicalDevice>& device )
-    {
-        const auto& allocator =
-             SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
-
-        // Color
-        VkImageCreateInfo cInfo = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = m_ColorFormat, .extent = { m_Width, m_Height, 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = m_MSAASamples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-        auto colorAllocation = allocator->RT_AllocateImage( "SwapChain_Color", cInfo, VMA_MEMORY_USAGE_GPU_ONLY,
-                                                            m_ColorImages.Image );
-        if ( !colorAllocation )
-            return Common::MakeFormattedError<VkResult>( "swap chain colour image {}x{}: {}", m_Width, m_Height,
-                                                         colorAllocation.GetError() );
-        m_VmaAllocation[0] = colorAllocation.GetValue();
-
-        // A refused view used to be stored as VK_NULL_HANDLE and attached to the swap chain's
-        // framebuffer anyway; the resulting failure surfaced at framebuffer creation with no mention
-        // of the view that never existed.
-        auto colorView =
-             Utils::CreateImageView( device->GetVulkanLogicalDevice(), m_ColorImages.Image, m_ColorFormat,
-                                     VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_2D, 1, 1 );
-        if ( !colorView )
-        {
-            return Common::MakeFormattedError<VkResult>( "swap chain colour image view: {}",
-                                                         colorView.GetError() );
-        }
-        m_ColorImages.ImageView = colorView.GetValue();
-
-        // Depth
-        VkFormat dFormat = device->GetPhysicalDevice()->GetDepthFormat();
-        VkImageCreateInfo dInfo = { .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = dFormat, .extent = { m_Width, m_Height, 1 }, .mipLevels = 1, .arrayLayers = 1, .samples = m_MSAASamples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE, .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
-        auto depthAllocation = allocator->RT_AllocateImage( "SwapChain_Depth", dInfo, VMA_MEMORY_USAGE_GPU_ONLY,
-                                                            m_DepthStencilImages.Image );
-        if ( !depthAllocation )
-            return Common::MakeFormattedError<VkResult>( "swap chain depth image {}x{}: {}", m_Width, m_Height,
-                                                         depthAllocation.GetError() );
-        m_VmaAllocation[1] = depthAllocation.GetValue();
-
-        auto depthView = Utils::CreateImageView( device->GetVulkanLogicalDevice(), m_DepthStencilImages.Image,
-                                                 dFormat, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_VIEW_TYPE_2D, 1, 1 );
-        if ( !depthView )
-        {
-            return Common::MakeFormattedError<VkResult>( "swap chain depth image view: {}", depthView.GetError() );
-        }
-        m_DepthStencilImages.ImageView = depthView.GetValue();
-
-        return Common::MakeSuccess( VK_SUCCESS );
-    }
 
 } // namespace Desert::Graphic::API::Vulkan

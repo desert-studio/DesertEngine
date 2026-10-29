@@ -10,9 +10,13 @@ namespace Desert::ShaderResources::API::Vulkan
     {
         // STORAGE for every reader and writer; INDIRECT because a storage buffer a compute pass fills is a draw's
         // indirect arguments: the particle Counters (ParticleCompact writes a VkDrawIndirectCommand per emitter,
-        // ParticleRenderer::DrawPass reads it through Renderer::DrawProceduralIndirect).
-        constexpr VkBufferUsageFlags kUsage =
-             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+        // ParticleRenderer::DrawPass reads it through Renderer::DrawProceduralIndirect); TRANSFER_DST because a
+        // persistent buffer imported into a graph is filled by the graph's upload
+        // (RDG::Builder::QueueBufferUpload, a copy) when its content changes, so a frame in flight never reads a
+        // buffer the CPU is writing (GlobalDistanceField's mesh SDF records).
+        constexpr VkBufferUsageFlags kUsage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     } // namespace
 
     VulkanStorageBuffer::VulkanStorageBuffer( const std::string_view bufferName, uint32_t size, uint32_t binding,
@@ -20,6 +24,7 @@ namespace Desert::ShaderResources::API::Vulkan
          : m_Lifetime( persistent ? Persistence::AcrossFrames : Persistence::PerFrame ), m_Binding( binding ),
            m_BufferName( bufferName )
     {
+        NameLedgerRow( m_BufferName );
         if ( size == 0 )
             size = 1; // Vulkan requires size > 0; a per-frame buffer grows on its first SetData.
 
@@ -164,6 +169,22 @@ namespace Desert::ShaderResources::API::Vulkan
         // unmapped one), so there is no second state to check.
         MappedBufferCopy* copy = nullptr;
         return ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
+    }
+
+    Common::BoolResultStr VulkanStorageBuffer::ReadBack( void* destination, uint32_t size, uint32_t offset )
+    {
+        if ( IsPersistent() )
+            return Common::MakeFormattedError<bool>(
+                 "storage buffer '{}' is persistent: a frame still in flight "
+                 "may be writing its one device buffer, so it is not read back",
+                 m_BufferName );
+        MappedBufferCopy* copy     = nullptr;
+        const auto        resolved = ActiveCopy( EngineContext::GetInstance().GetCurrentFrameIndex(), copy );
+        if ( !resolved.IsSuccess() )
+            return resolved;
+        if ( const auto read = copy->Read( destination, size, offset ); !read.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "storage buffer '{}': {}", m_BufferName, read.GetError() );
+        return BOOLSUCCESS;
     }
 
     Common::BoolResultStr VulkanStorageBuffer::BindActiveCopy( uint32_t frameIndex, ViewCopyBinding& out )

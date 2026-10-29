@@ -8,14 +8,18 @@ Shader "LightShaftBlur"
         // run three times with the reach growing N-fold per pass, the effective kernel is N^3 samples
         // long — a full-screen streak for the price of 3 x N taps.
 
-        Uniform(0) sampler2D u_Source;
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Output;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) texture2D ShaftMaskTexture;
+        #define ShaftMaskTexture sampler2D(ShaftMaskTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D BlurredShaftsTexture;
 
         PushConstant ShaftBlurPush
         {
-            vec2  u_SunUV;   // streak origin in [0,1] UV
-            float u_Reach;   // fraction of the pixel->sun distance this pass walks (grows per pass)
-            float u_Decay;   // per-tap weight decay along the streak
+            vec2  SunUv;   // streak origin in [0,1] UV
+            float Reach;   // fraction of the pixel->sun distance this pass walks (grows per pass)
+            float Decay;   // per-tap weight decay along the streak
         };
 
         LocalSize(16, 16, 1);
@@ -24,13 +28,13 @@ Shader "LightShaftBlur"
 
         void main()
         {
-            ivec2 size  = imageSize(u_Output);
+            ivec2 size  = imageSize(BlurredShaftsTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
             vec2 uv     = (vec2(coord) + vec2(0.5f, 0.5f)) / vec2(size);
-            vec2 toward = (u_SunUV - uv) * (u_Reach / float(kTaps));
+            vec2 toward = (SunUv - uv) * (Reach / float(kTaps));
 
             vec3  total  = vec3(0.0f, 0.0f, 0.0f);
             float weight = 1.0f;
@@ -40,13 +44,13 @@ Shader "LightShaftBlur"
             {
                 // The global sampler is REPEAT; a tap past the edge would wrap and streak the far side
                 // of the screen into this one.
-                total += textureLod(u_Source, clamp(tapUv, vec2(0.0f), vec2(1.0f)), 0.0f).rgb * weight;
+                total += textureLod(ShaftMaskTexture, clamp(tapUv, vec2(0.0f), vec2(1.0f)), 0.0f).rgb * weight;
                 sum += weight;
-                weight *= u_Decay;
+                weight *= Decay;
                 tapUv += toward;
             }
 
-            imageStore(u_Output, coord, vec4(total / max(sum, 1e-4f), 1.0f));
+            imageStore(BlurredShaftsTexture, coord, vec4(total / max(sum, 1e-4f), 1.0f));
         }
     }
 }

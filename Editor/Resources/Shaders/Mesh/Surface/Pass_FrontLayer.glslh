@@ -1,0 +1,33 @@
+// Surface cell pass: the TRANSLUCENT FRONT LAYER G-buffer (UE FrontLayerTranslucency.usf MainPS, the
+// FrontLayerTranslucencyGBuffer mesh pass) - the `Static.FrontLayer` cell of a `BlendMode Translucent` template
+// (DShaderParser kSurfaceFrontLayerPass). Drawn by MeshRenderer::RenderFrontLayerManual into the front layer's own
+// targets ("Translucency: Front Layer G-buffer"), depth-tested and depth-written against a cleared depth, so each
+// pixel keeps its NEAREST translucent surface. The reflection trace starts from what this writes (SSR.shader under
+// DESERT_REFLECTIONS_FRONT_LAYER) and the glass reads the result back where its own depth is this one
+// (Pass_Forward_Translucent.glslh). Same surface function, same normal and roughness as the glass shades with: one
+// statement of the surface, never a second guess of it.
+#include <Common/MaterialTransport.glslh>
+
+DESERT_SURFACE_VARYINGS( in )
+
+// The G-buffer normal slot's layout (Pass_GBuffer.glslh oGBufferB, ViewTargetFormats::kGBufferB): world normal,
+// roughness - the reflection trace reads the front layer exactly as it reads the opaque G-buffer. A cleared texel
+// (zero normal) is a pixel with no translucent surface: SSRPixelCanReflect refuses it.
+layout( location = 0 ) out vec4 oFrontLayerNormal;
+// The surface's motion (Graphic::kVelocityFormat): the reflection denoiser reprojects its history with it, as the
+// opaque reflections' with the G-buffer's velocity.
+#include <Common/Velocity.glslh>
+layout( location = 1 ) out vec4 oFrontLayerVelocity;
+
+void main()
+{
+    const SurfaceInput i =
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor, gl_FrontFacing );
+    const SurfaceOutput s = EvaluateSurface( i );
+    // UE clips a zero-opacity texel out of the front layer: nothing is seen there to reflect from.
+    if ( s.Opacity <= 0.0 )
+        discard;
+    oFrontLayerNormal   = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
+    oFrontLayerVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
+}

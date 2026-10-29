@@ -1,0 +1,60 @@
+#ifndef DESERT_SURFACE_WEATHER_GLSLH
+#define DESERT_SURFACE_WEATHER_GLSLH
+
+// THE SURFACE'S RESPONSE TO THE WEATHER (UE: CitySample's wet material functions, after Lagarde's "Water drop 2b —
+// Dynamic rain and its effects"). Included by the two lit pass headers (Pass_Forward.glslh, Pass_GBuffer.glslh) of a
+// cell the parser compiled with DESERT_SURFACE_WEATHER, and applied to EvaluateSurface's output BEFORE anything reads
+// it, so the forward pixel and the G-buffer texel of one surface are wetted by the same text.
+//
+// The parser defines DESERT_SURFACE_WEATHER in the Forward and GBuffer cells of every Opaque / Masked template with a
+// material row, and gives that row the two engine-owned parameters this reads (kSurfaceRespondsToWeatherParam,
+// kSurfacePorosityParam in DShaderParser.hpp): a material states them like any other parameter (an instance overrides
+// them), so the response is the MATERIAL's, not the template's. DESERT_WORLD_PARAMETER_WETNESS is the key of the
+// world parameter kSurfaceWetnessParameter ("Wetness"), and the cell declares the world's table
+// (Common/WorldParameters.glslh) for it.
+
+// THE VIEW'S RAIN OCCLUSION: the map, its block and the position lookup are Common/RainOcclusion.glslh (shared with
+// the precipitation). A surface is looked up a texel and a half out along its geometric normal, so a wall facing the
+// open sky reads the ground beside it rather than its own top.
+#include <Common/RainOcclusion.glslh>
+
+float DesertRainOcclusion( SurfaceInput i )
+{
+    return DesertRainOcclusionAt( i.WorldPosition + i.Normal * ( 1.5 * DesertRainOcclusionTexel() ) );
+}
+
+// HOW WET THE WORLD IS AT THIS SURFACE, in [0, 1]. THE ONE ACCESSOR: today the scene's world parameter (one value
+// for the level, written by the weather state) where the sky reaches the surface, nothing under a roof; a zone field
+// replaces the world value here, and only here, by position.
+float DesertSurfaceWetness( SurfaceInput i )
+{
+    const float world = clamp( DesertWorldParameter( DESERT_WORLD_PARAMETER_WETNESS ).x, 0.0, 1.0 );
+    return world * ( 1.0 - DesertRainOcclusion( i ) );
+}
+
+// Wets @p s by @p wetness. Water fills a dielectric's pores: the diffuse darkens (light refracted into the water
+// film is absorbed over a longer path) and the surface smooths, both scaled by porosity; a metal has no pores and
+// no diffuse, so it is left as it was. A non-porous surface only wets by STANDING water (puddles, a water film),
+// which is not this function's — it is the puddle pass's (WTH-PUDDLES).
+//   factor    = lerp( 1, 0.2, dielectric * porosity )           (Lagarde's porosity factor)
+//   BaseColor *= lerp( 1, factor, wet )
+//   Roughness *= lerp( 1, factor, 0.5 * wet )                   (gloss rises half as fast as the albedo falls)
+SurfaceOutput ApplyWetness( SurfaceOutput s, const float wetness, const float porosity )
+{
+    const float dielectric = 1.0 - clamp( s.Metallic, 0.0, 1.0 );
+    const float factor     = mix( 1.0, 0.2, dielectric * clamp( porosity, 0.0, 1.0 ) );
+    const float wet        = clamp( wetness, 0.0, 1.0 );
+    s.BaseColor *= mix( 1.0, factor, wet );
+    s.Roughness *= mix( 1.0, factor, 0.5 * wet );
+    return s;
+}
+
+// The pass headers' one call: the material's response (RespondsToWeather, a weight in [0, 1]) times the world's
+// wetness here, at the material's porosity.
+SurfaceOutput DesertApplySurfaceWeather( SurfaceInput i, SurfaceOutput s )
+{
+    const float response = clamp( Material.RespondsToWeather, 0.0, 1.0 );
+    return ApplyWetness( s, response * DesertSurfaceWetness( i ), Material.Porosity );
+}
+
+#endif

@@ -7,25 +7,29 @@ Shader "DepthOfFieldTileFlatten"
         // largest foreground radius (x, from the most negative CoC) and the largest background radius (y).
         LocalSize(8, 8, 1);
 
-        Uniform(0) sampler2D u_Half; // rgb colour, a signed CoC (half-res pixels); HalfExtent
-        layout(binding = 1, rg16f) restrict writeonly uniform image2D u_Tiles;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(3) sampler PointClampSampler;
+        Uniform(0) texture2D HalfResolutionColorCocTexture; // rgb colour, a signed CoC (half-res pixels); HalfExtent
+        #define HalfResolutionColorCocTexture sampler2D(HalfResolutionColorCocTexture, PointClampSampler)
+        layout(binding = 1, rg16f) restrict writeonly uniform image2D TilesTexture;
 
         // The C++ side is Graphic::DofParams (View/DepthOfField.hpp), offsets pinned by static_asserts.
         layout(std430, binding = 2) readonly buffer DepthOfFieldBuffer
         {
-            vec2  u_OutputSize;
-            vec2  u_RenderSize;
-            vec2  u_HalfSize;
-            vec2  u_TileCount;
-            vec4  u_DepthToView;
-            float u_FocalDistanceMm;
-            float u_FocalLengthMm;
-            float u_CocScale;
-            float u_MaxRadius;
-            int   u_Rings;
-            int   u_DilateTiles;
-            float u_Pad0;
-            float u_Pad1;
+            vec2  OutputSize;
+            vec2  RenderSize;
+            vec2  HalfSize;
+            vec2  TileCount;
+            vec4  DepthToView;
+            float FocalDistanceMm;
+            float FocalLengthMm;
+            float CocScale;
+            float MaxRadius;
+            int   Rings;
+            int   DilateTiles;
+            float Pad0;
+            float Pad1;
         };
 
         const int kTileSize = 8; // Graphic::kDofTileSize
@@ -33,9 +37,9 @@ Shader "DepthOfFieldTileFlatten"
         void main()
         {
             const ivec2 tile = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(tile, ivec2(u_TileCount))))
+            if (any(greaterThanEqual(tile, ivec2(TileCount))))
                 return;
-            const ivec2 halfSize   = ivec2(u_HalfSize);
+            const ivec2 halfSize   = ivec2(HalfSize);
             float       foreground = 0.0;
             float       background = 0.0;
             for (int y = 0; y < kTileSize; ++y)
@@ -44,11 +48,11 @@ Shader "DepthOfFieldTileFlatten"
                     const ivec2 pixel = tile * kTileSize + ivec2(x, y);
                     if (any(greaterThanEqual(pixel, halfSize)))
                         continue;
-                    const float coc = texelFetch(u_Half, pixel, 0).a;
+                    const float coc = texelFetch(HalfResolutionColorCocTexture, pixel, 0).a;
                     foreground      = max(foreground, -coc);
                     background      = max(background, coc);
                 }
-            imageStore(u_Tiles, tile, vec4(foreground, background, 0.0, 0.0));
+            imageStore(TilesTexture, tile, vec4(foreground, background, 0.0, 0.0));
         }
     }
 }

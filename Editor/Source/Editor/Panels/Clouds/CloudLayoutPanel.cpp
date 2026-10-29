@@ -20,6 +20,7 @@
 #include <Engine/Graphic/Clouds/CloudPayload.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/CloudLayout/CloudLayoutService.hpp>
 #include <Engine/Runtime/Services/CloudType/CloudTypeService.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Shader/ShaderService.hpp>
@@ -38,6 +39,7 @@
 #include <cmath>
 #include <cctype>
 #include <filesystem>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -282,7 +284,7 @@ namespace Desert::Editor
             // asset manager does not know is a scene pointing at a file that is not there, and a blank
             // label would read as an empty slot — which is the one thing it is not.
             if ( slot.TypeName.empty() )
-                slot.TypeName = "an unregistered type " + std::to_string( static_cast<uint64_t>( handle ) );
+                slot.TypeName = std::format( "an unregistered type {}", static_cast<uint64_t>( handle ) );
         }
 
         layer.Placement.RepeatsPerRegion = static_cast<uint32_t>( std::clamp( material.LayoutRepeats, 1, 16 ) );
@@ -328,10 +330,11 @@ namespace Desert::Editor
         // have replaced A's pixels with B's on its very first frame, then baked B over A's file. The layer
         // is still READ, for the preview's numbers; it no longer decides what is being edited.
 
-        ImGui::TextWrapped( "A PAINTED SKY. Draw the layout with the brush, or point at a picture and say "
-                            "which of its channels feeds which of this layer's cloud species, then bake it "
-                            "to a .dclayout the cloud component's Cloud Layout slot accepts. The painting "
-                            "is read when the clouds are PLACED, so it costs the frame nothing." );
+        ImGui::TextWrapped( "A PAINTED SKY. Paint where the clouds are - white is cloud, black is clear sky - "
+                            "or point at a picture and say which of its channels feeds which of this layer's "
+                            "cloud species. A cloud material uses it through its Global Pattern input; every "
+                            "finished stroke reaches the scene's sky straight away, and Save writes it to "
+                            "the file." );
         ImGui::Separator();
 
         DrawSourceSection();
@@ -417,9 +420,9 @@ namespace Desert::Editor
         // did nothing.
         m_CanvasImageDirty = true;
 
-        m_Status = std::string( "Read the " ) + ( table == Table::Pattern ? "pattern" : "mask" ) + " from '" +
-                   m_SourceName + "': " + std::to_string( width ) + "x" + std::to_string( height ) + ", " +
-                   std::to_string( sourceChannels ) + " channels in the file.";
+        m_Status        = std::format( "Read the {} from '{}': {}x{}, {} channels in the file.",
+                                table == Table::Pattern ? "pattern" : "mask", m_SourceName, width, height,
+                                       sourceChannels );
         m_StatusIsError = false;
 
         RebuildLayout();
@@ -460,8 +463,8 @@ namespace Desert::Editor
             return;
         }
 
-        m_Status = std::string( "Exported the " ) + what + ", " + std::to_string( picture.Side ) + "x" +
-                   std::to_string( picture.Side ) + ", to " + target.string();
+        m_Status =
+             std::format( "Exported the {}, {}x{}, to {}", what, picture.Side, picture.Side, target.string() );
         m_StatusIsError = false;
         LOG_INFO( "[CloudLayout] {} exported: '{}', {}x{}.", what, target.string(), picture.Side, picture.Side );
     }
@@ -493,6 +496,65 @@ namespace Desert::Editor
         m_HasLayout     = true;
         m_PreviewDirty  = true;
         m_StatusIsError = false;
+
+        PushToScene();
+    }
+
+    std::shared_ptr<Assets::CloudLayoutAsset> CloudLayoutPanel::SubjectAsset() const
+    {
+        if ( !m_Assets || m_SubjectPath.empty() )
+            return nullptr;
+        return m_Assets->FindByPath<Assets::CloudLayoutAsset>( m_SubjectPath );
+    }
+
+    void CloudLayoutPanel::PushToScene()
+    {
+        // THE PAINTING IS EDITED IN PLACE, as Unreal edits any asset: the loaded asset takes the new pixels
+        // in memory and every sky that binds it re-bakes from them on its next frame, while the file stays
+        // what it was until Save. A canvas that still equals the file is not pushed unless an earlier push
+        // made the asset differ from it — undoing back to the file must put the file's pixels back too.
+        if ( !m_Tracked || ( m_Canvas == m_OnDiskCanvas && !m_PushedLive ) )
+            return;
+
+        const auto painting = SubjectAsset();
+        if ( !painting )
+            return;
+
+        if ( const auto replaced = painting->ReplaceLayout( m_Layout ); !replaced )
+        {
+            m_Status        = "The scene's sky did not take the stroke: " + replaced.GetError();
+            m_StatusIsError = true;
+            return;
+        }
+        if ( const auto registered = Runtime::ResourceRegistry::GetCloudLayoutService()->Register( painting );
+             !registered )
+        {
+            m_Status        = "The scene's sky did not take the stroke: " + registered.GetError();
+            m_StatusIsError = true;
+            return;
+        }
+        m_PushedLive = m_Canvas != m_OnDiskCanvas;
+    }
+
+    CloudLayoutPanel::~CloudLayoutPanel()
+    {
+        // CLOSED WITHOUT SAVING: the strokes the scene was shown are thrown away with the document, so the
+        // asset goes back to what its file holds. Left in memory they would be a sky nobody can save.
+        if ( !m_PushedLive )
+            return;
+        const auto painting = SubjectAsset();
+        if ( !painting )
+            return;
+        if ( const auto reloaded = painting->Load(); !reloaded )
+        {
+            LOG_ERROR( "[CloudLayout] '{}' could not be read back after closing it unsaved: {}",
+                       m_SubjectPath.string(), reloaded.GetError() );
+            return;
+        }
+        if ( const auto registered = Runtime::ResourceRegistry::GetCloudLayoutService()->Register( painting );
+             !registered )
+            LOG_ERROR( "[CloudLayout] '{}' was read back but not re-registered: {}", m_SubjectPath.string(),
+                       registered.GetError() );
     }
 
     void CloudLayoutPanel::DrawSourceSection()
@@ -676,7 +738,7 @@ namespace Desert::Editor
         }
 
         m_Canvas           = made.ExtractValue();
-        m_SourceName       = "a canvas " + std::to_string( m_Canvas.Side ) + " a side";
+        m_SourceName       = std::format( "a canvas {} a side", m_Canvas.Side );
         m_Painting         = false;
         m_Stroke           = Assets::CloudLayoutStroke{};
         m_CanvasImageDirty = true;
@@ -882,8 +944,32 @@ namespace Desert::Editor
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( paintingMask ? "On the mask: 1 adds cloud, 0 removes it, 0.5 is the neutral "
                                               "an eraser returns to. Right-drag erases."
-                                            : "How much of this species the stroke leaves behind. "
-                                              "Right-drag erases back to nothing." );
+                                            : "How much of this species the stroke leaves behind: 1 is "
+                                              "cloud, 0 is clear sky. Right-drag erases back to clear "
+                                              "sky." );
+
+        // FILL, the one-click way to the other workflow: white over the channel and carve clear sky out of
+        // it with Ink 0. Through the engine's own fill so the tool and the panel lay the same bytes.
+        if ( ImGui::Button( "Fill with ink" ) )
+        {
+            const auto value =
+                 static_cast<unsigned char>( std::lround( std::clamp( m_Brush.Ink, 0.0f, 1.0f ) * 255.0f ) );
+            if ( const auto filled = Assets::FillCloudLayoutPlaneChannel(
+                      PaintPlane(), m_Canvas.Side, PaintPlaneChannel(), PaintPlaneChannels(), value );
+                 !filled )
+            {
+                m_Status        = filled.GetError();
+                m_StatusIsError = true;
+            }
+            else
+            {
+                m_CanvasImageDirty = true;
+                RebuildLayout();
+            }
+        }
+        if ( ImGui::IsItemHovered() )
+            ImGui::SetTooltip( "Sets the whole of this channel to the Ink above - 1 covers the sky in cloud at "
+                               "the Coverage slider, 0 clears it." );
 
         // ---- the width rule, in the units the artist has to act in -------------------------------
 
@@ -1004,12 +1090,18 @@ namespace Desert::Editor
             // is a second code path doing one thing — and the rest value differs per plane, because the
             // mask is signed about neutral and a pattern channel is not.
             if ( ImGui::IsMouseDown( ImGuiMouseButton_Right ) && !ImGui::IsMouseDown( ImGuiMouseButton_Left ) )
-                stroke.Ink = paintingMask ? static_cast<float>( Assets::kCloudLayoutMaskNeutral ) / 255.0f : 1.0f;
+                stroke.Ink = paintingMask ? static_cast<float>( Assets::kCloudLayoutMaskNeutral ) / 255.0f : 0.0f;
 
-            if ( Assets::ExtendCloudLayoutStroke( m_Stroke, PaintPlane(), m_LastPaintTexel, texel, stroke ) > 0u )
-                m_CanvasImageDirty = true;
+            // A MOUSE OUTSIDE THE WINDOW HAS NO POSITION (ImGui reports -FLT_MAX), so the stroke holds its last
+            // point and resumes from it when the cursor comes back, instead of drawing a segment to infinity.
+            if ( ImGui::IsMousePosValid() )
+            {
+                if ( Assets::ExtendCloudLayoutStroke( m_Stroke, PaintPlane(), m_LastPaintTexel, texel, stroke ) >
+                     0u )
+                    m_CanvasImageDirty = true;
 
-            m_LastPaintTexel = texel;
+                m_LastPaintTexel = texel;
+            }
         }
         else if ( m_Painting )
         {
@@ -1040,8 +1132,8 @@ namespace Desert::Editor
                                  "canvas bigger, or lower Layout Repeats.",
                                  cellTexels * scale );
 
-        ImGui::TextDisabled( "Left-drag paints, right-drag erases. The canvas is drawn as AUTHORED - the "
-                             "map below is it flipped top to bottom." );
+        ImGui::TextDisabled( "Left-drag paints, right-drag erases to clear sky. The canvas is drawn as "
+                             "AUTHORED - the map below is it flipped top to bottom." );
 
         // WHY A BLANK CANVAS MAKES THE SKY FLAT, said where the surprise happens. A cell's coverage has
         // exactly ONE modulator: the painting when one is bound and turned up, the procedural weather
@@ -1052,8 +1144,8 @@ namespace Desert::Editor
              m_LastLayer.Placement.PatternStrength > 0.0f )
             ImGui::TextDisabled( "While a painting is bound with Layout Pattern Strength above zero, it "
                                  "REPLACES this layer's Weather Patch Strength of %.2f - one modulator per "
-                                 "cell, never two. An empty canvas is therefore a flat sky at the Coverage "
-                                 "slider, not the sky you had.",
+                                 "cell, never two. An empty canvas is therefore a CLEAR sky, and only what "
+                                 "you paint carries cloud.",
                                  m_LastLayer.PatchStrength );
     }
 
@@ -1085,9 +1177,10 @@ namespace Desert::Editor
             if ( slot < layer.SpeciesCount )
             {
                 const LayerContext::SpeciesSlot& species = layer.Species[slot];
-                label                                    = "-> " + species.TypeName +
-                        ( species.BuiltIn ? std::string()
-                                          : " (Cloud Type " + std::to_string( species.AuthoredSlot + 1u ) + ")" );
+                label =
+                     std::format( "-> {}{}", species.TypeName,
+                                  species.BuiltIn ? std::string()
+                                                  : std::format( " (Cloud Type {})", species.AuthoredSlot + 1u ) );
             }
             else
             {
@@ -1097,7 +1190,7 @@ namespace Desert::Editor
             // The visible text is a TYPE NAME and two slots can hold the same words, so the widget's
             // identity is the slot number after `##` rather than the label. Without it two channels
             // mapped to one unfilled slot would be one control wearing two labels.
-            label += "##slot" + std::to_string( slot );
+            label = std::format( "{}##slot{}", label, slot );
 
             // A THIRD OF THE ROW FOR THE COMBO, because the LABEL is the part that carries the answer here
             // and ImGui draws it after the widget. At the default full width the type name ran off the
@@ -1718,6 +1811,7 @@ namespace Desert::Editor
             // These pixels are what the file holds now.
             m_OnDiskCanvas = m_Canvas;
             m_Tracked      = true;
+            m_PushedLive   = false;
         }
         m_Status        = "Baked to " + target.string();
         m_StatusIsError = false;
@@ -1816,9 +1910,9 @@ namespace Desert::Editor
             property.Value[0]   = static_cast<float>( bytes );
             property.Settable   = false;
             property.NotSettableReason =
-                 std::string( "'" ) + name + "' is " + what + " - " + std::to_string( bytes ) +
-                 " bytes of picture. This channel carries at most four numbers, so it cannot express one; "
-                 "the panel imports and exports it as a file.";
+                 std::format( "'{}' is {} - {} bytes of picture. This channel carries at most four numbers, so it "
+                              "cannot express one; the panel imports and exports it as a file.",
+                              name, what, bytes );
             return property;
         };
         properties.push_back( picture( "Pattern", "Pattern (4 species planes)", m_Canvas.Pattern.size(),

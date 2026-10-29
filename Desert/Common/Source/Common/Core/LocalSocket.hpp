@@ -34,6 +34,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <string>
 
 #if defined( _WIN32 )
@@ -41,6 +42,7 @@
 // with winsock2's (WSADATA redefined, sockaddr_in declared twice). afunix.h is what brings sockaddr_un, and
 // it needs winsock2's types to already be in scope. aclapi.h is the DACL written in RestrictToOwner.
 #include <winsock2.h>
+#include <ws2tcpip.h>
 
 #include <afunix.h>
 #include <windows.h>
@@ -51,6 +53,7 @@
 #else
 #include <cerrno>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -122,8 +125,8 @@ namespace Common::LocalSocket
             // THE NUMBER IS ALWAYS THERE, even when the sentence is: a code is searchable and a translated
             // message is not, and this machine's messages are not necessarily in English.
             if ( message.empty() )
-                return "system error " + std::to_string( code );
-            return message + " (system error " + std::to_string( code ) + ")";
+                return std::format( "system error {}", code );
+            return std::format( "{} (system error {})", message, code );
 #else
             return ErrnoText( static_cast<int>( code ) );
 #endif
@@ -248,6 +251,52 @@ namespace Common::LocalSocket
     [[nodiscard]] inline const sockaddr* AsSockaddr( const sockaddr_un& address ) noexcept
     {
         // Required by the socket API itself (see above); sockaddr_un begins with the family field it reads.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        return reinterpret_cast<const sockaddr*>( &address );
+    }
+
+    // ---- LOOPBACK TCP — the one consumer that cannot use a socket file ----------------------------------------
+    // The Debug Adapter Protocol attaches over TCP (VS Code's "attach" takes a host and a port and has no
+    // unix-socket transport on every platform), so the script debugger's server listens on a port — on the
+    // LOOPBACK address only, never on every interface: the promise "only this machine can attach" is then the
+    // kernel's, as it is for the control channel's socket file.
+
+    /// A TCP stream socket (AF_INET), or kInvalid having set the last error.
+    [[nodiscard]] inline Handle OpenTcp()
+    {
+        return static_cast<Handle>( ::socket( AF_INET, SOCK_STREAM, 0 ) );
+    }
+
+    /// 127.0.0.1:@p port.
+    [[nodiscard]] inline sockaddr_in LoopbackAddress( std::uint16_t port ) noexcept
+    {
+        sockaddr_in address{};
+        address.sin_family      = AF_INET;
+        address.sin_port        = htons( port );
+        address.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+        return address;
+    }
+
+    /// A listening socket may take its port again at once after the previous editor closed it (TIME_WAIT).
+    /// Nothing to do on Windows, which binds over TIME_WAIT already — and whose SO_REUSEADDR means something
+    /// else entirely: it would let a second process bind the port the first one is listening on.
+    [[nodiscard]] inline bool AllowAddressReuse( [[maybe_unused]] Handle handle ) noexcept
+    {
+#if defined( _WIN32 )
+        return true;
+#else
+        const int enabled = 1;
+        // The option's value travels as bytes through a `const char*` on Winsock and `const void*` on POSIX.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        return ::setsockopt( Raw( handle ), SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>( &enabled ),
+                             sizeof( enabled ) ) == 0;
+#endif
+    }
+
+    /// @p address as the generic `sockaddr` (see the sockaddr_un overload).
+    [[nodiscard]] inline const sockaddr* AsSockaddr( const sockaddr_in& address ) noexcept
+    {
+        // Required by the socket API itself; sockaddr_in begins with the family field it reads.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         return reinterpret_cast<const sockaddr*>( &address );
     }

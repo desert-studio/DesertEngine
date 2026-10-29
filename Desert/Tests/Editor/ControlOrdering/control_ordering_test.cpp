@@ -30,6 +30,7 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <string>
 
 using Desert::Editor::Control::DescribeReadinessTimeout;
@@ -43,6 +44,13 @@ using Desert::Editor::Control::PendingWork;
 
 namespace
 {
+    /// The moment every gate in this file is armed at; the clock only moves where a test moves it.
+    constexpr FrameGate::Clock::time_point kT0{};
+
+    /// A step just short of the budget: the last instant the gate must still be waiting.
+    constexpr FrameGate::Clock::duration kJustUnderBudget =
+         FrameGate::kSettleBudget - std::chrono::milliseconds( 1 );
+
     EditorQuiescence Settled()
     {
         return EditorQuiescence{};
@@ -132,8 +140,9 @@ TEST( ControlOrdering, BackgroundWorkHoldsNoReplyButIsReportedUntilDone )
         EXPECT_EQ( running.DescribeBackground(), kBackgroundWorkNames[i] );
 
         FrameGate gate;
-        gate.ArmAfterExecution( 0 );
-        EXPECT_EQ( gate.ObserveFramePresented( 0, running ), GateVerdict::Discharged ) << kBackgroundWorkNames[i];
+        gate.ArmAfterExecution( 0, kT0 );
+        EXPECT_EQ( gate.ObserveFramePresented( 0, running, kT0 ), GateVerdict::Discharged )
+             << kBackgroundWorkNames[i];
     }
     EXPECT_TRUE( Settled().Idle() );
     EXPECT_TRUE( Settled().DescribeBackground().empty() );
@@ -152,7 +161,7 @@ TEST( ControlOrdering, AnUnarmedGateIsIdleAndAnswersNothing )
 {
     FrameGate gate;
     EXPECT_FALSE( gate.IsArmed() );
-    EXPECT_EQ( gate.ObserveFramePresented( 7, Settled() ), GateVerdict::Idle );
+    EXPECT_EQ( gate.ObserveFramePresented( 7, Settled(), kT0 ), GateVerdict::Idle );
 }
 
 // ORDER. A frame that was already being built when the command ran cannot show it. This is separate from
@@ -161,13 +170,13 @@ TEST( ControlOrdering, AnUnarmedGateIsIdleAndAnswersNothing )
 TEST( ControlOrdering, AFrameOlderThanTheCommandCannotDischargeTheGate )
 {
     FrameGate gate;
-    gate.ArmAfterExecution( 10 );
+    gate.ArmAfterExecution( 10, kT0 );
 
-    EXPECT_EQ( gate.ObserveFramePresented( 9, Settled() ), GateVerdict::Waiting )
+    EXPECT_EQ( gate.ObserveFramePresented( 9, Settled(), kT0 ), GateVerdict::Waiting )
          << "a frame that started before the command was executed cannot reflect it, settled or not";
     EXPECT_TRUE( gate.IsArmed() );
 
-    EXPECT_EQ( gate.ObserveFramePresented( 10, Settled() ), GateVerdict::Discharged );
+    EXPECT_EQ( gate.ObserveFramePresented( 10, Settled(), kT0 ), GateVerdict::Discharged );
 }
 
 // SETTLING. The frame is new enough, and still does not count, because the command's own work was queued.
@@ -176,14 +185,14 @@ TEST( ControlOrdering, AFrameOlderThanTheCommandCannotDischargeTheGate )
 TEST( ControlOrdering, AFrameDrawnWithWorkOutstandingCannotDischargeTheGate )
 {
     FrameGate gate;
-    gate.ArmAfterExecution( 3 );
+    gate.ArmAfterExecution( 3, kT0 );
 
-    EXPECT_EQ( gate.ObserveFramePresented( 3, Busy( PendingWork::AssetOpens ) ), GateVerdict::Waiting );
-    EXPECT_EQ( gate.ObserveFramePresented( 4, Busy( PendingWork::OpenRefusal ) ), GateVerdict::Waiting );
+    EXPECT_EQ( gate.ObserveFramePresented( 3, Busy( PendingWork::AssetOpens ), kT0 ), GateVerdict::Waiting );
+    EXPECT_EQ( gate.ObserveFramePresented( 4, Busy( PendingWork::OpenRefusal ), kT0 ), GateVerdict::Waiting );
     EXPECT_TRUE( gate.IsArmed() );
 
     // The queues drained and the dialog is up: THIS frame is the one that shows what was asked for.
-    EXPECT_EQ( gate.ObserveFramePresented( 5, Settled() ), GateVerdict::Discharged );
+    EXPECT_EQ( gate.ObserveFramePresented( 5, Settled(), kT0 ), GateVerdict::Discharged );
 }
 
 // ONCE. One request gets one reply. A gate that could discharge twice would answer a request the client
@@ -191,15 +200,15 @@ TEST( ControlOrdering, AFrameDrawnWithWorkOutstandingCannotDischargeTheGate )
 TEST( ControlOrdering, TheGateDischargesAtMostOncePerArming )
 {
     FrameGate gate;
-    gate.ArmAfterExecution( 0 );
+    gate.ArmAfterExecution( 0, kT0 );
 
-    EXPECT_EQ( gate.ObserveFramePresented( 0, Settled() ), GateVerdict::Discharged );
+    EXPECT_EQ( gate.ObserveFramePresented( 0, Settled(), kT0 ), GateVerdict::Discharged );
     EXPECT_FALSE( gate.IsArmed() );
-    EXPECT_EQ( gate.ObserveFramePresented( 1, Settled() ), GateVerdict::Idle );
-    EXPECT_EQ( gate.ObserveFramePresented( 2, Settled() ), GateVerdict::Idle );
+    EXPECT_EQ( gate.ObserveFramePresented( 1, Settled(), kT0 ), GateVerdict::Idle );
+    EXPECT_EQ( gate.ObserveFramePresented( 2, Settled(), kT0 ), GateVerdict::Idle );
 
-    gate.ArmAfterExecution( 3 );
-    EXPECT_EQ( gate.ObserveFramePresented( 3, Settled() ), GateVerdict::Discharged );
+    gate.ArmAfterExecution( 3, kT0 );
+    EXPECT_EQ( gate.ObserveFramePresented( 3, Settled(), kT0 ), GateVerdict::Discharged );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -211,17 +220,19 @@ TEST( ControlOrdering, TheGateDischargesAtMostOncePerArming )
 TEST( ControlOrdering, AnEditorThatNeverSettlesTimesOutRatherThanWaitingForever )
 {
     FrameGate gate;
-    gate.ArmAfterExecution( 0 );
+    gate.ArmAfterExecution( 0, kT0 );
 
     const EditorQuiescence stuck = Busy( PendingWork::SceneLoad );
 
-    for ( uint32_t frame = 0; frame + 1 < FrameGate::kMaxSettleFrames; ++frame )
+    // Frames alone never time it out: the budget is wall clock, so a fast editor drawing thousands of frames
+    // behind a long background compute keeps waiting (CTL-SETTLE: Voxel Count 128 is 8.8 s).
+    for ( uint32_t frame = 0; frame < 10000; ++frame )
     {
-        ASSERT_EQ( gate.ObserveFramePresented( frame, stuck ), GateVerdict::Waiting )
+        ASSERT_EQ( gate.ObserveFramePresented( frame, stuck, kT0 + kJustUnderBudget ), GateVerdict::Waiting )
              << "timed out early, at frame " << frame;
     }
 
-    EXPECT_EQ( gate.ObserveFramePresented( FrameGate::kMaxSettleFrames - 1, stuck ), GateVerdict::TimedOut );
+    EXPECT_EQ( gate.ObserveFramePresented( 10000, stuck, kT0 + FrameGate::kSettleBudget ), GateVerdict::TimedOut );
     EXPECT_FALSE( gate.IsArmed() ) << "a timed-out gate must not go on answering";
 }
 
@@ -229,9 +240,11 @@ TEST( ControlOrdering, AnEditorThatNeverSettlesTimesOutRatherThanWaitingForever 
 // settle" alone is a message nobody can do anything with.
 TEST( ControlOrdering, ASettleTimeoutNamesWhatStayedOutstanding )
 {
-    const std::string message = DescribeSettleTimeout( Busy( PendingWork::DocumentCloses ), 240 );
+    const std::string message =
+         DescribeSettleTimeout( Busy( PendingWork::DocumentCloses ), 240, std::chrono::seconds( 600 ) );
 
-    EXPECT_NE( message.find( "240" ), std::string::npos );
+    EXPECT_NE( message.find( "600 s" ), std::string::npos );
+    EXPECT_NE( message.find( "240 frames" ), std::string::npos );
     EXPECT_NE( message.find( kPendingWorkNames[static_cast<std::size_t>( PendingWork::DocumentCloses )] ),
                std::string::npos );
 }
@@ -241,7 +254,7 @@ TEST( ControlOrdering, ASettleTimeoutNamesWhatStayedOutstanding )
 // channel rather than as a fact about the editor, because it is one.
 TEST( ControlOrdering, ATimeoutWithNothingOutstandingBlamesTheChannel )
 {
-    const std::string message = DescribeSettleTimeout( Settled(), 240 );
+    const std::string message = DescribeSettleTimeout( Settled(), 240, std::chrono::seconds( 600 ) );
     EXPECT_NE( message.find( "defect in the channel" ), std::string::npos );
 }
 
@@ -250,11 +263,11 @@ TEST( ControlOrdering, ATimeoutWithNothingOutstandingBlamesTheChannel )
 TEST( ControlOrdering, DisarmingIsNotDischarging )
 {
     FrameGate gate;
-    gate.ArmAfterExecution( 1 );
+    gate.ArmAfterExecution( 1, kT0 );
     gate.Disarm();
 
     EXPECT_FALSE( gate.IsArmed() );
-    EXPECT_EQ( gate.ObserveFramePresented( 1, Settled() ), GateVerdict::Idle );
+    EXPECT_EQ( gate.ObserveFramePresented( 1, Settled(), kT0 ), GateVerdict::Idle );
     EXPECT_EQ( gate.FramesWaited(), 0u );
 }
 
@@ -285,11 +298,11 @@ TEST( ControlOrdering, TheGateSaysWhichOfTheTwoWaitsItIsServing )
     FrameGate gate;
     EXPECT_EQ( gate.Holding(), GateSubject::Nothing );
 
-    gate.ArmForReadiness( 3 );
+    gate.ArmForReadiness( 3, kT0 );
     EXPECT_EQ( gate.Holding(), GateSubject::Readiness );
     EXPECT_TRUE( gate.IsArmed() );
 
-    gate.ArmAfterExecution( 3 );
+    gate.ArmAfterExecution( 3, kT0 );
     EXPECT_EQ( gate.Holding(), GateSubject::Effect );
     EXPECT_TRUE( gate.IsArmed() );
 
@@ -304,9 +317,9 @@ TEST( ControlOrdering, TheGateSaysWhichOfTheTwoWaitsItIsServing )
 TEST( ControlOrdering, ADischargedReadinessWaitLeavesTheGateHoldingNothing )
 {
     FrameGate gate;
-    gate.ArmForReadiness( 0 );
+    gate.ArmForReadiness( 0, kT0 );
 
-    EXPECT_EQ( gate.ObserveFramePresented( 0, Settled() ), GateVerdict::Discharged );
+    EXPECT_EQ( gate.ObserveFramePresented( 0, Settled(), kT0 ), GateVerdict::Discharged );
     EXPECT_EQ( gate.Holding(), GateSubject::Nothing );
 }
 
@@ -319,14 +332,15 @@ TEST( ControlOrdering, AFrameDrawnBeforeTheEditorIsUpCannotReleaseAParkedRequest
     for ( std::size_t i = 0; i < static_cast<std::size_t>( PendingWork::Count ); ++i )
     {
         FrameGate gate;
-        gate.ArmForReadiness( 0 );
+        gate.ArmForReadiness( 0, kT0 );
 
         const EditorQuiescence busy = Busy( static_cast<PendingWork>( i ) );
-        EXPECT_EQ( gate.ObserveFramePresented( 0, busy ), GateVerdict::Waiting ) << kPendingWorkNames[i];
+        EXPECT_EQ( gate.ObserveFramePresented( 0, busy, kT0 ), GateVerdict::Waiting ) << kPendingWorkNames[i];
         EXPECT_EQ( gate.Holding(), GateSubject::Readiness ) << kPendingWorkNames[i];
 
         // ...and the very next settled frame does release it, so the wait is a wait and not a refusal.
-        EXPECT_EQ( gate.ObserveFramePresented( 1, Settled() ), GateVerdict::Discharged ) << kPendingWorkNames[i];
+        EXPECT_EQ( gate.ObserveFramePresented( 1, Settled(), kT0 ), GateVerdict::Discharged )
+             << kPendingWorkNames[i];
     }
 }
 
@@ -337,13 +351,14 @@ TEST( ControlOrdering, AFrameDrawnBeforeTheEditorIsUpCannotReleaseAParkedRequest
 TEST( ControlOrdering, AReadinessWaitOutlastsAWholeBootWorthOfFrames )
 {
     FrameGate gate;
-    gate.ArmForReadiness( 0 );
+    gate.ArmForReadiness( 0, kT0 );
 
     const EditorQuiescence booting = Busy( PendingWork::StartupLoading );
     for ( uint32_t frame = 0; frame < 200; ++frame )
-        ASSERT_EQ( gate.ObserveFramePresented( frame, booting ), GateVerdict::Waiting ) << "gave up at " << frame;
+        ASSERT_EQ( gate.ObserveFramePresented( frame, booting, kT0 ), GateVerdict::Waiting )
+             << "gave up at " << frame;
 
-    EXPECT_EQ( gate.ObserveFramePresented( 200, Settled() ), GateVerdict::Discharged );
+    EXPECT_EQ( gate.ObserveFramePresented( 200, Settled(), kT0 ), GateVerdict::Discharged );
 }
 
 // An editor that never comes up refuses, and the refusal is NOT the settle timeout's. The two are at
@@ -353,16 +368,16 @@ TEST( ControlOrdering, AReadinessWaitOutlastsAWholeBootWorthOfFrames )
 TEST( ControlOrdering, AnEditorThatNeverComesUpRefusesSayingTheRequestNeverRan )
 {
     FrameGate gate;
-    gate.ArmForReadiness( 0 );
+    gate.ArmForReadiness( 0, kT0 );
 
     const EditorQuiescence stuck = Busy( PendingWork::StartupLoading );
-    for ( uint32_t frame = 0; frame + 1 < FrameGate::kMaxSettleFrames; ++frame )
-        ASSERT_EQ( gate.ObserveFramePresented( frame, stuck ), GateVerdict::Waiting );
+    for ( uint32_t frame = 0; frame < 8; ++frame )
+        ASSERT_EQ( gate.ObserveFramePresented( frame, stuck, kT0 + kJustUnderBudget ), GateVerdict::Waiting );
 
-    EXPECT_EQ( gate.ObserveFramePresented( FrameGate::kMaxSettleFrames - 1, stuck ), GateVerdict::TimedOut );
+    EXPECT_EQ( gate.ObserveFramePresented( 8, stuck, kT0 + FrameGate::kSettleBudget ), GateVerdict::TimedOut );
     EXPECT_EQ( gate.Holding(), GateSubject::Nothing );
 
-    const std::string message = DescribeReadinessTimeout( stuck, FrameGate::kMaxSettleFrames );
+    const std::string message = DescribeReadinessTimeout( stuck, 9, FrameGate::kSettleBudget );
     EXPECT_NE( message.find( "NOT run" ), std::string::npos );
     EXPECT_NE( message.find( kPendingWorkNames[static_cast<std::size_t>( PendingWork::StartupLoading )] ),
                std::string::npos );
@@ -372,14 +387,16 @@ TEST( ControlOrdering, AnEditorThatNeverComesUpRefusesSayingTheRequestNeverRan )
 
     // ...and it is not the OTHER refusal wearing a new coat. Two messages that had drifted into one would
     // be exactly the confusion this pair exists to prevent.
-    EXPECT_NE( message, DescribeSettleTimeout( stuck, FrameGate::kMaxSettleFrames ) );
+    EXPECT_NE( message, DescribeSettleTimeout( stuck, 9, FrameGate::kSettleBudget ) );
 }
 
 // Same self-contradiction check the settle timeout gets: a readiness refusal against a settled census means
 // the gate and the census disagree, which is a defect in the channel and not a fact about the editor.
 TEST( ControlOrdering, AReadinessTimeoutWithNothingOutstandingBlamesTheChannel )
 {
-    EXPECT_NE( DescribeReadinessTimeout( Settled(), 240 ).find( "defect in the channel" ), std::string::npos );
+    EXPECT_NE(
+         DescribeReadinessTimeout( Settled(), 240, std::chrono::seconds( 600 ) ).find( "defect in the channel" ),
+         std::string::npos );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -406,10 +423,11 @@ TEST( ControlOrdering, ThePeekAgreesWithTheVerdictOnEveryFrameItIsAskedAbout )
                 for ( const EditorQuiescence& quiescence : { Settled(), Busy( outstanding ) } )
                 {
                     FrameGate gate;
-                    gate.ArmAfterExecution( executedOn );
+                    gate.ArmAfterExecution( executedOn, kT0 );
 
                     const bool peeked = gate.WouldDischarge( frame, quiescence );
-                    const bool judged = gate.ObserveFramePresented( frame, quiescence ) == GateVerdict::Discharged;
+                    const bool judged =
+                         gate.ObserveFramePresented( frame, quiescence, kT0 ) == GateVerdict::Discharged;
 
                     EXPECT_EQ( peeked, judged ) << "armed on " << executedOn << ", frame " << frame << ", settled "
                                                 << quiescence.Settled();

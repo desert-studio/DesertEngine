@@ -2,6 +2,7 @@
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/MeshNormals.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshSimplification.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/MeshTangents.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Operations/GroupEdgeInserter.hpp"
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <unordered_set>
 
 namespace Desert::Geometry
@@ -47,7 +49,9 @@ namespace Desert::Geometry
             return Common::MakeFormattedError<bool>(
                  "Mesh {}: the mesh carries tangents but has no UV layer 0 to derive them from", name );
         MeshTangentsd tangents( &mesh );
-        tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), uvs );
+        if ( !tangents.ComputeMikkTTangents( attributes->PrimaryNormals(), uvs ) )
+            return Common::MakeFormattedError<bool>( "Mesh {}: MikkTSpace could not allocate its working set",
+                                                     name );
         if ( !tangents.CopyToOverlays( mesh ) )
             return Common::MakeFormattedError<bool>(
                  "Mesh {}: tangents could not be written - {} normal layers, 3 expected", name,
@@ -170,7 +174,7 @@ namespace Desert::Geometry
                                                                   added.GetError() );
         if ( selection.Mode() != ElementMode::Triangle )
         {
-            const GroupTopology afterTopology( mesh.get(), true );
+            const GroupTopology afterTopology = PolyEditTopology( *mesh );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
@@ -190,7 +194,7 @@ namespace Desert::Geometry
         auto mesh = std::make_shared<DynamicMesh3>( before );
         if ( !mesh->HasTriangleGroups() )
             return Common::MakeError<RegionOutcome>( "Mesh Insert Edge Loop: the mesh has no polygroups" );
-        GroupTopology  topology( mesh.get(), true );
+        GroupTopology  topology  = PolyEditTopology( *mesh );
         int            groupEdge = IndexConstants::InvalidID;
         for ( const int e : selection.Ids() )
         {
@@ -272,7 +276,7 @@ namespace Desert::Geometry
                  operation == RegionOperation::Extrude ? "Push/Pull takes a signed distance"
                  : operation == RegionOperation::Inset ? "use Outset"
                                                        : "use Inset" );
-        const GroupTopology    topology( &before, true );
+        const GroupTopology    topology  = PolyEditTopology( before );
         const ElementSelection triangles = ConvertSelection( before, topology, selection, ElementMode::Triangle );
         if ( triangles.Empty() )
             return Common::MakeFormattedError<RegionOutcome>(
@@ -337,7 +341,7 @@ namespace Desert::Geometry
                                                                   added.GetError() );
         if ( selection.Mode() != ElementMode::Triangle )
         {
-            const GroupTopology afterTopology( mesh.get(), true );
+            const GroupTopology afterTopology = PolyEditTopology( *mesh );
             result = ConvertSelection( *mesh, afterTopology, result, selection.Mode() );
         }
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), std::move( result ), {} } );
@@ -394,74 +398,162 @@ namespace Desert::Geometry
         return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
     }
 
+    const char* ToString( SimplifierType type )
+    {
+        switch ( type )
+        {
+            case SimplifierType::Standard:
+                return "Standard";
+            case SimplifierType::AttributeAware:
+                return "Attribute-Aware";
+        }
+        return "Unknown";
+    }
+
+    namespace
+    {
+        // SimplifyMeshOp.cpp ComputeSimplify: the same setup and target for either simplifier type.
+        template <typename Simplifier>
+        int RunSimplifier( DynamicMesh3& mesh, const BoundaryConstraintFlags& flags, MeshConstraints constraints,
+                           SimplifyTarget mode, int target, float targetEdgeLength,
+                           const glm::dmat4& localToWorld )
+        {
+            Simplifier simplifier( mesh );
+            simplifier.Boundaries = flags;
+            simplifier.SetEdgeFlipTolerance( 1e-5 );
+            // bPreventTinyTriangles on: unit normals at 1e-5 alone let a collapse leave a sliver of no area.
+            simplifier.PreventTinyTriangles = true;
+            simplifier.SetExternalConstraints( std::move( constraints ) );
+            switch ( mode )
+            {
+                case SimplifyTarget::Percentage:
+                case SimplifyTarget::TriangleCount:
+                    simplifier.SimplifyToTriangleCount( target );
+                    break;
+                case SimplifyTarget::VertexCount:
+                    simplifier.SimplifyToVertexCount( target );
+                    break;
+                case SimplifyTarget::EdgeLength:
+                    simplifier.SimplifyToEdgeLength( targetEdgeLength, localToWorld );
+                    break;
+            }
+            return simplifier.CollapseCount();
+        }
+    } // namespace
+
     const char* ToString( SimplifyTarget target )
     {
         switch ( target )
         {
             case SimplifyTarget::Percentage:
                 return "Percentage";
+            case SimplifyTarget::TriangleCount:
+                return "Triangle Count";
             case SimplifyTarget::VertexCount:
                 return "Vertex Count";
+            case SimplifyTarget::EdgeLength:
+                return "Edge Length";
         }
         return "Unknown";
     }
 
-    Common::ResultStr<RegionOutcome> SimplifyMesh( const DynamicMesh3& before, const SimplifySettings& settings,
-                                                   ElementMode mode )
+    Common::ResultStr<DeformOutcome> SimplifyMeshOperation( const DynamicMesh3&     input,
+                                                            const glm::dmat4&       localToWorld,
+                                                            const SimplifySettings& settings )
     {
-        const int triangles = before.TriangleCount();
-        const int vertices  = before.VertexCount();
+        const int triangles = input.TriangleCount();
+        const int vertices  = input.VertexCount();
         if ( triangles == 0 )
-            return Common::MakeError<RegionOutcome>( "Mesh Simplify: the mesh has no triangle" );
-        const bool byVertices = settings.Target == SimplifyTarget::VertexCount;
-        if ( !byVertices && ( settings.Percentage <= 0.0f || settings.Percentage > 100.0f ) )
-            return Common::MakeFormattedError<RegionOutcome>(
-                 "Mesh Simplify: the target percentage {} is outside (0, 100]", settings.Percentage );
-        if ( byVertices && settings.VertexCount < 3 )
-            return Common::MakeFormattedError<RegionOutcome>(
-                 "Mesh Simplify: the target vertex count {} is below 3", settings.VertexCount );
-        if ( settings.PreserveGroupBoundaries && !before.HasTriangleGroups() )
-            return Common::MakeError<RegionOutcome>(
-                 "Mesh Simplify: Preserve PolyGroups is on but the mesh has no polygroups" );
-        const int target = byVertices ? settings.VertexCount
-                                      : std::max( 4, static_cast<int>( settings.Percentage / 100.0 *
-                                                                       static_cast<double>( triangles ) ) );
-        if ( ( byVertices ? vertices : triangles ) <= target )
-            return Common::MakeFormattedError<RegionOutcome>(
-                 "Mesh Simplify: the mesh already has {} {} (target {})", byVertices ? vertices : triangles,
-                 byVertices ? "vertices" : "triangles", target );
+            return Common::MakeError<DeformOutcome>( "Simplify: the mesh has no triangle" );
+        const SimplifyTarget mode = settings.Target;
+        if ( mode == SimplifyTarget::Percentage &&
+             ( settings.Percentage <= 0.0f || settings.Percentage > 100.0f ) )
+            return Common::MakeFormattedError<DeformOutcome>(
+                 "Simplify: the target percentage {} is outside (0, 100]", settings.Percentage );
+        if ( mode == SimplifyTarget::TriangleCount && settings.TargetCount < 4 )
+            return Common::MakeFormattedError<DeformOutcome>( "Simplify: the target triangle count {} is below 4",
+                                                              settings.TargetCount );
+        if ( mode == SimplifyTarget::VertexCount && settings.TargetCount < 3 )
+            return Common::MakeFormattedError<DeformOutcome>( "Simplify: the target vertex count {} is below 3",
+                                                              settings.TargetCount );
+        if ( mode == SimplifyTarget::EdgeLength && !( settings.TargetEdgeLength > 0.0f ) )
+            return Common::MakeFormattedError<DeformOutcome>(
+                 "Simplify: the target edge length {} cm is not above 0", settings.TargetEdgeLength );
+        if ( settings.PreserveGroupBoundaries && !input.HasTriangleGroups() )
+            return Common::MakeError<DeformOutcome>(
+                 "Simplify: Preserve PolyGroups is on but the mesh has no polygroups" );
+        const bool byVertices = mode == SimplifyTarget::VertexCount;
+        const int  target     = mode == SimplifyTarget::Percentage
+                                     ? std::max( 4, static_cast<int>( settings.Percentage / 100.0 *
+                                                                      static_cast<double>( triangles ) ) )
+                                     : settings.TargetCount;
+        if ( mode != SimplifyTarget::EdgeLength && ( byVertices ? vertices : triangles ) <= target )
+            return Common::MakeFormattedError<DeformOutcome>( "Simplify: the mesh already has {} {} (target {})",
+                                                              byVertices ? vertices : triangles,
+                                                              byVertices ? "vertices" : "triangles", target );
 
-        auto mesh = std::make_shared<DynamicMesh3>( before );
+        DynamicMesh3 mesh = input;
+        if ( settings.DiscardAttributes )
+            mesh.DiscardAttributes();
+        const bool attributeAware = settings.Simplifier == SimplifierType::AttributeAware;
+        // SimplifyMeshOp.cpp:278-281: the attribute quadric needs normals - a mesh without them gets per-vertex
+        // ones.
+        if ( attributeAware && !mesh.HasAttributes() )
+        {
+            mesh.EnableAttributes();
+            mesh.Attributes()->SetNumUVLayers( 0 );
+            MeshNormals::InitializeOverlayToPerVertexNormals( mesh.Attributes()->PrimaryNormals(), false );
+        }
         // UE's Simplify (SimplifyMeshTool.cpp:248-249, SimplifyMeshOp.cpp:67-75): Preserve Sharp Edges off by
         // default, so seams collapse along their line; on, a seam is NoCollapse and its vertices stay. The flip
         // test compares unit normals at 1e-5 and bowties on the seams are split first.
         BoundaryConstraintFlags flags;
+        flags.MeshBoundary =
+             settings.PreserveBoundaries ? EdgeRefineFlags::FullyConstrained : EdgeRefineFlags::NoFlip;
         flags.GroupBoundary =
              settings.PreserveGroupBoundaries ? EdgeRefineFlags::FullyConstrained : EdgeRefineFlags::NoConstraint;
         flags.AllowSeamCollapse = !settings.PreserveSharpEdges;
-        if ( mesh->HasAttributes() )
-            mesh->Attributes()->SplitAllBowties();
+        if ( mesh.HasAttributes() )
+            mesh.Attributes()->SplitAllBowties();
         MeshConstraints constraints;
-        ConstrainAllBoundariesAndSeams( constraints, *mesh, flags );
+        ConstrainAllBoundariesAndSeams( constraints, mesh, flags );
         const size_t      constrained = constraints.EdgeConstraintCount();
-        QemSimplification simplifier( *mesh );
-        simplifier.Boundaries = flags;
-        simplifier.SetEdgeFlipTolerance( 1e-5 );
-        // bPreventTinyTriangles on: unit normals at 1e-5 alone let a collapse leave a sliver of no area.
-        simplifier.PreventTinyTriangles = true;
-        simplifier.SetExternalConstraints( std::move( constraints ) );
-        if ( byVertices )
-            simplifier.SimplifyToVertexCount( target );
-        else
-            simplifier.SimplifyToTriangleCount( target );
+        const int         collapses =
+             attributeAware
+                          ? RunSimplifier<AttrMeshSimplification>( mesh, flags, std::move( constraints ), mode, target,
+                                                                   settings.TargetEdgeLength, localToWorld )
+                          : RunSimplifier<QemSimplification>( mesh, flags, std::move( constraints ), mode, target,
+                                                              settings.TargetEdgeLength, localToWorld );
         // A command without an effect leaves no undo step (see WeldEdges).
-        if ( simplifier.CollapseCount() == 0 )
-            return Common::MakeFormattedError<RegionOutcome>(
-                 "Mesh Simplify: no edge could collapse ({} of {} edges constrained by borders and seams)",
-                 constrained, before.EdgeCount() );
-        auto tangents = RecomputeTangentSpace( *mesh, "Mesh Simplify" );
+        if ( collapses == 0 )
+            return Common::MakeFormattedError<DeformOutcome>(
+                 "Simplify: no edge could collapse ({} of {} edges constrained by borders and seams{})",
+                 constrained, input.EdgeCount(),
+                 mode == SimplifyTarget::EdgeLength ? ", or none shorter than the target" : "" );
+        // Standard: the normals follow the collapsed surface - discarded attributes come back as a per-vertex
+        // normal overlay only (UE), a kept overlay is recomputed (its split elements keep the hard edges).
+        // Attribute-Aware keeps the normals its quadric carried through the collapses.
+        if ( !attributeAware && !mesh.HasAttributes() )
+        {
+            mesh.EnableAttributes();
+            mesh.Attributes()->SetNumUVLayers( 0 );
+            MeshNormals::InitializeOverlayToPerVertexNormals( mesh.Attributes()->PrimaryNormals(), false );
+        }
+        else if ( !attributeAware && mesh.Attributes()->PrimaryNormals() != nullptr )
+        {
+            MeshNormals normals( &mesh );
+            normals.RecomputeOverlayNormals( mesh.Attributes()->PrimaryNormals() );
+            normals.CopyToOverlay( mesh.Attributes()->PrimaryNormals() );
+        }
+        auto tangents = RecomputeTangentSpace( mesh, "Simplify" );
         if ( !tangents.IsSuccess() )
-            return Common::MakeError<RegionOutcome>( tangents.GetError() );
-        return Common::MakeSuccess( RegionOutcome{ std::move( mesh ), ElementSelection( mode ), {} } );
+            return Common::MakeError<DeformOutcome>( tangents.GetError() );
+        DeformOutcome outcome;
+        outcome.MovedVertices = mesh.VertexCount();
+        outcome.Report =
+             std::format( "Simplify: {} -> {} triangles ({} collapses, {}, {})", triangles, mesh.TriangleCount(),
+                          collapses, ToString( mode ), ToString( settings.Simplifier ) );
+        outcome.Mesh          = std::move( mesh );
+        return Common::MakeSuccess( std::move( outcome ) );
     }
 } // namespace Desert::Geometry

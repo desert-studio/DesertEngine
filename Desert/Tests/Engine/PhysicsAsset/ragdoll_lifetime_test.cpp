@@ -6,8 +6,8 @@
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/RagdollLifetime.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Reflection/ReflectionRegistry.hpp>
 #include <Engine/Reflection/ReflectionSerializer.hpp>
 #include <Engine/Runtime/Services/Physics/PhysicsAssetService.hpp>

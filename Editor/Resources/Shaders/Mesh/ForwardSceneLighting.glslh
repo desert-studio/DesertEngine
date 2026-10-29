@@ -1,0 +1,67 @@
+#ifndef FORWARD_SCENE_LIGHTING_GLSLH
+#define FORWARD_SCENE_LIGHTING_GLSLH
+
+// THE LOCAL LIGHTS AND THE AMBIENT OF EVERY FORWARD-LIT OPAQUE CELL (the forward meshes, Mesh/Surface/Pass_Forward
+// .glslh; the forward ground, Programs/Terrain/Terrain.shader): one statement, so a forward mesh and the ground
+// beside it are lit by the same sources the same way.
+//
+//   - the point and spot lights: under Shadows Stochastic the MegaLights translucency volume at the point (UE
+//     MegaLights' volume, Common/MegaLightsVolume.glslh) - its dominant light through the shading model, the rest
+//     as incident light from every direction, which the ambient's Indirect carries (the volume holds no surface,
+//     so no contact shadow either); otherwise the lights of the pixel's froxel, each with its shadow
+//     (Mesh/ForwardLocalLights.glslh);
+//   - the ambient: the view's estimator (DesertSampleViewAmbient: the radiance cache where the view traces GI,
+//     else the sky) with the reflection captures over it (Mesh/Surface/ViewIndirect.glslh), under the surface's
+//     occlusion. The forward path has no screen-space bounce gather: Indirect is the volume's isotropic local light
+//     (zero when the volume is off).
+//
+// The includer declares, before this file: Common/MegaLightsVolume.glslh, Mesh/ForwardLocalLights.glslh,
+// Mesh/Surface/ViewIndirect.glslh, Mesh/AmbientIBL.glslh and the generated dispatch (Generated/ShadingModels.glslh).
+#ifndef MEGALIGHTS_VOLUME_GLSLH
+#error "Mesh/ForwardSceneLighting.glslh: include Common/MegaLightsVolume.glslh first"
+#endif
+#ifndef DESERT_VIEW_RADIANCE_CACHE
+#error "Mesh/ForwardSceneLighting.glslh: include Mesh/Surface/ViewIndirect.glslh (the view's radiance cache) first"
+#endif
+
+struct DesertForwardLocalLighting
+{
+    vec3 Light;    // the shading model's response to the local lights
+    vec3 Indirect; // the volume's isotropic remainder, for the ambient's Indirect (zero off the volume)
+};
+
+// The point and spot lights at world @p p (fragment @p fragCoord, shading normal @p N) through shading model
+// @p model. @p subsurfaceOpacity < 0 for a surface that is no subsurface receiver.
+DesertForwardLocalLighting DesertForwardLocalLights( int model, vec2 fragCoord, vec3 p, vec3 N, float subsurfaceOpacity,
+                                                     DesertSurface surface, DesertPayload payload )
+{
+    DesertForwardLocalLighting result;
+    result.Light    = vec3( 0.0 );
+    result.Indirect = vec3( 0.0 );
+    if ( MegaLightsVolumeOn() )
+    {
+        const MegaLightsVolumeLighting volume = MegaLightsVolumeLightingAt( fragCoord, p, N );
+        DesertLight                    local;
+        local.L         = volume.L;
+        local.Radiance  = volume.Radiance;
+        local.Shadow    = 1.0;
+        result.Light    = DesertEvaluateShadingModel( model, local, surface, payload );
+        result.Indirect = volume.Ambient;
+        return result;
+    }
+    const ForwardLightList lights = ForwardLightListAt( fragCoord, p );
+    for ( uint j = 0u; j < lights.Count; j++ )
+        result.Light += DesertEvaluateShadingModel( model, ForwardLocalLightAt( lights, j, p, N, subsurfaceOpacity ),
+                                                    surface, payload );
+    return result;
+}
+
+// The ambient of shading model @p model under @p occlusion, with @p indirect (DesertForwardLocalLighting.Indirect).
+vec3 DesertForwardAmbient( int model, DesertSurface surface, vec3 indirect, float occlusion, vec2 fragCoord,
+                           DesertPayload payload )
+{
+    return DesertEvaluateShadingModelAmbient(
+         model, DesertSampleViewAmbient( surface, indirect, occlusion, fragCoord ), surface, payload );
+}
+
+#endif // FORWARD_SCENE_LIGHTING_GLSLH

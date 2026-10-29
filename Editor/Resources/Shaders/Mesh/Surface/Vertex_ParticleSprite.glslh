@@ -17,17 +17,17 @@
 // and the emitter's alive list - nothing else of the particle system.
 layout( std430, binding = 9 ) readonly buffer AttributeFloats
 {
-    float u_DrawFloats[];
+    float DrawFloats[];
 };
 
 layout( std430, binding = 10 ) readonly buffer AliveList
 {
-    uint u_Alive[];
+    uint AliveData[];
 };
 
 layout( std430, binding = 11 ) readonly buffer DrawLayout
 {
-    ParticleDrawLayout u_DrawLayout;
+    ParticleDrawLayout DrawLayoutData;
 };
 
 #include <Common/ParticleDrawRead.glslh>
@@ -43,7 +43,7 @@ layout( location = 13 ) out flat vec2 v_ParticleTimeRandom; // x = relative time
 void main()
 {
     const uint corner = uint( gl_VertexIndex ) % 6u;
-    const uint index  = u_Alive[uint( gl_VertexIndex ) / 6u]; // a pool index
+    const uint index  = AliveData[uint( gl_VertexIndex ) / 6u]; // a pool index
     const uint n      = ParticleLocalIndex( index );            // its row in the emitter's columns
 
     const vec3  position = ParticleWorldPosition( n );
@@ -77,6 +77,8 @@ void main()
     // A sprite has no previous position of its own: the camera's motion only (the particle's own is not written).
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): a particle moves on its own.
+    v_Surface.ObjectMoved = 1.0;
 
     // Relative time = age / lifetime (UE NormalizedAge); Random is drawn from the particle's pool slot and its
     // lifetime, which is itself drawn at spawn — constant over one life, different for the next particle that takes

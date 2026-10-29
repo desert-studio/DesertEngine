@@ -1,0 +1,307 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "FIELD-BARN barn.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Barn",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "Barn",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "material": 0
+    },
+    {
+     "attributes": {
+      "POSITION": 3,
+      "NORMAL": 4,
+      "TEXCOORD_0": 5
+     },
+     "material": 1
+    },
+    {
+     "attributes": {
+      "POSITION": 6,
+      "NORMAL": 7,
+      "TEXCOORD_0": 8
+     },
+     "material": 2
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "M_Barn_Siding",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 1
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 2
+   },
+   "occlusionTexture": {
+    "index": 1
+   }
+  },
+  {
+   "name": "M_Barn_Roof",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     1,
+     1,
+     1,
+     1
+    ],
+    "baseColorTexture": {
+     "index": 3
+    },
+    "metallicRoughnessTexture": {
+     "index": 4
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 5
+   },
+   "occlusionTexture": {
+    "index": 4
+   }
+  },
+  {
+   "name": "M_Barn_Trim",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.62,
+     0.58,
+     0.55,
+     1
+    ],
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 1
+    },
+    "metallicFactor": 0.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 2
+   },
+   "occlusionTexture": {
+    "index": 1
+   }
+  }
+ ],
+ "textures": [
+  {
+   "source": 0
+  },
+  {
+   "source": 1
+  },
+  {
+   "source": 2
+  },
+  {
+   "source": 3
+  },
+  {
+   "source": 4
+  },
+  {
+   "source": 5
+  }
+ ],
+ "images": [
+  {
+   "uri": "../../Textures/weathered_plank_siding/weathered_plank_siding_Diffuse_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/weathered_plank_siding/weathered_plank_siding_arm_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/weathered_plank_siding/weathered_plank_siding_nor_gl_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/rusty_corrugated_iron/rusty_corrugated_iron_Diffuse_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/rusty_corrugated_iron/rusty_corrugated_iron_arm_2k.jpg"
+  },
+  {
+   "uri": "../../Textures/rusty_corrugated_iron/rusty_corrugated_iron_nor_gl_2k.jpg"
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 42,
+   "type": "VEC3",
+   "min": [
+    -6.0,
+    -0.6,
+    -9.0
+   ],
+   "max": [
+    6.0,
+    9.6,
+    9.0
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 42,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 42,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5126,
+   "count": 144,
+   "type": "VEC3",
+   "min": [
+    -6.307464598565943,
+    4.619195221959612,
+    -9.4
+   ],
+   "max": [
+    6.307464598565943,
+    9.673174928327581,
+    9.4
+   ]
+  },
+  {
+   "bufferView": 4,
+   "componentType": 5126,
+   "count": 144,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 5,
+   "componentType": 5126,
+   "count": 144,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 6,
+   "componentType": 5126,
+   "count": 720,
+   "type": "VEC3",
+   "min": [
+    -6.13,
+    -0.5999999999999996,
+    -9.42
+   ],
+   "max": [
+    6.13,
+    9.76,
+    9.799999999999999
+   ]
+  },
+  {
+   "bufferView": 7,
+   "componentType": 5126,
+   "count": 720,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 8,
+   "componentType": 5126,
+   "count": 720,
+   "type": "VEC2"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 504
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 504,
+   "byteLength": 504
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 1008,
+   "byteLength": 336
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 1344,
+   "byteLength": 1728
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 3072,
+   "byteLength": 1728
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 4800,
+   "byteLength": 1152
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 5952,
+   "byteLength": 8640
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 14592,
+   "byteLength": 8640
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 23232,
+   "byteLength": 5760
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "Barn.bin",
+   "byteLength": 28992
+  }
+ ]
+}

@@ -1,9 +1,12 @@
 #include "ShaderService.hpp"
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Settings/Scalability.hpp>
+#include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <algorithm>
 #include <format>
 
 namespace
@@ -41,6 +44,27 @@ namespace
             return false;
         const auto parsed = Desert::Core::Preprocess::DShaderParser::Parse( source );
         return parsed.IsSuccess() && !parsed.GetValue().Meta.ParticleSource.empty();
+    }
+
+    /// The one complaint about a registered program that has no compiled stages, for the default program AND
+    /// every named pass ("<Shader>/<Pass>" is a program a renderer asks for by name exactly as it asks for the
+    /// default one). A device refusal is a warning (the same source builds on a device with the feature);
+    /// anything else is an error that names the program, the file and the build's own reason.
+    void ReportUnbuiltProgram( const Desert::Graphic::Shader& shader, const std::filesystem::path& file )
+    {
+        if ( shader.IsCompiled() )
+            return;
+        if ( !shader.GetDeviceRefusal().empty() )
+        {
+            LOG_WARN( "[ShaderService] '{}' is not built for this device: {} ({}).", shader.GetName(),
+                      shader.GetDeviceRefusal(), file.string() );
+            return;
+        }
+        LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using it will not "
+                   "draw until it compiles ({}): {}",
+                   shader.GetName(), file.string(),
+                   shader.GetCompileError().empty() ? std::string_view( "the build gave no reason" )
+                                                    : shader.GetCompileError() );
     }
 } // namespace
 
@@ -115,21 +139,33 @@ namespace Desert::Runtime
         //   * ComputePipeline::Create              refuses to build, and its caller sees the reason;
         //   * VulkanPipeline::Invalidate           refuses to build, leaving the handle null;
         //   * VulkanRendererAPI::BindGraphicsPipeline  skips every draw through that null handle.
-        if ( !shader->IsCompiled() )
-            LOG_ERROR( "[ShaderService] '{}' registered but has no compiled stages — every material using "
-                       "it will not draw until it compiles ({}).",
-                       shader->GetName(), shaderAsset->GetMetadata().Filepath.string() );
+        ReportUnbuiltProgram( *shader, shaderAsset->GetMetadata().Filepath );
 
         // DSL multi-pass shaders: every named pass is its own program, addressable as
         // "<Shader>/<Pass>" (e.g. GetByName("Unlit/Shadow")).
         //
-        // A surface template's default cell is NOT compiled a second time: the default program above IS that cell
-        // (IsSurfaceDefaultCell), so its "<Template>/<Cell>" name answers the same object.
-        const bool surfaceTemplate =
-             Core::Preprocess::DShaderParser::MayDeclareSurface( shaderAsset->GetShaderContent() );
+        // The pass the default program IS (a surface template's default cell, or the first named pass of a shader
+        // without top-level stages: ShaderProgramMeta::DefaultPassName) is NOT compiled a second time: its
+        // "<Shader>/<Pass>" name answers the default program above, the same object.
+        // Ray tracing passes exist on a device with the ray tracing pipeline alone (ShaderProgramMeta::
+        // RayTracingPassNames); elsewhere their names stay unregistered and a pass that asks for one refuses,
+        // naming the device (Graphic::RayTracingPipeline::Create). The DEVICE's catalog, not QualityState's copy
+        // of it: that copy is empty until QualityBoot::Start, and a Register before it would drop every ray
+        // tracing pass in silence. The device exists whenever a shader compiles (VulkanShader reads it).
+        const auto device = EngineContext::GetInstance().GetDevice();
+        if ( !device )
+            return Common::MakeFormattedError( "ShaderService: '{}' registered before the device exists",
+                                               shader->GetName() );
+        const bool rayTracingPipeline = Common::Scalability::CapabilityCatalog::Offers(
+             device->GetCapabilities().Catalog.RayTracingModes,
+             Common::Scalability::RayTracingMode::RayTracingPipeline );
+        const auto& rayTracingPasses = shader->GetProgramMeta().RayTracingPassNames;
         for ( const auto& passName : shader->GetProgramMeta().PassNames )
         {
-            if ( Core::Preprocess::IsSurfaceDefaultCell( surfaceTemplate, passName ) )
+            if ( !rayTracingPipeline && std::find( rayTracingPasses.begin(), rayTracingPasses.end(), passName ) !=
+                                             rayTracingPasses.end() )
+                continue;
+            if ( Core::Preprocess::IsDefaultProgramPass( shader->GetProgramMeta(), passName ) )
             {
                 m_PassShaders[std::format( "{}/{}", shader->GetName(), passName )] = shader;
                 continue;
@@ -137,6 +173,8 @@ namespace Desert::Runtime
             auto passShader                      = Graphic::Shader::Create( shaderAsset, {}, passName );
             m_PassShaders[passShader->GetName()] = passShader;
             passShader->ClaimOwnership( Graphic::ResourceOwner::AssetService, shaderAsset->GetMetadata().Handle );
+            // Registered either way, for the default program's reason above, and complained about the same way.
+            ReportUnbuiltProgram( *passShader, shaderAsset->GetMetadata().Filepath );
         }
 
         return BOOLSUCCESS;
@@ -208,6 +246,8 @@ namespace Desert::Runtime
 
         const std::string key =
              std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
+        if ( variant.ShippedByCook )
+            m_ShippedByCookRequests.try_emplace( key, Core::CookedProgramVariant{ name, variant } );
 
         if ( const auto it = m_Variants.find( key ); it != m_Variants.end() )
         {
@@ -248,7 +288,7 @@ namespace Desert::Runtime
         {
             // A REFUSAL, NOT A RESULT — and it used to be handed back with a comment saying "the caller
             // decides whether to draw with the default instead". No caller decided. Both of them
-            // (VolumetricCloudRenderer::BuildMediumPipelines and ComputeImages::BakeProceduralPanorama)
+            // (VolumetricCloudRenderer::BuildMediumPipelines and SkyCapture::AcquirePanoramaProgram)
             // test the pointer and nothing else, so each already carries a fall-back-to-the-shipped-medium
             // branch that could never run, and each handed this object to ComputePipeline::Create instead.
             // VulkanPipelineCompute::Invalidate then reads GetPipelineShaderStageCreateInfos()[0] — of a
@@ -264,13 +304,22 @@ namespace Desert::Runtime
             // one this is, so "unknown name" and "did not compile" are still distinguishable to a reader —
             // they were never distinguishable to the CODE, which is what mattered.
             LOG_ERROR( "[ShaderService] Variant {} of '{}' has no compiled stages — the substituted "
-                       "source did not compile. The caller falls back to the shipped program.",
-                       key, name );
+                       "source did not compile: {}. The caller falls back to the shipped program.",
+                       key, name, program->GetCompileError() );
             return nullptr;
         }
 
         m_Variants[key] = VariantEntry{ handleIt->second, program };
         return program;
+    }
+
+    std::vector<Core::CookedProgramVariant> ShaderService::ShippedByCookRequests() const
+    {
+        std::vector<Core::CookedProgramVariant> requests;
+        requests.reserve( m_ShippedByCookRequests.size() );
+        for ( const auto& [key, request] : m_ShippedByCookRequests )
+            requests.push_back( request );
+        return requests;
     }
 
     std::string ShaderService::MediumSourceOf( const Assets::AssetHandle& handle )
@@ -293,6 +342,15 @@ namespace Desert::Runtime
                        static_cast<uint64_t>( handle ) );
         }
         return {};
+    }
+
+    std::vector<std::string> ShaderService::MediumSources() const
+    {
+        std::vector<std::string> sources;
+        sources.reserve( m_Media.size() );
+        for ( const auto& [handle, medium] : m_Media )
+            sources.push_back( medium.Source );
+        return sources;
     }
 
     const std::vector<Core::Formats::ShaderParam>*

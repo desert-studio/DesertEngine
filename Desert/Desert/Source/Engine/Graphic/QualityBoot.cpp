@@ -43,7 +43,7 @@ namespace Desert::Graphic::QualityBoot
         }
     } // namespace
 
-    Common::BoolResultStr Start( const std::filesystem::path& machineJson )
+    Common::BoolResultStr Start( const std::filesystem::path& machineJson, Persistence persistence )
     {
         const std::filesystem::path tableFile = Common::Constants::Path::CONFIG_PATH / "Scalability.json";
         const auto                  text      = Common::Utils::FileSystem::ReadFileContent( tableFile );
@@ -69,8 +69,15 @@ namespace Desert::Graphic::QualityBoot
             window->SetDisplay( machine.Display );
 
         const auto&                            capabilities = EngineContext::GetInstance().GetCapabilities();
-        const MachineSettings::StartingQuality start        = MachineSettings::StartFrom(
-             machine, Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
+        const MachineSettings::StartingQuality start =
+             MachineSettings::StartFrom( machine, MachineSettings::UnreadLevels(),
+                                         Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
+        // Load named each refused level (ERROR); this is the level the group actually starts on.
+        for ( std::size_t g = 0; g < Common::Scalability::kGroupCount; ++g )
+            if ( MachineSettings::UnreadLevels().test( g ) )
+                LOG_INFO( "[Scalability] the {} group's saved level did not read: it starts at {}",
+                          Common::Scalability::GroupKey( static_cast<Common::Scalability::Group>( g ) ),
+                          Common::Scalability::LevelKey( start.Selection.Levels[g] ) );
         // A first run with a valid recommendation starts on High and then APPLIES the recommendation, so the
         // Saver writes it: from then on machine.json holds a selection and the benchmark never overrides it.
         // A named local, not the conditional inline in the by-value argument: MSVC 19.44 never finishes compiling
@@ -79,7 +86,16 @@ namespace Desert::Graphic::QualityBoot
              start.FromRecommended ? MachineSettings::HighSelection() : start.Selection;
         Common::Scalability::QualityState::Initialize( table.ExtractValue(), capabilities.Catalog,
                                                        std::move( initial ), &SaveSelection );
+        const bool thisProcess = persistence == Persistence::ThisProcess;
+        if ( thisProcess )
+            Common::Scalability::QualityState::KeepInSession( "unattended run" );
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
+        // Quality.Levels was read from the former positional list or missed a group of this build: the file is
+        // rewritten by group name, with the level each group actually starts on (no legacy form kept on disk).
+        if ( MachineSettings::LevelsMigrated() && !start.FromRecommended && !thisProcess )
+            if ( const auto saved = SaveSelection( start.Selection ); !saved )
+                LOG_ERROR( "[Scalability] the migrated quality levels were not written back: {}",
+                           saved.GetError() );
         if ( const auto& recommended = machine.Recommended; start.FromRecommended && recommended.has_value() )
         {
             LOG_INFO(

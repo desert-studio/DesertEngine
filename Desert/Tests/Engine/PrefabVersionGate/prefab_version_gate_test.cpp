@@ -199,7 +199,8 @@ TEST( PrefabVersionGate, AnAbsentVersionIntegerIsZeroRatherThanCurrent )
 
 TEST( PrefabVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand )
 {
-    const std::string message = RefusePrefabVersion( "Assets/Prefabs/Old.deprefab", 0, 0 );
+    const std::string message =
+         RefusePrefabVersion( "Assets/Prefabs/Old.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion );
 
     // The file.
     EXPECT_TRUE( Mentions( message, "Assets/Prefabs/Old.deprefab" ) ) << message;
@@ -216,7 +217,7 @@ TEST( PrefabVersionGate, TheRefusalNamesTheFileTheVersionTheTargetAndTheCommand 
 
 TEST( PrefabVersionGate, TheRefusalSaysNothingWasLoaded )
 {
-    const std::string message = RefusePrefabVersion( "Old.deprefab", 1, 0 );
+    const std::string message = RefusePrefabVersion( "Old.deprefab", 1, 0, Desert::Core::kWorldPartitionVersion );
     EXPECT_TRUE( Mentions( message, "NOTHING WAS LOADED" ) ) << message;
 }
 
@@ -224,10 +225,12 @@ TEST( PrefabVersionGate, TheRefusalSaysNothingWasLoaded )
 // absent-is-zero rule. Two spellings of one message is how the two drift.
 TEST( PrefabVersionGate, TheTreeOverloadReportsTheSameVersionsTheTreeCarries )
 {
-    EXPECT_EQ( RefusePrefabVersion( "P.deprefab", At( 3, 0 ) ), RefusePrefabVersion( "P.deprefab", 3, 0 ) );
+    EXPECT_EQ( RefusePrefabVersion( "P.deprefab", At( 3, 0 ) ),
+               RefusePrefabVersion( "P.deprefab", 3, 0, Desert::Core::kWorldPartitionVersion ) );
 
     PrefabData neither; // both absent
-    EXPECT_EQ( RefusePrefabVersion( "P.deprefab", neither ), RefusePrefabVersion( "P.deprefab", 0, 0 ) );
+    EXPECT_EQ( RefusePrefabVersion( "P.deprefab", neither ),
+               RefusePrefabVersion( "P.deprefab", 0, 0, Desert::Core::kWorldPartitionVersion ) );
 }
 
 // ---------------------------------------------------------------------------------------------------

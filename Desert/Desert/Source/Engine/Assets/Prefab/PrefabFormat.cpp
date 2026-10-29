@@ -1,5 +1,7 @@
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Core/Constants.hpp>
 
 #include <Common/Json/Json.hpp>
 
@@ -24,21 +26,29 @@ namespace Desert::Assets
 #endif
     } // namespace
 
-    std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion )
+    std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
+                                     int foundWorldPartitionVersion, int foundAssetRefVersion,
+                                     int foundLightVersion )
     {
         return fmt::format(
-             "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2}, and this engine loads "
-             "scene schema v{3} / world units v{4} only. NOTHING WAS LOADED - no entity was taken from "
-             "this file, and the scene is exactly as it was. A prefab carries the same entity payloads a "
-             "scene does, so it moves through the same generations; Tools/SceneMigrator converts it, "
-             "once, and writes the file back. Run:  {5} \"{0}\"",
-             source, foundSceneVersion, foundUnitVersion, Core::kSceneVersion, Core::kUnitVersion, kMigratorPath );
+             "[PrefabAsset] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
+             "v{8} / lights v{10}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / "
+             "asset references v{9} / lights v{11} only. NOTHING WAS LOADED - "
+             "no entity was taken from this file, and the scene is exactly as it was. A prefab carries the same "
+             "entity payloads a scene does, so it moves through the same generations; Tools/SceneMigrator "
+             "converts it, once, and writes the file back. Run:  {7} \"{0}\"",
+             source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, Core::kSceneVersion,
+             Core::kUnitVersion, Core::kWorldPartitionVersion, kMigratorPath, foundAssetRefVersion,
+             Core::kAssetRefVersion, foundLightVersion, Core::kLightVersion );
     }
 
     std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab )
     {
         return RefusePrefabVersion( source, StatedVersion( prefab.Header, kSceneSchemaTag ),
-                                    StatedVersion( prefab.Header, kUnitSchemaTag ) );
+                                    StatedVersion( prefab.Header, kUnitSchemaTag ),
+                                    StatedVersion( prefab.Header, kWorldPartitionSchemaTag ),
+                                    StatedVersion( prefab.Header, kAssetRefSchemaTag ),
+                                    StatedVersion( prefab.Header, kLightSchemaTag ) );
     }
 
     Common::ResultStr<PrefabData> ParseLoadablePrefab( std::string_view source, const std::string& json )
@@ -100,4 +110,17 @@ namespace Desert::Assets
         return guid ? guid.GetValue() : Common::Content::AssetGuid{};
     }
 
+    // The content key ("assets:Prefabs/P.deprefab") StableKeyForPath mints for the file; a file outside every
+    // root comes back absolute, which is that function's own explicit form.
+    std::string StatePrefabPath( const std::filesystem::path& file )
+    {
+        return Common::AssetHandle::StableKeyForPath( Common::Constants::Path::FullPath( file ) );
+    }
+
+    // The exact inverse: a bare relative spelling is refused by name (PathForStableKey) and answers an empty
+    // path, which no FindByPath matches; SCNE v68 restated every stored one as its key.
+    std::filesystem::path ResolvePrefabPath( std::string_view stated )
+    {
+        return Common::AssetHandle::PathForStableKey( stated );
+    }
 } // namespace Desert::Assets

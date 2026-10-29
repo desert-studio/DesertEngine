@@ -18,7 +18,7 @@
 //   - Step drops the kMaxStepsPerFrame bound                                    -> AHitch...
 //   - GetInterpolatedPosition returns GetPosition                               -> InterpolatedPose...
 
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 

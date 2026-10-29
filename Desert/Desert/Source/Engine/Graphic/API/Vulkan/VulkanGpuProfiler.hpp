@@ -25,10 +25,10 @@ namespace Desert::Graphic::API::Vulkan
     // Three things decide the shape of this class:
     //
     // 1. ONE POOL PER FRAME IN FLIGHT, NO VIEW DIMENSION. The editor runs any number of live SceneRenderers
-    //    (viewport, asset previews, thumbnails) into ONE command buffer per frame. Queries are handed out
-    //    linearly in the order scopes open, so views need no block of their own and there is no ceiling on
-    //    how many the profiler sees; nesting is kept apart per view by the ActiveViewScope's target (see
-    //    GpuScopeRecorder). A pool that proves too small drops the extra scopes for that frame and is
+    //    (viewport, asset previews, thumbnails) into one frame (several command buffers: see the constructor).
+    //    Queries are handed out linearly in the order scopes open, so views need no block of their own and there
+    //    is no ceiling on how many the profiler sees; nesting is kept apart per view by the ActiveViewScope's
+    //    target (see GpuScopeRecorder). A pool that proves too small drops the extra scopes for that frame and is
     //    replaced — by high-water mark, geometrically — the next time its frame index begins, never while
     //    recording: a profiler that reallocates mid-frame measures its own allocator. The replaced pool goes
     //    to the allocator's deferred deletion queue like every other per-frame GPU object.
@@ -50,7 +50,20 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanGpuProfiler final : public Common::Profiling::IGpuProfilerSink
     {
     public:
+        // @p recordingTarget is the renderer's recording target (VulkanRendererAPI::m_CurrentCommandBuffer),
+        // read at every write and never copied. The frame is not one command buffer: ExecuteGraph ends the
+        // buffer BeginFrame armed, the graph records each pipe segment into its own, and a fresh one is armed
+        // after it. A timestamp is a command like any other, so it goes where the recording is going at the
+        // moment it is written — a pass scope into its segment's buffer, a scope that spans a graph opens in
+        // the buffer before it and closes in the one after (all of them submitted in order, after the reset
+        // at the head of the frame). A copy taken at BeginFrame is what wrote into an ended buffer.
+        explicit VulkanGpuProfiler( const VkCommandBuffer& recordingTarget ) : m_RecordingTarget( recordingTarget )
+        {
+        }
         ~VulkanGpuProfiler() override;
+
+        VulkanGpuProfiler( const VulkanGpuProfiler& )            = delete;
+        VulkanGpuProfiler& operator=( const VulkanGpuProfiler& ) = delete;
 
         // Creates one pool per frame in flight and installs this as the profiler's sink. A device without
         // usable timestamps leaves the sink uninstalled, and every GPU column simply stays empty.
@@ -64,17 +77,12 @@ namespace Desert::Graphic::API::Vulkan
 
         // --- frame lifecycle, driven by VulkanRendererAPI ------------------------------------------------
 
-        // Right after vkBeginCommandBuffer: resolve the queries this frame index left behind the last time
-        // it was used, grow its pool if any frame has outgrown it, then reset the pool so this frame can
-        // write into it.
-        void BeginFrame( VkCommandBuffer commandBuffer );
-        // Right before vkEndCommandBuffer: closes the whole-frame bracket.
-        void EndFrame( VkCommandBuffer commandBuffer );
-        // The frame is recorded into more than one command buffer: ExecuteGraph ends the frame's buffer before
-        // a render graph, each graph segment records into its own, and a fresh one is armed after the graph.
-        // Every scope is written into the buffer recording NOW, so the renderer hands each switch over here.
-        // VK_NULL_HANDLE (between buffers) makes scopes record nothing until the next buffer arrives.
-        void SetCommandBuffer( VkCommandBuffer commandBuffer );
+        // Right after the frame's first command buffer is armed: resolve the queries this frame index left
+        // behind the last time it was used, grow its pool if any frame has outgrown it, then reset the pool
+        // so this frame can write into it.
+        void BeginFrame();
+        // Right before the frame's last command buffer is ended: closes the whole-frame bracket.
+        void EndFrame();
 
         // --- IGpuProfilerSink ---------------------------------------------------------------------------
 
@@ -110,8 +118,9 @@ namespace Desert::Graphic::API::Vulkan
 
         /// The frame recording right now; null between EndFrame and BeginFrame, which is how a scope
         /// entered outside recording knows to do nothing.
-        FrameQueries*   m_Recording     = nullptr;
-        VkCommandBuffer m_CommandBuffer = VK_NULL_HANDLE;
+        FrameQueries* m_Recording = nullptr;
+        /// The renderer's recording target (see the constructor); VK_NULL_HANDLE while nothing records.
+        const VkCommandBuffer& m_RecordingTarget;
 
         /// Scratch for vkGetQueryPoolResults: {value, availability} per query, reused every frame.
         std::vector<uint64_t> m_ResultScratch;

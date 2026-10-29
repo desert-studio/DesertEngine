@@ -4,7 +4,7 @@
 // the caller instead of by the file system, and a set of preprocessor macros defined for the compile.
 //
 // THE MACROS ARE A PERMUTATION'S ONE SOURCE. A pass that draws the same program into a different target
-// (the reflective shadow map draws the G-buffer program, DESERT_GBUFFER_RSM) names its defines HERE and
+// (a GI consumer compiled per tracer, GlobalIllumination::TracerVariant) names its defines HERE and
 // nowhere else: ShaderCompiler hands each one to the compile (CompileOptions::AddMacroDefinition) and
 // Hash() mixes them into both cache keys, so two permutations are two artifacts. A pipeline built for the
 // permutation references the Shader compiled under it (GraphicsPipelineSpecification::Shader); it does
@@ -63,6 +63,12 @@ namespace Desert::Core
         std::vector<ShaderVirtualSource> VirtualSources{};
         /// Macros defined for the compile, each `NAME` or `NAME=VALUE` (ShaderDefineName / ShaderDefineValue).
         std::vector<std::string> Defines{};
+        /// SHIPPED BY THE COOK: the game packager compiles every instance of this permutation the package can
+        /// select - each system's one list (CookedProgramVariant), which its runtime acquires from too
+        /// (PackageCook CookShaderVariants, as UE cooks a global shader's permutations) - so a packaged game - a
+        /// mounted pak - that misses its artifact REFUSES it by name (ShaderCompiler) instead of compiling it.
+        /// Policy, not content: not in Hash(), so the key of the artifact the cook wrote is the key asked for.
+        bool ShippedByCook = false;
 
         [[nodiscard]] bool IsDefault() const
         {
@@ -159,4 +165,14 @@ namespace Desert::Core
         const auto equals = define.find( '=' );
         return equals == std::string_view::npos ? std::string_view() : define.substr( equals + 1 );
     }
+
+    /// ONE PROGRAM UNDER ONE COOKED PERMUTATION - an entry of a system's list of the variants it can acquire
+    /// (ScreenProbeGather / WorldRadianceCache / SurfaceCacheRenderer / SSRRenderer ProgramVariants,
+    /// CloudMediumProgramVariants), the list the runtime acquires from and the game packager cooks
+    /// (PackageCook CookShaderVariants), so the cook cannot ship a different set than the runtime asks for.
+    struct CookedProgramVariant
+    {
+        std::string   Program; // the registered name: "<Shader>" or "<Shader>/<Pass>" (ShaderService)
+        ShaderVariant Variant; // ShippedByCook
+    };
 } // namespace Desert::Core

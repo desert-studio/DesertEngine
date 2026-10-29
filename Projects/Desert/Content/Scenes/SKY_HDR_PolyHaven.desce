@@ -3,8 +3,11 @@
         "Kind": "Scene",
         "Guid": "6c35315da1b18578dda3455bb3e3e529",
         "Versions": {
-            "SCNE": 59,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "05a0673d1865f5a909f557f4d64bc802", "1a32f84f685d2419e52642eed0ce8936", "33e572a04c3edf8ed3d872e10230a97b", "f8e0ca8759ab3f1ba120daddde4a6784"]
     },
@@ -35,9 +38,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [8.0, 0.10000000149011612, 8.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -48,9 +59,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_HDR_Chrome.demat"],
-                "MaterialGuids": ["33e572a04c3edf8ed3d872e10230a97b"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "33e572a04c3edf8ed3d872e10230a97b",
+                        "Path": "assets:Materials/M_HDR_Chrome.demat"
+                    }
+                ]
             }
         },
         {
@@ -61,9 +80,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_HDR_Satin.demat"],
-                "MaterialGuids": ["1a32f84f685d2419e52642eed0ce8936"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "1a32f84f685d2419e52642eed0ce8936",
+                        "Path": "assets:Materials/M_HDR_Satin.demat"
+                    }
+                ]
             }
         },
         {
@@ -74,9 +101,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.2000000476837158, 1.2000000476837158, 1.2000000476837158],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_HDR_Matte.demat"],
-                "MaterialGuids": ["f8e0ca8759ab3f1ba120daddde4a6784"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f8e0ca8759ab3f1ba120daddde4a6784",
+                        "Path": "assets:Materials/M_HDR_Matte.demat"
+                    }
+                ]
             }
         },
         {
@@ -117,14 +152,24 @@
                     "ContactShadows": false,
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
-                    "Exposure": 0.15000000596046448,
-                    "Gamma": 2.200000047683716,
+                    "ManualExposureEV100": 3.2630343437194824,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
                     "AutoExposureSpeed": 1.5,
-                    "AutoExposureMin": 0.019999999552965164,
-                    "AutoExposureMax": 8.0,
+                    "AutoExposureMinEV100": -2.6438562870025635,
+                    "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
@@ -168,6 +213,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

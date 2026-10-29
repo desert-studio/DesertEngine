@@ -77,7 +77,7 @@ TEST( ShaderDomainRouting, OnlySchemaTexturesBecomeMaterialProperties )
     EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Albedo", false )->Name, "u_Albedo" );
     EXPECT_NE( FindMaterialTextureParameter( meta, "u_Environment", true ), nullptr );
     // A pass parameter: reflected by the shader, not in Properties (shadow cascades, BRDF LUT, scene textures).
-    EXPECT_EQ( FindMaterialTextureParameter( meta, "u_ShadowCascades", false ), nullptr );
+    EXPECT_EQ( FindMaterialTextureParameter( meta, "ShadowCascadesTexture", false ), nullptr );
     EXPECT_EQ( FindMaterialTextureParameter( meta, "u_BRDFLut", true ), nullptr );
     // Declared as the other kind, an asset reference, or not a texture: no texture property either.
     EXPECT_EQ( FindMaterialTextureParameter( meta, "u_Albedo", true ), nullptr );

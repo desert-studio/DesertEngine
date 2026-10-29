@@ -12,6 +12,13 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct VelocityViewBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+
     // The Velocity view mode (DeferredDebugMode::Velocity, UE's "Velocity" buffer visualization): "Debug:
     // Velocity" samples the view's velocity transient (FrameTransients::Velocity, NDC current - previous at the
     // render extent) and writes it as a colour over the view's post input - hue = direction, brightness = speed in
@@ -59,13 +66,15 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // SETUP of "Debug: Velocity": block 0 - u_Velocity, the shader's only resource, read by texelFetch.
+        // SETUP of "Debug: Velocity": block 0 - VelocityTexture, the shader's only resource, read by texelFetch.
         void DeclareBindings( RDG::PassBuilder& pass, RDG::TextureRef velocity ) const
         {
             if ( !m_Current )
                 return;
             pass.Bindings( m_BindingLayout.Get( m_Shader ), RDG::OtherRouteFill{} )
-                 .Sampled( "u_Velocity", velocity, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                 .Texture( VelocityViewBindingShaderParameters::VelocityTexture, velocity,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( VelocityViewBindingShaderParameters::LinearRepeatSampler,
                            RDG::SamplerDesc::LinearRepeat() );
         }
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/RendererContext.hpp>
+#include <span>
 #include <Common/Core/Memory/CommandBuffer.hpp>
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
@@ -12,6 +13,7 @@
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 
 namespace Desert::ShaderResources
@@ -22,6 +24,11 @@ namespace Desert::ShaderResources
 namespace Desert::Graphic
 {
     class RendererAPI;
+    class RayTracingPipeline;
+    namespace RayTracing
+    {
+        struct RayTracingHitGroupTable;
+    } // namespace RayTracing
     class VertexBuffer;
     namespace RDG
     {
@@ -60,6 +67,17 @@ namespace Desert::Graphic
         // RendererAPI::ImportVertexBuffer.
         static Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                          RDG::ExternalBuffer&                 into );
+        // RendererAPI::ImportVertexBufferRange.
+        static Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                              uint64_t offset, uint64_t bytes,
+                                                              RDG::ExternalBuffer& into );
+        // A mesh's vertices / streams as a graph external: its span of the buffer holding them (a GeometryPool
+        // arena or its own), vertex i of the mesh at element i of the import. Fails for a non-resident mesh and
+        // (streams) for a mesh without a stream buffer.
+        static Common::BoolResultStr ImportMeshVertices( const MeshGeometry& geometry, RDG::ExternalBuffer& into );
+        // RendererAPI::InvalidateGeometryBinding.
+        static void InvalidateGeometryBinding();
+        static Common::BoolResultStr ImportMeshStreams( const MeshGeometry& geometry, RDG::ExternalBuffer& into );
         void                         EndDebugLabel();
         // Vertexless draw in the pipeline's own topology (Lines for the debug lines, Triangles for a tool's
         // translucent preview mesh): the vertex stage pulls each vertex from a storage buffer by gl_VertexIndex.
@@ -86,6 +104,12 @@ namespace Desert::Graphic
         [[nodiscard]] static Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
                                                                             const ComputePipeline&   pipeline,
                                                                             RDG::BufferRef args, uint64_t offset );
+        // The ray tracing pipeline's launch over @p width x @p height (RendererAPI::TraceRays): hit-lit
+        // reflections.
+        [[nodiscard]] static Common::BoolResultStr TraceRays( const RDG::PassBindings&                   bindings,
+                                                              const RayTracingPipeline&                  pipeline,
+                                                              const RayTracing::RayTracingHitGroupTable& hits,
+                                                              uint32_t width, uint32_t height );
         // One triangle covering the viewport: DrawProcedural( ..., kFullscreenTriangleVertexCount, 1 )
         // (Common/FullscreenTriangle.glslh), drawn inside the render pass the graph opened for this pass (its
         // ColorTarget / DepthTarget declarations). @p material supplies uniform values and asset textures only;
@@ -107,7 +131,7 @@ namespace Desert::Graphic
                                                                            const MaterialExecutor*  material,
                                                                            RDG::BufferRef args, uint64_t offset );
         // The PassBindings route for indexed batched draws (the 2D/UI batcher): one indexed draw with the
-        // graph textures bound by shader name, e.g. Render2D's glass batches sampling u_Backdrop from this
+        // graph textures bound by shader name, e.g. Render2D's glass batches sampling BackdropTexture from this
         // frame's backdrop pyramid. Same contract as DrawFullscreen otherwise.
         [[nodiscard]] static Common::BoolResultStr
         DrawIndexed( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
@@ -116,15 +140,33 @@ namespace Desert::Graphic
         // The PassBindings route for mesh draws (UE: a mesh pass binds its graph textures through the pass
         // parameters): RenderMesh's submesh / LOD walk (same hidden-submesh mask, same LOD clamp, same instance
         // offset), every submesh drawn with the graph textures bound by shader name from @p bindings, e.g. the
-        // forward glass sampling u_SceneColor from this frame's scene copy. @p material is required: its push
+        // forward glass sampling SceneColorTexture from this frame's scene copy. @p material is required: its push
         // block is pushed for each submesh with that submesh's transform (transform * submesh.Transform) over its
         // first mat4, as RenderMesh does, and it supplies uniform values / asset textures; a @p bindings with push
         // constants of its own is refused (the block is the transform's). Same contract as DrawFullscreen
         // otherwise. The first refused submesh ends the draw.
+        // @p submeshFirstRows: a BINNED cell's draw (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS reads a_VisibleRow),
+        // one entry per submesh of the mesh вЂ” the firstInstance of that submesh's draw, its base on the pass's
+        // unculled VisibleInstances list (GpuDriven::DrawCommandCache::UnculledFirstVisible), kInvalidIndex for a
+        // submesh with no cached draw there (refused if drawn); the identity id stream is bound at binding 2 and
+        // @p firstInstance is unused. Empty: a cell that reads no id stream (refused for one that does).
         [[nodiscard]] static Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel );
+                    uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                    std::span<const uint32_t> submeshFirstRows = {} );
+        // RenderMesh whose counts the GPU wrote: the same walk, each drawn submesh one indirect draw of a
+        // kMeshDrawArgumentsBytes record of @p args (Graphic/MeshDrawArguments.hpp), which the pass declares
+        // Access::IndirectArgs. The record of the k-th drawn submesh si is at @p offset + k *
+        // kMeshDrawArgumentsBytes for MeshDrawArgumentsOrder::Drawn (the virtual shadow map's culled casters, UE
+        // CullPerPageDrawCommands: AppendMeshDrawArguments made them, LOD included) and at @p offset + si *
+        // kMeshDrawArgumentsBytes for
+        // ::Submesh (a GPU-instanced draw, GpuInstances.hpp: @p offset = kGpuInstanceArgsHeaderBytes). A record
+        // past the buffer is refused before it is drawn.
+        [[nodiscard]] static Common::BoolResultStr
+        RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+                            const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
+                            uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything
@@ -153,6 +195,9 @@ namespace Desert::Graphic
         static Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context,
                                                             RDG::TextureRef source, RDG::TextureRef target,
                                                             uint32_t targetLayer );
+        // RendererAPI::CopyGraphBufferToTexture: a graph buffer's packed texels into mip 0 of a graph texture.
+        static Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context,
+                                                               RDG::BufferRef source, RDG::TextureRef target );
 
         // Set the scissor rect (framebuffer px, top-left origin). Used by the 2D batcher for UI clipping.
         void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height );

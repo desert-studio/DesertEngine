@@ -11,9 +11,8 @@ Shader "UIGlass"
     // element (each rect carries its own push constants), and an SDF edge antialiases for free.
     Vertex
     {
-        In(0) vec2 a_Position;   // pixel coordinates (top-left origin)
-        In(1) vec2 a_TexCoord;
-        In(2) vec4 a_Color;      // tint; alpha = how much the tint covers the blur
+        // Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
+        #include <Common/UIVertexInputs.glslh>
 
         Out(0) vec2 v_TexCoord;
         Out(1) vec4 v_Color;
@@ -40,7 +39,11 @@ Shader "UIGlass"
         In(0) vec2 v_TexCoord;
         In(1) vec4 v_Color;
 
-        Uniform(0) sampler2D u_Backdrop;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(1) sampler LinearClampSampler;
+        Uniform(0) texture2D BackdropTexture;
+        #define BackdropTexture sampler2D(BackdropTexture, LinearClampSampler)
 
         PushConstant constants
         {
@@ -64,7 +67,7 @@ Shader "UIGlass"
         {
             // The backdrop is a snapshot of THIS target, so screen position maps to it directly.
             vec2 screenUV = gl_FragCoord.xy * m_PushConstants.Params.zw;
-            vec3 blurred  = textureLod(u_Backdrop, screenUV, m_PushConstants.Params.y).rgb;
+            vec3 blurred  = textureLod(BackdropTexture, screenUV, m_PushConstants.Params.y).rgb;
 
             // Tint over the blur: alpha 0 = pure blur, 1 = flat colour (a plain panel).
             vec3 color = mix(blurred, v_Color.rgb, v_Color.a);

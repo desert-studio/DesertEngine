@@ -978,7 +978,7 @@ TEST( CloudShadowReceiver, EverySunLitShaderReachesTheOneSharedFactor )
              << relative << " does not attenuate its sun by CloudShadowFactor(worldPos)";
         // The receiver names three symbols the includer owes it. A shader that includes the text without
         // declaring them does not link, but it fails at cook time on one machine and this fails here.
-        for ( const char* symbol : { "u_CloudShadowMap", "u_CloudShadowWorldToMap", "u_CloudShadowParams" } )
+        for ( const char* symbol : { "CloudShadowMapTexture", "CloudShadowWorldToMap", "CloudShadowParams" } )
             EXPECT_NE( source.find( symbol ), std::string::npos )
                  << relative << " includes the receiver without declaring " << symbol;
     }

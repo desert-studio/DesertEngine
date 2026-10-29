@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Assets
@@ -34,7 +35,12 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         3; // 3: vertex colour and UV1 streams; 2: sections named by slot
+         12; // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
+             // tangent frames together; 10: UV weighs 0.5 in the reduction
+             // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
+             // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over position-welded
+             // topology; 4: LODs reduced to the ratio with normal/UV attributes, no error cap / MikkTSpace tangent
+             // frames (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings
@@ -51,6 +57,11 @@ namespace Desert::Assets
     // The key of an asset as it stands: its SRCE hash and its IMPT settings with the current builder version.
     uint64_t MeshAssetDerivedDataKey( const MeshSourceAsset& asset );
 
+    // THE SKINNED MESH'S RENDER-DATA KEY (DISPLACE-5): a .skmesh is its own render data (no source envelope, no
+    // deriver), so its key is the hash of its MeshBinary bytes with the header's displacement-mode byte zeroed - the
+    // mode does not change the geometry that the displacement topology (keyed from this) is built from.
+    [[nodiscard]] uint64_t SkinnedMeshRenderDataKey( std::string_view meshBinaryBytes );
+
     // The MeshBinary container bytes of the asset's render data (EncodeMeshBinary's output).
     using MeshPlatformDataBuilder = std::function<Common::ResultStr<std::string>( const MeshSourceAsset& asset )>;
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder );
@@ -65,6 +76,9 @@ namespace Desert::Assets
     {
         std::string Bytes;
         uint64_t    Key = 0;
+        // The asset's import settings (IMPT): what the loader reads beside the render data - the displacement
+        // mode is not in the render-data key, so it comes from the asset itself.
+        MeshImportSettings Settings;
     };
     Common::ResultStr<MeshPlatformDataBytes> LoadMeshPlatformDataKeyed( const std::filesystem::path& asset );
 
@@ -82,7 +96,7 @@ namespace Desert::Assets
     // conversion produces different bytes for the same source file.
     // 2 (FIX8): the envelope's GUID is the source's import record's, no longer minted per import.
     // 3 (SKEL-eng3): MeshSourceAsset SRCE version 3 (the skin names its skeleton by GUID).
-    inline constexpr uint32_t kMeshSourceBuilderVersion = 3;
+    inline constexpr uint32_t kMeshSourceBuilderVersion = 4; // 4: MikkTSpace tangents (Engine/Geometry/MikkTangents.hpp), vertices split on frame seams
 
     // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
     // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into
@@ -103,14 +117,23 @@ namespace Desert::Assets
     // (FIX8 minted the records fresh), so it is still never read in the DDC envelope's place.
     [[nodiscard]] bool IsEditedImportedMesh( const std::filesystem::path& assetPath );
 
+    // THE BUILD A MISS OF kMeshSourceDeriver RUNS (UE: the DDC miss of a static mesh rebuilds from its package).
+    // Given the raw source beside the asset, it Puts the envelope of the source's current bytes under
+    // MeshSourceDerivedDataKey, or returns why it could not. Registered by the editor, which owns the importers;
+    // a packaged game registers none. An empty builder unregisters.
+    using MeshSourceBuilder = std::function<Common::BoolResultStr( const std::filesystem::path& source )>;
+    void SetMeshSourceBuilder( MeshSourceBuilder builder );
+
     // Resolves the MeshSourceAsset an asset PATH names (e.g. `Meshes/Props/base.stmesh`).
     //
     // A companion raw source beside it (today: `base.fbx`, same stem) means this .stmesh is DERIVED: its
     // bytes are read from the DDC, keyed by the source file's OWN content, and @p assetPath itself is never
     // opened - a stale beside-source file left over from a build that still wrote one (AF4h retires that
     // write) is therefore never read in its place, whether or not it happens to exist. A DDC miss is a
-    // refusal naming the source and the key: nothing here silently falls back to reading the stale file, and
-    // nothing here re-imports (that is the editor's job, on request).
+    // miss is rebuilt from the source by the registered MeshSourceBuilder (the editor's; UE: a DDC miss rebuilds
+    // the derived data from the package) and read again; where none is registered (a packaged game) or the
+    // rebuild fails, it is a refusal naming the source and the key. Nothing here silently falls back to reading
+    // the stale file.
     //
     // An edited import (IsEditedImportedMesh) is the exception: that file IS the asset, read from disk.
     //

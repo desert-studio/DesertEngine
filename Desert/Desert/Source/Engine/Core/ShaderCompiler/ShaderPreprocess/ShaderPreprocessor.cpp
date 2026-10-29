@@ -43,10 +43,13 @@ namespace Desert::Core::Preprocess
                      std::format( "{}: the shader has no pass named '{}'", context, passName ) );
             Core::Formats::ShaderProgramMeta meta = parsed.Meta;
             meta.State                            = pass->State;
-            // The default cell of a surface template IS the default program (IsSurfaceDefaultCell), so it keeps
-            // the default program's metadata whole: the two names answer one shader map, byte for byte.
-            if ( !passName.empty() && !IsSurfaceDefaultCell( !parsed.Surface.Cells.empty(), passName ) )
+            // The pass the default program IS (IsDefaultProgramPass) keeps the default program's metadata whole:
+            // the two names answer one shader map, byte for byte.
+            if ( !passName.empty() && !IsDefaultProgramPass( parsed.Meta, passName ) )
+            {
                 meta.PassNames.clear();
+                meta.DefaultPassName.clear();
+            }
             return Common::MakeSuccess( std::move( meta ) );
         }
     } // namespace

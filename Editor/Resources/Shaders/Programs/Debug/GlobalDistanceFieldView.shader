@@ -18,23 +18,30 @@ Shader "GlobalDistanceFieldView"
     Fragment
     {
         In(0) vec2 v_Ndc;
-        Uniform(0) sampler3D u_GlobalDistanceField0;
-        Uniform(1) sampler3D u_GlobalDistanceField1;
-        Uniform(2) sampler3D u_GlobalDistanceField2;
-        Uniform(3) sampler3D u_GlobalDistanceField3;
+        // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
+        // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
+        Uniform sampler LinearRepeatSampler;
+        Uniform(0) texture3D GlobalDistanceField0Texture;
+        #define GlobalDistanceField0Texture sampler3D(GlobalDistanceField0Texture, LinearRepeatSampler)
+        Uniform(1) texture3D GlobalDistanceField1Texture;
+        #define GlobalDistanceField1Texture sampler3D(GlobalDistanceField1Texture, LinearRepeatSampler)
+        Uniform(2) texture3D GlobalDistanceField2Texture;
+        #define GlobalDistanceField2Texture sampler3D(GlobalDistanceField2Texture, LinearRepeatSampler)
+        Uniform(3) texture3D GlobalDistanceField3Texture;
+        #define GlobalDistanceField3Texture sampler3D(GlobalDistanceField3Texture, LinearRepeatSampler)
         Out(0) vec4 oColor;
 
         PushConstant GDFViewPush
         {
-            mat4 u_InverseViewProjection;
-            vec4 u_Levels[4]; // (centre.xyz, voxel size), centimetres
+            mat4 InverseViewProjection;
+            vec4 Levels[4]; // (centre.xyz, voxel size), centimetres
         };
 
         #include <Common/GlobalDistanceField.glslh>
 
         vec3 Unproject(vec2 ndc, float depth)
         {
-            const vec4 h = u_InverseViewProjection * vec4(ndc, depth, 1.0);
+            const vec4 h = InverseViewProjection * vec4(ndc, depth, 1.0);
             return h.xyz / h.w;
         }
 
@@ -45,9 +52,10 @@ Shader "GlobalDistanceFieldView"
             const vec3 direction = normalize(Unproject(v_Ndc, 0.5) - origin);
             vec4 levels[GDF_NUM_CLIPMAPS];
             for (int i = 0; i < GDF_NUM_CLIPMAPS; ++i)
-                levels[i] = u_Levels[i];
+                levels[i] = Levels[i];
             const float maxT = levels[GDF_NUM_CLIPMAPS - 1].w * float(GDF_RESOLUTION);
-            const GlobalDistanceFieldHit hit = TraceGlobalDistanceField(origin, direction, maxT, 256, levels);
+            // The field as a shadow ray sees it: foliage stops the view too (no dithered transparency).
+            const GlobalDistanceFieldHit hit = TraceGlobalDistanceField(origin, direction, maxT, 256, levels, false, 0u);
 
             const float heat = clamp(float(hit.Steps) / 128.0, 0.0, 1.0);
             vec3 color = mix(vec3(0.02, 0.03, 0.06), vec3(0.35, 0.05, 0.05), heat);

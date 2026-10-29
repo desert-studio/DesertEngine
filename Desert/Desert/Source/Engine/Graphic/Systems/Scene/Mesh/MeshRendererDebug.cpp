@@ -4,6 +4,16 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshDebugOverdrawResolveShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, OverdrawTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     bool MeshRenderer::SetupSilhouettePass()
@@ -137,6 +147,19 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    bool MeshRenderer::EnsureOverdrawPass()
+    {
+        if ( m_OverdrawPipeline && m_OverdrawFB && m_OverdrawResolvePipeline )
+            return true;
+        if ( m_OverdrawRefused )
+            return false;
+        if ( SetupOverdrawPass() )
+            return true;
+        m_OverdrawRefused = true;
+        LOG_WARN( "[MeshRenderer] Overdraw debug view unavailable (shaders missing)." );
+        return false;
+    }
+
     bool MeshRenderer::SetupOverdrawPass()
     {
         m_OverdrawShader        = Runtime::ResourceRegistry::GetShaderService()->GetByName( "Overdraw" );
@@ -251,12 +274,14 @@ namespace Desert::Graphic::System
             return;
         // 2) Resolve: heat-map the accumulation over the scene colour (the graph opens the target with LOAD;
         //    the resolve discards empty texels). The resolve's one block: the shader's reflected layout, the
-        //    material as the other route, and the accumulation as u_Overdraw with the sampler the material route
+        //    material as the other route, and the accumulation as OverdrawTexture with the sampler the material route
         //    sampled it with (the image's own: linear, REPEAT).
         const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
         pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
                        executor.GetRouteFill() )
-             .Sampled( "u_Overdraw", overdraw, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+             .Texture( MeshDebugOverdrawResolveShaderParameters::OverdrawTexture, overdraw,
+                       RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Sampler( MeshDebugOverdrawResolveShaderParameters::LinearRepeatSampler,
                        RDG::SamplerDesc::LinearRepeat() );
     }
 
@@ -281,7 +306,7 @@ namespace Desert::Graphic::System
              .Name        = "DebugLinesPass",
              .ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
-                 if ( !m_ShowBoundingBoxes )
+                 if ( !m_ShowBoundingBoxes && !m_ShowCardPlacement )
                      return BOOLSUCCESS;
                  auto* const      camera = m_SceneRenderer->GetMainCamera();
                  const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
@@ -294,9 +319,49 @@ namespace Desert::Graphic::System
                  const glm::vec4  color( m_BoundingBoxColor, 1.0f );
 
                  std::vector<MaterialDebugLine::LineVertex> lines;
+                 const auto addBox = [&lines]( const glm::vec3& mn, const glm::vec3& mx, const glm::mat4& world,
+                                               const glm::vec4& boxColor )
+                 {
+                     glm::vec3 c[8] = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
+                                        { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
+                                        { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
+                     for ( auto& corner : c )
+                         corner = glm::vec3( world * glm::vec4( corner, 1.0f ) );
+                     for ( const auto& e : kEdges )
+                     {
+                         lines.push_back( { glm::vec4( c[e[0]], 1.0f ), boxColor } );
+                         lines.push_back( { glm::vec4( c[e[1]], 1.0f ), boxColor } );
+                     }
+                 };
+                 // CARD PLACEMENT: each card's box in its mesh's space (the card build applied every submesh's
+                 // transform, as the distance field does), coloured by the axis it faces - X red, Y green, Z
+                 // blue, the negative direction darker.
+                 const auto addCards = [&addBox]( const Mesh& mesh, const glm::mat4& world )
+                 {
+                     const auto cards = mesh.GetCards();
+                     if ( !cards )
+                         return;
+                     for ( const Assets::CardBuildData& card : cards->Cards )
+                     {
+                         const uint32_t direction = static_cast<uint32_t>( card.Direction );
+                         glm::vec4      cardColor( 0.0f, 0.0f, 0.0f, 1.0f );
+                         cardColor[direction / 2] = ( direction & 1u ) != 0u ? 1.0f : 0.45f;
+                         addBox( card.Center - card.Extent, card.Center + card.Extent, world, cardColor );
+                     }
+                 };
+                 if ( m_ShowCardPlacement )
+                 {
+                     for ( const auto& rd : m_StaticQueue )
+                         if ( rd.Mesh != nullptr )
+                             addCards( *rd.Mesh, rd.Transform );
+                     for ( const auto& ism : m_InstancedQueue )
+                         if ( ism.Mesh != nullptr && ism.Transforms )
+                             for ( const glm::mat4& world : *ism.Transforms )
+                                 addCards( *ism.Mesh, world );
+                 }
                  for ( const auto& rd : m_StaticQueue )
                  {
-                     if ( rd.Mesh == nullptr )
+                     if ( rd.Mesh == nullptr || !m_ShowBoundingBoxes )
                          continue;
                      for ( const auto& sm : rd.Mesh->GetSubmeshes() )
                      {
@@ -403,18 +468,32 @@ namespace Desert::Graphic::System
                     auto* const skinnedMask = m_SilhouetteSkinnedMaterial.get();
                     for ( const auto& [sd, boneOffset] : outlined )
                     {
-                        // The pose slice is the draw's own state, set right before it.
+                        // The pose slice (or the skin cache's streams) is the draw's own state, set right before
+                        // it.
+                        const GpuDriven::GpuScenePrimitive row =
+                             m_GpuScene != nullptr && m_GpuScene->IsValid( sd->GpuPrimitive )
+                                  ? m_GpuScene->Primitive( sd->GpuPrimitive )
+                                  : GpuDriven::GpuScenePrimitive{};
+                        const uint64_t address =
+                             ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                         m_SilhouetteDraws.Add( { .Pipeline  = m_SilhouetteSkinnedPipeline.get(),
                                                  .Mesh      = sd->Mesh,
                                                  .Transform = sd->Transform,
                                                  .Material  = skinnedMask->GetMaterialExecutor(),
-                                                 .BindState = [skinnedMask, offset = boneOffset]
-                                                 { skinnedMask->SetBoneOffset( offset ); } } );
+                                                 .BindState = [skinnedMask, offset = boneOffset, address,
+                                                               count = row.SkinCacheVertexCount]
+                                                 {
+                                                     skinnedMask->SetBoneOffset( offset );
+                                                     skinnedMask->SetSkinCache( address, count );
+                                                 } } );
                     }
                 }
             }
             // The mask shaders sample no scene/view input.
             m_SilhouetteDraws.Declare( declared, std::nullopt );
+            // The skin cache's streams the skinned masks fetch (after "SkinCache: Skin" wrote them).
+            for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+                declared.Read( streams, RDG::Access::StorageRead );
         };
         return pass;
     }

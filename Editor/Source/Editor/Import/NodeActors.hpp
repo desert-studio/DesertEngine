@@ -8,6 +8,7 @@
 // moving the root moves the whole file.
 
 #include <Engine/Assets/Common.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/Entity.hpp>
 
@@ -31,4 +32,19 @@ namespace Desert::Editor
     // created.
     std::vector<ECS::Entity> PlaceNodeActors( ::Desert::Core::Scene& scene, ECS::Entity root,
                                               std::span<const PlacedNodeMesh> nodes );
+
+    // THE SOURCE'S LIGHTS PLACED WITH IT (BISTRO-LIGHTS; UE FbxSceneImport / Interchange: each FBX light becomes a
+    // PointLight, SpotLight or DirectionalLight actor at its node). One child of @p root per entry of @p lights
+    // (ImportRecord.hpp `Lights`, engine space), named by its node:
+    //   - Point: a PointLightComponent at Position;
+    //   - Spot: a SpotLightComponent at Position, rotated so its forward (-Z) is Direction, the record's cones;
+    //   - Directional: a DirectionLightComponent whose Rotation aims its forward axis (-Z) along Direction (the
+    //     engine's rule, as UE: a directional light travels along its forward axis, SystemRules.hpp
+    //     DirectionalLightTravel; ECS::AimDirectionalLight writes it).
+    // Colour and Intensity are the record's. A point or spot light falls off as UE's do, by the inverse square of
+    // the distance in metres (LightFalloff::InverseSquare with a 100 cm Min Radius: full Intensity within a metre,
+    // Intensity / d^2 beyond), windowed to zero at the record's Radius - unbounded (FLT_MAX, UE's value) when the
+    // file states no decay. Returns the entities created.
+    std::vector<ECS::Entity> PlaceSourceLights( ::Desert::Core::Scene& scene, ECS::Entity root,
+                                                std::span<const Assets::Serialization::ImportRecordLight> lights );
 } // namespace Desert::Editor

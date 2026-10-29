@@ -2,25 +2,29 @@
 #define DESERT_SHADOW_CASTER_BIAS_GLSLH
 
 // THE CASTER'S SLOPE DEPTH BIAS, IN THE VERTEX STAGE (UE: ShadowDepthVertexShader.usf, SetShadowDepthOutputs).
-// Every caster of a sun cascade applies it where it projects: the mesh cells' vertex headers
+// Every caster of a shadow view (a sun cascade or a point/spot light's view) applies it where it projects: the mesh cells' vertex headers
 // (Mesh/Surface/Vertex_Static / _Instanced / _Skinned for DESERT_SURFACE_PASS_ShadowDepth) and the terrain's
 // (Programs/Terrain/TerrainVertex.glslh under TERRAIN_DEPTH_ONLY). The fragment stage then writes no depth of
 // its own, so the rasteriser's depth is the one tested and stored and early depth testing stays on.
 //
 //   clip       - the vertex projected by the caster matrix (Graphic::CasterViewProj: the constant bias is in it)
-//   casterVP   - that matrix. A cascade is orthographic: its depth row's xyz IS the light direction, scaled by
-//                1 / DepthRange, as UE reads the light direction from WorldToShadowMatrix's z column.
+//   casterVP   - that matrix. Its depth row's xyz is the view's axis (a cascade: the light direction scaled by
+//                1 / DepthRange; a local view: its forward axis, scaled), as UE reads the light direction from
+//                WorldToShadowMatrix's z column for every shadow view.
 //   worldN     - the vertex's world normal (need not be unit length)
-//   slopeBias  - Graphic::CascadeCasterBias::SlopeBias: [0,1] depth per unit of tan(angle to the light)
+//   slopeBias  - Graphic::CascadeCasterBias::SlopeBias: clip depth per unit of tan(angle to the light)
 //   maxSlope   - Graphic::CascadeCasterBias::SlopeClamp: the tangent where the term stops (UE's
 //                r.Shadow.ShadowMaxSlopeScaleDepthBias)
-// A local light's view (perspective) carries slopeBias 0: its bias is the receiver's (Graphic::LocalShadows).
+// The term is a shift of CLIP z, as the constant one in the matrix is (Graphic::CasterViewProj). A cascade is
+// orthographic (clip w = 1): a shift of the written depth. A local view is a standard-Z perspective: the same
+// shift lengthens the linear depth by a share of it, so the bias grows with the distance from the light as its
+// texels do (Graphic::LocalCasterBias puts the light's texel biases in these units).
 vec4 ShadowCasterSlopeBias( vec4 clip, mat4 casterVP, vec3 worldN, float slopeBias, float maxSlope )
 {
     const vec3  lightDir = normalize( vec3( casterVP[0][2], casterVP[1][2], casterVP[2][2] ) );
     const float NoL      = abs( dot( lightDir, normalize( worldN ) ) );
     const float slope    = NoL > 0.0 ? clamp( sqrt( clamp( 1.0 - NoL * NoL, 0.0, 1.0 ) ) / NoL, 0.0, maxSlope ) : maxSlope;
-    clip.z += slopeBias * slope * clip.w;
+    clip.z += slopeBias * slope;
     return clip;
 }
 

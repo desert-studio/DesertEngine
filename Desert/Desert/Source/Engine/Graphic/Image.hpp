@@ -1,6 +1,9 @@
 #pragma once
 
+#include <span>
+
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/BindlessTextureTable.hpp>
 #include <Engine/Graphic/DynamicResources.hpp>
 
 #include <Engine/Graphic/MipMapGenerator.hpp>
@@ -156,6 +159,15 @@ namespace Desert::Graphic
                  "Image2D::BeginReadbackRGBA8 not supported by this backend" );
         }
 
+        /// The same split readback, converting nothing: ImageReadback::ReadBytes() answers the image's own texels
+        /// (an RGBA16F target's half floats, tightly packed, row 0 first), and ReadRGBA8() refuses. What a bake
+        /// of a float G-buffer target needs — roughness and occlusion are not colours an 8-bit pack may clamp.
+        NO_DISCARD virtual Common::ResultStr<std::shared_ptr<ImageReadback>> BeginReadbackBytes()
+        {
+            return Common::MakeError<std::shared_ptr<ImageReadback>>(
+                 "Image2D::BeginReadbackBytes not supported by this backend" );
+        }
+
         // Re-uploads tightly-packed pixel data into the EXISTING GPU image without recreating it — the
         // image (and any descriptor sets bound to its pointer) stays valid, so this is the safe, churn-free
         // way to stream changing content (video frames) every frame. `data` must match the image's format
@@ -176,10 +188,67 @@ namespace Desert::Graphic
             return Common::MakeError<bool>( "Image2D::RecordSetData not supported by this backend" );
         }
 
+        // FILLS A 2D ARRAY (Image2DSpecification::ArrayLayers) FROM 2D IMAGES: layer i is @p sources[i], every
+        // mip level, copied on the GPU (block-compressed formats included: a copy needs no blit support). The
+        // sources must all be plain 2D images of this array's format and colour space, each holding a level of
+        // the array's size with at least the array's mip count from it down (a streamed source with more levels
+        // on top is copied from that level), and there must be exactly ArrayLayers of them; anything else is
+        // refused naming the source
+        // and the field (UE's UTexture2DArray build refuses the same mismatches). The copy is flushed before
+        // this returns, and every source is handed back in its own layout. Default: unsupported.
+        NO_DISCARD virtual Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> /*sources*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::CopyLayersFrom not supported by this backend" );
+        }
+
+        // THE STREAMING SWAP (TEX-STREAMING; UE RHIUpdateTextureReference / FTexture2DUpdate): this image takes
+        // @p replacement's device image -- its levels, size, views and sampler -- and @p replacement leaves
+        // holding the one this image had, released through its destructor when the caller drops it (deferred past
+        // the frames in flight, as every release is). THE IMAGE OBJECT STAYS: every holder of its pointer (a
+        // material's slot, a landscape override, a layer array source) keeps it and reads the new levels from its
+        // next descriptor write, which GetResourceGeneration tells it to make; the bindless slot keeps its index.
+        // Both images must be plain sampled 2D images of the same format; anything else is refused naming the
+        // field.
+        NO_DISCARD virtual Common::BoolResultStr TakeDeviceImageFrom( Image2D& /*replacement*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::TakeDeviceImageFrom not supported by this backend" );
+        }
+
+        // THE STREAM-OUT (TEX-STREAMING; UE FTexture2DStreamOut): this image gives up its @p droppedLevels top
+        // levels WITHOUT reading anything from disk. A new, smaller device image is made, the levels this image
+        // keeps are copied into it on the GPU (vkCmdCopyImage, submitted without a wait), and this image takes it
+        // (TakeDeviceImageFrom: same object, same bindless slot, a new resource generation). The old device image
+        // is released once that copy has finished and past the frames in flight. Only a plain sampled 2D image
+        // may stream out, and it must keep at least one level; anything else is refused naming why, and the
+        // resident levels stay drawn. Default: unsupported.
+        NO_DISCARD virtual Common::BoolResultStr StreamOutLevels( uint32_t /*droppedLevels*/ )
+        {
+            return Common::MakeError<bool>( "Image2D::StreamOutLevels not supported by this backend" );
+        }
+
+        // Which device image (view + sampler) a descriptor written from this image names: minted anew whenever
+        // the backend replaces them (creation, a sampler change, TakeDeviceImageFrom). A holder that caches what
+        // it wrote compares this, never a recyclable view handle. 0 for a backend without device images.
+        [[nodiscard]] virtual uint64_t GetResourceGeneration() const noexcept
+        {
+            return 0;
+        }
+
         // NO MIP GENERATOR PARAMETER. Its last non-null argument was `Texture2D`'s source-file path, which
         // blitted a chain on the GPU after decoding a PNG/HDR. A 2D image's levels come from the cooked
         // container now (`Image2DSpecification::MipLevels`) or it has one level; see Texture.hpp.
         static std::shared_ptr<Image2D> Create( const Core::Formats::Image2DSpecification& spec );
+
+        /// This image's slot in the global bindless table (BindlessTextureTable): valid for a sampled image
+        /// (Image2DUsage::Image2D), with or without uploaded pixels, that is neither storage nor multisampled;
+        /// invalid (0) otherwise. Stable until the image's GPU resource is released.
+        [[nodiscard]] BindlessTextureSlot GetBindlessSlot() const noexcept
+        {
+            return m_BindlessSlot;
+        }
+
+    protected:
+        BindlessTextureSlot m_BindlessSlot;
     };
 
     class ImageCube : public Image, public DynamicResources

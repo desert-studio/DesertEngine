@@ -6,9 +6,12 @@
 // THE SOURCES (WP24, UE's UWorldPartitionStreamingSourceComponent). Every entity with an enabled
 // ECS::StreamingSourceComponent, the player's pawn among them (Core::SpawnDefaultPawn gives it one), plus
 // whatever an instrument hands Begin/Tick (the editor's --flight camera — UE's streaming source providers).
-// Residency follows their UNION. The view is not a source: a camera looking at the world is not where the
-// world must exist. A Play with no source at all streams nothing beyond the always-loaded part and says so
-// once, by name — the origin or the camera standing in would stream the wrong neighbourhood in silence.
+// A player WITHOUT a pawn is a source at its view point (Scene::PlayerViewPoint) — UE's APlayerController is a
+// streaming source provider located at GetPlayerViewPoint, which is how a pawn-less PIE (Play from Here, a
+// spectator, an Auto Activate camera) streams the world it looks at. Residency follows their UNION. No other
+// camera is a source: the editor's view in Edit, a preview, a Sequencer camera that is not the player's view.
+// A Play with no source at all streams nothing beyond the always-loaded part and says so once, by name — the
+// origin standing in would stream the wrong neighbourhood in silence.
 //
 // The decisions are pure and tested (Serialize/WorldPartitionResidencyExecutor.hpp, suite WorldPartitionStreamer);
 // this is the Scene side of them — the ResidencyWorld whose loads read a unit's records on a JobSystem worker
@@ -34,6 +37,7 @@
 // before the first frame, and only their Visibility changes — in the same Tick that activates or destroys the
 // cell (Serialize/WorldPartitionHLODSwitch.hpp), so a cell and its HLOD never both draw and never both miss.
 
+#include <set>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/WorldCellLoader.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
@@ -46,10 +50,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <string>
 
@@ -72,6 +79,10 @@ namespace Desert::Core
         std::shared_ptr<WorldCells::WorldIndex> Index;
         WorldCells::IndexedWorld                Indexed;
         std::string                             AlwaysLoadedJson;
+        // WP23: the on-demand REGION chunk of every cell file the packager divided off the base (file -> chunk,
+        // from WorldCells::ChunkLayoutOf); empty when the world states no ChunkRegionSize. Files of the world's
+        // Shared chunk are absent: it is mounted at start.
+        std::shared_ptr<const std::map<std::string, std::string>> RegionChunkOfFile;
     };
 
     // Whether @p scenePath has a cooked world beside it (through the VFS: a pak or the disk) and, when it has,
@@ -88,6 +99,8 @@ namespace Desert::Core
         // (see THE SOURCES) plus @p instruments; the pawn must already be spawned (Core::BeginPlay first).
         [[nodiscard]] static Common::ResultStr<std::unique_ptr<WorldStreamer>>
         Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson,
+               const std::filesystem::path& scenePath, // the saved scene (its built HLODs); empty = unsaved
+
                std::span<const Rules::StreamingSource> instruments = {} );
 
         // Starts streaming @p scene, whose entities are exactly @p world's always-loaded records right now (the
@@ -164,12 +177,21 @@ namespace Desert::Core
         }
 
         // Every enabled StreamingSourceComponent of @p scene, at its entity's world position and facing its
-        // forward, with the component's one shape, then @p instruments. A disabled one is not a source; an
+        // forward, with the component's one shape; then the player's view point when the player has no pawn
+        // (see THE SOURCES); then @p instruments. A disabled one is not a source; an
         // override range is the shape's own radius. @p entities, when given, receives each component source's
         // entity, in order. Velocity is zero here: only a Tick knows the time between two positions.
+        // A sector with Angle From Camera is as wide as its entity's camera sees across (CameraViewAngle);
+        // @p withoutCamera, when given, receives each such entity that has no camera to read (its source keeps
+        // the authored Sector Angle, and the Tick names it).
         [[nodiscard]] static std::vector<Rules::StreamingSource>
         GatherSources( Scene& scene, std::span<const Rules::StreamingSource> instruments,
-                       std::vector<std::uint32_t>* entities = nullptr );
+                       std::vector<std::uint32_t>* entities      = nullptr,
+                       std::vector<std::uint32_t>* withoutCamera = nullptr );
+
+        // The horizontal angle, degrees, a perspective camera of vertical @p verticalFovDegrees sees across a
+        // viewport of width over height @p aspect: 2 atan(tan(v / 2) * aspect), capped at the full circle.
+        [[nodiscard]] static float CameraViewAngle( float verticalFovDegrees, float aspect );
 
         // Says what streaming cost, once: the activation measurement MsPerRecord comes from.
         ~WorldStreamer() override;
@@ -199,14 +221,20 @@ namespace Desert::Core
         void StampVelocities( std::vector<Rules::StreamingSource>& sources,
                               std::span<const std::uint32_t> entities, double nowSeconds );
 
-        // One HLOD as the streamer takes it: the cell unit it stands in for and its records.
+        // One HLOD as the streamer takes it: the cell unit it stands in for and the read of its records.
+        // A READ, NOT THE RECORDS (WP22-LIT): a landscape HLOD record carries its built mesh inline (four
+        // 65 536-vertex tiles, 84 MB of text per G0L5 file), and holding every HLOD's parsed records until all
+        // of them were entities put ~2 GB on top of the world the editor held - Play from Here after Load All
+        // was killed at 6146 MB. BeginHLODs reads one HLOD, makes it entities and drops its records before the
+        // next is read (UE streams HLOD cells the same way: one cell's package at a time).
         struct CellHLOD
         {
-            std::size_t                     Unit = 0;
-            std::vector<Assets::EntityData> Records;
+            std::size_t                                                         Unit = 0;
+            std::function<Common::ResultStr<std::vector<Assets::EntityData>>()> Read;
         };
-        // Makes every HLOD's records entities, then shows the ones whose cell is not visible now — before the
-        // first frame, so the first frame already has no hole and no double. @p holes are said once, by reason.
+        // Makes every HLOD's records entities, one HLOD at a time, then shows the ones whose cell is not visible
+        // now — before the first frame, so the first frame already has no hole and no double. @p holes are said
+        // once, by reason.
         [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
 
@@ -241,12 +269,16 @@ namespace Desert::Core
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;
         std::optional<Rules::HLODRuntime>      m_HLODs;
+        // False through BeginHLODs' first Sync (which sets every HLOD); after it each switch is logged.
+        bool m_HLODSwitchesSaid = false;
 
         // The one settings value both beginnings hand the executor, kept so the panel reads the same margin.
         Rules::ResidencySettings              m_Settings;
         WorldPartitionSerialized              m_Partition;
         std::vector<Rules::StreamingSource>   m_LastSources;
         bool                                  m_SaidNoSource = false;
+        // Entities whose Angle From Camera found no camera, already named in the log.
+        std::unordered_set<std::uint32_t> m_SaidWithoutCamera;
         // Where each entity source stood on the last Tick, and when: what its velocity is measured from.
         std::unordered_map<std::uint32_t, glm::vec3> m_SourcePositions;
         double                                       m_SourcesAt = 0.0;

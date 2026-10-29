@@ -4,6 +4,8 @@
 
 #include <glm/glm.hpp>
 
+#include <bit>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -57,6 +59,57 @@ namespace Desert::Core::Formats
     // Core::Formats::MaterialLayout (ReconcileMaterialLayout), and every writer finds them by name through
     // Graphic/Materials/MaterialBinder.hpp.
 
+    // ── A PARAMETER'S GLSL TYPE AND ITS BYTES ARE ONE STATEMENT ─────────────────────────────────────
+    //
+    // An authored value is always a glm::vec4 of floats (the asset's `Value`, the editor's widget, a
+    // sequencer key, an instance override). What the shader reads is the member MaterialLayoutGlslType
+    // declares. For the float family the two are the same bytes. For `Int` and `Bool` they are NOT: the
+    // member is an `int`, and writing the float 1.0 into it made the shader read 1065353216 (0x3F800000) —
+    // an Int parameter could never select anything but its out-of-range branch, and a Bool was true for
+    // any value whose float bits were non-zero, including -0.0. So every row write goes through
+    // MaterialRowSlotValue, which turns the authored value into the bytes of the declared type, and the
+    // declared type is chosen right here beside it — a third type added to one switch and not the other
+    // is the failure this pairing exists to make visible.
+    //
+    // UE has no integer material parameter (scalars are float; a switch is a compile-time static
+    // parameter). This engine keeps `Int`/`Bool` as row kinds because the DSL offers them; it therefore
+    // stores them as what they are declared.
+    constexpr const char* MaterialLayoutGlslType( ShaderValueType type )
+    {
+        switch ( type )
+        {
+            case ShaderValueType::Float:
+                return "float";
+            case ShaderValueType::Float2:
+                return "vec2";
+            case ShaderValueType::Float3:
+                return "vec3";
+            case ShaderValueType::Int:
+            case ShaderValueType::Bool:
+                return "int";
+            default:
+                return "vec4";
+        }
+    }
+
+    // The slot bytes for an authored value of a parameter of @p type (see above). Int rounds to the
+    // nearest whole number (a slider's 2.9999 is 3); Bool is 1 for any non-zero value, else 0. The
+    // components past the value's width are the generated struct's padding and are written as zero.
+    inline glm::vec4 MaterialRowSlotValue( ShaderValueType type, const glm::vec4& authored )
+    {
+        switch ( type )
+        {
+            case ShaderValueType::Int:
+                return { std::bit_cast<float>( static_cast<int32_t>( std::lround( authored.x ) ) ), 0.0f, 0.0f,
+                         0.0f };
+            case ShaderValueType::Bool:
+                return { std::bit_cast<float>( authored.x != 0.0f ? int32_t{ 1 } : int32_t{ 0 } ), 0.0f, 0.0f,
+                         0.0f };
+            default:
+                return authored;
+        }
+    }
+
     // MeshRenderer's instance overrides only (it is Windows L1's file; the materials themselves fill their row
     // through Graphic/Materials/MaterialBinder.hpp by the cell's MaterialLayout). The same schema-order walk as
     // BuildMaterialLayout, and ShippedShaderPasses holds slot * kMaterialParamSlotSize == the layout's offset
@@ -70,7 +123,7 @@ namespace Desert::Core::Formats
         uint32_t slot = 0;
         for ( const auto& p : meta.Params )
         {
-            if ( p.IsTexture )
+            if ( p.IsTexture || p.IsAssetRef() ) // the row's fields, as BuildMaterialLayout lays them
                 continue;
             if ( p.Name == name )
                 return slot;
@@ -82,17 +135,27 @@ namespace Desert::Core::Formats
     // The bytes one draw reads: RowStride / kMaterialParamSlotSize slots (MaterialBinder::DefaultRow).
     using MaterialParamRow = std::vector<glm::vec4>;
 
-    // Write a param by name into its whole slot (the components past its width are the generated struct's
-    // padding). False when the shader has no such numeric param; the row is then untouched. MeshRenderer's
-    // only, like MaterialParamSlot above.
+    // Write a param by name into its whole slot, as the bytes of its declared type (MaterialRowSlotValue; the
+    // components past its width are the generated struct's padding). False when the shader has no such numeric
+    // param; the row is then untouched. MeshRenderer's only, like MaterialParamSlot above.
     inline bool SetMaterialParam( const ShaderProgramMeta& meta, MaterialParamRow& row, std::string_view name,
                                   const glm::vec4& value )
     {
-        const auto slot = MaterialParamSlot( meta, name );
-        if ( !slot || *slot >= row.size() )
-            return false;
-        row[*slot] = value;
-        return true;
+        uint32_t slot = 0;
+        for ( const auto& p : meta.Params )
+        {
+            if ( p.IsTexture )
+                continue;
+            if ( p.Name == name )
+            {
+                if ( slot >= row.size() )
+                    return false;
+                row[slot] = MaterialRowSlotValue( p.Type, value );
+                return true;
+            }
+            ++slot;
+        }
+        return false;
     }
 
     // The 2D texture slots a material asset fills, BY THE MANIFEST: every `Texture2D` the schema declares,
@@ -105,8 +168,9 @@ namespace Desert::Core::Formats
     {
         for ( const auto& p : meta.Params )
         {
-            // An EngineSet sampler is a pass parameter (RDG::PassBindings), never a material texture slot.
-            if ( !p.IsTexture || p.IsCubeTexture || p.IsAssetRef() || p.EngineSet )
+            // An EngineSet sampler is a pass parameter (RDG::PassBindings), never a material texture slot; an
+            // Element texture is no sampler at all (its renderer copies it into its Texture2DArray).
+            if ( !p.IsTexture || p.IsCubeTexture || p.IsAssetRef() || p.EngineSet || p.ElementIndex >= 0 )
             {
                 continue;
             }

@@ -75,6 +75,15 @@ namespace Desert::Core::EditorRegions
     // Every record of the world: the scene holds all of it again, as an open would have made it.
     [[nodiscard]] Common::ResultStr<RegionOutcome> LoadWholeWorld( Scene& scene, Assets::AssetManager* assets );
 
+    // What of a world the editor holds besides its always-loaded part: the regions of its last region load, or
+    // the whole world. UE keeps the same per user and per map (UWorldPartitionEditorPerProjectUserSettings::
+    // EditorLoadedRegions) and loads it again when the map is opened; the editor's copy is EditorLoadedRegions.
+    struct HeldRegions
+    {
+        std::vector<Rules::CellBounds> Regions; // X/Z, cm; empty: the always-loaded part only
+        bool                           Whole = false;
+    };
+
     // What an editor open reads of the scene at a path.
     struct OpenRead
     {
@@ -84,12 +93,15 @@ namespace Desert::Core::EditorRegions
         std::vector<Common::UUID> NotLoaded;        // ByRegion: the records left on disk, in the world's order
     };
 
-    // THE EDITOR'S OPEN (WP20, owner's decision O3 - UE's World Partition editor opens a world unloaded): a
-    // partitioned world is read as its always-loaded part only (LoadRegions with no region, decided over the
-    // descriptor index before anything else is read); every other scene is ReadSceneFileText. After the scene is
-    // made from Text and adopted as saved, the caller hands NotLoaded to EntityPackages::AdoptRegion so a save
-    // keeps the records on disk. Refused, naming the file, as ReadSceneFileText and LoadRegions refuse.
-    [[nodiscard]] Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path );
+    // THE EDITOR'S OPEN (WP20/WP19-REST, owner's decision O3 - UE's World Partition editor opens a world with
+    // its always-loaded actors and the regions the user had loaded): a partitioned world is read as its
+    // always-loaded part plus what `held` selects (LoadRegions over held.Regions, or the whole world), decided
+    // over the descriptor index before any record is read - a record outside the selection is never read.
+    // Every other scene is ReadSceneFileText and `held` is not looked at. After the scene is made from Text and
+    // adopted as saved, the caller hands NotLoaded to EntityPackages::AdoptRegion so a save keeps the records on
+    // disk. Refused, naming the file, as ReadSceneFileText and LoadRegions refuse.
+    [[nodiscard]] Common::ResultStr<OpenRead> ReadForOpen( const std::filesystem::path& path,
+                                                           const HeldRegions&           held );
 
     // THE PLAYED WORLD OF A WORLD HELD IN PART (WP20). UE's Play-in-Editor plays the WHOLE partitioned world:
     // every actor the editor holds as it is in memory (unsaved edits included), every other one from its

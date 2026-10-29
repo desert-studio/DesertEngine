@@ -9,6 +9,8 @@
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
 #include <Engine/Graphic/PostProcessing/LightShaftRules.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
+#include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Core/Application.hpp>
 #include <Engine/Core/EngineContext.hpp>
 
@@ -37,31 +39,33 @@
 
 namespace Desert::Graphic
 {
-    void SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameJumpFlood( RDG::Builder& graph, FrameTextures& textures,
+                                                      const RDG::TextureRef scene )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* jfa = UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-        if ( jfa == nullptr )
-            return;
+        if ( jfa == nullptr || !scene.IsValid() )
+            return {};
         // Whether anything is outlined is known once the mesh draws of this frame are gathered, before the
         // graph is built: it decides which nodes exist.
         jfa->SetOutlineActive(
              // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
              UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->HasOutline() );
+        // NOTHING OUTLINED, NO NODE AND NO TARGET: the composite would only copy the scene (width 0), so the tonemap
+        // reads the scene itself (the caller's fallback for an invalid result). This is every frame of a game and
+        // every editor frame without a selection; the seeds and the output exist only while something is outlined.
+        if ( !jfa->RunsSteps() )
+            return {};
         if ( !jfa->Prepare() )
-            return;
-        // The seeds live within this graph: transients of the scene's size, created only when a pass writes them.
-        // Init writes seed[0]; the steps ping-pong between seed[0] and seed[1].
+            return {};
+        // The seeds and the output live within this graph: transients of the scene's size. Init writes seed[0];
+        // the steps ping-pong between seed[0] and seed[1]; the composite writes the output the tonemap reads.
+        const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
+        if ( !desc )
+            return {};
         RDG::TextureRef seeds[2];
-        if ( jfa->RunsInit() )
-        {
-            const std::optional<RDG::TextureDesc> desc = jfa->GetSeedDesc();
-            if ( !desc )
-                return;
-            seeds[0] = graph.CreateTexture( *desc, "JumpFlood.Seed0" );
-            if ( jfa->RunsSteps() )
-                seeds[1] = graph.CreateTexture( *desc, "JumpFlood.Seed1" );
-        }
+        seeds[0] = graph.CreateTexture( *desc, "JumpFlood.Seed0" );
+        seeds[1] = graph.CreateTexture( *desc, "JumpFlood.Seed1" );
         // The old passes cleared every target (RenderPassSpecification's default clear, black); kept.
         const RDG::LoadOp clear = RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
 
@@ -94,12 +98,9 @@ namespace Desert::Graphic
                      [jfa, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                      { return jfa->RecordStep( context, step ); } );
             }
-        // The composite runs on every frame, outlined or not: it is what hands the scene colour to the tonemap
-        // (TonemapRenderer::Inputs::Source is GetOutputImage()). Without Init no seed exists this frame: the
-        // composite samples the engine's black texture and passes the scene through (width 0).
-        const RDG::TextureRef scene  = textures.Import( jfa->GetSceneColorImage(), "JumpFlood.Scene" );
-        const RDG::TextureRef output = textures.Import( jfa->GetOutputImage(), "Tonemap.Source" );
-        const RDG::TextureRef seed   = jfa->RunsInit() ? seeds[jfa->GetFinalSeedIndex()] : textures.System.Black;
+        // The composite: the outlined scene, which the tonemap reads in place of the scene.
+        const RDG::TextureRef output = graph.CreateTexture( *desc, "Tonemap.Source" );
+        const RDG::TextureRef seed   = seeds[jfa->GetFinalSeedIndex()];
         graph.AddPass(
              "PostFX: JumpFloodFinal", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -110,6 +111,7 @@ namespace Desert::Graphic
                  pass.ColorTarget( 0, output, clear );
              },
              [jfa]( RDG::PassContext& context ) -> Common::BoolResultStr { return jfa->RecordFinal( context ); } );
+        return output;
     }
 
     RDG::TextureRef SceneRenderer::PrepareFrameAutoExposure( FrameTextures& textures )
@@ -147,6 +149,10 @@ namespace Desert::Graphic
         // the three nodes below. Nothing reads it the next frame.
         const RDG::BufferRef histogram =
              graph.CreateBuffer( System::AutoExposureRenderer::GetHistogramDesc(), "AutoExposure.Histogram" );
+        // The adapted luminance for the CPU (ScenePreExposure's source), read FramesInFlight frames later.
+        const RDG::BufferRef readback = autoExp->ImportReadback( graph );
+        if ( !readback.IsValid() )
+            return;
         // Prepare refused a frame without a scene image, so the dispatch size is this frame's scene size.
         const RDG::TextureRef scene      = sceneColor.front();
         // The dispatch covers the texture the nodes read (the temporal output at the output extent, or the scene
@@ -174,9 +180,160 @@ namespace Desert::Graphic
              { return autoExp->RecordHistogram( context, width, height ); } );
         graph.AddPass(
              "PostFX: AutoExposureAverage", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
-             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted ); },
+             { autoExp->DeclareAverageBindings( pass, histogram, previous, adapted, readback ); },
              [autoExp]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return autoExp->RecordAverage( context ); } );
+    }
+
+    void SceneRenderer::AddFrameLocalExposure( RDG::Builder& graph, FrameTextures& textures,
+                                               const std::vector<RDG::TextureRef>& sceneColor )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        if ( tonemap == nullptr )
+            return;
+        const bool visualize = m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure;
+        System::TonemapRenderer::LocalExposureFrame frame{ .Visualize = visualize };
+        tonemap->SetLocalExposure( frame );
+        // Identity settings: every pixel's local exposure is exactly 1 and nothing runs (UE PostProcessing.cpp:799).
+        if ( le == nullptr || !le->IsReady() || sceneColor.empty() || IsLocalExposureIdentity( le->GetParams() ) )
+            return;
+        const RDG::TextureRef                      scene     = sceneColor.front();
+        const Common::ResultStr<RDG::TextureDesc> sceneDesc = graph.GetTextureDesc( scene );
+        if ( !sceneDesc )
+        {
+            LOG_ERROR( "[SceneRenderer] local exposure skipped this frame: {}", sceneDesc.GetError() );
+            return;
+        }
+        const uint32_t width  = sceneDesc.GetValue().Size.Width;
+        const uint32_t height = sceneDesc.GetValue().Size.Height;
+
+        if ( IsLocalExposureFusion( le->GetParams() ) )
+        {
+            if ( !le->IsFusionReady() )
+                return;
+            AddFrameLocalExposureFusion( graph, textures, *le, *tonemap, scene, width, height );
+            frame.Produced      = true;
+            frame.Params        = le->GetParams();
+            frame.LogMiddleGrey = le->GetLogMiddleGrey();
+            tonemap->SetLocalExposure( frame );
+            return;
+        }
+
+        const RDG::TextureRef grid =
+             graph.CreateTexture( System::LocalExposureRenderer::GetGridDesc( width, height ), "LocalExposure.Grid" );
+        const RDG::TextureDesc logLumDesc = System::LocalExposureRenderer::GetLogLumDesc( width, height );
+        const RDG::TextureRef  logLum     = graph.CreateTexture( logLumDesc, "LocalExposure.LogLuminance" );
+        graph.AddPass(
+             "PostFX: LocalExposureSetup", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass ) { le->DeclareSetupBindings( pass, scene, grid, logLum ); },
+             [le, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return le->RecordSetup( context, width, height ); } );
+
+        // The blur runs only when the base layer uses it (UE PostProcessing.cpp:870); otherwise the base is the grid
+        // alone and the blurred input is the graph's black (read with weight 0, or as an empty cell's fallback 0).
+        RDG::TextureRef blurred = textures.System.Black;
+        if ( LocalExposureNeedsBlur( le->GetParams() ) )
+        {
+            const uint32_t blurW  = logLumDesc.Size.Width;
+            const uint32_t blurH  = logLumDesc.Size.Height;
+            const float    radius = LocalExposureBlurRadius( blurW, le->GetParams().BlurKernelSizePercent );
+            const RDG::TextureRef blurX = graph.CreateTexture( logLumDesc, "LocalExposure.BlurH" );
+            blurred                     = graph.CreateTexture( logLumDesc, "LocalExposure.Blurred" );
+            graph.AddPass(
+                 "PostFX: LocalExposureBlurH", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass ) { le->DeclareBlurBindings( pass, logLum, blurX ); },
+                 [le, radius, blurW, blurH]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return le->RecordBlur( context, true, radius, blurW, blurH ); } );
+            graph.AddPass(
+                 "PostFX: LocalExposureBlurV", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass ) { le->DeclareBlurBindings( pass, blurX, blurred ); },
+                 [le, radius, blurW, blurH]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return le->RecordBlur( context, false, radius, blurW, blurH ); } );
+        }
+        textures.Transients.LocalExposureGrid   = grid;
+        textures.Transients.BlurredLogLuminance = blurred;
+
+        frame.Produced      = true;
+        frame.Params        = le->GetParams();
+        frame.LogMiddleGrey = le->GetLogMiddleGrey();
+        frame.SliceLogMin   = le->GetSliceLogMin();
+        frame.GridUVScale   = LocalExposureGridUVScale( width, height );
+        frame.BlurUVScale   = LocalExposureBlurUVScale( width, height );
+        tonemap->SetLocalExposure( frame );
+    }
+
+    void SceneRenderer::AddFrameLocalExposureFusion( RDG::Builder& graph, FrameTextures& textures,
+                                                     System::LocalExposureRenderer& le,
+                                                     const System::TonemapRenderer& tonemap, RDG::TextureRef scene,
+                                                     uint32_t width, uint32_t height )
+    {
+        // UE 5.4 AddLocalExposureFusionPass: setup at full resolution, the exposures and weights downsampled to a
+        // texel (two Gaussian pyramids), then the blend coarsest-first through the Laplacian bands. The setup
+        // exposes with the composite's own inputs (the same 1x1 adapted luminance the tonemap imports).
+        const RDG::TextureRef adaptedImport =
+             textures.Import( tonemap.GetInputs().AutoExposure, "AutoExposure.Adapted" );
+        const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
+        const System::LocalExposureRenderer::FusionExposure exposure{
+             .ManualExposure = tonemap.GetExposure(),
+             .ExposureKey    = tonemap.GetExposureKey(),
+             .AutoExposure   = tonemap.IsAutoExposureEnabled() && adaptedImport.IsValid(),
+             .Reinhard       = tonemap.GetTonemapOperator() == Core::TonemapOperator::Reinhard };
+        auto* lePtr = &le;
+
+        const uint32_t               levels = LocalExposureFusionLevels( width, height );
+        std::vector<RDG::TextureRef> exposures( levels );
+        std::vector<RDG::TextureRef> weights( levels );
+        std::vector<glm::uvec2>      sizes( levels );
+        for ( uint32_t level = 0; level < levels; ++level )
+        {
+            const RDG::TextureDesc desc =
+                 System::LocalExposureRenderer::GetFusionLevelDesc( width, height, level );
+            sizes[level] = LocalExposureFusionLevelExtent( width, height, level );
+            exposures[level] =
+                 graph.CreateTexture( desc, std::format( "LocalExposure.FusionExposures{}", level ) );
+            weights[level] = graph.CreateTexture( desc, std::format( "LocalExposure.FusionWeights{}", level ) );
+        }
+        graph.AddPass(
+             "PostFX: LocalExposureFusionSetup", RDG::PassFlags::Compute, [&]( RDG::PassBuilder& pass )
+             { le.DeclareFusionSetupBindings( pass, scene, adapted, exposures[0], weights[0] ); },
+             [lePtr, exposure, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return lePtr->RecordFusionSetup( context, exposure, width, height ); } );
+        for ( uint32_t level = 1; level < levels; ++level )
+            graph.AddPass(
+                 std::format( "PostFX: LocalExposureFusionDownsample{}", level ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     le.DeclareFusionDownsampleBindings( pass, exposures[level - 1], weights[level - 1],
+                                                         exposures[level], weights[level] );
+                 },
+                 [lePtr, in = sizes[level - 1],
+                  out = sizes[level]]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return lePtr->RecordFusionDownsample( context, in, out ); } );
+
+        RDG::TextureRef result;
+        for ( uint32_t i = levels; i-- > 0; )
+        {
+            const bool            laplacian = i + 1 < levels;
+            const RDG::TextureRef out =
+                 graph.CreateTexture( System::LocalExposureRenderer::GetFusionResultDesc( width, height, i ),
+                                      std::format( "LocalExposure.FusionResult{}", i ) );
+            // The coarsest level has no coarser band: its own exposures and the graph's black stand in, unread.
+            const RDG::TextureRef coarser     = laplacian ? exposures[i + 1] : exposures[i];
+            const RDG::TextureRef prev        = laplacian ? result : textures.System.Black;
+            const glm::uvec2      coarserSize = laplacian ? sizes[i + 1] : sizes[i];
+            graph.AddPass(
+                 std::format( "PostFX: LocalExposureFusionBlend{}", i ), RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 { le.DeclareFusionBlendBindings( pass, exposures[i], weights[i], coarser, prev, out ); },
+                 [lePtr, size = sizes[i], coarserSize,
+                  laplacian]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return lePtr->RecordFusionBlend( context, size, coarserSize, laplacian ); } );
+            result = out;
+        }
+        textures.Transients.ExposureFusion = result;
     }
 
     void SceneRenderer::AddFrameBloom( RDG::Builder& graph, FrameTextures& textures,
@@ -194,13 +351,40 @@ namespace Desert::Graphic
         graph.SetFaultDefault( chain, RDG::FaultDefault::Black ); // lost bloom adds nothing (RDG-FAULT1)
         const RDG::TextureRef scene = sceneColor.front();
         textures.Transients.Bloom   = chain;
+        // The adapted luminance the composite exposes with (the same import AddFrameTonemap makes), so the
+        // threshold under auto-exposure is compared after exposure; white when there is no auto-exposure node.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] );
+        const RDG::TextureRef adaptedImport =
+             autoExp ? textures.Import( autoExp->GetAdaptedLuminanceImage(), "AutoExposure.Adapted" )
+                     : RDG::TextureRef{};
+        const RDG::TextureRef adapted = adaptedImport.IsValid() ? adaptedImport : textures.System.White;
+        // Local exposure (UE r.Bloom.ApplyLocalExposure): AddFrameLocalExposure ran first and handed the tonemap
+        // this frame's numbers; the bloom's mip 0 applies the same ones, so the bloom is exposed like its source.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
+        // Fusion is not applied to the bloom (UE PostProcessing.cpp:1522-1525: Bilateral only).
+        if ( tonemap != nullptr )
+        {
+            System::TonemapRenderer::LocalExposureFrame bloomLE = tonemap->GetLocalExposure();
+            if ( IsLocalExposureFusion( bloomLE.Params ) )
+                bloomLE.Produced = false;
+            bloom->SetLocalExposure( bloomLE, tonemap->GetExposure() );
+        }
+        const RDG::TextureRef leGrid    = textures.Transients.LocalExposureGrid.IsValid()
+                                               ? textures.Transients.LocalExposureGrid
+                                               : textures.System.Black3D;
+        const RDG::TextureRef leBlurred = textures.Transients.BlurredLogLuminance.IsValid()
+                                               ? textures.Transients.BlurredLogLuminance
+                                               : textures.System.Black;
 
         // Downsample: scene -> mip 0 (Karis + threshold), then mip i-1 -> mip i. One node per dispatch, each
         // declaring the one mip it samples and the one it writes.
         for ( uint32_t mip = 0; mip < desc->Mips; ++mip )
             graph.AddPass(
                  std::format( "PostFX: BloomDownsample{}", mip ), RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass ) { bloom->DeclareDownsampleBindings( pass, scene, chain, mip ); },
+                 [&]( RDG::PassBuilder& pass )
+                 { bloom->DeclareDownsampleBindings( pass, scene, chain, adapted, leGrid, leBlurred, mip ); },
                  [bloom, chainDesc = *desc, mip]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return bloom->RecordDownsample( context, chainDesc, mip ); } );
         // Upsample (additive): mip i -> mip i-1, walking back to mip 0 (read-modify-write of the target mip).
@@ -298,7 +482,16 @@ namespace Desert::Graphic
         // The intensity is derived HERE, from the same two numbers that decide whether the nodes exist; a frame
         // without flare nodes has the tonemap read System.Black at intensity 0.
         const SunScreen& sun = values->Sun;
-        flare->SetParams( m_LensFlare );
+        // The bright pass thresholds the STORED scene colour, which is radiance x ViewFrame::PreExposure: the
+        // authored threshold (normalised to the exposure in OnUpdate) and the energy cap are scaled into that
+        // same space here.
+        System::LensFlareRenderer::Params params = m_LensFlare;
+        if ( const ViewFrame* view = GetViewFrame() )
+        {
+            params.Threshold *= view->PreExposure;
+            params.MaxBrightness *= view->PreExposure;
+        }
+        flare->SetParams( params );
         const float intensity = m_LensFlare.Enabled ? LensFlareStrength( sun.Fade, m_LensFlare.Intensity ) : 0.0f;
         tonemap->SetLensFlare( intensity, m_LensFlareTint );
         if ( !flare->Prepare( sun.Fade ) )
@@ -340,7 +533,7 @@ namespace Desert::Graphic
         if ( tonemap == nullptr )
             return;
         const System::TonemapRenderer::Inputs inputs = tonemap->GetInputs();
-        // Without an auto-exposure node the shader's u_AvgLuminance reads System.White; the manual exposure is
+        // Without an auto-exposure node the shader's AverageLuminanceTexture reads System.White; the manual exposure is
         // used then (the auto flag is off), so the value is never read as a measurement.
         const RDG::TextureRef adapted      = textures.Import( inputs.AutoExposure, "AutoExposure.Adapted" );
         const RDG::TextureRef avgLuminance = adapted.IsValid() ? adapted : textures.System.White;
@@ -358,16 +551,27 @@ namespace Desert::Graphic
              .LightShafts         = shaftsProduced ? textures.Transients.LightShafts : textures.System.Black,
              .LightShaftsProduced = shaftsProduced,
              .LensFlare           = flareProduced ? textures.Transients.LensFlare : textures.System.Black,
-             .LensFlareProduced   = flareProduced };
+             .LensFlareProduced   = flareProduced,
+             .LocalExposureGrid   = textures.Transients.LocalExposureGrid.IsValid()
+                                         ? textures.Transients.LocalExposureGrid
+                                         : textures.System.Black3D,
+             .BlurredLogLuminance = textures.Transients.BlurredLogLuminance.IsValid()
+                                         ? textures.Transients.BlurredLogLuminance
+                                         : textures.System.Black,
+             .ExposureFusion = textures.Transients.ExposureFusion.IsValid() ? textures.Transients.ExposureFusion
+                                                                            : textures.System.Black };
         if ( !graphInputs.Source.IsValid() || !graphInputs.AvgLuminance.IsValid() ||
              !graphInputs.Bloom.IsValid() || !graphInputs.LightShafts.IsValid() ||
-             !graphInputs.LensFlare.IsValid() )
+             !graphInputs.LensFlare.IsValid() || !graphInputs.LocalExposureGrid.IsValid() ||
+             !graphInputs.BlurredLogLuminance.IsValid() || !graphInputs.ExposureFusion.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] the tonemap is missing a graph input (no scene colour, or System.Black / "
                        "System.White is not in this graph); the tonemap pass is not recorded this frame" );
             return;
         }
-        const RDG::TextureRef output = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
+        // HDR-OUTPUT p3: decided before FillMaterial, which gives the output the SDR transform when it is on.
+        const bool            hdrRendition = tonemap->PrepareHdrRendition();
+        const RDG::TextureRef output       = textures.Import( tonemap->GetOutputImage(), "Tonemap" );
         graph.AddPass(
              "PostFX: Tonemap", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -379,6 +583,22 @@ namespace Desert::Graphic
              },
              [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return tonemap->Record( context ); } );
+        if ( !hdrRendition )
+            return;
+        // THE HDR RENDITION of the same frame (a window capture of an HDR output is pending): the same pipeline,
+        // inputs and values, with the HDR transform, into the second target the capture measures its peak on.
+        // Nothing in this graph reads it (NeverCull: a readback root); the capture reads it back after the
+        // present.
+        const RDG::TextureRef hdr = textures.Import( tonemap->GetHdrRenditionImage(), "Tonemap.HdrRendition" );
+        graph.AddPass(
+             "PostFX: Tonemap (HDR rendition)", RDG::PassFlags::Raster | RDG::PassFlags::NeverCull,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 tonemap->DeclareBindings( pass, graphInputs, true );
+                 pass.ColorTarget( 0, hdr, RDG::LoadOp::DontCare() );
+             },
+             [tonemap]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return tonemap->Record( context, true ); } );
     }
 
     void SceneRenderer::AddFrameFXAA( RDG::Builder& graph, FrameTextures& textures )

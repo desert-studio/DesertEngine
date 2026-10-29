@@ -1,0 +1,178 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "3484bb954b28686f2f2c225c75dd9798",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": [
+            "9d6d6db70d7f0b397eac782bfb709efd", "33b6863a530bf3ee3e6d3872f0e274c4", "9c9508792d1152accc02514dee6710da", "b3d04d60b8a0a9eb0a235519444dc864", "829b0d8304ac69fe95fe7c4f1e314c5b",
+            "068d3a93b05e570b5640b4d82141834c", "1a0fef53f64bd32e72696c5d21656bbd", "d6abac9250c3740ef36bfe856cca56fb", "a5399d2d0de9e31199dca9dc912b2e6c", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6", "f1310680ea846d17141c59441b901b55"
+        ]
+    },
+    "Shader": {
+        "Guid": "9d6d6db70d7f0b397eac782bfb709efd",
+        "Path": "engine:Shaders/Programs/Terrain/Terrain.shader"
+    },
+    "Params": [
+        {
+            "Name": "FarTilingDistance",
+            "Value": [2500.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "FarTilingScale",
+            "Value": [4.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroVariationSize",
+            "Value": [5000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroVariationStrength",
+            "Value": [0.15, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailNormalScale",
+            "Value": [8.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailNormalStrength",
+            "Value": [0.8, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueSize",
+            "Value": [3000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueStrength",
+            "Value": [0.6, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer0Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer0TileSize",
+            "Value": [300.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer0Tint",
+            "Value": [0.16, 0.27, 0.19, 1.0]
+        },
+        {
+            "Name": "Layer0NormalStrength",
+            "Value": [1.6, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer1Blend",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer1TileSize",
+            "Value": [350.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer1Tint",
+            "Value": [0.22, 0.26, 0.19, 1.0]
+        },
+        {
+            "Name": "Layer1NormalStrength",
+            "Value": [1.6, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer2Blend",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer2TileSize",
+            "Value": [250.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "Layer2Tint",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "Layer2NormalStrength",
+            "Value": [1.4, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "Layer0AlbedoTexture",
+            "Guid": "33b6863a530bf3ee3e6d3872f0e274c4",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_Diffuse_2k.detex"
+        },
+        {
+            "Name": "Layer0NormalTexture",
+            "Guid": "9c9508792d1152accc02514dee6710da",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer0ArmTexture",
+            "Guid": "b3d04d60b8a0a9eb0a235519444dc864",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_arm_2k.detex"
+        },
+        {
+            "Name": "Layer0HeightTexture",
+            "Guid": "829b0d8304ac69fe95fe7c4f1e314c5b",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_disp_2k.detex"
+        },
+        {
+            "Name": "Layer1AlbedoTexture",
+            "Guid": "33b6863a530bf3ee3e6d3872f0e274c4",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_Diffuse_2k.detex"
+        },
+        {
+            "Name": "Layer1NormalTexture",
+            "Guid": "9c9508792d1152accc02514dee6710da",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer1ArmTexture",
+            "Guid": "b3d04d60b8a0a9eb0a235519444dc864",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_arm_2k.detex"
+        },
+        {
+            "Name": "Layer1HeightTexture",
+            "Guid": "829b0d8304ac69fe95fe7c4f1e314c5b",
+            "Path": "assets:Environments/FieldBarn/Textures/leafy_grass/leafy_grass_disp_2k.detex"
+        },
+        {
+            "Name": "Layer2AlbedoTexture",
+            "Guid": "068d3a93b05e570b5640b4d82141834c",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_Diffuse_2k.detex"
+        },
+        {
+            "Name": "Layer2NormalTexture",
+            "Guid": "1a0fef53f64bd32e72696c5d21656bbd",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_nor_gl_2k.detex"
+        },
+        {
+            "Name": "Layer2ArmTexture",
+            "Guid": "d6abac9250c3740ef36bfe856cca56fb",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_arm_2k.detex"
+        },
+        {
+            "Name": "Layer2HeightTexture",
+            "Guid": "a5399d2d0de9e31199dca9dc912b2e6c",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_disp_2k.detex"
+        }
+    ],
+    "CloudAssets": [
+        {
+            "Name": "Layer0Layer",
+            "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+            "Path": "assets:Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+        },
+        {
+            "Name": "Layer1Layer",
+            "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+            "Path": "assets:Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+        },
+        {
+            "Name": "Layer2Layer",
+            "Guid": "f1310680ea846d17141c59441b901b55",
+            "Path": "assets:Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
+        }
+    ]
+}

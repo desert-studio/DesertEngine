@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bit>
+
 // UE pattern (Engine/Content/EngineMaterials SimpleGrassWind + FoliageType's bounds scale), adapted: UE sways
 // foliage with a world-position offset authored in the material and widens the primitive's bounds by a
 // user-set BoundsScale so culling and shadows do not clip the moving tips. Here the offset is ONE function
@@ -26,6 +28,10 @@ namespace Desert::Graphic
         float     Speed    = 0.0f;         // cycles per second of the fundamental
         float     Height   = 100.0f;       // mesh-local cm at which the sway is full
         float     Seconds  = 0.0f;         // gameplay time, already wrapped to the sway's period
+        // The same clock at the previous gameplay step, wrapped alike: what a view pass evaluates the wind at for
+        // the instance's velocity. From the clock that made Seconds, never from another one (the view's scene time
+        // has another origin: two clocks gave a still meadow a velocity of the whole sway, GRASS-BLADE).
+        float PrevSeconds = 0.0f;
 
         [[nodiscard]] bool Sways() const
         {
@@ -52,7 +58,8 @@ namespace Desert::Graphic
     /// world XZ components of ECS::WindAt's velocity, cm/s) at @p gameplaySeconds. The direction is the scene's,
     /// never the type's: air with no horizontal motion sways nothing, whatever the type's Strength.
     [[nodiscard]] inline InstanceWind MakeInstanceWind( float strength, float speed, float height,
-                                                        const glm::vec2& windXZ, double gameplaySeconds )
+                                                        const glm::vec2& windXZ, double gameplaySeconds,
+                                                        double prevGameplaySeconds )
     {
         InstanceWind wind;
         const float  horizontal = glm::length( windXZ );
@@ -63,6 +70,7 @@ namespace Desert::Graphic
         wind.Speed           = speed;
         wind.Height          = height;
         wind.Seconds         = WindSecondsAt( speed, gameplaySeconds );
+        wind.PrevSeconds     = WindSecondsAt( speed, prevGameplaySeconds );
         return wind;
     }
 
@@ -110,12 +118,14 @@ namespace Desert::Graphic
      *
      * At kInstancedWindPushOffset, after the shared 68-byte material block (mat4 Transform, uint
      * MaterialIndex) and std430's alignment of the next vec4 to 80. A = (dir.x, dir.z, Strength, Height),
-     * B = (Speed, Seconds, PrevSeconds, 0). PrevSeconds is the wind clock at the VIEW's previous frame
-     * (ViewFrame::PrevTimeSeconds, wrapped like Seconds): a view pass evaluates the wind at both times for the
-     * instance's velocity (Mesh/Surface/Vertex_Instanced.glslh). It is a view quantity, so the renderer writes it
-     * per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves it 0. Pushed for
-     * EVERY instanced draw, zeros for one that does not sway: a push block keeps its bytes between draws, so
-     * skipping the push would lend the last field's wind to a wall.
+     * B = (Speed, Seconds, PrevSeconds, PrevInstanceOffset bits). PrevSeconds is the wind clock at the VIEW's
+     * previous frame (ViewFrame::PrevTimeSeconds, wrapped like Seconds): a view pass evaluates the wind at both
+     * times for the instance's velocity (Mesh/Surface/Vertex_Instanced.glslh). It is a view quantity, so the
+     * renderer writes it per view (PackViewInstanceWind); a light view (shadow depth) has no velocity and leaves
+     * it 0. Pushed for EVERY instanced draw, zeros for one that does not sway: a push block keeps its bytes
+     * between draws, so skipping the push would lend the last field's wind to a wall. B.w carries the view pass's
+     * previous-instance offset as uint bits (GpuInstancedRenderData::PrevInstanceOffset; 0.0f = bits 0 = the
+     * instance's own transform): an instance's previous world is transforms[i + offset].
      */
     struct InstanceWindPush
     {
@@ -133,13 +143,15 @@ namespace Desert::Graphic
                  glm::vec4( wind.Speed, wind.Seconds, 0.0f, 0.0f ) };
     }
 
-    /// A view pass's push: PackInstanceWind plus B.z = the wind clock at the view's previous frame.
+    /// A view pass's push: PackInstanceWind plus B.z = the wind clock at the previous gameplay step and B.w = the
+    /// previous-instance offset's bits (0 = instances that do not move).
     [[nodiscard]] inline InstanceWindPush PackViewInstanceWind( const InstanceWind& wind,
-                                                                const double        prevGameplaySeconds )
+                                                                uint32_t            prevInstanceOffset = 0 )
     {
         InstanceWindPush push = PackInstanceWind( wind );
         if ( wind.Sways() )
-            push.B.z = WindSecondsAt( wind.Speed, prevGameplaySeconds );
+            push.B.z = wind.PrevSeconds;
+        push.B.w = std::bit_cast<float>( prevInstanceOffset );
         return push;
     }
 } // namespace Desert::Graphic

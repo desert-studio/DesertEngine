@@ -39,7 +39,7 @@ Shader "Unlit"
     Fragment
     {
         layout( location = 0 ) out vec4 o_Color;
-        void main() { o_Color = texture( u_AlbedoTex, vec2(0.5) ) * u_Material.Color; }
+        void main() { o_Color = texture( u_AlbedoTex, vec2(0.5) ) * Material.Color; }
     }
 }
 )";
@@ -149,7 +149,7 @@ Shader "CubeSky"
 
     Properties TextureBinding(4)
     {
-        TextureCube u_Sky    ("Cubemap")
+        TextureCube SkyParams    ("Cubemap")
         Texture2D   u_Detail ("Detail")
     }
 
@@ -157,7 +157,7 @@ Shader "CubeSky"
     Fragment
     {
         layout( location = 0 ) out vec4 o;
-        void main() { o = texture( u_Sky, vec3(0.0, 1.0, 0.0) ) + texture( u_Detail, vec2(0.5) ); }
+        void main() { o = texture( SkyParams, vec3(0.0, 1.0, 0.0) ) + texture( u_Detail, vec2(0.5) ); }
     }
 }
 )";
@@ -175,7 +175,7 @@ Shader "CubeSky"
 
     // The generated declarations must agree with the schema, each from the SAME field.
     const auto& frag = p.Stages.at( ShaderStage::Fragment );
-    EXPECT_NE( frag.find( "layout( binding = 4 ) uniform samplerCube u_Sky;" ), std::string::npos );
+    EXPECT_NE( frag.find( "layout( binding = 4 ) uniform samplerCube SkyParams;" ), std::string::npos );
     EXPECT_NE( frag.find( "layout( binding = 5 ) uniform sampler2D u_Detail;" ), std::string::npos );
 }
 
@@ -188,7 +188,7 @@ Shader "Tile"
 {
     Properties
     {
-        Texture2D u_Heightmap ("Heightmap", EngineSet)
+        Texture2D HeightmapTexture ("Heightmap", EngineSet)
         Texture2D u_Detail    ("Detail")
     }
     Vertex   { void main() { gl_Position = vec4(0.0); } }
@@ -279,8 +279,8 @@ TEST( DShaderParser, GeneratesAMaterialRowAndSamplersInFragmentOnly )
 
     const auto& frag = stages.at( ShaderStage::Fragment );
     EXPECT_NE( frag.find( "layout( std430, binding = 1 ) readonly buffer Materials" ), std::string::npos );
-    EXPECT_NE( frag.find( "MaterialParams u_Materials[];" ), std::string::npos );
-    EXPECT_NE( frag.find( "#define u_Material u_Materials[m_PushConstants.MaterialIndex]" ), std::string::npos );
+    EXPECT_NE( frag.find( "MaterialParams MaterialRows[];" ), std::string::npos );
+    EXPECT_NE( frag.find( "#define Material MaterialRows[m_PushConstants.MaterialIndex]" ), std::string::npos );
     EXPECT_NE( frag.find( "#include <Common/MaterialTransport.glslh>" ), std::string::npos );
     EXPECT_NE( frag.find( "vec4 Color;" ), std::string::npos );
     EXPECT_NE( frag.find( "float Tiling;" ), std::string::npos );
@@ -325,7 +325,7 @@ Shader "Slots"
         Vec3  Triple ("Triple") = (1, 2, 3)
         Color Quad   ("Quad")   = (1, 2, 3, 4)
     }
-    Fragment { layout( location = 0 ) out vec4 c; void main() { c = u_Material.Quad; } }
+    Fragment { layout( location = 0 ) out vec4 c; void main() { c = Material.Quad; } }
 }
 )";
     auto        res = DShaderParser::Parse( src );
@@ -460,7 +460,7 @@ Shader "Lit"
     }
 
     Vertex   { void main() { gl_Position = vec4(0.0); } }
-    Fragment { layout( location = 0 ) out vec4 c; void main() { c = u_Material.Tint; } }
+    Fragment { layout( location = 0 ) out vec4 c; void main() { c = Material.Tint; } }
 
     Pass "Shadow"
     {
@@ -662,7 +662,7 @@ Shader "Sugar"
     Domain Surface
     Vertex
     {
-        In(0) vec3 a_Position;
+        #include <Mesh/MeshVertexInputs.glslh>
         Out(1) vec2 v_UV;
         PushConstant Push { mat4 M; } pc;
         void main() { gl_Position = pc.M * vec4(a_Position, 1.0); v_UV = vec2(0.0); }
@@ -685,7 +685,8 @@ Shader "Sugar"
     const std::string& vs = stages.at( ShaderStage::Vertex );
     const std::string& fs = stages.at( ShaderStage::Fragment );
 
-    EXPECT_NE( vs.find( "layout(location = 0) in vec3 a_Position;" ), std::string::npos );
+    // A vertex stage declares no input of its own: they are generated (Graphic/ShaderProtocols/VertexInputs.hpp).
+    EXPECT_NE( vs.find( "#include <Mesh/MeshVertexInputs.glslh>" ), std::string::npos );
     EXPECT_NE( vs.find( "layout(location = 1) out vec2 v_UV;" ), std::string::npos );
     EXPECT_NE( vs.find( "layout(push_constant) uniform Push { mat4 M; } pc;" ), std::string::npos );
     EXPECT_NE( fs.find( "layout(binding = 3) uniform sampler2D u_Tex;" ), std::string::npos );
@@ -898,7 +899,7 @@ Shader "Volume"
 // (In / Out / Uniform / Buffer / PushConstant) are ordinary English words. The live instance was
 // Programs/Particles/ParticleSimulate.shader:
 //
-//     // Integrate alive particles. In LOCAL mode (u_Counts.w) the integrated state is the offset
+//     // Integrate alive particles. In LOCAL mode (Counts.w) the integrated state is the offset
 //
 // which the sugar rewrote into `... layout(location = 0) in LOCAL mode ...` and which really did
 // consume location 0. It was harmless only because a COMPUTE stage declares no automatic In/Out, so
@@ -1047,7 +1048,7 @@ namespace
     Fragment
     {
         layout( location = 0 ) out vec4 o_Color;
-        void main() { o_Color = u_Material.AlbedoColor * texture( u_MetallicTexture, vec2(0.5) ); }
+        void main() { o_Color = Material.AlbedoColor * texture( u_MetallicTexture, vec2(0.5) ); }
     }
 }
 )";
@@ -1078,9 +1079,9 @@ TEST( DShaderImportContract, RowsAndRequiresReachTheManifest )
 
 TEST( DShaderImportContract, AnUnknownPropertyIsAParseErrorNamingIt )
 {
-    const auto parsed = DShaderParser::Parse( ImportMock( R"(        "gltf.normalTexture" -> u_NormalTexture)" ) );
+    const auto parsed = DShaderParser::Parse( ImportMock( R"(        "gltf.normalTexture" -> NormalTexture)" ) );
     ASSERT_FALSE( parsed.IsSuccess() );
-    EXPECT_NE( parsed.GetError().find( "u_NormalTexture" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "NormalTexture" ), std::string::npos ) << parsed.GetError();
     EXPECT_NE( parsed.GetError().find( "line 6" ), std::string::npos ) << parsed.GetError();
 }
 

@@ -1,0 +1,55 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "c7bb5b10ac280fb40fadf6031d2440e1",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "e3234243e5bf17995e327fd727b851d8", "67c3c32733bf768e91ef389961e1b690", "34a0aeda087fc8367769695b18dd60d8"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "e3234243e5bf17995e327fd727b851d8",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_diff_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "67c3c32733bf768e91ef389961e1b690",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "34a0aeda087fc8367769695b18dd60d8",
+            "Path": "assets:Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

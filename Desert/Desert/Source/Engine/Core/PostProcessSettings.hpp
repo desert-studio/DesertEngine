@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstdint>
+#include <string_view>
+
 #include <glm/glm.hpp>
 
 #include <Common/Core/Units.hpp>
@@ -20,6 +23,16 @@ namespace Desert::Core
     {
         ACES     = 0,
         Reinhard = 1,
+    };
+
+    // UE ELocalExposureMethod (Scene.h:45). Bilateral — a bilateral grid of log luminance plus a blurred log
+    // luminance give each pixel its base layer (Graphic/PostProcessing/LocalExposureRules.hpp). Fusion — UE 5.4's
+    // exposure fusion: three synthetic exposures blended by well-exposedness through a Laplacian pyramid
+    // (LocalExposureRenderer, Shaders/Common/LocalExposure.glslh); no halos at shade/sun edges.
+    enum class LocalExposureMethod : int
+    {
+        Bilateral = 0,
+        Fusion    = 1,
     };
 
     // THE GRADE OF A VIEW — UE's FPostProcessSettings. Until SET1 these fields were Core::SceneSettings, one
@@ -45,14 +58,15 @@ namespace Desert::Core
         //
         //  ScreenSpace          — gathers from sun-lit G-buffer neighbours inside the lighting pass: only geometry
         //                         on screen bounces, no denoiser.
-        //  ReflectiveShadowMaps — bounces the sun off everything it sees (off screen too) through a reflective
-        //                         shadow map, resolved into its own buffer and temporally accumulated.
+        //  ProbeVolume          — the world radiance cache (probes on the global distance field, every light and
+        //                         the sky, off screen too) read per pixel: the cheap traced path.
+        //  SoftwareTraced       — the same cache behind screen probes traced per frame: contact detail and
+        //                         rough reflections.
         PROPERTY( DisplayName( "Method" ), Category( "Global Illumination" ),
                   Refuse( "Common::Scalability::RefuseGIMethod" ),
                   Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
         Common::Scalability::GIMethod GlobalIlluminationMethod = Common::Scalability::GIMethod::ScreenSpace;
-        // ONE knob for both GI methods, but they are not on the same scale: the screen-space gather is bright
-        // at ~2, while the RSM gather is deliberately dim (32 taps, 1/d^2 with a distance floor) and wants ~6.
+        // The screen-space gather's strength (ScreenSpace only: the traced methods carry the lights' own energy).
         PROPERTY( DisplayName( "GI Intensity" ), Category( "Global Illumination" ), Range( 0.0f, 20.0f ) )
         float GIIntensity = 2.0f;
 
@@ -73,9 +87,11 @@ namespace Desert::Core
                   Tooltip( "Requested method; the viewport overlay shows the effective one." ) )
         Common::Scalability::ShadowMethod ShadowsMethod = Common::Scalability::ShadowMethod::CascadedMaps;
         // The two supplements every shadow method takes: screen-space contact shadows for the detail a map
-        // misses, distance-field shadows for the sun beyond the maps' reach. Declared; refused until they land.
+        // misses, distance-field shadows for the sun beyond the maps' reach (refused until it lands).
         PROPERTY( DisplayName( "Contact Shadows" ), Category( "Shadows" ),
-                  Refuse( "Common::Scalability::RefuseContactShadows" ) )
+                  Refuse( "Common::Scalability::RefuseContactShadows" ),
+                  Tooltip( "Screen-space contact shadows for every light whose Contact Shadow Length is above 0 "
+                           "(steps: Scalability Shadows.ContactShadowSteps)." ) )
         bool ContactShadows = false;
         PROPERTY( DisplayName( "Distance Field Shadows" ), Category( "Shadows" ),
                   Refuse( "Common::Scalability::RefuseDistanceFieldShadows" ) )
@@ -83,10 +99,16 @@ namespace Desert::Core
 
         PROPERTY( DisplayName( "Tonemapper" ), Category( "Film" ) )
         TonemapOperator Tonemapper = TonemapOperator::ACES;
-        PROPERTY( DisplayName( "Exposure" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
-        float Exposure = 1.0f; // manual exposure (used when auto-exposure is off)
-        PROPERTY( DisplayName( "Gamma" ), Category( "Film" ), Range( 1.0f, 3.0f ) )
-        float Gamma = 2.2f;
+        // UE's Manual metering mode, in EV100: the meter reading the exposure is fixed at when auto-exposure is
+        // off. The scale is Graphic::ManualExposureScale (key / EV100ToLuminance) — the auto path's own law, so a
+        // manual EV100 matches an auto-exposure adapted to the same EV100. Higher EV100 = darker picture: ~15 a
+        // 100 000 lux sunlit scene, ~0 a lit interior. Scenes before v57 stated a multiplier; the migration
+        // re-states it as the EV100 giving the same scale at that scene's key. The default is the former
+        // multiplier 1 at the default key 0.18.
+        PROPERTY( DisplayName( "Manual EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+                  Tooltip( "Exposure when Auto Exposure is off (UE Manual): the scene EV100 shown as middle "
+                           "grey. ~15 clear sun (100 000 lux), ~10 overcast, ~0 interior, ~-3 night street." ) )
+        float ManualExposureEV100 = 0.5260688f;
         PROPERTY( DisplayName( "White Point (Reinhard)" ), Category( "Film" ), Range( 1.0f, 20.0f ) )
         float WhitePoint = 8.0f;
 
@@ -96,10 +118,55 @@ namespace Desert::Core
         float AutoExposureKey = 0.18f; // middle-grey target
         PROPERTY( DisplayName( "Auto Exposure Speed" ), Category( "Exposure" ), Range( 0.0f, 10.0f ) )
         float AutoExposureSpeed = 1.5f; // higher = adapts faster
-        PROPERTY( DisplayName( "Auto Exposure Min" ), Category( "Exposure" ), Range( 0.0f, 5.0f ) )
-        float AutoExposureMin = 0.02f; // luminance clamp
-        PROPERTY( DisplayName( "Auto Exposure Max" ), Category( "Exposure" ), Range( 0.0f, 20.0f ) )
-        float AutoExposureMax = 8.0f;
+        // UE AutoExposureMinBrightness / MaxBrightness with "Extend default luminance range" (the only mode UE5
+        // ships): the range the metered average may adapt over, in EV100 - luminance = 2^(EV100 - 3) cd/m^2
+        // (Graphic::EV100ToLuminance). The UE defaults span night to a 100 000 lux sun, so physical light values
+        // (ECS::LightUnits, lux) expose correctly without retuning. Scenes before v56 stated luminance clamps
+        // (0.02 / 8 by default): the migration re-states them in EV100, the same clamp.
+        PROPERTY(
+             DisplayName( "Min EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+             Tooltip( "Darkest scene the eye adapts to (UE Min EV100): -10 starlight .. 20 beyond sunlit snow." ) )
+        float AutoExposureMinEV100 = -10.0f;
+        PROPERTY( DisplayName( "Max EV100" ), Category( "Exposure" ), Range( -15.0f, 25.0f ), Units( "EV100" ),
+                  Tooltip( "Brightest scene the eye adapts to (UE Max EV100); a 100 000 lux sun meters ~15." ) )
+        float AutoExposureMaxEV100 = 20.0f;
+
+        // LOCAL EXPOSURE — UE's Local Exposure, Bilateral method (Scene.h:2025-2115, defaults Scene.cpp:525-534).
+        // The defaults are the IDENTITY: contrast 1 / 1 and detail 1 give every pixel exactly 1 whatever the rest,
+        // and no pass runs (Graphic::IsLocalExposureIdentity). Below 1 the contrast scales compress the base layer
+        // toward the exposed middle grey: shade is lifted, highlights pulled down, local detail kept.
+        PROPERTY( DisplayName( "Method" ), Category( "Local Exposure" ) )
+        Core::LocalExposureMethod LocalExposureMethod = Core::LocalExposureMethod::Bilateral;
+        PROPERTY( DisplayName( "Highlight Contrast Scale" ), Category( "Local Exposure" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Contrast of the base layer above middle grey: < 1 pulls bright regions down." ) )
+        float LocalExposureHighlightContrastScale = 1.0f;
+        PROPERTY( DisplayName( "Shadow Contrast Scale" ), Category( "Local Exposure" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Contrast of the base layer below middle grey: < 1 lifts dark regions." ) )
+        float LocalExposureShadowContrastScale = 1.0f;
+        PROPERTY( DisplayName( "Detail Strength" ), Category( "Local Exposure" ), Range( 0.0f, 4.0f ),
+                  Tooltip( "Scale of the detail (pixel minus base layer): > 1 sharpens local contrast." ) )
+        float LocalExposureDetailStrength = 1.0f;
+        PROPERTY( DisplayName( "Blurred Luminance Blend" ), Category( "Local Exposure" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "Base layer = bilateral grid blended toward the blurred luminance by this much." ) )
+        float LocalExposureBlurredLuminanceBlend = 0.6f;
+        PROPERTY( DisplayName( "Blurred Luminance Kernel Size" ), Category( "Local Exposure" ), Range( 0.0f, 100.0f ),
+                  Units( "%" ), Tooltip( "Width of the blurred-luminance window, percent of the view width." ) )
+        float LocalExposureBlurredLuminanceKernelSizePercent = 50.0f;
+        PROPERTY( DisplayName( "Middle Grey Bias" ), Category( "Local Exposure" ), Range( -15.0f, 15.0f ),
+                  Units( "EV" ), Tooltip( "Shifts the grey the base layer is compressed toward." ) )
+        float LocalExposureMiddleGreyBias = 0.0f;
+        PROPERTY( DisplayName( "Highlight Threshold" ), Category( "Local Exposure" ), Range( 0.0f, 4.0f ),
+                  Units( "EV" ), Tooltip( "Stops above middle grey left uncompressed." ) )
+        float LocalExposureHighlightThreshold = 0.0f;
+        PROPERTY( DisplayName( "Shadow Threshold" ), Category( "Local Exposure" ), Range( 0.0f, 4.0f ),
+                  Units( "EV" ), Tooltip( "Stops below middle grey left uncompressed." ) )
+        float LocalExposureShadowThreshold = 0.0f;
+        PROPERTY( DisplayName( "Highlight Threshold Strength" ), Category( "Local Exposure" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "How fully the highlight threshold holds back compression (1 = fully)." ) )
+        float LocalExposureHighlightThresholdStrength = 1.0f;
+        PROPERTY( DisplayName( "Shadow Threshold Strength" ), Category( "Local Exposure" ), Range( 0.0f, 1.0f ),
+                  Tooltip( "How fully the shadow threshold holds back compression (1 = fully)." ) )
+        float LocalExposureShadowThresholdStrength = 1.0f;
 
         PROPERTY( DisplayName( "Enable Bloom" ), Category( "Bloom" ) )
         bool EnableBloom = false; // off by default -> no glow out of the box
@@ -173,5 +240,14 @@ namespace Desert::Core
 
         PROPERTY( DisplayName( "Chromatic Shift" ), Category( "Lens Flare" ), Range( 0.0f, 1.0f ) )
         float LensFlareChromaShift = 0.15f;
+
+        // SSS-PROFILE (CONTRACT §6): the screen-space Burley scatter of the materials that name a Subsurface Profile
+        // (UE r.SubsurfaceScattering / ShowFlag.SubsurfaceScattering). Off: those materials shade unsplit, one
+        // formula, as every other texel (UE SUBSURFACE_RECOMBINE_MODE_NO_SCATTERING).
+        PROPERTY( DisplayName( "Subsurface Scattering" ), Category( "Subsurface Scattering" ) )
+        bool SubsurfaceScattering = true;
+        // Scales every profile's mean free path (UE r.SSS.Scale): 0 = no scatter, 4 = four times the radius.
+        PROPERTY( DisplayName( "Scale" ), Category( "Subsurface Scattering" ), Range( 0.0f, 10.0f ) )
+        float SubsurfaceScale = 1.0f;
     };
 } // namespace Desert::Core

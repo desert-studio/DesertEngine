@@ -3,8 +3,8 @@
 // Private/Operations/MeshPlaneCut.cpp:20-186 (ComputeVertexSignedDistances, SplitCrossingEdges), 398-428 (Cut),
 // 573-599 (ExtractBoundaryLoops), 650-653 with GeometryCore/Private/Operations/LocalPlanarSimplify.cpp:517-580
 // (CollapseDegenerateEdges), 719-771 (HoleFill), adapted: namespace Desert::Geometry, UE Core as std/glm, TSet ->
-// std::unordered_set. HoleFill runs the PlanarHoleFiller of this port (ear clip per loop; see its header) instead
-// of taking a triangulation function, and a failed fill names its reason. Not ported: CutWithoutDelete (Keep Both
+// std::unordered_set. HoleFill runs the PlanarHoleFiller of this port (PlanarComplex nest + ConstrainedDelaunay2, as
+// UE's plane cut passes) instead of taking a triangulation function, and a failed fill names its reason. Not ported: CutWithoutDelete (Keep Both
 // Halves: the editor puts the other half on its own entity, so it cuts a copy with the plane flipped instead of
 // labelling one mesh), SplitEdgesOnly, SimpleHoleFill / MinimalHoleFill,
 // TransferTriangleLabelsToHoleFillTriangles, EdgeFilterFunc and bSimplifyAlongNewEdges (FLocalPlanarSimplify) - no

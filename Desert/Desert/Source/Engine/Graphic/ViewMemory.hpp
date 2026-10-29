@@ -2,12 +2,14 @@
 
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -20,7 +22,7 @@ namespace Desert::Graphic
      *
      * WHY A PROFILE. A SceneRenderer is built for two different jobs: a viewport of a level, and a preview
      * (asset thumbnail, the Details material ball, a UI element hosting a world). Before this, the only
-     * per-view budget was the shadow quality; volumetric clouds, SSR and RSM-GI were gated by SCENE settings
+     * per-view budget was the shadow quality; volumetric clouds, SSR and GI were gated by SCENE settings
      * read every frame, so a preview whose scene enabled clouds paid the cloud trace/history targets like a
      * level viewport. The profile is asked at CONSTRUCTION — the same reason ShadowQuality is (see
      * kNoShadowQuality): allocations happen in Init/Ensure*, and a per-scene flag toggled later is read by
@@ -48,6 +50,10 @@ namespace Desert::Graphic
         // The view IS a capture's face view: it draws the game scene only - no extension passes (the editor's
         // grid, gizmos and UI are not part of what a reflection shows).
         bool SceneCapture = false;
+        // Reflections.DownsampleFactor (Scalability) of the view's SSR trace: its pixels per side per traced texel
+        // (SSRRenderer::Prepare). SceneRenderer::BeginScene keeps it at the machine's Reflections level; 2 = the
+        // High column (half resolution).
+        uint32_t ReflectionDownsampleFactor = 2;
 
         bool operator==( const ViewProfile& ) const = default;
     };
@@ -56,7 +62,7 @@ namespace Desert::Graphic
     // Shadows quality level's (kSceneShadowQuality until QualityState has published one — it is the High row).
     inline constexpr ViewProfile kSceneViewProfile{ kSceneShadowQuality, true, true, true, true, true };
 
-    // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no RSM-GI.
+    // A live preview (Details ball, mesh preview, UI render texture): one 1024 cascade, no SSR and no traced GI.
     // Clouds stay ON: a cloud material's preview IS its clouds (RT1b: with them off, all 53 cloud-material
     // thumbnails rendered an empty sky), and the cloud targets are only built when the preview scene has
     // clouds, so a preview without them pays nothing for the flag.
@@ -69,14 +75,21 @@ namespace Desert::Graphic
     inline constexpr ViewProfile kReflectionCaptureViewProfile{
          kPreviewShadowQuality, true, false, false, false, false, true };
 
-    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the three Shadows rows of the Scalability table, in the units
-    // ShadowQuality holds them (centimetres for the distance, like the table).
-    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality )
+    // THE SHADOW BUDGET OF A QUALITY RESOLUTION — the Shadows rows of the Scalability table, in the units
+    // ShadowQuality holds them (centimetres for the distance, like the table). `sunRayTraced` = the view's Shadows
+    // method resolves to HardwareTraced: the sun's cascades are then only the low-detail ones the blended
+    // programs sample (Shadows.RayTracedTranslucencyCascades / .RayTracedTranslucencyMapSize); the local lights'
+    // atlas keeps Shadows.MapSize either way.
+    [[nodiscard]] inline ShadowQuality ShadowQualityOf( const Common::Scalability::ResolvedQuality& quality,
+                                                        const bool                                  sunRayTraced )
     {
         using Common::Scalability::Parameter;
-        return ShadowQuality{ quality.As<uint32_t>( Parameter::ShadowCascades ),
-                              quality.As<uint32_t>( Parameter::ShadowMapSize ),
-                              quality.As<float>( Parameter::ShadowDistance ) };
+        const auto mapSize = quality.As<uint32_t>( Parameter::ShadowMapSize );
+        return ShadowQuality{ sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyCascades )
+                                           : quality.As<uint32_t>( Parameter::ShadowCascades ),
+                              sunRayTraced ? quality.As<uint32_t>( Parameter::ShadowRayTracedTranslucencyMapSize )
+                                           : mapSize,
+                              quality.As<float>( Parameter::ShadowDistance ), mapSize };
     }
 
     // THE RE-ALLOCATION RULE (UE re-creates its shadow depth targets when r.Shadow.* changes): the budget a
@@ -85,11 +98,12 @@ namespace Desert::Graphic
     // (Generation 0: a tool or test host that did not initialise it) is not a level, so the view keeps its own.
     // Pure, so the rule is tested without a device; SceneRenderer calls it when the quality generation moves.
     [[nodiscard]] inline std::optional<ShadowQuality>
-    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality )
+    ShadowReallocation( const ViewProfile& profile, const Common::Scalability::ResolvedQuality& quality,
+                        const bool sunRayTraced )
     {
         if ( !profile.ShadowsFollowQuality || quality.Generation == 0 )
             return std::nullopt;
-        const ShadowQuality wanted = ShadowQualityOf( quality );
+        const ShadowQuality wanted = ShadowQualityOf( quality, sunRayTraced );
         if ( wanted == profile.Shadows )
             return std::nullopt;
         return wanted;
@@ -338,7 +352,8 @@ namespace Desert::Graphic
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
-        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", F::kJFASeed, width, height, 1, 3 } );
+        // Graph transients of a frame that outlines a selection (editor); the pool keeps them while the view is open.
+        add( { "JFA.Seed+Output", "SceneRendererFramePostFX.cpp", F::kJFASeed, width, height, 1, 3 } );
         add( { "Tonemap", "TonemapRenderer.cpp", F::kTonemap, width, height } );
         add( { "FXAA", "FXAARenderer.cpp", F::kFXAA, width, height } );
         add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", F::kSMAAEdges, width, height, 1, 2 } );
@@ -371,8 +386,10 @@ namespace Desert::Graphic
         }
         if ( profile.ScreenSpaceReflections )
         {
-            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, 2 ), Div( height, 2 ) } );
-            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, 2 ), Div( height, 2 ) } );
+            const uint32_t factor = profile.ReflectionDownsampleFactor;
+            add( { "SSR.Trace", "SSRRenderer.hpp", F::kSSRTrace, Div( width, factor ), Div( height, factor ) } );
+            add( { "SSR.TraceRay", "SSRRenderer.hpp", F::kSSRTraceRay, Div( width, factor ),
+                   Div( height, factor ) } );
             // ScreenSpaceDenoiser::DenoiseReflections: reconstruction + output (transients), the
             // history pair (accumulation + sample count, two slots).
             add( { "SSD.Reflections.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height,
@@ -384,25 +401,15 @@ namespace Desert::Graphic
         }
         if ( profile.GlobalIllumination )
         {
-            add( { "GI.Gather", "SceneRendererFrameDeferred.cpp", F::kGIResolve, width, height } );
-            // ScreenSpaceDenoiser::DenoiseDiffuseIndirect: reconstruction + output, the history pair.
-            add( { "SSD.Diffuse.Signal+Output", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
+            // The traced GI's final gather (SoftwareTraced: the screen probes' integrate, graph transients, and
+            // the view's temporal history set, two slots - SceneViewState ScreenProbeGatherHistory; ProbeVolume's
+            // irradiance field gather writes graph transients of the same size and format instead).
+            add( { "ScreenProbes.Diffuse+Specular+Backface", "ScreenProbeGather.cpp", F::kGIFinalGather, width,
+                   height, 1, 3 } );
+            add( { "ScreenProbes.History (diffuse, specular, backface) x2", "SceneViewState.cpp",
+                   F::kGIFinalGather, width, height, 1, 6 } );
+            add( { "ScreenProbes.HistoryGuide x2", "SceneViewState.cpp", F::kGIFinalGatherGuide, width, height, 1,
                    2 } );
-            add( { "SSD.Diffuse.History x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSignal, width, height, 1,
-                   2 } );
-            add( { "SSD.Diffuse.History.Count x2", "ScreenSpaceDenoiser.hpp", F::kDenoiserSampleCount, width,
-                   height, 1, 2 } );
-            // SceneRenderer::kRSMResolution = 512, one row per attachment WITH AN IMAGE: they mirror the
-            // G-buffer's formats, which need not all be the same. Colour slot 2 is an unused slot (no image, no
-            // row).
-            for ( ViewTarget rsm : { ViewTarget{ "RSM.Albedo", "SceneRenderer.cpp", F::kRSMAlbedo, 512, 512 },
-                                     ViewTarget{ "RSM.Normal", "SceneRenderer.cpp", F::kRSMNormal, 512, 512 },
-                                     ViewTarget{ "RSM.Emissive", "SceneRenderer.cpp", F::kRSMEmissive, 512, 512 },
-                                     ViewTarget{ "RSM.Depth", "SceneRenderer.cpp", F::kRSMDepth, 512, 512 } } )
-            {
-                rsm.ScalesWithView = false;
-                add( rsm );
-            }
         }
         if ( profile.Shadows.CascadeCount != 0 )
         {
@@ -444,32 +451,35 @@ namespace Desert::Graphic
         return static_cast<double>( totals.ViewScaledBytes ) / ( static_cast<double>( width ) * height );
     }
 
-    /// The census as a table, largest first — what the suite prints and the renderer logs once per build.
+    /// The FORECAST as a table, largest first — what the ViewMemory suite prints. The renderer logs the view's
+    /// MEASURED ledger rows instead (FormatViewLedgerMemory, RT-LEDGER-3); this forecast only admits a new view.
     [[nodiscard]] inline std::string FormatViewTargetCensus( std::vector<ViewTarget> rows, const uint32_t width,
                                                              const uint32_t height )
     {
         std::sort( rows.begin(), rows.end(),
                    []( const ViewTarget& a, const ViewTarget& b ) { return a.Bytes() > b.Bytes(); } );
         const auto mib = []( const uint64_t bytes ) { return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 ); };
-        std::string text = "view " + std::to_string( width ) + "x" + std::to_string( height ) + "\n";
+        Common::Json::Value::Array lines;
         for ( const auto& row : rows )
         {
-            char line[192];
-            std::snprintf( line, sizeof( line ), "  %-26s %-8s %5ux%-5u x%u mips%u %9.2f MiB  %s\n",
-                           std::string( row.Name ).c_str(),
-                           std::string( ViewMemoryDetail::FormatName( row.Format ) ).c_str(), row.Width,
-                           row.Height, row.Count, row.Mips, mib( row.Bytes() ),
-                           std::string( row.CreatedAt ).c_str() );
-            text += line;
+            lines.emplace_back( std::format( "  {:<26} {:<8} {:5}x{:<5} x{} mips{} {:9.2f} MiB  {}", row.Name,
+                                             ViewMemoryDetail::FormatName( row.Format ), row.Width, row.Height,
+                                             row.Count, row.Mips, mib( row.Bytes() ), row.CreatedAt ) );
         }
         const auto totals = SumViewTargets( rows );
-        char       tail[160];
-        std::snprintf( tail, sizeof( tail ),
-                       "  total %.2f MiB = %.2f MiB view-scaled (%.1f B/px) + %.2f MiB fixed\n",
-                       mib( totals.Total() ), mib( totals.ViewScaledBytes ),
-                       static_cast<double>( totals.ViewScaledBytes ) / ( static_cast<double>( width ) * height ),
-                       mib( totals.FixedBytes ) );
-        text += tail;
-        return text;
+        Common::Json::ObjectBuilder model;
+        model.Set( "width", width )
+             .Set( "height", height )
+             .Set( "rows", Common::Json::Value( std::move( lines ) ) )
+             .Set( "total",
+                   std::format( "  total {:.2f} MiB = {:.2f} MiB view-scaled ({:.1f} B/px) + {:.2f} MiB fixed",
+                                mib( totals.Total() ), mib( totals.ViewScaledBytes ),
+                                static_cast<double>( totals.ViewScaledBytes ) /
+                                     ( static_cast<double>( width ) * height ),
+                                mib( totals.FixedBytes ) ) );
+        static const Desert::Core::TextTemplate kCensus(
+             "ViewTargetCensus", "view {{ width }}x{{ height }}\n{% for line in rows %}{{ line }}\n{% endfor %}"
+                                 "{{ total }}\n" );
+        return kCensus.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 } // namespace Desert::Graphic

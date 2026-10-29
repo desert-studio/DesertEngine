@@ -9,6 +9,16 @@
 
 namespace Desert::Graphic
 {
+    void Material::ReportMissingProperty( const std::string& name ) const
+    {
+        if ( !m_ReportedMissing.insert( name ).second )
+            return;
+        LOG_ERROR( "Material '{}': '{}' is not a resource of shader '{}'; the write is dropped",
+                   m_MaterialExecutor->GetDubugName(), name,
+                   m_MaterialExecutor->GetShader() ? m_MaterialExecutor->GetShader()->GetName()
+                                                   : std::string( "<none>" ) );
+    }
+
     bool Material::WritePushField( std::string_view field, const void* value, uint32_t size )
     {
         if ( !m_MaterialExecutor || !m_MaterialExecutor->GetShader() )
@@ -79,7 +89,7 @@ namespace Desert::Graphic
     {
         if ( matrices == nullptr || count == 0 )
             return;
-        auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Name );
+        auto* bones = Get<StorageBufferProperty>( ShaderProtocols::SkinnedUB::Parameter );
         DESERT_VERIFY( bones, "UploadSkinnedBones on a cell with no skinned vertex stage (no Bones buffer)" );
         bones->SetRawData( matrices, static_cast<uint32_t>( count * sizeof( glm::mat4 ) ) );
     }
@@ -100,6 +110,8 @@ namespace Desert::Graphic
            // shader declares, each of which is itself frames x slots VkBuffers.
            m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
     {
+        if ( m_MaterialExecutor )
+            m_MaterialExecutor->SetOwner( this );
         CachePropertyNames();
     }
 
@@ -109,6 +121,8 @@ namespace Desert::Graphic
                 Graphic::MaterialExecutor::Create( std::move( debugName ), shader, parameterSchema ) ),
            m_Accounting( ResourceOwnership::Take( ResourceKind::Material ) )
     {
+        if ( m_MaterialExecutor )
+            m_MaterialExecutor->SetOwner( this );
         CachePropertyNames();
     }
 
@@ -139,7 +153,7 @@ namespace Desert::Graphic
         {
             if ( const auto property = m_MaterialExecutor->GetStorageBufferProperty( name ) )
             {
-                if ( const auto& buffer = property->GetStorageBuffer() )
+                if ( const auto& buffer = property->GetOwnedStorageBuffer() )
                     buffer->ClaimOwnership( owner, asset );
             }
         }
@@ -212,6 +226,8 @@ namespace Desert::Graphic
                 {
                     if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( std::string( prop->GetShaderName() ) ) )
                         texProp->SetImage( static_cast<const Image2D*>( texPtr ), RDG::Access::SampledGraphics );
+                    else
+                        ReportMissingProperty( std::string( prop->GetShaderName() ) );
                 }
             }
             else
@@ -223,6 +239,8 @@ namespace Desert::Graphic
                     prop->CopyValueTo( buf );
                     ub->WriteField( field, buf, prop->GetByteSize() );
                 }
+                else
+                    ReportMissingProperty( std::string( prop->GetShaderName() ) );
             }
 
             prop->MarkClean();
@@ -231,6 +249,12 @@ namespace Desert::Graphic
 
     void Material::ApplyInstanceOverrides( const MaterialInstance* instance )
     {
+        // No instance means the material drawn with its own values (Bind's parameter is a pointer for exactly
+        // that case): there is nothing to lay on top, and the defaults were already uploaded by Bind.
+        if ( instance == nullptr )
+        {
+            return;
+        }
         const auto& props = instance->GetPropertySet();
         for ( const auto& [name, prop] : props.GetProperties() )
         {
@@ -250,6 +274,8 @@ namespace Desert::Graphic
                              if ( auto texProp = m_MaterialExecutor->GetTexture2DProperty( propName ) )
                                  texProp->SetImage( static_cast<const Image2D*>( val ),
                                                     RDG::Access::SampledGraphics );
+                             else
+                                 ReportMissingProperty( propName );
                          }
                      }
                      else
@@ -259,6 +285,8 @@ namespace Desert::Graphic
                          {
                              ub->WriteField( field, &val, sizeof( T ) );
                          }
+                         else
+                             ReportMissingProperty( propName );
                      }
                  },
                  prop.Value );

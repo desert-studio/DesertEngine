@@ -1,0 +1,74 @@
+#ifndef DESERT_RAY_TRACING_HIT_RECORD_GLSLH
+#define DESERT_RAY_TRACING_HIT_RECORD_GLSLH
+
+// THE HIT GROUP'S SHADER RECORD (UE: FRayTracingMeshCommand's loose parameters, a segment's local root signature):
+// what a closest-hit / any-hit stage knows about the segment it hit beyond the hardware's answer. One record per
+// BLAS segment, in the frame's SBT hit region at the same index as the segment's geometry record (RT-UNIFY: TLAS
+// instance SBT offset = the primitive's FirstSegmentRecord, + the geometry index). C++ twin:
+// Graphic/Systems/RayTracing/RayTracingHitGroupTable.hpp RayTracingHitRecordData (std430, 48 B), written by
+// BuildRayTracingHitRecords from the same RayTracingGeometryRecord the ray-query walk reads plus the segment's
+// material row.
+//
+// Addresses travel as uvec2 (lo, hi), as in Common/RayQueryVisibility.glslh.
+layout( shaderRecordEXT, std430 ) buffer DesertRayHitRecord
+{
+    uvec2 VertexAddress; // the buffer the BLAS read positions from
+    uvec2 IndexAddress;  // its uint32 index buffer
+    uint  VertexStride;
+    uint  FirstVertex;
+    uint  FirstIndex;   // in indices
+    uint  NormalOffset; // bytes into the vertex; 0xFFFFFFFF = the layout has no normal
+    uint  UvOffset;     // bytes into the vertex; 0xFFFFFFFF = the layout has no UV
+    uint  Pad;          // std430: MaterialRow at byte 40
+    uvec2 MaterialRow;  // the segment's MaterialParams row (the template's struct), 16-byte aligned
+}
+RayHitRecord;
+
+const uint kDesertRayHitNoOffset      = 0xFFFFFFFFu;
+
+layout( buffer_reference, std430, buffer_reference_align = 4 ) readonly buffer DesertRayHitUintRef
+{
+    uint Value;
+};
+
+uvec2 DesertRayHitAddressAdd( uvec2 address, uint bytes )
+{
+    uint       carry;
+    const uint lo = uaddCarry( address.x, bytes, carry );
+    return uvec2( lo, address.y + carry );
+}
+
+float DesertRayHitFloat( uvec2 address )
+{
+    return uintBitsToFloat( DesertRayHitUintRef( address ).Value );
+}
+
+// The three vertices (BLAS vertex numbering, FirstVertex applied) of triangle @p primitive of this segment.
+uvec3 DesertRayHitCorners( uint primitive )
+{
+    uvec3 corner;
+    for ( uint i = 0u; i < 3u; ++i )
+    {
+        const uint indexByte = ( RayHitRecord.FirstIndex + primitive * 3u + i ) * 4u;
+        corner[i] = DesertRayHitUintRef( DesertRayHitAddressAdd( RayHitRecord.IndexAddress, indexByte ) ).Value +
+                    RayHitRecord.FirstVertex;
+    }
+    return corner;
+}
+
+vec3 DesertRayHitVertexVec3( uint vertex, uint byteOffset )
+{
+    const uvec2 base = DesertRayHitAddressAdd( RayHitRecord.VertexAddress,
+                                               vertex * RayHitRecord.VertexStride + byteOffset );
+    return vec3( DesertRayHitFloat( base ), DesertRayHitFloat( DesertRayHitAddressAdd( base, 4u ) ),
+                 DesertRayHitFloat( DesertRayHitAddressAdd( base, 8u ) ) );
+}
+
+vec2 DesertRayHitVertexVec2( uint vertex, uint byteOffset )
+{
+    const uvec2 base = DesertRayHitAddressAdd( RayHitRecord.VertexAddress,
+                                               vertex * RayHitRecord.VertexStride + byteOffset );
+    return vec2( DesertRayHitFloat( base ), DesertRayHitFloat( DesertRayHitAddressAdd( base, 4u ) ) );
+}
+
+#endif

@@ -21,6 +21,23 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
+        thread_local std::string_view t_PipelineBeingCreated;
+
+        // Names the pipeline for the debug callback for the duration of one vkCreateGraphicsPipelines.
+        class PipelineCreateScope
+        {
+        public:
+            explicit PipelineCreateScope( std::string_view name )
+            {
+                t_PipelineBeingCreated = name;
+            }
+            ~PipelineCreateScope()
+            {
+                t_PipelineBeingCreated = {};
+            }
+            PipelineCreateScope( const PipelineCreateScope& )            = delete;
+            PipelineCreateScope& operator=( const PipelineCreateScope& ) = delete;
+        };
         static VkPolygonMode ConvertVkPolygonMode( PrimitivePolygonMode mode )
         {
             switch ( mode )
@@ -299,8 +316,8 @@ namespace Desert::Graphic::API::Vulkan
         // location the shader does not declare, no binding 1 when none of its streams is read.
         const auto* vulkanShader =
              std::static_pointer_cast<Graphic::API::Vulkan::VulkanShader>( m_Specification.Shader ).get();
-        m_VertexInput = ShaderReflection::BuildVertexInput( m_Specification.Layout.value(),
-                                                            vulkanShader->GetVertexInputLocations() );
+        m_VertexInput =
+             ShaderReflection::BuildVertexInput( m_Specification.Layout.value(), vulkanShader->GetVertexInputs() );
         if ( const auto refusal = ShaderReflection::VertexInputRefusal( m_VertexInput ) )
         {
             LOG_ERROR( "[Pipeline] '{}' not created: shader '{}' does not match its vertex layout ({}). The "
@@ -365,7 +382,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         m_Rasterizer = VkPipelineRasterizationStateCreateInfo{
              .sType                   = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-             .depthClampEnable        = VK_FALSE,
+             .depthClampEnable        = m_Specification.DepthClampEnable ? VK_TRUE : VK_FALSE,
              .rasterizerDiscardEnable = VK_FALSE,
              .polygonMode             = ConvertVkPolygonMode( m_Specification.PolygonMode ),
              .cullMode                = ConvertCullMode( m_Specification.CullMode ),
@@ -414,6 +431,11 @@ namespace Desert::Graphic::API::Vulkan
         return RdgCompatibleRenderPassKey( colourFormats, depthFormat, hasStencil, std::max( 1u, samples ) );
     }
 
+    std::string_view PipelineBeingCreatedOnThisThread()
+    {
+        return t_PipelineBeingCreated;
+    }
+
     VkPipeline VulkanPipeline::GetVkPipelineFor( const RdgRenderPassKey& openPass )
     {
         VkPipeline     base    = GetVkPipeline();
@@ -446,7 +468,12 @@ namespace Desert::Graphic::API::Vulkan
         VkPipeline      variant = VK_NULL_HANDLE;
         VkPipelineCache cache =
              SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )->GetPipelineCache();
-        const VkResult result = vkCreateGraphicsPipelines( device, cache, 1, &info, nullptr, &variant );
+        const std::string variantName = std::format( "{} ({}x)", m_Specification.DebugName, samples );
+        VkResult          result{};
+        {
+            const PipelineCreateScope naming( variantName );
+            result = vkCreateGraphicsPipelines( device, cache, 1, &info, nullptr, &variant );
+        }
         vkDestroyRenderPass( device, pass.GetValue(), nullptr );
         if ( result != VK_SUCCESS )
         {
@@ -456,9 +483,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         else if ( !m_Specification.DebugName.empty() )
         {
-            VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE,
-                                              std::format( "{} ({}x)", m_Specification.DebugName, samples ),
-                                              variant );
+            VKUtils::SetDebugUtilsObjectName( device, VK_OBJECT_TYPE_PIPELINE, variantName, variant );
         }
         m_PassVariants.emplace( openPass, variant );
         return variant;
@@ -609,6 +634,7 @@ namespace Desert::Graphic::API::Vulkan
         VkResult   result{};
         {
             const Core::ScopedShaderPhase timer( Core::ShaderPhase::PipelineCreate );
+            const PipelineCreateScope     naming( m_Specification.DebugName );
             result = vkCreateGraphicsPipelines( device, pipelineCache, 1, &m_PipelineInfo, nullptr, &built );
         }
         if ( result != VK_SUCCESS )

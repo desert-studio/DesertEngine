@@ -1,0 +1,41 @@
+#ifndef DESERT_RAY_TRACING_PAYLOAD_GLSLH
+#define DESERT_RAY_TRACING_PAYLOAD_GLSLH
+
+// THE RAY'S PAYLOAD between a ray generation stage and the hit groups (UE: FPackedMaterialClosestHitPayload of
+// RayTracingCommon.ush, the material a hit shader returns; the lighting is the ray generation's, as UE's Lumen hit
+// lighting lights the payload in its ray generation shader, LumenHardwareRayTracingCommon.ush
+// CalculateRayTracedLighting). One struct for the material ray and the visibility ray: a visibility ray skips the
+// closest hit (gl_RayFlagsSkipClosestHitShaderEXT) and reads HitT alone.
+//
+//   in   ConeWidth / ConeSpread: the ray cone at the origin (cm) and its spread (radians), for the hit's texture LOD;
+//   out  HitT < 0: the ray met nothing (the miss stage wrote it); otherwise the hit's distance (cm) and, from a
+//        closest hit, its material: BaseColor, Metallic, Roughness, Emissive, the shading normal (world, unit,
+//        facing the ray) and Flags bit0 = the ray met the front face; which triangle it is: the TLAS instance
+//        (gl_InstanceID), the geometry index in its BLAS and the primitive (Common/RayTracingHitTriangle.glslh
+//        DesertRayHitIdentify), what a light list keyed by triangle looks a hit up by (Common/EmissiveLights.glslh).
+//   in/out Transmission / Ior: the ray generation clears Transmission to 0 before a material ray (an opaque hit
+//        writes neither); a BlendMode Translucent surface's closest hit (Mesh/Surface/Pass_RayHit.glslh) writes its
+//        own translucent inputs, as the raster's glass pass reads them (Pass_Forward_Translucent.glslh): the
+//        transmittance colour (its BaseColor, the tint) and the index of refraction (max(Refraction, 1)).
+//        Transmission > 0 = a dielectric interface the path tracer refracts through (PathTracer.shader).
+struct DesertRayPayload
+{
+    vec3  BaseColor;
+    float HitT;
+    vec3  Normal;
+    float Roughness;
+    vec3  Emissive;
+    float Metallic;
+    float ConeWidth;
+    float ConeSpread;
+    uint  Flags;
+    uint  InstanceIndex;
+    uint  GeometryIndex;
+    uint  PrimitiveIndex;
+    vec3  Transmission;
+    float Ior;
+};
+
+const uint kDesertRayPayloadFrontFace = 1u;
+
+#endif

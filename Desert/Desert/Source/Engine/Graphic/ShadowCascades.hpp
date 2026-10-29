@@ -47,6 +47,10 @@ namespace Desert::Graphic
         uint32_t ShadowMapSize = 2048;
         // How far from the camera shadows are computed at all — see CascadeSetup::MaxDistance.
         float MaxDistance = Common::Units::Metres( 150.0f );
+        // The texel side the local lights' atlas is sized from (LocalShadowAtlasSize): the Shadows.MapSize row,
+        // held apart from the sun's ShadowMapSize because a ray-traced sun takes its cascades at low detail
+        // (Shadows.RayTracedTranslucency*) while the point and spot lights keep their maps.
+        uint32_t LocalShadowMapSize = 2048;
 
         bool operator==( const ShadowQuality& ) const = default;
     };
@@ -57,11 +61,11 @@ namespace Desert::Graphic
     // An asset preview: ONE cascade at 1024 over 10 m. Ten metres is the whole preview world — the
     // primitives are 1 m across (PrimitiveMeshFactory::kPrimitiveSize) and the floor a few metres — so
     // the single cascade is spent entirely on the subject instead of on empty distance.
-    inline constexpr ShadowQuality kPreviewShadowQuality{ 1u, 1024u, Common::Units::Metres( 10.0f ) };
+    inline constexpr ShadowQuality kPreviewShadowQuality{ 1u, 1024u, Common::Units::Metres( 10.0f ), 1024u };
 
     // A RENDERER THAT WILL NEVER DRAW A SHADOW, and therefore holds no map to draw one into. Zero is a
     // legal cascade count everywhere the count already travels: ComputeShadowCascades returns 0,
-    // ShadowCascadePasses hands no pass, and SceneShadowBind writes 0 into u_ShadowParams.w so the
+    // ShadowCascadePasses hands no pass, and SceneShadowBind packs a slot's fitted count 0 so the
     // shader's own loop selects no cascade and ShadowFactor returns "lit" without sampling a map.
     //
     // WHY THIS, AND NOT `SceneSettings::EnableShadows`. The flag looks like the same decision and is a
@@ -76,7 +80,7 @@ namespace Desert::Graphic
     // All three numbers are zero on purpose rather than "4 cascades of size 0": the decision is "this
     // renderer spends nothing on the sun", and a resolution or a distance left standing beside a count
     // of zero is a number the next reader has to work out is dead.
-    inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f };
+    inline constexpr ShadowQuality kNoShadowQuality{ 0u, 0u, 0.0f, 0u };
 
     // HOW MANY DEPTH IMAGES ONE CASCADE HOLDS: the map the receivers sample, and the cache of its STATIC casters
     // (UE: the cached shadow map of a directional light's cascades, r.Shadow.CSMCaching). The cache is drawn only
@@ -89,10 +93,12 @@ namespace Desert::Graphic
     // this figure had two independent spellings (the renderer's log line and the test's own lambda) and a
     // third would have been written the next time somebody wanted it. Asked of CalculateImageSize, not
     // of a bytes-per-texel product, so the figure stays right whatever format either constant names.
-    [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality )
+    // @p directionalLights: how many directional lights hold cascades at this budget (MeshRenderer's slots).
+    [[nodiscard]] inline constexpr uint64_t ShadowAttachmentBytes( const ShadowQuality& quality,
+                                                                   const uint32_t       directionalLights = 1u )
     {
         const uint32_t side = quality.ShadowMapSize;
-        return static_cast<uint64_t>( quality.CascadeCount ) * kShadowImagesPerCascade *
+        return static_cast<uint64_t>( quality.CascadeCount ) * directionalLights * kShadowImagesPerCascade *
                Core::Formats::CalculateImageSize( side, side, ViewTargetFormats::kShadowDepth );
     }
 
@@ -111,8 +117,8 @@ namespace Desert::Graphic
     public:
         ShadowAttachmentLease() = default;
 
-        explicit ShadowAttachmentLease( const ShadowQuality& quality )
-             : m_Bytes( ShadowAttachmentBytes( quality ) )
+        explicit ShadowAttachmentLease( const ShadowQuality& quality, const uint32_t directionalLights = 1u )
+             : m_Bytes( ShadowAttachmentBytes( quality, directionalLights ) )
         {
             if ( m_Bytes != 0 )
             {
@@ -198,7 +204,10 @@ namespace Desert::Graphic
         float Distribution = 1.0f;
     };
 
-    // UE's r.Shadow.ShadowMaxSlopeScaleDepthBias: the slope term stops growing at 45 degrees (tan = 1).
+    // THE slope clamp of every shadow caster - the cascades (ComputeCascadeCasterBias) and the point/spot views
+    // (LocalShadows.hpp LocalCasterBias) alike: UE's r.Shadow.ShadowMaxSlopeScaleDepthBias (default 1), which
+    // FProjectedShadowInfo::UpdateShaderDepthBias hands every projected shadow, whole-scene and per-light. The
+    // slope term stops growing at 45 degrees (tan = 1).
     inline constexpr float kShadowMaxSlope = 1.0f;
 
     // One cascade's bias as the CASTER applies it (the receiver applies none; its normal offset is separate).
@@ -207,7 +216,7 @@ namespace Desert::Graphic
     //                caster's VERTEX stage adds SlopeBias * min(tan, SlopeClamp) to its clip depth
     //                (Common/ShadowCasterBias.glslh, as UE's ShadowDepthVertexShader.usf), so the slope term is
     //                slope centimetres * tan(angle) in that depth's units and no fragment writes a depth.
-    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope.
+    //   SlopeClamp - the tangent where the slope term stops: kShadowMaxSlope, for every caster.
     struct CascadeCasterBias
     {
         float DepthBias  = 0.0f;
@@ -228,13 +237,18 @@ namespace Desert::Graphic
                  .SlopeClamp = kShadowMaxSlope };
     }
 
-    // The matrix a CASTER draws a cascade with: the receivers' matrix with its depth pushed back by the
-    // constant bias. The projection is orthographic (w = 1), so a translation of clip z is exactly a
-    // constant shift of the written depth - every caster (mesh cells, the terrain, any IShadowCaster)
-    // gets the constant bias through the matrix it already takes, and none can be left without it.
+    // The matrix a CASTER draws a shadow view with: the receivers' matrix with its clip z pushed back by the
+    // constant bias, clip.z += depthBias (times the world point's w, 1). Every caster (mesh cells, the terrain,
+    // any IShadowCaster) gets the constant bias through the matrix it already takes, and none can be left
+    // without it. In a cascade (orthographic, clip w = 1) that is exactly a constant shift of the written depth.
+    // In a local light's view (standard-Z perspective, LocalCasterBias) the same constant clip shift lengthens
+    // the linear depth by a share of it, depth * depthBias * (f - n) / (n f): a bias that grows with the
+    // distance from the light as one texel of that map does.
     [[nodiscard]] inline glm::mat4 CasterViewProj( const glm::mat4& viewProj, const float depthBias )
     {
-        return glm::translate( glm::mat4( 1.0f ), glm::vec3( 0.0f, 0.0f, depthBias ) ) * viewProj;
+        glm::mat4 caster = viewProj;
+        caster[3][2] += depthBias;
+        return caster;
     }
 
     struct CascadeSetup

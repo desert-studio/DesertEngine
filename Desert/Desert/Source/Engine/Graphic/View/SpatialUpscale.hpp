@@ -32,7 +32,7 @@ namespace Desert::Graphic::RDG
 namespace Desert::Graphic
 {
     // True when this frame's resolve is the spatial upscale: below 100 % with no temporal method
-    // (SelectTemporalMethod gives TemporalMethod::None at an Upscale split only under Upscaler::Spatial).
+    // (SelectTemporalMethod: None for a method without history; UpscalerForScale: Spatial below 100 %).
     [[nodiscard]] bool IsSpatialUpscale( const ViewFrame& frame );
 
     // True when the post sharpen runs this frame: @p sharpnessPercent above 0 and a resolve to sharpen (a temporal

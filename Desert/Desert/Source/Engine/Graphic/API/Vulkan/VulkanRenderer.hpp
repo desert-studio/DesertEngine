@@ -7,7 +7,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgTransient.hpp> // m_RdgTransients is owned here
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>    // m_FrameLoop is owned here
 
+#include <functional>
 #include <memory>
+#include <optional>
 
 #include <vulkan/vulkan.h>
 
@@ -52,6 +54,13 @@ namespace Desert::Graphic::API::Vulkan
                                             RDG::ExternalBuffer&                                   into ) override;
         Common::BoolResultStr ImportVertexBuffer( const std::shared_ptr<VertexBuffer>& buffer,
                                                   RDG::ExternalBuffer&                 into ) override;
+        Common::BoolResultStr ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer, uint64_t offset,
+                                                       uint64_t bytes, RDG::ExternalBuffer& into ) override;
+
+        void InvalidateGeometryBinding() override
+        {
+            m_BoundGeometry.reset();
+        }
 
         virtual void SubmitPulled( const GraphicsPipeline* pipeline, uint32_t vertexCount, float lineWidth,
                                    const MaterialExecutor* materialExecutor ) override;
@@ -62,6 +71,9 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr DispatchComputeIndirect( const RDG::PassBindings& bindings,
                                                        const ComputePipeline& pipeline, RDG::BufferRef args,
                                                        uint64_t offset ) override;
+        Common::BoolResultStr TraceRays( const RDG::PassBindings& bindings, const RayTracingPipeline& pipeline,
+                                         const RayTracing::RayTracingHitGroupTable& hits, uint32_t width,
+                                         uint32_t height ) override;
         Common::BoolResultStr DrawProcedural( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                               const MaterialExecutor* material, uint32_t vertexCount,
                                               uint32_t instanceCount ) override;
@@ -78,8 +90,17 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
                                           const MaterialExecutor& material, uint32_t instanceCount,
-                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask,
-                                          uint32_t lodLevel ) override;
+                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                                          std::span<const uint32_t> submeshFirstRows ) override;
+        Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings,
+                                                  const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                  const glm::mat4& transform, const MaterialExecutor& material,
+                                                  RDG::BufferRef args, uint64_t offset, uint64_t hiddenSubmeshMask,
+                                                  MeshDrawArgumentsOrder order ) override;
+        Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
+                                                       const GraphicsPipeline&      pipeline,
+                                                       const MeshGeometryBinding&   geometry,
+                                                       const MeshIndirectGroupDraw& draw ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
@@ -89,6 +110,8 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr CopyDepthImage( Image2D* src, Image2D* dst ) override;
         Common::BoolResultStr CopyGraphDepthToLayer( const RDG::PassContext& context, RDG::TextureRef source,
                                                      RDG::TextureRef target, uint32_t targetLayer ) override;
+        Common::BoolResultStr CopyGraphBufferToTexture( const RDG::PassContext& context, RDG::BufferRef source,
+                                                        RDG::TextureRef target ) override;
         virtual void SetScissor( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
         virtual void          SetViewportRegion( int32_t x, int32_t y, uint32_t width, uint32_t height ) override;
         virtual void          ClearRegion( const Framebuffer& framebuffer, int32_t x, int32_t y, uint32_t width,
@@ -126,6 +149,48 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                      const GraphicsPipeline&  pipeline,
                                                      const MaterialExecutor*  material );
+        // Binds @p geometry's vertex buffer (binding 0), its streams or the shared default (binding 1, when
+        // @p pipeline's vertex input has it) and its index buffer, each at its byte offset, unless exactly those
+        // are bound already for this pipeline on this command buffer (m_BoundGeometry); then the instance id
+        // stream @p visibleRows (binding 2, when the pipeline reads a_VisibleRow; refused when it does and none
+        // is given). A real bind is counted (GeometryPool::RecordBind, @p shared: the binned group path).
+        Common::BoolResultStr BindMeshBuffers( std::string_view pass, const GraphicsPipeline& pipeline,
+                                               const MeshGeometryBinding& geometry, VkBuffer visibleRows,
+                                               bool shared );
+        // What BindMeshBuffers last bound on m_CurrentCommandBuffer; reset whenever a buffer is (re)armed and when
+        // another path binds binding 0 / the index buffer (DrawIndexed).
+        struct BoundGeometry
+        {
+            VkCommandBuffer         CommandBuffer = VK_NULL_HANDLE;
+            const GraphicsPipeline* Pipeline      = nullptr;
+            VkBuffer                Vertices      = VK_NULL_HANDLE;
+            VkDeviceSize            VertexOffset  = 0;
+            VkBuffer                Streams       = VK_NULL_HANDLE;
+            VkDeviceSize            StreamOffset  = 0;
+            VkBuffer                Indices       = VK_NULL_HANDLE;
+            VkDeviceSize            IndexOffset   = 0;
+
+            [[nodiscard]] bool operator==( const BoundGeometry& ) const = default;
+        };
+        std::optional<BoundGeometry> m_BoundGeometry;
+        // The CPU-recorded binned draw's id stream: rows[i] = i, at least @p rows of them (GpuScene.glslh
+        // a_VisibleRow; the unculled VisibleInstances list is indexed by firstInstance + instance). Grown, never
+        // shrunk, released through the allocator's per-frame deletion queue like DefaultVertexStreams.
+        VkBuffer                      VisibleRowIdentity( uint32_t rows );
+        std::shared_ptr<VertexBuffer> m_VisibleRowIdentity;
+        uint32_t                      m_VisibleRowIdentityRows = 0;
+        // Records one drawn submesh: its index among the drawn ones, its index in the mesh, the submesh, the
+        // mesh's index count (0: a mesh without indices).
+        using SubmeshDraw = std::function<Common::BoolResultStr(
+             uint32_t drawn, size_t index, const Submesh& submesh, uint32_t indexCount )>;
+        // RenderMesh's walk, shared by the direct and the indirect mesh draw: the pass state, the mesh's vertex,
+        // stream and index buffers, then for every submesh the hidden mask leaves its push block (the material's,
+        // transform * submesh.Transform over the first mat4) before @p draw records it.
+        Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings,
+                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
+                                                 const glm::mat4& transform, const MaterialExecutor& material,
+                                                 uint64_t hiddenSubmeshMask, VkBuffer visibleRows,
+                                                 const SubmeshDraw& draw );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );
         void DrawCounted( uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
@@ -197,7 +262,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Absent in a Shipping build, together with the four calls into it — see
         /// Common/Core/DevInstruments.hpp.
 #if DESERT_DEV_INSTRUMENTS
-        VulkanGpuProfiler m_GpuProfiler;
+        VulkanGpuProfiler m_GpuProfiler{ m_CurrentCommandBuffer };
 #endif
 
         // The frame-graph executor, made on the first ExecuteGraph (the device exists by then). The pool

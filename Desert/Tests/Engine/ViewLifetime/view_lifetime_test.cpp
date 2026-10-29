@@ -47,11 +47,6 @@ namespace
         {
         }
 
-        [[nodiscard]] uint64_t HeldBytes() const noexcept override
-        {
-            return 256;
-        }
-
         std::string Owner;
     };
 
@@ -190,7 +185,7 @@ TEST_F( ViewLifetime, ClosingOutOfOrderStillReturnsEverything )
     EXPECT_EQ( ViewResourceRegistry::LiveCount(), 0u );
 }
 
-TEST_F( ViewLifetime, AClosedViewTakesItsCopiesAndHeldBytesWithIt )
+TEST_F( ViewLifetime, AClosedViewTakesItsCopiesWithIt )
 {
     const ViewResourceKey key = ViewResourceKey::Allocate();
     NamedCopyFactory      factory;
@@ -200,12 +195,11 @@ TEST_F( ViewLifetime, AClosedViewTakesItsCopiesAndHeldBytesWithIt )
     (void)main->Acquire( key, 0, factory );
     (void)preview->Acquire( key, 0, factory );
     (void)preview->Acquire( key, 1, factory );
-    EXPECT_EQ( preview->HeldBytes(), 512u );
+    EXPECT_EQ( preview->CopyCount(), 2u );
 
     preview.reset();
     EXPECT_EQ( ViewResourceRegistry::LiveCount(), 1u );
     EXPECT_EQ( main->CopyCount(), 1u ) << "closing the preview took the main viewport's copy with it";
-    EXPECT_EQ( main->HeldBytes(), 256u );
 }
 
 // Only gtest is linked, not gtest_main — every suite in this tree brings its own entry point.

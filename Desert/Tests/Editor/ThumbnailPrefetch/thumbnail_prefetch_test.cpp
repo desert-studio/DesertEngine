@@ -7,7 +7,7 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailOutdated.hpp>
 #include <Editor/Widgets/ThumbnailPool.hpp>
 #include <Editor/Widgets/ThumbnailPrefetch.hpp>

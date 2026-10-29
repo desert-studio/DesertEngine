@@ -1,0 +1,31 @@
+# P19c Space Deformer (UE UMeshSpaceDeformerTool, Deform palette "Warp"; ops FBendMeshOp / FTwistMeshOp /
+# FFlareMeshOp): a 50x50x300 cm Box with 30 height subdivisions from Modeling > Shapes, Lit; Deform tool: Warp
+# (gizmo Z on the box's long axis, bounds +-150 cm) -> Twist 180 -> Bend 90 in the same preview session -> Accept
+# (one undo step) -> Undo.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.7,-0.25,0.67
+Дано run Modeling "Create shape pivot: Centre"
+Дано --subject modeling set CreateShape.Box.Width 50
+Дано --subject modeling set CreateShape.Box.Depth 50
+Дано --subject modeling set CreateShape.Box.Height 300
+Дано --subject modeling set CreateShape.Box.WidthSubdivisions 4
+Дано --subject modeling set CreateShape.Box.DepthSubdivisions 4
+Дано --subject modeling set CreateShape.Box.HeightSubdivisions 30
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано run "Level Viewport" "Focus Selected"
+Когда run Modeling "Warp operation: Twist"
+Когда --subject modeling set Warp.TwistDegrees 180
+Когда run Modeling "Deform tool: Warp"
+Когда state
+Тогда 0_twist the tall box twisted half a turn about its long axis (the status reads "Warp ..."), the faces spiral
+Когда run Modeling "Warp operation: Bend"
+Когда --subject modeling set Warp.BendDegrees 90
+Когда state
+Тогда 1_bend the box bent into a quarter arc, its top end turned 90 degrees from its bottom end
+Когда run Modeling "Active tool: Accept"
+Когда run Action Undo
+Когда state
+Тогда 2_undo the straight 50x50x300 box back

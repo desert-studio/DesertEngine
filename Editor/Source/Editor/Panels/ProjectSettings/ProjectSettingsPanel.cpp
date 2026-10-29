@@ -4,7 +4,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -63,7 +63,8 @@ namespace Desert::Editor
         if ( directory != m_LoadedFor )
         {
             m_LoadedFor = directory;
-            m_Edit      = ::Desert::Project::CurrentGameSettings();
+            m_Edit          = ::Desert::Project::CurrentGameSettings();
+            m_EditRendering = ::Desert::Project::CurrentRendererSettings();
             m_Problem.clear();
         }
 
@@ -72,6 +73,7 @@ namespace Desert::Editor
 
         DrawGameSection();
         DrawMoviesSection();
+        DrawRenderingSection();
 
         if ( !m_Problem.empty() )
             ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s %s", ICON_MDI_ALERT, m_Problem.c_str() );
@@ -205,6 +207,39 @@ namespace Desert::Editor
                 break;
         }
         Commit();
+    }
+
+    void ProjectSettingsPanel::DrawRenderingSection()
+    {
+        if ( !Utils::ImGuiUtilities::SectionHeader( "Rendering" ) )
+            return;
+
+        ImGui::TextDisabled( "%s", ( std::filesystem::path( m_LoadedFor ) / "Config" / "Engine.json" ).string().c_str() );
+        Utils::ImGuiUtilities::ResetPropertyRows();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "TSR Thin Geometry Detection",
+             "UE r.TSR.ThinGeometryDetection: TSR finds sub-pixel geometry (foliage, wires) in the base passes' "
+             "coverage and keeps more of its history there. Costs one pass and one history." );
+        if ( ImGui::Checkbox( "##TsrThinGeometryDetection", &m_EditRendering.TsrThinGeometryDetection ) )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Game Viewport High DPI",
+             "UE r.SecondaryScreenPercentage.GameViewport: off -- the packaged game renders at the window's logical "
+             "resolution (display pixels / DPI scale) and upscales at present; on -- at the display's native pixels "
+             "(a Retina window costs four times the targets and histories)." );
+        if ( ImGui::Checkbox( "##GameViewportHighDPI", &m_EditRendering.GameViewportHighDPI ) )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
+    }
+
+    void ProjectSettingsPanel::CommitRendering()
+    {
+        const auto saved = ::Desert::Project::SaveRendererSettings( m_EditRendering );
+        if ( saved )
+            m_Problem.clear();
+        else
+            m_Problem = saved.GetError();
     }
 
     void ProjectSettingsPanel::Commit()

@@ -106,26 +106,34 @@ Shader "CloudTemporalResolve"
 
         // The reconstruction's two outputs, both HALF resolution. rgba16f for the same reason the march's
         // targets are: radiance is pre-tonemap HDR and transmittance is in [0,1].
-        layout(binding = 4, rgba16f) restrict writeonly uniform image2D u_ReconstructedScatter;
+        layout(binding = 4, rgba16f) restrict writeonly uniform image2D ReconstructedScatterTexture;
 
         // The reconstructed guide, which serves two readers: CloudComposite.shader upsamples through it,
         // and NEXT frame's run of this pass reads it back as the history guide to detect disocclusions.
         // It carries THIS frame's distances with no temporal blending at all — a distance is a property of
         // the geometry in front of the camera now, and mixing it with a distance from three frames ago
         // would produce a number describing nothing, which the composite would then treat as an edge.
-        layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_ReconstructedGuide;
+        layout(binding = 5, rgba16f) restrict writeonly uniform image2D ReconstructedGuideTexture;
 
         // This frame's QUARTER-resolution trace and its guide.
-        Uniform(0) sampler2D u_CloudTrace;
-        Uniform(1) sampler2D u_CloudTraceGuide;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(8) sampler LinearClampSampler;
+        Uniform(9) sampler GlobalFilterSampler;
+        Uniform(0) texture2D CloudTraceTexture;
+        #define CloudTraceTexture sampler2D(CloudTraceTexture, LinearClampSampler)
+        Uniform(1) texture2D CloudTraceGuideTexture;
+        #define CloudTraceGuideTexture sampler2D(CloudTraceGuideTexture, LinearClampSampler)
 
         // The PREVIOUS frame's half-resolution reconstruction and its guide. On the first frame after the
         // targets are allocated these are bound to the engine's fallback texture rather than left unbound
         // — a declared sampler with no image is an INVALID descriptor set, not an unused one, and this
         // backend answers an invalid set by skipping the entire dispatch, which would lose the clouds with
-        // nothing in the log. u_HistoryValid is what says the bytes mean anything.
-        Uniform(2) sampler2D u_CloudHistory;
-        Uniform(3) sampler2D u_CloudHistoryGuide;
+        // nothing in the log. HistoryValid is what says the bytes mean anything.
+        Uniform(2) texture2D CloudHistoryTexture;
+        #define CloudHistoryTexture sampler2D(CloudHistoryTexture, GlobalFilterSampler)
+        Uniform(3) texture2D CloudHistoryGuideTexture;
+        #define CloudHistoryGuideTexture sampler2D(CloudHistoryGuideTexture, GlobalFilterSampler)
 
         // THIS PIXEL'S OWN SCENE DEPTH — the same single-sample image the march cuts its rays with, read
         // at the same texel the march would read for this half-res pixel. It is what makes the guide's .y
@@ -138,7 +146,8 @@ Shader "CloudTemporalResolve"
         // frame under a STATIC camera). Unreal's reconstruction compares against the pixel's own opaque
         // depth for the same reason (VolumetricRenderTarget.usf, SceneDepthMinAndMax / the mode-4
         // compose reading SceneDepth).
-        Uniform(7) sampler2D u_SceneDepth;
+        Uniform(7) texture2D SceneDepthTexture;
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, GlobalFilterSampler)
 
         // The C++ side of this block is Graphic::CloudResolveParams (Engine/Graphic/Clouds/CloudPayload.hpp),
         // where a static_assert pins every offset. Raw std430 rather than the ReadBuffer(n) sugar, as
@@ -149,11 +158,11 @@ Shader "CloudTemporalResolve"
         // minimum. The camera and the frame state would not fit.
         layout(std430, binding = 6) readonly buffer CloudResolveBuffer
         {
-            mat4  u_InverseViewProjection; // clip -> world, this frame
-            mat4  u_PrevViewProjection;    // world -> clip, the previous frame
-            vec3  u_CameraPosition;        // world units (centimetres)
-            float u_HistoryValid;          // 1 when the history targets hold a real previous frame
-            ivec2 u_SubPixelOffset;        // this frame's traced sub-pixel, {0,1} x {0,1}
+            mat4  InverseViewProjection; // clip -> world, this frame
+            mat4  PreviousViewProjection;    // world -> clip, the previous frame
+            vec3  CameraPosition;        // world units (centimetres)
+            float HistoryValid;          // 1 when the history targets hold a real previous frame
+            ivec2 SubPixelOffset;        // this frame's traced sub-pixel, {0,1} x {0,1}
         };
 
         LocalSize(8, 8, 1);
@@ -230,12 +239,12 @@ Shader "CloudTemporalResolve"
 
         void main()
         {
-            ivec2 size  = imageSize(u_ReconstructedScatter);
+            ivec2 size  = imageSize(ReconstructedScatterTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
-            ivec2 traceSize = textureSize(u_CloudTrace, 0);
+            ivec2 traceSize = textureSize(CloudTraceTexture, 0);
 
             // Which sub-pixel of its 2x2 block this half-res pixel is, and the quarter-res texel that
             // covers the block. `& 1` and `>> 1` rather than `% 2` and `/ 2`: the coordinates are
@@ -243,7 +252,7 @@ Shader "CloudTemporalResolve"
             ivec2 subPixel   = coord & ivec2(1, 1);
             ivec2 traceCoord = coord >> ivec2(1, 1);
 
-            bool owned = subPixel == u_SubPixelOffset;
+            bool owned = subPixel == SubPixelOffset;
 
             // THIS FRAME'S LOW-RESOLUTION ESTIMATE, with the jitter undone. A quarter-res texel does not
             // hold the value at its own centre — it holds the value at the half-res pixel
@@ -254,28 +263,28 @@ Shader "CloudTemporalResolve"
             // subtraction: the continuous texel index whose sample lands on this pixel is
             // (halfPos - offset - 0.5) / 2.
             vec2 halfPos    = vec2(coord) + vec2(0.5f, 0.5f);
-            vec2 traceTexel = (halfPos - vec2(u_SubPixelOffset) - vec2(0.5f, 0.5f)) * 0.5f;
+            vec2 traceTexel = (halfPos - vec2(SubPixelOffset) - vec2(0.5f, 0.5f)) * 0.5f;
             vec2 traceUv    = ClampToTexelCentres((traceTexel + vec2(0.5f, 0.5f)) / vec2(traceSize), traceSize);
 
             // Case 1 for the RADIANCE: the pixel this frame traced gets the exact texel, fetched rather
             // than filtered. The other three of the block have no sample of their own this frame, so the
             // bilinear reconstruction of the quarter-res grid is all that exists for them.
-            vec4 traceScatter = owned ? texelFetch(u_CloudTrace, traceCoord, 0) : texture(u_CloudTrace, traceUv);
+            vec4 traceScatter = owned ? texelFetch(CloudTraceTexture, traceCoord, 0) : texture(CloudTraceTexture, traceUv);
 
             // THE GUIDE IS LOADED FOR EVERY PIXEL, owned or not — Unreal's :286 and :391, and see the
             // header for why filtering it is harmful rather than merely approximate. The block's four
             // pixels therefore share one distance, which is exactly what its readers want: a distance that
             // agrees with its neighbours costs the composite nothing, while a bilinear blend of the two
             // sides of a silhouette agrees with neither and fires the edge path along the whole silhouette.
-            vec4 traceGuide = texelFetch(u_CloudTraceGuide, traceCoord, 0);
+            vec4 traceGuide = texelFetch(CloudTraceGuideTexture, traceCoord, 0);
 
             // The pixel's ray, from this frame's inverse view-projection. REVERSED-Z, like everything
             // else in this engine (Core/Projection.hpp): 1 is the near plane and 0 the far one.
             vec2 uv  = halfPos / vec2(size);
             vec2 ndc = vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
 
-            vec4 nearH = u_InverseViewProjection * vec4(ndc.x, ndc.y, 1.0f, 1.0f);
-            vec4 farH  = u_InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
+            vec4 nearH = InverseViewProjection * vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+            vec4 farH  = InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
             vec3 nearP = nearH.xyz / max(nearH.w, 1e-9f);
             vec3 farP  = farH.xyz / max(farH.w, 1e-9f);
             vec3 rayDir = normalize(farP - nearP);
@@ -284,16 +293,16 @@ Shader "CloudTemporalResolve"
             // `sceneKm` it writes into its guide's .y): the far plane where nothing was drawn, the opaque
             // surface where something was. Same texel rule too — `(coord * depthSize) / size` truncates —
             // so on the pixel this frame owns the two agree exactly.
-            ivec2 depthSize  = textureSize(u_SceneDepth, 0);
+            ivec2 depthSize  = textureSize(SceneDepthTexture, 0);
             ivec2 depthCoord = clamp((coord * depthSize) / size, ivec2(0, 0), depthSize - ivec2(1, 1));
-            float deviceDepth = texelFetch(u_SceneDepth, depthCoord, 0).r;
+            float deviceDepth = texelFetch(SceneDepthTexture, depthCoord, 0).r;
 
-            float ownSceneKm = length(farP - u_CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            float ownSceneKm = length(farP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
             if (deviceDepth > 0.0f)
             {
-                vec4 geomH = u_InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
+                vec4 geomH = InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
                 vec3 geomP = geomH.xyz / max(geomH.w, 1e-9f);
-                ownSceneKm = length(geomP - u_CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+                ownSceneKm = length(geomP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
             }
 
             // WHETHER THIS FRAME'S SAMPLE DESCRIBES THIS PIXEL'S SURFACE. The owned pixel's does by
@@ -302,7 +311,7 @@ Shader "CloudTemporalResolve"
             // silhouette averages the near and far distances into one that matches neither, and its
             // radiance is that same mixture — blending it in is the leak that crawled along every edge.
             bool newSampleHere = owned ||
-                                 abs(texture(u_CloudTraceGuide, traceUv).y - ownSceneKm) <= kDisocclusionKm;
+                                 abs(texture(CloudTraceGuideTexture, traceUv).y - ownSceneKm) <= kDisocclusionKm;
 
             float newWeight = owned ? kOwnedSampleWeight : kNewSampleWeight;
 
@@ -321,15 +330,15 @@ Shader "CloudTemporalResolve"
             // history because this frame's sample belongs to another surface keeps that history's front.
             float frontKm = traceGuide.x;
 
-            if (u_HistoryValid > 0.5f)
+            if (HistoryValid > 0.5f)
             {
                 // THE SINGLE FRONT SURFACE. The guide's .x is where this ray first met material, or the
                 // end of its search when it met none; either way it is a real distance, so the point
                 // below is always on the ray and never a sentinel projected into the previous frame.
-                vec3 frontWorld = u_CameraPosition +
+                vec3 frontWorld = CameraPosition +
                                   rayDir * (traceGuide.x * CLOUD_WORLD_UNITS_PER_KM);
 
-                vec4 prevClip = u_PrevViewProjection * vec4(frontWorld, 1.0f);
+                vec4 prevClip = PreviousViewProjection * vec4(frontWorld, 1.0f);
 
                 // Behind the previous camera's eye. Dividing by a w at or below zero mirrors the point
                 // through the origin and lands it somewhere plausible on screen, which is the worst
@@ -348,11 +357,11 @@ Shader "CloudTemporalResolve"
 
                         vec2 fetchUv = ClampToTexelCentres(prevUv, size);
 
-                        vec4 history      = texture(u_CloudHistory, fetchUv);
-                        vec4 historyGuide = texture(u_CloudHistoryGuide, fetchUv);
+                        vec4 history      = texture(CloudHistoryTexture, fetchUv);
+                        vec4 historyGuide = texture(CloudHistoryGuideTexture, fetchUv);
 
                         bool finite      = IsFinite(history) && IsFinite(historyGuide);
-                        // Against THIS pixel's distance, not the traced sub-pixel's — see u_SceneDepth.
+                        // Against THIS pixel's distance, not the traced sub-pixel's — see SceneDepthTexture.
                         bool sameSurface = abs(historyGuide.y - ownSceneKm) <= kDisocclusionKm;
 
                         if (finite && sameSurface)
@@ -380,7 +389,7 @@ Shader "CloudTemporalResolve"
             // exact texel in both, which is strictly better than a filter and is what Unreal's
             // bUseNewSample branch does as well.
             if (!historyRead && !owned)
-                frontKm = texture(u_CloudTraceGuide, traceUv).x;
+                frontKm = texture(CloudTraceGuideTexture, traceUv).x;
 
             // The guide always describes THIS frame, whichever branch the radiance came from: it is what
             // the composite measures edges with and what next frame's disocclusion test compares against,
@@ -389,13 +398,13 @@ Shader "CloudTemporalResolve"
             // produces a number describing nothing, which the composite would then read as an edge.
             // .y is this pixel's own scene distance on every branch, which is what keeps it from flipping
             // with the jitter cycle; .x is the front of whichever sample the radiance came from.
-            imageStore(u_ReconstructedGuide, coord, vec4(frontKm, ownSceneKm, 0.0f, 0.0f));
+            imageStore(ReconstructedGuideTexture, coord, vec4(frontKm, ownSceneKm, 0.0f, 0.0f));
 
             // Transmittance is clamped both ways because it multiplies the scene behind the cloud: a
             // value above 1 brightens what is BEHIND it, which reads as a glowing rectangle and is very
             // hard to trace back to a filter. Radiance is clamped only against negatives, which no blend
             // of two non-negative values can produce but a poisoned history texel can.
-            imageStore(u_ReconstructedScatter, coord,
+            imageStore(ReconstructedScatterTexture, coord,
                        vec4(max(resolved.rgb, vec3(0.0f)), clamp(resolved.a, 0.0f, 1.0f)));
         }
     }

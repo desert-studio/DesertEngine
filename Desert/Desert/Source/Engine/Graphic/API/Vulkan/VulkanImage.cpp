@@ -268,6 +268,13 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanImage2D::Release()
     {
         DropGraphTexture(); // its views name the VkImage released below
+        if ( m_BindlessSlot.IsValid() )
+        {
+            // The slot names the view released below; the table reuses it only after the frames in flight.
+            if ( BindlessTextureTable* table = TryGetBindlessTextureTable() )
+                table->Release( m_BindlessSlot );
+            m_BindlessSlot = {};
+        }
         if ( !m_Resource.Image ) return BOOLSUCCESS;
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
         if ( m_EncodedView != VK_NULL_HANDLE )
@@ -287,6 +294,9 @@ namespace Desert::Graphic::API::Vulkan
         // callers holding the Image2D* (e.g. Render2D's per-texture executor, video playback) keep working.
         if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
             return Common::MakeError<bool>( "Image2D::SetData on an uninitialised image" );
+        if ( m_Specification.ArrayLayers > 0 )
+            return Common::MakeError<bool>(
+                 "Image2D::SetData on a 2D array; an array is filled by CopyLayersFrom" );
         if ( !Core::Formats::HasData( data ) )
             return Common::MakeError<bool>( "Image2D::SetData with empty pixel data" );
 
@@ -360,6 +370,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
             return Common::MakeError<bool>( "Image2D::RecordSetData on an uninitialised image" );
+        if ( m_Specification.ArrayLayers > 0 )
+            return Common::MakeError<bool>(
+                 "Image2D::RecordSetData on a 2D array; an array is filled by CopyLayersFrom" );
         if ( !Core::Formats::HasData( data ) )
             return Common::MakeError<bool>( "Image2D::RecordSetData with empty pixel data" );
         auto* const cmd = RecordingBuffer( batch );
@@ -432,8 +445,20 @@ namespace Desert::Graphic::API::Vulkan
                  "image '{}' is marked sRGB and its format {} has no sRGB variant", m_Specification.Tag,
                  static_cast<uint32_t>( m_Specification.Format ) );
         m_Resource.MipLevels  = m_Specification.Mips;
-        m_Resource.LayerCount = 1;
+        m_Resource.LayerCount = std::max( 1u, m_Specification.ArrayLayers );
         m_Resource.Layout     = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        // A 2D ARRAY is filled by CopyLayersFrom and by nothing else (Image2DSpecification::ArrayLayers): the
+        // upload below writes one layer, and an array that took `Data` would leave every other layer undefined.
+        const bool isArray = m_Specification.ArrayLayers > 0;
+        if ( isArray &&
+             ( Core::Formats::HasData( m_Specification.Data ) || !m_Specification.MipLevels.empty() ||
+               m_Specification.Samples > 1 || m_Specification.Usage == Core::Formats::Image2DUsage::Attachment ) )
+            return Common::MakeFormattedError<bool>(
+                 "Image2D '{}' is a {}-layer array and supplies pixel data, a mip table, multisampling or "
+                 "attachment usage; an array is a sampled image filled by CopyLayersFrom.",
+                 m_Specification.Tag, m_Specification.ArrayLayers );
+        const VkImageViewType viewType = isArray ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
 
         const bool zeroOnCreate = m_Specification.InitialContent == Core::Formats::ImageInitialContent::Zero;
         if ( zeroOnCreate && Core::Formats::HasData( m_Specification.Data ) )
@@ -485,20 +510,20 @@ namespace Desert::Graphic::API::Vulkan
 
         VkImageLayout finalDefaultLayout = Utils::GetDefaultLayout( m_Specification.Format, m_Specification.Properties );
 
-        VkImageCreateInfo info = {
-             .sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-             .imageType     = VK_IMAGE_TYPE_2D,
-             .format        = m_Resource.Format,
-             .extent        = { m_Specification.Width, m_Specification.Height, 1 },
-             .mipLevels     = m_Resource.MipLevels,
-             .arrayLayers   = 1,
-             // 2/4/8 map 1:1 onto the VK_SAMPLE_COUNT_*_BIT values.
-             .samples       = static_cast<VkSampleCountFlagBits>(
-                  m_Specification.Samples > 1 ? m_Specification.Samples : 1 ),
-             .tiling        = VK_IMAGE_TILING_OPTIMAL,
-             .usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-             .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
-             .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
+        VkImageCreateInfo info = { .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                                   .imageType   = VK_IMAGE_TYPE_2D,
+                                   .format      = m_Resource.Format,
+                                   .extent      = { m_Specification.Width, m_Specification.Height, 1 },
+                                   .mipLevels   = m_Resource.MipLevels,
+                                   .arrayLayers = m_Resource.LayerCount,
+                                   // 2/4/8 map 1:1 onto the VK_SAMPLE_COUNT_*_BIT values.
+                                   .samples = static_cast<VkSampleCountFlagBits>(
+                                        m_Specification.Samples > 1 ? m_Specification.Samples : 1 ),
+                                   .tiling = VK_IMAGE_TILING_OPTIMAL,
+                                   .usage  = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                            VK_IMAGE_USAGE_SAMPLED_BIT,
+                                   .sharingMode   = VK_SHARING_MODE_EXCLUSIVE,
+                                   .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED };
         // An sRGB image is also viewed through its UNORM alias (GetEncodedView): the two formats are one
         // compatibility class, which the mutable-format bit lets two views of one image use.
         const bool srgb = m_Specification.ColorSpace == Core::Formats::TextureColorSpace::SRGB;
@@ -567,18 +592,20 @@ namespace Desert::Graphic::API::Vulkan
 
         VkImageAspectFlags aspect = Graphic::Utils::IsDepthFormat( m_Specification.Format ) ?
             VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
-        
-        m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
+
+        m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, viewType,
+                                                  m_Resource.LayerCount, m_Resource.MipLevels );
         if ( srgb )
             m_EncodedView =
                  Utils::CreateView( vkDevice, m_Resource.Image, GetImageVulkanFormat( m_Specification.Format ),
-                                    aspect, VK_IMAGE_VIEW_TYPE_2D, 1, m_Resource.MipLevels );
+                                    aspect, viewType, m_Resource.LayerCount, m_Resource.MipLevels );
 
         if ( m_Specification.Properties & Core::Formats::Sample )
             m_Resource.Sampler = Utils::AcquireSampler( Utils::FilterPolicyOf( m_Specification.Properties ) );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
-            m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect, VK_IMAGE_VIEW_TYPE_2D, 1, 1, i ) );
+            m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, aspect,
+                                                     viewType, m_Resource.LayerCount, 1, i ) );
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )
@@ -659,8 +686,15 @@ namespace Desert::Graphic::API::Vulkan
 
             // The bytes are in the staging copy now; the image keeps no second copy of them (ImageFormat.hpp).
             Core::Formats::ReleaseUploadedPixels( m_Specification );
-            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
+            // SUBMITTED, NOT WAITED FOR (as UE's deferred texture upload): every sampler of this image is on
+            // the graphics queue after this submission, so submission order plus the barrier above is the
+            // whole dependency. The staging copy is released once the fence is seen signalled.
+            const auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
+                 cmd, [allocator, staging, stagingAlloc]
+                 { allocator->RT_ReleaseStaging( staging, stagingAlloc, Common::MakeSuccess( VK_SUCCESS ) ); } );
+            if ( !submitted.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Image2D '{}': the upload was not submitted: {}",
+                                                         m_Specification.Tag, submitted.GetError() );
         }
         else
         {
@@ -672,7 +706,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( zeroOnCreate )
             {
                 TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-                const VkImageSubresourceRange range{ aspect, 0, m_Resource.MipLevels, 0, 1 };
+                const VkImageSubresourceRange range{ aspect, 0, m_Resource.MipLevels, 0, m_Resource.LayerCount };
                 if ( aspect == VK_IMAGE_ASPECT_DEPTH_BIT )
                 {
                     const VkClearDepthStencilValue zero{ 0.0f, 0 };
@@ -689,7 +723,7 @@ namespace Desert::Graphic::API::Vulkan
             else if ( VulkanAllocator::PoisonNewMemory() && ( info.usage & VK_IMAGE_USAGE_TRANSFER_DST_BIT ) != 0 )
             {
                 TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL );
-                const VkImageSubresourceRange range{ aspect, 0, m_Resource.MipLevels, 0, 1 };
+                const VkImageSubresourceRange range{ aspect, 0, m_Resource.MipLevels, 0, m_Resource.LayerCount };
                 if ( aspect == VK_IMAGE_ASPECT_DEPTH_BIT )
                 {
                     // Depth must stay in [0, 1]; mid-range is the value least likely to look cleared.
@@ -715,6 +749,20 @@ namespace Desert::Graphic::API::Vulkan
 
         m_IsLoaded           = true;
         m_ResourceGeneration = NextResourceGeneration();
+
+        // A sampled texture gets its bindless slot now, for its GPU life: with uploaded pixels, and without them
+        // too (an AM2 texture still cooking is filled later by SetData / RecordSetData into this same view). The
+        // pixels are no test of it: ReleaseUploadedPixels above has already emptied Data, and testing it here left
+        // every uploaded texture without a slot, drawing the table's missing texture. Attachments, storage and
+        // multisampled images never get one (the graph writes them; BindlessTextureTable).
+        if ( m_Specification.Usage == Core::Formats::Image2DUsage::Image2D &&
+             ( m_Specification.Properties & Core::Formats::Storage ) == 0 && m_Specification.Samples <= 1 )
+        {
+            const auto slot = GetBindlessTextureTable().Register( *this );
+            if ( !slot.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "image '{}': {}", m_Specification.Tag, slot.GetError() );
+            m_BindlessSlot = slot.GetValue();
+        }
         return Common::MakeSuccess( true );
     }
 
@@ -887,34 +935,20 @@ namespace Desert::Graphic::API::Vulkan
         return readback->ReadRGBA8();
     }
 
-    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
+    Common::ResultStr<std::shared_ptr<ImageReadback>>
+    VulkanImage2D::BeginCopyToHost( std::optional<Graphic::PackedPixelSource> source, std::string_view caller )
     {
         using Result     = std::shared_ptr<ImageReadback>;
         const uint32_t w = m_Specification.Width;
         const uint32_t h = m_Specification.Height;
+        const auto     fmt = m_Specification.Format;
         if ( w == 0 || h == 0 || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<Result>( "{}: the image is {}x{} and its VkImage is {}", caller, w,
+                                                       h, m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
+        if ( m_Specification.ArrayLayers > 0 )
             return Common::MakeFormattedError<Result>(
-                 "BeginReadbackRGBA8: the image is {}x{} and its VkImage is {}", w, h,
-                 m_Resource.Image == VK_NULL_HANDLE ? "null" : "valid" );
-
-        const auto                 fmt = m_Specification.Format;
-        Graphic::PackedPixelSource source{};
-        switch ( fmt )
-        {
-            case Core::Formats::ImageFormat::RGBA8F:
-                source = Graphic::PackedPixelSource::RGBA8;
-                break;
-            case Core::Formats::ImageFormat::BGRA8F:
-                source = Graphic::PackedPixelSource::BGRA8;
-                break;
-            case Core::Formats::ImageFormat::RGBA32F:
-                source = Graphic::PackedPixelSource::RGBA32F;
-                break;
-            default:
-                return Common::MakeFormattedError<Result>(
-                     "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
-                     static_cast<int>( fmt ) ); // only colour formats the pack knows
-        }
+                 "{}: '{}' is a {}-layer array; the readback reads one 2D image", caller, m_Specification.Tag,
+                 m_Specification.ArrayLayers );
 
         auto allocator =
              SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator().get();
@@ -926,16 +960,15 @@ namespace Desert::Graphic::API::Vulkan
                                        .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT };
         auto allocRes = allocator->RT_AllocateBuffer( "ThumbReadback", bInfo, VMA_MEMORY_USAGE_GPU_TO_CPU, staging );
         if ( !allocRes.IsSuccess() )
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: {} byte readback buffer failed: {}",
-                                                       srcSize, allocRes.GetError() );
+            return Common::MakeFormattedError<Result>( "{}: {} byte readback buffer failed: {}", caller, srcSize,
+                                                       allocRes.GetError() );
         VmaAllocation stagingAlloc = allocRes.GetValue();
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: no command buffer: {}",
-                                                       cmdAlloc.GetError() );
+            return Common::MakeFormattedError<Result>( "{}: no command buffer: {}", caller, cmdAlloc.GetError() );
         }
         const VkCommandBuffer cmd      = cmdAlloc.GetValue();
         const VkImageLayout   original = m_Resource.Layout;
@@ -970,16 +1003,52 @@ namespace Desert::Graphic::API::Vulkan
         if ( !submitted.IsSuccess() )
         {
             allocator->RT_DestroyBuffer( staging, stagingAlloc );
-            return Common::MakeFormattedError<Result>( "BeginReadbackRGBA8: {}", submitted.GetError() );
+            return Common::MakeFormattedError<Result>( "{}: {}", caller, submitted.GetError() );
         }
         return Common::MakeSuccess<Result>( std::make_shared<VulkanImageReadback>(
              staging, stagingAlloc, srcSize, static_cast<std::size_t>( w ) * h, source, submitted.GetValue() ) );
     }
 
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackRGBA8()
+    {
+        using Result                   = std::shared_ptr<ImageReadback>;
+        const auto                 fmt = m_Specification.Format;
+        Graphic::PackedPixelSource source{};
+        switch ( fmt )
+        {
+            case Core::Formats::ImageFormat::RGBA8F:
+                source = Graphic::PackedPixelSource::RGBA8;
+                break;
+            case Core::Formats::ImageFormat::BGRA8F:
+                source = Graphic::PackedPixelSource::BGRA8;
+                break;
+            case Core::Formats::ImageFormat::RGBA32F:
+                source = Graphic::PackedPixelSource::RGBA32F;
+                break;
+            // The tonemap / FXAA targets (ViewTargetFormats kTonemap, kFXAA; HDR-OUTPUT): display-encoded values,
+            // clamped and quantised like RGBA32F — on an HDR output the clamp is the SDR rendition.
+            case Core::Formats::ImageFormat::RGBA16F:
+                source = Graphic::PackedPixelSource::RGBA16F;
+                break;
+            default:
+                return Common::MakeFormattedError<Result>(
+                     "BeginReadbackRGBA8: image format {} has no RGBA8 packing",
+                     static_cast<int>( fmt ) ); // only colour formats the pack knows
+        }
+
+        return BeginCopyToHost( source, "BeginReadbackRGBA8" );
+    }
+
+    Common::ResultStr<std::shared_ptr<ImageReadback>> VulkanImage2D::BeginReadbackBytes()
+    {
+        return BeginCopyToHost( std::nullopt, "BeginReadbackBytes" );
+    }
+
     void VulkanImage2D::TransitionLayout( VkCommandBuffer cmd, VkImageLayout newLayout, uint32_t mip )
     {
         Graphic::API::Vulkan::Utils::InsertImageMemoryBarrier( cmd, m_Resource.Image, m_Resource.Format,
-                                                               m_Resource.Layout, newLayout, 1, mip == 0 ? m_Resource.MipLevels : 1 );
+                                                               m_Resource.Layout, newLayout, m_Resource.LayerCount,
+                                                               mip == 0 ? m_Resource.MipLevels : 1 );
         m_Resource.Layout = newLayout;
     }
 
@@ -995,7 +1064,7 @@ namespace Desert::Graphic::API::Vulkan
                                        .baseMipLevel   = 0,
                                        .levelCount     = m_Resource.MipLevels,
                                        .baseArrayLayer = 0,
-                                       .layerCount     = 1 };
+                                       .layerCount     = m_Resource.LayerCount };
         Graphic::API::Vulkan::Utils::InsertImageMemoryBarrier( cmd, m_Resource.Image, srcAccess, dstAccess,
                                                                m_Resource.Layout, newLayout, srcStage,
                                                                dstStage, range );
@@ -1010,6 +1079,275 @@ namespace Desert::Graphic::API::Vulkan
     VkImageView VulkanImage2D::GetMipView( uint32_t level ) const
     {
         return m_MipViews[level];
+    }
+
+    Common::BoolResultStr VulkanImage2D::TakeDeviceImageFrom( Image2D& replacement )
+    {
+        auto* other = dynamic_cast<VulkanImage2D*>( &replacement );
+        if ( other == nullptr || other == this )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom needs another Vulkan 2D image", m_Specification.Tag );
+        const auto plain = []( const Core::Formats::Image2DSpecification& spec )
+        {
+            return spec.Usage == Core::Formats::Image2DUsage::Image2D &&
+                   ( spec.Properties & Core::Formats::Storage ) == 0 && spec.Samples <= 1 && spec.ArrayLayers == 0;
+        };
+        if ( !plain( m_Specification ) || !plain( other->m_Specification ) )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom swaps plain sampled 2D images only ('{}' or this one is an "
+                 "attachment, storage, multisampled or array image)",
+                 m_Specification.Tag, other->m_Specification.Tag );
+        if ( m_Specification.Format != other->m_Specification.Format )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom across formats ({} <- {})", m_Specification.Tag,
+                 static_cast<int>( m_Specification.Format ), static_cast<int>( other->m_Specification.Format ) );
+        if ( !other->m_IsLoaded || other->m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': TakeDeviceImageFrom an image with no device image", m_Specification.Tag );
+
+        // The graph's cached handles name each side's own VkImage: both are retired, and remade on next import.
+        DropGraphTexture();
+        other->DropGraphTexture();
+        // The specification is not assignable whole (its tag and usage are the image's identity): the size and the
+        // level description are what the streamed read changed.
+        std::swap( m_Specification.Width, other->m_Specification.Width );
+        std::swap( m_Specification.Height, other->m_Specification.Height );
+        std::swap( m_Specification.Mips, other->m_Specification.Mips );
+        std::swap( m_Specification.MipLevels, other->m_Specification.MipLevels );
+        std::swap( m_Resource, other->m_Resource );
+        std::swap( m_MipViews, other->m_MipViews );
+        std::swap( m_EncodedView, other->m_EncodedView );
+        std::swap( m_IsLoaded, other->m_IsLoaded );
+        m_ResourceGeneration        = NextResourceGeneration();
+        other->m_ResourceGeneration = NextResourceGeneration();
+        RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
+        other->RecordDeviceBytes( VulkanAllocator::AllocationSize( other->m_Resource.Allocation ) );
+
+        // The bindless slot is this image's for its life (rows and layer tables hold its index): it is pointed at
+        // the new view. An image that had none takes the replacement's, which then has nothing to release.
+        if ( m_BindlessSlot.IsValid() )
+            GetBindlessTextureTable().Rewrite( m_BindlessSlot, *this );
+        else
+            std::swap( m_BindlessSlot, other->m_BindlessSlot );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanImage2D::StreamOutLevels( const uint32_t droppedLevels )
+    {
+        const bool plain = m_Specification.Usage == Core::Formats::Image2DUsage::Image2D &&
+                           ( m_Specification.Properties & Core::Formats::Storage ) == 0 &&
+                           m_Specification.Samples <= 1 && m_Specification.ArrayLayers == 0;
+        if ( !plain )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': StreamOutLevels streams plain sampled 2D images only (this one is an attachment, "
+                 "storage, multisampled or array image)",
+                 m_Specification.Tag );
+        if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': StreamOutLevels on an image with no device image", m_Specification.Tag );
+        if ( droppedLevels == 0 || droppedLevels >= m_Resource.MipLevels )
+            return Common::MakeFormattedError<bool>(
+                 "image '{}': StreamOutLevels asked to drop {} of its {} level(s); it must drop at least one and "
+                 "keep at least one",
+                 m_Specification.Tag, droppedLevels, m_Resource.MipLevels );
+
+        // The kept chain, as a data-less image of the same format and colour space: it is written by the copy
+        // below and by nothing else, before any frame samples it (the swap happens after the copy is recorded on
+        // the same queue).
+        const uint32_t                            kept   = m_Resource.MipLevels - droppedLevels;
+        const uint32_t                            width  = std::max( 1u, m_Specification.Width >> droppedLevels );
+        const uint32_t                            height = std::max( 1u, m_Specification.Height >> droppedLevels );
+        const Core::Formats::Image2DSpecification spec   = { .Tag        = m_Specification.Tag,
+                                                             .Width      = width,
+                                                             .Height     = height,
+                                                             .Format     = m_Specification.Format,
+                                                             .Mips       = kept,
+                                                             .Usage      = m_Specification.Usage,
+                                                             .Properties = m_Specification.Properties,
+                                                             .ColorSpace = m_Specification.ColorSpace };
+        auto                                      staged = std::make_shared<VulkanImage2D>( spec );
+        if ( auto created = staged->RT_Invalidate(); !created.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "image '{}': the {}x{} image to stream out into was not "
+                                                     "created: {}",
+                                                     m_Specification.Tag, width, height, created.GetError() );
+        if ( staged->m_Resource.MipLevels != kept )
+            return Common::MakeFormattedError<bool>( "image '{}': the {}x{} stream-out image holds {} level(s), "
+                                                     "not the {} kept",
+                                                     m_Specification.Tag, width, height,
+                                                     staged->m_Resource.MipLevels, kept );
+        // The ledger row moves with the pixels, as in Texture2D::ReplaceLevels.
+        staged->ClaimOwnership( GetResourceOwner(), GetOwningAsset() );
+
+        const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
+        if ( !cmdAlloc.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "image '{}': StreamOutLevels: no command buffer: {}",
+                                                     m_Specification.Tag, cmdAlloc.GetError() );
+        const VkCommandBuffer cmd = cmdAlloc.GetValue();
+
+        // First scope ALL_COMMANDS: a frame still sampling this image finishes before its layout moves; the
+        // next frame finds both images in their default layout.
+        const VkImageLayout original = m_Resource.Layout;
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                          VK_ACCESS_TRANSFER_READ_BIT );
+        staged->TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                  VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_READ_BIT,
+                                  VK_ACCESS_TRANSFER_WRITE_BIT );
+        std::vector<VkImageCopy> regions;
+        regions.reserve( kept );
+        uint32_t w = width, h = height;
+        for ( uint32_t level = 0; level < kept; ++level )
+        {
+            regions.push_back( VkImageCopy{ .srcSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                .mipLevel       = droppedLevels + level,
+                                                                .baseArrayLayer = 0,
+                                                                .layerCount     = 1 },
+                                            .dstSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                .mipLevel       = level,
+                                                                .baseArrayLayer = 0,
+                                                                .layerCount     = 1 },
+                                            .extent         = { w, h, 1 } } );
+            w = w > 1 ? w / 2 : 1;
+            h = h > 1 ? h / 2 : 1;
+        }
+        vkCmdCopyImage( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staged->m_Resource.Image,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>( regions.size() ),
+                        regions.data() );
+        TransitionLayout( cmd, original == VK_IMAGE_LAYOUT_UNDEFINED ? GetDefaultLayout() : original,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT );
+        staged->TransitionLayout( cmd, staged->GetDefaultLayout(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                                  VK_ACCESS_MEMORY_READ_BIT );
+
+        // NO WAIT (UE's stream-out is asynchronous too): the frames that sample the new levels are submitted
+        // after this on the same queue, and the barriers make the copy visible to them. The staged object holds
+        // the OLD device image after the swap below; it is kept until the copy's fence has signalled, and its
+        // destructor then releases that image past the frames in flight, as every release is.
+        auto swapped = TakeDeviceImageFrom( *staged );
+        if ( !swapped.IsSuccess() )
+        {
+            // Nothing samples `staged`; the recorded copy still runs and is released with it.
+            (void)CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease( cmd, [staged] {} );
+            return swapped;
+        }
+        const auto submitted =
+             CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease( cmd, [staged] {} );
+        if ( !submitted.IsSuccess() )
+        {
+            // The copy never ran: take the old levels back, they are still whole.
+            if ( auto back = TakeDeviceImageFrom( *staged ); !back.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "image '{}': the stream-out copy was not submitted ({}) "
+                                                         "and the old levels could not be taken "
+                                                         "back: {}",
+                                                         m_Specification.Tag, submitted.GetError(),
+                                                         back.GetError() );
+            return Common::MakeFormattedError<bool>( "image '{}': the stream-out copy was not submitted: {}",
+                                                     m_Specification.Tag, submitted.GetError() );
+        }
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr VulkanImage2D::CopyLayersFrom( std::span<const Image2D* const> sources )
+    {
+        if ( !m_IsLoaded || m_Resource.Image == VK_NULL_HANDLE )
+            return Common::MakeFormattedError<bool>( "CopyLayersFrom: the array '{}' is not created",
+                                                     m_Specification.Tag );
+        if ( m_Specification.ArrayLayers == 0 || sources.size() != m_Specification.ArrayLayers )
+            return Common::MakeFormattedError<bool>(
+                 "CopyLayersFrom: '{}' has {} array layer(s) and was handed {} source(s); one source per layer",
+                 m_Specification.Tag, m_Specification.ArrayLayers, sources.size() );
+
+        // Every source is checked before anything is recorded, so a refusal leaves the array and every source
+        // as they were. The error names the layer, the source and the field: this is the only place that has
+        // all three. A source may hold MORE levels on top than the array (TEX-STREAMING: its streamed mips came
+        // in, its neighbour's did not yet); the array is then filled from the source's level whose size is the
+        // array's, as UE streams a texture array whole at one mip level. A source with no level of the array's
+        // size, or too few levels below it, is refused.
+        std::vector<VulkanImage2D*> vk( sources.size(), nullptr );
+        std::vector<uint32_t>       firstLevel( sources.size(), 0 );
+        for ( size_t i = 0; i < sources.size(); ++i )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast): the copy moves the source's layout and back
+            auto* src = dynamic_cast<VulkanImage2D*>( const_cast<Image2D*>( sources[i] ) );
+            if ( src == nullptr || src->m_Resource.Image == VK_NULL_HANDLE )
+                return Common::MakeFormattedError<bool>( "CopyLayersFrom: layer {} of '{}' has no created image",
+                                                         i, m_Specification.Tag );
+            const auto& ss  = src->m_Specification;
+            uint32_t    off = 0;
+            while ( off + 1 < src->m_Resource.MipLevels &&
+                    std::max( 1u, ss.Width >> off ) > m_Specification.Width )
+                ++off;
+            const bool sized = std::max( 1u, ss.Width >> off ) == m_Specification.Width &&
+                               std::max( 1u, ss.Height >> off ) == m_Specification.Height;
+            const char* field = ss.ArrayLayers != 0                           ? "its being an array itself"
+                                : !sized                                      ? "size"
+                                : ss.Format != m_Specification.Format         ? "format"
+                                : ss.ColorSpace != m_Specification.ColorSpace ? "colour space (sRGB / linear)"
+                                : src->m_Resource.MipLevels - off < m_Resource.MipLevels ? "mip count"
+                                                                                         : nullptr;
+            if ( field != nullptr )
+                return Common::MakeFormattedError<bool>(
+                     "CopyLayersFrom: layer {} of '{}' is '{}' ({}x{}, format {}, {} mips), which differs from "
+                     "the array ({}x{}, format {}, {} mips) in {}. Every layer of a texture array must be cooked "
+                     "at one size and one format.",
+                     i, m_Specification.Tag, ss.Tag, ss.Width, ss.Height, static_cast<uint32_t>( ss.Format ),
+                     src->m_Resource.MipLevels, m_Specification.Width, m_Specification.Height,
+                     static_cast<uint32_t>( m_Specification.Format ), m_Resource.MipLevels, field );
+            vk[i]         = src;
+            firstLevel[i] = off;
+        }
+
+        const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
+        if ( !cmdAlloc.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "CopyLayersFrom: no command buffer: {}",
+                                                     cmdAlloc.GetError() );
+        const VkCommandBuffer cmd = cmdAlloc.GetValue();
+
+        // The barriers' first scope is every earlier command on the queue (ALL_COMMANDS), so a frame still
+        // sampling a source finishes before its layout moves, and the next frame finds it back in its own.
+        TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                          VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_READ_BIT,
+                          VK_ACCESS_TRANSFER_WRITE_BIT );
+        for ( size_t i = 0; i < vk.size(); ++i )
+        {
+            VulkanImage2D*      src      = vk[i];
+            const VkImageLayout original = src->m_Resource.Layout;
+            src->TransitionLayout( cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_MEMORY_WRITE_BIT,
+                                   VK_ACCESS_TRANSFER_READ_BIT );
+            std::vector<VkImageCopy> regions;
+            regions.reserve( m_Resource.MipLevels );
+            uint32_t w = m_Specification.Width, h = m_Specification.Height;
+            for ( uint32_t level = 0; level < m_Resource.MipLevels; ++level )
+            {
+                regions.push_back( VkImageCopy{ .srcSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                    .mipLevel       = firstLevel[i] + level,
+                                                                    .baseArrayLayer = 0,
+                                                                    .layerCount     = 1 },
+                                                .dstSubresource = { .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                    .mipLevel       = level,
+                                                                    .baseArrayLayer = static_cast<uint32_t>( i ),
+                                                                    .layerCount     = 1 },
+                                                .extent         = { w, h, 1 } } );
+                w = w > 1 ? w / 2 : 1;
+                h = h > 1 ? h / 2 : 1;
+            }
+            vkCmdCopyImage( cmd, src->m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_Resource.Image,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>( regions.size() ),
+                            regions.data() );
+            src->TransitionLayout( cmd, original == VK_IMAGE_LAYOUT_UNDEFINED ? src->GetDefaultLayout() : original,
+                                   VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                                   VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_MEMORY_READ_BIT );
+        }
+        TransitionLayout( cmd, GetDefaultLayout(), VK_PIPELINE_STAGE_TRANSFER_BIT,
+                          VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                          VK_ACCESS_MEMORY_READ_BIT );
+        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        if ( !flushed.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "CopyLayersFrom: '{}': the copy's submit failed: {}",
+                                                     m_Specification.Tag, flushed.GetError() );
+        return BOOLSUCCESS;
     }
 
     // --- VulkanImageCube ---
@@ -1109,11 +1447,17 @@ namespace Desert::Graphic::API::Vulkan
         // additionally is the number that stops existing the day a format is block-compressed.
         RecordDeviceBytes( VulkanAllocator::AllocationSize( m_Resource.Allocation ) );
 
-        m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, m_Resource.MipLevels );
+        // The same six layers, viewed as a cube or as a cube array of this one cube
+        // (ImageCubeSpecification::CubeArray).
+        const VkImageViewType viewType =
+             m_Specification.CubeArray ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
+        m_Resource.ImageView = Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format,
+                                                  VK_IMAGE_ASPECT_COLOR_BIT, viewType, 6, m_Resource.MipLevels );
         m_Resource.Sampler = Utils::AcquireSampler( Utils::SamplerFilterPolicy::Global );
 
         for ( uint32_t i = 0; i < m_Resource.MipLevels; ++i )
-            m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_VIEW_TYPE_CUBE, 6, 1, i ) );
+            m_MipViews.push_back( Utils::CreateView( vkDevice, m_Resource.Image, m_Resource.Format,
+                                                     VK_IMAGE_ASPECT_COLOR_BIT, viewType, 6, 1, i ) );
 
         const auto cmdAlloc = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
         if ( !cmdAlloc.IsSuccess() )

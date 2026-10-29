@@ -67,7 +67,11 @@ namespace Desert::Editor
         // outstanding while this frame was being made". Judged later, by the gate, at OnFramePresented.
         // Also called once at the end of OnAttach: an unsampled census must not read as a settled editor.
         // @p startupLoading is the layer's start-up staging or content settle, still running.
-        void SampleFrameQuiescence( bool startupLoading );
+        // @p hlodBuildRunning: a Build HLODs started by a command is still baking
+        // (WorldPartitionPanel::TickBuild).
+        // @p meshDropsLoading: a viewport's AsyncMeshLoader still imports or has not spawned a dropped mesh.
+        void SampleFrameQuiescence( bool startupLoading, bool reflectionCapturesFilling, bool texturesStreaming,
+                                    bool hlodBuildRunning, bool meshDropsLoading );
         // CAPTURING THE COMPOSITED FRAME, in two halves, because a swapchain image may only be touched
         // between its acquire and its present.
         //
@@ -76,9 +80,21 @@ namespace Desert::Editor
         // gone out. Doing it all after the present produced a correct picture and a Vulkan spec violation
         // that only the validation layer mentioned — see the definition.
         void RecordWindowCaptureIfDue();
+        // A window shot (`shot.window`) is in flight: every frame until it is taken renders the SDR rendition of
+        // an HDR output (Graphic::SetSdrCaptureRendition, HDR-OUTPUT p3), so the captured frame is one of them.
+        [[nodiscard]] bool WindowShotPending() const;
         // The frame is out: judge it, take a `shot.*`, release the reply. Returns the exit status of a `quit`
         // whose reply has gone out — the layer closes the application with it.
-        [[nodiscard]] std::optional<int32_t> OnFramePresented();
+        // @p displacementUnsettled: the presented frame drew a displaced primitive's base while its twin was on
+        // its way (DisplacementStats::Unsettled, read after the frame's EndFrame).
+        // @p materialPipelinesCompiling: the presented frame drew a default-surface stand-in for a material
+        // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
+        // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
+        // (SceneWorkspace::GrassInstancesSettling).
+        [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled,
+                                                               bool subsurfaceHistoryConverging,
+                                                               bool materialPipelinesCompiling,
+                                                               bool grassInstancesSettling );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
@@ -99,6 +115,9 @@ namespace Desert::Editor
         // Editor/Core/ViewportCameraProperties.hpp for why a camera pose is a property write and not a
         // palette command.
         [[nodiscard]] Control::Response SetViewportCameraProperty( const Control::Request& request );
+        // `selection set SunElevation|SunAzimuth <deg>` on a directional light (PORT-SUN-ROTATION).
+        Control::Response SetSelectedSunAngle( const Control::Request& request, Common::UUID uuid,
+                                               const Core::SelectionTransform& before );
         // The `selection` subject's entity and its transform: exactly one selected entity that has a
         // TransformComponent, or a refusal saying what is selected instead.
         [[nodiscard]] Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>>
@@ -147,5 +166,12 @@ namespace Desert::Editor
         // answer is not lost to the exit — a client that never hears "ok" cannot tell a clean shutdown
         // from a crash.
         std::optional<int32_t> m_ControlQuitCode;
+
+        // An `advance`'s mark on Play's simulated clock (PhysicsWorld::GetSimulatedSeconds): the reply is held
+        // (PendingWork::GameTime) until the clock reaches it, or Play ends.
+        std::optional<double> m_AdvanceUntil;
+
+        // The playing scene's simulated seconds; empty outside Play or without a physics world.
+        [[nodiscard]] std::optional<double> PlaySimulatedSeconds() const;
     };
 } // namespace Desert::Editor

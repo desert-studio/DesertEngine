@@ -3,7 +3,7 @@
 
 #include "CookPaths.hpp"
 #include "ImportedMeshAsset.hpp"
-#include "StaticMeshOutput.hpp"
+#include <Editor/Core/StaticMeshOutput.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Logger.hpp>
@@ -252,5 +252,34 @@ namespace Desert::Editor
         if ( !firstFailure.empty() )
             return Common::MakeError<Result>( firstFailure );
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::BoolResultStr CookStaticMeshImport( const Ser::MeshAssetData&                 imported,
+                                                std::span<const std::string>              submeshNodes,
+                                                std::span<const Assets::MeshMaterialSlot> named,
+                                                const std::filesystem::path&              source,
+                                                const Assets::SourceImportSettings&       settings )
+    {
+        // A SPLIT IMPORT'S MESHES ARE CONTENT (each node's `.stmesh` beside the source, committed with it): a cook
+        // rebuilds none of them. Only the combined import's mesh is derived data.
+        const auto record = Ser::ReadImportRecord( source );
+        if ( !record )
+            return Common::MakeError<bool>( record.GetError() );
+        if ( const auto& stated = record.GetValue(); stated && stated->Nodes )
+            return Common::MakeFormattedError<bool>(
+                 "'{}': its node meshes are missing or older than the source, and a cook writes nothing into "
+                 "Content - re-import the source (Import Settings > Reimport)",
+                 source.generic_string() );
+        auto split = NodeMeshesOfImport( imported, submeshNodes, source );
+        if ( !split )
+            return Common::MakeError<bool>( split.GetError() );
+        if ( !split.GetValue().empty() )
+            return Common::MakeFormattedError<bool>(
+                 "'{}' now imports as {} node meshes, which a cook does not write into Content - re-import the "
+                 "source (Import Settings > Reimport)",
+                 source.generic_string(), split.GetValue().size() );
+        if ( auto written = CookImportedMeshEnvelope( imported, named, source, settings ); !written )
+            return Common::MakeError<bool>( written.GetError() );
+        return BOOLSUCCESS;
     }
 } // namespace Desert::Editor

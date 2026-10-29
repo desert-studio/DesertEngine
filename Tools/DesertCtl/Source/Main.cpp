@@ -15,6 +15,10 @@
 //   1  the editor refused, and said why (the reply is on stdout, the reason on stderr)
 //   2  this tool could not reach the editor at all — a different thing entirely, and worth its own code
 //
+// --expect-refusal turns the first two round for a step whose PROOF is the refusal (a scenario line saying "a
+// path of the wrong type is refused"): 0 when the editor refused, with the reason on stdout, 1 when it did it.
+// An unreachable editor stays 2 — not reaching the editor proves nothing either way.
+//
 // ONE REQUEST PER RUN, deliberately. The editor answers a command only after a frame that already reflects
 // it, so a reply arriving IS the synchronisation: `desertctl run ... && desertctl shot-window ...` needs no
 // sleep between the two, and a sleep is what every one of these scripts used to be full of.
@@ -52,12 +56,46 @@ namespace
                       "  run <group> <label>           run one of them, addressed as the palette shows it\n"
                       "  properties                    list the subject's properties and their values\n"
                       "  set <name> <v1[,v2,v3,v4]>    write one of them (the drag a mouse would do)\n"
+                      "  properties <uuid|world>       one entity's reflected components (by its UUID) or\n"
+                      "                                the open scene's World Settings, as text\n"
+                      "  properties tool / set tool <Name> <text>\n"
+                      "                                the active mode's tool settings (Foliage: BrushSize,\n"
+                      "                                PaintDensity, Tool, ...), as the panel writes them\n"
+                      "  set <uuid|world> <Type.Field[.Sub]> <text>\n"
+                      "                                write one reflected field as Details would (one undo\n"
+                      "                                step); the text is parsed by the field's own type\n"
                       "  state [section ...]           read the editor's state as JSON (default: all)\n"
-                      "  shot-window <file.png>        capture the WHOLE editor, interface included\n"
-                      "  shot-viewport <file.png>      capture the 3D viewport only, no interface\n"
+                      "  shot-window <file.png>        capture the WHOLE editor, interface included, in\n"
+                      "                                FRAMEBUFFER pixels (2 per point on Retina; the reply's\n"
+                      "                                pixelsPerPoint says): divide by it to get points\n"
+                      "  shot-viewport <file.png>      capture the 3D viewport only, no interface; its\n"
+                      "                                pixels ARE points (pixelsPerPoint 1)\n"
                       "  drag <x,y> <x,y> [steps]      press, move and release the left mouse over the\n"
-                      "                                subject's image (pixels), through ImGui's input\n"
+                      "                                subject's image, in POINTS from its top-left -- for\n"
+                      "                                the viewport, read straight off a shot-viewport\n"
+                      "                                frame (no x2); through ImGui's input;\n"
+                      "                                --shift / --ctrl / --alt after it hold that key for\n"
+                      "                                the whole drag (Shift-click adds to a selection)\n"
+                      "  input <kind> <panel|-> <x,y|-> [key | path...]\n"
+                      "                                kind: move|click|press|release|scroll|key|keydown|keyup|drop;\n"
+                      "                                scroll: [key] = signed wheel notches (-3 scrolls the\n"
+                      "                                hovered panel's content down, as a wheel would);\n"
+                      "                                x,y in POINTS inside the named panel (else the editor\n"
+                      "                                window) -- a shot-window pixel / pixelsPerPoint,\n"
+                      "                                minus the panel's corner\n"
+                      "  advance <seconds>             during Play: answered once the simulated clock has\n"
+                      "                                moved on that far (0 < seconds <= 2)\n"
                       "  quit [code]                   end the session with that exit status\n"
+                      "  add-component <uuid|selected> <Type>\n"
+                      "                                add a component as Details' Add Component does (one\n"
+                      "                                undo step); Type = its Details or reflected name\n"
+                      "  set world WorldPartition <json> | set world WorldPartition.Grids.<Name>.<Field> <text>\n"
+                      "                                edit the world's runtime grids (one undo step)\n"
+                      "  set world WorldPartition.ChunkRegionSize <cm>\n"
+                      "                                World Settings > World Partition's region size (0 =\n"
+                      "                                the base archive; one undo step)\n"
+                      "  save-as <name>                save the open scene as a NEW level <name> (File ->\n"
+                      "                                Save's path; refused if that file already exists)\n"
                       "\n"
                       "  --wait <seconds>  wait for the socket to appear before connecting; an editor\n"
                       "                    takes a few seconds to boot, and a client that raced it used\n"
@@ -73,6 +111,13 @@ namespace
                       "                    entity's Translation (cm), Rotation (radians) and Scale, set\n"
                       "                    as one undo step, like a Details edit. 'drag' aims at\n"
                       "                    'document' (the Animation window's preview) or 'viewport'.\n"
+                      "\n"
+                      "Units: every coordinate this tool sends is ImGui POINTS -- one unit for drag and\n"
+                      "input. shot-viewport frames are already in points; shot-window frames are not.\n"
+                      "\n"
+                      "  --expect-refusal  the request must be REFUSED: exit 0 when the editor refuses\n"
+                      "                    (reason on stdout), 1 when it does it. For a scenario step\n"
+                      "                    whose proof is the refusal.\n"
                       "\n"
                       "Exit status: 0 the editor did it, 1 it refused (reason on stderr), 2 unreachable.\n" );
     }
@@ -135,6 +180,17 @@ namespace
     std::string SubjectField( const std::string& subject )
     {
         return R"(,"subject":")" + Escape( subject.empty() ? std::string( "document" ) : subject ) + R"(")";
+    }
+
+    /// `,"subject":"world"` or `,"subject":"entity","entity":"<uuid>"` -- the reflected subjects, named
+    /// on the command line in place of --subject because the entity's UUID travels with it.
+    std::string ReflectedSubjectFields( const std::string& who )
+    {
+        if ( who == "world" )
+            return R"(,"subject":"world")";
+        if ( who == "tool" )
+            return R"(,"subject":"tool")";
+        return R"(,"subject":"entity","entity":")" + Escape( who ) + R"(")";
     }
 
     /// "0.05,0.35,0.95" -> "[0.05,0.35,0.95]", or false having said what was wrong.
@@ -298,7 +354,8 @@ static int RunTool( int argc, char** argv )
 {
     std::string              socketPath;
     std::string              subject;
-    double                   waitSeconds = 0.0;
+    double                   waitSeconds   = 0.0;
+    bool                     expectRefusal = false;
     std::vector<std::string> rest;
 
     for ( int i = 1; i < argc; ++i )
@@ -318,6 +375,10 @@ static int RunTool( int argc, char** argv )
             // subjects and refuses an unknown one by name; a second list here would be the copy that falls
             // behind the day a third subject is added, and it would refuse a subject the editor supports.
             subject = argv[++i];
+        }
+        else if ( arg == "--expect-refusal" )
+        {
+            expectRefusal = true;
         }
         else if ( arg == "-h" || arg == "--help" )
         {
@@ -356,9 +417,40 @@ static int RunTool( int argc, char** argv )
         request = R"({"id":1,"op":"run","group":")" + Escape( rest[1] ) + R"(","label":")" + Escape( rest[2] ) +
                   R"("})";
     }
+    else if ( operation == "save-as" )
+    {
+        if ( rest.size() < 2 )
+        {
+            std::fprintf( stderr, "desertctl: save-as needs the scene's new name.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"save-as","name":")" + Escape( rest[1] ) + R"("})";
+    }
+    else if ( operation == "add-component" )
+    {
+        if ( rest.size() != 3 )
+        {
+            std::fprintf( stderr, "desertctl: add-component needs <uuid> <Type>.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"add-component","entity":")" + Escape( rest[1] ) + R"(","component":")" +
+                  Escape( rest[2] ) + R"("})";
+    }
+    else if ( operation == "properties" && rest.size() == 2 )
+    {
+        request = R"({"id":1,"op":"properties")" + ReflectedSubjectFields( rest[1] ) + "}";
+    }
     else if ( operation == "properties" )
     {
         request = R"({"id":1,"op":"properties")" + SubjectField( subject ) + "}";
+    }
+    else if ( operation == "set" && rest.size() == 4 )
+    {
+        // The reflected form: told apart from the numeric one by its arity (a subject before the name),
+        // and its value goes as TEXT -- the editor parses it by the field's own type, so an asset id or
+        // an enum name is not squeezed through a float array.
+        request = R"({"id":1,"op":"set")" + ReflectedSubjectFields( rest[1] ) + R"(,"property":")" +
+                  Escape( rest[2] ) + R"(","text":")" + Escape( rest[3] ) + R"("})";
     }
     else if ( operation == "set" )
     {
@@ -391,18 +483,30 @@ static int RunTool( int argc, char** argv )
     }
     else if ( operation == "drag" )
     {
-        // drag <fromX,fromY> <toX,toY> [steps] — image pixels of --subject (document | viewport).
+        // drag <fromX,fromY> <toX,toY> [steps] [--shift] [--ctrl] [--alt] — image points of --subject.
+        std::string modifiers;
+        for ( auto it = rest.begin(); it != rest.end(); )
+        {
+            if ( *it == "--shift" || *it == "--ctrl" || *it == "--alt" )
+            {
+                modifiers += ( modifiers.empty() ? "" : "+" ) + it->substr( 2 );
+                it = rest.erase( it );
+            }
+            else
+                ++it;
+        }
         std::string from;
         std::string to;
         if ( rest.size() < 3 || !NumberArray( rest[1], from ) || !NumberArray( rest[2], to ) )
         {
-            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image pixels.\n" );
+            std::fprintf( stderr, "desertctl: drag needs <fromX,fromY> <toX,toY> [steps] in image points (a "
+                                  "shot-viewport frame's pixels).\n" );
             return kNoEditor;
         }
         const std::string steps = ( rest.size() > 3 ) ? rest[3] : "8";
-        request                 = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{}{}}})",
-                                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps,
-                                               SubjectField( subject ) );
+        request = std::format( R"({{"id":1,"op":"drag","value":[{},{}],"steps":{},"modifiers":"{}"{}}})",
+                               from.substr( 1, from.size() - 2 ), to.substr( 1, to.size() - 2 ), steps, modifiers,
+                               SubjectField( subject ) );
     }
     else if ( operation == "input" )
     {
@@ -410,17 +514,32 @@ static int RunTool( int argc, char** argv )
         if ( rest.size() < 4 || ( rest[3] != "-" && !NumberArray( rest[3], point ) ) )
         {
             std::fprintf( stderr,
-                          "desertctl: input <move|click|press|release|key|keydown|keyup|drop> <panel|-> <x,y|-> "
+                          "desertctl: input <move|click|press|release|scroll|key|keydown|keyup|drop> <panel|-> <x,y|-> "
                           "[key | path...]\n" );
             return kNoEditor;
         }
         const std::string panel = rest[2] == "-" ? std::string() : rest[2];
         const bool        isKey = rest[1] == "key" || rest[1] == "keydown" || rest[1] == "keyup";
-        const std::string key   = isKey && rest.size() > 4 ? rest.back() : std::string();
-        const std::string paths = isKey ? std::string() : QuotedList( rest, 4 );
+        const bool        isScroll = rest[1] == "scroll";
+        const std::string key      = ( isKey || isScroll ) && rest.size() > 4 ? rest.back() : std::string();
+        const std::string paths    = isKey || isScroll ? std::string() : QuotedList( rest, 4 );
         request =
              std::format( R"({{"id":1,"op":"input","kind":"{}","panel":"{}","value":{},"key":"{}","paths":[{}]}})",
                           Escape( rest[1] ), Escape( panel ), point, Escape( key ), paths );
+    }
+    else if ( operation == "advance" )
+    {
+        // One number: the editor answers once Play's simulated clock has moved on that far -- the scenario's
+        // wait for a fall or a timer, without a sleep on this side.
+        std::string seconds;
+        if ( rest.size() != 2 || rest[1].find( ',' ) != std::string::npos )
+        {
+            std::fprintf( stderr, "desertctl: advance needs <seconds>.\n" );
+            return kNoEditor;
+        }
+        if ( !NumberArray( rest[1], seconds ) )
+            return kNoEditor;
+        request = R"({"id":1,"op":"advance","value":)" + seconds + "}";
     }
     else if ( operation == "quit" )
     {
@@ -489,19 +608,27 @@ static int RunTool( int argc, char** argv )
         return kNoEditor;
     }
     if ( succeeded.value() )
-        return kOk;
+    {
+        if ( !expectRefusal )
+            return kOk;
+        std::fprintf( stderr, "desertctl: expected a refusal, and the editor did it.\n" );
+        return kRefused;
+    }
 
+    // Refused as expected: the reason goes to stdout and the run succeeds, so the scenario's log keeps it.
+    std::FILE* const reasonTo = expectRefusal ? stdout : stderr;
+    const char*      heading  = expectRefusal ? "refused as expected" : "refused";
     if ( const auto error = object.get( "error" ) )
     {
         if ( const auto reason = error.value().to_string() )
-            std::fprintf( stderr, "desertctl: refused: %s\n", reason.value().c_str() );
+            std::fprintf( reasonTo, "desertctl: %s: %s\n", heading, reason.value().c_str() );
         else
-            std::fprintf( stderr, "desertctl: refused, and the reply's \"error\" is not a string: %s\n",
+            std::fprintf( reasonTo, "desertctl: %s, and the reply's \"error\" is not a string: %s\n", heading,
                           Common::Json::Write( error.value() ).c_str() );
     }
     else
-        std::fprintf( stderr, "desertctl: refused without a reason in the reply.\n" );
-    return kRefused;
+        std::fprintf( reasonTo, "desertctl: %s without a reason in the reply.\n", heading );
+    return expectRefusal ? kOk : kRefused;
 }
 
 // The entry point, one line. Anything this tool throws is named on stderr with the tool's own name

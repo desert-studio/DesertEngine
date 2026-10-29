@@ -43,6 +43,61 @@
 #include <string_view>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestFirstShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, TransmittanceLutTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestSecondShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, TransmittanceLutTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestSkyShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, CloudHistoryTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, CloudHistoryGuideTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SsaoTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestGlassShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, u_ShadowMap0 );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestTonemapShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, BloomTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, LightShaftTexture );
+        DESERT_SHADER_PARAMETER( Texture, LensFlareTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RenderGraphCompileTestShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
+
 using namespace Desert::Graphic::RDG;
 using Desert::Core::Formats::ImageFormat;
 
@@ -811,16 +866,17 @@ TEST( RenderGraphCompile, ABlockEntryNamingAnEngineImageIsDeclaredOnItsImportAnd
     Desert::Graphic::RenderPassDeclaration writer;
     writer
          .Bindings( ShaderBindingLayout{ "TransmittanceLut",
-                                         { { "u_TransmittanceLut", ShaderResourceKind::StorageTexture } } },
+                                         { { "TransmittanceLutTexture", ShaderResourceKind::StorageTexture } } },
                     {} )
-         .Storage( "u_TransmittanceLut", lut, Access::StorageWrite, "Sky.TransmittanceLut" );
+         .Storage( RenderGraphCompileTestFirstShaderParameters::TransmittanceLutTexture, lut, Access::StorageWrite,
+                   "Sky.TransmittanceLut" );
     Desert::Graphic::RenderPassDeclaration reader;
     reader
          .Bindings(
-              ShaderBindingLayout{ "Skybox", { { "u_TransmittanceLut", ShaderResourceKind::SampledTexture } } },
-              {} )
-         .Sampled( "u_TransmittanceLut", lut, Access::SampledGraphics, SamplerDesc::LinearClamp(),
-                   "Sky.TransmittanceLut" );
+              ShaderBindingLayout{ "Skybox", { { "TransmittanceLutTexture", ShaderResourceKind::Texture } } }, {} )
+         .Texture( RenderGraphCompileTestSecondShaderParameters::TransmittanceLutTexture, lut,
+                   Access::SampledGraphics, "Sky.TransmittanceLut" )
+         .Sampler( RenderGraphCompileTestSecondShaderParameters::LinearClampSampler, SamplerDesc::LinearClamp() );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( writer ).size(), 1u );
     EXPECT_EQ( Desert::Graphic::BlockImageEntries( writer ).front()->ImportName, "Sky.TransmittanceLut" );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( writer ), nullptr );
@@ -864,13 +920,14 @@ TEST( RenderGraphCompile, TwoBlockEntriesReadingOneImageInOneStateAreOneReadAndT
     Desert::Graphic::RenderPassDeclaration resolve;
     resolve
          .Bindings( ShaderBindingLayout{ "CloudResolve",
-                                         { { "u_CloudHistory", ShaderResourceKind::SampledTexture },
-                                           { "u_CloudHistoryGuide", ShaderResourceKind::SampledTexture } } },
+                                         { { "CloudHistoryTexture", ShaderResourceKind::Texture },
+                                           { "CloudHistoryGuideTexture", ShaderResourceKind::Texture } } },
                     {} )
-         .Sampled( "u_CloudHistory", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
-                   "Clouds.HistoryFallback" )
-         .Sampled( "u_CloudHistoryGuide", fallback, Access::SampledCompute, SamplerDesc::LinearRepeat(),
-                   "Clouds.HistoryFallback" );
+         .Texture( RenderGraphCompileTestSkyShaderParameters::CloudHistoryTexture, fallback,
+                   Access::SampledCompute, "Clouds.HistoryFallback" )
+         .Sampler( RenderGraphCompileTestSkyShaderParameters::LinearRepeatSampler, SamplerDesc::LinearRepeat() )
+         .Texture( RenderGraphCompileTestSkyShaderParameters::CloudHistoryGuideTexture, fallback,
+                   Access::SampledCompute, "Clouds.HistoryFallback" );
     ASSERT_EQ( Desert::Graphic::BlockImageEntries( resolve ).size(), 2u );
     EXPECT_EQ( Desert::Graphic::InvalidDeclaredRef( resolve ), nullptr );
 
@@ -927,15 +984,14 @@ TEST( RenderGraphCompile, ADeclarationOfAnInvalidGraphRefIsRefused )
     EXPECT_NE( std::string_view( bufferRefusal ).find( "buffer" ), std::string_view::npos );
 }
 
-// VAL-SSAO1: "u_SSAO bound as VkImageView 0x0" (30 validation warnings, one editor session). Before RDG-A2 the
+// VAL-SSAO1: "SsaoTexture bound as VkImageView 0x0" (30 validation warnings, one editor session). Before RDG-A2 the
 // composite's AO was a material Texture2DProperty set only `if ( m_SSAO && aoImage )`: a frame without an AO image
 // (SSAO off, a new renderer's first frame) drew with whatever the property held - nothing on a fresh material.
 // Now the AO input is declared from the graph: the SSAO transient when the SSAO pass ran, else the registered
 // System.White (AO = 1); a ref that is neither faults the composite before its exec, so no null view is bound.
 TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefFaultsThePass )
 {
-    const ShaderBindingLayout layout{
-         "DeferredLighting", { { "u_SSAO", ShaderResourceKind::SampledTexture } }, 0 };
+    const ShaderBindingLayout layout{ "DeferredLighting", { { "SsaoTexture", ShaderResourceKind::Texture } }, 0 };
 
     // SSAO did not run this frame: the composite reads System.White, compiled with no fault and not culled.
     {
@@ -952,8 +1008,11 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
              [&]( PassBuilder& pass )
              {
                  pass.Bindings( layout, {} )
-                      .Sampled( "u_SSAO", ssao.IsValid() ? ssao : system.White, Access::SampledGraphics,
-                                SubresourceRange::All(), SamplerDesc::LinearRepeat() );
+                      .Texture( RenderGraphCompileTestCompositeShaderParameters::SsaoTexture,
+                                ssao.IsValid() ? ssao : system.White, Access::SampledGraphics,
+                                SubresourceRange::All() )
+                      .Sampler( RenderGraphCompileTestCompositeShaderParameters::LinearRepeatSampler,
+                                SamplerDesc::LinearRepeat() );
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
              Ok );
@@ -973,7 +1032,9 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
              [&]( PassBuilder& pass )
              {
                  pass.Bindings( layout, {} )
-                      .Sampled( "u_SSAO", TextureRef{}, Access::SampledGraphics, SubresourceRange::All(),
+                      .Texture( RenderGraphCompileTestCompositeShaderParameters::SsaoTexture, TextureRef{},
+                                Access::SampledGraphics, SubresourceRange::All() )
+                      .Sampler( RenderGraphCompileTestCompositeShaderParameters::LinearRepeatSampler,
                                 SamplerDesc::LinearRepeat() );
                  pass.ColorTarget( 0, back, LoadOp::DontCare() );
              },
@@ -985,7 +1046,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
     }
 
     // The frame code keeps that shape: the one assignment of the composite's AO falls back to System.White, and
-    // the deferred-lighting material holds no u_SSAO property of its own (the pre-RDG route that bound null).
+    // the deferred-lighting material holds no SsaoTexture property of its own (the pre-RDG route that bound null).
     const fs::path root     = RepoRoot();
     const auto     stripped = [&root]( const char* relative )
     {
@@ -1003,7 +1064,7 @@ TEST( RenderGraphCompile, CompositeAOIsTheSSAOTransientOrSystemWhiteAndANullRefF
     EXPECT_EQ( frame.find( "inputs.SSAO=", first == std::string::npos ? 0 : first + 1 ), std::string::npos )
          << "the composite's AO is assigned in more than one place";
     EXPECT_EQ( stripped( "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp" )
-                    .find( "u_SSAO" ),
+                    .find( "SsaoTexture" ),
                std::string::npos );
 }
 
@@ -2382,15 +2443,19 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          // SSR2: the view's HZB the trace marches, built before it.
          "temporal[hzb]",
          "Deferred: SSR",
-         "Deferred: RSM",
-         "Deferred: GIResolve",
          "Deferred: Composite",
          "Deferred: Generic",
+<<<<<<< HEAD
          "Deferred: Skinned",
          // VOLFOG-2: the opaque scene is complete - its fog (UE: the fog volumes built before the translucency):
          // the depth resolve, the sky's LUTs, the volumetric fog's froxels lit and integrated, the height fog's
          // evaluation of the OPAQUE depth and its apply over the scene, all before the scene copy (the refraction
          // reads the fogged scene) and before every translucent draw, which fogs itself at its own depth.
+=======
+         "Deferred: SceneCopy",
+         "Deferred: Water",
+         "Deferred: Glass",
+>>>>>>> origin/dev
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
          "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun)]",
@@ -2557,7 +2622,6 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     }
     // The exposure dispatch covers the texture it reads, not the scene target's image.
     declares( "AddFrameAutoExposure", { "graph.GetTextureDesc(scene)" } );
-    declares( "AddFrameGIResolve", { "PassFlags::Raster", "ColorTarget(0,gather,", "gi->Denoise(graph,gather," } );
     declares( "AddFrameComposite", { "PassFlags::Raster", "deferred->DeclareCompositeBindings(pass,inputs,lights)",
                                      "LoadTarget(pass,target,loads)" } );
     declares( "AddFrameSceneCopy", { "PassFlags::Raster", "Access::SampledGraphics", "ColorTarget(0,sceneCopy" } );
@@ -2583,13 +2647,16 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
                  std::string( std::istreambuf_iterator<char>( file ), std::istreambuf_iterator<char>() ) );
         };
         EXPECT_NE(
-             declaration( "SSRRenderer.hpp" ).find( ".Storage(\"u_Trace\",trace,RDG::Access::StorageWrite)" ),
+             declaration( "SSRRenderer.hpp" )
+                  .find( ".Storage(SSRTraceShaderParameters::SsrTraceTexture,trace,RDG::Access::StorageWrite)" ),
              std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
-                        .find( ".Sampled(\"u_GBufferDepth\",depth,RDG::Access::SampledGraphics" ),
+                        .find( ".Texture(SSAOBindingShaderParameters::GBufferDepthTexture,depth,RDG::Access::"
+                               "SampledGraphics" ),
                    std::string::npos );
         EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
-                        .find( ".Sampled(\"u_SSAO\",inputs.SSAO,RDG::Access::SampledGraphics" ),
+                        .find( ".Texture(DeferredLightingCompositeShaderParameters::SsaoTexture,inputs.SSAO,kRead,"
+                               "kWhole)" ),
                    std::string::npos );
     }
 }
@@ -2755,7 +2822,7 @@ TEST( RenderGraphCompile, ImportedFramebufferStartsFromTheRecordedLayoutsAndWrit
     ASSERT_EQ( onDepth.size(), 1u );
     EXPECT_EQ( onDepth[0].Before.Layout, ImageLayout::DepthStencilAttachment );
     // Tested only, but the render pass's storeOp writes it: the state carries that write for the next barrier.
-    EXPECT_EQ( onDepth[0].After, ReadOnlyAttachmentStoreState( GetAccessState( Access::DepthRead ) ) );
+    EXPECT_EQ( onDepth[0].After, AttachmentAccessState( Access::DepthRead, true ) );
 
     RecordingBackend backend;
     ASSERT_TRUE( graph.Execute( backend ).IsSuccess() );
@@ -3196,9 +3263,8 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
     for ( const char c : frame )
         if ( !std::isspace( static_cast<unsigned char>( c ) ) )
             collapsed.push_back( c );
-    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: RSM\"",
-                               "\"Deferred: Generic\"", "\"Deferred: Skinned\"", "\"Deferred: Glass\"",
-                               "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
+    for ( const char* node : { "\"Deferred: GBuffer\"", "\"TerrainGBuffer\"", "\"Deferred: Generic\"",
+                               "\"Deferred: Glass\"", "\"Debug: Overdraw\"", "\"Debug: Overdraw Resolve\"" } )
     {
         std::string call = std::format( "AddRaster(graph,{}", node );
         std::erase_if( call, []( const char c ) { return std::isspace( static_cast<unsigned char>( c ) ); } );
@@ -3220,11 +3286,8 @@ TEST( RenderGraphCompile, MeshAndTerrainPassesAreRasterNodesTheGraphOpens )
            "RenderGBufferManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.cpp",
            "RenderGBufferManual" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererShadow.cpp", "RenderRSMManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
            "RenderGenericManual" },
-         { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",
-           "RenderSkinnedManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp", "RenderGlassManual" },
          { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
            "RenderOverdrawAccumManual" },
@@ -3435,31 +3498,39 @@ TEST( RenderGraphCompile, ParticlePoolNodesDeclareTheirBuffersAndDrawIndirect )
     // arguments IndirectArgs; the draw reads the pool and the alive list and the Counters as IndirectArgs.
     const std::string particles = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Particles/ParticleRenderer.cpp" );
-    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
-                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleCompactPush)));"
-                               "if(compact>0)pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
-               std::string::npos );
-    EXPECT_NE( particles.find( ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
-                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"DispatchArgs\",ve.ArgsRef,RDG::Access::StorageWrite)" ),
-               std::string::npos )
+    EXPECT_NE(
+         particles.find(
+              ".Storage(ParticleCompactShaderParameters::PoolSlots,m_Pool.SlotsRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleCompactShaderParameters::FreeList,m_Pool.FreeRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleCompactShaderParameters::AliveList,m_Pool.AliveRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleCompactShaderParameters::Counters,ve.CountersRef,RDG::Access::StorageWrite)"
+              ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleCompactPush)));"
+              "if(compact>0)pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
+         std::string::npos );
+    EXPECT_NE(
+         particles.find(
+              ".Storage(ParticleDispatchArgsShaderParameters::StepTable,ve.StepsRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleDispatchArgsShaderParameters::Counters,ve.CountersRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleDispatchArgsShaderParameters::DispatchArgs,ve.ArgsRef,RDG::Access::"
+              "StorageWrite)" ),
+         std::string::npos )
          << "Dispatch Args does not declare the indirect arguments it writes";
-    EXPECT_NE( particles.find( ".Storage(\"PoolSlots\",m_Pool.SlotsRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"StepTable\",ve.StepsRef,RDG::Access::StorageRead)"
-                               ".Storage(\"FreeList\",m_Pool.FreeRef,RDG::Access::StorageRead)"
-                               ".Storage(\"AliveList\",m_Pool.AliveRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"Counters\",ve.CountersRef,RDG::Access::StorageRead)"
-                               ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)"
-                               ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"AttributeInts\",ve.IntsRef,RDG::Access::StorageWrite)"
-                               ".Storage(\"StackParams\",ve.ParamsRef,RDG::Access::StorageRead)"
-                               ".Storage(\"StackCurves\",ve.CurvesRef,RDG::Access::StorageRead)"
-                               ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
-                               "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
-               std::string::npos );
+    EXPECT_NE(
+         particles.find(
+              ".Storage(ParticleSimulateShaderParameters::PoolSlots,m_Pool.SlotsRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleSimulateShaderParameters::StepTable,ve.StepsRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::FreeList,m_Pool.FreeRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::AliveList,m_Pool.AliveRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleSimulateShaderParameters::Counters,ve.CountersRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::ChannelSpawns,ve.ChannelRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::AttributeFloats,ve.FloatsRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleSimulateShaderParameters::AttributeInts,ve.IntsRef,RDG::Access::StorageWrite)"
+              ".Storage(ParticleSimulateShaderParameters::StackParams,ve.ParamsRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::StackCurves,ve.CurvesRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSimulateShaderParameters::PointSets,ve.PointSetsRef,RDG::Access::StorageRead)"
+              ".PushConstantBytes(static_cast<uint32_t>(sizeof(ParticleSimPush)));"
+              "pass.Read(ve.ArgsRef,RDG::Access::IndirectArgs);" ),
+         std::string::npos );
     // Sized by the GPU counts: Spawn+Update and every compact after the first dispatch indirect; the CPU sizes
     // only Dispatch Args (one thread) and compact 0 (the range's full scan).
     EXPECT_NE( particles.find( "Renderer::DispatchComputeIndirect(bindings,*ve.Frame->Pipeline,ve.ArgsRef,"
@@ -3786,10 +3857,12 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
     const std::pair<const char*, const char*> declared[] = {
          // The procedural sky's LUTs are entries of the SkyboxPass's block (DeclareSkyDraw), each the read.
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           ".Sampled(\"u_SkyViewLut\",refs.Transients.SkyViewLut.IsValid()?refs.Transients.SkyViewLut:white,"
+           ".Texture(SkyboxProceduralShaderParameters::SkyViewLutTexture,refs.Transients.SkyViewLut.IsValid()?"
+           "refs.Transients.SkyViewLut:white,"
            "RDG::Access::SampledGraphics" },
          { "Systems/Scene/Skybox/SkyboxRenderer.cpp",
-           ".Sampled(\"u_TransmittanceLut\",refs.Transients.SkyTransmittanceLut.IsValid()?refs.Transients."
+           ".Texture(SkyboxProceduralShaderParameters::TransmittanceLutTexture,refs.Transients."
+           "SkyTransmittanceLut.IsValid()?refs.Transients."
            "SkyTransmittanceLut:white,RDG::Access::SampledGraphics" },
          // The forward mesh node's scene/view inputs are bound per material block of the draw list its Declare
          // builds (MeshDrawList::Declare -> BindSceneViewInputs), so the graph sees each sampled input as a
@@ -3803,15 +3876,17 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
            "Forward),&view);" },
          { "Systems/Scene/Terrain/TerrainRenderer.cpp", "BindSceneViewInputs(block,*view,*layout);" },
          { "Systems/Scene/Particles/ParticleRenderer.cpp",
-           ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)" },
+           ".Storage(ParticleSpriteShaderParameters::AttributeFloats,ve.FloatsRef,RDG::Access::StorageRead)" },
          // The fog apply's image: the entry of its block (no material route), the read.
-         { "Systems/Scene/Fog/HeightFogRenderer.cpp",
-           ".Sampled(\"u_FogApply\",refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
+         { "Systems/Scene/Fog/HeightFogRenderer.cpp", ".Texture(HeightFogApplyShaderParameters::FogApplyTexture,"
+                                                      "refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
          // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Sampled(\"u_CloudScatter\",scatter,RDG::Access::SampledGraphics" },
+           ".Texture(VolumetricCloudCompositeShaderParameters::CloudScatterTexture,scatter,RDG::Access::"
+           "SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Sampled(\"u_CloudGuide\",guide,RDG::Access::SampledGraphics" },
+           ".Texture(VolumetricCloudCompositeShaderParameters::CloudGuideTexture,guide,RDG::Access::"
+           "SampledGraphics" },
          // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
          // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
          { "SceneRendererFrameDeferred.cpp", "view.ShadowCascades=mesh->AcquireCascadeMaps(graph);" },
@@ -3886,12 +3961,16 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            // Each LUT node's block 0 names every LUT as an entry (the renderer's own image, imported by the
            // graph): the entry IS the declaration of the write / the sampled read; no pipeline-level image
            // binding.
-           { "Storage(\"u_TransmittanceLut\",m_TransmittanceLut,RDG::Access::StorageWrite",
-             "Storage(\"u_MultiScatterLut\",m_MultiScatterLut,RDG::Access::StorageWrite",
-             "Storage(\"u_SkyViewLut\",m_SkyViewLut,RDG::Access::StorageWrite",
-             "Storage(\"u_AerialPerspectiveLut\",m_AerialPerspectiveLut,RDG::Access::StorageWrite",
-             "Storage(\"u_DistantSkyLight\",m_DistantLight,RDG::Access::StorageWrite",
-             R"(Sampled("u_TransmittanceLut",m_TransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
+           { "Storage(SkyboxLutWriteShaderParameters::TransmittanceLutTexture,m_TransmittanceLut,RDG::Access::"
+             "StorageWrite",
+             "Storage(SkyboxLutWriteShaderParameters::MultiScatterLutTexture,m_MultiScatterLut,RDG::Access::"
+             "StorageWrite",
+             "Storage(SkyboxLutReadShaderParameters::SkyViewLutTexture,m_SkyViewLut,RDG::Access::StorageWrite",
+             "Storage(SkyboxLutReadShaderParameters::AerialPerspectiveLutTexture,m_AerialPerspectiveLut,RDG::"
+             "Access::StorageWrite",
+             "Storage(SkyboxLutReadShaderParameters::DistantSkyLightTexture,m_DistantLight,RDG::Access::"
+             "StorageWrite",
+             R"(Sampled("TransmittanceLutTexture",m_TransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
              // RDG-PSO: each LUT node's layout is the one kept for its pipeline (keyed on the pipeline's shader).
              "declared.Bindings(layout.Get(pipeline->GetSpecification().Shader),",
              "declareBlock(transmittance.Access,m_TransmittanceLutPipeline.get(),m_TransmittanceLutLayout,0)",
@@ -3900,30 +3979,43 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
            "VolumetricCloudRenderer::DeclareShadowMapNodes(",
            { "SampledMedium(SampledVolumes(DeclareComputeBlock(shadow.Access,m_ShadowMapPipeline.get(),m_"
              "ShadowMapLayout,",
-             R"(Storage("u_CloudShadowMap",m_ShadowMapImage,RDG::Access::StorageWrite,"Clouds.ShadowMap"))" } },
+             R"(Storage("CloudShadowMapTexture",m_ShadowMapImage,RDG::Access::StorageWrite,"Clouds.ShadowMap"))" } },
          { "Systems/Scene/Fog/HeightFogRenderer.cpp",
            "HeightFogRenderer::DeclareFrameNodes(",
            // Block 0's entries: the fog image it writes, the depth and the sky's two images it samples, each
            // with the sampler the image carried as its own.
-           { "block.Storage(\"u_FogApply\",fogImage,RDG::Access::StorageWrite)",
-             ".Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
-             ".Sampled(\"u_AerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
-             R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
+           { "block.Storage(HeightFogFogShaderParameters::FogApplyTexture,fogImage,RDG::Access::StorageWrite)",
+             ".Texture(HeightFogFogShaderParameters::SceneDepthTexture,depth,RDG::Access::SampledCompute,"
+             "\"SceneDepth."
+             "Compute\").Sampler(HeightFogFogShaderParameters::GlobalFilterSampler,GlobalTextureFilterSampler())",
+             ".Texture(HeightFogFogShaderParameters::AerialPerspectiveTexture,aerialPerspective,RDG::Access::"
+             "SampledCompute,",
+             ".Texture(HeightFogFogShaderParameters::DistantSkyLightTexture,distantSkyLight,RDG::Access::"
+             "SampledCompute,",
              "graph.CreateTexture(fogDesc,\"HeightFog.Fog\")", "transients.HeightFog=fogImage" } },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            "VolumetricCloudRenderer::DeclareFrameNodes(",
-           { "Storage(\"u_CloudSkyOcclusion\",m_SkyOcclusionVolume,RDG::Access::StorageWrite",
-             "Sampled(\"u_SceneDepth\",depth,RDG::Access::SampledCompute,GlobalTextureFilterSampler()",
+           { "Storage(VolumetricCloudShaderParameters::CloudSkyOcclusionTexture,m_SkyOcclusionVolume,RDG::Access::"
+             "StorageWrite",
+             "Texture(VolumetricCloudShaderParameters::SceneDepthTexture,depth,RDG::Access::SampledCompute,"
+             "\"SceneDepth."
+             "Compute\").Sampler(VolumetricCloudShaderParameters::GlobalFilterSampler,GlobalTextureFilterSampler()"
+             ")",
              "SampledMedium(SampledVolumes(DeclareComputeBlock(march.Access,m_MarchPipeline.get(),m_MarchLayout,",
              // The sky's three images are entries of the march with the sampler each carried as its own.
-             R"(.Sampled("u_DistantSkyLight",distantSkyLight,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
-             ".Sampled(\"u_CloudAerialPerspective\",aerialPerspective,RDG::Access::SampledCompute,VolumeSampler()",
-             R"(.Sampled("u_CloudSunTransmittanceLut",sunTransmittanceLut,RDG::Access::SampledCompute,GlobalTextureFilterSampler())",
+             ".Texture(HeightFogFogShaderParameters::DistantSkyLightTexture,distantSkyLight,RDG::Access::"
+             "SampledCompute,",
+             ".Texture(VolumetricCloudShaderParameters::CloudAerialPerspectiveTexture,aerialPerspective,RDG::"
+             "Access::SampledCompute,",
+             ".Texture(VolumetricCloudShaderParameters::CloudSunTransmittanceLutTexture,sunTransmittanceLut,RDG::"
+             "Access::"
+             "SampledCompute,",
              // The trace pair: block entries of the march (written) and of the resolve (sampled).
-             ".Storage(\"u_CloudScatter\",trace,RDG::Access::StorageWrite)",
-             ".Sampled(\"u_CloudTrace\",trace,RDG::Access::SampledCompute",
+             ".Storage(VolumetricCloudShaderParameters::CloudScatterTexture,trace,RDG::Access::StorageWrite)",
+             ".Texture(VolumetricCloudShaderParameters::CloudTraceTexture,trace,RDG::Access::SampledCompute",
              "graph.CreateTexture(traceDesc,\"Clouds.Trace\")",
-             "Storage(\"u_ReconstructedScatter\",m_HistoryImage[writeIndex],RDG::Access::StorageWrite" } } };
+             "Storage(VolumetricCloudShaderParameters::ReconstructedScatterTexture,m_HistoryImage[writeIndex],RDG:"
+             ":Access::StorageWrite" } } };
     for ( const Declares& d : declares )
     {
         const std::string body = FunctionBody( source( d.File ), d.Function );
@@ -3972,7 +4064,7 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
                std::string::npos );
     const std::string deferredMaterial = source( "Materials/Deferred/MaterialDeferredLighting.hpp" );
     EXPECT_NE( deferredMaterial.find( "CloudShadowUpload(this,cloudShadow)" ), std::string::npos );
-    EXPECT_EQ( deferredMaterial.find( "\"u_CloudShadowMap\"" ), std::string::npos )
+    EXPECT_EQ( deferredMaterial.find( "\"CloudShadowMapTexture\"" ), std::string::npos )
          << "the deferred material sets the cloud map itself; it is a pass parameter";
 }
 
@@ -3989,7 +4081,7 @@ TEST( RenderGraphCompile, NoLegacyConstructRemainsInTheEngine )
          // MESH-PB1 M2a: the material-route draws (no PassBindings) are deleted from Renderer / RendererAPI.
          R"(|SubmitVertices\s*\(|RenderMesh\(\s*const GraphicsPipeline\s*\*)"
          // MESH-PB1 M2e: the out-of-graph fullscreen blit (the runtime present is a graph node) and the
-         // material-side cloud-map binder (u_CloudShadowMap is a pass parameter).
+         // material-side cloud-map binder (CloudShadowMapTexture is a pass parameter).
          R"(|SubmitFullscreenTriangle\s*\(|CloudShadowBind\s*\()"
          // MESH-PB1 M2d: the editor's ImGui draw is a graph node; the out-of-graph swapchain pass is gone.
          R"(|BeginSwapChainRenderPass)" );
@@ -4049,22 +4141,19 @@ TEST( RenderGraphCompile, MeshPassBodiesReturnTheirDrawResult )
 
     const std::string shadow = stripped( "Systems/Scene/Mesh/MeshRendererShadow.cpp" );
     ASSERT_FALSE( shadow.empty() );
-    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowCascade(context,c,firstBlock,m_CascadeCasterVP[c],"
+    EXPECT_NE( shadow.find( "if(autocast=caster->RecordShadowView(context,c,firstBlock,m_CascadeCasterVP[c],"
                             "m_CascadeCasterBias[c]);"
                             "!cast.IsSuccess()){returncast;}" ),
                std::string::npos )
          << "the cascade body drops the non-mesh caster's draw result";
     // ...and records through the blocks the caster declared on the cascade node in its setup.
-    EXPECT_NE( shadow.find( "constuint32_tdeclaredBlocks=caster->DeclareShadowCascade(declared,c);" ),
+    EXPECT_NE( shadow.find( "constuint32_tdeclaredBlocks=caster->DeclareShadowView(declared,c);" ),
                std::string::npos )
          << "the cascade's setup no longer lets the non-mesh casters declare their blocks";
     // The cascade's draw list (singles / generic / skinned / instanced, built in its Declare by
-    // BuildShadowCascadeDraws) and the RSM's (DeclareRSMDraws), whose Record returns the first refused draw
-    // (MeshDrawList::Record).
+    // BuildShadowCascadeDraws), whose Record returns the first refused draw (MeshDrawList::Record).
     EXPECT_GE( count( shadow, "!drawn.IsSuccess())returndrawn;" ), 1u )
          << "a shadow draw's refusal is no longer returned by its body";
-    EXPECT_NE( shadow.find( "returnm_RSMDraws.Record(context);" ), std::string::npos )
-         << "the RSM body drops its draw list's result";
     EXPECT_NE( shadow.find( "if(autodrawn=m_CascadeDraws[c].Record(context);!drawn.IsSuccess())returndrawn;" ),
                std::string::npos )
          << "the cascade body drops its draw list's result";
@@ -4114,17 +4203,18 @@ TEST( RenderGraphCompile, DeferredCompositeUploadsItsLightsAndFillsItsMaterialIn
     const std::string renderer = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp" );
     EXPECT_NE(
-         renderer.find( ".Storage(ShaderProtocols::PointLight::Name,lights.Point,RDG::Access::StorageRead)" ),
+         renderer.find( ".Storage(ShaderProtocols::PointLight::Parameter,lights.Point,RDG::Access::StorageRead)" ),
          std::string::npos );
-    EXPECT_NE( renderer.find( ".Storage(ShaderProtocols::SpotLight::Name,lights.Spot,RDG::Access::StorageRead)" ),
-               std::string::npos );
+    EXPECT_NE(
+         renderer.find( ".Storage(ShaderProtocols::SpotLight::Parameter,lights.Spot,RDG::Access::StorageRead)" ),
+         std::string::npos );
     EXPECT_NE( renderer.find( "graph.QueueBufferUpload(buffer,bytes);" ), std::string::npos );
     const std::string material = SqueezedSource(
          root, "Desert/Desert/Source/Engine/Graphic/Materials/Deferred/MaterialDeferredLighting.hpp" );
-    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::PointLight::Name)" ),
+    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::PointLight::Parameter)" ),
                std::string::npos )
          << "the material no longer writes the lights: the block entry is their one route";
-    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::SpotLight::Name)" ),
+    EXPECT_EQ( material.find( "Get<StorageBufferProperty>(ShaderProtocols::SpotLight::Parameter)" ),
                std::string::npos );
 }
 
@@ -4193,7 +4283,7 @@ TEST( RenderGraphCompile, PostFXMaterialsAreFilledInTheSetupNeverInTheExec )
     // The jump-flood composite's uniforms (outline colour, width, smoothness) the same way.
     const std::string jfa = SqueezedSource( root, std::format( "{}JumpFloodOutlineRenderer.cpp", dir ).c_str() );
     EXPECT_NE( FunctionBody( jfa, "voidJumpFloodOutlineRenderer::FillFinalMaterial(" )
-                    .find( "m_MaterialComposite->SetParams(" ),
+                    .find( "m_MaterialFinal->SetParams(" ),
                std::string::npos )
          << "the composite's values are set by FillFinalMaterial";
     const std::string jfaNode =
@@ -4333,11 +4423,13 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     ASSERT_NE( update, std::string::npos );
     ASSERT_NE( bindings, std::string::npos );
     EXPECT_LT( update, bindings ) << "the material is filled before its route fill is declared";
-    EXPECT_NE( declaration.find( ".Storage(\"AttributeFloats\",ve.FloatsRef,RDG::Access::StorageRead)"
-                                 ".Storage(\"DrawLayout\",ve.DrawLayoutRef,RDG::Access::StorageRead)"
-                                 ".Storage(\"AliveList\",ve.Sorted?m_SortedRef:m_Pool.AliveRef,"
-                                 "RDG::Access::StorageRead);" ),
-               std::string::npos );
+    EXPECT_NE(
+         declaration.find(
+              ".Storage(ParticleSpriteShaderParameters::AttributeFloats,ve.FloatsRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSpriteShaderParameters::DrawLayout,ve.DrawLayoutRef,RDG::Access::StorageRead)"
+              ".Storage(ParticleSpriteShaderParameters::AliveList,ve.Sorted?m_SortedRef:m_Pool.AliveRef,"
+              "RDG::Access::StorageRead);" ),
+         std::string::npos );
     EXPECT_NE( declaration.find( "declared.Read(ve.CountersRef,RDG::Access::IndirectArgs);" ), std::string::npos );
     // Both walk the emitters by the one condition, so the exec's n-th drawn emitter opens block n.
     EXPECT_NE( exec.find( "if(!IsDrawn(ve))continue;" ), std::string::npos );
@@ -4382,8 +4474,11 @@ TEST( RenderGraphCompile, ConvertedSystemsOpenOnlyTheirSetupBlocks )
     for ( const char* fill :
           { "SetRawData(", "SetPushMatrix(", "SetMaterialIndex(", "PushConstant(&m_Projection" } )
         EXPECT_EQ( flush.find( fill ), std::string::npos ) << "Flush fills an executor: " << fill;
-    EXPECT_NE( setup.find( ".Sampled(\"u_Backdrop\",backdrop,RDG::Access::SampledGraphics,RDG::SubresourceRange::"
-                           "All(),RDG::SamplerDesc::LinearClamp()).PushConstantBytes(static_cast<uint32_t>(sizeof("
+    EXPECT_NE( setup.find( ".Texture(Render2DBackdropShaderParameters::BackdropTexture,backdrop,RDG::Access::"
+                           "SampledGraphics,RDG::SubresourceRange::"
+                           "All()).Sampler(Render2DBackdropShaderParameters::LinearClampSampler,RDG::SamplerDesc::"
+                           "LinearClamp())."
+                           "PushConstantBytes(static_cast<uint32_t>(sizeof("
                            "GlassPush)));" ),
                std::string::npos );
     EXPECT_NE( flush.find( "uint32_tblock=firstBlock;" ), std::string::npos );
@@ -4442,13 +4537,16 @@ TEST( RenderGraphCompile, AutoExposureHistogramIsATransientBufferOfTheFrameGraph
                                  "SetOutput(", "DispatchComputeInFrame(" } )
         EXPECT_EQ( renderer.find( legacy ), std::string::npos )
              << "AutoExposureRenderer.cpp still calls " << legacy;
-    size_t boundWrites = 0;
-    for ( size_t at = renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageWrite)" );
-          at != std::string::npos;
-          at = renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageWrite)", at + 1 ) )
-        ++boundWrites;
-    EXPECT_EQ( boundWrites, 2u ) << "Clear and Histogram bind the histogram by the shader's block name";
-    EXPECT_NE( renderer.find( ".Storage(\"Histogram\",histogram,RDG::Access::StorageRead)" ), std::string::npos );
+    // Clear and Histogram each bind the histogram through their own parameter struct's member.
+    for ( const char* write :
+          { ".Storage(AutoExposureClearShaderParameters::Histogram,histogram,RDG::Access::StorageWrite)",
+            ".Storage(AutoExposureHistogramShaderParameters::Histogram,histogram,RDG::Access::"
+            "StorageWrite)" } )
+        EXPECT_NE( renderer.find( write ), std::string::npos ) << write;
+    EXPECT_NE(
+         renderer.find(
+              ".Storage(AutoExposureAverageShaderParameters::Histogram,histogram,RDG::Access::StorageRead)" ),
+         std::string::npos );
 }
 
 // Execute compiles against the backend's pipes, brackets every segment, records ownership releases after
@@ -4526,8 +4624,7 @@ TEST( RenderGraphCompile, LitMeshNodesDeclareTheSceneViewInputs )
         ++declared;
     EXPECT_EQ( declared, 0u ) << "a mesh node declares SceneViewInputs::Refs() wholesale instead of its blocks";
     EXPECT_NE( frame.find( "meshRenderer->DeclareGenericDraws( pass, view );" ), std::string::npos );
-    EXPECT_NE( frame.find( "meshRenderer->DeclareSkinnedDraws( pass, view );" ), std::string::npos );
-    EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass );" ), std::string::npos );
+    EXPECT_NE( frame.find( "meshRenderer->DeclareGBufferDraws( pass, view );" ), std::string::npos );
     // The glass declares its inputs as its draw list's blocks in setup (MeshDrawList::DeclareBlocks binds them
     // where a cell's shader has slots for them; RDG-PSO: one block per cell), plus the scene copy it refracts.
     const std::string glass =
@@ -4586,9 +4683,11 @@ TEST( RenderGraphCompile, RuntimePresentIsAGraphNode )
     EXPECT_NE( runtime.find( "pass.ColorTarget(0,target," ), std::string::npos );
     // The blit's block is declared in the node's setup (RDG-FAULT1 C3b) with the sampler it had: LinearClamp.
     EXPECT_NE( runtime.find( "pass.Bindings(m_BlitLayout.Get(m_BlitPipeline->GetSpecification().Shader),"
-                             "m_BlitExecutor->GetRouteFill()).Sampled(\"u_Texture\",sceneRef,"
-                             "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All(),"
-                             "Graphic::RDG::SamplerDesc::LinearClamp());" ),
+                             "m_BlitExecutor->GetRouteFill()).Texture(RuntimeLayerBlitShaderParameters::"
+                             "FinalColorTexture,sceneRef,"
+                             "Graphic::RDG::Access::SampledGraphics,Graphic::RDG::SubresourceRange::All())."
+                             "Sampler(RuntimeLayerBlitShaderParameters::LinearClampSampler,Graphic::RDG::"
+                             "SamplerDesc::LinearClamp());" ),
                std::string::npos );
     // The ref the graph extracts is the imported back buffer itself, not the node's target: under
     // --render-movie the node composes into the movie target and the back buffer is only cleared.
@@ -4668,7 +4767,10 @@ namespace
     // StaticMeshGlass as the graph sees it: it samples the scene colour and declares no shadow map.
     ShaderBindingLayout GlassLayout()
     {
-        return { "StaticMeshGlass", { { "u_SceneColor", ShaderResourceKind::SampledTexture } }, 0 };
+        return { "StaticMeshGlass",
+                 { { "SceneColorTexture", ShaderResourceKind::Texture },
+                   { "LinearClampSampler", ShaderResourceKind::Sampler } },
+                 0 };
     }
 
     // Shadow -> Lighting -> Glass (binds u_ShadowMap0: Validation fault) -> GlassBlur (reads only Glass) ->
@@ -4721,10 +4823,12 @@ namespace
                  {
                      pass.ColorTarget( 0, glass, LoadOp::ClearColor( 0, 0, 0, 0 ) );
                      pass.Bindings( GlassLayout(), {} )
-                          .Sampled( "u_SceneColor", lit, Access::SampledGraphics, SubresourceRange::All(),
+                          .Texture( RenderGraphCompileTestGlassShaderParameters::SceneColorTexture, lit,
+                                    Access::SampledGraphics, SubresourceRange::All() )
+                          .Sampler( RenderGraphCompileTestGlassShaderParameters::LinearClampSampler,
                                     SamplerDesc::LinearClamp() )
-                          .Sampled( "u_ShadowMap0", shadow, Access::SampledGraphics, SubresourceRange::All(),
-                                    SamplerDesc::LinearClamp() );
+                          .Texture( RenderGraphCompileTestGlassShaderParameters::u_ShadowMap0, shadow,
+                                    Access::SampledGraphics, SubresourceRange::All() );
                  },
                  record( "Glass" ) );
             graph.AddPass(
@@ -4767,11 +4871,11 @@ TEST( RenderGraphCompile, BindingValidationNamesTheSlotTheShaderLacks )
 {
     DeclaredBindingBlock block;
     block.Layout = std::make_shared<const ShaderBindingLayout>( GlassLayout() );
-    block.Entries.push_back( { "u_SceneColor", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 0,
+    block.Entries.push_back( { "SceneColorTexture", ShaderResourceKind::Texture, ResourceKind::Texture, 0,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     EXPECT_TRUE( ValidatePassBindings( block ).IsSuccess() );
 
-    block.Entries.push_back( { "u_ShadowMap0", ShaderResourceKind::SampledTexture, ResourceKind::Texture, 1,
+    block.Entries.push_back( { "u_ShadowMap0", ShaderResourceKind::Texture, ResourceKind::Texture, 1,
                                Access::SampledGraphics, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
     const Common::BoolResultStr refused = ValidatePassBindings( block );
     ASSERT_FALSE( refused.IsSuccess() );
@@ -4871,21 +4975,23 @@ TEST( RenderGraphCompile, OneRefInThreeSlotsOfOneBlockIsOneRead )
     const TextureRef    black = graph.RegisterExternal( blackImport, "System.Black" );
     const TextureRef    back  = graph.RegisterExternal( backbuffer, "Backbuffer" );
     ShaderBindingLayout layout{ "SceneComposite",
-                                { { "u_BloomTexture", ShaderResourceKind::SampledTexture },
-                                  { "u_LightShaftTexture", ShaderResourceKind::SampledTexture },
-                                  { "u_LensFlareTexture", ShaderResourceKind::SampledTexture } },
+                                { { "BloomTexture", ShaderResourceKind::Texture },
+                                  { "LightShaftTexture", ShaderResourceKind::Texture },
+                                  { "LensFlareTexture", ShaderResourceKind::Texture } },
                                 0 };
     graph.AddPass(
          "PostFX: Tonemap", PassFlags::Raster,
          [&]( PassBuilder& pass )
          {
              pass.Bindings( layout, {} )
-                  .Sampled( "u_BloomTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
+                  .Texture( RenderGraphCompileTestTonemapShaderParameters::BloomTexture, black,
+                            Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
+                  .Sampler( RenderGraphCompileTestTonemapShaderParameters::LinearClampSampler,
                             SamplerDesc::LinearClamp() )
-                  .Sampled( "u_LightShaftTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
-                            SamplerDesc::LinearClamp() )
-                  .Sampled( "u_LensFlareTexture", black, Access::SampledGraphics, SubresourceRange::Mip( 0 ),
-                            SamplerDesc::LinearClamp() );
+                  .Texture( RenderGraphCompileTestTonemapShaderParameters::LightShaftTexture, black,
+                            Access::SampledGraphics, SubresourceRange::Mip( 0 ) )
+                  .Texture( RenderGraphCompileTestTonemapShaderParameters::LensFlareTexture, black,
+                            Access::SampledGraphics, SubresourceRange::Mip( 0 ) );
              pass.ColorTarget( 0, back, LoadOp::DontCare() );
          },
          Ok );
@@ -5128,18 +5234,26 @@ TEST( RenderGraphCompile, FaultReporterSaysOncePerPassAndReasonAgainOnChangeAndO
 
 namespace
 {
-    // What a setup's binding block receives from BindSceneViewInputs (the same Sampled() shape as
-    // RenderPassDeclaration::BlockDeclaration and RDG::BindingBlockBuilder), kept as the block
-    // ValidatePassBindings checks.
+    // What a setup's binding block receives from BindSceneViewInputs (the same Texture() / Sampler() shape as
+    // RenderPassDeclaration::BlockDeclaration and RDG::BindingBlockBuilder, a shared sampler slot kept once),
+    // kept as the block ValidatePassBindings checks.
     struct CollectedBlock
     {
         DeclaredBindingBlock Block;
 
-        CollectedBlock& Sampled( std::string_view name, TextureRef texture, Access access, SubresourceRange range,
-                                 SamplerDesc sampler )
+        CollectedBlock& Texture( std::string_view name, TextureRef texture, Access access, SubresourceRange range )
         {
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::SampledTexture,
-                                       ResourceKind::Texture, texture.Index, access, range, sampler } );
+            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::Texture, ResourceKind::Texture,
+                                       texture.Index, access, range, std::nullopt } );
+            return *this;
+        }
+        CollectedBlock& Sampler( std::string_view name, SamplerDesc sampler )
+        {
+            for ( const DeclaredBindingEntry& e : Block.Entries )
+                if ( e.Kind == ShaderResourceKind::Sampler && e.ShaderName == name && e.Sampler == sampler )
+                    return *this;
+            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::Sampler, ResourceKind::Texture,
+                                       kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
@@ -5164,12 +5278,12 @@ namespace
 
     std::vector<ShaderSlot> SceneViewSlotsWithoutCascades()
     {
-        return {
-             { std::string( Desert::Graphic::kSceneViewEnvIrradianceName ), ShaderResourceKind::SampledTexture },
-             { std::string( Desert::Graphic::kSceneViewEnvSpecularName ), ShaderResourceKind::SampledTexture },
-             { std::string( Desert::Graphic::kSceneViewBrdfLutName ), ShaderResourceKind::SampledTexture },
-             { std::string( Desert::Graphic::kSceneViewCloudShadowMapName ),
-               ShaderResourceKind::SampledTexture } };
+        return { { std::string( Desert::Graphic::kSceneViewEnvIrradianceName ), ShaderResourceKind::Texture },
+                 { std::string( Desert::Graphic::kSceneViewEnvSpecularName ), ShaderResourceKind::Texture },
+                 { std::string( Desert::Graphic::kSceneViewBrdfLutName ), ShaderResourceKind::Texture },
+                 { std::string( Desert::Graphic::kSceneViewCloudShadowMapName ), ShaderResourceKind::Texture },
+                 { "LinearRepeatSampler", ShaderResourceKind::Sampler },
+                 { "LinearClampSampler", ShaderResourceKind::Sampler } };
     }
 } // namespace
 
@@ -5186,30 +5300,33 @@ TEST( RenderGraphCompile, SceneViewInputsDeclareOnlyTheSlotsTheLayoutHas )
     EXPECT_TRUE( Desert::Graphic::SamplesSceneViewInputs( glass ) );
     CollectedBlock glassBlock;
     glassBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( glass );
-    glassBlock.Sampled( "u_SceneColor", TextureRef{ 0 }, Access::SampledGraphics, SubresourceRange::All(),
-                        SamplerDesc::LinearRepeat() );
+    glassBlock
+         .Texture( RenderGraphCompileTestShaderParameters::SceneColorTexture, TextureRef{ 0 },
+                   Access::SampledGraphics, SubresourceRange::All() )
+         .Sampler( RenderGraphCompileTestShaderParameters::LinearClampSampler, SamplerDesc::LinearClamp() );
     Desert::Graphic::BindSceneViewInputs( glassBlock, view, glass );
     const Common::BoolResultStr glassValid = ValidatePassBindings( glassBlock.Block );
     EXPECT_TRUE( glassValid.IsSuccess() ) << glassValid.GetError();
-    EXPECT_EQ( glassBlock.Block.Entries.size(), 5u ); // the scene copy + irradiance, specular, BRDF LUT, cloud map
+    // the scene copy + irradiance, specular, BRDF LUT, cloud map + the two shared states, each once
+    EXPECT_EQ( glassBlock.Block.Entries.size(), 7u );
     for ( const DeclaredBindingEntry& entry : glassBlock.Block.Entries )
         EXPECT_NE( entry.ShaderName, Desert::Graphic::kSceneViewShadowCascadesName ) << entry.ShaderName;
 
     ShaderBindingLayout lit{ "StaticMeshLit", SceneViewSlotsWithoutCascades(), 0 };
     lit.Slots.push_back(
-         { std::string( Desert::Graphic::kSceneViewShadowCascadesName ), ShaderResourceKind::SampledTexture } );
+         { std::string( Desert::Graphic::kSceneViewShadowCascadesName ), ShaderResourceKind::Texture } );
     CollectedBlock litBlock;
     litBlock.Block.Layout = std::make_shared<const ShaderBindingLayout>( lit );
     Desert::Graphic::BindSceneViewInputs( litBlock, view, lit );
     const Common::BoolResultStr litValid = ValidatePassBindings( litBlock.Block );
     EXPECT_TRUE( litValid.IsSuccess() ) << litValid.GetError();
-    ASSERT_EQ( litBlock.Block.Entries.size(), 5u );
+    ASSERT_EQ( litBlock.Block.Entries.size(), 7u ); // the cascade array + 4 inputs + 2 shared states
     EXPECT_EQ( litBlock.Block.Entries[0].ShaderName, Desert::Graphic::kSceneViewShadowCascadesName );
     EXPECT_EQ( litBlock.Block.Entries[0].Index, 10u );
 
     // A G-buffer program samples no scene/view input: nothing is declared for it.
     const ShaderBindingLayout gbuffer{
-         "StaticMeshGBuffer", { { "u_AlbedoTexture", ShaderResourceKind::SampledTexture } }, 0 };
+         "StaticMeshGBuffer", { { "AlbedoTexture", ShaderResourceKind::Texture } }, 0 };
     EXPECT_FALSE( Desert::Graphic::SamplesSceneViewInputs( gbuffer ) );
     CollectedBlock gbufferBlock;
     Desert::Graphic::BindSceneViewInputs( gbufferBlock, view, gbuffer );
@@ -5444,8 +5561,10 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
     ASSERT_NE( declare, std::string::npos );
     const std::string declareBody =
          renderer.substr( declare, renderer.find( "voidParticleRenderer::", declare + 1 ) - declare );
-    EXPECT_NE( declareBody.find( ".Storage(\"ChannelSpawns\",ve.ChannelRef,RDG::Access::StorageRead)" ),
-               std::string::npos )
+    EXPECT_NE(
+         declareBody.find(
+              ".Storage(ParticleSimulateShaderParameters::ChannelSpawns,ve.ChannelRef,RDG::Access::StorageRead)" ),
+         std::string::npos )
          << "Spawn+Update does not declare the channel spawns it reads";
 
     const size_t importAt = renderer.find( "voidParticleRenderer::ImportFrameBuffers(" );
@@ -5470,7 +5589,7 @@ TEST( RenderGraphCompile, ChannelSpawnsAreTheSpawnPassUploadReadAsStorage )
     const std::string shader =
          SqueezedSource( root, "Editor/Resources/Shaders/Programs/Particles/ParticleSimulate.shader" );
     EXPECT_NE( shader.find( "ReadBuffer(5)ChannelSpawns{VFXChannelSpawnu_ChannelSpawns[];}" ), std::string::npos );
-    EXPECT_NE( shader.find( "if(t<u_Steps[step].ChannelCount)" ), std::string::npos );
-    EXPECT_NE( shader.find( "channel=u_ChannelSpawns[u_Steps[step].ChannelFirst+t];" ), std::string::npos )
+    EXPECT_NE( shader.find( "if(t<Steps[step].ChannelCount)" ), std::string::npos );
+    EXPECT_NE( shader.find( "channel=ChannelSpawnsData[Steps[step].ChannelFirst+t];" ), std::string::npos )
          << "Spawn+Update does not take spawn t's payload from the channel record ChannelFirst + t";
 }

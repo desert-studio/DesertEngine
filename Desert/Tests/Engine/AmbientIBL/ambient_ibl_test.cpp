@@ -35,8 +35,8 @@ using namespace Desert::Tests::AmbientIBLRef;
 
 namespace
 {
-    // A plausible G-buffer texel: mid-grey dielectric, half-rough, seen at a moderate angle.
-    constexpr float kCosLo     = 0.7f;
+    // A plausible G-buffer texel: mid-grey dielectric, half-rough (the angle it is seen at lives in the LUT
+    // sample).
     constexpr float kMetalness = 0.0f;
 
     const glm::vec3 kAlbedo = glm::vec3( 0.5f, 0.5f, 0.5f );
@@ -47,7 +47,7 @@ namespace
 
     glm::vec3 AmbientFor( const glm::vec3& irradiance, const glm::vec3& prefiltered )
     {
-        return EvaluateAmbientIBL( irradiance, prefiltered, kBrdf, kF0, kAlbedo, kMetalness, kCosLo );
+        return EvaluateAmbientIBL( irradiance, prefiltered, kBrdf, kF0, kAlbedo, kMetalness );
     }
 } // namespace
 
@@ -76,22 +76,14 @@ TEST( AmbientIBL, RespondsStrictlyAndMonotonicallyToTheEnvironment )
     EXPECT_GT( AmbientFor( glm::vec3( 4.0f ), glm::vec3( 4.0f ) ).r, 1.0f );
 }
 
-TEST( AmbientIBL, TheAntiBlackFloorIsNotAnAmbientModel )
+TEST( AmbientIBL, ABlackEnvironmentLeavesALitSurfaceBlack )
 {
-    // The constant that was deleted was 0.08 per channel and it WAS the deferred path's ambient. What
-    // replaces it is a floor two orders of magnitude smaller, whose only job is to keep a fully
-    // occluded face with no environment from reading as a pure-black hole. Pinned so that nobody
-    // quietly raises it back into a lighting model when a scene looks dark — that is the "knob that
-    // hides a defect" the contract forbids.
-    EXPECT_LT( glm::max( glm::max( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
-               0.02f );
-    EXPECT_GT( glm::min( glm::min( SURFACE_AMBIENT_FLOOR.r, SURFACE_AMBIENT_FLOOR.g ), SURFACE_AMBIENT_FLOOR.b ),
-               0.0f );
-
-    // Under any sky worth calling lit, the floor is noise: at unit environment radiance the real
-    // ambient must dominate it by a wide margin.
-    const glm::vec3 lit = AmbientFor( glm::vec3( 1.0f ), glm::vec3( 1.0f ) );
-    EXPECT_GT( lit.r, SURFACE_AMBIENT_FLOOR.r * 20.0f );
+    // There is no ambient floor (UE has none: the sky light and GI are the only ambient). The old
+    // SURFACE_AMBIENT_FLOOR was the whole of a night frame with no lights (Bistro night 4/255 raster vs
+    // 0.12 path-traced): an albedo-1 surface under a black sky with no GI must stay black.
+    const glm::vec3 black = ComposeAmbient( AmbientFor( glm::vec3( 0.0f ), glm::vec3( 0.0f ) ), glm::vec3( 0.0f ),
+                                            glm::vec3( 1.0f ), 1.0f, 1.0f, glm::vec3( 0.0f ) );
+    EXPECT_TRUE( glm::all( glm::epsilonEqual( black, glm::vec3( 0.0f ), 1e-6f ) ) );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -107,52 +99,43 @@ TEST( AmbientIBL, NeitherHalfReflectsMoreLightThanItsOwnEnvironmentDelivers )
     //   * the specular half is (F0 * scale + bias) * prefiltered, and a physical split-sum LUT keeps
     //     F0 * scale + bias <= 1 for F0 <= 1, so it cannot exceed the prefiltered radiance.
     //
-    // NOT stated for the sum, and that is a finding rather than a weakened test. Measured here, the sum
-    // exceeds a white furnace by up to 4.2 % at metalness 0: the split-sum approximation weights the
-    // diffuse lobe by (1 - F) and does not additionally subtract the specular energy that the LUT then
-    // adds back, so a little energy is created. That is a property of the MODEL — Karis 2013 without a
-    // multi-scatter compensation term — and both render paths now share it exactly, which is the point.
-    // Anyone tempted to "fix" the 4 % should change the model in Mesh/AmbientIBL.glslh, where both paths
-    // will get it, and not add a scale factor at one call site.
+    // And for the SUM: the diffuse half keeps only the energy the specular lobe left, 1 - E with E = F0 * scale +
+    // bias (UE ComputeEnergyPreservation), so a white surface in a white furnace returns at most the furnace. The
+    // model before FOLIAGE-LOOK-3 weighted the diffuse by (1 - F(N.V)) and created up to 4.2 % here - and, worse,
+    // dropped the diffuse to nothing at a grazing normal, where F is 1.
     const glm::vec3 white( 1.0f );
     const float     E = 2.0f;
 
     for ( float metalness = 0.0f; metalness <= 1.0f; metalness += 0.25f )
-        for ( float cosLo = 0.05f; cosLo <= 1.0f; cosLo += 0.05f )
-            for ( float scale = 0.0f; scale <= 1.0f; scale += 0.25f )
-            {
-                const glm::vec2 brdf( scale, 1.0f - scale ); // the physical extreme: scale + bias == 1
-                const glm::vec3 F0 = glm::mix( glm::vec3( 0.04f ), white, metalness );
-
-                const glm::vec3 diffuseOnly =
-                     EvaluateAmbientIBL( glm::vec3( E ), glm::vec3( 0.0f ), brdf, F0, white, metalness, cosLo );
-                const glm::vec3 specularOnly =
-                     EvaluateAmbientIBL( glm::vec3( 0.0f ), glm::vec3( E ), brdf, F0, white, metalness, cosLo );
-
-                EXPECT_LE( diffuseOnly.r, E + 1e-4f )
-                     << "diffuse: metalness " << metalness << " cosLo " << cosLo << " scale " << scale;
-                EXPECT_GE( diffuseOnly.r, 0.0f );
-                EXPECT_LE( specularOnly.r, E + 1e-4f )
-                     << "specular: metalness " << metalness << " cosLo " << cosLo << " scale " << scale;
-                EXPECT_GE( specularOnly.r, 0.0f );
-            }
-
-    // The 4.2 % above, measured rather than asserted from memory — and bounded, so the model's energy
-    // excess is a pinned number instead of an unexamined one. It is quoted for the representative
-    // mid-roughness dielectric LUT sample the rest of this suite uses.
-    float worstExcess = 0.0f;
-    for ( float metalness = 0.0f; metalness <= 1.0f; metalness += 0.25f )
-        for ( float cosLo = 0.05f; cosLo <= 1.0f; cosLo += 0.05f )
+        for ( float scale = 0.0f; scale <= 1.0f; scale += 0.25f )
         {
+            const glm::vec2 brdf( scale, 1.0f - scale ); // the physical extreme: scale + bias == 1
             const glm::vec3 F0 = glm::mix( glm::vec3( 0.04f ), white, metalness );
-            const glm::vec3 a =
-                 EvaluateAmbientIBL( glm::vec3( E ), glm::vec3( E ), kBrdf, F0, white, metalness, cosLo );
-            worstExcess = glm::max( worstExcess, a.r / E - 1.0f );
+
+            const glm::vec3 diffuseOnly =
+                 EvaluateAmbientIBL( glm::vec3( E ), glm::vec3( 0.0f ), brdf, F0, white, metalness );
+            const glm::vec3 specularOnly =
+                 EvaluateAmbientIBL( glm::vec3( 0.0f ), glm::vec3( E ), brdf, F0, white, metalness );
+
+            EXPECT_LE( diffuseOnly.r, E + 1e-4f ) << "diffuse: metalness " << metalness << " scale " << scale;
+            EXPECT_GE( diffuseOnly.r, 0.0f );
+            EXPECT_LE( specularOnly.r, E + 1e-4f ) << "specular: metalness " << metalness << " scale " << scale;
+            EXPECT_GE( specularOnly.r, 0.0f );
         }
 
-    EXPECT_GT( worstExcess, 0.0f ) << "the split-sum overlap disappeared — the model changed";
-    EXPECT_LT( worstExcess, 0.05f ) << "white-furnace excess grew past the split-sum's known overlap: "
-                                    << worstExcess * 100.0f << " %";
+    float worstExcess = 0.0f;
+    for ( float metalness = 0.0f; metalness <= 1.0f; metalness += 0.25f )
+        for ( float scale = 0.0f; scale <= 1.0f; scale += 0.25f )
+        {
+            const glm::vec2 brdf( scale, 1.0f - scale ); // the physical extreme: scale + bias == 1
+            const glm::vec3 F0 = glm::mix( glm::vec3( 0.04f ), white, metalness );
+            const glm::vec3 a  = EvaluateAmbientIBL( glm::vec3( E ), glm::vec3( E ), brdf, F0, white, metalness );
+            worstExcess        = glm::max( worstExcess, a.r / E - 1.0f );
+        }
+
+    EXPECT_LE( worstExcess, 1e-5f )
+         << "white-furnace excess: the diffuse half took energy the specular lobe holds: " << worstExcess * 100.0f
+         << " %";
 }
 
 TEST( AmbientIBL, TheResponseToTheEnvironmentIsExactlyLinear )
@@ -196,17 +179,13 @@ TEST( AmbientIBL, AlbedoTintsTheDiffuseHalfAndNotTheReflection )
     const glm::vec3 red  = glm::vec3( 0.8f, 0.1f, 0.1f );
     const glm::vec3 grey = glm::vec3( 0.8f, 0.8f, 0.8f );
 
-    const glm::vec3 diffRed =
-         EvaluateAmbientIBL( glm::vec3( 1.0f ), glm::vec3( 0.0f ), kBrdf, kF0, red, 0.0f, kCosLo );
-    const glm::vec3 diffGrey =
-         EvaluateAmbientIBL( glm::vec3( 1.0f ), glm::vec3( 0.0f ), kBrdf, kF0, grey, 0.0f, kCosLo );
+    const glm::vec3 diffRed  = EvaluateAmbientIBL( glm::vec3( 1.0f ), glm::vec3( 0.0f ), kBrdf, kF0, red, 0.0f );
+    const glm::vec3 diffGrey = EvaluateAmbientIBL( glm::vec3( 1.0f ), glm::vec3( 0.0f ), kBrdf, kF0, grey, 0.0f );
     EXPECT_NEAR( diffRed.r, diffGrey.r, 1e-6f ); // same red channel in both albedos
     EXPECT_LT( diffRed.g, diffGrey.g * 0.5f );   // green follows albedo
 
-    const glm::vec3 specRed =
-         EvaluateAmbientIBL( glm::vec3( 0.0f ), glm::vec3( 1.0f ), kBrdf, kF0, red, 0.0f, kCosLo );
-    const glm::vec3 specGrey =
-         EvaluateAmbientIBL( glm::vec3( 0.0f ), glm::vec3( 1.0f ), kBrdf, kF0, grey, 0.0f, kCosLo );
+    const glm::vec3 specRed  = EvaluateAmbientIBL( glm::vec3( 0.0f ), glm::vec3( 1.0f ), kBrdf, kF0, red, 0.0f );
+    const glm::vec3 specGrey = EvaluateAmbientIBL( glm::vec3( 0.0f ), glm::vec3( 1.0f ), kBrdf, kF0, grey, 0.0f );
     EXPECT_TRUE( glm::all( glm::epsilonEqual( specRed, specGrey, 1e-6f ) ) );
 }
 
@@ -215,8 +194,8 @@ TEST( AmbientIBL, AMetalHasNoDiffuseAmbient )
     // Conductors have no diffuse lobe: at metalness 1 the irradiance cube must contribute nothing, and
     // everything the surface shows comes from the prefiltered cube. If the diffuse half leaks here, a
     // metal under a bright sky washes out to its albedo.
-    const glm::vec3 a = EvaluateAmbientIBL( glm::vec3( 3.0f ), glm::vec3( 0.0f ), kBrdf, glm::vec3( 1.0f ),
-                                            kAlbedo, 1.0f, kCosLo );
+    const glm::vec3 a =
+         EvaluateAmbientIBL( glm::vec3( 3.0f ), glm::vec3( 0.0f ), kBrdf, glm::vec3( 1.0f ), kAlbedo, 1.0f );
 
     EXPECT_TRUE( glm::all( glm::epsilonEqual( a, glm::vec3( 0.0f ), 1e-6f ) ) );
 }
@@ -233,15 +212,12 @@ TEST( AmbientIBL, TheCompositionCarriesNoConstantTermOfItsOwn )
     // constant smuggled in outside the occlusion factor.
     for ( float ao = 0.0f; ao <= 1.0f; ao += 0.125f )
     {
-        const glm::vec3 nothing = ComposeAmbient( glm::vec3( 0.0f ), glm::vec3( 0.0f ), ao, glm::vec3( 0.0f ) );
+        const glm::vec3 nothing =
+             ComposeAmbient( glm::vec3( 0.0f ), glm::vec3( 0.0f ), glm::vec3( 0.0f ), ao, ao, glm::vec3( 0.0f ) );
 
         EXPECT_TRUE( glm::all( glm::epsilonEqual( nothing, glm::vec3( 0.0f ), 1e-6f ) ) ) << "ao " << ao;
     }
 
-    // And with a real sky it is the sky that dominates, not the floor.
-    const glm::vec3 ibl     = AmbientFor( glm::vec3( 1.2f ), glm::vec3( 1.2f ) );
-    const glm::vec3 ambient = ComposeAmbient( ibl, kAlbedo, 1.0f, glm::vec3( 0.0f ) );
-    EXPECT_GT( ambient.r, kAlbedo.r * SURFACE_AMBIENT_FLOOR.r * 10.0f );
 }
 
 // THE relation the owner's experiment measured, and the only form in which it can be stated: not that
@@ -307,14 +283,14 @@ TEST( AmbientIBL, OcclusionAttenuatesTheWholeAmbientAndNotOnlyTheFloor )
     const glm::vec3 ibl      = AmbientFor( glm::vec3( 1.0f ), glm::vec3( 1.0f ) );
     const glm::vec3 indirect = glm::vec3( 0.3f );
 
-    const glm::vec3 lit      = ComposeAmbient( ibl, kAlbedo, 1.0f, indirect );
-    const glm::vec3 occluded = ComposeAmbient( ibl, kAlbedo, 0.0f, indirect );
+    const glm::vec3 lit      = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 1.0f, 1.0f, indirect );
+    const glm::vec3 occluded = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 0.0f, 0.0f, indirect );
 
     EXPECT_TRUE( glm::all( glm::epsilonEqual( occluded, glm::vec3( 0.0f ), 1e-6f ) ) );
     EXPECT_GT( lit.r, 0.0f );
 
     // Linear in ao, so half occlusion is half the ambient — no hidden curve.
-    const glm::vec3 half = ComposeAmbient( ibl, kAlbedo, 0.5f, indirect );
+    const glm::vec3 half = ComposeAmbient( ibl, glm::vec3( 0.0f ), kAlbedo, 0.5f, 0.5f, indirect );
     EXPECT_NEAR( half.r, lit.r * 0.5f, 1e-6f );
 }
 
@@ -326,8 +302,8 @@ TEST( AmbientIBL, TheIndirectBounceArrivesAsIncidentLightAndIsReflectedByAlbedo 
     const glm::vec3 ibl      = glm::vec3( 0.0f ); // isolate the bounce
     const glm::vec3 indirect = glm::vec3( 0.4f );
 
-    const glm::vec3 dark  = ComposeAmbient( ibl, glm::vec3( 0.1f ), 1.0f, indirect );
-    const glm::vec3 light = ComposeAmbient( ibl, glm::vec3( 0.8f ), 1.0f, indirect );
+    const glm::vec3 dark  = ComposeAmbient( ibl, glm::vec3( 0.0f ), glm::vec3( 0.1f ), 1.0f, 1.0f, indirect );
+    const glm::vec3 light = ComposeAmbient( ibl, glm::vec3( 0.0f ), glm::vec3( 0.8f ), 1.0f, 1.0f, indirect );
 
     // Eight times the albedo, so eight times the bounce — plus the floor, which scales with albedo too.
     EXPECT_NEAR( light.r / dark.r, 8.0f, 1e-4f );

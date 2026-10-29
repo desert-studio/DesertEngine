@@ -1,6 +1,7 @@
 #include "MeshVertexPath.hpp"
 
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
 #include <format>
 #include <functional>
@@ -18,11 +19,17 @@ namespace Desert::Graphic
         // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
         // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward             GBuffer              Glass    Shadow depth
-             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth" },
-             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth" },
-             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr },
+             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth
+             { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth", nullptr,
+               "Static.VirtualShadowDepth" },
+             { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", nullptr,
+               "Skinned.VirtualShadowDepth" },
+             { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
+               "Instanced.VirtualShadowDepth" },
+             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
+             // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).
+             { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr },
+             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
         };
     } // namespace
 
@@ -45,10 +52,31 @@ namespace Desert::Graphic
         return std::format( "{}/{}", templateName, cell );
     }
 
+    std::optional<std::string> FrontLayerShaderFor( std::string_view templateName )
+    {
+        // A material names its template, or (a generic override) one of the template's cells: the template is the
+        // name before the cell.
+        templateName = templateName.substr( 0, templateName.find( '/' ) );
+        if ( templateName.empty() )
+            return std::nullopt;
+        return std::format( "{}/{}", templateName,
+                            Core::Preprocess::SurfaceCellName( Core::Preprocess::kSurfaceFrontLayerPath,
+                                                               Core::Preprocess::kSurfaceFrontLayerPass ) );
+    }
+
     std::optional<std::string> TemplateCellShader( std::string_view templateName, MeshVertexPath path,
                                                    MeshPass                                       pass,
                                                    const std::function<bool( std::string_view )>& isRegistered )
     {
+        // A template without a Surface block declares its depth-normal program as a named pass of its own (the
+        // parser refuses an opaque one that does not); a surface template is in the G-buffer and has none.
+        if ( pass == MeshPass::DepthNormal )
+        {
+            if ( path != MeshVertexPath::Static || templateName.empty() )
+                return std::nullopt;
+            std::string own = std::format( "{}/{}", templateName, Core::Preprocess::kGenericDepthNormalPass );
+            return isRegistered( own ) ? std::optional<std::string>( std::move( own ) ) : std::nullopt;
+        }
         auto cell = MeshShaderFor( templateName, path, pass );
         if ( cell && MeshCellPath( *cell ) && !isRegistered( *cell ) )
             cell = ( path == MeshVertexPath::Static && pass == MeshPass::Forward )
@@ -57,22 +85,40 @@ namespace Desert::Graphic
         return cell;
     }
 
-    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend )
+    ShadowCasterCell ShadowCasterCellFor( Core::Formats::SurfaceBlendMode blend, const bool parallax )
     {
-        return blend == Core::Formats::SurfaceBlendMode::Masked ? ShadowCasterCell::Own : ShadowCasterCell::Shared;
+        return blend == Core::Formats::SurfaceBlendMode::Masked || parallax ? ShadowCasterCell::Own
+                                                                            : ShadowCasterCell::Shared;
     }
 
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
-                                                      Core::Formats::SurfaceBlendMode blend, MeshVertexPath path )
+                                                      Core::Formats::SurfaceBlendMode blend, const bool parallax,
+                                                      MeshVertexPath path )
     {
         const std::string_view owner =
-             ShadowCasterCellFor( blend ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
-        return MeshShaderFor( owner, path, MeshPass::ShadowDepth );
+             ShadowCasterCellFor( blend, parallax ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
+        auto cell = MeshShaderFor( owner, path, MeshPass::ShadowDepth );
+        if ( cell && parallax )
+            return ParallaxCellOf( *cell );
+        return cell;
+    }
+
+    std::string ParallaxCellOf( const std::string_view cellShader )
+    {
+        return std::format( "{}{}", cellShader, Core::Preprocess::kSurfaceParallaxCellSuffix );
+    }
+
+    bool IsParallaxCell( const std::string_view shaderName )
+    {
+        return shaderName.ends_with( Core::Preprocess::kSurfaceParallaxCellSuffix );
     }
 
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
     {
+        // A `.Parallax` permutation is drawn on its base cell's path.
+        if ( IsParallaxCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceParallaxCellSuffix.size() );
         for ( uint32_t p = 0; p < kMeshVertexPathCount; ++p )
             for ( uint32_t s = 0; s < kMeshPassCount; ++s )
             {
@@ -96,7 +142,10 @@ namespace Desert::Graphic
                 return 1; // Bones
             case MeshVertexPath::Instanced:
                 return 17; // InstanceTransforms
+            case MeshVertexPath::GrassBlade:
+                return 17; // InstanceTransforms; the blade shape at 13 is bound beside it by the mesh renderer
             case MeshVertexPath::ParticleSprite:
+            case MeshVertexPath::ParticleRibbon:
                 return 9; // Particles (the pool); the alive list at 10 is bound beside it by ParticleRenderer
             case MeshVertexPath::Static:
                 break; // reads its model matrix from the push constant; adds no descriptor
@@ -116,6 +165,10 @@ namespace Desert::Graphic
                 return "Instanced";
             case MeshVertexPath::ParticleSprite:
                 return "ParticleSprite";
+            case MeshVertexPath::GrassBlade:
+                return "GrassBlade";
+            case MeshVertexPath::ParticleRibbon:
+                return "ParticleRibbon";
         }
         return "?";
     }
@@ -132,6 +185,10 @@ namespace Desert::Graphic
                 return "Glass";
             case MeshPass::ShadowDepth:
                 return "ShadowDepth";
+            case MeshPass::DepthNormal:
+                return "DepthNormal";
+            case MeshPass::VirtualShadowDepth:
+                return "VirtualShadowDepth";
         }
         return "?";
     }

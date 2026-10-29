@@ -239,11 +239,7 @@ namespace
             out[binding] = resource.Name;
         for ( const auto& [binding, resource] : set.StorageBuffers )
             out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.Image2DSamplers )
-            out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.ImageCubeSamplers )
-            out[binding] = resource.Name;
-        for ( const auto& [binding, resource] : set.Image3DSamplers )
+        for ( const auto& [binding, resource] : set.SampledImages )
             out[binding] = resource.Name;
         return out;
     }
@@ -343,14 +339,11 @@ TEST_F( MeshVertexPathShaderRoot, EveryVertexPathThatCanBeDrawnCanAlsoCastAShado
 // inherits the question.
 TEST_F( MeshVertexPathShaderRoot, EveryVertexPathDrawnINTOTheGBufferHasACellForIt )
 {
-    // The exception, and why it is one: a skinned mesh is not rasterized into the G-buffer at all. It is
-    // drawn FORWARD over the deferred composite (MeshRenderer::RenderSkinnedManual), so a (Skinned x
-    // GBuffer) cell would be a shader nothing binds.
-    const auto drawnIntoTheGBuffer = []( MeshVertexPath path ) { return path != MeshVertexPath::Skinned; };
-
+    // No exception: the skinned mesh is drawn in the G-buffer too (UE's base pass; MeshRenderer::BuildSkinnedDraws
+    // under the G-buffer node), not forward over the deferred composite.
     for ( const auto path : kAllPaths )
     {
-        if ( TableShader( path, MeshPass::Forward ) == nullptr || !drawnIntoTheGBuffer( path ) )
+        if ( TableShader( path, MeshPass::Forward ) == nullptr )
         {
             continue;
         }
@@ -385,18 +378,18 @@ TEST_F( MeshVertexPathShaderRoot, TheInstancedGBufferCellIsTheStaticOnePlusItsOw
          << ", so it is not fetching a per-instance model matrix at all";
     instancedBindings.erase( ownBinding );
 
-    // The static cell reads its world from the view's motion row (ObjectMotions, Common/ObjectMotion.glslh); the
+    // The static cell reads its world from its GpuScene row (GpuScenePrimitives, Common/GpuScene.glslh); the
     // instanced cell deliberately does not: a batch is world-static (moving an instance rebuilds it), so its
     // previous world IS its world and only the wind moves it, re-evaluated at the view's previous time
     // (Vertex_Instanced.glslh, InstanceWindPush::B.z). The row is the static path's vertex-factory input, not
     // surface data, so it leaves the comparison after both halves of that rule are checked.
-    EXPECT_TRUE( staticBindings.count( Desert::Core::kObjectMotionsBinding ) )
+    EXPECT_TRUE( staticBindings.count( Desert::Core::kGpuScenePrimitivesBinding ) )
          << staticName << " does not read its motion row, so its velocity has no previous world";
-    EXPECT_FALSE( instancedBindings.count( Desert::Core::kObjectMotionsBinding ) )
+    EXPECT_FALSE( instancedBindings.count( Desert::Core::kGpuScenePrimitivesBinding ) )
          << instancedName
          << " reads a motion row; an instanced batch derives its previous position from its "
             "own transforms and the previous wind";
-    staticBindings.erase( Desert::Core::kObjectMotionsBinding );
+    staticBindings.erase( Desert::Core::kGpuScenePrimitivesBinding );
 
     EXPECT_EQ( Describe( instancedBindings ), Describe( staticBindings ) )
          << "the two G-buffer cells declare different surfaces, so one of them is writing the G-buffer "
@@ -440,9 +433,9 @@ TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyTheP
     // The motion row: Static and Skinned read their world from it; Instanced derives its previous position from
     // its world-static batch and the previous wind (Vertex_Instanced.glslh) and reads no row. It is vertex-factory
     // data, so after this check it leaves the surface comparison.
-    EXPECT_TRUE( bindings[MeshVertexPath::Static].count( Desert::Core::kObjectMotionsBinding ) );
-    EXPECT_TRUE( bindings[MeshVertexPath::Skinned].count( Desert::Core::kObjectMotionsBinding ) );
-    EXPECT_FALSE( bindings[MeshVertexPath::Instanced].count( Desert::Core::kObjectMotionsBinding ) );
+    EXPECT_TRUE( bindings[MeshVertexPath::Static].count( Desert::Core::kGpuScenePrimitivesBinding ) );
+    EXPECT_TRUE( bindings[MeshVertexPath::Skinned].count( Desert::Core::kGpuScenePrimitivesBinding ) );
+    EXPECT_FALSE( bindings[MeshVertexPath::Instanced].count( Desert::Core::kGpuScenePrimitivesBinding ) );
 
     // Every path's own binding is declared by that path...
     for ( const auto path : kAllPaths )
@@ -474,7 +467,7 @@ TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyTheP
     {
         if ( const auto own = viewOwnBinding( path ) )
             surfaceOnly[path].erase( *own );
-        surfaceOnly[path].erase( Desert::Core::kObjectMotionsBinding );
+        surfaceOnly[path].erase( Desert::Core::kGpuScenePrimitivesBinding );
     }
 
     for ( const auto path : kAllPaths )
@@ -503,7 +496,7 @@ TEST_F( MeshVertexPathShaderRoot, TheForwardVariantsAreOneSurfacePlusExactlyTheP
 // Two assertions, and the second is the one that fires if somebody puts the padding back:
 //
 //   * where two cells of ONE path declare the same slot, they must give it the same NAME. A material
-//     writes by name and a pipeline binds by number, so a slot that means `u_NormalTexture` in one cell
+//     writes by name and a pipeline binds by number, so a slot that means `NormalTexture` in one cell
 //     and something else in another is a texture bound into the wrong sampler with nothing to notice it.
 //   * the G-buffer cell is a PROPER subset of its path's forward cell. Subset, because it shades the same
 //     surface and can read nothing the surface does not have; PROPER, because a G-buffer write reads no
@@ -737,7 +730,7 @@ namespace
         Color     Tint    ("Tint")    = (1, 1, 1, 1)
         Float     Tiling  ("Tiling")  = 2
 )" + extraProperties +
-               R"(        Texture2D u_Mask ("Mask") = "white"
+               R"(        Texture2D MaskTexture ("Mask") = "white"
     }
     Vertex
     {
@@ -748,7 +741,7 @@ namespace
     {
 )" + fragmentPush +
                R"(        layout( location = 0 ) out vec4 o_Color;
-        void main() { o_Color = texture( u_Mask, vec2( 0.5 ) ) * u_Material.Tint * u_Material.Tiling; }
+        void main() { o_Color = texture( MaskTexture, vec2( 0.5 ) ) * Material.Tint * Material.Tiling; }
     }
 }
 )";
@@ -761,7 +754,7 @@ namespace
     Domain Surface
     Properties TextureBinding(35)
     {
-        Texture2D u_Mask ("Mask") = "white"
+        Texture2D MaskTexture ("Mask") = "white"
     }
     Vertex
     {
@@ -774,7 +767,7 @@ namespace
         )" + fragmentPush +
                R"(
         layout( location = 0 ) out vec4 o_Color;
-        void main() { o_Color = texture( u_Mask, vec2( 0.5 ) ) * float( m_PushConstants.MaterialIndex ); }
+        void main() { o_Color = texture( MaskTexture, vec2( 0.5 ) ) * float( m_PushConstants.MaterialIndex ); }
     }
 }
 )";
@@ -795,8 +788,13 @@ TEST_F( MeshVertexPathShaderRoot, AMockTemplatesLayoutIsItsPropertiesAndItsPushB
     EXPECT_EQ( *cell.Layout.RowBinding, 30u );
     ASSERT_NE( cell.Layout.FindParam( "Tiling" ), nullptr );
     EXPECT_EQ( cell.Layout.FindParam( "Tiling" )->Offset, 16u );
+<<<<<<< HEAD
     ASSERT_NE( cell.Layout.FindTexture( "u_Mask" ), nullptr );
     EXPECT_EQ( cell.Layout.FindTexture( "u_Mask" )->Binding, 35u );
+=======
+    ASSERT_NE( cell.Layout.FindTexture( "MaskTexture" ), nullptr );
+    EXPECT_EQ( cell.Layout.FindTexture( "MaskTexture" )->Binding, 31u );
+>>>>>>> origin/dev
 
     const auto* index = cell.Layout.FindPush( "MaterialIndex" );
     ASSERT_NE( index, nullptr );
@@ -1081,11 +1079,11 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
     using Desert::Core::Formats::SurfaceBlendMode;
     constexpr std::string_view kDefault = "StandardSurface";
     constexpr std::string_view kFoliage = "FoliageSurface";
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Masked, false ),
                Desert::Graphic::ShadowCasterCell::Own );
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Opaque, false ),
                Desert::Graphic::ShadowCasterCell::Shared );
-    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent ),
+    EXPECT_EQ( Desert::Graphic::ShadowCasterCellFor( SurfaceBlendMode::Translucent, false ),
                Desert::Graphic::ShadowCasterCell::Shared );
     for ( const auto path : kAllPaths )
     {
@@ -1093,7 +1091,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
         ASSERT_TRUE( shared.has_value() ) << MeshVertexPathName( path );
 
         const auto masked =
-             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, path );
+             Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, SurfaceBlendMode::Masked, false, path );
         ASSERT_TRUE( masked.has_value() ) << MeshVertexPathName( path );
         EXPECT_NE( masked, shared ) << "a masked caster on " << MeshVertexPathName( path )
                                     << " draws through the shared program and casts its whole quad";
@@ -1101,7 +1099,7 @@ TEST( ShadowCaster, MaskedCastsThroughItsOwnTemplateCellOpaqueThroughTheSharedOn
 
         for ( const auto blend : { SurfaceBlendMode::Opaque, SurfaceBlendMode::Translucent } )
         {
-            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, path );
+            const auto caster = Desert::Graphic::ShadowCasterShaderFor( kFoliage, kDefault, blend, false, path );
             ASSERT_TRUE( caster.has_value() );
             EXPECT_EQ( caster, shared ) << "a non-masked caster on " << MeshVertexPathName( path )
                                         << " must share the one position-only program and batch by mesh";

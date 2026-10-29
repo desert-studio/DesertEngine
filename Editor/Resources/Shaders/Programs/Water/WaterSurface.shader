@@ -47,7 +47,7 @@ Shader "WaterSurface"
 
         void main()
         {
-            WaterTileRow t = u_Tiles[int( m_PushConstants.MaterialIndex ) + gl_InstanceIndex];
+            WaterTileRow t = WaterTileRows[int( m_PushConstants.MaterialIndex ) + gl_InstanceIndex];
 
             // Two triangles per quad, quads row by row.
             const ivec2 kCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 1, 0 ), ivec2( 0, 1 ),
@@ -81,12 +81,20 @@ Shader "WaterSurface"
     {
         In(0) vec3 v_WorldPos;
         Out(0) vec4 o_Color;
-        Out(1) vec2 oVelocity; // the view's velocity, slot 1 of the scene target
+        Out(1) vec4 oVelocity; // the view's velocity, slot 1 of the scene target
+        // The view's thin-geometry coverage, slot 3 of the scene target: this pass writes the view's depth. Water is
+        // a lit surface that is not foliage (UE: SingleLayerWater counts as a regular surface).
+        Out(3) float oThinGeometryCoverage;
 
         #include <Programs/Water/WaterSurfaceData.glslh>
+<<<<<<< HEAD
         #include <Common/ObjectMotion.glslh>
         // The view's fog at the surface's own depth: the water is drawn after the opaque fog composite.
         #include <Mesh/Surface/SceneFog.glslh>
+=======
+        #include <Common/Velocity.glslh>
+        #include <Common/ThinGeometryCoverage.glslh>
+>>>>>>> origin/dev
 
         void main()
         {
@@ -106,10 +114,15 @@ Shader "WaterSurface"
             vec3 H        = normalize( V + L );
             vec3 glint    = sun * pow( max( dot( N, H ), 0.0 ), 400.0 ) * fres * step( 0.0, L.y );
 
+<<<<<<< HEAD
             const vec4 fog = DesertSceneFog( v_WorldPos );
             o_Color        = vec4( ( mix( body, skyCol, fres ) + glint ) * fog.a + fog.rgb, 1.0 );
+=======
+            o_Color   = vec4( ( mix( body, skyCol, fres ) + glint ) * u.Exposure.x, 1.0 );
+>>>>>>> origin/dev
             vec4 world = vec4( v_WorldPos, 1.0 );
-            oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
+            oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world, 0.0 ); // waves deform, the water does not move (Common/Velocity.glslh)
+            oThinGeometryCoverage = kThinGeometryCoverageSurface;
         }
     }
 }

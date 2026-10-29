@@ -1,0 +1,131 @@
+// LOCAL EXPOSURE (UE Local Exposure, Bilateral and Fusion) — the one shader source of the exposure law and of the grid's
+// slice mapping; Engine/Graphic/PostProcessing/LocalExposureRules.hpp mirrors it on the CPU.
+// Port of UE PostProcessHistogramCommon.ush:251-310 with two deliberate differences (CONTRACT.md §6):
+//  - slices are 1 EV each, centred on the exposed middle grey of the last exposure (LocalExposureSliceCoord);
+//  - the threshold smoothstep has an explicit strength >= 1 branch instead of dividing by 1 - strength = 0.
+#ifndef DESERT_LOCAL_EXPOSURE_GLSLH
+#define DESERT_LOCAL_EXPOSURE_GLSLH
+
+#define LOCAL_EXPOSURE_GRID_DEPTH 32
+
+float LocalExposureLuminance( vec3 c )
+{
+    return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
+}
+
+// Continuous slice coordinate of an UN-EXPOSED log2 luminance: slice i covers [i, i + 1). Not "LocalExposureSlice":
+// that is the push-constant member of SceneComposite/BloomDownsample, and block members share the global scope.
+float LocalExposureSliceCoord( float logLum, float sliceLogMin, float invSliceEV )
+{
+    return ( logLum - sliceLogMin ) * invSliceEV;
+}
+
+int LocalExposureSliceIndex( float logLum, float sliceLogMin, float invSliceEV )
+{
+    return clamp( int( floor( LocalExposureSliceCoord( logLum, sliceLogMin, invSliceEV ) ) ), 0,
+                  LOCAL_EXPOSURE_GRID_DEPTH - 1 );
+}
+
+// The grid's W coordinate for an UN-EXPOSED log2 luminance (sampled with a linear 3D sampler; the callers do
+// the fetch, so no sampler crosses a function boundary).
+float LocalExposureGridW( float logLum, float sliceLogMin, float invSliceEV )
+{
+    float slice = clamp( LocalExposureSliceCoord( logLum, sliceLogMin, invSliceEV ), 0.5,
+                         float( LOCAL_EXPOSURE_GRID_DEPTH ) - 0.5 );
+    return slice / float( LOCAL_EXPOSURE_GRID_DEPTH );
+}
+
+// UE CalculateBaseLogLuminance (both overloads): the base layer = grid mean (@p cell = (sum logLum, count))
+// blended toward the blurred log luminance; an empty cell falls back to the blurred value (the grid is built from
+// half-res texels). Inputs UN-EXPOSED; the result is EXPOSED (+ log2 exposure).
+float LocalExposureBaseLogLuminance( vec2 cell, float blurred, float blurredBlend, float logExposure )
+{
+    float bilateral = cell.y < 0.001 ? blurred : cell.x / cell.y;
+    return mix( bilateral, blurred, blurredBlend ) + logExposure;
+}
+
+float LocalExposureThresholdSmooth( float e0, float strength, float x )
+{
+    if ( strength >= 1.0 )
+        return 0.0; // UE: smoothstep(e0, e0 + 1/0, x) == 0
+    return smoothstep( e0, e0 + 1.0 / ( 1.0 - strength ), x );
+}
+
+// UE CalculateLogLocalExposure. All log luminances EXPOSED. contrast = (highlight, shadow, detail, blurredBlend),
+// threshold = (highlightThreshold, shadowThreshold, highlightStrength, shadowStrength).
+float LocalExposureLogExposure( float logLum, float baseLogLum, float logMiddleGrey, vec4 contrast, vec4 threshold )
+{
+    float detail        = logLum - baseLogLum;
+    float baseCentered  = baseLogLum - logMiddleGrey;
+    float contrastScale = baseCentered > 0.0 ? contrast.x : contrast.y;
+    float M;
+    float T;
+    if ( baseCentered > 0.0 )
+    {
+        M = max( 0.0, baseCentered - threshold.x );
+        T = LocalExposureThresholdSmooth( threshold.x, threshold.z, abs( baseCentered ) );
+    }
+    else
+    {
+        M = min( 0.0, baseCentered + threshold.y );
+        T = LocalExposureThresholdSmooth( threshold.y, threshold.w, abs( baseCentered ) );
+    }
+    float thresholdOffset = ( baseCentered - M ) * ( 1.0 - T );
+    baseCentered -= thresholdOffset;
+    float logLocalLum = logMiddleGrey + thresholdOffset + baseCentered * contrastScale + detail * contrast.z;
+    return logLocalLum - logLum;
+}
+
+// ── FUSION (UE 5.4 Local Exposure Method = Fusion; PostProcessLocalExposure.usf FusionSetupCS / FusionBlendCS,
+// PostProcessHistogramCommon.ush ExposureFusionTonemap / CalculateFusionLocalExposure). Mertens et al. 2007
+// exposure fusion on luminance: three synthetic exposures of each pixel (as is, highlights x 2^-EV, shadows
+// x 2^+EV) are put through the display curve, weighted by well-exposedness and blended through a Laplacian
+// pyramid; the composite turns the fused display value back into a per-pixel exposure.
+// One difference from UE (on purpose): UE's ExposureFusionTonemap is its Filmic curve (FilmToneMap); ours is the
+// scene's own operator — the ACES fit of Common/TonemapACES.glslh as a scalar curve (its two matrices map grey
+// to grey, rows sum to 1), or L / (1 + L) under Reinhard (UE's non-film branch) — so the weights judge the
+// exposures by the curve the picture is actually shown through.
+
+#define LOCAL_EXPOSURE_FUSION_SIGMA 0.2
+
+// The ACES fit on grey (TonemapACES with v = grey), unclamped.
+float LocalExposureFusionACES( float x )
+{
+    return ( x * ( x + 0.0245786 ) - 0.000090537 ) / ( x * ( 0.983729 * x + 0.4329510 ) + 0.238081 );
+}
+
+// UE ExposureFusionTonemap: display curve, then sqrt (perceptual spacing for the weights and the pyramid).
+// @p reinhard: the scene operator is Reinhard (TonemapOperator >= 0.5).
+float LocalExposureFusionTonemap( float lum, bool reinhard )
+{
+    float t = reinhard ? lum / ( 1.0 + lum ) : LocalExposureFusionACES( lum );
+    return sqrt( clamp( t, 0.0, 1.0 ) );
+}
+
+// UE ExposureFusionInverseTonemap. ACES: the positive root of (1 - 0.983729 y) x^2 + (0.0245786 - 0.432951 y) x
+// - (0.000090537 + 0.238081 y) = 0; for y <= 1 the leading coefficient stays > 0.016, so the root is finite.
+float LocalExposureFusionInverseTonemap( float t, bool reinhard )
+{
+    float y = t * t;
+    if ( reinhard )
+        return y / max( 1.0 - y, 1.0e-4 );
+    float a = 1.0 - 0.983729 * y;
+    float b = 0.0245786 - 0.4329510 * y;
+    float c = -( 0.000090537 + 0.238081 * y );
+    return ( -b + sqrt( max( b * b - 4.0 * a * c, 0.0 ) ) ) / ( 2.0 * a );
+}
+
+// UE ExposureWeight (well-exposedness; sigma 0.2, exp2 as in UE).
+float LocalExposureFusionWeight( float v, float target )
+{
+    float d = v - target;
+    return exp2( -d * d / ( 2.0 * LOCAL_EXPOSURE_FUSION_SIGMA * LOCAL_EXPOSURE_FUSION_SIGMA ) );
+}
+
+// UE CalculateFusionLocalExposure: @p lum EXPOSED linear luminance, @p fused the pyramid's display value.
+float LocalExposureFusionExposure( float lum, float fused, bool reinhard )
+{
+    return LocalExposureFusionInverseTonemap( min( fused, 1.0 ), reinhard ) / max( lum, 1.0e-10 );
+}
+
+#endif

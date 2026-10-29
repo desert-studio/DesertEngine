@@ -1,0 +1,320 @@
+// DesertAsset {"Kind":"Shader","Guid":"ad572b5fc8784311a2fcc5a2d28adc9a","Versions":{"SHDR":1},"Dependencies":[]}
+// THE SCREEN PROBE GATHER, 4/4 — INTEGRATE (UE ScreenProbeIntegrateCS, LumenScreenProbeGather.usf): one thread per
+// G-buffer pixel; the temporal filter that follows it is ScreenProbeTemporal.
+//   probes    the four uniform probes around the pixel, bilinear x how well each lies on the pixel's plane and
+//             faces its normal; a corner that misses takes the best adaptive probe of its tile (SPInterpolate, UE
+//             CalculateUpsampleInterpolationWeights). The placement put an adaptive probe wherever this test
+//             failed, so only a pixel past the adaptive budget finds none: it reads the world radiance cache;
+//   diffuse   the probes' irradiance SH at the pixel's bent normal times its short-range AO (already / pi; UE
+//             ScreenProbeIntegrateCS with SHORT_RANGE_AO, the ScreenProbeShortRangeAO pass of this frame): the
+//             occluders closer than the probes, which the scalar SSAO misses on thin leaf cards;
+//   specular  UE's rough specular (LumenScreenProbeGather.usf ScreenProbeIntegrateCS, the default
+//             ROUGH_SPECULAR_ALONG_REFLECTION_DIRECTION 0): the diffuse irradiance above (UE `DiffuseLighting / PI`)
+//             lerped toward four visible-GGX samples of the probes' filtered radiance by RoughReflectionsDiffuseLerp
+//             (fully the irradiance from roughness MaxRoughnessToEvaluateRoughSpecular = 0.8 up, fully the GGX
+//             samples 0.2 below it). It is NOT the probes' radiance along the one mirror direction, which UE turns
+//             off because it "samples values below the visible horizon": a direction under the probe's hemisphere
+//             reads its horizon texel, the open sky at a crown's edge, and that was every pale fleck on Bistro's
+//             bush and every pale-blue linde leaf (FOLIAGE-LOOK-3: the specular knockout removed both, the reflection
+//             environment in its place made them brighter). The rough reflections of UE (ScreenProbeGather
+//             integrates the specular of surfaces above r.Lumen.Reflections.MaxRoughnessToTrace from the same
+//             probes); smoother surfaces read it too until a reflection tracer exists, so no surface reads the sky
+//             cube in a closed room. Every GGX sample is weighted by its visibility in the bent cone (UE
+//             CalculateSpecularOcclusion with the sample's direction as the reflection), so the short-range AO
+//             occludes the rough specular direction by direction, and the irradiance it lerps toward is already
+//             occluded;
+//   backface  the irradiance (/ pi) from behind the pixel's surface, -N, interpolated from the probes' backface
+//             (ScreenProbeFilter) under the same weights, the radiance cache's at -N where no probe holds the pixel:
+//             the composite lets it through a two-sided leaf times its SubsurfaceColor (UE
+//             TwoSidedFoliageBackfaceDiffuse, DiffuseIndirectComposite's BackfaceDiffuseIndirect);
+// Output: diffuse.rgb + .a = the pixel's distance to the camera, specular.rgb, backface.rgb.
+Shader "ScreenProbeIntegrate"
+{
+    Compute
+    {
+        LocalSize(8, 8, 1);
+
+        #include <Common/GIFrame.glslh>
+        #include <Common/ScreenProbes.glslh>
+        #include <Common/RadianceCache.glslh>
+        #include <Common/ReconstructPosition.glslh>
+        #include <Common/MonteCarlo.glslh>
+
+        ReadBuffer(0) ScreenProbeParamsUB
+        {
+            ScreenProbeParams screenProbeParams;
+        };
+        ReadBuffer(1) ScreenProbeIndexUB
+        {
+            uint screenProbeIndex[];
+        };
+        ReadBuffer(2) ScreenProbesUB
+        {
+            ScreenProbe screenProbes[];
+        };
+        ReadBuffer(3) GIFrameUB
+        {
+            GIFrame giFrame;
+        };
+        ReadBuffer(4) ScreenProbeSHUB
+        {
+            vec4 screenProbeSH[];
+        };
+        Uniform sampler LinearClampSampler;
+        Uniform(5) texture2D ScreenProbeFilteredTexture;
+        #define ScreenProbeFilteredTexture sampler2D(ScreenProbeFilteredTexture, LinearClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(6) texture2D GBufferDepthTexture;
+        #define GBufferDepthTexture sampler2D(GBufferDepthTexture, PointClampSampler)
+        Uniform(7) texture2D GBufferBTexture;
+        #define GBufferBTexture sampler2D(GBufferBTexture, PointClampSampler)
+        layout(binding = 10, rgba16f) restrict writeonly uniform image2D ScreenProbeDiffuseOutTexture;
+        layout(binding = 11, rgba16f) restrict writeonly uniform image2D ScreenProbeSpecularOutTexture;
+        ReadBuffer(12) RadianceCacheParamsUB
+        {
+            RadianceCacheParams radianceCache;
+        };
+        ReadBuffer(13) RadianceCacheIndirectionUB
+        {
+            uint radianceCacheIndirection[];
+        };
+        ReadBuffer(14) RadianceCacheProbesUB
+        {
+            RadianceCacheProbe radianceCacheProbes[];
+        };
+        Uniform(15) texture2D RadianceCacheIrradianceTexture;
+        #define RadianceCacheIrradianceTexture sampler2D(RadianceCacheIrradianceTexture, LinearClampSampler)
+        Uniform(16) texture2D RadianceCacheDepthTexture;
+        #define RadianceCacheDepthTexture sampler2D(RadianceCacheDepthTexture, LinearClampSampler)
+        ReadBuffer(17) ScreenProbeBackfaceUB
+        {
+            vec4 screenProbeBackface[];
+        };
+        layout(binding = 19, rgba16f) restrict writeonly uniform image2D ScreenProbeBackfaceOutTexture;
+        Uniform(20) texture2D ShortRangeAoTexture; // xyz = bent normal, w = AO (ScreenProbeShortRangeAO)
+        #define ShortRangeAoTexture sampler2D(ShortRangeAoTexture, PointClampSampler)
+        ReadBuffer(21) ScreenProbeMovingUB
+        {
+            float screenProbeMoving[]; // per probe, the share of its rays that are moving (ScreenProbeFilter)
+        };
+        #define SCREEN_PROBES_DECLARED
+        #include <Common/ScreenProbes.glslh>
+        #define RADIANCE_CACHE_INDIRECTION radianceCacheIndirection
+        #define RADIANCE_CACHE_PROBES radianceCacheProbes
+        #include <Common/RadianceCache.glslh>
+
+        // UE r.Lumen.ScreenProbeGather.MaxRoughnessToEvaluateRoughSpecular (and ...ForFoliage), both 0.8, and the
+        // 0.2 fade of RoughReflectionsDiffuseLerp (LumenScreenProbeTileClassication.ush): at and above 0.8 the rough
+        // specular IS the irradiance, below 0.6 it is all GGX samples.
+        #define SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR 0.8
+        #define SP_ROUGH_SPECULAR_FADE_LENGTH 0.2
+        // UE NumSpecularSamples, and the floor UE puts under the roughness the probes can answer (a ~2x2 footprint).
+        #define SP_ROUGH_SPECULAR_SAMPLES 4
+        #define SP_ROUGH_SPECULAR_MIN_ROUGHNESS 0.2
+
+        // UE RoughReflectionsDiffuseLerp: the share of the rough specular the irradiance answers.
+        float SPRoughSpecularDiffuseLerp( float roughness )
+        {
+            return clamp( ( roughness - SP_MAX_ROUGHNESS_TO_EVALUATE_ROUGH_SPECULAR + SP_ROUGH_SPECULAR_FADE_LENGTH ) /
+                              SP_ROUGH_SPECULAR_FADE_LENGTH,
+                          0.0, 1.0 );
+        }
+
+        // Per pixel, sample and frame (PCG, as ScreenProbeTrace's TexelNoise).
+        vec2 SPPixelNoise( uvec2 pixel, uint index, uint frame )
+        {
+            uvec3 h = uvec3( pixel.x, pixel.y * 4u + index, frame ) * 1664525u + 1013904223u;
+            h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
+            h ^= h >> 16u;
+            h.x += h.y * h.z; h.y += h.z * h.x; h.z += h.x * h.y;
+            return vec2( h.xy & 0xFFFFu ) / 65536.0;
+        }
+
+        // UE MonteCarlo.ush ImportanceSampleVisibleGGX (Dupuy & Benyoub 2023, spherical caps; isotropic, unbounded):
+        // a micro-normal of the GGX lobe of `alpha` seen from tangent-space `v` (z = the shading normal).
+        vec3 SPSampleVisibleGGX( vec2 e, float alpha, vec3 v )
+        {
+            const vec3  vh  = normalize( vec3( alpha * v.xy, v.z ) );
+            const float phi = 6.28318530718 * e.x;
+            const float z   = mix( 1.0, -vh.z, e.y );
+            const float st  = sqrt( clamp( 1.0 - z * z, 0.0, 1.0 ) );
+            const vec3  h   = vec3( st * cos( phi ), st * sin( phi ), z ) + vh;
+            return normalize( vec3( alpha * h.xy, max( 0.0, h.z ) ) );
+        }
+
+        // UE ApproximateConeConeIntersection (DistanceFieldAOShared.ush): the share of cone 0 inside cone 1, both given
+        // by their angles, @p between apart.
+        float SPApproximateConeConeIntersection( float arc0, float arc1, float between )
+        {
+            const float difference = abs( arc0 - arc1 );
+            return smoothstep( 0.0, 1.0,
+                               1.0 - clamp( ( between - difference ) / max( arc0 + arc1 - difference, 1e-4 ), 0.0, 1.0 ) );
+        }
+
+        // UE CalculateSpecularOcclusion (LumenScreenProbeGather.usf, SHORT_RANGE_AO): how much of a reflection cone
+        // of @p roughness around @p direction the bent normal's unoccluded cone (AO x pi) holds.
+        float SPSpecularOcclusion( vec3 bentNormal, float ao, float roughness, vec3 direction )
+        {
+            const float reflectionCone  = max( roughness, 0.1 ) * 3.14159265;
+            const float unoccludedAngle = ao * 3.14159265;
+            const float between         = acos( clamp( dot( bentNormal, direction ), -1.0, 1.0 ) );
+            const float occlusion = SPApproximateConeConeIntersection( reflectionCone, unoccludedAngle, between );
+            return mix( 0.0, occlusion, clamp( ( unoccludedAngle - 0.1 ) / 0.2, 0.0, 1.0 ) );
+        }
+
+        // The probes a pixel interpolates: four per level.
+        #define SP_PIXEL_PROBES ( 4u * SP_LEVELS )
+
+        vec3 ProbeIrradiance( uint probe, vec3 n )
+        {
+            vec3 e = vec3( 0.0 );
+            for ( uint k = 0u; k < 9u; ++k )
+                e += screenProbeSH[probe * 9u + k].rgb * SPSHBasis( k, n );
+            return max( e, vec3( 0.0 ) );
+        }
+
+        vec3 ProbeRadiance( uint probe, vec3 direction )
+        {
+            const ScreenProbe state = screenProbes[probe];
+            const vec2 o      = SPProbeOct( SPProbeFrame( state.normal.xyz ), direction );
+            const vec2 texel  = vec2( SPAtlasOrigin( probe, SP_TILE ) + 1 ) + ( o * 0.5 + 0.5 ) * float( SP_RES );
+            return textureLod( ScreenProbeFilteredTexture, texel / vec2( textureSize( ScreenProbeFilteredTexture, 0 ) ), 0.0 ).rgb;
+        }
+
+        void main()
+        {
+            const ivec2 pixel  = ivec2( gl_GlobalInvocationID.xy );
+            const vec2  extent = giFrame.screen.xy;
+            if ( any( greaterThanEqual( pixel, ivec2( extent ) ) ) )
+                return;
+            const vec4 gb = texelFetch( GBufferBTexture, pixel, 0 );
+            if ( dot( gb.xyz, gb.xyz ) <= 0.001 )
+            {
+                imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( 0.0 ) );
+                imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( 0.0 ) );
+                return;
+            }
+            const vec2  uv       = ( vec2( pixel ) + 0.5 ) * giFrame.screen.zw;
+            const vec3  p        = ReconstructWorldPosition( uv, texelFetch( GBufferDepthTexture, pixel, 0 ).r,
+                                                             giFrame.invViewProjection );
+            const vec3  n        = normalize( gb.xyz );
+            const float distance = max( length( p - giFrame.camera.xyz ), 1e-3 );
+            const vec3  v        = ( giFrame.camera.xyz - p ) / distance;
+            const vec3  r        = reflect( -v, n );
+            // Off (Scalability GlobalIllumination.ShortRangeAO 0): the shading normal, unoccluded; SSAO occludes the
+            // gather in the composite instead.
+            const vec4  shortAO  = ( screenProbeParams.atlas.z & SP_FLAG_SHORT_RANGE_AO ) != 0u
+                                       ? texelFetch( ShortRangeAoTexture, pixel, 0 )
+                                       : vec4( 0.0, 0.0, 0.0, 1.0 );
+            const vec3  bent     = dot( shortAO.xyz, shortAO.xyz ) > 0.5 ? normalize( shortAO.xyz ) : n;
+            const float ao       = shortAO.w;
+
+            // UE's rough specular samples (ScreenProbeIntegrateCS, Rough-Specular): four visible-GGX reflections of
+            // the view about the shading normal. A shading normal turned from the eye (a normal-mapped or two-sided
+            // leaf seen edge-on) samples with |N.V|, UE's BxDF convention (BxDFContext NoV = saturate(abs(NoV))); a
+            // sample that leaves below the surface carries nothing, as the GGX integrand's N.L does.
+            const float roughness   = max( gb.a, 0.04 );
+            const float diffuseLerp = SPRoughSpecularDiffuseLerp( roughness );
+            vec3        roughL[SP_ROUGH_SPECULAR_SAMPLES];
+            float       roughW[SP_ROUGH_SPECULAR_SAMPLES];
+            {
+                const mat3  frame = SPProbeFrame( n );
+                vec3        vt    = transpose( frame ) * v;
+                vt.z              = max( abs( vt.z ), 1e-4 );
+                const float alpha = max( roughness, SP_ROUGH_SPECULAR_MIN_ROUGHNESS ) *
+                                    max( roughness, SP_ROUGH_SPECULAR_MIN_ROUGHNESS );
+                // UE BiasBSDFImportantSample: the second coordinate squeezed 10% toward the middle of its range.
+                const vec2 jitter = SPPixelNoise( uvec2( pixel ), 0u, screenProbeParams.atlas.y );
+                for ( int k = 0; k < SP_ROUGH_SPECULAR_SAMPLES; ++k )
+                {
+                    vec2 e = vec2( fract( jitter.x + float( k ) / float( SP_ROUGH_SPECULAR_SAMPLES ) ),
+                                   SPPixelNoise( uvec2( pixel ), uint( k ) + 1u, screenProbeParams.atlas.y ).y );
+                    e.y           = ( e.y - 0.5 ) * 0.9 + 0.5;
+                    const vec3 h  = SPSampleVisibleGGX( e, alpha, vt );
+                    const vec3 lt = reflect( -vt, h );
+                    roughL[k]     = frame * lt;
+                    roughW[k]     = ( diffuseLerp < 1.0 && lt.z > 0.0 )
+                                         ? SPSpecularOcclusion( bent, ao, roughness, roughL[k] ) /
+                                               float( SP_ROUGH_SPECULAR_SAMPLES )
+                                         : 0.0;
+                }
+            }
+
+            vec3  diffuse  = vec3( 0.0 );
+            vec3  specular = vec3( 0.0 );
+            vec3  backface = vec3( 0.0 );
+            // UE LightIsMoving (LumenScreenProbeGather.usf:1450-1454): the held probes' moving shares under the
+            // diffuse's weights; 0 where no probe holds the pixel (UE: lighting not valid). It rides in the rough
+            // specular's alpha, which nothing else reads, to the temporal filter's fast update.
+            float lightIsMoving = 0.0;
+            // The probes that hold the pixel and their weights: the diffuse reads every one, each GGX sample one of
+            // them picked by weight (UE r.Lumen.ScreenProbeGather.StochasticInterpolation) - four radiance fetches a
+            // pixel instead of four per probe (Bistro's backlit crown: 7.1 ms of integrate, then a GPU watchdog).
+            uvec4 heldId;
+            vec4  heldW;
+            SPInterpolate( pixel, p, n, distance, SP_LEVELS, heldId, heldW );
+            const float total = dot( heldW, vec4( 1.0 ) );
+            if ( total >= SP_ADAPTIVE_EPSILON )
+            {
+                for ( int i = 0; i < 4; ++i )
+                    if ( heldW[i] > 0.0 )
+                        diffuse += heldW[i] * ProbeIrradiance( heldId[i], bent );
+                diffuse *= ao / total;
+                for ( int i = 0; i < 4; ++i )
+                    if ( heldW[i] > 0.0 )
+                        lightIsMoving += heldW[i] * screenProbeMoving[heldId[i]];
+                lightIsMoving /= total;
+                float backTotal = 0.0;
+                for ( int i = 0; i < 4; ++i )
+                    if ( heldW[i] > 0.0 )
+                    {
+                        const vec4 back = screenProbeBackface[heldId[i]];
+                        backface += heldW[i] * back.a * back.rgb;
+                        backTotal += heldW[i] * back.a;
+                    }
+                backface /= max( backTotal, 1e-6 );
+                for ( int k = 0; k < SP_ROUGH_SPECULAR_SAMPLES; ++k )
+                {
+                    if ( roughW[k] <= 0.0 )
+                        continue;
+                    float pick = SPPixelNoise( uvec2( pixel ), uint( k ) + 8u, screenProbeParams.atlas.y ).x * total;
+                    int   j    = 0;
+                    for ( int i = 0; i < 4; ++i )
+                        if ( heldW[i] > 0.0 )
+                        {
+                            j = i;
+                            if ( pick < heldW[i] )
+                                break;
+                            pick -= heldW[i];
+                        }
+                    specular += roughW[k] * ProbeRadiance( heldId[j], roughL[k] );
+                }
+                specular = mix( specular, diffuse, diffuseLerp );
+            }
+            else
+            {
+                // NO SCREEN PROBE HOLDS THE PIXEL: the placement wanted an adaptive probe here and the budget was
+                // spent (UE would draw it dark, its weights over max(sum, Epsilon)). It reads the world radiance cache
+                // in place, as the ProbeVolume method does for every pixel (IrradianceFieldGather) - the same cache
+                // the probes' own rays end in - and is never black (FOLIAGE-LOOK-2 x1_uncovered: the black leaves).
+                vec3       cacheSpecular;
+                const vec4 cache = RadianceCacheIrradianceAtImpl( p, n, v, r, 0.5, true, cacheSpecular );
+                if ( cache.a > 0.0 )
+                {
+                    // The cache answers the mirror direction only: UE's lerp toward the irradiance holds here too.
+                    diffuse  = cache.rgb * ao;
+                    specular = mix( cacheSpecular * SPSpecularOcclusion( bent, ao, roughness, r ), diffuse,
+                                    diffuseLerp );
+                }
+                const vec4 back = RadianceCacheIrradianceAt( p, -n, v, 0.5 );
+                if ( back.a > 0.0 )
+                    backface = back.rgb;
+            }
+
+            imageStore( ScreenProbeDiffuseOutTexture, pixel, vec4( diffuse, distance ) );
+            imageStore( ScreenProbeSpecularOutTexture, pixel, vec4( specular, lightIsMoving ) );
+            imageStore( ScreenProbeBackfaceOutTexture, pixel, vec4( backface, 1.0 ) );
+        }
+    }
+}

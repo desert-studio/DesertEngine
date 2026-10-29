@@ -1,0 +1,15 @@
+# SHADOW-DEBUG-VIEWS: the directional-shadow view modes reach the deferred lighting pass (DeferredLighting.shader,
+# ShadowUB DebugParams.z). Before: the mode reached only the forward MeshRenderer and the frame equalled Lit.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 0_lit Lit reference: barn, field, sky, sun shadows
+Когда run View "View mode: Shadow Factor"
+Тогда-вид 1_factor Shadow Factor: shadowed ground/sides black, sunlit surfaces white, no albedo colour; sky unchanged
+Когда run View "View mode: Shadow Cascades"
+Тогда-вид 2_cascades Shadow Cascades: the lit scene tinted red near, then green, blue, yellow bands with distance
+Когда run View "View mode: Lit"

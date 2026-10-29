@@ -14,16 +14,20 @@ Shader "LensFlareFeatures"
 
         #include <Common/LensFlare.glslh>
 
-        Uniform(0) sampler2D u_FlareSource; // quarter-res thresholded scene (LensFlareBrightPass)
-        layout(binding = 1, rgba16f) restrict writeonly uniform image2D u_Flare;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) texture2D FlareSourceTexture; // quarter-res thresholded scene (LensFlareBrightPass)
+        #define FlareSourceTexture sampler2D(FlareSourceTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) restrict writeonly uniform image2D FlareTexture;
 
         PushConstant LensFlareFeaturesPush
         {
-            vec4 u_SunUvHalo;   // xy = sun screen uv, z = halo intensity, w = halo radius
-            vec4 u_GhostParams; // x = count, y = spacing, z = size near, w = size far
-            vec4 u_TintInner;   // xyz = inner ghost tint, w = chromatic shift
-            vec4 u_TintOuter;   // xyz = outer ghost tint, w = screen pixels per mip-0 source texel
-            vec4 u_Streak;      // x = intensity, y = length, z = axis.x, w = axis.y
+            vec4 SunUvHalo;   // xy = sun screen uv, z = halo intensity, w = halo radius
+            vec4 GhostParams; // x = count, y = spacing, z = size near, w = size far
+            vec4 TintInner;   // xyz = inner ghost tint, w = chromatic shift
+            vec4 TintOuter;   // xyz = outer ghost tint, w = screen pixels per mip-0 source texel
+            vec4 StreakParams;      // x = intensity, y = length, z = axis.x, w = axis.y
         };
 
         LocalSize(16, 16, 1);
@@ -49,7 +53,7 @@ Shader "LensFlareFeatures"
         // and a ghost reaching past the frame would otherwise wrap the opposite edge's content in.
         vec3 SampleSourceLod(vec2 uv, float lod)
         {
-            return textureLod(u_FlareSource, clamp(uv, vec2(0.0f, 0.0f), vec2(1.0f, 1.0f)),
+            return textureLod(FlareSourceTexture, clamp(uv, vec2(0.0f, 0.0f), vec2(1.0f, 1.0f)),
                               max(lod, kMinSourceLod)).rgb;
         }
 
@@ -67,7 +71,7 @@ Shader "LensFlareFeatures"
 
         void main()
         {
-            ivec2 size  = imageSize(u_Flare);
+            ivec2 size  = imageSize(FlareTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
@@ -75,12 +79,12 @@ Shader "LensFlareFeatures"
             vec2  uv     = (vec2(coord) + vec2(0.5f, 0.5f)) / vec2(size);
             float aspect = float(size.x) / max(float(size.y), 1.0f);
 
-            vec2  sunUv      = vec2(u_SunUvHalo.x, u_SunUvHalo.y);
-            float ghostCount = u_GhostParams.x;
-            float chroma     = u_TintInner.w;
-            vec3  tintInner  = vec3(u_TintInner.x, u_TintInner.y, u_TintInner.z);
-            vec3  tintOuter  = vec3(u_TintOuter.x, u_TintOuter.y, u_TintOuter.z);
-            float srcToScreen = max(u_TintOuter.w, 1.0f);
+            vec2  sunUv      = vec2(SunUvHalo.x, SunUvHalo.y);
+            float ghostCount = GhostParams.x;
+            float chroma     = TintInner.w;
+            vec3  tintInner  = vec3(TintInner.x, TintInner.y, TintInner.z);
+            vec3  tintOuter  = vec3(TintOuter.x, TintOuter.y, TintOuter.z);
+            float srcToScreen = max(TintOuter.w, 1.0f);
 
             vec3 flare = vec3(0.0f, 0.0f, 0.0f);
 
@@ -94,8 +98,8 @@ Shader "LensFlareFeatures"
                 if (index >= ghostCount)
                     break;
 
-                vec2  center = LensFlareGhostCenter(sunUv, index, u_GhostParams.y);
-                float scale  = LensFlareGhostScale(index, ghostCount, u_GhostParams.z, u_GhostParams.w);
+                vec2  center = LensFlareGhostCenter(sunUv, index, GhostParams.y);
+                float scale  = LensFlareGhostScale(index, ghostCount, GhostParams.z, GhostParams.w);
                 vec3  tint   = LensFlareGhostTint(index, ghostCount, tintInner, tintOuter);
 
                 float spread = 1.0f + chroma * 0.08f;
@@ -117,7 +121,7 @@ Shader "LensFlareFeatures"
             // The ring reads the source at the pixel's own bearing from the sun, pinned to the halo
             // radius: a bright arc beside the sun brightens that arc of the ring and nothing else.
             {
-                float ringWeight = LensFlareHaloWeight(uv, sunUv, u_SunUvHalo.w, aspect);
+                float ringWeight = LensFlareHaloWeight(uv, sunUv, SunUvHalo.w, aspect);
                 if (ringWeight > 0.0f)
                 {
                     // The channel separation here is an ABSOLUTE offset, not a fraction of the halo
@@ -126,25 +130,25 @@ Shader "LensFlareFeatures"
                     // saturated circles — a rainbow wire, the fixed-circle look this must never have.
                     // The fringe has to stay inside the feature it fringes.
                     float shift = chroma * 0.012f;
-                    vec2  hR    = LensFlareHaloSourceUv(uv, sunUv, u_SunUvHalo.w + shift, aspect);
-                    vec2  hG    = LensFlareHaloSourceUv(uv, sunUv, u_SunUvHalo.w, aspect);
-                    vec2  hB    = LensFlareHaloSourceUv(uv, sunUv, u_SunUvHalo.w - shift, aspect);
+                    vec2  hR    = LensFlareHaloSourceUv(uv, sunUv, SunUvHalo.w + shift, aspect);
+                    vec2  hG    = LensFlareHaloSourceUv(uv, sunUv, SunUvHalo.w, aspect);
+                    vec2  hB    = LensFlareHaloSourceUv(uv, sunUv, SunUvHalo.w - shift, aspect);
 
                     // A halo is the most defocused feature of the lot — read it well down the chain so
                     // the ring has real width instead of tracing the disc's own sharp edge.
                     float lod  = kMinSourceLod + 1.0f;
                     vec3  halo = vec3(SampleSourceLod(hR, lod).r, SampleSourceLod(hG, lod).g,
                                       SampleSourceLod(hB, lod).b);
-                    flare += halo * ringWeight * u_SunUvHalo.z;
+                    flare += halo * ringWeight * SunUvHalo.z;
                 }
             }
 
             // --- Anamorphic streak -------------------------------------------------------------------
             // A gather along the authored axis: the streak's profile is the source's profile smeared,
             // so an occluded sun shortens and dims its own streak with no extra code.
-            if (u_Streak.x > 0.0f && u_Streak.y > 0.0f)
+            if (StreakParams.x > 0.0f && StreakParams.y > 0.0f)
             {
-                vec2  axis     = vec2(u_Streak.z, u_Streak.w);
+                vec2  axis     = vec2(StreakParams.z, StreakParams.w);
                 vec3  streak   = vec3(0.0f, 0.0f, 0.0f);
                 float weightSum = 0.0f;
 
@@ -152,16 +156,16 @@ Shader "LensFlareFeatures"
                 {
                     float offset = LensFlareStreakTapOffset(k, kStreakTaps);
                     float w      = LensFlareStreakTapWeight(offset);
-                    vec2  tapUv  = LensFlareStreakTapUv(uv, axis, offset, u_Streak.y, aspect);
+                    vec2  tapUv  = LensFlareStreakTapUv(uv, axis, offset, StreakParams.y, aspect);
 
                     streak += SampleSourceLod(tapUv, kMinSourceLod) * w;
                     weightSum += w;
                 }
 
-                flare += (streak / max(weightSum, 1e-4f)) * u_Streak.x;
+                flare += (streak / max(weightSum, 1e-4f)) * StreakParams.x;
             }
 
-            imageStore(u_Flare, coord, vec4(flare, 1.0f));
+            imageStore(FlareTexture, coord, vec4(flare, 1.0f));
         }
     }
 }

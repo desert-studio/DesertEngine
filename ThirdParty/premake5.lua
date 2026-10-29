@@ -14,6 +14,7 @@ include( buildScripts .. "/Optick.lua" )
 include( buildScripts .. "/MeshOptimizer.lua" )
 include( buildScripts .. "/Voro.lua" ) -- voro++ 0.4.6, the fracture bake's Voronoi cells
 include( buildScripts .. "/OpenSubdiv.lua" ) -- CPU refiner only (sdc/vtr/far), see the file
+include( buildScripts .. "/Embree.lua" ) -- 4.4.1, triangles + one ISA: the mesh distance-field builder; see the file
 include( buildScripts .. "/Dlib.lua" ) -- optional; no-op when ThirdParty/dlib is absent
 
 -- assimp, compiled from the pinned submodule on every platform. It used to be a committed MSVC import
@@ -26,6 +27,9 @@ include( buildScripts .. "/OpenEXR.lua" )
 -- Engine/Media's codecs, compiled from the pinned submodules: dav1d (AV1) and libopus; see the files.
 include( buildScripts .. "/Dav1d.lua" )
 include( buildScripts .. "/Opus.lua" )
+
+-- AMD FidelityFX SDK (FSR 3.1 upscaler, Vulkan backend), Windows only: its shader compiler is; see the file.
+include( buildScripts .. "/FidelityFX.lua" )
 
 -- reflect-cpp is compiled from the vendored v0.19.0 sources on EVERY platform. Windows
 -- used to link a prebuilt reflectcpp.lib instead, of which only the Debug flavour was

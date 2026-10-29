@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <format>
 #include <optional>
 #include <string>
 #include <utility>
@@ -167,7 +168,7 @@ namespace Desert::Editor::Splash
             if ( units <= 1 )
                 return item;
             const std::size_t current = std::min( done + 1, units );
-            return item + " (" + std::to_string( current ) + " / " + std::to_string( units ) + ")";
+            return std::format( "{} ({} / {})", item, current, units );
         }
 
         [[nodiscard]] std::size_t StageCount() const

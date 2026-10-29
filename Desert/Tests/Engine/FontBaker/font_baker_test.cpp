@@ -1,4 +1,4 @@
-#include <Engine/Text/FontBaker.hpp>
+#include <TextCore/Text/FontBaker.hpp>
 
 #include <gtest/gtest.h>
 

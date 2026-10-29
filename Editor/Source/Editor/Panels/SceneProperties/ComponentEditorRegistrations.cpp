@@ -8,8 +8,10 @@
 #include <Editor/Panels/UI/UIAnchorControls.hpp>
 #include <Editor/Core/DragPayloads.hpp>
 #include <Editor/Core/ToastManager.hpp>
+#include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/SubjectOpenRequest.hpp>
 #include <Editor/Panels/PanelContext.hpp>
+#include <Editor/Panels/Clouds/CloudSkyCapture.hpp>
 #include <Editor/Panels/Clouds/CloudsPanel.hpp>
 #include <Editor/Panels/UI/UIEditorPanel.hpp>
 #include <Editor/Panels/Sequencer/SequencerPanel.hpp>
@@ -17,6 +19,7 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -24,6 +27,8 @@
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/PrimitiveMeshFactory.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/VFX/VFXSystemService.hpp>
+#include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/Runtime/Services/Font/FontService.hpp>
 #include <Engine/Runtime/Services/UITheme/UIThemeService.hpp>
 #include <Engine/UI/Ecs/UICanvasLayoutEcs.hpp>
@@ -77,19 +82,48 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <limits>
 #include <optional>
 
-// Directional light is a CUSTOM entry: the reflected fields PLUS a sun dial, because the sun's direction
-// is not a field — it hides in TransformComponent.Translation. See MakeDirectionalLightEntry.
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PointLightComponent, Data, "PointLightData", "Point Light" )
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::SpotLightComponent, Data, "SpotLightData", "Spot Light" )
+// Directional light is a CUSTOM entry: the reflected fields PLUS the one direction widget (a sun dial over the
+// entity's Rotation, the light's forward axis -Z, as UE). See MakeDirectionalLightEntry.
+// Point / spot light: the reflected fields, plus UE ULocalLightComponent::PostEditChangeProperty - a change of
+// Intensity Units re-states Intensity in the new units, so the light keeps its brightness (LightPhotometry).
+namespace
+{
+    const int _desert_pointlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeReflectedComponentEntry<::Desert::ECS::PointLightComponent>(
+              "Point Light", "PointLightData", &::Desert::ECS::PointLightComponent::Data, true,
+              []( const ::Desert::ECS::PointLightData& before, ::Desert::ECS::PointLightData& after )
+              {
+                  if ( before.IntensityUnits == after.IntensityUnits )
+                      return;
+                  after.Intensity = ::Desert::ECS::LightPhotometry::ConvertIntensity(
+                       before.Intensity, before.IntensityUnits, after.IntensityUnits, after.Falloff,
+                       after.MinRadius, ::Desert::ECS::LightPhotometry::kPointLightCosHalfCone );
+              } ) );
+
+    const int _desert_spotlight_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
+         ::Desert::Editor::MakeReflectedComponentEntry<::Desert::ECS::SpotLightComponent>(
+              "Spot Light", "SpotLightData", &::Desert::ECS::SpotLightComponent::Data, true,
+              []( const ::Desert::ECS::SpotLightData& before, ::Desert::ECS::SpotLightData& after )
+              {
+                  if ( before.IntensityUnits == after.IntensityUnits )
+                      return;
+                  // The spot's falloff has no Min Radius: 0, as SpotLightSystem hands the renderer.
+                  after.Intensity = ::Desert::ECS::LightPhotometry::ConvertIntensity(
+                       before.Intensity, before.IntensityUnits, after.IntensityUnits, after.Falloff, 0.0f,
+                       std::cos( glm::radians( after.OuterConeAngle ) ) );
+              } ) );
+} // namespace
 // Camera is a CUSTOM entry: reflected fields + a focal-length readout and "look through". See MakeCameraEntry.
 // Landscape Material is a CUSTOM entry: the landscape's MATERIAL ROW (an asset field and an Edit button — the
 // material itself is authored in the Material Editor window, like every other). See MakeLandscapeMaterialEntry
 // below. Collider is registered as a CUSTOM component below (auto-fit to mesh bounds on add) instead of the plain
 // reflected one-liner — see MakeColliderEntry.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RigidBodyComponent, Data, "RigidBodyData", "Rigid Body" )
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::VolumeComponent, Data, "VolumeData", "Volume" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::DestructibleComponent, Data, "DestructibleData",
                                      "Destructible" )
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::WaterBodyComponent, Data, "WaterBodyData", "Water Body" )
@@ -114,9 +148,9 @@ DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::ProjectileComponent, Data, "
 // UE's APlayerStart: where Play puts the pawn (::Desert::Core::ChoosePlayerStart); a tag and nothing else.
 DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::PlayerStartComponent, Data, "PlayerStartData", "Player Start" )
 // UE's World Partition Streaming Source: the world loads around this entity in Play
-// (::Desert::Core::WorldStreamer).
-DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::StreamingSourceComponent, Data, "StreamingSourceData",
-                                     "Streaming Source" )
+// (::Desert::Core::WorldStreamer). A custom entry for its Target Grids: see MakeStreamingSourceEntry below.
+// UE's Actor > World Partition > Runtime Grid: which grid of a partitioned world the entity streams on (WP22).
+DESERT_REGISTER_REFLECTED_COMPONENT( ::Desert::ECS::RuntimeGridComponent, Data, "RuntimeGridData", "Runtime Grid" )
 // Two-Bone IK is the reflected one-liner and deliberately so: it is four values an artist types, and every
 // piece of behaviour behind them belongs to the Animator's control list rather than to this page. The entry
 // next door — AnimationComponent — is a custom one because it owns an Animator and a graph; that is the line
@@ -243,7 +277,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (Terrain shader + a freshly minted header GUID), then create-with-load: the
         // asset adopts its in-file GUID as the internal handle during Load, so the handle registered here is
@@ -430,67 +464,147 @@ namespace Desert::Editor
 
     // Collider editor: same auto-built reflected UI as the one-liner, PLUS a one-time auto-fit on Add and
     // a manual "Fit to Mesh Bounds" button.
-    // A top-down hemisphere dial for a sun direction: the centre is straight up (elevation 90 deg), the
-    // rim is the horizon, and the angle around the circle is the compass azimuth (up = +Z, right = +X).
-    // Dragging moves the sun; the numeric sliders beside it stay the precise path (and are the only way
-    // to put the sun BELOW the horizon, which a hemisphere cannot show).
-    static bool DrawSunDial( float& azimuthDeg, float& elevationDeg, float diameter )
+    // THE ONE DIRECTION WIDGET of a directional light (PORT-SUN-ROTATION). Two views of the same sky over one
+    // Rotation, both draggable, then the two numbers an artist means:
+    //   - the COMPASS: the hemisphere seen from above - the rim is the horizon, the centre the zenith, the
+    //     angle round the circle the azimuth (up = N = +Z, right = E = +X); dragging places the sun;
+    //   - the HORIZON ARC: the same sky seen from the side, the sun on the arc at its elevation, the horizon
+    //     line through it and the half below it shaded - dragging there changes the elevation only, and is the
+    //     one place the sun goes BELOW the horizon by mouse;
+    //   - Elevation (deg) and Azimuth (deg) as drag fields, the exact path.
+    // Colours are UE5 Details' (sunk frame #0F0F0F, rule #1A1A1A, text #C8C8C8, muted #8A8A8A, accent #0070E0).
+    struct SunDirectionEdit
     {
-        ImDrawList*  dl     = ImGui::GetWindowDrawList();
+        bool Changed     = false; // the direction moved this frame
+        bool Activated   = false; // a gesture (drag, field edit) began this frame
+        bool Deactivated = false; // ... and ended this frame
+    };
+
+    static SunDirectionEdit DrawSunDirectionWidget( float& azimuthDeg, float& elevationDeg )
+    {
+        constexpr ImU32 kFrame  = IM_COL32( 0x0F, 0x0F, 0x0F, 0xFF );
+        constexpr ImU32 kRule   = IM_COL32( 0x1A, 0x1A, 0x1A, 0xFF );
+        constexpr ImU32 kGrid   = IM_COL32( 0x3A, 0x3A, 0x3A, 0xFF );
+        constexpr ImU32 kText   = IM_COL32( 0xC8, 0xC8, 0xC8, 0xFF );
+        constexpr ImU32 kMuted  = IM_COL32( 0x8A, 0x8A, 0x8A, 0xFF );
+        constexpr ImU32 kAccent = IM_COL32( 0x00, 0x70, 0xE0, 0xFF );
+        constexpr ImU32 kSky    = IM_COL32( 0x16, 0x22, 0x30, 0xFF );
+        constexpr ImU32 kGround = IM_COL32( 0x1E, 0x1A, 0x15, 0xFF );
+        constexpr ImU32 kSun    = IM_COL32( 0xFF, 0xD2, 0x5A, 0xFF );
+        constexpr ImU32 kNight  = IM_COL32( 0x78, 0x82, 0xA0, 0xFF );
+
+        SunDirectionEdit edit;
+        const auto       track = [&]
+        {
+            edit.Activated |= ImGui::IsItemActivated();
+            edit.Deactivated |= ImGui::IsItemDeactivated();
+        };
+
+        const float avail    = ImGui::GetContentRegionAvail().x;
+        const float gap      = ImGui::GetStyle().ItemSpacing.x;
+        const float diameter = glm::clamp( ( avail - gap ) * 0.5f, 96.0f, 168.0f );
+        const float r        = diameter * 0.5f;
+        ImDrawList* dl       = ImGui::GetWindowDrawList();
+
+        // ---- the compass (top view) ----
         const ImVec2 origin = ImGui::GetCursorScreenPos();
-        const float  r      = diameter * 0.5f;
         const ImVec2 c( origin.x + r, origin.y + r );
-
-        ImGui::InvisibleButton( "##sundial", ImVec2( diameter, diameter ) );
-
-        bool changed = false;
+        ImGui::InvisibleButton( "##sun_compass", ImVec2( diameter, diameter ) );
+        track();
         if ( ImGui::IsItemActive() )
         {
             const ImVec2 m   = ImGui::GetIO().MousePos;
             const float  dx  = m.x - c.x;
             const float  dy  = m.y - c.y;
             const float  len = std::sqrt( dx * dx + dy * dy );
-
-            azimuthDeg = glm::degrees( std::atan2( dx, -dy ) );
+            azimuthDeg       = glm::degrees( std::atan2( dx, -dy ) );
             if ( azimuthDeg < 0.0f )
                 azimuthDeg += 360.0f;
             elevationDeg = ( 1.0f - glm::min( 1.0f, len / r ) ) * 90.0f;
-            changed      = true;
+            edit.Changed = true;
         }
+        const bool compassHot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+        dl->AddCircleFilled( c, r, kSky, 64 );
+        dl->AddCircle( c, r * ( 1.0f - 30.0f / 90.0f ), kGrid, 48 ); // 30 deg
+        dl->AddCircle( c, r * ( 1.0f - 60.0f / 90.0f ), kGrid, 32 ); // 60 deg
+        dl->AddLine( ImVec2( c.x - r, c.y ), ImVec2( c.x + r, c.y ), kGrid );
+        dl->AddLine( ImVec2( c.x, c.y - r ), ImVec2( c.x, c.y + r ), kGrid );
+        dl->AddCircle( c, r, compassHot ? kAccent : kMuted, 64, 1.5f ); // the horizon
+        dl->AddText( ImVec2( c.x - 3.0f, c.y - r + 2.0f ), kText, "N" );
+        dl->AddText( ImVec2( c.x + r - 11.0f, c.y - 7.0f ), kMuted, "E" );
+        dl->AddText( ImVec2( c.x - 3.0f, c.y + r - 16.0f ), kMuted, "S" );
+        dl->AddText( ImVec2( c.x - r + 4.0f, c.y - 7.0f ), kMuted, "W" );
 
-        const ImU32 ring = ImGui::GetColorU32( ImGuiCol_Border );
-        dl->AddCircleFilled( c, r, ImGui::GetColorU32( ImGuiCol_FrameBg ), 48 );
-        dl->AddCircle( c, r, ring, 48 );
-        dl->AddCircle( c, r * 0.5f, ring, 32 ); // the 45 deg elevation ring
-        dl->AddLine( ImVec2( c.x - r, c.y ), ImVec2( c.x + r, c.y ), ring );
-        dl->AddLine( ImVec2( c.x, c.y - r ), ImVec2( c.x, c.y + r ), ring );
-
-        const ImU32 label = ImGui::GetColorU32( ImGuiCol_TextDisabled );
-        dl->AddText( ImVec2( c.x - 3.0f, c.y - r - 2.0f ), label, "N" );
-        dl->AddText( ImVec2( c.x + r - 6.0f, c.y - 7.0f ), label, "E" );
-        dl->AddText( ImVec2( c.x - 3.0f, c.y + r - 14.0f ), label, "S" );
-        dl->AddText( ImVec2( c.x - r + 2.0f, c.y - 7.0f ), label, "W" );
-
-        // The sun itself. Below the horizon it is pinned to the rim and drawn hollow — the dial covers
-        // the sky, so "night" has to read as a state rather than a position.
-        const bool   belowHorizon = elevationDeg < 0.0f;
-        const float  el           = glm::clamp( elevationDeg, 0.0f, 90.0f );
-        const float  rr           = ( 1.0f - el / 90.0f ) * r;
-        const float  azr          = glm::radians( azimuthDeg );
+        const bool   below = elevationDeg < 0.0f;
+        const float  azr   = glm::radians( azimuthDeg );
+        const float  rr    = ( 1.0f - glm::clamp( elevationDeg, 0.0f, 90.0f ) / 90.0f ) * r;
         const ImVec2 sun( c.x + std::sin( azr ) * rr, c.y - std::cos( azr ) * rr );
-        dl->AddLine( c, sun, ImGui::GetColorU32( ImGuiCol_TextDisabled ) );
-        if ( belowHorizon )
-            dl->AddCircle( sun, 6.0f, IM_COL32( 120, 130, 160, 255 ), 16, 2.0f );
+        dl->AddLine( c, sun, kMuted );
+        if ( below )
+            dl->AddCircle( sun, 6.0f, kNight, 16, 2.0f );
         else
-            dl->AddCircleFilled( sun, 6.0f, IM_COL32( 255, 210, 90, 255 ), 16 );
+            dl->AddCircleFilled( sun, 6.0f, kSun, 16 );
 
-        return changed;
+        // ---- the horizon arc (side view) ----
+        ImGui::SameLine( 0.0f, gap );
+        const ImVec2 arcOrigin = ImGui::GetCursorScreenPos();
+        const float  arcW      = glm::max( diameter, avail - diameter - gap );
+        const float  arcR      = glm::min( arcW * 0.5f - 6.0f, diameter * 0.62f );
+        const ImVec2 h( arcOrigin.x + arcW * 0.5f, arcOrigin.y + arcR + 8.0f ); // the observer, on the horizon
+        ImGui::InvisibleButton( "##sun_arc", ImVec2( arcW, diameter ) );
+        track();
+        if ( ImGui::IsItemActive() )
+        {
+            const ImVec2 m = ImGui::GetIO().MousePos;
+            // The arc is the vertical plane through the sun's azimuth seen from its left: right = toward the sun.
+            float e = glm::degrees( std::atan2( h.y - m.y, std::abs( m.x - h.x ) + 1e-3f ) );
+            elevationDeg = glm::clamp( e, -90.0f, 90.0f );
+            edit.Changed = true;
+        }
+        const bool arcHot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+        dl->AddRectFilled( arcOrigin, ImVec2( arcOrigin.x + arcW, arcOrigin.y + diameter ), kFrame, 2.0f );
+        dl->AddRectFilled( ImVec2( arcOrigin.x, h.y ), ImVec2( arcOrigin.x + arcW, arcOrigin.y + diameter ), kGround,
+                           2.0f );
+        dl->PathArcTo( h, arcR, glm::pi<float>(), 2.0f * glm::pi<float>(), 48 );
+        dl->PathStroke( arcHot ? kAccent : kMuted, 0, 1.5f );
+        dl->AddLine( ImVec2( arcOrigin.x + 4.0f, h.y ), ImVec2( arcOrigin.x + arcW - 4.0f, h.y ), kText, 1.0f );
+        dl->AddRect( arcOrigin, ImVec2( arcOrigin.x + arcW, arcOrigin.y + diameter ), kRule, 2.0f );
+        dl->AddText( ImVec2( arcOrigin.x + 6.0f, h.y + 3.0f ), kMuted, "horizon" );
+        const float  er = glm::radians( elevationDeg );
+        const ImVec2 arcSun( h.x + std::cos( er ) * arcR, h.y - std::sin( er ) * arcR );
+        dl->AddLine( h, arcSun, kMuted );
+        if ( below )
+            dl->AddCircle( arcSun, 6.0f, kNight, 16, 2.0f );
+        else
+            dl->AddCircleFilled( arcSun, 6.0f, kSun, 16 );
+
+        // ---- the numbers ----
+        const auto row = [&]( const char* label, const char* id, float& value, float lo, float hi )
+        {
+            ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor( ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4( kText ) );
+            ImGui::TextUnformatted( label );
+            ImGui::PopStyleColor();
+            ImGui::SameLine( ImGui::GetFontSize() * 6.0f );
+            ImGui::SetNextItemWidth( -1.0f );
+            ImGui::PushStyleColor( ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4( kFrame ) );
+            const bool moved = ImGui::DragFloat( id, &value, 0.25f, lo, hi, "%.1f\xc2\xb0",
+                                                 ImGuiSliderFlags_AlwaysClamp );
+            ImGui::PopStyleColor();
+            track();
+            edit.Changed |= moved;
+        };
+        row( "Elevation", "##sun_elevation", elevationDeg, -90.0f, 90.0f );
+        row( "Azimuth", "##sun_azimuth", azimuthDeg, 0.0f, 360.0f );
+        if ( below )
+            ImGui::TextColored( ImGui::ColorConvertU32ToFloat4( kNight ), ICON_MDI_WEATHER_NIGHT " below the horizon" );
+        return edit;
     }
 
     // Directional light: the reflected fields, plus the thing that is NOT a field — where the sun is.
-    // The engine stores the sun as the direction light TRAVELS in TransformComponent.Translation
-    // (Scene.cpp uploads normalize(Translation); the sky negates it), which is unauthorable as three
-    // raw numbers. This edits it as azimuth/elevation.
+    // The light travels along the entity's world forward axis (its Rotation, as in UE), which is
+    // unauthorable as three Euler angles when what an artist means is "sun at 40 deg, in the south-west".
+    // This edits the same Rotation as azimuth/elevation; the transform gizmo's rotate tool edits it too.
     static ComponentEditorEntry MakeDirectionalLightEntry()
     {
         using C = ::Desert::ECS::DirectionLightComponent;
@@ -511,51 +625,42 @@ namespace Desert::Editor
             if ( ctx.FieldFilter || !en.HasComponent<::Desert::ECS::TransformComponent>() )
                 return; // while searching, only the matched fields are on screen
 
-            auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
+            entt::registry& registry = *en.GetRegistry();
+            const glm::vec3  toSun    = ::Desert::ECS::Rules::AtmosphereSunDirection(
+                 ::Desert::ECS::WorldRotation( registry, en.GetHandle() ) );
 
-            // Translation is the TRAVEL direction; the sun sits the other way.
-            // Through the rules on both counts. The threshold was a fourth spelling of
-            // kSunDirectionEpsilon, and `-travel / length` was a fourth copy of the negation that
-            // SystemRules.hpp calls "the engine's ONE negation" — in the widget a user reaches for to
-            // aim a sun, so a disagreement here shows a direction for a light the renderer has already
-            // thrown away.
-            glm::vec3 travel = t.Translation;
-            if ( !::Desert::ECS::Rules::IsSunDirectionValid( travel ) )
-                travel = glm::vec3( -0.4f, -1.0f, -0.5f ); // the dial's placeholder aim, not a light
-            const float     length = glm::length( travel );
-            const glm::vec3 toSun  = ::Desert::ECS::Rules::AtmosphereSunDirection( travel );
-
-            float elevation = glm::degrees( std::asin( glm::clamp( toSun.y, -1.0f, 1.0f ) ) );
-            float azimuth   = glm::degrees( std::atan2( toSun.x, toSun.z ) );
-            if ( azimuth < 0.0f )
-                azimuth += 360.0f;
+            const ::Desert::ECS::Rules::SunAngles angles = ::Desert::ECS::Rules::SunAnglesFromToward( toSun );
+            float                                 elevation = angles.ElevationDeg;
+            float                                 azimuth   = angles.AzimuthDeg;
 
             if ( !::Desert::Editor::Utils::ImGuiUtilities::SectionHeader( ICON_MDI_WEATHER_SUNNY
                                                                           "  Sun Direction" ) )
                 return;
 
+            // One undo step per gesture (a drag on the compass or the arc, an edit of a number), the same
+            // TransformCommand the viewport's rotate gizmo records - the widget and the gizmo edit ONE Rotation.
+            static std::vector<::Desert::Editor::Commands::TransformSnapshot> s_Before;
+
             ImGui::Indent( 6.0f );
-            bool changed = DrawSunDial( azimuth, elevation, 120.0f );
-
-            ImGui::SameLine();
-            ImGui::BeginGroup();
-            ImGui::SetNextItemWidth( -1.0f );
-            changed |= ImGui::SliderFloat( "##azimuth", &azimuth, 0.0f, 360.0f, "Azimuth %.0f deg" );
-            ImGui::SetNextItemWidth( -1.0f );
-            changed |= ImGui::SliderFloat( "##elevation", &elevation, -90.0f, 90.0f, "Elevation %.0f deg" );
-            if ( elevation < 0.0f )
-                ImGui::TextColored( ImVec4( 0.6f, 0.65f, 0.8f, 1.0f ), ICON_MDI_WEATHER_NIGHT " below horizon" );
-            ImGui::EndGroup();
-
-            if ( changed )
+            ImGui::PushID( "sun_direction" );
+            const SunDirectionEdit edit = DrawSunDirectionWidget( azimuth, elevation );
+            ImGui::PopID();
+            if ( edit.Activated )
             {
-                const float     az = glm::radians( azimuth );
-                const float     el = glm::radians( elevation );
-                const glm::vec3 dir( std::cos( el ) * std::sin( az ), std::sin( el ),
-                                     std::cos( el ) * std::cos( az ) );
-                // Keep the vector's length: some scenes author it as a "sun position" and only the
-                // direction is read, so rewriting the magnitude would be a silent edit.
-                t.Translation = -dir * length;
+                const auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
+                s_Before      = { { en.GetComponent<::Desert::ECS::UUIDComponent>().UUID, t.Translation, t.Rotation,
+                                    t.Scale } };
+            }
+            if ( edit.Changed )
+            {
+                ::Desert::ECS::AimDirectionalLight(
+                     registry, en.GetHandle(),
+                     -::Desert::ECS::Rules::TowardSunFromAngles( { .AzimuthDeg = azimuth, .ElevationDeg = elevation } ) );
+            }
+            if ( edit.Deactivated && !s_Before.empty() )
+            {
+                ::Desert::Editor::Commands::RecordTransformEdits( s_Before );
+                s_Before.clear();
             }
 
             ImGui::Unindent( 6.0f );
@@ -635,6 +740,125 @@ namespace Desert::Editor
         return e;
     }
 
+    // UE's "User Parameters" category of a placed Niagara component: one row per User parameter OF THE SYSTEM
+    // (name, type, default from the `.dfx`), a checkbox that turns this placement's override on (starting from
+    // the default) or off (the default plays again), and a widget of the parameter's own type. The override list
+    // on the component is Hidden in the reflected grid because a bare name/value list knows neither the type nor
+    // the default; the rows come from the system, so a name the system lost is shown as stale and can be removed.
+    static void DrawVFXUserParameters( ::Desert::ECS::VFXComponentData& data )
+    {
+        namespace Ser = ::Desert::Assets::Serialization;
+        if ( data.System == ::Desert::Assets::AssetHandle( static_cast<uint64_t>( 0 ) ) )
+            return;
+        auto* service = ::Desert::Runtime::ResourceRegistry::GetVFXSystemService();
+        if ( service == nullptr )
+            return;
+        const auto system = service->Get( data.System );
+
+        ImGui::Spacing();
+        if ( !ImGui::CollapsingHeader( "User Parameters", ImGuiTreeNodeFlags_DefaultOpen ) )
+            return;
+        if ( !system )
+        {
+            ImGui::TextDisabled( "The system cannot be read: %s", system.GetError().c_str() );
+            return;
+        }
+        if ( !system.GetValue() )
+        {
+            ImGui::TextDisabled( "Loading the system..." );
+            return;
+        }
+        const auto& rows = system.GetValue()->UserParams;
+        if ( rows.empty() )
+            ImGui::TextDisabled( "The system has no User parameters." );
+
+        for ( const Ser::VFXUserParam& row : rows )
+        {
+            ImGui::PushID( row.Name.c_str() );
+            const auto it =
+                 std::find_if( data.Overrides.begin(), data.Overrides.end(),
+                               [&]( const ::Desert::ECS::VFXUserOverride& o ) { return o.Name == row.Name; } );
+            bool overridden = it != data.Overrides.end();
+            if ( ImGui::Checkbox( "##on", &overridden ) )
+            {
+                if ( overridden )
+                    data.SetVariable( row.Name, row.Default );
+                else
+                    data.ClearVariable( row.Name );
+            }
+            ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                 overridden ? "This placement overrides the parameter; untick to play the system's Default"
+                            : "The system's Default plays; tick to give this placement its own value" );
+            ImGui::SameLine();
+
+            glm::vec4 value = Ser::UserParamValue( row, data.Overrides );
+            ImGui::BeginDisabled( !overridden );
+            ImGui::TextUnformatted( row.Name.c_str() );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( -FLT_MIN );
+            bool changed = false;
+            switch ( row.Type )
+            {
+                case Ser::VFXValueType::Float:
+                    changed = ImGui::DragFloat( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Vec2:
+                    changed = ImGui::DragFloat2( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Vec3:
+                    changed = ImGui::DragFloat3( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Vec4:
+                    changed = ImGui::DragFloat4( "##v", &value.x, 0.01f );
+                    break;
+                case Ser::VFXValueType::Int:
+                {
+                    int i = static_cast<int>( value.x );
+                    if ( ImGui::DragInt( "##v", &i ) )
+                    {
+                        value   = glm::vec4( static_cast<float>( i ), 0.0f, 0.0f, 0.0f );
+                        changed = true;
+                    }
+                    break;
+                }
+                case Ser::VFXValueType::Bool:
+                {
+                    bool b = value.x != 0.0f;
+                    if ( ImGui::Checkbox( "##v", &b ) )
+                    {
+                        value   = glm::vec4( b ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f );
+                        changed = true;
+                    }
+                    break;
+                }
+            }
+            if ( changed && overridden )
+                data.SetVariable( row.Name, value );
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+
+        // Overrides naming a parameter the system no longer has: they play nothing, so say so and offer removal.
+        for ( size_t i = 0; i < data.Overrides.size(); ++i )
+        {
+            const auto& name = data.Overrides[i].Name;
+            if ( std::any_of( rows.begin(), rows.end(),
+                              [&]( const Ser::VFXUserParam& r ) { return r.Name == name; } ) )
+                continue;
+            ImGui::PushID( static_cast<int>( i ) );
+            ImGui::TextColored( ::Desert::Editor::ThemeManager::GetWarningColor(),
+                                "%s: the system has no such User parameter", name.c_str() );
+            ImGui::SameLine();
+            if ( ImGui::SmallButton( "Remove" ) )
+            {
+                data.ClearVariable( std::string( name ) );
+                ImGui::PopID();
+                break;
+            }
+            ImGui::PopID();
+        }
+    }
+
     // VFX: transport first, then the reflected fields. Deactivate writes AutoActivate (the same field VFXWorld
     // reads, so nothing new can drift out of sync) and Restart raises the component's one-shot flag that VFXWorld
     // consumes next tick.
@@ -670,6 +894,9 @@ namespace Desert::Editor
 
             PropertyEditorBuilder::Draw( &c.Data, "VFXComponentData", ctx.AssetMgr(), ctx.UIHelper,
                                          ctx.FieldFilter );
+
+            if ( !ctx.FieldFilter )
+                DrawVFXUserParameters( c.Data );
         };
         return e;
     }
@@ -700,7 +927,7 @@ namespace Desert::Editor
 
         std::filesystem::path path = dir / ( base + ext );
         for ( int n = 1; std::filesystem::exists( path, ec ); ++n )
-            path = dir / ( base + "_" + std::to_string( n ) + ext );
+            path = dir / std::format( "{}_{}{}", base, n, ext );
 
         // Write the file FIRST (cloud shader + a freshly minted header GUID), then create-with-load — the
         // same order CreateLandscapeMaterial documents, and for the same handle-adoption reason.
@@ -881,7 +1108,7 @@ namespace Desert::Editor
         e.Add    = []( ::Desert::ECS::Entity& en ) { en.AddComponent<::Desert::ECS::VolumetricCloudComponent>(); };
         e.Remove = []( ::Desert::ECS::Entity& en )
         { en.RemoveComponent<::Desert::ECS::VolumetricCloudComponent>(); };
-        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene*, const ComponentEditContext& ctx )
+        e.Draw = []( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene, const ComponentEditContext& ctx )
         {
             auto& c = en.GetComponent<::Desert::ECS::VolumetricCloudComponent>();
 
@@ -904,6 +1131,27 @@ namespace Desert::Editor
             }
 
             PropertyEditorBuilder::Draw( &c.Data, "VolumetricCloudData", ctx.AssetMgr(), ctx.UIHelper );
+
+            // CAPTURE CURRENT SKY (CLOUD-OFFSET-BAKE): the drift game time has added, folded into Wind Offset.
+            // Disabled rather than hidden while there is nothing to fold — outside Play the sky stands still —
+            // so the control is where the user looks for it and the tooltip says why it is grey.
+            if ( scene )
+            {
+                const bool drifted = c.DriftOffset != glm::vec3( 0.0f );
+                ::ImGui::BeginDisabled( !drifted );
+                if ( ::ImGui::Button( ICON_MDI_CAMERA "  Capture current sky", ImVec2( -FLT_MIN, 0.0f ) ) )
+                {
+                    if ( const auto captured = ::Desert::Editor::CaptureCurrentSky( *scene, en ); !captured )
+                        ::Desert::Editor::ToastManager::Push( captured.GetError(),
+                                                              ::Desert::Editor::ToastLevel::Error );
+                }
+                ::ImGui::EndDisabled();
+                if ( ::ImGui::IsItemHovered( ImGuiHoveredFlags_AllowWhenDisabled ) )
+                    ::ImGui::SetTooltip( drifted ? "Write the sky you are looking at into Wind Offset, so the "
+                                                   "scene opens on it. In Play the capture is kept past Stop."
+                                                 : "The clouds have not drifted from Wind Offset: the sky moves "
+                                                   "only while the game runs. Play, then capture." );
+            }
 
             ::ImGui::Separator();
             DrawCloudMaterialRow( c.Data, en.GetComponent<::Desert::ECS::TagComponent>().Tag, ctx.AssetMgr(),
@@ -1513,7 +1761,7 @@ namespace Desert::Editor
                         glm::vec3 scale   = decomposed.Scale;
 
                         bool              moved = false;
-                        const std::string label = "[" + std::to_string( i ) + "]";
+                        const std::string label = std::format( "[{}]", i );
 
                         U::ImGuiUtilities::BeginPropertyRow( label.c_str(), "World position, in centimetres" );
                         moved |= U::ImGuiUtilities::VectorField( "pos", &translation.x, 3, 1.0f, "%.1f" );
@@ -1759,6 +2007,94 @@ namespace Desert::Editor
         return e;
     }
 
+    // STREAMING SOURCE (UE FWorldPartitionStreamingSource): the reflected fields, then Target Grids as a pick of
+    // the names THIS world's grids carry (UE lists TargetGrids by name; a typed list would invite a name no grid
+    // has). Each toggle is one undo step. A name the world does not have (read from the file) is listed in red
+    // and removed by clicking it; the plan names it as an Issue (Entities[i].StreamingSource.TargetGrids).
+    static ComponentEditorEntry MakeStreamingSourceEntry()
+    {
+        using C        = ::Desert::ECS::StreamingSourceComponent;
+        auto e         = MakeReflectedComponentEntry<C>( "Streaming Source", "StreamingSourceData", &C::Data );
+        auto reflected = e.Draw;
+        e.Draw         = [reflected]( ::Desert::ECS::Entity& en, ::Desert::Core::Scene* scene,
+                              const ComponentEditContext& ctx )
+        {
+            reflected( en, scene, ctx );
+            if ( ctx.FieldFilter )
+                return;
+
+            const std::vector<std::string>& targets = en.GetComponent<C>().Data.TargetGrids;
+            std::vector<std::string>        grids;
+            if ( scene && scene->GetWorldPartition().has_value() )
+                for ( const auto& grid : scene->GetWorldPartition()->Grids )
+                    grids.push_back( grid.Name );
+            const auto isGrid = [&grids]( const std::string& name )
+            { return std::find( grids.begin(), grids.end(), name ) != grids.end(); };
+
+            std::string preview;
+            for ( const std::string& name : targets )
+                preview += std::format( "{}{}{}", preview.empty() ? "" : ", ", name,
+                                        isGrid( name ) ? "" : " (no such grid)" );
+            if ( preview.empty() )
+                preview = "Every grid";
+
+            // The one way the list changes: a whole-entity snapshot around the edit, so Ctrl+Z restores it.
+            const auto edit = [&en]( const std::function<void( std::vector<std::string>& )>& change )
+            {
+                ::Desert::Editor::Commands::MutateEntityUndoable(
+                     en.GetComponent<::Desert::ECS::UUIDComponent>().UUID,
+                     [&] { change( en.GetComponent<C>().Data.TargetGrids ); } );
+            };
+
+            ImGui::TextUnformatted( "Target Grids" );
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( !ImGui::BeginCombo( "##TargetGrids", preview.c_str() ) )
+            {
+                ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
+                     "The World Partition grids this source streams; none picked = every grid." );
+                return;
+            }
+            if ( grids.empty() )
+                ImGui::TextDisabled( "This world is not partitioned: it has no grids." );
+            for ( const std::string& grid : grids )
+            {
+                const bool on = std::find( targets.begin(), targets.end(), grid ) != targets.end();
+                if ( ImGui::Selectable( grid.c_str(), on, ImGuiSelectableFlags_DontClosePopups ) )
+                {
+                    edit(
+                         [&grid, on]( std::vector<std::string>& list )
+                         {
+                             if ( on )
+                                 list.erase( std::remove( list.begin(), list.end(), grid ), list.end() );
+                             else
+                                 list.push_back( grid );
+                         } );
+                    break; // the list moved under `targets`; the combo is drawn again next frame
+                }
+            }
+            for ( const std::string& name : targets )
+            {
+                if ( isGrid( name ) )
+                    continue;
+                ImGui::PushStyleColor( ImGuiCol_Text, ImVec4( 0.95f, 0.35f, 0.30f, 1.0f ) );
+                const bool clicked =
+                     ImGui::Selectable( std::format( "{}  (no such grid - click to remove)", name ).c_str(), true,
+                                        ImGuiSelectableFlags_DontClosePopups );
+                ImGui::PopStyleColor();
+                if ( clicked )
+                {
+                    const std::string gone = name;
+                    edit( [&gone]( std::vector<std::string>& list )
+                          { list.erase( std::remove( list.begin(), list.end(), gone ), list.end() ); } );
+                    break;
+                }
+            }
+            ImGui::EndCombo();
+        };
+        return e;
+    }
+
     // PROCEDURAL FOLIAGE VOLUME (UE AProceduralFoliageVolume's Details: Resimulate, the spawner's FoliageTypes).
     // Resimulate rewrites this volume's own fields (FoliagePaintTool::ResimulateProcedural); the types are a
     // list of `.defoliage` rows, a `.defoliage` dropped on "Add" joins it.
@@ -1791,6 +2127,10 @@ namespace Desert::Editor
                              "Procedural foliage: {} instances ({} fields new, {} rewritten, {} removed)",
                              done.GetValue().Instances, done.GetValue().Created, done.GetValue().Rewritten,
                              done.GetValue().Removed ) );
+                    // The resimulation creates and destroys field entities, so the registry `en` was resolved
+                    // against has moved under it: the type list below would read a stale handle (SIGSEGV in
+                    // GetComponent). It is drawn again next frame from a fresh lookup.
+                    return;
                 }
                 ::Desert::Editor::Utils::ImGuiUtilities::Tooltip(
                      "Simulate the types and replace the instances this volume generated (painted foliage "
@@ -2214,6 +2554,8 @@ namespace
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeFoliageEntry() );
     const int _desert_procedural_foliage_component_reg = ::Desert::Editor::ComponentWidgetRegistry::Get().Register(
          ::Desert::Editor::MakeProceduralFoliageEntry() );
+    const int _desert_streaming_source_component_reg =
+         ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeStreamingSourceEntry() );
     const int _desert_level_sequence_component_reg =
          ::Desert::Editor::ComponentWidgetRegistry::Get().Register( ::Desert::Editor::MakeLevelSequenceEntry() );
 

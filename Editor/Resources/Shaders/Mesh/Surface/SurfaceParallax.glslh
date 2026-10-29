@@ -1,0 +1,262 @@
+#ifndef DESERT_SURFACE_PARALLAX_GLSLH
+#define DESERT_SURFACE_PARALLAX_GLSLH
+
+// PARALLAX OCCLUSION MAPPING with PIXEL DEPTH OFFSET (UE: the ParallaxOcclusionMapping material function, its
+// shadow output, and the material's Pixel Depth Offset pin). Included by Mesh/Surface/SurfaceTypes.glslh after
+// SurfaceInput / SurfaceOutput, so every surface function and every graph surface can call it.
+//
+// THE HEIGHT is the template's `Height` line (Core::Formats::SurfaceHeight, the one definition mesh displacement
+// reads too): the parser generates DesertSurfaceHeightUV / DesertSurfaceHeightGrad / DesertSurfaceHeightScale /
+// DesertSurfaceHeightCenter from it, after this header and before the surface block (prototypes below).
+//
+// THE PERMUTATION. A template with a `Height` line gets every mesh cell twice: the base cell and the `.Parallax`
+// cell, which alone defines DESERT_SURFACE_PARALLAX. The material picks the parallax cells only when it assigns the
+// height texture (MaterialService CellShaderOf), so a material without a height map draws the base cells, where
+// SurfaceParallaxOcclusion below is `return uv;` - no fetch, no depth write, early depth testing kept, and its opaque
+// shadow casters still share the default template's depth-only cell. A cell drawn over displaced geometry
+// (DESERT_SURFACE_DISPLACED) compiles the march out too: the relief is already in the triangles.
+//
+// THE UNITS. HeightScale is centimetres between height 0 and height 1 (1 unit = 1 cm), not a UV ratio: the march
+// converts it with the surface's own UV-to-world scale, measured from the screen derivatives of the world position
+// and the UV (the triangle's cotangent frame), so the same map gives the same relief at any tiling. The height
+// DesertSurfaceHeightCenter() stays at the geometric surface (1 = the surface is the top of the relief; the line's
+// default is 0, so a parallax template names its centre - StandardSurface's HeightCenter is 1). The march
+// starts where the view ray enters the top of the relief; a hit in front of the triangle (above it, center < 1)
+// is drawn with no depth offset, as UE clamps a negative Pixel Depth Offset.
+//
+// THE UV. The march runs in the height map's UV; the caller's @p uv (whatever transform the template applies to its
+// other maps) is moved by the same WORLD displacement through its own cotangent frame, so every later fetch of the
+// surface function lands on the relief point the height map hit, even when the two transforms differ.
+//
+// WHAT IT WRITES INTO THE SURFACE (so the caller cannot forget either half):
+//   s.PixelDepthOffset  centimetres along the view ray from the triangle to the hit (>= 0). The pass headers move
+//                       the fragment's depth, its shaded position and its velocity by it in the G-buffer, the forward
+//                       pass and both shadow caster passes, so SSAO, contact shadows, fog, decals and the cascades
+//                       see the relief, not the flat triangle.
+//   s.SunSelfShadow     the relief's own shadow from the main directional light (1 = lit), traced through the same
+//                       height map from the hit toward cameraUB.SunDirection. View passes only: a caster pass draws a
+//                       light view and needs depth alone.
+//
+// THE STEP COUNTS are the machine's (Scalability group Shading: Shading.ParallaxMinSteps / MaxSteps / ShadowSteps),
+// carried per view in the view block (Graphic::ViewFrame::Parallax -> cameraUB.Parallax*): MaxSteps at a grazing
+// view, MinSteps head-on (UE's POM lerps the same way), then the crossing is refined by bisection.
+
+#ifdef DESERT_SURFACE_SAMPLES_MATERIAL
+
+#if defined( DESERT_SURFACE_PARALLAX ) && !defined( DESERT_SURFACE_PASS_Hit ) && !defined( DESERT_SURFACE_DISPLACED )
+
+// Generated from the template's `Height` line (DShaderParser HeightFunctions), defined after this header.
+vec2  DesertSurfaceHeightUV( SurfaceInput i );
+float DesertSurfaceHeightGrad( vec2 uv, vec2 dUVdx, vec2 dUVdy );
+float DesertSurfaceHeightScale();
+float DesertSurfaceHeightCenter();
+
+// The bisection after the linear search: each halves the bracket of the crossing, so 6 make the error 1/64 of one
+// linear step - below a texel of the relief at every step count Scalability offers.
+const int kDesertParallaxRefineSteps = 6;
+
+// The direction from the eye of the drawing view through a world point, away from the eye. Unprojected from the
+// view block's own matrices, because a view's View / Projection split is not always the camera's: a cascade's caster
+// carries its whole caster matrix as "Projection" over an identity "View" (Graphic::WriteLightCamera), orthographic,
+// while the camera's views are perspective. The second point is the same pixel half way to the far end of the depth
+// range: depth 1 is far in a standard-Z light view, 0 (at infinity) in the camera's reverse-Z views.
+vec3 DesertSurfaceViewRay( vec3 worldPosition )
+{
+    const vec4  clip = cameraUB.JitteredViewProjection * vec4( worldPosition, 1.0 );
+    const float z    = clip.z / clip.w;
+#ifdef DESERT_SURFACE_CASTER_PASS
+    const float zFarther = mix( z, 1.0, 0.5 );
+#else
+    const float zFarther = 0.5 * z;
+#endif
+    const vec4 farther = cameraUB.InvJitteredViewProjection * vec4( clip.xy / clip.w, zFarther, 1.0 );
+    return normalize( farther.xyz / farther.w - worldPosition );
+}
+
+// A triangle's cotangent frame for one UV: the dual basis that turns an in-plane world vector into that UV's
+// change. dot( w, DualU ) / Frame is the U change of the in-plane vector w (the plane normal drops out).
+struct DesertUVFrame
+{
+    vec3  DualU;
+    vec3  DualV;
+    float Frame;
+};
+
+DesertUVFrame DesertMakeUVFrame( vec3 dPdx, vec3 dPdy, vec2 dUVdx, vec2 dUVdy, vec3 n )
+{
+    // World centimetres per unit of U and of V: the 2x2 inverse of the UV Jacobian over the screen.
+    const float   det  = dUVdx.x * dUVdy.y - dUVdy.x * dUVdx.y;
+    const vec3    dPdu = ( dPdx * dUVdy.y - dPdy * dUVdx.y ) / det;
+    const vec3    dPdv = ( dPdy * dUVdx.x - dPdx * dUVdy.x ) / det;
+    DesertUVFrame f;
+    f.DualU = cross( dPdv, n );
+    f.DualV = cross( n, dPdu );
+    f.Frame = dot( dPdu, f.DualU );
+    return f;
+}
+
+vec2 DesertUVOf( DesertUVFrame f, vec3 inPlane )
+{
+    return vec2( dot( inPlane, f.DualU ), dot( inPlane, f.DualV ) ) / f.Frame;
+}
+
+// 1 - height: the depth below the top of the relief, in [0, 1].
+float DesertParallaxDepthAt( vec2 heightUV, vec2 dUVdx, vec2 dUVdy )
+{
+    return 1.0 - DesertSurfaceHeightGrad( heightUV, dUVdx, dUVdy );
+}
+
+vec2 SurfaceParallaxOcclusion( SurfaceInput i, vec2 uv, inout SurfaceOutput s )
+{
+    // Every derivative first, in uniform control flow: the march below loops a different number of times per lane.
+    const vec2  heightUV0  = DesertSurfaceHeightUV( i );
+    const vec3  dPdx       = dFdx( i.WorldPosition );
+    const vec3  dPdy       = dFdy( i.WorldPosition );
+    const vec2  dHdx       = dFdx( heightUV0 );
+    const vec2  dHdy       = dFdy( heightUV0 );
+    const vec2  dUVdx      = dFdx( uv );
+    const vec2  dUVdy      = dFdy( uv );
+    // The material's mip bias (an upscaled frame samples as the output resolution would) on the fetch gradients.
+    const float mipScale   = exp2( cameraUB.MaterialMipBias );
+    const vec2  fetchDx    = dHdx * mipScale;
+    const vec2  fetchDy    = dHdy * mipScale;
+    const float heightScale = DesertSurfaceHeightScale();
+    const float heightDet  = dHdx.x * dHdy.y - dHdy.x * dHdx.y;
+    const float uvDet      = dUVdx.x * dUVdy.y - dUVdy.x * dUVdx.y;
+    const vec3  planeCross = cross( dPdx, dPdy );
+    if ( heightScale <= 0.0 || abs( heightDet ) < 1e-20 || abs( uvDet ) < 1e-20 || dot( planeCross, planeCross ) < 1e-20 )
+        return uv; // no relief, or a mapping that collapses this pixel: nothing to march through
+
+    // The plane's normal on the visible side, and the two UVs' frames on it.
+    vec3 n = normalize( planeCross );
+    if ( dot( n, i.Normal ) < 0.0 )
+        n = -n;
+    const DesertUVFrame heightFrame = DesertMakeUVFrame( dPdx, dPdy, dHdx, dHdy, n );
+    const DesertUVFrame uvFrame     = DesertMakeUVFrame( dPdx, dPdy, dUVdx, dUVdy, n );
+
+    const vec3  ray  = DesertSurfaceViewRay( i.WorldPosition );
+    const float cosV = -dot( ray, n );
+    if ( cosV <= 1e-4 )
+        return uv; // the ray runs along or behind the plane: it never enters the relief
+
+    // The ray's in-plane travel per centimetre of descent, and over the whole relief in the height map's UV.
+    const vec3  inPlanePerCm = ( ray + n * cosV ) / cosV;
+    const vec2  heightAcross = DesertUVOf( heightFrame, inPlanePerCm * heightScale );
+    // Where the ray enters the top of the relief: the triangle sits (1 - center) of the relief below it.
+    const float surfaceDepth = 1.0 - DesertSurfaceHeightCenter();
+    const vec2  entryUV      = heightUV0 - heightAcross * surfaceDepth;
+
+    // Linear search: the first layer where the ray is below the height field.
+    const float steps    = max( 1.0, floor( mix( cameraUB.ParallaxMaxSteps, cameraUB.ParallaxMinSteps, cosV ) ) );
+    const float layer    = 1.0 / steps;
+    float       rayDepth = 0.0;
+    float       mapDepth = DesertParallaxDepthAt( entryUV, fetchDx, fetchDy );
+    float       prevRay  = 0.0;
+    for ( float k = 0.0; k < steps && rayDepth < mapDepth; k += 1.0 )
+    {
+        prevRay  = rayDepth;
+        rayDepth = rayDepth + layer;
+        mapDepth = DesertParallaxDepthAt( entryUV + heightAcross * rayDepth, fetchDx, fetchDy );
+    }
+
+    // Bisection of the bracket [prevRay, rayDepth] the search ended in (the ray above the field at prevRay, at or
+    // below it at rayDepth). A ray that entered under the field (the top texel is height 1) hit at the entry.
+    float lo = prevRay;
+    float hi = min( rayDepth, 1.0 );
+    if ( rayDepth > 0.0 )
+        for ( int r = 0; r < kDesertParallaxRefineSteps; ++r )
+        {
+            const float mid = 0.5 * ( lo + hi );
+            if ( mid < DesertParallaxDepthAt( entryUV + heightAcross * mid, fetchDx, fetchDy ) )
+                lo = mid;
+            else
+                hi = mid;
+        }
+    const float hitDepth    = hi;
+    const vec2  hitHeightUV = entryUV + heightAcross * hitDepth;
+
+    // From the triangle to the hit, in centimetres of descent (negative: the hit is above the triangle).
+    const float descent = ( hitDepth - surfaceDepth ) * heightScale;
+    // Pixel Depth Offset: the ray length from the triangle down to the hit; a hit in front of it keeps the
+    // triangle's depth (the conservative-depth layouts allow only "farther").
+    s.PixelDepthOffset = max( descent, 0.0 ) / cosV;
+
+#ifdef DESERT_SURFACE_VIEW_PASS
+    // Self-shadow: from the hit toward the sun, the relief is in shadow where the field rises above the ray. A sun
+    // below the plane is the shading model's N.L, not the relief's; a scene without a directional light has a zero
+    // SunDirection; Shading.ParallaxShadowSteps 0 turns it off on this machine.
+    const vec3  sun         = cameraUB.SunDirection;
+    const float cosL        = dot( sun, n );
+    const float shadowSteps = floor( cameraUB.ParallaxShadowSteps );
+    if ( shadowSteps >= 1.0 && cosL > 1e-4 && hitDepth > 0.0 )
+    {
+        // UV travelled toward the sun while climbing the whole relief.
+        const vec2 heightUp  = DesertUVOf( heightFrame, ( sun - n * cosL ) / cosL * heightScale );
+        float      occlusion = 0.0;
+        for ( float k = 1.0; k <= shadowSteps; k += 1.0 )
+        {
+            // Climbing from the hit's depth to the top in equal steps.
+            const float climbed = hitDepth * ( k / shadowSteps );
+            const float depth   = hitDepth - climbed;
+            const float field   = DesertParallaxDepthAt( hitHeightUV + heightUp * climbed, fetchDx, fetchDy );
+            // How far the field stands above the ray, in steps of the climb: a partial step is a partial shadow,
+            // so a ridge's edge resolves smoothly instead of in one-step bands.
+            occlusion = max( occlusion, clamp( ( depth - field ) * shadowSteps / hitDepth, 0.0, 1.0 ) );
+        }
+        s.SunSelfShadow = 1.0 - occlusion;
+    }
+#endif
+    // The caller's UV, moved by the same in-plane world displacement the ray made from the triangle to the hit.
+    return uv + DesertUVOf( uvFrame, inPlanePerCm * descent );
+}
+
+#else
+
+// The base permutation (and the ray tracing hit, which has no screen derivatives to size the march with, and a cell
+// over displaced geometry): the surface UV unchanged, nothing written. A template's surface function calls the same
+// line in every cell.
+vec2 SurfaceParallaxOcclusion( SurfaceInput i, vec2 uv, inout SurfaceOutput s )
+{
+    return uv;
+}
+
+#endif
+
+#endif // DESERT_SURFACE_SAMPLES_MATERIAL
+
+// THE PASS HALF of the Pixel Depth Offset: the depth the fragment writes, and the shaded position that goes with it.
+// Only the parallax cells move depth; every other cell keeps the rasterised depth and early depth testing.
+#if defined( DESERT_SURFACE_PARALLAX ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                              \
+     !defined( DESERT_SURFACE_PASS_Hit ) && !defined( DESERT_SURFACE_DISPLACED )
+
+// The world point the offset moves the fragment to: along the drawing view's ray, away from its eye.
+vec3 DesertPixelDepthOffsetPosition( SurfaceInput i, SurfaceOutput s )
+{
+    return i.WorldPosition + DesertSurfaceViewRay( i.WorldPosition ) * max( s.PixelDepthOffset, 0.0 );
+}
+
+// The fragment's new depth: the rasterised one plus the projected depth change of the move. Taken as a DIFFERENCE
+// so whatever the vertex stage put into the rasterised depth (a caster's slope bias, the constant bias in the caster
+// matrix) is carried over unchanged. Away from the eye means a smaller depth in a reverse-Z view and a larger one in
+// a standard-Z light view: the conservative-depth layout each pass header declares says which.
+float DesertPixelDepthOffsetDepth( SurfaceInput i, SurfaceOutput s )
+{
+    const vec4 from = cameraUB.JitteredViewProjection * vec4( i.WorldPosition, 1.0 );
+    const vec4 to   = cameraUB.JitteredViewProjection * vec4( DesertPixelDepthOffsetPosition( i, s ), 1.0 );
+    return clamp( gl_FragCoord.z + ( to.z / to.w - from.z / from.w ), 0.0, 1.0 );
+}
+
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view passes' velocity follows the moved point (UE writes the velocity of the offset depth): both unjittered
+// clip positions shift by the same world offset, which is exact for a rigid object between the two frames.
+void DesertPixelDepthOffsetVelocity( SurfaceInput i, SurfaceOutput s, inout vec4 clip, inout vec4 prevClip )
+{
+    const vec3 offset = DesertPixelDepthOffsetPosition( i, s ) - i.WorldPosition;
+    clip += cameraUB.ViewProjection * vec4( offset, 0.0 );
+    prevClip += cameraUB.PrevViewProjection * vec4( offset, 0.0 );
+}
+#endif
+
+#endif
+
+#endif // DESERT_SURFACE_PARALLAX_GLSLH

@@ -1,0 +1,58 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "eaf8fb2f7d02639251cf1e3d8b9509e7",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "febd2e77bc299d43cf5c4a4aa8f3bc50", "ebf4907a499f2625cb893654f4affa97", "3fb2d280d1e451c5e73ffec92d2a5f38"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [1.5499999523162842, 0.6200000047683716, 0.5, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AOStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "febd2e77bc299d43cf5c4a4aa8f3bc50",
+            "Path": "assets:Environments/FieldBarn/Textures/weathered_plank_siding/weathered_plank_siding_Diffuse_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "ebf4907a499f2625cb893654f4affa97",
+            "Path": "assets:Environments/FieldBarn/Textures/weathered_plank_siding/weathered_plank_siding_arm_2k.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "3fb2d280d1e451c5e73ffec92d2a5f38",
+            "Path": "assets:Environments/FieldBarn/Textures/weathered_plank_siding/weathered_plank_siding_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": []
+}

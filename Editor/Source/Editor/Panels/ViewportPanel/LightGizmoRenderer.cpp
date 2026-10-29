@@ -8,6 +8,8 @@
 #include <Editor/Core/Rigging/RigBuilder.hpp>
 #include <Editor/Core/Selection/SelectionManager.hpp>
 #include <Editor/Core/Selection/LandscapeSculptState.hpp>
+#include <Engine/ECS/LandscapeEditTarget.hpp>
+#include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
 #include <Editor/Core/CommandHistory.hpp>
@@ -24,6 +26,7 @@
 #include <Editor/Core/ControlNudgeRequest.hpp>
 #include <Editor/Core/Commands/PoseEditTransaction.hpp>
 #include <ImGuizmo.h>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
 
 #include <algorithm>
@@ -213,6 +216,7 @@ namespace Desert::Editor
         RenderSpawnIcons( camera, width, height );
         RenderTextIcons( camera, width, height );
         RenderLandscapeRamp( camera, width, height );
+        RenderLandscapeSplines( camera, width, height );
 
         // Collider wireframes moved to EditorColliderPass (true 3D, depth-tested) via the Editor Pass API.
 
@@ -696,8 +700,10 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
-                     std::format( "Point Light\nIntensity: {}\nRadius: {}\nPosition: ({}, {}, {})",
-                                  light.Intensity, light.Radius, worldPos.x, worldPos.y, worldPos.z )
+                     std::format( "Point Light\nIntensity: {} {}\nRadius: {}\nPosition: ({}, {}, {})",
+                                  light.Intensity,
+                                  ::Desert::ECS::LightPhotometry::UnitsLabel( light.IntensityUnits ), light.Radius,
+                                  worldPos.x, worldPos.y, worldPos.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -707,8 +713,8 @@ namespace Desert::Editor
     void LightGizmoRenderer::RenderDirectionLights( const std::shared_ptr<Desert::Core::Camera>& camera,
                                                     float width, float height )
     {
-        // Sun billboard + direction arrow. The light's DIRECTION is its Translation and the toward-sun
-        // vector is -normalize(T) — the one convention, through ECS::Rules::AtmosphereSunDirection. The
+        // Sun billboard + direction arrow. The light's DIRECTION is its world Rotation's forward axis (-Z)
+        // and the toward-sun vector its negation, through ECS::Rules::AtmosphereSunDirection. The
         // arrow shows where the light actually points, which a bare transform never made visible.
         auto entities = m_Scene->GetAllEntities();
 
@@ -721,21 +727,12 @@ namespace Desert::Editor
             if ( !entity.HasComponent<ECS::DirectionLightComponent>() )
                 continue;
 
-            // The entity's Translation is a DIRECTION encoding, not a place — drawing the icon there
-            // parked it next to the origin. Instead the sun billboards IN THE SKY: camera-relative along
-            // the toward-sun direction, like a skybox element — same screen spot for a given direction,
-            // from anywhere.
-            //
-            // The negation below is the engine's ONE negation, and it used to be missing here: the gizmo
-            // read Translation as if it pointed AT the sun while every other consumer read it as the
-            // direction the light TRAVELS. Both errors cancelled as long as the shipped scenes authored
-            // their suns upside down; once those were corrected, the compensating inversion had to go with
-            // them, or the icon would sit exactly opposite the sun the sky draws.
-            const glm::vec3 t = glm::vec3( entity.GetWorldTransform()[3] );
-            if ( !::Desert::ECS::Rules::IsSunDirectionValid( t ) )
-                continue; // undefined direction — nothing meaningful to draw
-
-            const glm::vec3 towardSun = ::Desert::ECS::Rules::AtmosphereSunDirection( t ); // scene -> sun
+            // A directional light has no place, only a heading (its world Rotation), so the sun billboards
+            // IN THE SKY: camera-relative along the toward-sun direction, like a skybox element — same
+            // screen spot for a given direction, from anywhere. The direction is the one the sky and the
+            // deferred pass read, through the engine's one negation.
+            const glm::vec3 towardSun = ::Desert::ECS::Rules::AtmosphereSunDirection(
+                 ::Desert::ECS::WorldRotation( *entity.GetRegistry(), entity.GetHandle() ) ); // scene -> sun
             const glm::vec3 lightDir  = -towardSun;                                        // sun -> scene
             const glm::vec3 iconWorld = camera->GetPosition() + towardSun * 50.0f;
 
@@ -789,8 +786,9 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
-                     std::format( "Directional Light (sun)\nIntensity: {}\nDirection: ({:.2f}, {:.2f}, {:.2f})",
-                                  sun.Intensity, lightDir.x, lightDir.y, lightDir.z )
+                     std::format(
+                          "Directional Light (sun)\nIntensity: {} lux\nDirection: ({:.2f}, {:.2f}, {:.2f})",
+                          sun.Intensity, lightDir.x, lightDir.y, lightDir.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -900,9 +898,10 @@ namespace Desert::Editor
                 ImGui::PushStyleColor( ImGuiCol_PopupBg, IM_COL32( 0, 0, 0, 0 ) );
                 ImGui::PushStyleColor( ImGuiCol_Border, IM_COL32( 0, 0, 0, 0 ) );
                 Utils::ImGuiUtilities::Tooltip(
-                     std::format( "Spot Light\nIntensity: {}\nRange: {}\nCone: {} / {}\nPosition: ({}, {}, {})",
-                                  light.Intensity, light.Range, light.InnerConeAngle, light.OuterConeAngle,
-                                  worldPos.x, worldPos.y, worldPos.z )
+                     std::format( "Spot Light\nIntensity: {} {}\nRange: {}\nCone: {} / {}\nPosition: ({}, {}, {})",
+                                  light.Intensity,
+                                  ::Desert::ECS::LightPhotometry::UnitsLabel( light.IntensityUnits ), light.Range,
+                                  light.InnerConeAngle, light.OuterConeAngle, worldPos.x, worldPos.y, worldPos.z )
                           .c_str() );
                 ImGui::PopStyleColor( 2 );
             }
@@ -1073,6 +1072,61 @@ namespace Desert::Editor
             drawList->AddCircleFilled( at, 7.0f, fill, 16 );
             drawList->AddCircle( at, 7.0f, IM_COL32( 0, 0, 0, 200 ), 16, 1.5f );
             drawList->AddText( ImVec2( at.x + 10.0f, at.y - 8.0f ), fill, kLabels[static_cast<size_t>( i )] );
+        }
+    }
+
+    void LightGizmoRenderer::RenderLandscapeSplines( const std::shared_ptr<Desert::Core::Camera>& camera, float width,
+                                                     float height )
+    {
+        // UE draws a landscape's splines in the editor viewport whenever they exist (ULandscapeSplinesComponent's
+        // editor-only scene proxy): the centre line, the band's edges, the falloff edges and every control point.
+        if ( !m_Scene )
+            return;
+        auto& registry = m_Scene->GetRegistry();
+        for ( const auto rootEntity : registry.view<ECS::LandscapeComponent>() )
+        {
+        const auto& splines = registry.get<ECS::LandscapeComponent>( rootEntity ).Splines;
+        if ( splines.ControlPoints.empty() )
+            continue;
+        ImDrawList*     drawList  = ImGui::GetWindowDrawList();
+        const ImVec2    windowPos = ImGui::GetWindowPos();
+        const glm::mat4 mvp       = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+        const auto&     body      = registry.get<ECS::LandscapeComponent>( rootEntity );
+        // UE's colours: the segment white, its edges dimmer, the falloff fainter still.
+        const ImU32 centre  = IM_COL32( 255, 255, 255, 235 );
+        const ImU32 edge    = IM_COL32( 255, 255, 255, 150 );
+        const ImU32 falloff = IM_COL32( 255, 255, 255, 70 );
+        for ( size_t s = 0; s < splines.Segments.size(); ++s )
+        {
+            const auto points = World::Landscape::LandscapeSplineSegmentPoints( splines, s, body.SpacingCm * 2.0f );
+            for ( size_t i = 0; i + 1 < points.size(); ++i )
+            {
+                const auto& a = points[i];
+                const auto& b = points[i + 1];
+                DrawWorldLine( drawList, a.Center, b.Center, mvp, width, height, windowPos.x, windowPos.y, centre,
+                               2.5f );
+                DrawWorldLine( drawList, a.Left, b.Left, mvp, width, height, windowPos.x, windowPos.y, edge, 1.5f );
+                DrawWorldLine( drawList, a.Right, b.Right, mvp, width, height, windowPos.x, windowPos.y, edge, 1.5f );
+                DrawWorldLine( drawList, a.FalloffLeft, b.FalloffLeft, mvp, width, height, windowPos.x, windowPos.y,
+                               falloff, 1.0f );
+                DrawWorldLine( drawList, a.FalloffRight, b.FalloffRight, mvp, width, height, windowPos.x,
+                               windowPos.y, falloff, 1.0f );
+            }
+        }
+        const auto& selected = Core::LandscapeSculptState::Get().SelectedSplinePoint;
+        for ( size_t i = 0; i < splines.ControlPoints.size(); ++i )
+        {
+            glm::vec2 screen;
+            if ( !ProjectToScreen( splines.ControlPoints[i].Location, mvp, width, height, screen ) )
+                continue;
+            const ImVec2 at( windowPos.x + screen.x, windowPos.y + screen.y );
+            const bool   picked = selected && *selected == i &&
+                                Core::LandscapeSculptState::Get().SplineLandscape ==
+                                     registry.get<ECS::UUIDComponent>( rootEntity ).UUID;
+            const ImU32  fill = picked ? IM_COL32( 255, 170, 40, 255 ) : IM_COL32( 255, 255, 255, 255 );
+            drawList->AddCircleFilled( at, 6.0f, fill, 16 );
+            drawList->AddCircle( at, 6.0f, IM_COL32( 0, 0, 0, 200 ), 16, 1.5f );
+        }
         }
     }
 

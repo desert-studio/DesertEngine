@@ -1,7 +1,8 @@
 // Ported from UE 5.8 Engine/Plugins/Runtime/GeometryProcessing/Source/DynamicMesh/Public/GroupTopology.h:18-568,
 // adapted: UE Core as std/glm, namespace Desert::Geometry; GroupEdge::Span is EdgeSpan from
-// MeshRegionBoundaryLoops.hpp; RebuildTopology returns the region-loop failure by name. Not ported: the
-// extra-corner hook (ShouldAddExtraCornerAtVert, RebuildTopologyWithSpecificExtraCorners), the MeshTriEdgeID
+// MeshRegionBoundaryLoops.hpp; RebuildTopology returns the region-loop failure by name. Not ported:
+// RebuildTopologyWithSpecificExtraCorners (UE restores a saved corner set across a tool's undo; here the extra
+// corners are a pure function of the mesh, so a rebuild after Undo gives the same ones), the MeshTriEdgeID
 // overloads, and the frame/bounds helpers (GetGroupFrame, GetSelectionFrame, GetSelectionBounds,
 // GetEdgeMidpoint) - no Modeling code reads them yet; they arrive with the gizmo port that does.
 #pragma once
@@ -9,6 +10,7 @@
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
 #include "Engine/Geometry/MeshCore/MeshRegionBoundaryLoops.hpp"
 
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -39,6 +41,28 @@ namespace Desert::Geometry
     public:
         GroupTopology() = default;
         GroupTopology( const DynamicMesh3* Mesh, bool bAutoBuild );
+
+        /**
+         * Decides whether a vertex that is NOT already a corner (it has exactly two group-boundary edges, a
+         * mesh-border edge counting as one) becomes an extra corner, splitting the group edge through it. UE
+         * PolyEdit uses this to cut a group's boundary at its sharp turns (IsEdgeAngleSharp). The two edges are
+         * mesh edge IDs. Must not capture the topology itself: a copied topology keeps the rule.
+         */
+        using ExtraCornerRule = std::function<bool( const GroupTopology& Topology, int32_t VertexID,
+                                                    const Index2i& AttachedGroupBoundaryEdgeIDs )>;
+
+        /** Builds at once with @p Rule as ShouldAddExtraCornerAtVert. */
+        GroupTopology( const DynamicMesh3* Mesh, ExtraCornerRule Rule );
+
+        ExtraCornerRule ShouldAddExtraCornerAtVert = nullptr;
+
+        /**
+         * True when the two mesh edges @p AttachedEdgeIDs meeting at @p SharedVertexID turn sharply: the dot of
+         * the unit vectors from the shared vertex along each edge is >= @p DotThreshold (-1 is a straight run).
+         * Degenerate (zero-length) edges are not sharp.
+         */
+        [[nodiscard]] static bool IsEdgeAngleSharp( const DynamicMesh3& Mesh, int32_t SharedVertexID,
+                                                    const Index2i& AttachedEdgeIDs, double DotThreshold );
         GroupTopology( const GroupTopology& )            = default;
         GroupTopology& operator=( const GroupTopology& ) = default;
         virtual ~GroupTopology()                         = default;

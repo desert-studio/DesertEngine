@@ -1,7 +1,7 @@
-// Preview Scene Settings (Editor/Widgets/PreviewEnvironment.hpp): defaults, the editor.json round trip,
+// Preview Scene Settings (Editor/Core/PreviewEnvironment.hpp): defaults, the editor.json round trip,
 // the look the renderer samples with, and the refusal of a skybox path the registry does not know.
 
-#include <Editor/Widgets/PreviewEnvironment.hpp>
+#include <Editor/Core/PreviewEnvironment.hpp>
 
 #include <gtest/gtest.h>
 

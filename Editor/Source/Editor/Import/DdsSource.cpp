@@ -1,13 +1,14 @@
 #include "DdsSource.hpp"
 
-// bcdec is compiled HERE and nowhere else: this is its one consumer, and `BCDEC_STATIC` keeps its symbols
-// internal to this translation unit so a second copy elsewhere could never collide at link time.
+// bcdec is compiled HERE and nowhere else: its two consumers (DDS sources and DecodeCookedTextureLevel, the CPU
+// reader of cooked levels) live in this file, and `BCDEC_STATIC` keeps its symbols internal to this translation
+// unit so a second copy elsewhere could never collide at link time.
 // BCDEC_BC4BC5_PRECISE is what gives the signed BC4/BC5 variants (and exact rather than approximated
 // interpolation for the unsigned ones).
 #define BCDEC_STATIC
 #define BCDEC_BC4BC5_PRECISE
 #define BCDEC_IMPLEMENTATION
-// BCDEC_STATIC makes the float BC4/BC5 entry points this file does not call unused statics.
+// BCDEC_STATIC makes the entry points this file does not call (bc6h_half) unused statics.
 #if defined( __clang__ ) || defined( __GNUC__ )
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -23,6 +24,7 @@
 #endif
 
 #include <glm/gtc/packing.hpp>
+#include <glm/packing.hpp>
 
 #include <algorithm>
 #include <array>
@@ -32,6 +34,7 @@
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <span>
 
 namespace Desert::Editor
 {
@@ -402,7 +405,7 @@ namespace Desert::Editor
                          "DDS pixel format DXGI_FORMAT {} (DX10) is not a supported texture source "
                          "(BC1-BC7, R8G8B8A8/B8G8R8A8/B8G8R8X8, R16G16B16A16 UNORM/FLOAT, R32G32B32A32_FLOAT)",
                          dxgi ) );
-                format->Name += " (DX10)";
+                format->Name = std::format( "{} (DX10)", format->Name );
             }
             else if ( ( pfFlags & kPixelFormatFourCC ) != 0 )
             {
@@ -640,5 +643,194 @@ namespace Desert::Editor
                  chain.Width, chain.Height, chain.LevelCount, total, size - parsed.DataAt ) );
         chain.Images.assign( bytes + parsed.DataAt, bytes + parsed.DataAt + total );
         return Common::MakeSuccess( std::move( chain ) );
+    }
+
+    Common::ResultStr<std::vector<glm::vec4>>
+    DecodeCookedTextureLevel( const Core::Formats::ImageFormat format, const Core::Formats::TextureColorSpace space,
+                              const std::span<const unsigned char> bytes, const uint32_t width, const uint32_t height,
+                              const uint32_t rowPitch )
+    {
+        using Core::Formats::ImageFormat;
+        using Result = std::vector<glm::vec4>;
+        if ( width == 0 || height == 0 )
+            return Common::MakeFormattedError<Result>( "cooked level of format {} is {}x{}",
+                                                       static_cast<uint32_t>( format ), width, height );
+        std::vector<glm::vec4> out( static_cast<size_t>( width ) * height );
+        const auto             need = [&]( const uint64_t total ) -> Common::BoolResultStr
+        {
+            if ( total > bytes.size() )
+                return Common::MakeFormattedError<bool>( "cooked level {}x{} of format {} needs {} bytes, has {}",
+                                                         width, height, static_cast<uint32_t>( format ), total,
+                                                         bytes.size() );
+            return Common::MakeSuccess( true );
+        };
+
+        const bool block = format == ImageFormat::BC4_UNORM || format == ImageFormat::BC5_UNORM ||
+                           format == ImageFormat::BC6H_UFLOAT || format == ImageFormat::BC7_UNORM;
+        if ( block )
+        {
+            const uint32_t blockBytes = format == ImageFormat::BC4_UNORM ? 8u : 16u;
+            const uint32_t blocksX    = ( width + 3 ) / 4;
+            const uint32_t blocksY    = ( height + 3 ) / 4;
+            if ( auto ok = need( static_cast<uint64_t>( blocksX ) * blocksY * blockBytes ); !ok.IsSuccess() )
+                return Common::MakeError<Result>( ok.GetError() );
+            for ( uint32_t by = 0; by < blocksY; ++by )
+                for ( uint32_t bx = 0; bx < blocksX; ++bx )
+                {
+                    const size_t               blockIndex = static_cast<size_t>( by ) * blocksX + bx;
+                    const unsigned char*       src        = bytes.data() + blockIndex * blockBytes;
+                    std::array<glm::vec4, 16> texels{};
+                    switch ( format )
+                    {
+                        case ImageFormat::BC4_UNORM:
+                        {
+                            // The sampler returns (R, 0, 0, 1); the float decode keeps the precision beyond 8 bits
+                            // that the hardware's endpoint interpolation has.
+                            std::array<float, 16> r{};
+                            bcdec_bc4_float( src, r.data(), 4, 0 );
+                            for ( size_t i = 0; i < 16; ++i )
+                                texels[i] = { r[i], 0.0f, 0.0f, 1.0f };
+                            break;
+                        }
+                        case ImageFormat::BC5_UNORM:
+                        {
+                            // (X, Y, 0, 1): the sampler does NOT reconstruct Z; a shader does where it wants one.
+                            std::array<float, 32> rg{};
+                            bcdec_bc5_float( src, rg.data(), 8, 0 );
+                            for ( size_t i = 0; i < 16; ++i )
+                                texels[i] = { rg[i * 2], rg[i * 2 + 1], 0.0f, 1.0f };
+                            break;
+                        }
+                        case ImageFormat::BC6H_UFLOAT:
+                        {
+                            std::array<float, 48> rgb{};
+                            bcdec_bc6h_float( src, rgb.data(), 12, 0 );
+                            for ( size_t i = 0; i < 16; ++i )
+                                texels[i] = { rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2], 1.0f };
+                            break;
+                        }
+                        default: // BC7_UNORM
+                        {
+                            std::array<unsigned char, 64> rgba{};
+                            bcdec_bc7( src, rgba.data(), 16 );
+                            for ( size_t i = 0; i < 16; ++i )
+                                texels[i] =
+                                     glm::vec4( rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2], rgba[i * 4 + 3] ) /
+                                     255.0f;
+                            break;
+                        }
+                    }
+                    for ( uint32_t y = 0; y < 4; ++y )
+                        for ( uint32_t x = 0; x < 4; ++x )
+                        {
+                            const uint32_t px = bx * 4 + x;
+                            const uint32_t py = by * 4 + y;
+                            if ( px < width && py < height )
+                                out[static_cast<size_t>( py ) * width + px] = texels[y * 4 + x];
+                        }
+                }
+        }
+        else
+        {
+            uint32_t texelBytes = 0;
+            switch ( format )
+            {
+                case ImageFormat::R8_UNORM:
+                    texelBytes = 1;
+                    break;
+                case ImageFormat::RG8_UNORM:
+                case ImageFormat::R16_UNORM:
+                    texelBytes = 2;
+                    break;
+                case ImageFormat::RGBA8F:
+                case ImageFormat::BGRA8F:
+                case ImageFormat::R32F:
+                case ImageFormat::RG16F:
+                case ImageFormat::R11G11B10F:
+                    texelBytes = 4;
+                    break;
+                case ImageFormat::RGBA16F:
+                    texelBytes = 8;
+                    break;
+                case ImageFormat::RGBA32F:
+                    texelBytes = 16;
+                    break;
+                default:
+                    return Common::MakeFormattedError<Result>(
+                         "cooked texture format {} is not a sampled colour format the CPU reader decodes",
+                         static_cast<uint32_t>( format ) );
+            }
+            const uint32_t pitch = rowPitch != 0 ? rowPitch : width * texelBytes;
+            if ( pitch < width * texelBytes )
+                return Common::MakeFormattedError<Result>( "cooked level {}x{}: row pitch {} < {} bytes", width,
+                                                           height, pitch, width * texelBytes );
+            if ( auto ok = need( static_cast<uint64_t>( pitch ) * ( height - 1 ) + width * texelBytes );
+                 !ok.IsSuccess() )
+                return Common::MakeError<Result>( ok.GetError() );
+            for ( uint32_t y = 0; y < height; ++y )
+                for ( uint32_t x = 0; x < width; ++x )
+                {
+                    const unsigned char* p  = bytes.data() + static_cast<size_t>( y ) * pitch + x * texelBytes;
+                    const auto           u8 = [p]( const int i ) { return static_cast<float>( p[i] ) / 255.0f; };
+                    uint32_t             word = 0;
+                    std::memcpy( &word, p, std::min( texelBytes, 4u ) );
+                    glm::vec4 v{ 0.0f, 0.0f, 0.0f, 1.0f };
+                    switch ( format )
+                    {
+                        case ImageFormat::R8_UNORM:
+                            v.x = u8( 0 );
+                            break;
+                        case ImageFormat::RG8_UNORM:
+                            v.x = u8( 0 );
+                            v.y = u8( 1 );
+                            break;
+                        case ImageFormat::R16_UNORM:
+                            v.x = static_cast<float>( word & 0xffffu ) / 65535.0f;
+                            break;
+                        case ImageFormat::RGBA8F:
+                            v = { u8( 0 ), u8( 1 ), u8( 2 ), u8( 3 ) };
+                            break;
+                        case ImageFormat::BGRA8F: // the view swizzles B8G8R8A8 back to RGBA
+                            v = { u8( 2 ), u8( 1 ), u8( 0 ), u8( 3 ) };
+                            break;
+                        case ImageFormat::R32F:
+                            v.x = std::bit_cast<float>( word );
+                            break;
+                        case ImageFormat::RG16F:
+                        {
+                            const glm::vec2 half = glm::unpackHalf2x16( word );
+                            v.x                  = half.x;
+                            v.y                  = half.y;
+                            break;
+                        }
+                        case ImageFormat::R11G11B10F:
+                            v = glm::vec4( glm::unpackF2x11_1x10( word ), 1.0f );
+                            break;
+                        case ImageFormat::RGBA16F:
+                        {
+                            uint64_t wide = 0;
+                            std::memcpy( &wide, p, sizeof( wide ) );
+                            v = glm::unpackHalf4x16( wide );
+                            break;
+                        }
+                        default: // RGBA32F
+                            std::memcpy( &v, p, sizeof( v ) );
+                            break;
+                    }
+                    out[static_cast<size_t>( y ) * width + x] = v;
+                }
+        }
+
+        // The GPU samples an sRGB texture through its *_SRGB view (VulkanImage.cpp: RGBA8, BGRA8 and BC7 only), so
+        // its filter sees linear values; alpha is never encoded.
+        const bool srgbView = space == Core::Formats::TextureColorSpace::SRGB &&
+                              ( format == ImageFormat::RGBA8F || format == ImageFormat::BGRA8F ||
+                                format == ImageFormat::BC7_UNORM );
+        if ( srgbView )
+            for ( glm::vec4& texel : out )
+                for ( int c = 0; c < 3; ++c )
+                    texel[c] = texel[c] <= 0.04045f ? texel[c] / 12.92f
+                                                    : std::pow( ( texel[c] + 0.055f ) / 1.055f, 2.4f );
+        return Common::MakeSuccess( std::move( out ) );
     }
 } // namespace Desert::Editor

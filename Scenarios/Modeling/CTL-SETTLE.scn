@@ -1,0 +1,39 @@
+# CTL-SETTLE: DesertCtl's reply to a modeling Accept waits for the background compute however long it takes, as
+# UE's Accept waits on HaveValidResult. The settle gate (ControlPipeline.hpp FrameGate) used to refuse after 240
+# frames while PendingWork::ModelingAccept was still raised; it now waits on the bit with a wall-clock budget.
+# Starter scene, Lit; a Box (plus a second overlapping Box, VoxBlend blends >= 2 inputs) selected -> VoxOps VoxBlend
+# Union, Voxel Count 128 (8.8 s measured) -> Accept through DesertCtl must SUCCEED -> shot after the reply -> Undo.
+Дано run Panel "Open Modeling"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Direction 0.6,-0.45,0.65
+Дано run Modeling "Create shape pivot: Centre"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 0,50,0
+Дано run Modeling "Attributes tool: Edit Materials"
+Дано run Modeling "Edit Materials active slot: 0"
+Дано run Modeling "Edit Materials slot material: M_UVChecker"
+Дано run Modeling "Active tool: Accept"
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Modeling "Active tool: Accept"
+Дано --subject selection set Translation 60,90,40
+Дано run Modeling "Attributes tool: Edit Materials"
+Дано run Modeling "Edit Materials active slot: 0"
+Дано run Modeling "Edit Materials slot material: M_UVChecker"
+Дано run Modeling "Active tool: Accept"
+Дано run Entity Box
+Дано run Entity "Add to selection Box2"
+Дано run "Level Viewport" "Focus Selected"
+Когда run Modeling "VoxBlend operation: Union"
+Когда run Modeling "VoxBlend inputs: Hide Inputs"
+Когда --subject modeling set VoxBlend.VoxelCount 128
+Когда --subject modeling set VoxBlend.BlendFalloff 20
+Когда run Modeling "VoxOps tool: VoxBlend"
+Когда run Modeling "Active tool: Accept"
+Когда state
+Тогда 0_accepted one closed blended voxel mesh "Box VoxBlend" in the viewport (rounded joints, no holes), the VoxBlend tool closed, inputs hidden; the Accept reply succeeded (no "Accept rejected" / settle refusal)
+Когда run Action Undo
+Когда state
+Тогда 1_undo the original checkered Box (and Box2) back with sharp joints, no blended mesh

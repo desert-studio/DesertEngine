@@ -9,7 +9,7 @@ Shader "CloudRaymarch"
     //
     // NO Binding() ON PURPOSE. This block is SCHEMA ONLY: the values travel through the existing
     // CloudGpuPayload (Engine/Graphic/Clouds/CloudPayload.hpp), packed on the CPU by the renderer that
-    // resolved the material — so the march's own GLSL below reads the same `u_Cloud*` fields it always
+    // resolved the material — so the march's own GLSL below reads the same `Cloud*` fields it always
     // read, and no second GPU transport exists to disagree with the first. Every parameter here is
     // consumed by name in Engine/Graphic/Clouds/CloudMaterialValues.hpp; a name the C++ side does not
     // read fails the CloudMaterialSchema census, which is DEV_CONTRACT §1.3 made compile-adjacent.
@@ -47,7 +47,15 @@ Shader "CloudRaymarch"
         CloudType CloudType3 ("Cloud Type 3", Category("Cloud Types"), Timing(Rebake), Tooltip("A third kind of cloud. Costs one noise fetch per sample only at altitudes its own base and top actually reach - a cirrus at eight kilometres is free everywhere a cumulus lives."))
         CloudType CloudType4 ("Cloud Type 4", Category("Cloud Types"), Timing(Rebake), Tooltip("The fourth and last kind. Four is the ceiling because a type owns one channel of the vertical profile table, which is how Unreal arranges it too."))
 
-        Float Coverage ("Coverage", Range(0.0, 1.0), Category("Weather"), Timing(Rebake), Tooltip("How busy the weather is where there is weather. A cloud exists where its rank is under Coverage, so 0 is a clear sky and 1 bakes every cloud; the weather map then thins the clouds toward its clear gaps, which stay open even at 1. An overcast sky is its own cloud type (a stratus deck), not Coverage 1.")) = 0.45
+        Float Coverage ("Coverage", Range(0.0, 1.0), Category("Weather"), Timing(Immediate), Tooltip("How busy the weather is where there is weather. The march cuts the baked cloud field at 1 - Coverage, so 0 is a clear sky and 1 keeps every cloud, and moving it costs no re-bake (the weather drives it live); the weather map then thins the clouds toward its clear gaps, which stay open even at 1. An overcast sky is its own cloud type (a stratus deck), not Coverage 1.")) = 0.45
+
+        Float CloudTypeWeight1 ("Cloud Type 1 Weight", Range(0.0, 1.0), Category("Weather"), Timing(Immediate), Tooltip("How much of Cloud Type 1 the sky shows, 0..1, as its own Coverage: the march cuts that type's channel of the baked field at 1 - Coverage x this weight. The four weights are independent (UE's Layout_CloudType RGBA), so a weather can fade one type out while another fades in without a re-bake; the world's weather drives them (WTH-OVERCAST).")) = 1.0
+
+        Float CloudTypeWeight2 ("Cloud Type 2 Weight", Range(0.0, 1.0), Category("Weather"), Timing(Immediate), Tooltip("How much of Cloud Type 2 the sky shows, 0..1, as its own Coverage: the march cuts that type's channel of the baked field at 1 - Coverage x this weight. The four weights are independent (UE's Layout_CloudType RGBA), so a weather can fade one type out while another fades in without a re-bake; the world's weather drives them (WTH-OVERCAST).")) = 1.0
+
+        Float CloudTypeWeight3 ("Cloud Type 3 Weight", Range(0.0, 1.0), Category("Weather"), Timing(Immediate), Tooltip("How much of Cloud Type 3 the sky shows, 0..1, as its own Coverage: the march cuts that type's channel of the baked field at 1 - Coverage x this weight. The four weights are independent (UE's Layout_CloudType RGBA), so a weather can fade one type out while another fades in without a re-bake; the world's weather drives them (WTH-OVERCAST).")) = 1.0
+
+        Float CloudTypeWeight4 ("Cloud Type 4 Weight", Range(0.0, 1.0), Category("Weather"), Timing(Immediate), Tooltip("How much of Cloud Type 4 the sky shows, 0..1, as its own Coverage: the march cuts that type's channel of the baked field at 1 - Coverage x this weight. The four weights are independent (UE's Layout_CloudType RGBA), so a weather can fade one type out while another fades in without a re-bake; the world's weather drives them (WTH-OVERCAST).")) = 1.0
         Float CoverageContrast ("Coverage Contrast", Range(0.1, 4.0), Category("Weather"), Timing(Rebake), Tooltip("Sharpness of the transition from clear to cloudy, as the WIDTH of the ramp from an empty cell to a full one. Above 1 the ramp narrows and the sky is decisively cloud or decisively clear; below 1 it widens and the cloud sizes spread out, which is what a broken deck looks like.")) = 1.0
         Float WeatherTileSize ("Weather Tile Size (cm)", Range(200000.0, 8000000.0), Category("Weather"), Timing(Rebake), Tooltip("World size the cloud lattice is measured against, in centimetres (1200000 = 12 km). One cell is a QUARTER of it, and a cell carries Cloud Density clouds on average - which is also what decides whether there is any cloud overhead at all: a cell much larger than the layer altitude cannot fit one above the camera, and the zenith comes out empty however high the coverage is set.")) = 1200000.0
         Int Seed ("Seed", Range(0, 65535), Category("Weather"), Timing(Rebake), Tooltip("Which sky. Two layers with different seeds have unrelated clouds; the same seed always gives the same sky, in the same places, for the same settings.")) = 1
@@ -106,7 +114,7 @@ Shader "CloudRaymarch"
         // own history, and the composite upsamples THAT.
         //
         // Each quarter-res texel stands for a 2x2 block of half-resolution pixels, and each frame traces
-        // ONE of the four — u_CloudTrace.xy says which. The offset is applied to the RAY, not to the
+        // ONE of the four — CloudTraceParams.xy says which. The offset is applied to the RAY, not to the
         // store: the texel is written where it always was, but the ray it holds passes through the
         // half-res pixel the frame owns. That is Unreal's HackAddTemporalAAProjectionJitter, minus the
         // half that removes an existing TAA jitter, because this engine has none to remove.
@@ -136,7 +144,7 @@ Shader "CloudRaymarch"
 
         // rgba16f: radiance is pre-tonemap HDR and transmittance is in [0,1]. Half precision carries three
         // decimal digits, an order more than an over-operator needs.
-        layout(binding = 0, rgba16f) restrict writeonly uniform image2D u_CloudScatter;
+        layout(binding = 0, rgba16f) restrict writeonly uniform image2D CloudScatterTexture;
 
         // THE DEPTH GUIDE, same size as the scatter target, and the reason the composite can upsample
         // this pass without smearing its silhouettes. Two channels, both read by CloudComposite.shader:
@@ -155,12 +163,17 @@ Shader "CloudRaymarch"
         // Core::Formats::ImageFormat has no two-channel float format (RGBA8F / RGBA16F / RGBA32F only),
         // so a two-channel guide has to be allocated four-channel. Nothing reads .zw and nothing should
         // start reading them without a format to match.
-        layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_CloudGuide;
+        layout(binding = 6, rgba16f) restrict writeonly uniform image2D CloudGuideTexture;
 
         // The scene depth attachment, presented to this dispatch by ComputeImageBeginRead and handed back
         // afterwards. Point-sampled with texelFetch, never filtered: a filtered depth across a silhouette
         // averages foreground and background into a distance where nothing is.
-        Uniform(2) sampler2D u_SceneDepth;
+        // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
+        // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
+        Uniform sampler GlobalFilterSampler;
+        Uniform sampler LinearRepeatSampler;
+        Uniform(2) texture2D SceneDepthTexture;
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, GlobalFilterSampler)
 
         // The noise volume, now an ASSET rather than a bake: four named channels from the Nubis deck
         // (p.96) — R,G Curly-Alligator LF/HF, B,A Alligator LF/HF — generated on the CPU by
@@ -168,7 +181,8 @@ Shader "CloudRaymarch"
         // includes, and shipped as a .dcnv file. REPEAT and LINEAR,
         // which every volume sampler in this engine is; the volume was baked to tile exactly under that
         // assumption.
-        Uniform(3) sampler3D u_CloudNoise;
+        Uniform(3) texture3D CloudNoiseTexture;
+        #define CloudNoiseTexture sampler3D(CloudNoiseTexture, LinearRepeatSampler)
 
         // AND THREE MORE OF THEM, because a layer carries four cloud types and a type names its own
         // volume. Separate bindings and not an array: this engine's reflection refuses an array of
@@ -177,9 +191,12 @@ Shader "CloudRaymarch"
         // sampler here is bound on — Graphic::ResolveCloudNoiseVolumes fills the slots a layer does not
         // need with slot 0's image, so an unused one is a second descriptor onto bytes that are already
         // resident rather than a hole in the set.
-        Uniform(10) sampler3D u_CloudNoise1;
-        Uniform(11) sampler3D u_CloudNoise2;
-        Uniform(12) sampler3D u_CloudNoise3;
+        Uniform(10) texture3D CloudNoise1Texture;
+        #define CloudNoise1Texture sampler3D(CloudNoise1Texture, LinearRepeatSampler)
+        Uniform(11) texture3D CloudNoise2Texture;
+        #define CloudNoise2Texture sampler3D(CloudNoise2Texture, LinearRepeatSampler)
+        Uniform(12) texture3D CloudNoise3Texture;
+        #define CloudNoise3Texture sampler3D(CloudNoise3Texture, LinearRepeatSampler)
 
         // THE FOUR-WAY SELECT, and it is a chain of compares because a sampler is not indexable in this
         // dialect. It costs the wave every branch the wave takes — which is why the CPU DEDUPLICATES the
@@ -189,12 +206,12 @@ Shader "CloudRaymarch"
         vec4 CloudFetchNoise( int slot, vec3 p )
         {
             if ( slot == 1 )
-                return texture( u_CloudNoise1, p );
+                return texture( CloudNoise1Texture, p );
             if ( slot == 2 )
-                return texture( u_CloudNoise2, p );
+                return texture( CloudNoise2Texture, p );
             if ( slot == 3 )
-                return texture( u_CloudNoise3, p );
-            return texture( u_CloudNoise, p );
+                return texture( CloudNoise3Texture, p );
+            return texture( CloudNoiseTexture, p );
         }
 
         // The sky's DISTANT SKY LIGHT: one texel holding the average radiance of the whole sky, marched
@@ -203,13 +220,15 @@ Shader "CloudRaymarch"
         // same one the height fog reads. ALWAYS BOUND, even when it will not be read: a declared sampler
         // with no image is an INVALID descriptor set rather than an unused one, and this engine's compute
         // path answers that by silently skipping the whole dispatch — which would lose the clouds with
-        // nothing in the log. u_CloudAmbient.w decides whether it is sampled.
-        Uniform(4) sampler2D u_DistantSkyLight;
+        // nothing in the log. CloudAmbient.w decides whether it is sampled.
+        Uniform(4) texture2D DistantSkyLightTexture;
+        #define DistantSkyLightTexture sampler2D(DistantSkyLightTexture, GlobalFilterSampler)
 
         // The sky's CAMERA AERIAL-PERSPECTIVE volume, 32x32x16 froxels of pre-integrated atmosphere
         // (Programs/Sky/SkyAerialPerspectiveLut.shader). Bound on the same terms as the texel above and
-        // read only when u_CloudAerial.z says the volume exists.
-        Uniform(5) sampler3D u_CloudAerialPerspective;
+        // read only when CloudAerial.z says the volume exists.
+        Uniform(5) texture3D CloudAerialPerspectiveTexture;
+        #define CloudAerialPerspectiveTexture sampler3D(CloudAerialPerspectiveTexture, LinearRepeatSampler)
 
         // THE PROCEDURAL MODELLING VOLUME, 256 x 32 x 256 RGBA8, baked on the CPU by
         // Assets::BakeCloudProceduralVolume and uploaded by Runtime::CloudProceduralVolumeService
@@ -228,13 +247,17 @@ Shader "CloudRaymarch"
         // LINEAR AND REPEAT, like every sampler this engine creates, and here the REPEAT is load-bearing
         // rather than tolerated: the bake splats every lump at its wrapped positions, so the volume is
         // exactly periodic and sampling past the region is the degenerate far path rather than a seam.
-        Uniform(7) sampler3D u_CloudModelling;
+        Uniform(7) texture3D CloudModellingTexture;
+        #define CloudModellingTexture sampler3D(CloudModellingTexture, LinearRepeatSampler)
         // The WORLD WEATHER map (Graphic::kCloudFarWeatherBinding): the remap Common/CloudField.glslh makes
-        // of the baked profile by u_CloudWeather.
+        // of the baked profile by CloudWeather.
         // Always bound, on the terms every sampler here is.
-        Uniform(15) sampler2D u_CloudFarWeather;
-        Uniform(16) sampler2D u_CloudLayoutPattern;
-        Uniform(17) sampler2D u_CloudLayoutMask;
+        Uniform(15) texture2D CloudFarWeatherTexture;
+        #define CloudFarWeatherTexture sampler2D(CloudFarWeatherTexture, LinearRepeatSampler)
+        Uniform(16) texture2D CloudLayoutPatternTexture;
+        #define CloudLayoutPatternTexture sampler2D(CloudLayoutPatternTexture, LinearRepeatSampler)
+        Uniform(17) texture2D CloudLayoutMaskTexture;
+        #define CloudLayoutMaskTexture sampler2D(CloudLayoutMaskTexture, LinearRepeatSampler)
 
         // THE SCULPTED HERO-CLOUD BODY — slot A of the seam. 128 x 64 x 128 RGBA8 of dimensional
         // profile, detail type, density scale and cutout envelope, loaded from a `.dcmv` and uploaded by
@@ -243,13 +266,14 @@ Shader "CloudRaymarch"
         // unused one, and this backend answers an invalid set by silently skipping the dispatch — the
         // clouds would vanish with nothing in the log. When the scene has no hero cloud the renderer
         // binds the engine's fallback volume and the instance count is zero, so nothing reads it.
-        Uniform(9) sampler3D u_CloudAuthoredAtlas;
+        Uniform(9) texture3D CloudAuthoredAtlasTexture;
+        #define CloudAuthoredAtlasTexture sampler3D(CloudAuthoredAtlasTexture, LinearRepeatSampler)
 
         // THE SKY-LIGHT OCCLUSION VOLUME — 128 x 16 x 128 RGBA16F over the procedural modelling volume's
         // own region, .r holding the diffuse transmittance of everything ABOVE that column at that
         // altitude, written this frame by Programs/Clouds/CloudSkyOcclusionVolume.shader.
         //
-        // IT IS THE QUANTITY u_CloudPhase.z's OTHER OCCLUDER CANNOT EXPRESS. CloudAmbientOcclusion is a
+        // IT IS THE QUANTITY CloudPhase.z's OTHER OCCLUDER CANNOT EXPRESS. CloudAmbientOcclusion is a
         // function of the sample's own Profile — its depth inside its OWN body — so a sample under three
         // kilometres of congestus receives exactly what a sample under clear sky receives. See
         // Common/CloudLighting.glslh, which owns both the maths and the addressing, and
@@ -257,8 +281,9 @@ Shader "CloudRaymarch"
         //
         // ALWAYS BOUND, fallback included, on the terms every sampler here is bound on: a declared sampler
         // with no image is an INVALID descriptor set, and this backend answers one by silently skipping
-        // the dispatch. u_CloudFrame.x decides whether it is read.
-        Uniform(13) sampler3D u_CloudSkyOcclusionVolume;
+        // the dispatch. CloudFrame.x decides whether it is read.
+        Uniform(13) texture3D CloudSkyOcclusionVolumeTexture;
+        #define CloudSkyOcclusionVolumeTexture sampler3D(CloudSkyOcclusionVolumeTexture, LinearRepeatSampler)
 
         // THE ATMOSPHERE'S TRANSMITTANCE LUT — 256x64 RGBA16F of what survives the trip from a point in
         // the atmosphere to space along a given zenith angle, marched by
@@ -266,28 +291,29 @@ Shader "CloudRaymarch"
         // Common/SkyScattering.glslh's SkySunAtAltitude — the exact inverse of the mapping the LUT was
         // written under, clamped to the texel centres it was written at.
         //
-        // WHAT IT IS FOR. u_CloudSunColour is ONE colour for the whole shell. Unreal's default computes it
+        // WHAT IT IS FOR. CloudSunColour is ONE colour for the whole shell. Unreal's default computes it
         // as `SunOuterSpaceIlluminance * T(groundLevel)` and so does this engine, which means a deck four
-        // kilometres up is lit through four kilometres of air it is standing above. With u_CloudFrame.y
+        // kilometres up is lit through four kilometres of air it is standing above. With CloudFrame.y
         // raised, the packer sends the OUTER-SPACE illuminance instead and this pass applies T at the
         // sample's own altitude and its own local zenith — the absolute form, with no ratio and therefore
         // no division by a transmittance that reaches zero at a low sun.
         //
         // ALWAYS BOUND, fallback included, on the terms every sampler above is bound on.
-        Uniform(14) sampler2D u_CloudSunTransmittanceLut;
+        Uniform(14) texture2D CloudSunTransmittanceLutTexture;
+        #define CloudSunTransmittanceLutTexture sampler2D(CloudSunTransmittanceLutTexture, GlobalFilterSampler)
 
         // The seam's three callbacks. Declared here, next to the samplers, because Common/CloudField.glslh
         // must stay free of samplers to remain compilable as C++ by its tests.
         #define CLOUD_SAMPLE_NOISE(s, p) CloudFetchNoise((s), (p))
         // textureLod for the reason the authored atlas gives below, and for the same reason.
-        #define CLOUD_SAMPLE_MODELLING(p) textureLod(u_CloudModelling, (p), 0.0f)
-        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(u_CloudFarWeather, (uv), 0.0f).r
-        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(u_CloudLayoutPattern, (uv), 0.0f)
-        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(u_CloudLayoutMask, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_MODELLING(p) textureLod(CloudModellingTexture, (p), 0.0f)
+        #define CLOUD_SAMPLE_WEATHER(uv) textureLod(CloudFarWeatherTexture, (uv), 0.0f).r
+        #define CLOUD_SAMPLE_LAYOUT_PATTERN(uv) textureLod(CloudLayoutPatternTexture, (uv), 0.0f)
+        #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(CloudLayoutMaskTexture, (uv), 0.0f).r
         // textureLod AND NOT texture: a compute shader has no derivatives, so the implicit level of
         // detail is undefined. The volume has one level, so every implementation happens to pick it — but
         // "happens to" is the state three other sites in this engine were found in.
-        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(u_CloudAuthoredAtlas, (p), 0.0f)
+        #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
 
         // Slot A's instance list. Included BEFORE the seam, because the seam's authored producer reads
         // the block this declares and GLSL has no forward declarations.
@@ -299,27 +325,27 @@ Shader "CloudRaymarch"
 
         PushConstant CloudPush
         {
-            mat4 u_InverseViewProjection;
-            vec4 u_CameraPosition; // xyz = camera position in world units, w = frame index
+            mat4 InverseViewProjection;
+            vec4 CameraPosition; // xyz = camera position in world units, w = frame index
             // xy = this frame's sub-pixel inside the 2x2 block of HALF-resolution pixels each quarter-res
             //      texel covers, each 0 or 1. zw = the HALF-resolution grid's size in pixels, which this
             //      pass cannot derive: imageSize() reports the quarter-res target it writes, and the two
             //      round-ups that produced it are not invertible on an odd viewport.
-            vec4 u_CloudTrace;
+            vec4 CloudTraceParams;
             // WHAT THIS FRAME'S RESOURCES ARE, as opposed to what the artist asked for. Graphic::CloudPush
             // ::Frame, member for member.
             //
             // x = 1 when the sky-light occlusion volume was written for THIS frame and must be read. Its
             //     region and side are NOT here: the volume shares the modelling volume's frame exactly, so
-            //     u_CloudLevel[2] already carries both and a second copy would be one fact on the wire twice.
-            // y = 1 when u_CloudSunTransmittanceLut holds this frame's atmosphere AND the layer asked for
-            //     per-sample sun transmittance. It also says WHAT u_CloudSunColour.rgb IS: the sun's
+            //     CloudLevel[2] already carries both and a second copy would be one fact on the wire twice.
+            // y = 1 when CloudSunTransmittanceLutTexture holds this frame's atmosphere AND the layer asked for
+            //     per-sample sun transmittance. It also says WHAT CloudSunColour.rgb IS: the sun's
             //     outer-space illuminance when 1, the ground-level product when 0.
             // z, w = the atmosphere shell's bottom and top radii, kilometres from the planet centre.
             //     Written whatever y says, read only when y is 1.
-            vec4 u_CloudFrame;
+            vec4 CloudFrame;
             // x = the diagnostic mode, Graphic::RenderConfig::CloudVisualize (0 = the ordinary picture).
-            vec4 u_CloudVisualize;
+            vec4 CloudVisualize;
         };
 
         LocalSize(8, 8, 1);
@@ -349,22 +375,22 @@ Shader "CloudRaymarch"
         // shader has no derivatives, so the implicit level of detail is undefined.
         vec3 CloudSunColourAt(CloudLayer layer, vec3 positionKm, vec3 toSun)
         {
-            if (u_CloudFrame.y < 0.5f)
-                return u_CloudSunColour.rgb;
+            if (CloudFrame.y < 0.5f)
+                return CloudSunColour.rgb;
 
             float sunZenithCos = clamp(dot(CloudLocalUp(positionKm), toSun), -1.0f, 1.0f);
 
             // textureSize() and not a literal 256x64, so the clamp cannot drift from the image the
             // renderer actually bound.
-            SkySunAtPoint sun = SkySunAtAltitude(u_CloudFrame.z, u_CloudFrame.w,
+            SkySunAtPoint sun = SkySunAtAltitude(CloudFrame.z, CloudFrame.w,
                                                  CloudAltitudeKm(layer, positionKm), sunZenithCos,
-                                                 vec2(textureSize(u_CloudSunTransmittanceLut, 0)));
+                                                 vec2(textureSize(CloudSunTransmittanceLutTexture, 0)));
 
             if (sun.PlanetShadow <= 0.0f)
                 return vec3(0.0f, 0.0f, 0.0f);
 
-            return u_CloudSunColour.rgb *
-                   (sun.PlanetShadow * textureLod(u_CloudSunTransmittanceLut, sun.Uv, 0.0f).rgb);
+            return CloudSunColour.rgb *
+                   (sun.PlanetShadow * textureLod(CloudSunTransmittanceLutTexture, sun.Uv, 0.0f).rgb);
         }
 
         // The sun-transmittance quadrature is Common/CloudField.glslh's — see the note there. It moved out
@@ -373,7 +399,7 @@ Shader "CloudRaymarch"
 
         void main()
         {
-            ivec2 size  = imageSize(u_CloudScatter);
+            ivec2 size  = imageSize(CloudScatterTexture);
             ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
@@ -384,8 +410,8 @@ Shader "CloudRaymarch"
             // grid rounded UP: on an odd half-res extent the final column's block hangs half off the
             // image, and an unclamped uv there would reach past 1 and, with this engine's REPEAT samplers,
             // fetch the opposite edge of the aerial-perspective volume.
-            ivec2 halfSize  = ivec2(max(u_CloudTrace.zw, vec2(1.0f, 1.0f)));
-            ivec2 halfCoord = min(coord * 2 + ivec2(u_CloudTrace.xy), halfSize - ivec2(1, 1));
+            ivec2 halfSize  = ivec2(max(CloudTraceParams.zw, vec2(1.0f, 1.0f)));
+            ivec2 halfCoord = min(coord * 2 + ivec2(CloudTraceParams.xy), halfSize - ivec2(1, 1));
 
             vec2 uv  = (vec2(halfCoord) + vec2(0.5f, 0.5f)) / vec2(halfSize);
             vec2 ndc = vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
@@ -394,8 +420,8 @@ Shader "CloudRaymarch"
             // the frame was drawn with. The engine is REVERSED-Z (Core/Projection.hpp): 1 is the near
             // plane and 0 the far one, which is why the two probe depths below are that way round and not
             // the other.
-            vec4 nearH = u_InverseViewProjection * vec4(ndc.x, ndc.y, 1.0f, 1.0f);
-            vec4 farH  = u_InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
+            vec4 nearH = InverseViewProjection * vec4(ndc.x, ndc.y, 1.0f, 1.0f);
+            vec4 farH  = InverseViewProjection * vec4(ndc.x, ndc.y, 0.0f, 1.0f);
             vec3 nearP = nearH.xyz / max(nearH.w, 1e-9f);
             vec3 farP  = farH.xyz / max(farH.w, 1e-9f);
             vec3 rayDir = normalize(farP - nearP);
@@ -403,7 +429,7 @@ Shader "CloudRaymarch"
             CloudLayer layer = CloudUnpackLayer();
 
             // Planet-centre-relative kilometres: the frame in which both shells are centred on the origin.
-            vec3 cameraKm = u_CameraPosition.xyz * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            vec3 cameraKm = CameraPosition.xyz * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
             vec3 originKm = vec3(cameraKm.x, cameraKm.y + layer.PlanetRadiusKm, cameraKm.z);
 
             vec2 segment = CloudLayerIntersect(layer, originKm, rayDir);
@@ -418,24 +444,24 @@ Shader "CloudRaymarch"
             // the centre: `(halfCoord * depthSize) / halfSize` truncates. The two readings differ exactly
             // on a silhouette, where the choice decides whether this pixel's cloud is cut at the mountain
             // or behind it; the guide's bilateral weights hide most of the residual.
-            ivec2 depthSize  = textureSize(u_SceneDepth, 0);
+            ivec2 depthSize  = textureSize(SceneDepthTexture, 0);
             ivec2 depthCoord = clamp((halfCoord * depthSize) / halfSize, ivec2(0, 0), depthSize - ivec2(1, 1));
-            float deviceDepth = texelFetch(u_SceneDepth, depthCoord, 0).r;
+            float deviceDepth = texelFetch(SceneDepthTexture, depthCoord, 0).r;
 
             // The guide's scene channel, resolved for EVERY pixel and not only for the ones that have
             // geometry. A sky pixel's ray is still cut somewhere — at the far plane — and giving it that
             // real distance rather than a sentinel is what lets the composite's coherence test see an
             // unbroken sky as unbroken instead of as a discontinuity against every silhouette in it.
-            float sceneKm = length(farP - u_CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+            float sceneKm = length(farP - CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
 
             // `> 0` IS THE GEOMETRY TEST under reversed-Z: a sky pixel stores 0, the far plane. Written as
             // `< 1` it would be true for every pixel including the sky, and every ray would be cut at the
             // far plane — which renders as no clouds at all, with nothing in the log.
             if (deviceDepth > 0.0f)
             {
-                vec4 geomH = u_InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
+                vec4 geomH = InverseViewProjection * vec4(ndc.x, ndc.y, deviceDepth, 1.0f);
                 vec3 geomP = geomH.xyz / max(geomH.w, 1e-9f);
-                float geomKm = length(geomP - u_CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
+                float geomKm = length(geomP - CameraPosition.xyz) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
                 sceneKm   = geomKm;
                 segment.y = min(segment.y, geomKm);
             }
@@ -444,34 +470,34 @@ Shader "CloudRaymarch"
             // distance is measured FROM THE LAYER ENTRY, not from the camera — Unreal's
             // DistanceFromCloudLayerEntryPoint mode — because a limit measured from the camera would cut
             // the layer short at a fixed radius and put a visible circular edge in the sky.
-            segment.x = max(segment.x, u_CloudMarch.z);
-            segment.y = min(segment.y, segment.x + max(u_CloudLayer.w, 0.0f));
+            segment.x = max(segment.x, CloudMarch.z);
+            segment.y = min(segment.y, segment.x + max(CloudLayerGeometry.w, 0.0f));
 
             // A ray whose entry is beyond the cutoff is not traced at all. It bounds the cost of the
             // grazing rays that cost the most and show the least, and it is the second line of defence
             // behind the planet test: the geometry can legitimately report an entry thousands of
             // kilometres away, and nothing else in this loop would decline to march it.
-            if (segment.x > max(u_CloudPhase.w, 0.0f))
+            if (segment.x > max(CloudPhase.w, 0.0f))
             {
-                imageStore(u_CloudScatter, coord, vec4(0.0f, 0.0f, 0.0f, 1.0f));
-                imageStore(u_CloudGuide, coord, vec4(sceneKm, sceneKm, 0.0f, 0.0f));
+                imageStore(CloudScatterTexture, coord, vec4(0.0f, 0.0f, 0.0f, 1.0f));
+                imageStore(CloudGuideTexture, coord, vec4(sceneKm, sceneKm, 0.0f, 0.0f));
                 return;
             }
 
             if (segment.y <= segment.x)
             {
-                imageStore(u_CloudScatter, coord, vec4(0.0f, 0.0f, 0.0f, 1.0f));
+                imageStore(CloudScatterTexture, coord, vec4(0.0f, 0.0f, 0.0f, 1.0f));
 
                 // This ray never entered the layer, so the end of its search IS the end of the ray. Both
                 // guide channels therefore carry the same distance, which is what makes a whole region of
                 // cloudless sky perfectly coherent to the composite and sends it down the cheap bilinear
                 // path — a filter that fires everywhere quantizes the frame onto this pass's own grid.
-                imageStore(u_CloudGuide, coord, vec4(sceneKm, sceneKm, 0.0f, 0.0f));
+                imageStore(CloudGuideTexture, coord, vec4(sceneKm, sceneKm, 0.0f, 0.0f));
                 return;
             }
 
             float length_km = segment.y - segment.x;
-            float stepCount = CloudStepCount(length_km, CLOUD_MIN_STEPS, max(u_CloudMarch.x, CLOUD_MIN_STEPS),
+            float stepCount = CloudStepCount(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                              CLOUD_DISTANCE_TO_MAX_STEPS_KM);
             int   stepTotal = int(stepCount);
 
@@ -487,7 +513,7 @@ Shader "CloudRaymarch"
             // The multiplier and its partner constant live in Common/CloudGeometry.glslh, together and
             // next to the relation they have to satisfy — they are two numbers that must agree, and here
             // they were two literals a hundred lines apart in a file no test can compile.
-            float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(u_CloudMarch.x, CLOUD_MIN_STEPS),
+            float stepKm       = CloudFineStepKm(length_km, CLOUD_MIN_STEPS, max(CloudMarch.x, CLOUD_MIN_STEPS),
                                                  CLOUD_DISTANCE_TO_MAX_STEPS_KM);
             float coarseStepKm = CloudCoarseStepKm(stepKm);
 
@@ -503,7 +529,7 @@ Shader "CloudRaymarch"
             // well as different rays. Hashing coord would give the whole 2x2 block one offset per frame,
             // and the temporal reconstruction would then average four samples that share their bias.
             uint  jitterHash = CloudHashCell(uint(halfCoord.x), uint(halfCoord.y),
-                                             uint(u_CameraPosition.w), 0x51ED270Bu);
+                                             uint(CameraPosition.w), 0x51ED270Bu);
             float jitter     = float(jitterHash & 0xFFFFu) * (1.0f / 65536.0f);
 
             CloudFieldParams params = CloudUnpackFieldParams();
@@ -519,7 +545,7 @@ Shader "CloudRaymarch"
             //      (CloudProceduralLevelOf): level 0 red, 1 green, 2 blue, and inside a blend band the
             //      coarser level's colour mixed in by the blend weight, so the bands read as gradients; past
             //      level 2's window the far path (CloudSampleProceduralFar) grey, level 2's band blue into it.
-            int visualize = int(u_CloudVisualize.x + 0.5f);
+            int visualize = int(CloudVisualize.x + 0.5f);
             if (visualize != 0)
             {
                 vec3 shown = vec3(0.0f);
@@ -581,47 +607,47 @@ Shader "CloudRaymarch"
                     }
                     shown = vec3(kept / 32.0f, min(seam * 8.0f, 1.0f), body / 32.0f);
                 }
-                float sunLuminance = dot(u_CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
-                imageStore(u_CloudScatter, coord, vec4(shown * sunLuminance * 0.03f, 0.0f));
-                imageStore(u_CloudGuide, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
+                float sunLuminance = dot(CloudSunColour.rgb, vec3(0.2126f, 0.7152f, 0.0722f));
+                imageStore(CloudScatterTexture, coord, vec4(shown * sunLuminance * 0.03f, 0.0f));
+                imageStore(CloudGuideTexture, coord, vec4(segment.x, sceneKm, 0.0f, 0.0f));
                 return;
             }
 
-            vec3  toSun        = normalize(u_CloudSun.xyz);
-            float phase        = CloudPhaseDualLobe(dot(rayDir, toSun), u_CloudWind.w,
-                                                    u_CloudPhase.x, u_CloudPhase.y);
-            float extinction   = max(u_CloudMarch.w, 0.0f);
+            vec3  toSun        = normalize(CloudSun.xyz);
+            float phase        = CloudPhaseDualLobe(dot(rayDir, toSun), CloudWind.w,
+                                                    CloudPhase.x, CloudPhase.y);
+            float extinction   = max(CloudMarch.w, 0.0f);
             // PER COLOUR. Clamped here as well as in the packer, on the terms every other clamp in this
             // file is: this is the side that decides what the loop does, and a channel above one makes the
             // scattering series diverge rather than converge.
-            vec3  albedo       = clamp(u_CloudAlbedo.rgb, vec3(0.0f), vec3(1.0f));
-            float lightMarchKm = max(u_CloudSun.w, 0.0f);
+            vec3  albedo       = clamp(CloudAlbedo.rgb, vec3(0.0f), vec3(1.0f));
+            float lightMarchKm = max(CloudSun.w, 0.0f);
             // SIXTY-FOUR, and it must equal ECS::kCloudLightMarchMaxSamples. This clamp cannot include the
             // C++ constant, so Desert/Tests/Engine/SettingConsumers reads this line's text and fails if the
             // two ever part company — while both were the literal 16 an artist could raise the slider past
             // a ceiling the march quietly reimposed.
-            int   lightSamples = int(clamp(u_CloudSunColour.w, 1.0f, 64.0f));
-            float stopT        = clamp(u_CloudMarch.y, 0.0f, 1.0f);
+            int   lightSamples = int(clamp(CloudSunColour.w, 1.0f, 64.0f));
+            float stopT        = clamp(CloudMarch.y, 0.0f, 1.0f);
 
             // The multiple-scattering series, unpacked once per pixel rather than per sample: the four
             // fields are uniform over the whole dispatch, and rebuilding the struct inside the inner loop
             // would put four loads under the hottest branch in the subsystem.
             CloudScatterSeries series;
-            series.Octaves     = u_CloudMultiScatter.x;
-            series.ScatterStep = u_CloudMultiScatter.y;
-            series.ExtinctStep = u_CloudMultiScatter.z;
-            series.PhaseStep   = u_CloudMultiScatter.w;
+            series.Octaves     = CloudMultiScatter.x;
+            series.ScatterStep = CloudMultiScatter.y;
+            series.ExtinctStep = CloudMultiScatter.z;
+            series.PhaseStep   = CloudMultiScatter.w;
 
             // The ambient a cloud sits in, resolved once per pixel rather than per step: in the physical
             // model it is the marched full-sphere mean scaled by the artist's factor, in the artistic
             // gradient it is the dome value the packer already folded down. Neither model is a stand-in
             // for the other, which is why the choice is made from a gate rather than from whichever
             // happens to be non-zero.
-            vec3 ambientRadiance = u_CloudAmbient.rgb;
-            if (u_CloudAmbient.w > 0.5f)
+            vec3 ambientRadiance = CloudAmbient.rgb;
+            if (CloudAmbient.w > 0.5f)
             {
-                ambientRadiance = u_CloudAmbient.rgb *
-                                  texelFetch(u_DistantSkyLight, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
+                ambientRadiance = CloudAmbient.rgb *
+                                  texelFetch(DistantSkyLightTexture, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
             }
 
             vec3  luminance     = vec3(0.0f, 0.0f, 0.0f);
@@ -712,8 +738,8 @@ Shader "CloudRaymarch"
                     // The near-camera fade. A camera inside the layer otherwise meets full density at
                     // arm's length, which fills the screen with a flat wall; UE fades the nearest metres
                     // for exactly this. Both distances at zero leave the density untouched.
-                    if (u_CloudFade.z > 0.0f)
-                        density *= smoothstep(u_CloudFade.w, u_CloudFade.z, t);
+                    if (CloudFadeParams.z > 0.0f)
+                        density *= smoothstep(CloudFadeParams.w, CloudFadeParams.z, t);
 
                     if (density > 0.0f)
                     {
@@ -739,7 +765,7 @@ Shader "CloudRaymarch"
 
                         // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
                         //
-                        // The strength is the SAME field either way — u_CloudPhase.z, the artist's
+                        // The strength is the SAME field either way — CloudPhase.z, the artist's
                         // AmbientOcclusionStrength — and it keeps one meaning, "how strongly the sky light
                         // is occluded". What the layer's flag chooses is which occluder computes it, so
                         // neither path leaves the other's parameters dead.
@@ -754,8 +780,8 @@ Shader "CloudRaymarch"
                         // deliberate — the column integrated from the sample upward already contains the
                         // upper half of the sample's own body, so applying both would count that material
                         // twice and darken a cloud's own core for a reason nobody could find later.
-                        float ambientOcclusion = CloudAmbientOcclusion(field.Profile, u_CloudPhase.z);
-                        if (u_CloudFrame.x > 0.5f)
+                        float ambientOcclusion = CloudAmbientOcclusion(field.Profile, CloudPhase.z);
+                        if (CloudFrame.x > 0.5f)
                         {
                             // The WIND-SHIFTED position, because that is the frame the volume was traced
                             // in — the same subtraction Common/CloudField.glslh makes on its own way into
@@ -773,8 +799,8 @@ Shader "CloudRaymarch"
                             // file gives: a compute shader has no derivatives, so the implicit level of
                             // detail is undefined.
                             ambientOcclusion =
-                                CloudSkyOcclusion(textureLod(u_CloudSkyOcclusionVolume, skyUvw, 0.0f).r,
-                                                  u_CloudPhase.z);
+                                CloudSkyOcclusion(textureLod(CloudSkyOcclusionVolumeTexture, skyUvw, 0.0f).r,
+                                                  CloudPhase.z);
                         }
 
                         // Wrenninge's multiple-scattering octaves, as Unreal implements them — the series
@@ -802,7 +828,7 @@ Shader "CloudRaymarch"
                         // SkyLightCloudBottomOcclusion, by height in the layer (CloudLighting.glslh). Applied
                         // AFTER the medium's own occlusion so a graph that writes the pin still gets the base
                         // darkened, as the authored layer setting promises.
-                        ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, u_CloudAlbedo.w);
+                        ambientOcclusion *= CloudSkyLightBottomVisibility(heightFraction, CloudAlbedo.w);
                         vec3 sampleAlbedo = CloudSampleAlbedo(params, field, fieldPos, albedo);
 
                         luminance += transmittance *
@@ -846,11 +872,11 @@ Shader "CloudRaymarch"
             // One fetch per pixel at the weighted distance above; the composition and the art-direction
             // ramp are Common/CloudAerial.glslh, shared with the panorama bake so the screen and the IBL
             // cannot drift.
-            if (u_CloudAerial.z > 0.5f && aerialWeightSum > 0.0f)
+            if (CloudAerial.z > 0.5f && aerialWeightSum > 0.0f)
             {
                 float meanDistanceKm =
-                     CloudAerialMeanDistanceKm(aerialWeightedT, aerialWeightSum, u_CloudAerial.y);
-                float sliceUnit = SkyApSliceUnitFromDistance(meanDistanceKm, u_CloudAerial.x);
+                     CloudAerialMeanDistanceKm(aerialWeightedT, aerialWeightSum, CloudAerial.y);
+                float sliceUnit = SkyApSliceUnitFromDistance(meanDistanceKm, CloudAerial.x);
 
                 // Read through the exact inverse of the fill's texel-centre remap on all three axes, so
                 // the frame's edges and the volume's near plane land on written texels rather than
@@ -859,14 +885,14 @@ Shader "CloudRaymarch"
                                 SkyUnitToTexelUv(uv.y, SKY_AP_VOLUME_HEIGHT),
                                 SkyUnitToTexelUv(sliceUnit, SKY_AP_VOLUME_DEPTH));
 
-                vec4 aerial = texture(u_CloudAerialPerspective, uvw);
+                vec4 aerial = texture(CloudAerialPerspectiveTexture, uvw);
 
                 luminance = CloudApplyAerialPerspective(
                      luminance, transmittance, aerial.rgb, aerial.a,
-                     CloudAerialAmount(meanDistanceKm, u_CloudFade.x, u_CloudFade.y));
+                     CloudAerialAmount(meanDistanceKm, CloudFadeParams.x, CloudFadeParams.y));
             }
 
-            imageStore(u_CloudScatter, coord, vec4(luminance, clamp(transmittance, 0.0f, 1.0f)));
+            imageStore(CloudScatterTexture, coord, vec4(luminance, clamp(transmittance, 0.0f, 1.0f)));
 
             // A ray that marched the whole segment and found nothing reports THE END OF ITS OWN SEARCH.
             // That is a real distance rather than a magic number, and it is the one that makes the
@@ -875,7 +901,7 @@ Shader "CloudRaymarch"
             // A large sentinel would do the same job here but not at the horizon, where a whole
             // neighbourhood of empty rays must agree with each other exactly enough to stay coherent —
             // and half precision has no room for a sentinel that is both huge and finite.
-            imageStore(u_CloudGuide, coord,
+            imageStore(CloudGuideTexture, coord,
                        vec4(cloudFrontKm < 0.0f ? segment.y : cloudFrontKm, sceneKm, 0.0f, 0.0f));
         }
     }

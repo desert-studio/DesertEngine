@@ -1,0 +1,26 @@
+# VFX-14b drag the VFX section's edges and body in the Sequencer (UE section trimming): the right edge trims the end, the body moves the whole section, each step lands on a display frame, each drag is one undo step
+Дано run Scene "Open Scene Starter.desce"
+Дано run Open "Sequences/VFX14.dseq"
+Дано run Document "VFX14: Add Actor Campfire"
+Дано set Transport.Time 1.0
+Дано run Document "VFX14: Add VFX Track Campfire"
+Дано set VFX.Campfire.SectionEnd 3.0
+Дано set Transport.Time 0.0
+# Window points (2x Retina frame / 2): VFX row y=1181; 0 s at x=677.5, 203.6 points per second (1.0 s = 881, 1.5 s = 983, 2.0 s = 1085, 3.0 s = 1288)
+Когда input move - 1288,1181
+Когда input press - 1288,1181
+Когда input move - 1200,1181
+Когда input move - 1085,1181
+Когда input release - 1085,1181
+Тогда 0_trim the right edge dragged from 3.00 s to 2.00 s: the VFX section bar reads 1.00 - 2.00 s
+Когда input move - 983,1181
+Когда input press - 983,1181
+Когда input move - 1030,1181
+Когда input move - 1085,1181
+Когда input release - 1085,1181
+Тогда 1_move the body dragged +0.5 s: the VFX section bar reads 1.50 - 2.50 s
+Когда set Transport.Time 2.4
+Тогда 2_scrub at 2.4 s the campfire burns (the effect 0.9 s old)
+Когда run Action Undo
+Когда run Action Undo
+Тогда 3_undo two Undos (the move, then the trim): the VFX section bar reads 1.00 - 3.00 s again

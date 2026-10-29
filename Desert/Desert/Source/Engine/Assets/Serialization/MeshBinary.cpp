@@ -367,7 +367,8 @@ namespace Desert::Assets::Serialization
         header.FileSize     = at;
         header.SectionCount = kSectionCount;
         header.Flags        = data.IsSkinned ? kFlagIsSkinned : 0u;
-        header.SkeletonGuid = data.Skeleton;
+        header.SkeletonGuid     = data.Skeleton;
+        header.DisplacementMode = static_cast<uint8_t>( data.Displacement );
         // The box goes into the header so the content scan learns it from 64 bytes, without the body.
         Common::Content::StateMeshBounds( header, MeshDataBounds( data ) );
 
@@ -530,6 +531,21 @@ namespace Desert::Assets::Serialization
         if ( const auto guid = Common::Content::ReadMeshHeaderGuid( bytes ) )
             data.Guid = *guid;
         data.Skeleton = header.SkeletonGuid;
+
+        // THE DISPLACEMENT MODE (v6): a skinned mesh's import setting. Static meshes state theirs in the source's
+        // IMPT, so a static container naming one, a byte past the enum, or Baked on a skinned mesh (its surface
+        // deforms each frame; a bake is one pose) is a writer defect, refused by name.
+        if ( header.DisplacementMode > static_cast<uint8_t>( MeshDisplacementMode::Baked ) ||
+             ( !data.IsSkinned && header.DisplacementMode != 0 ) ||
+             ( data.IsSkinned && !IsDisplacementModeAllowedForSkinned(
+                                       static_cast<MeshDisplacementMode>( header.DisplacementMode ) ) ) )
+        {
+            return Common::MakeFormattedError<MeshAssetData>(
+                 "'{}' states displacement mode {} on a {} mesh; a skinned mesh takes 0 (None) or 1 (Runtime), "
+                 "a static mesh states its mode in its source asset and writes 0.",
+                 who, header.DisplacementMode, data.IsSkinned ? "skinned" : "static" );
+        }
+        data.Displacement = static_cast<MeshDisplacementMode>( header.DisplacementMode );
 
         data.StaticVertices.resize( N( SecStaticVertices ) );
         std::memcpy( data.StaticVertices.data(), At( SecStaticVertices ),

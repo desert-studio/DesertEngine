@@ -148,8 +148,9 @@ namespace Desert::Core::ShadingModels
         for ( auto& line : inputs )
             manifest.Inputs.push_back( std::move( line[0] ) );
 
-        // The optional `SubsurfaceOpacity <pin>;` line. Anything else is the body, which starts where it did.
-        const std::size_t bodyStart = c.Pos;
+        // The optional `SubsurfaceOpacity <pin>;` line, then the optional `SubsurfaceColor <function>;` line.
+        // Anything else is the body, which starts where it did.
+        std::size_t bodyStart = c.Pos;
         if ( c.Word() == "SubsurfaceOpacity" )
         {
             const std::string_view pin = c.Word();
@@ -159,11 +160,40 @@ namespace Desert::Core::ShadingModels
             if ( !c.Punct( ';' ) )
                 return Refuse( sourcePath, "expected ';' after the SubsurfaceOpacity pin" );
             manifest.SubsurfaceOpacityPin = std::string( pin );
+            bodyStart                     = c.Pos;
+        }
+        else
+            c.Pos = bodyStart;
+        if ( c.Word() == "SubsurfaceProfile" )
+        {
+            const std::string_view pin = c.Word();
+            if ( std::ranges::find( manifest.Payload, pin, &PayloadSlot::Pin ) == manifest.Payload.end() )
+                return Refuse( sourcePath,
+                               std::format( "SubsurfaceProfile pin '{}' is not one of the Payload's", pin ) );
+            if ( !c.Punct( ';' ) )
+                return Refuse( sourcePath, "expected ';' after the SubsurfaceProfile pin" );
+            manifest.SubsurfaceProfilePin = std::string( pin );
+            bodyStart                     = c.Pos;
+        }
+        else
+            c.Pos = bodyStart;
+        if ( c.Word() == "SubsurfaceColor" )
+        {
+            const std::string_view function = c.Word();
+            if ( function.empty() )
+                return Refuse( sourcePath, "expected the decoding function's name after SubsurfaceColor" );
+            if ( !c.Punct( ';' ) )
+                return Refuse( sourcePath, "expected ';' after the SubsurfaceColor function" );
+            manifest.SubsurfaceColorFunction = std::string( function );
         }
         else
             c.Pos = bodyStart;
 
         manifest.Body = std::string( text.substr( c.Pos ) );
+        if ( !manifest.SubsurfaceProfilePin.empty() &&
+             manifest.Body.find( "EvaluateAmbientSpecular" ) == std::string::npos )
+            return Refuse( sourcePath, "a SubsurfaceProfile model must define EvaluateAmbientSpecular (the ambient "
+                                       "half of its diffuse/specular split)" );
         return Common::MakeSuccess( std::move( manifest ) );
     }
 } // namespace Desert::Core::ShadingModels

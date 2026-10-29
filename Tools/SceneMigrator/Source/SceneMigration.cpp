@@ -1,10 +1,16 @@
 #include "SceneMigration.hpp"
+#include <Common/Core/AssetHandle.hpp>
+#include <Common/Project/ProjectFormat.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/Serialize/SceneDependencies.hpp>
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 #include <regex>
+#include <cmath>
+#include <optional>
+#include <algorithm>
 #include <array>
 #include <format>
 #include <fstream>
@@ -26,6 +32,7 @@
 
 #include <Engine/Core/SceneSettings.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/Animation/Timeline/Hosts.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 #include <Engine/Assets/SoundAsset.hpp>
@@ -52,12 +59,14 @@
 
 #include <Common/Content/MeshBinaryHeader.hpp>
 #include <Common/Content/CanonicalText.hpp>
+#include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/ByteText.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Core/Units.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <glm/trigonometric.hpp>
 
@@ -69,6 +78,7 @@
 #include <rflcpp/rfl/json.hpp>
 
 #include <algorithm>
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cctype>
@@ -77,19 +87,36 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Migration
 {
     namespace
     {
+        // A scene refused over a list, in one line: "'<scene>': [<count> <what>: ]<items, '; '-separated>.
+        // Nothing was written." From one template (text built from a list is a template, owner 10-16). A
+        // template that fails is logged at ERROR and its error becomes the refusal: the scene is still refused.
+        std::string RefusedOver( const std::string& scene, std::string_view what,
+                                 const std::vector<std::string>& items )
+        {
+            static const Core::TextTemplate kRefusal(
+                 "SceneRefusal", "'{{ scene }}': {% if what %}{{ items | length }} {{ what }}: {% endif %}"
+                                 "{{ items | join(\"; \") }}. Nothing was written." );
+            Common::Json::Value::Array list;
+            list.reserve( items.size() );
+            for ( const std::string& item : items )
+                list.emplace_back( item );
+            Common::Json::ObjectBuilder model;
+            model.Set( "scene", scene ).Set( "items", Common::Json::Value( std::move( list ) ) );
+            if ( !what.empty() )
+                model.Set( "what", what );
+            return kRefusal.RenderOrLog( Common::Json::Value( model.Build() ) );
+        }
+
         // A step that refused entities refuses the whole scene: one line naming the scene and every refusal.
         std::string RefusedWhole( const std::string& scene, const std::vector<std::string>& refusals )
         {
-            std::string text = std::format( "'{}': ", scene );
-            for ( size_t i = 0; i < refusals.size(); ++i )
-                std::format_to( std::back_inserter( text ), "{}{}", i == 0 ? "" : "; ", refusals[i] );
-            text += ". Nothing was written.";
-            return text;
+            return RefusedOver( scene, {}, refusals );
         }
 
         // The offending value, spelled out. A warning that says "wrong type" without saying WHAT was in
@@ -105,7 +132,7 @@ namespace Desert::Migration
             if ( const auto s = g.to_string(); s.has_value() )
                 return "\"" + s.value() + "\"";
             if ( const auto a = g.to_array(); a.has_value() )
-                return "an array of " + std::to_string( a.value().size() ) + " element(s)";
+                return std::format( "an array of {} element(s)", a.value().size() );
             if ( g.to_object().has_value() )
                 return "an object";
             return "null";
@@ -252,9 +279,8 @@ namespace Desert::Migration
                 continue;
             auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                RaisePathOnlyMeshGuids( overrides[i].Components,
-                                        tag + " > PrefabOverrides[" + std::to_string( i ) + "]", assetsRoot,
-                                        report );
+                RaisePathOnlyMeshGuids( overrides[i].Components, std::format( "{} > PrefabOverrides[{}]", tag, i ),
+                                        assetsRoot, report );
         }
         return report;
     }
@@ -369,7 +395,7 @@ namespace Desert::Migration
         for ( std::size_t i = 0; i < entities.size(); ++i )
         {
             auto&             entity = entities[i];
-            const std::string who    = "entity #" + std::to_string( i ) + " '" + entity.Tag.value_or( "" ) + "'";
+            const std::string who    = std::format( "entity #{} '{}'", i, entity.Tag.value_or( "" ) );
             settle( entity.Components, who );
             if ( !entity.PrefabOverrides )
                 continue;
@@ -1007,9 +1033,11 @@ namespace Desert::Migration
         using Common::Scalability::ReflectionMethod;
         RenderMethodsReport report;
 
-        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name.
+        // The old GIMode numbers, in their order (0 Off, 1 ScreenSpace, 2 RSM), as the methods they name. The
+        // reflective shadow maps are gone (GI-PROBE-SW): ProbeVolume, which took their number (3) on the ladder,
+        // is what a view that asked for them gets — the off-screen bounce, now of every light and the sky.
         constexpr std::array<GIMethod, 3> kFromGIMode{ GIMethod::Off, GIMethod::ScreenSpace,
-                                                       GIMethod::ReflectiveShadowMaps };
+                                                       GIMethod::ProbeVolume };
 
         const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
         {
@@ -1081,6 +1109,531 @@ namespace Desert::Migration
                 for ( auto& override_ : *entity.PrefabOverrides )
                     restate( override_.Components, who );
         }
+        return report;
+    }
+
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities )
+    {
+        LightUnitsReport report;
+
+        // What the pre-v56 type defaulted to: a block that stated nothing kept these, so they are what it meant.
+        constexpr int   kOldFalloffQuadratic = static_cast<int>( ECS::LightFalloff::Quadratic );
+        constexpr float kOldIntensity        = 1.0f;
+        constexpr float kOldMinLuminance     = 0.02f;
+        constexpr float kOldMaxLuminance     = 8.0f;
+        static_assert( static_cast<int>( ECS::LightUnits::Unitless ) == 0,
+                       "LightUnits moved: the migration states Unitless as 0" );
+
+        const auto number = []( const rfl::Generic& g ) -> std::optional<double>
+        {
+            if ( const auto d = g.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        };
+
+        // A record states every key a pre-v56 build would have defaulted; an override is a delta against its
+        // prefab record (which its own migration raises), so it only gains the units every older light had.
+        const auto lights = [&]( rfl::ExtraFields<rfl::Generic>& components, bool record )
+        {
+            for ( const char* light : { "PointLight", "SpotLight" } )
+                EditBlock( components, light,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               if ( block.get( "IntensityUnits" ).has_value() )
+                                   return false;
+                               block["IntensityUnits"] = rfl::Generic( 0 );
+                               if ( record && !block.get( "Falloff" ).has_value() )
+                                   block["Falloff"] = rfl::Generic( kOldFalloffQuadratic );
+                               if ( record && !block.get( "Intensity" ).has_value() )
+                                   block["Intensity"] = rfl::Generic( static_cast<double>( kOldIntensity ) );
+                               ++report.Lights;
+                               return true;
+                           } );
+        };
+
+        // AutoExposureMin / Max (luminance) -> AutoExposureMin / MaxEV100, the same clamp.
+        const auto exposure =
+             [&]( rfl::ExtraFields<rfl::Generic>& components, bool record, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 Describe( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           bool                 changed  = false;
+                           const auto           restate  = [&]( const char* oldKey, const char* newKey,
+                                                     float oldDefault ) -> bool
+                           {
+                               if ( settings.get( newKey ).has_value() )
+                                   return true;
+                               double luminance = oldDefault;
+                               if ( const auto value = settings.get( oldKey ); value.has_value() )
+                               {
+                                   const auto n = number( value.value() );
+                                   if ( !n.has_value() || !( n.value() > 0.0 ) )
+                                   {
+                                       report.Refused.push_back( std::format(
+                                            "{}: PostProcessVolume.Settings.{} {} is not a positive luminance",
+                                            who, oldKey, Describe( value.value() ) ) );
+                                       return false;
+                                   }
+                                   luminance = n.value();
+                                   DropKey( settings, oldKey );
+                               }
+                               else if ( !record )
+                                   return true; // a delta that does not state it inherits its prefab's
+                               settings[newKey] = rfl::Generic( std::log2( luminance ) + 3.0 );
+                               changed          = true;
+                               return true;
+                           };
+                           if ( !restate( "AutoExposureMin", "AutoExposureMinEV100", kOldMinLuminance ) ||
+                                !restate( "AutoExposureMax", "AutoExposureMaxEV100", kOldMaxLuminance ) )
+                               return false;
+                           if ( !changed )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Volumes;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            lights( entity.Components, true );
+            exposure( entity.Components, true, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                {
+                    lights( override_.Components, false );
+                    exposure( override_.Components, false, who );
+                }
+        }
+        return report;
+    }
+
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities )
+    {
+        constexpr std::array<const char*, 6> kCalendarKeys = { "Longitude", "TimeZone", "DaylightSavingTime",
+                                                               "Year",      "Month",    "Day" };
+        SunCalendarReport                    report;
+        for ( auto& entity : entities )
+            EditBlock( entity.Components, "TimeOfDay",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           for ( const char* key : kCalendarKeys )
+                               if ( block.get( key ).has_value() )
+                                   return false;
+                           block["Longitude"]          = rfl::Generic( 0.0 );
+                           block["TimeZone"]           = rfl::Generic( 0.0 );
+                           block["DaylightSavingTime"] = rfl::Generic( false );
+                           block["Year"]               = rfl::Generic( 2026 );
+                           block["Month"]              = rfl::Generic( 3 );
+                           block["Day"]                = rfl::Generic( 20 );
+                           ++report.Clocks;
+                           return true;
+                       } );
+        return report;
+    }
+
+    GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities )
+    {
+        using Common::Scalability::GIMethod;
+        GIMethodLadderReport report;
+
+        // The v53..v63 ladder, by its numbers (Off 0, Lightmaps 1, ScreenSpace 2, ReflectiveShadowMaps 3,
+        // ProbeVolume 4, SoftwareTraced 5, HardwareTraced 6, PathTraced 7), as today's methods. The reflective
+        // shadow maps are ProbeVolume: the off-screen bounce that replaced them (GI-PROBE-SW).
+        constexpr std::array<GIMethod, 8> kFromOldLadder{
+             GIMethod::Off,         GIMethod::Lightmaps,      GIMethod::ScreenSpace,    GIMethod::ProbeVolume,
+             GIMethod::ProbeVolume, GIMethod::SoftwareTraced, GIMethod::HardwareTraced, GIMethod::PathTraced };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           const auto           gi       = settings.get( "GlobalIlluminationMethod" );
+                           if ( !gi.has_value() )
+                               return false;
+                           const auto old = gi.value().to_int();
+                           if ( !old.has_value() || old.value() < 0 ||
+                                old.value() >= static_cast<int>( kFromOldLadder.size() ) )
+                           {
+                               report.Refused.push_back( std::format(
+                                    "{}: PostProcessVolume.Settings.GlobalIlluminationMethod {} is not on the "
+                                    "v63 ladder (0 Off .. 7 PathTraced)",
+                                    who, rfl::json::write( gi.value() ) ) );
+                               return false;
+                           }
+                           const int now =
+                                static_cast<int>( kFromOldLadder[static_cast<std::size_t>( old.value() )] );
+                           if ( now == old.value() )
+                               return false;
+                           DropKey( settings, "GlobalIlluminationMethod" );
+                           settings["GlobalIlluminationMethod"] = rfl::Generic( now );
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Restated;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities )
+    {
+        DisplayTransferReport report;
+
+        const auto drop = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "PostProcessVolume",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto stated = block.get( "Settings" );
+                           if ( !stated.has_value() )
+                               return false;
+                           auto fields = stated.value().to_object();
+                           if ( !fields.has_value() )
+                           {
+                               report.Refused.push_back(
+                                    std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                                 rfl::json::write( stated.value() ) ) );
+                               return false;
+                           }
+                           rfl::Generic::Object settings = std::move( fields.value() );
+                           if ( !DropKey( settings, "Gamma" ) )
+                               return false;
+                           DropKey( block, "Settings" );
+                           block["Settings"] = rfl::Generic( std::move( settings ) );
+                           ++report.Dropped;
+                           return true;
+                       } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            drop( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    drop( override_.Components, who );
+        }
+        return report;
+    }
+
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities )
+    {
+        // The old engine's gate (Rules::kSunDirectionEpsilon before light v1): below it a Translation was no
+        // direction and the light emitted nothing.
+        constexpr float kOldDirectionEpsilon = 1e-4f;
+
+        std::unordered_map<Common::UUID, const Assets::EntityData*> byId;
+        for ( const auto& entity : entities )
+            if ( entity.id.has_value() )
+                byId.emplace( *entity.id, &entity );
+
+        // The world rotation of a record as the file states it: its own Rotation under its parents'. Bounded
+        // by the record count, so a parent cycle in a damaged file ends instead of spinning.
+        const auto worldRotation = [&]( std::optional<Common::UUID> id )
+        {
+            glm::quat world = glm::quat( 1.0f, glm::vec3( 0.0f ) );
+            for ( std::size_t depth = 0; id.has_value() && depth <= entities.size(); ++depth )
+            {
+                const auto found = byId.find( *id );
+                if ( found == byId.end() )
+                    break;
+                world = glm::quat( found->second->Rotation.value_or( glm::vec3( 0.0f ) ) ) * world;
+                id    = found->second->parent;
+            }
+            return world;
+        };
+
+        const auto isLight = []( Common::Json::KeyedValues& components )
+        { return components.get( "DirectionLight" ).has_value(); };
+
+        SunRotationReport report;
+        for ( auto& entity : entities )
+        {
+            if ( isLight( entity.Components ) )
+            {
+                const glm::vec3 travel = entity.Translation.value_or( glm::vec3( 0.0f ) );
+                if ( glm::length( travel ) > kOldDirectionEpsilon )
+                {
+                    const glm::quat parent = worldRotation( entity.parent );
+                    entity.Rotation =
+                         glm::eulerAngles( glm::inverse( parent ) * ECS::Rules::RotationForTravel( travel ) );
+                    entity.Translation = glm::vec3( 0.0f );
+                    ++report.Aimed;
+                }
+                else
+                {
+                    ++report.Undirected;
+                }
+            }
+
+            if ( !entity.PrefabOverrides )
+                continue;
+            for ( auto& override_ : *entity.PrefabOverrides )
+            {
+                if ( !isLight( override_.Components ) || !override_.Translation.has_value() ||
+                     glm::length( *override_.Translation ) <= kOldDirectionEpsilon )
+                    continue;
+                override_.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( *override_.Translation ) );
+                override_.Translation = glm::vec3( 0.0f );
+                ++report.Overrides;
+            }
+        }
+        return report;
+    }
+
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities )
+    {
+        SkySunFromLightReport report;
+
+        // What the v56 types defaulted to: a record states every key, so these only answer for a key it lacks.
+        const ECS::SkyAtmosphereData    kOldSky;
+        const ECS::DirectionalLightData kOldLight;
+        constexpr double                kOldExposure = 1.0;
+        constexpr double                kOldKey      = 0.18;
+        static_assert( static_cast<int>( ECS::SkyModel::PhysicalAtmosphere ) == 1,
+                       "SkyModel moved: the migration reads PhysicalAtmosphere as 1" );
+
+        const auto number = []( const rfl::Generic& g ) -> std::optional<double>
+        {
+            if ( const auto d = g.to_double(); d.has_value() )
+                return d.value();
+            if ( const auto i = g.to_int64(); i.has_value() )
+                return static_cast<double>( i.value() );
+            return std::nullopt;
+        };
+        // A stated vec3 (a three-number array), or @p fallback when the key is not stated; nullopt when it is
+        // stated in another shape.
+        const auto vec3 = [&]( const rfl::Generic::Object& block, const char* key,
+                               const glm::vec3& fallback ) -> std::optional<glm::dvec3>
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return glm::dvec3( fallback );
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() || array.value().size() != 3 )
+                return std::nullopt;
+            glm::dvec3 v;
+            for ( int i = 0; i < 3; ++i )
+            {
+                const auto n = number( array.value()[static_cast<std::size_t>( i )] );
+                if ( !n.has_value() )
+                    return std::nullopt;
+                v[i] = n.value();
+            }
+            return v;
+        };
+        const auto scalar = [&]( const rfl::Generic::Object& block, const char* key,
+                                 double fallback ) -> std::optional<double>
+        {
+            const auto stated = block.get( key );
+            return stated.has_value() ? number( stated.value() ) : std::optional<double>( fallback );
+        };
+        const auto flag = []( const rfl::Generic::Object& block, const char* key, bool fallback )
+        {
+            const auto stated = block.get( key );
+            return stated.has_value() ? stated.value().to_bool().value_or( fallback ) : fallback;
+        };
+        const auto put3 = []( rfl::Generic::Object& block, const char* key, const glm::dvec3& v )
+        {
+            DropKey( block, key );
+            block[key] = rfl::Generic(
+                 rfl::Generic::Array{ rfl::Generic( v.x ), rfl::Generic( v.y ), rfl::Generic( v.z ) } );
+        };
+        const auto object = []( rfl::ExtraFields<rfl::Generic>& components,
+                                const char*                     component ) -> std::optional<rfl::Generic::Object>
+        {
+            const auto payload = components.get( component );
+            if ( !payload.has_value() )
+                return std::nullopt;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() )
+                return std::nullopt;
+            return std::move( fields.value() );
+        };
+
+        // ---- Manual exposure: multiplier -> EV100 at the volume's key. ----
+        const auto exposure =
+             [&]( rfl::ExtraFields<rfl::Generic>& components, bool record, const std::string& who )
+        {
+            EditBlock(
+                 components, "PostProcessVolume",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "Settings" );
+                     if ( !stated.has_value() )
+                         return false;
+                     auto fields = stated.value().to_object();
+                     if ( !fields.has_value() )
+                     {
+                         report.Refused.push_back(
+                              std::format( "{}: PostProcessVolume.Settings {} is not an object", who,
+                                           Describe( stated.value() ) ) );
+                         return false;
+                     }
+                     rfl::Generic::Object settings = std::move( fields.value() );
+                     if ( settings.get( "ManualExposureEV100" ).has_value() )
+                         return false;
+                     const bool statesExposure = settings.get( "Exposure" ).has_value();
+                     if ( !record && !statesExposure )
+                         return false; // a delta that does not state it inherits its prefab's
+                     const auto m   = scalar( settings, "Exposure", kOldExposure );
+                     const auto key = scalar( settings, "AutoExposureKey", kOldKey );
+                     if ( !m.has_value() || !( m.value() > 0.0 ) || !key.has_value() || !( key.value() > 0.0 ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: PostProcessVolume.Settings Exposure / AutoExposureKey is not a positive "
+                              "number",
+                              who ) );
+                         return false;
+                     }
+                     DropKey( settings, "Exposure" );
+                     settings["ManualExposureEV100"] = rfl::Generic( std::log2( key.value() / m.value() ) + 3.0 );
+                     DropKey( block, "Settings" );
+                     block["Settings"] = rfl::Generic( std::move( settings ) );
+                     ++report.Volumes;
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            exposure( entity.Components, true, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    exposure( override_.Components, false, who );
+        }
+
+        // ---- The physical sky's sun: fold the sky's own sun into UE's factors against the atmosphere light. ----
+        Assets::EntityData* skyEntity = nullptr;
+        for ( auto& entity : entities )
+        {
+            const auto sky = object( entity.Components, "SkyAtmosphere" );
+            if ( !sky.has_value() )
+                continue;
+            const auto model =
+                 scalar( sky.value(), "Model", static_cast<double>( static_cast<int>( kOldSky.Model ) ) );
+            if ( model.has_value() && static_cast<int>( model.value() ) == 1 &&
+                 flag( sky.value(), "Enabled", kOldSky.Enabled ) )
+            {
+                if ( skyEntity != nullptr )
+                {
+                    report.Refused.push_back( "two enabled Physical Atmosphere skies: the engine draws one" );
+                    return report;
+                }
+                skyEntity = &entity;
+            }
+        }
+        if ( skyEntity == nullptr )
+            return report;
+
+        Assets::EntityData* lightEntity = nullptr;
+        for ( auto& entity : entities )
+        {
+            const auto light = object( entity.Components, "DirectionLight" );
+            if ( light.has_value() && flag( light.value(), "AtmosphereSunLight", kOldLight.AtmosphereSunLight ) )
+            {
+                lightEntity = &entity; // the engine renders exactly one directional light
+                break;
+            }
+        }
+
+        rfl::Generic::Object sky          = object( skyEntity->Components, "SkyAtmosphere" ).value();
+        const auto           sunColor     = vec3( sky, "SunColor", kOldSky.SunColor );
+        const auto           sunIntensity = scalar( sky, "SunIntensity", kOldSky.SunIntensity );
+        const auto           apFactor =
+             vec3( sky, "SkyAndAerialPerspectiveLuminanceFactor", kOldSky.SkyAndAerialPerspectiveLuminanceFactor );
+        if ( !sunColor.has_value() || !sunIntensity.has_value() || !apFactor.has_value() )
+        {
+            report.Refused.push_back(
+                 "SkyAtmosphere SunColor / SunIntensity / SkyAndAerialPerspectiveLuminanceFactor "
+                 "is not the v56 shape" );
+            return report;
+        }
+        const glm::dvec3 skySun = sunColor.value() * sunIntensity.value();
+        if ( lightEntity == nullptr )
+        {
+            if ( glm::all( glm::equal( skySun, glm::dvec3( 0.0 ) ) ) )
+                return report;
+            report.Refused.push_back( "a Physical Atmosphere sky with no atmosphere sun light: from v57 the sky "
+                                      "scatters the light's illuminance, and there is none to keep this picture" );
+            return report;
+        }
+        rfl::Generic::Object light      = object( lightEntity->Components, "DirectionLight" ).value();
+        const auto           lightColor = vec3( light, "Color", kOldLight.Color );
+        const auto           lightLux   = scalar( light, "Intensity", kOldLight.Intensity );
+        const auto           diskScale  = vec3( light, "AtmosphereSunDiskColorScale", glm::vec3( 1.0f ) );
+        if ( !lightColor.has_value() || !lightLux.has_value() || !diskScale.has_value() )
+        {
+            report.Refused.push_back( "DirectionLight Color / Intensity is not the v56 shape" );
+            return report;
+        }
+        const glm::dvec3 lightSun = lightColor.value() * lightLux.value();
+        glm::dvec3       ratio( 1.0 );
+        for ( int i = 0; i < 3; ++i )
+        {
+            if ( lightSun[i] > 0.0 )
+                ratio[i] = skySun[i] / lightSun[i];
+            else if ( skySun[i] > 0.0 )
+            {
+                report.Refused.push_back( std::format(
+                     "the atmosphere sun light's illuminance is 0 in channel {} under a sky sun of {}: no factor "
+                     "keeps that picture",
+                     i, skySun[i] ) );
+                return report;
+            }
+        }
+        if ( glm::all( glm::lessThan( glm::abs( ratio - glm::dvec3( 1.0 ) ), glm::dvec3( 1e-6 ) ) ) )
+            return report; // the sky's sun already was the light's
+        put3( sky, "SkyAndAerialPerspectiveLuminanceFactor", apFactor.value() * ratio );
+        skyEntity->Components["SkyAtmosphere"] = rfl::Generic( std::move( sky ) );
+        put3( light, "AtmosphereSunDiskColorScale", diskScale.value() * ratio );
+        lightEntity->Components["DirectionLight"] = rfl::Generic( std::move( light ) );
+        ++report.Skies;
         return report;
     }
 
@@ -1417,6 +1970,24 @@ namespace Desert::Migration
         return report;
     }
 
+    std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities )
+    {
+        std::size_t stated = 0;
+        for ( auto& entity : entities )
+        {
+            const auto payload = entity.Components.get( "DirectionLight" );
+            if ( !payload.has_value() )
+                continue;
+            auto fields = payload.value().to_object();
+            if ( !fields.has_value() || fields.value().get( "SourceAngle" ).has_value() )
+                continue;
+            fields.value()["SourceAngle"]       = rfl::Generic( static_cast<double>( kSourceAngleDefault ) );
+            entity.Components["DirectionLight"] = rfl::Generic( std::move( fields.value() ) );
+            ++stated;
+        }
+        return stated;
+    }
+
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities )
     {
         std::size_t restated = 0;
@@ -1501,9 +2072,9 @@ namespace Desert::Migration
                 if ( !layer.has_value() || layer.value().get( "Guid" ).has_value() )
                     continue;
                 const auto name = layer.value().get( "Name" );
-                inline_layers.push_back( tag + " > Landscape.Layers[" + std::to_string( i ) + "] = '" +
-                                         ( name.has_value() ? name.value().to_string().value_or( "?" ) : "?" ) +
-                                         "'" );
+                inline_layers.push_back( std::format( "{} > Landscape.Layers[{}] = '{}'", tag, i,
+                                                      name.has_value() ? name.value().to_string().value_or( "?" )
+                                                                       : std::string( "?" ) ) );
             }
         };
         for ( const auto& entity : entities )
@@ -1514,7 +2085,7 @@ namespace Desert::Migration
                 continue;
             const auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                scan( overrides[i].Components, tag + " > PrefabOverrides[" + std::to_string( i ) + "]" );
+                scan( overrides[i].Components, std::format( "{} > PrefabOverrides[{}]", tag, i ) );
         }
         return inline_layers;
     }
@@ -1631,12 +2202,11 @@ namespace Desert::Migration
 
                 std::string relative;
                 // One file per distinct set of numbers and mesh within this scene.
-                std::string dataKey = std::to_string( data.Density ) + "|" + std::to_string( scaleMin ) + "|" +
-                                      std::to_string( scaleMax ) + "|" + std::to_string( zMin ) + "|" +
-                                      std::to_string( zMax ) + "|" + std::to_string( data.RandomPitchAngle ) +
-                                      "|" + std::to_string( slopeMin ) + "|" + std::to_string( slopeMax ) + "|" +
-                                      ( data.AlignToNormal ? "1" : "0" ) + ( data.RandomYaw ? "1" : "0" ) + "|" +
-                                      data.Mesh.Guid;
+                // `{:f}` is std::to_string's fixed six decimals: the key is unchanged from the one it replaced.
+                std::string dataKey =
+                     std::format( "{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{:f}|{}{}|{}", data.Density, scaleMin,
+                                  scaleMax, zMin, zMax, data.RandomPitchAngle, slopeMin, slopeMax,
+                                  data.AlignToNormal ? "1" : "0", data.RandomYaw ? "1" : "0", data.Mesh.Guid );
                 if ( const auto it = Minted.find( dataKey ); it != Minted.end() )
                     relative = it->second;
                 else
@@ -1711,6 +2281,48 @@ namespace Desert::Migration
         }
 
         // One channel per component, Linear keys at the given times.
+        // THE ENGINE MODULE LIBRARY AS VFXS 3 FOUND IT (VFX-MODULE-ASSET): every `engine:<Name>` a VFXS 1 stack row
+        // or the v51 scene step could name, with the GUID its `.dfxmod` states (Editor/Resources/Engine/VFX/
+        // Modules). Frozen, as a step is: the files may move or be renamed later, and a reference written by this
+        // step follows them through the GUID.
+        struct EngineVFXModuleV3
+        {
+            std::string_view Name;
+            std::string_view Guid;
+        };
+        constexpr std::array kEngineVFXModulesV3{
+             EngineVFXModuleV3{ "AddVelocityInCone", "37ef32a37dfc4501bb57e95fc9919372" },
+             EngineVFXModuleV3{ "ColorOverLife", "9488cdf80a5f4f4fba16c02d431bc8e0" },
+             EngineVFXModuleV3{ "CurlNoiseForce", "13cdf49c6bf0428790436694facfc331" },
+             EngineVFXModuleV3{ "Drag", "a0f042db0b6248cab1bcf38605abbf78" },
+             EngineVFXModuleV3{ "Gravity", "bd19bb728e4646919475240f1a19369d" },
+             EngineVFXModuleV3{ "InitializeColor", "dff69e4e958a45f5a4fd4f19ba7de22c" },
+             EngineVFXModuleV3{ "InitializeLifetime", "2d5323b9c4d349f8b91c4fc795599f4f" },
+             EngineVFXModuleV3{ "InitializeRotation", "e64f581d72684d28ab4dc2f70e9c807a" },
+             EngineVFXModuleV3{ "InitializeSpriteSize", "55923c5734e04fc78e068ad051c4772c" },
+             EngineVFXModuleV3{ "ShapeBox", "022360554da04ff3b498ee101948b24a" },
+             EngineVFXModuleV3{ "ShapeCone", "faf8cbc20f5b43a4b3d6ecd7d35047d5" },
+             EngineVFXModuleV3{ "ShapePoint", "8079c58d9d214db694607abaf9c1a4b2" },
+             EngineVFXModuleV3{ "ShapeSphere", "3435fcff54c84b3499fa6ed992a4bfd3" },
+             EngineVFXModuleV3{ "SizeOverLife", "240adf0c6a0f407489419764780491eb" },
+             EngineVFXModuleV3{ "SolveForcesAndVelocity", "d1378c9a2062498ab14e47e7ef29cccb" },
+             EngineVFXModuleV3{ "SpawnBurst", "02637a2ef2774901a0a88452af542abd" },
+             EngineVFXModuleV3{ "SpawnFromChannel", "c3e1a7d94b2f4e6a8d05f1b97a6e2c48" },
+             EngineVFXModuleV3{ "SpawnRate", "10e483e233d547108e31d1855328a54b" },
+             EngineVFXModuleV3{ "SubUVAnimation", "7abfca5b622c4e59b6862841e67c01c8" },
+             EngineVFXModuleV3{ "UpdateAge", "0caef28c515f4a4e93363f1616ed3ca3" },
+             EngineVFXModuleV3{ "UpdateRotation", "94456c88cf0e495e9396474e052d53bd" },
+        };
+
+        std::optional<Assets::AssetGuidRef> EngineVFXModuleRefV3( std::string_view name )
+        {
+            for ( const EngineVFXModuleV3& row : kEngineVFXModulesV3 )
+                if ( row.Name == name )
+                    return Assets::AssetGuidRef{ std::string( row.Guid ),
+                                                 std::format( "engine:Engine/VFX/Modules/{}.dfxmod", row.Name ) };
+            return std::nullopt;
+        }
+
         S::VFXModuleInput CurveInput( const char* name, S::VFXValueType type,
                                       const std::vector<std::vector<S::VFXCurveKey>>& channels )
         {
@@ -1731,10 +2343,11 @@ namespace Desert::Migration
             return key;
         }
 
+        // Every name the v51 step uses is a row of kEngineVFXModulesV3 (the step's own constant list).
         S::VFXModuleUse Use( const char* module, std::vector<S::VFXModuleInput> inputs )
         {
             S::VFXModuleUse use;
-            use.Module = std::string( S::kVFXEnginePrefix ) + module;
+            use.Module = EngineVFXModuleRefV3( module ).value();
             use.Inputs = std::move( inputs );
             return use;
         }
@@ -1842,7 +2455,7 @@ namespace Desert::Migration
         // its longest life at the top speed under gravity, plus the larger sprite.
         const float reach = std::abs( speedMax ) * lifeMax + 0.5f * glm::length( d.Gravity ) * lifeMax * lifeMax +
                             std::max( std::abs( d.StartSize ), std::abs( d.EndSize ) );
-        system.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
+        emitter.Bounds = S::VFXBounds{ glm::vec3( -reach ), glm::vec3( reach ) };
         system.Emitters.push_back( std::move( emitter ) );
         return system;
     }
@@ -2630,6 +3243,32 @@ namespace Desert::Migration
         return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
     }
 
+    Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( const std::string_view path, const std::string_view bytes )
+    {
+        namespace C = Common::Content;
+        if ( bytes.size() < sizeof( C::MeshBinaryFileHeader ) ||
+             std::memcmp( bytes.data(), C::kMeshBinaryMagic, 8 ) != 0 )
+            return Common::MakeFormattedError<std::string>( "'{}' is not a cooked mesh", path );
+        C::MeshBinaryFileHeader header{};
+        std::memcpy( &header, bytes.data(), sizeof( header ) );
+        if ( header.Version != 5u )
+            return Common::MakeFormattedError<std::string>( "'{}' is mesh version {}; this step raises 5", path,
+                                                            header.Version );
+        if ( header.DisplacementMode != 0 )
+            return Common::MakeFormattedError<std::string>(
+                 "'{}' is mesh version 5 with byte 72 = {}; v5 wrote zero there, so the file is not a v5 mesh",
+                 path, header.DisplacementMode );
+        static_assert( C::kMeshBinaryVersion == 6u, "a later MeshBinary version adds its own raise after this one" );
+        header.Version = C::kMeshBinaryVersion;
+        std::string raised( bytes );
+        std::memcpy( raised.data(), &header, sizeof( header ) );
+        auto decoded = Assets::Serialization::DecodeMeshBinary( raised, path );
+        if ( !decoded )
+            return Common::MakeFormattedError<std::string>( "'{}': the raised v{} does not read: {}", path,
+                                                            C::kMeshBinaryVersion, decoded.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::EncodeMeshBinary( decoded.GetValue() ) );
+    }
+
     Common::ResultStr<std::string>
     MigrateMeshSourceToV3( const std::string_view path, const std::string_view bytes,
                            const std::span<const Animation::SkeletonCandidate> skeletons )
@@ -3067,41 +3706,179 @@ namespace Desert::Migration
         return Common::MakeSuccess( std::move( written ) );
     }
 
-    float MigratePatchStrengthV4ToV5( float strength )
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3()
     {
-        const float s = std::clamp( strength, 0.0f, 1.0f );
-        // At s <= 1/2 the v4 ramp never reached zero: no sky was clear, which is v5's zero.
-        return s <= 0.5f ? 0.0f : 1.0f - 1.0f / ( 2.0f * s );
+        Assets::Serialization::VFXEffectTypeData type;
+        for ( const float cm : { 5000.0f, 10000.0f, 20000.0f, 50000.0f, 0.0f } )
+            type.Levels.push_back( Assets::Serialization::VFXEffectTypeLevel{ cm, 1.0f } );
+        return type;
     }
 
-    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text )
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text )
+    {
+        // VFXT 2 IS VFXT 1 PLUS KEYS WITH DEFAULTS, so the v1 body reads as v2 once they are in: every level object
+        // gets the four level keys after its SpawnCountScale value, the type its two keys before `Levels`.
+        namespace S = Assets::Serialization;
+        std::string patched;
+        patched.reserve( text.size() + 1024u );
+        const std::string key = "\"SpawnCountScale\"";
+        std::size_t       from = 0;
+        for ( std::size_t at = text.find( key ); at != std::string::npos; at = text.find( key, from ) )
+        {
+            const std::size_t end = text.find_first_of( ",}\n", text.find( ':', at ) + 1u );
+            if ( end == std::string::npos )
+                return Common::MakeFormattedError<std::string>( "VFXT 1 level SpawnCountScale has no value end" );
+            patched += text.substr( from, end - from );
+            patched += ", \"MaxInstances\": 0, \"MaxSystemInstances\": 0, \"CullByViewFrustum\": false, "
+                       "\"MaxTimeWithoutRender\": 0.0";
+            from = end;
+        }
+        patched += text.substr( from );
+        const std::size_t levels = patched.find( "\"Levels\"" );
+        if ( levels == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body has no Levels" );
+        patched.insert( levels, "\"CullReaction\": \"DeactivateResume\", \"Significance\": \"Distance\", " );
+
+        const auto v1 = Common::Json::Read<S::VFXEffectTypeData>( patched );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "VFXT 1 body does not read: {}", v1.GetError() );
+        const S::VFXEffectTypeData& data = v1.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises VFXT 1 only" );
+        const auto stated = data.Header->Versions.find( "VFXT" );
+        if ( stated == data.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>( "the file does not state VFXT 1, and this step raises VFXT 1 only" );
+        std::string written = S::WriteVFXEffectType( data );
+        if ( auto reread = S::ParseVFXEffectType( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXT 2: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    namespace
+    {
+        // The DSL texture properties MATL 5 stored under their GLSL spelling, and the parameter name MATL 6
+        // stores (SHADER-NAMING: the shader identifier is no longer the asset's key). The shipped schemas'
+        // whole list (Terrain.shader's eight landscape layers included): a `u_` name outside it is refused by
+        // name, not guessed.
+        constexpr std::array<std::pair<std::string_view, std::string_view>, 41> kMaterialTextureRenamesV6{ {
+             { "u_AlbedoTexture", "AlbedoTexture" },
+             { "u_CubeMap", "CubeMapTexture" },
+             { "u_EmissiveTexture", "EmissiveTexture" },
+             { "u_Heightmap", "HeightmapTexture" },
+             { "u_Layer0ARM", "Layer0ArmTexture" },
+             { "u_Layer0Albedo", "Layer0AlbedoTexture" },
+             { "u_Layer0Height", "Layer0HeightTexture" },
+             { "u_Layer0Normal", "Layer0NormalTexture" },
+             { "u_Layer1ARM", "Layer1ArmTexture" },
+             { "u_Layer1Albedo", "Layer1AlbedoTexture" },
+             { "u_Layer1Height", "Layer1HeightTexture" },
+             { "u_Layer1Normal", "Layer1NormalTexture" },
+             { "u_Layer2ARM", "Layer2ArmTexture" },
+             { "u_Layer2Albedo", "Layer2AlbedoTexture" },
+             { "u_Layer2Height", "Layer2HeightTexture" },
+             { "u_Layer2Normal", "Layer2NormalTexture" },
+             { "u_Layer3ARM", "Layer3ArmTexture" },
+             { "u_Layer3Albedo", "Layer3AlbedoTexture" },
+             { "u_Layer3Height", "Layer3HeightTexture" },
+             { "u_Layer3Normal", "Layer3NormalTexture" },
+             { "u_Layer4ARM", "Layer4ArmTexture" },
+             { "u_Layer4Albedo", "Layer4AlbedoTexture" },
+             { "u_Layer4Height", "Layer4HeightTexture" },
+             { "u_Layer4Normal", "Layer4NormalTexture" },
+             { "u_Layer5ARM", "Layer5ArmTexture" },
+             { "u_Layer5Albedo", "Layer5AlbedoTexture" },
+             { "u_Layer5Height", "Layer5HeightTexture" },
+             { "u_Layer5Normal", "Layer5NormalTexture" },
+             { "u_Layer6ARM", "Layer6ArmTexture" },
+             { "u_Layer6Albedo", "Layer6AlbedoTexture" },
+             { "u_Layer6Height", "Layer6HeightTexture" },
+             { "u_Layer6Normal", "Layer6NormalTexture" },
+             { "u_Layer7ARM", "Layer7ArmTexture" },
+             { "u_Layer7Albedo", "Layer7AlbedoTexture" },
+             { "u_Layer7Height", "Layer7HeightTexture" },
+             { "u_Layer7Normal", "Layer7NormalTexture" },
+             { "u_NormalTexture", "NormalTexture" },
+             { "u_ORMTexture", "OrmTexture" },
+             { "u_OpacityTexture", "OpacityTexture" },
+             { "u_SDFAtlas", "SdfAtlasTexture" },
+             { "u_Weightmap", "WeightmapTexture" },
+        } };
+        // UI2D's texture: the one `u_Texture` property a shipped schema declared.
+        constexpr std::string_view kUi2DShaderSuffix = "UI/UI2D.shader";
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text )
     {
         const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
         if ( !parsed )
-            return Common::MakeFormattedError<std::string>( "MATL 4 body does not read: {}", parsed.GetError() );
+            return Common::MakeFormattedError<std::string>( "MATL 5 body does not read: {}", parsed.GetError() );
         Assets::MaterialData data = parsed.GetValue();
         if ( !data.Header )
             return Common::MakeFormattedError<std::string>(
-                 "the file states no header, and this step raises MATL 4 only" );
+                 "the file states no header, and this step raises MATL 5 only" );
         const auto stated = data.Header->Versions.find( "MATL" );
-        if ( stated == data.Header->Versions.end() || stated->second != 4u )
+        if ( stated == data.Header->Versions.end() || stated->second != 5u )
             return Common::MakeFormattedError<std::string>(
-                 "the header states MATL {}, and this step raises MATL 4 only",
+                 "the header states MATL {}, and this step raises MATL 5 only",
                  stated == data.Header->Versions.end() ? std::string( "nothing" )
                                                        : std::to_string( stated->second ) );
 
-        // BY NAME, NOT BY SHADER: an instance of the cloud material states no Shader of its own and may still
-        // override PatchStrength, and no other schema has a parameter of that name.
-        for ( Assets::MaterialShaderParam& param : data.Params )
-            if ( param.Name == "PatchStrength" )
-                param.Value.x = MigratePatchStrengthV4ToV5( param.Value.x );
+        const bool isUi2D = data.Shader.has_value() && data.Shader->Path.ends_with( kUi2DShaderSuffix );
+        for ( auto& ref : data.Textures )
+        {
+            if ( !ref.Name.starts_with( "u_" ) )
+                continue;
+            const auto row = std::ranges::find( kMaterialTextureRenamesV6, std::string_view( ref.Name ),
+                                                &std::pair<std::string_view, std::string_view>::first );
+            if ( row != kMaterialTextureRenamesV6.end() )
+                ref.Name = std::string( row->second );
+            else if ( ref.Name == "u_Texture" && isUi2D )
+                ref.Name = "ElementTexture";
+            else
+                return Common::MakeFormattedError<std::string>(
+                     "texture '{}' is no shipped schema's MATL 5 texture property; rename it to the parameter "
+                     "its shader declares by hand",
+                     ref.Name );
+        }
+        data.Header->Versions["MATL"] = 6u;
+
+        // Not WriteMaterialJson: that stamps the engine's CURRENT generation (MATL 7) over the 6 set above, and
+        // MigrateMaterialV6ToV7 would refuse the result. The header is written as raised here; the next step
+        // restamps it (and its Dependencies, which a texture rename leaves unchanged).
+        auto written = Common::Content::CanonicalJsonTextOfWriterOutput( Common::Json::Write( data ) );
+        if ( !written )
+            return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
+                                                            written.GetError() );
+        // v6 text, not the engine's current generation: MigrateMaterialV6ToV7 is the chain's next step and rereads.
+        return Common::MakeSuccess( std::string( written.GetValue() ) );
+    }
+
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text )
+    {
+        const auto parsed = Common::Json::Read<Assets::MaterialData>( text );
+        if ( !parsed )
+            return Common::MakeFormattedError<std::string>( "MATL 6 body does not read: {}", parsed.GetError() );
+        Assets::MaterialData data = parsed.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises MATL 6 only" );
+        const auto stated = data.Header->Versions.find( "MATL" );
+        if ( stated == data.Header->Versions.end() || stated->second != 6u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states MATL {}, and this step raises MATL 6 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+        // SSS-PROFILE: the SubsurfaceProfile reference is additive (absent = none); only the tag moves.
+        data.Header->Versions["MATL"] = 7u;
 
         auto written = Assets::WriteMaterialJson( data );
         if ( !written )
             return Common::MakeFormattedError<std::string>( "the raised material does not write: {}",
                                                             written.GetError() );
-        if ( auto reread = Assets::ParseMaterialJson( "MATL 4 -> 5", written.GetValue() ); !reread )
-            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 5: {}",
+        if ( auto reread = Assets::ParseMaterialJson( "MATL 6 -> 7", written.GetValue() ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as MATL 7: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::string( written.GetValue() ) );
     }
@@ -3206,7 +3983,7 @@ namespace Desert::Migration
                 continue;
             auto& overrides = *entity.PrefabOverrides;
             for ( std::size_t i = 0; i < overrides.size(); ++i )
-                writer.Raise( overrides[i].Components, tag + "_Override" + std::to_string( i ) );
+                writer.Raise( overrides[i].Components, std::format( "{}_Override{}", tag, i ) );
         }
         return report;
     }
@@ -3231,13 +4008,9 @@ namespace Desert::Migration
                 report.PathOnlyMeshGuids       = MigratePathOnlyMeshGuidsV31ToV32( entities, assetsRoot );
                 if ( !report.PathOnlyMeshGuids.UnknownNames.empty() )
                 {
-                    std::string names;
-                    for ( const auto& unknown : report.PathOnlyMeshGuids.UnknownNames )
-                        names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused = "'" + name +
-                                     "': " + std::to_string( report.PathOnlyMeshGuids.UnknownNames.size() ) +
-                                     " path-only mesh reference(s) cannot be given a header GUID: " + names +
-                                     ". Nothing was written.";
+                    report.Refused =
+                         RefusedOver( name, "path-only mesh reference(s) cannot be given a header GUID",
+                                      report.PathOnlyMeshGuids.UnknownNames );
                     return;
                 }
             }
@@ -3249,12 +4022,8 @@ namespace Desert::Migration
                 report.FoliageTypes       = MigrateInlineFoliageV32ToV33( entities, name, assetsRoot );
                 if ( !report.FoliageTypes.UnknownNames.empty() )
                 {
-                    std::string names;
-                    for ( const auto& unknown : report.FoliageTypes.UnknownNames )
-                        names += ( names.empty() ? "" : "; " ) + unknown;
-                    report.Refused =
-                         "'" + name + "': " + std::to_string( report.FoliageTypes.UnknownNames.size() ) +
-                         " Foliage block(s) cannot become a foliage type: " + names + ". Nothing was written.";
+                    report.Refused = RefusedOver( name, "Foliage block(s) cannot become a foliage type",
+                                                  report.FoliageTypes.UnknownNames );
                     return;
                 }
             }
@@ -3266,13 +4035,11 @@ namespace Desert::Migration
                 const auto inline_layers        = MigrateLandscapeLayerRefsV33ToV34( entities );
                 if ( !inline_layers.empty() )
                 {
-                    std::string names;
-                    for ( const auto& layer : inline_layers )
-                        names += ( names.empty() ? "" : "; " ) + layer;
-                    report.Refused = "'" + name + "': " + std::to_string( inline_layers.size() ) +
-                                     " inline landscape layer(s) must become .delayerinfo assets first (create "
-                                     "them in the Landscape panel and re-link): " +
-                                     names + ". Nothing was written.";
+                    report.Refused =
+                         RefusedOver( name,
+                                      "inline landscape layer(s) must become .delayerinfo assets first "
+                                      "(create them in the Landscape panel and re-link)",
+                                      inline_layers );
                     return;
                 }
             }
@@ -3415,6 +4182,68 @@ namespace Desert::Migration
                 }
             }
 
+            // The sun states its source angle (RT-SHADOWS).
+            if ( statedSceneVersion < kSceneVersionSourceAngle )
+            {
+                report.SourceAngleRaised  = true;
+                report.SourceAnglesStated = MigrateSourceAngleV54ToV55( entities );
+            }
+
+            // Lights state their units, the exposure range is EV100 (LIGHT-UNITS).
+            if ( statedSceneVersion < kSceneVersionLightUnits )
+            {
+                report.LightUnitsRaised = true;
+                report.LightUnits       = MigrateLightUnitsV55ToV56( entities );
+                if ( !report.LightUnits.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.LightUnits.Refused );
+                    return;
+                }
+            }
+
+            // The physical sky's sun is the light; manual exposure is EV100 (LIGHT-UNITS-2).
+            if ( statedSceneVersion < kSceneVersionSkySunFromLight )
+            {
+                report.SkySunFromLightRaised = true;
+                report.SkySunFromLight       = MigrateSkySunFromLightV56ToV57( entities );
+                if ( !report.SkySunFromLight.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.SkySunFromLight.Refused );
+                    return;
+                }
+            }
+
+            // The clock has a calendar (TOD1).
+            if ( statedSceneVersion < kSceneVersionSunCalendar )
+            {
+                report.SunCalendarRaised = true;
+                report.SunCalendar       = MigrateSunCalendarV57ToV58( entities );
+            }
+
+            // The GI method ladder lost ReflectiveShadowMaps (GI-METHOD-RENUMBER).
+            if ( statedSceneVersion < kSceneVersionGIMethodLadder )
+            {
+                report.GIMethodLadderRaised = true;
+                report.GIMethodLadder       = MigrateGIMethodLadderV63ToV64( entities );
+                if ( !report.GIMethodLadder.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.GIMethodLadder.Refused );
+                    return;
+                }
+            }
+
+            // The display transfer is the sRGB OETF: PostProcessSettings lost Gamma (RENDER-LOOK round 05).
+            if ( statedSceneVersion < kSceneVersionDisplayTransfer )
+            {
+                report.DisplayTransferRaised = true;
+                report.DisplayTransfer       = MigrateDisplayTransferV64ToV65( entities );
+                if ( !report.DisplayTransfer.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( name, report.DisplayTransfer.Refused );
+                    return;
+                }
+            }
+
             // TMLN v1 -> v2 (ANIM-FMT): after the v40 lift (which writes v2 itself); keyed on each block's number.
             report.UIAnimationTimelines       = MigrateUIAnimationTimelinesV1ToV2( entities );
             report.UIAnimationTimelinesRaised = report.UIAnimationTimelines.Clips != 0;
@@ -3436,9 +4265,9 @@ namespace Desert::Migration
         std::string RefuseGeneration( const char* what, int statedSceneVersion, int statedUnitVersion,
                                       const char* why )
         {
-            return std::string( "states " ) + what + " schema v" + std::to_string( statedSceneVersion ) +
-                   " / world units v" + std::to_string( statedUnitVersion ) + ", and this tool raises files to v" +
-                   std::to_string( kSceneVersion ) + "/v" + std::to_string( kUnitVersion ) + ". " + why;
+            return std::format(
+                 "states {} schema v{} / world units v{}, and this tool raises files to v{}/v{}. {}", what,
+                 statedSceneVersion, statedUnitVersion, kSceneVersion, kUnitVersion, why );
         }
     } // namespace
 
@@ -3695,11 +4524,11 @@ namespace Desert::Migration
                 continue; // not an instance, or already states all three
             const std::string& prefabPath = *record.PrefabPath;
 
-            const std::string site =
-                 ( record.id.has_value()
-                        ? "Entities[id=" + std::to_string( static_cast<uint64_t>( *record.id ) ) + "]"
-                        : std::string( "Entities[?]" ) ) +
-                 " > '" + prefabPath + "'";
+            const std::string site = std::format(
+                 "{} > '{}'",
+                 record.id.has_value() ? std::format( "Entities[id={}]", static_cast<uint64_t>( *record.id ) )
+                                       : std::string( "Entities[?]" ),
+                 prefabPath );
 
             const auto located = LocateMeshFile( prefabPath, assetsRoot );
             if ( !located )
@@ -3751,8 +4580,289 @@ namespace Desert::Migration
         if ( !scene.WorldPartition.has_value() || scene.WorldPartition->HLODLayers.has_value() ||
              scene.WorldPartition->DefaultHLODLayer.has_value() )
             return false;
-        Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
+        // The v50 shape, frozen: the Instancing layer stated as the WORLD's default (v67 moves it onto the grids).
+        Core::HLODLayerSerialized layer;
+        layer.Name                           = std::string( Core::Rules::kInstancingHLODLayerName );
+        layer.Type                           = Core::HLODLayerType::Instancing;
+        scene.WorldPartition->HLODLayers     = std::vector<Core::HLODLayerSerialized>{ std::move( layer ) };
+        scene.WorldPartition->DefaultHLODLayer = std::string( Core::Rules::kInstancingHLODLayerName );
         return true;
+    }
+
+    std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() )
+            return 0;
+        std::size_t named = 0;
+        auto&       grids = scene.WorldPartition->Grids;
+        for ( std::size_t index = 0; index < grids.size(); ++index )
+        {
+            if ( !grids[index].Name.empty() )
+                continue;
+            grids[index].Name = index == 0 ? std::string( "Main" ) : std::format( "Grid{}", index );
+            ++named;
+        }
+        return named;
+    }
+
+    std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() || !scene.WorldPartition->DefaultHLODLayer.has_value() )
+            return 0;
+        std::size_t given = 0;
+        for ( Core::WorldPartitionGridSerialized& grid : scene.WorldPartition->Grids )
+        {
+            if ( grid.HLODLayer.has_value() )
+                continue;
+            grid.HLODLayer = *scene.WorldPartition->DefaultHLODLayer;
+            ++given;
+        }
+        scene.WorldPartition->DefaultHLODLayer = std::nullopt;
+        return given;
+    }
+
+    LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
+                                                                  const std::filesystem::path&     sourceFile )
+    {
+        namespace fs = std::filesystem;
+        LandscapeHeightKeysReport report;
+        const std::string         prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
+
+        // The project the old spelling is relative to: the nearest .deproj above the scene, read once, on the
+        // first spelling that needs it (a scene without tiles never looks for one).
+        std::optional<fs::path>    assetsRoot; // project-relative, from the .deproj
+        std::optional<std::string> noProject;
+        const auto                 findAssetsRoot = [&]() -> bool
+        {
+            if ( assetsRoot || noProject )
+                return assetsRoot.has_value();
+            std::error_code ec;
+            for ( fs::path dir = fs::absolute( sourceFile, ec ).parent_path(); !dir.empty();
+                  dir          = dir.parent_path() )
+            {
+                for ( const auto& entry : fs::directory_iterator( dir, ec ) )
+                {
+                    if ( entry.path().extension() != ".deproj" )
+                        continue;
+                    const auto json = Common::Utils::FileSystem::ReadFileContent( entry.path() );
+                    if ( !json )
+                    {
+                        noProject =
+                             std::format( "{} does not read: {}", entry.path().generic_string(), json.GetError() );
+                        return false;
+                    }
+                    const auto project = Common::Project::ReadProjectFile( json.GetValue() );
+                    if ( !project )
+                    {
+                        noProject = std::format( "{} is not a readable project: {}", entry.path().generic_string(),
+                                                 project.GetError() );
+                        return false;
+                    }
+                    assetsRoot = fs::path( project.GetValue().AssetsRoot ).lexically_normal();
+                    return true;
+                }
+                if ( dir == dir.parent_path() )
+                    break;
+            }
+            noProject = std::format( "no .deproj above {}", sourceFile.generic_string() );
+            return false;
+        };
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock(
+                 components, "LandscapeTile",
+                 [&]( rfl::Generic::Object& block )
+                 {
+                     const auto stated = block.get( "HeightFile" );
+                     if ( !stated.has_value() )
+                         return false;
+                     const auto text = stated.value().to_string();
+                     if ( !text.has_value() )
+                     {
+                         report.Refused.push_back( std::format( "{}: LandscapeTile.HeightFile {} is not a string",
+                                                                who, rfl::json::write( stated.value() ) ) );
+                         return false;
+                     }
+                     const std::string& spelled = text.value();
+                     if ( spelled.empty() || spelled.starts_with( prefix ) )
+                         return false;
+                     if ( !findAssetsRoot() )
+                     {
+                         report.Refused.push_back(
+                              std::format( "{}: LandscapeTile.HeightFile '{}' is relative to a project, and {}",
+                                           who, spelled, *noProject ) );
+                         return false;
+                     }
+                     const std::string relative = fs::path( spelled )
+                                                       .lexically_normal()
+                                                       .lexically_relative( *assetsRoot )
+                                                       .generic_string();
+                     if ( relative.empty() || relative == "." || relative.starts_with( ".." ) )
+                     {
+                         report.Refused.push_back( std::format(
+                              "{}: LandscapeTile.HeightFile '{}' is not under the project's assets root '{}'", who,
+                              spelled, assetsRoot->generic_string() ) );
+                         return false;
+                     }
+                     DropKey( block, "HeightFile" );
+                     block["HeightFile"] = rfl::Generic( prefix + relative );
+                     ++report.Keyed;
+                     return true;
+                 } );
+        };
+
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id ? std::format( "entity {}", entity.id->ToString() )
+                                              : std::string( "<record without id>" );
+            restate( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components, who );
+        }
+        return report;
+    }
+
+    namespace
+    {
+        // One stated value of the v67 -> v68 step, walked whole: objects and arrays are entered, a string that
+        // is spelled like a file path relative to some folder and names a file under the assets root is
+        // restated as its "assets:" key. The spelling may be relative to the assets root itself
+        // ("Materials/M.demat", what ToPath wrote for 16 asset types) or to the project above it
+        // ("Resources/Assets/Meshes/M.skmesh"): both name one file and that file has one key.
+        // The file a bare relative spelling names under @p root, as its path relative to @p root: the spelling is
+        // tried against the assets root and up to two folders above it (the project-relative spelling), and only
+        // a regular file inside the root counts. Empty when the spelling has no extension, climbs out with "..",
+        // or names no such file.
+        std::optional<std::string> BareSpellingUnderRoot( const std::string& spelled, const std::filesystem::path& root )
+        {
+            namespace fs = std::filesystem;
+            const fs::path named = fs::path( spelled ).lexically_normal();
+            if ( !named.has_extension() || named.is_absolute() || named.generic_string().starts_with( ".." ) )
+                return std::nullopt;
+            std::error_code ec;
+            fs::path        base = root;
+            for ( int up = 0; up < 3 && !base.empty(); ++up, base = base.parent_path() )
+            {
+                const fs::path candidate = ( base / named ).lexically_normal();
+                if ( !fs::is_regular_file( candidate, ec ) )
+                    continue;
+                const std::string relative = candidate.lexically_relative( root ).generic_string();
+                if ( relative.empty() || relative == "." || relative.starts_with( ".." ) )
+                    continue;
+                return relative;
+            }
+            return std::nullopt;
+        }
+
+        rfl::Generic RestateBareReferences( const rfl::Generic& value, const std::filesystem::path& root,
+                                            const std::string& prefix, std::size_t& keyed )
+        {
+            namespace fs = std::filesystem;
+            if ( const auto object = value.to_object(); object.has_value() )
+            {
+                rfl::Generic::Object out;
+                for ( const auto& [name, field] : object.value() )
+                    out[name] = RestateBareReferences( field, root, prefix, keyed );
+                return rfl::Generic( std::move( out ) );
+            }
+            if ( const auto array = value.to_array(); array.has_value() )
+            {
+                rfl::Generic::Array out;
+                out.reserve( array.value().size() );
+                for ( const auto& element : array.value() )
+                    out.push_back( RestateBareReferences( element, root, prefix, keyed ) );
+                return rfl::Generic( std::move( out ) );
+            }
+            const auto text = value.to_string();
+            if ( !text.has_value() )
+                return value;
+            const std::string& spelled = text.value();
+            // A tagged key, a drive-letter or rooted path, or a word: not a bare relative file path.
+            if ( spelled.empty() || spelled.find( ':' ) != std::string::npos || spelled.front() == '/' ||
+                 spelled.front() == '\\' || spelled.find( '/' ) == std::string::npos )
+                return value;
+            if ( const auto relative = BareSpellingUnderRoot( spelled, root ); relative.has_value() )
+            {
+                ++keyed;
+                return rfl::Generic( prefix + *relative );
+            }
+            return value;
+        }
+    } // namespace
+
+    AssetKeysReport MigrateAssetKeysV68ToV69( std::vector<Assets::EntityData>& entities,
+                                              std::optional<rfl::Generic>*     settings,
+                                              const std::filesystem::path&     assetsRoot )
+    {
+        namespace fs = std::filesystem;
+        AssetKeysReport   report;
+        const std::string prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
+        std::error_code   ec;
+        const fs::path    root = fs::absolute( assetsRoot, ec ).lexically_normal();
+        if ( ec || !fs::is_directory( root, ec ) )
+        {
+            report.Refused.push_back( std::format(
+                 "the assets root '{}' is not a folder - a bare reference cannot be told from a word without it",
+                 assetsRoot.generic_string() ) );
+            return report;
+        }
+
+        const auto restate = [&]( rfl::ExtraFields<rfl::Generic>& components )
+        {
+            for ( auto& [name, block] : components )
+                block = RestateBareReferences( block, root, prefix, report.Keyed );
+        };
+        for ( auto& entity : entities )
+        {
+            // The record's own PrefabPath is a path by its field, not by its spelling: a bare one (no tag, not
+            // rooted) is keyed under the root even without a '/', and one that names no file under the root is
+            // refused by name - ResolvePrefabPath reads only the key, so leaving it bare loses the instance.
+            if ( entity.PrefabPath.has_value() )
+            {
+                const std::string& spelled = *entity.PrefabPath;
+                const bool         bare    = !spelled.empty() && spelled.find( ':' ) == std::string::npos &&
+                                  spelled.front() != '/' && spelled.front() != '\\';
+                if ( bare )
+                {
+                    if ( const auto relative = BareSpellingUnderRoot( spelled, root ); relative.has_value() )
+                    {
+                        entity.PrefabPath = prefix + *relative;
+                        ++report.Keyed;
+                        ++report.PrefabPathsKeyed;
+                    }
+                    else
+                        report.Refused.push_back( std::format(
+                             "Entities[{}] > PrefabPath '{}' names no file under the assets root '{}'",
+                             entity.id.has_value() ? std::to_string( static_cast<uint64_t>( *entity.id ) )
+                                                   : std::string( "?" ),
+                             spelled, root.generic_string() ) );
+                }
+            }
+            restate( entity.Components );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    restate( override_.Components );
+        }
+        if ( settings != nullptr && settings->has_value() )
+            *settings = RestateBareReferences( settings->value(), root, prefix, report.Keyed );
+        return report;
+    }
+
+    std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene )
+    {
+        if ( !scene.WorldPartition.has_value() )
+            return 0;
+        std::size_t dropped = 0;
+        for ( Assets::EntityData& record : scene.Entities )
+        {
+            if ( record.parent.has_value() || !record.siblingIndex.has_value() )
+                continue;
+            record.siblingIndex.reset();
+            ++dropped;
+        }
+        return dropped;
     }
 
     SceneDependenciesReport MigrateSceneDependenciesV51ToV52( SceneSerialized&             scene,
@@ -3768,6 +4878,194 @@ namespace Desert::Migration
         report.Stated = gather.Guids.size();
         if ( report.Refused.empty() && scene.Header.has_value() )
             scene.Header->Dependencies = std::move( gather.Guids );
+        return report;
+    }
+
+    namespace
+    {
+        // World Partition's chain, by the number the file states under its own tag (kWorldPartitionVersion*).
+        // One `if` per step, in order, as the scene chain; a step that refuses names the file and stops it.
+        void RunWorldPartitionSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                                     FileMigrationReport&                                             report )
+        {
+            report.StatedWorldPartitionVersion = Assets::StatedVersion( header, Assets::kWorldPartitionSchemaTag );
+            if ( report.StatedWorldPartitionVersion < kWorldPartitionVersionTagged )
+                report.WorldPartitionTagRaised = true; // the stamp only: v1 is the v70 block under its own tag
+        }
+
+        // The asset-reference chain (kAssetRefVersion*), after World Partition's: its numbers are its tag's.
+        void RunAssetRefSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                               std::vector<Assets::EntityData>& entities, const std::filesystem::path& assetsRoot,
+                               const std::string& file, FileMigrationReport& report )
+        {
+            report.StatedAssetRefVersion = Assets::StatedVersion( header, Assets::kAssetRefSchemaTag );
+            if ( report.StatedAssetRefVersion < kAssetRefVersionReflected )
+            {
+                report.ReflectedAssetRefsRaised = true;
+                report.ReflectedAssetRefs       = MigrateReflectedAssetRefsV0ToV1( entities, assetsRoot );
+                if ( !report.ReflectedAssetRefs.Refused.empty() )
+                    report.Refused = RefusedWhole( file, report.ReflectedAssetRefs.Refused );
+            }
+        }
+
+        // The light chain (kLightVersion*), after the asset-reference chain: its numbers are its tag's.
+        void RunLightSteps( const std::optional<Common::Content::TextAssetHeaderSerialized>& header,
+                            std::vector<Assets::EntityData>& entities, FileMigrationReport& report )
+        {
+            report.StatedLightVersion = Assets::StatedVersion( header, Assets::kLightSchemaTag );
+            if ( report.StatedLightVersion < kLightVersionRotation )
+            {
+                report.SunRotationRaised = true;
+                report.SunRotation       = MigrateLightRotationV0ToV1( entities );
+            }
+        }
+
+        // A file at a LATER World Partition generation than this tool raises to, refused in the scene's words.
+        std::string RefuseLaterWorldPartition( const char* what, int stated )
+        {
+            return std::string( "states " ) + what + " World Partition v" + std::to_string( stated ) +
+                   ", and this tool raises files to v" + std::to_string( Core::kWorldPartitionVersion ) +
+                   ". A file at a LATER generation was written by a build this tool predates - convert it with "
+                   "THAT build's SceneMigrator.";
+        }
+    } // namespace
+
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const std::filesystem::path&     assetsRoot )
+    {
+        ReflectedAssetRefsReport report;
+        // The header GUID of the `.demat` an "assets:" key names, read once per key; nullopt = refused.
+        std::map<std::string, std::optional<std::string>> guids;
+        const auto guidOf = [&]( const std::string& key, const std::string& who ) -> std::optional<std::string>
+        {
+            if ( const auto found = guids.find( key ); found != guids.end() )
+                return found->second;
+            constexpr std::string_view kMount = "assets:";
+            std::optional<std::string> guid;
+            const std::string relative = key.starts_with( kMount ) ? key.substr( kMount.size() ) : key;
+            std::filesystem::path file = ( assetsRoot / relative ).lexically_normal();
+            if ( const auto located = LocateMeshFile( relative, assetsRoot ); located.IsSuccess() )
+                file = located.GetValue().File;
+            if ( std::ifstream in( file ); in )
+            {
+                std::stringstream text;
+                text << in.rdbuf();
+                if ( const auto parsed = rfl::json::read<rfl::Generic>( text.str() ); parsed.has_value() )
+                    if ( const auto root = parsed.value().to_object(); root.has_value() )
+                        if ( const auto headerNode = root.value().get( "Header" ); headerNode.has_value() )
+                            if ( const auto header = headerNode.value().to_object(); header.has_value() )
+                                if ( const auto g = header.value().get( "Guid" ); g.has_value() )
+                                    if ( const auto t = g.value().to_string();
+                                         t.has_value() && Common::Content::AssetGuidFromText( t.value() ) )
+                                        guid = t.value();
+            }
+            if ( !guid )
+                report.Refused.push_back(
+                     std::format( "{}: material '{}' ({}) states no header GUID", who, key, file.string() ) );
+            guids.emplace( key, guid );
+            return guid;
+        };
+        const auto ref = []( const std::string& guid, const std::string& path )
+        {
+            rfl::Generic::Object one;
+            one["Guid"] = rfl::Generic( guid );
+            one["Path"] = rfl::Generic( path );
+            return rfl::Generic( std::move( one ) );
+        };
+        const auto texts = [&]( const rfl::Generic::Object& block, const char* key, const std::string& who,
+                                std::vector<std::string>& out ) -> bool
+        {
+            const auto stated = block.get( key );
+            if ( !stated.has_value() )
+                return true;
+            const auto array = stated.value().to_array();
+            if ( !array.has_value() )
+            {
+                report.Refused.push_back( std::format( "{}: StaticMesh.{} is not an array", who, key ) );
+                return false;
+            }
+            for ( const rfl::Generic& item : array.value() )
+                out.push_back( item.to_string().value_or( std::string() ) );
+            return true;
+        };
+        const auto raise = [&]( rfl::ExtraFields<rfl::Generic>& components, const std::string& who )
+        {
+            EditBlock( components, "StaticMesh",
+                       [&]( rfl::Generic::Object& block )
+                       {
+                           const auto text = [&]( const char* key )
+                           {
+                               const auto v = block.get( key );
+                               return v.has_value() ? v.value().to_string().value_or( std::string() )
+                                                    : std::string();
+                           };
+                           const bool statesMesh = block.get( "MeshGuid" ).has_value() ||
+                                                   block.get( "MeshPath" ).has_value();
+                           std::vector<std::string> slotGuids;
+                           std::vector<std::string> slotPaths;
+                           if ( !texts( block, "MaterialGuids", who, slotGuids ) ||
+                                !texts( block, "MaterialPaths", who, slotPaths ) )
+                               return false;
+                           const bool statesSlots = block.get( "MaterialGuids" ).has_value() ||
+                                                    block.get( "MaterialPaths" ).has_value();
+                           if ( !statesMesh && !statesSlots && block.get( "MeshHandle" ).has_value() )
+                               return false; // already v1
+                           const std::string meshGuid = text( "MeshGuid" );
+                           const std::string meshPath = text( "MeshPath" );
+                           for ( const char* key : { "MeshGuid", "MeshPath", "MaterialGuids", "MaterialPaths" } )
+                               DropKey( block, key );
+                           // Both keys always, as the save writes them (reflection states every field): a
+                           // primitive's MeshHandle is the empty {"", ""}, so a migrated scene and the same
+                           // scene saved again are byte-equal.
+                           block["MeshHandle"] = ref( meshGuid, meshPath );
+                           rfl::Generic::Array slots;
+                           const std::size_t   count = std::max( slotGuids.size(), slotPaths.size() );
+                           for ( std::size_t i = 0; i < count; ++i )
+                               slots.push_back( ref( i < slotGuids.size() ? slotGuids[i] : std::string(),
+                                                     i < slotPaths.size() ? slotPaths[i] : std::string() ) );
+                           block["MaterialSlots"] = rfl::Generic( std::move( slots ) );
+                           ++report.MeshBlocks;
+                           return true;
+                       } );
+            // The reflected Asset<MaterialAsset> fields, stated as a bare key until v1.
+            constexpr std::array<std::pair<const char*, const char*>, 4> kMaterialFields = {
+                 { { "LandscapeMaterial", "Material" },
+                   { "VolumetricCloud", "Material" },
+                   { "Destructible", "InteriorMaterial" },
+                   { "UIPanel", "Material" } } };
+            for ( const auto& [component, field] : kMaterialFields )
+                EditBlock( components, component,
+                           [&]( rfl::Generic::Object& block )
+                           {
+                               const auto stated = block.get( field );
+                               if ( !stated.has_value() )
+                                   return false;
+                               const auto key = stated.value().to_string();
+                               if ( !key.has_value() )
+                                   return false; // already an object: {Guid, Path}
+                               std::string guid;
+                               if ( !key.value().empty() )
+                               {
+                                   const auto found =
+                                        guidOf( key.value(), std::format( "{} / {}.{}", who, component, field ) );
+                                   if ( !found )
+                                       return false;
+                                   guid = *found;
+                               }
+                               block[field] = ref( guid, key.value() );
+                               ++report.MaterialFields;
+                               return true;
+                           } );
+        };
+        for ( auto& entity : entities )
+        {
+            const std::string who = entity.id.has_value() ? std::format( "entity {}", entity.id->ToString() )
+                                                          : std::string( "<record without id>" );
+            raise( entity.Components, who );
+            if ( entity.PrefabOverrides )
+                for ( auto& override_ : *entity.PrefabOverrides )
+                    raise( override_.Components, who + " (prefab override)" );
+        }
         return report;
     }
 
@@ -3788,6 +5086,13 @@ namespace Desert::Migration
             report.Refused = RefuseGeneration( "scene", statedSceneVersion, statedUnitVersion,
                                                "A file at a LATER generation was written by a build this "
                                                "tool predates - convert it with THAT build's SceneMigrator." );
+            return report;
+        }
+        if ( const int statedWorldPartition =
+                  Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag );
+             statedWorldPartition > Core::kWorldPartitionVersion )
+        {
+            report.Refused = RefuseLaterWorldPartition( "scene", statedWorldPartition );
             return report;
         }
 
@@ -3836,6 +5141,29 @@ namespace Desert::Migration
                     return report;
                 }
             }
+            // And its luminance exposure clamps as EV100 (idempotent - a volume stating the EV100 keys is
+            // skipped).
+            if ( report.LightUnitsRaised )
+            {
+                const LightUnitsReport lifted = MigrateLightUnitsV55ToV56( scene.Entities );
+                report.LightUnits.Volumes += lifted.Volumes;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
+            // And its manual exposure as EV100 (idempotent - a volume stating ManualExposureEV100 is skipped).
+            if ( report.SkySunFromLightRaised )
+            {
+                const SkySunFromLightReport lifted = MigrateSkySunFromLightV56ToV57( scene.Entities );
+                report.SkySunFromLight.Volumes += lifted.Volumes;
+                if ( !lifted.Refused.empty() )
+                {
+                    report.Refused = RefusedWhole( scene.SceneName, lifted.Refused );
+                    return report;
+                }
+            }
         }
         if ( statedSceneVersion < kSceneVersionGameModeSettings )
         {
@@ -3851,10 +5179,10 @@ namespace Desert::Migration
             report.InstanceTransforms       = MigrateInstanceTransformsV36ToV37( scene.Entities, assetsRoot );
             if ( !report.InstanceTransforms.UnknownNames.empty() )
             {
-                report.Refused = "'" + scene.SceneName +
-                                 "': " + std::to_string( report.InstanceTransforms.UnknownNames.size() ) +
-                                 " prefab instance(s) whose root transform cannot be stated: " +
-                                 report.InstanceTransforms.UnknownNames.front();
+                report.Refused =
+                     std::format( "'{}': {} prefab instance(s) whose root transform cannot be stated: {}",
+                                  scene.SceneName, report.InstanceTransforms.UnknownNames.size(),
+                                  report.InstanceTransforms.UnknownNames.front() );
                 return report; // unstamped, as every refusal
             }
         }
@@ -3865,6 +5193,48 @@ namespace Desert::Migration
             report.HLODLayersRaised = true;
             report.HLODLayerStated  = MigrateHLODLayersV49ToV50( scene );
         }
+        if ( statedSceneVersion < kSceneVersionGridNames )
+        {
+            report.GridNamesRaised = true;
+            report.GridsNamed      = MigrateGridNamesV65ToV66( scene );
+        }
+        if ( statedSceneVersion < kSceneVersionLandscapeHeightKeys )
+        {
+            report.LandscapeHeightKeysRaised = true;
+            report.LandscapeHeightKeys       = MigrateLandscapeHeightKeysV66ToV67( scene.Entities, sourceFile );
+            if ( !report.LandscapeHeightKeys.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.LandscapeHeightKeys.Refused );
+                return report;
+            }
+        }
+        if ( statedSceneVersion < kSceneVersionGridHLODLayer )
+        {
+            report.GridHLODLayerRaised = true;
+            report.GridsGivenHLODLayer = MigrateGridHLODLayerV67ToV68( scene );
+        }
+        if ( statedSceneVersion < kSceneVersionAssetKeys )
+        {
+            report.AssetKeysRaised = true;
+            report.AssetKeys       = MigrateAssetKeysV68ToV69( scene.Entities, &scene.Settings, assetsRoot );
+            if ( !report.AssetKeys.Refused.empty() )
+            {
+                report.Refused = RefusedWhole( scene.SceneName, report.AssetKeys.Refused );
+                return report;
+            }
+        }
+        if ( statedSceneVersion < kSceneVersionRootSiblingIndex )
+        {
+            report.RootSiblingIndexRaised  = true;
+            report.RootSiblingIndexDropped = MigrateRootSiblingIndexV69ToV70( scene );
+        }
+
+        // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
+        RunWorldPartitionSteps( scene.Header, report );
+        if ( report.Refused.empty() )
+            RunAssetRefSteps( scene.Header, scene.Entities, assetsRoot, scene.SceneName, report );
+        if ( report.Refused.empty() )
+            RunLightSteps( scene.Header, scene.Entities, report );
 
         // Stamped whether or not anything moved: an already-current scene is still stamped, idempotently
         // (MigrationHeader keeps an existing GUID) - leaving it unstamped is how a load would re-run this.
@@ -3897,7 +5267,11 @@ namespace Desert::Migration
         outcome.FoundUnitVersion  = prefab.Header ? Assets::StatedVersion( prefab.Header, Assets::kUnitSchemaTag )
                                                   : prefab.UnitVersion.value_or( 0 );
 
-        if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion )
+        const int foundWorldPartition = Assets::StatedVersion( prefab.Header, Assets::kWorldPartitionSchemaTag );
+        if ( outcome.FoundSceneVersion == kSceneVersion && outcome.FoundUnitVersion == kUnitVersion &&
+             foundWorldPartition == Core::kWorldPartitionVersion &&
+             Assets::StatedVersion( prefab.Header, Assets::kAssetRefSchemaTag ) == Core::kAssetRefVersion &&
+             Assets::StatedVersion( prefab.Header, Assets::kLightSchemaTag ) == Core::kLightVersion )
         {
             outcome.AlreadyCurrent = true;
             return outcome;
@@ -3908,6 +5282,11 @@ namespace Desert::Migration
             outcome.Refused = RefuseGeneration( "prefab", outcome.FoundSceneVersion, outcome.FoundUnitVersion,
                                                 "A file at a LATER generation was written by a build this "
                                                 "tool predates - convert it with THAT build's SceneMigrator." );
+            return outcome;
+        }
+        if ( foundWorldPartition > Core::kWorldPartitionVersion )
+        {
+            outcome.Refused = RefuseLaterWorldPartition( "prefab", foundWorldPartition );
             return outcome;
         }
 
@@ -3930,6 +5309,19 @@ namespace Desert::Migration
             outcome.Steps.WindSourceRaised = true;
             outcome.Steps.WindSource       = MigrateWindSourceV42ToV43( prefab.Entities, prefab.Name, false );
         }
+        if ( outcome.Steps.Refused.empty() && outcome.FoundSceneVersion < kSceneVersionAssetKeys )
+        {
+            outcome.Steps.AssetKeysRaised = true;
+            outcome.Steps.AssetKeys       = MigrateAssetKeysV68ToV69( prefab.Entities, nullptr, assetsRoot );
+            if ( !outcome.Steps.AssetKeys.Refused.empty() )
+                outcome.Steps.Refused = RefusedWhole( prefab.Name, outcome.Steps.AssetKeys.Refused );
+        }
+        if ( outcome.Steps.Refused.empty() )
+            RunWorldPartitionSteps( prefab.Header, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() )
+            RunAssetRefSteps( prefab.Header, prefab.Entities, assetsRoot, prefab.Name, outcome.Steps );
+        if ( outcome.Steps.Refused.empty() )
+            RunLightSteps( prefab.Header, prefab.Entities, outcome.Steps );
         if ( !outcome.Steps.Refused.empty() )
         {
             outcome.Refused = outcome.Steps.Refused;
@@ -3942,6 +5334,234 @@ namespace Desert::Migration
         prefab.UnitVersion  = std::nullopt;
 
         return outcome;
+    }
+
+    namespace
+    {
+        // VFXS 4 -> 5 on the untyped body: the system's "Bounds" goes, and every emitter states it right after its
+        // Capacity (the key order of VFXEmitterData). An emitter that already states Bounds is an error.
+        Common::BoolResultStr MoveVFXSystemBoundsIntoEmitters( rfl::Generic::Object& system )
+        {
+            const auto bounds = system.get( "Bounds" );
+            if ( !bounds || !bounds.value().to_object() )
+                return Common::MakeFormattedError<bool>(
+                     "the system states no Bounds object to move into its emitters" );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                const auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                rfl::Generic::Object out;
+                bool                 placed = false;
+                for ( const auto& [key, field] : emitter.value() )
+                {
+                    if ( key == "Bounds" )
+                        return Common::MakeFormattedError<bool>(
+                             "emitter '{}' already states Bounds, a VFXS 5 key",
+                             emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" ) );
+                    out[key] = field;
+                    if ( key == "Capacity" )
+                    {
+                        out["Bounds"] = bounds.value();
+                        placed        = true;
+                    }
+                }
+                if ( !placed )
+                    out["Bounds"] = bounds.value(); // no Capacity stated (the reader's default): after the rest
+                outEmitters.push_back( out );
+            }
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "Bounds" )
+                    continue;
+                if ( key == "Emitters" )
+                    raised[key] = outEmitters;
+                else
+                    raised[key] = field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 1 -> 2 (VFX-09) on the untyped body: a Ribbon row gets the default ribbon settings (one ribbon per
+        // emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's particle material). A v1 row
+        // stating a VFXS 2 key, or a v1 Mesh row (it names no mesh, and VFXS 2 needs one), is an error naming the
+        // emitter.
+        Common::BoolResultStr RaiseVFXSystemRenderersTo2( rfl::Generic::Object& system )
+        {
+            const auto ribbon = rfl::json::read<rfl::Generic>(
+                 Common::Json::Write( Assets::Serialization::VFXRibbonRendererData{} ) );
+            if ( !ribbon )
+                return Common::MakeFormattedError<bool>( "the default ribbon settings do not read back: {}",
+                                                         ribbon.error().what() );
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                const std::string name =
+                     emitter.value().get( "Name" ).value_or( rfl::Generic() ).to_string().value_or( "?" );
+                const auto rows = emitter.value().get( "Renderers" ).value_or( rfl::Generic() ).to_array();
+                if ( rows )
+                {
+                    rfl::Generic::Array outRows;
+                    for ( const rfl::Generic& r : rows.value() )
+                    {
+                        auto row = r.to_object();
+                        if ( !row )
+                            return Common::MakeFormattedError<bool>( "emitter '{}': a renderer row is not an object",
+                                                                     name );
+                        for ( const char* key : { "Material", "Ribbon", "Mesh" } )
+                            if ( row.value().get( key ) )
+                                return Common::MakeFormattedError<bool>(
+                                     "emitter '{}': a VFXS 1 renderer row states {}, a VFXS 2 key", name, key );
+                        const std::string kind =
+                             row.value().get( "Kind" ).value_or( rfl::Generic() ).to_string().value_or( "" );
+                        if ( kind == "Mesh" )
+                            return Common::MakeFormattedError<bool>(
+                                 "emitter '{}': a VFXS 1 Mesh row names no mesh, and VFXS 2 needs one", name );
+                        if ( kind == "Ribbon" )
+                            row.value()["Ribbon"] = ribbon.value();
+                        outRows.push_back( row.value() );
+                    }
+                    emitter.value()["Renderers"] = outRows;
+                }
+                outEmitters.push_back( emitter.value() );
+            }
+            system["Emitters"] = outEmitters;
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 2 -> 3 (VFX-11) on the untyped body: the system names the project's `Default` effect type (UE
+        // UNiagaraSettings::DefaultEffectType). A system already naming one is an error.
+        Common::BoolResultStr RaiseVFXSystemEffectTypeTo3( rfl::Generic::Object& system )
+        {
+            if ( const auto stated = system.get( "EffectType" ) )
+                return Common::MakeFormattedError<bool>(
+                     "the system already names EffectType '{}', a VFXS 3 key",
+                     stated.value().to_string().value_or( "?" ) );
+            system["EffectType"] = std::string( "Default" );
+            return BOOLSUCCESS;
+        }
+
+        // VFXS 3 -> 4 (VFX-MODULE-ASSET) on the untyped body: every stack row's `engine:<Name>` becomes {Guid, Path}
+        // of <Name>.dfxmod in the engine module library (kEngineVFXModulesV3), LocalModules goes (a non-empty list
+        // is an error - a local module becomes a project .dfxmod by hand).
+        Common::BoolResultStr RaiseVFXSystemModulesTo4( rfl::Generic::Object& system )
+        {
+            if ( const auto local = system.get( "LocalModules" ) )
+            {
+                const auto rows = local.value().to_array();
+                if ( rows && !rows.value().empty() )
+                    return Common::MakeFormattedError<bool>(
+                         "the system states {} LocalModules; VFXS 4 has none - each becomes a project .dfxmod by "
+                         "hand (the corpus had none)",
+                         rows.value().size() );
+            }
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                auto stack = emitter.value().get( "Stack" ).value_or( rfl::Generic() ).to_object();
+                if ( stack )
+                {
+                    for ( const char* group : { "EmitterSpawn", "EmitterUpdate", "ParticleSpawn", "ParticleUpdate" } )
+                    {
+                        const auto uses = stack.value().get( group ).value_or( rfl::Generic() ).to_array();
+                        if ( !uses )
+                            continue;
+                        rfl::Generic::Array outUses;
+                        for ( const rfl::Generic& u : uses.value() )
+                        {
+                            auto use = u.to_object();
+                            if ( !use )
+                                return Common::MakeFormattedError<bool>( "a {} row is not an object", group );
+                            const auto module = use.value().get( "Module" ).value_or( rfl::Generic() ).to_string();
+                            constexpr std::string_view kEngine = "engine:";
+                            if ( !module || !module.value().starts_with( kEngine ) )
+                                return Common::MakeFormattedError<bool>(
+                                     "a {} row's Module '{}' is not engine:<Name>", group,
+                                     module ? module.value() : std::string( "?" ) );
+                            const auto ref =
+                                 EngineVFXModuleRefV3( std::string_view( module.value() ).substr( kEngine.size() ) );
+                            if ( !ref )
+                                return Common::MakeFormattedError<bool>(
+                                     "a {} row names '{}', which the engine module library never had", group,
+                                     module.value() );
+                            rfl::Generic::Object moduleRef;
+                            moduleRef["Guid"]     = ref->Guid;
+                            moduleRef["Path"]     = ref->Path;
+                            use.value()["Module"] = moduleRef;
+                            outUses.push_back( use.value() );
+                        }
+                        stack.value()[group] = outUses;
+                    }
+                    emitter.value()["Stack"] = stack.value();
+                }
+                outEmitters.push_back( emitter.value() );
+            }
+            rfl::Generic::Object raised;
+            for ( const auto& [key, field] : system )
+            {
+                if ( key == "LocalModules" )
+                    continue;
+                raised[key] = key == "Emitters" ? rfl::Generic( outEmitters ) : field;
+            }
+            system = std::move( raised );
+            return BOOLSUCCESS;
+        }
+    } // namespace
+
+    Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text )
+    {
+        using Result = std::string;
+        auto read    = rfl::json::read<rfl::Generic::Object>( text );
+        if ( !read )
+            return Common::MakeFormattedError<Result>( "the body does not read: {}", read.error().what() );
+        rfl::Generic::Object system = read.value();
+
+        const auto header   = system.get( "Header" ).value_or( rfl::Generic() ).to_object();
+        const auto versions = header ? header.value().get( "Versions" ).value_or( rfl::Generic() ).to_object()
+                                     : rfl::Result<rfl::Generic::Object>( rfl::Error( "no header" ) );
+        const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
+                                       : rfl::Result<int>( rfl::Error( "no versions" ) );
+        constexpr int kCurrent = static_cast<int>( Assets::kVFXSystemSchemaVersion );
+        static_assert( kCurrent == 5, "a new VFXS needs its step in this chain" );
+        if ( !stated || stated.value() < 1 || stated.value() >= kCurrent )
+            return Common::MakeFormattedError<Result>(
+                 "the header states VFXS {}, and this chain raises VFXS 1 .. {} only",
+                 stated ? std::to_string( stated.value() ) : "nothing", kCurrent - 1 );
+
+        // One step per generation, each on the untyped body (no step reads a typed struct of a later layout).
+        using Step = Common::BoolResultStr ( * )( rfl::Generic::Object& );
+        constexpr std::array<Step, 4> kSteps{ RaiseVFXSystemRenderersTo2, RaiseVFXSystemEffectTypeTo3,
+                                              RaiseVFXSystemModulesTo4, MoveVFXSystemBoundsIntoEmitters };
+        for ( int from = stated.value(); from < kCurrent; ++from )
+            if ( auto raised = kSteps[static_cast<std::size_t>( from - 1 )]( system ); !raised )
+                return Common::MakeFormattedError<Result>( "VFXS {} -> {}: {}", from, from + 1, raised.GetError() );
+
+        // The engine's reader and writer give the current text: the writer stamps the current generation, keeps the
+        // GUID and states the header's Dependencies from the stacks (VFXSystemDependencies).
+        auto typed = Common::Json::Read<Assets::Serialization::VFXSystemData>( rfl::json::write( system ) );
+        if ( !typed )
+            return Common::MakeFormattedError<Result>( "the raised system does not read: {}", typed.GetError() );
+        if ( auto valid = Assets::Serialization::ValidateVFXSystemData( typed.GetValue() ); !valid )
+            return Common::MakeFormattedError<Result>( "the raised system is not valid: {}", valid.GetError() );
+        return Common::MakeSuccess( Assets::Serialization::WriteVFXSystem( typed.GetValue() ) );
     }
 
 } // namespace Desert::Migration

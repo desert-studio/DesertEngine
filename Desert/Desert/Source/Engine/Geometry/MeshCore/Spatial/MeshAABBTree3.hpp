@@ -4,7 +4,9 @@
 // template), std::vector for TDynamicVector (InsertAt = set-at-index, grown on demand). Kept only what
 // FMeshBoolean needs: Build (top-down midpoint split, 3 triangles per leaf, split axis Depth % 3),
 // FindNearestTriangle with MaxDistance and TriangleFilter, FindAllIntersections between two trees, SetTolerance
-// (box epsilon), and the box/index layout that FastWindingTree walks. Left out: ray casts, vertex queries,
+// (box epsilon), the box/index layout that FastWindingTree walks, and FindNearestHitTriangle (MeshAABBTree3.h
+// FindNearestHitTriangle / FindHitTriangle: nearer child box first, a box farther than the best hit culled;
+// the vertex sculpt tool's brush hit). Left out: vertex queries,
 // self-intersection, the per-tree transform of FindAllIntersections (the Boolean passes nullptr),
 // bAllowUnsafeModifiedMeshQueries (a query on a stale tree is an assert here, as UE's DO_GUARD_SLOW check),
 // SetBuildOptions (nobody overrides the leaf size or split axis). The intersection result carries SEGMENTS only:
@@ -151,6 +153,19 @@ namespace Desert::Geometry
             int NearestID  = DynamicMesh3::InvalidID;
             FindNearestTri( RootIndex, P, NearestDistSqr, NearestID, Options );
             return NearestID;
+        }
+
+        // UE FindNearestHitTriangle: the triangle the ray (Origin + t Direction, t >= 0) meets first, and its t in
+        // NearestT; InvalidID (NearestT = max) when it meets none. Direction need not be unit length.
+        int FindNearestHitTriangle( const glm::dvec3& Origin, const glm::dvec3& Direction, double& NearestT,
+                                    const QueryOptions& Options = QueryOptions() ) const
+        {
+            assert( IsValid() );
+            NearestT  = std::numeric_limits<double>::max();
+            int HitID = DynamicMesh3::InvalidID;
+            if ( RootIndex >= 0 )
+                FindHitTriangle( RootIndex, Origin, Direction, NearestT, HitID, Options );
+            return HitID;
         }
 
         // Every crossing between this tree's triangles and OtherTree's. IntersectionFn runs the pair test
@@ -390,6 +405,98 @@ namespace Desert::Geometry
             m_Mesh->GetTriVertices( ti, Tri.V[0], Tri.V[1], Tri.V[2] );
             DistPoint3Triangle3<double> Dist( P, Tri );
             return Dist.GetSquared();
+        }
+
+        // UE FIntrRay3AxisAlignedBox3d::FindIntersection (slab test) on box IBox widened by the tree's epsilon:
+        // the ray parameter where it enters the box (0 when it starts inside), or max when it misses.
+        double BoxRayHitT( int IBox, const glm::dvec3& O, const glm::dvec3& D ) const
+        {
+            const glm::dvec3& c    = BoxCenters[static_cast<size_t>( IBox )];
+            const glm::dvec3  e    = BoxExtents[static_cast<size_t>( IBox )] + glm::dvec3( m_BoxEps );
+            double            tMin = 0.0, tMax = std::numeric_limits<double>::max();
+            for ( int a = 0; a < 3; ++a )
+            {
+                const double lo = c[a] - e[a], hi = c[a] + e[a];
+                if ( std::fabs( D[a] ) < 1e-300 )
+                {
+                    if ( O[a] < lo || O[a] > hi )
+                        return std::numeric_limits<double>::max();
+                    continue;
+                }
+                double t0 = ( lo - O[a] ) / D[a], t1 = ( hi - O[a] ) / D[a];
+                if ( t0 > t1 )
+                    std::swap( t0, t1 );
+                tMin = std::max( tMin, t0 );
+                tMax = std::min( tMax, t1 );
+                if ( tMin > tMax )
+                    return std::numeric_limits<double>::max();
+            }
+            return tMin;
+        }
+
+        // UE IntrRay3Triangle3 (Moller-Trumbore): the ray parameter of the hit, or max when it misses.
+        double TriRayHitT( int ti, const glm::dvec3& O, const glm::dvec3& D ) const
+        {
+            glm::dvec3 a, b, c;
+            m_Mesh->GetTriVertices( ti, a, b, c );
+            const glm::dvec3 e1 = b - a, e2 = c - a;
+            const glm::dvec3 p   = glm::cross( D, e2 );
+            const double     det = glm::dot( e1, p );
+            if ( std::fabs( det ) < 1e-300 )
+                return std::numeric_limits<double>::max();
+            const double     inv = 1.0 / det;
+            const glm::dvec3 s   = O - a;
+            const double     u   = glm::dot( s, p ) * inv;
+            if ( u < 0.0 || u > 1.0 )
+                return std::numeric_limits<double>::max();
+            const glm::dvec3 q = glm::cross( s, e1 );
+            const double     v = glm::dot( D, q ) * inv;
+            if ( v < 0.0 || u + v > 1.0 )
+                return std::numeric_limits<double>::max();
+            const double t = glm::dot( e2, q ) * inv;
+            return t >= 0.0 ? t : std::numeric_limits<double>::max();
+        }
+
+        void FindHitTriangle( int IBox, const glm::dvec3& O, const glm::dvec3& D, double& NearestT, int& TID,
+                              const QueryOptions& Options ) const
+        {
+            const int idx = BoxToIndex[static_cast<size_t>( IBox )];
+            if ( idx < TrianglesEnd )
+            {
+                const int NumTris = IndexList[static_cast<size_t>( idx )];
+                for ( int i = 1; i <= NumTris; ++i )
+                {
+                    const int ti = IndexList[static_cast<size_t>( idx + i )];
+                    if ( Options.TriangleFilter && !Options.TriangleFilter( ti ) )
+                        continue;
+                    const double t = TriRayHitT( ti, O, D );
+                    if ( t < NearestT )
+                    {
+                        NearestT = t;
+                        TID      = ti;
+                    }
+                }
+                return;
+            }
+            int iChild1 = IndexList[static_cast<size_t>( idx )];
+            if ( iChild1 < 0 )
+            {
+                iChild1 = ( -iChild1 ) - 1;
+                if ( BoxRayHitT( iChild1, O, D ) <= NearestT )
+                    FindHitTriangle( iChild1, O, D, NearestT, TID, Options );
+                return;
+            }
+            iChild1           = iChild1 - 1;
+            const int    iChild2 = IndexList[static_cast<size_t>( idx + 1 )] - 1;
+            const double t1      = BoxRayHitT( iChild1, O, D );
+            const double t2      = BoxRayHitT( iChild2, O, D );
+            const bool   first1  = t1 <= t2;
+            const int    iNear = first1 ? iChild1 : iChild2, iFar = first1 ? iChild2 : iChild1;
+            const double tNear = first1 ? t1 : t2, tFar = first1 ? t2 : t1;
+            if ( tNear <= NearestT )
+                FindHitTriangle( iNear, O, D, NearestT, TID, Options );
+            if ( tFar <= NearestT )
+                FindHitTriangle( iFar, O, D, NearestT, TID, Options );
         }
 
         void FindNearestTri( int IBox, const glm::dvec3& P, double& NearestDistSqr, int& TID,

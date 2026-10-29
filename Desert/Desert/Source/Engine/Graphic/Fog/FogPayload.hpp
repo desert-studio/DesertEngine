@@ -55,7 +55,8 @@ namespace Desert::Graphic
         //   View:  xy = the scene view's size (render pixels), z = the AP volume's far extent (km,
         //          AtmosphereEnv::AerialPerspectiveDepthKm), w = the read-side view-distance scale
         //          (AtmosphereEnv::AerialPerspectiveViewDistanceScale)
-        //   Gates: x = 1 when there is an AP volume to sample, y = 1 when the height fog itself is enabled.
+        //   Gates: x = 1 when there is an AP volume to sample, y = 1 when the height fog itself is enabled,
+        //          z = ViewFrame::PreExposure (the inscattering is written multiplied by it, the transmittance not).
         //          Either at 0 makes its half the exact arithmetic identity (fog-without-sky, sky-without-fog
         //          and both from one shader, no permutation); both 0 = no fog this frame, every reader leaves
         //          its colour untouched.
@@ -95,8 +96,9 @@ namespace Desert::Graphic
     struct FogPush
     {
         glm::mat4 InverseViewProjection;
-        // The camera position, the aerial-perspective extent and the two gates are in FogGpuPayload (Camera, View,
-        // Gates): the translucent surfaces read them too, and they have the block, not this push constant.
+        // The camera position, the aerial-perspective extent, the two gates and the pre-exposure are in
+        // FogGpuPayload (Camera, View, Gates): the translucent surfaces read them too, and they have the block, not
+        // this push constant.
     };
 
     static_assert( sizeof( FogPush ) == 64 );

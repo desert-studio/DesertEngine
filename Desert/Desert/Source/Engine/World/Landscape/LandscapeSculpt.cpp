@@ -23,8 +23,7 @@ namespace Desert::World::Landscape
     {
         std::string RectName( const LandscapeSampleBounds& r )
         {
-            return "(" + std::to_string( r.X1 ) + ", " + std::to_string( r.Z1 ) + ")..(" + std::to_string( r.X2 ) +
-                   ", " + std::to_string( r.Z2 ) + ")";
+            return std::format( "({}, {})..({}, {})", r.X1, r.Z1, r.X2, r.Z2 );
         }
 
         LandscapeSampleBounds Intersect( const LandscapeSampleBounds& a, const LandscapeSampleBounds& b )
@@ -310,13 +309,12 @@ namespace Desert::World::Landscape
     Common::BoolResultStr ValidateLandscapeSmooth( const LandscapeSmoothSettings& s )
     {
         if ( s.FilterKernelRadius < kLandscapeSmoothMinRadius || s.FilterKernelRadius > kLandscapeSmoothMaxRadius )
-            return Common::MakeError( "landscape smooth: filter kernel radius " +
-                                      std::to_string( s.FilterKernelRadius ) + " outside " +
-                                      std::to_string( kLandscapeSmoothMinRadius ) + ".." +
-                                      std::to_string( kLandscapeSmoothMaxRadius ) );
+            return Common::MakeError( std::format( "landscape smooth: filter kernel radius {} outside {}..{}",
+                                                   s.FilterKernelRadius, kLandscapeSmoothMinRadius,
+                                                   kLandscapeSmoothMaxRadius ) );
         if ( !( s.DetailScale >= 0.0f && s.DetailScale <= kLandscapeMaxDetailScale ) )
-            return Common::MakeError( "landscape smooth: detail scale " + std::to_string( s.DetailScale ) +
-                                      " outside 0.." + std::to_string( kLandscapeMaxDetailScale ) );
+            return Common::MakeError( std::format( "landscape smooth: detail scale {:f} outside 0..{:f}",
+                                                   s.DetailScale, kLandscapeMaxDetailScale ) );
         return Common::MakeSuccess( true );
     }
 
@@ -324,23 +322,21 @@ namespace Desert::World::Landscape
     {
         if ( !( s.TerraceIntervalCm >= kLandscapeMinTerraceIntervalCm &&
                 s.TerraceIntervalCm <= kLandscapeMaxTerraceIntervalCm ) )
-            return Common::MakeError( "landscape flatten: terrace interval " +
-                                      std::to_string( s.TerraceIntervalCm ) + " cm outside " +
-                                      std::to_string( kLandscapeMinTerraceIntervalCm ) + ".." +
-                                      std::to_string( kLandscapeMaxTerraceIntervalCm ) );
+            return Common::MakeError( std::format(
+                 "landscape flatten: terrace interval {:f} cm outside {:f}..{:f}", s.TerraceIntervalCm,
+                 kLandscapeMinTerraceIntervalCm, kLandscapeMaxTerraceIntervalCm ) );
         if ( !( s.TerraceSmooth >= kLandscapeMinTerraceSmooth && s.TerraceSmooth <= kLandscapeMaxTerraceSmooth ) )
-            return Common::MakeError( "landscape flatten: terrace smooth " + std::to_string( s.TerraceSmooth ) +
-                                      " outside " + std::to_string( kLandscapeMinTerraceSmooth ) + ".." +
-                                      std::to_string( kLandscapeMaxTerraceSmooth ) );
+            return Common::MakeError( std::format( "landscape flatten: terrace smooth {:f} outside {:f}..{:f}",
+                                                   s.TerraceSmooth, kLandscapeMinTerraceSmooth,
+                                                   kLandscapeMaxTerraceSmooth ) );
         return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr ValidateLandscapeNoise( const LandscapeNoiseSettings& s )
     {
         if ( !( s.NoiseScale >= kLandscapeMinNoiseScale && s.NoiseScale <= kLandscapeMaxNoiseScale ) )
-            return Common::MakeError( "landscape noise: scale " + std::to_string( s.NoiseScale ) + " outside " +
-                                      std::to_string( kLandscapeMinNoiseScale ) + ".." +
-                                      std::to_string( kLandscapeMaxNoiseScale ) );
+            return Common::MakeError( std::format( "landscape noise: scale {:f} outside {:f}..{:f}", s.NoiseScale,
+                                                   kLandscapeMinNoiseScale, kLandscapeMaxNoiseScale ) );
         return Common::MakeSuccess( true );
     }
 
@@ -905,11 +901,11 @@ namespace Desert::World::Landscape
     Common::BoolResultStr ValidateLandscapeRamp( const LandscapeRampSettings& s )
     {
         if ( !( s.WidthCm >= kLandscapeMinRampWidthCm ) )
-            return Common::MakeError( "landscape ramp: width " + std::to_string( s.WidthCm ) + " cm below " +
-                                      std::to_string( kLandscapeMinRampWidthCm ) );
+            return Common::MakeError(
+                 std::format( "landscape ramp: width {:f} cm below {:f}", s.WidthCm, kLandscapeMinRampWidthCm ) );
         if ( !( s.SideFalloff >= 0.0f && s.SideFalloff <= 1.0f ) )
-            return Common::MakeError( "landscape ramp: side falloff " + std::to_string( s.SideFalloff ) +
-                                      " outside 0..1" );
+            return Common::MakeError(
+                 std::format( "landscape ramp: side falloff {:f} outside 0..1", s.SideFalloff ) );
         return Common::MakeSuccess( true );
     }
 
@@ -932,8 +928,8 @@ namespace Desert::World::Landscape
         const glm::dvec2 cross( dir.y, -dir.x );
         const double     len = glm::length( cross );
         if ( !( len > 1.e-8 ) )
-            return Common::MakeError( "landscape ramp: start and end coincide at lattice (" +
-                                      std::to_string( points[0].x ) + ", " + std::to_string( points[0].y ) + ")" );
+            return Common::MakeError( std::format(
+                 "landscape ramp: start and end coincide at lattice ({:f}, {:f})", points[0].x, points[0].y ) );
         const glm::dvec2 side      = cross / len;
         const glm::dvec2 innerSide = side *
                                      static_cast<double>( ramp.WidthCm * 0.5f * ( 1.0f - ramp.SideFalloff ) ) /
@@ -1018,37 +1014,37 @@ namespace Desert::World::Landscape
     Common::BoolResultStr ValidateLandscapeErosion( const LandscapeErosionSettings& s )
     {
         if ( s.Threshold < 0 || s.Threshold > kLandscapeMaxErosionThreshold )
-            return Common::MakeError( "landscape erosion: threshold " + std::to_string( s.Threshold ) +
-                                      " outside 0.." + std::to_string( kLandscapeMaxErosionThreshold ) );
+            return Common::MakeError( std::format( "landscape erosion: threshold {} outside 0..{}", s.Threshold,
+                                                   kLandscapeMaxErosionThreshold ) );
         if ( s.Iterations < 1 || s.Iterations > kLandscapeMaxErosionIterations )
-            return Common::MakeError( "landscape erosion: iterations " + std::to_string( s.Iterations ) +
-                                      " outside 1.." + std::to_string( kLandscapeMaxErosionIterations ) );
+            return Common::MakeError( std::format( "landscape erosion: iterations {} outside 1..{}", s.Iterations,
+                                                   kLandscapeMaxErosionIterations ) );
         if ( !( s.NoiseScale >= kLandscapeMinNoiseScale && s.NoiseScale <= kLandscapeMaxNoiseScale ) )
-            return Common::MakeError( "landscape erosion: noise scale " + std::to_string( s.NoiseScale ) +
-                                      " outside " + std::to_string( kLandscapeMinNoiseScale ) + ".." +
-                                      std::to_string( kLandscapeMaxNoiseScale ) );
+            return Common::MakeError( std::format( "landscape erosion: noise scale {:f} outside {:f}..{:f}",
+                                                   s.NoiseScale, kLandscapeMinNoiseScale,
+                                                   kLandscapeMaxNoiseScale ) );
         return Common::MakeSuccess( true );
     }
 
     Common::BoolResultStr ValidateLandscapeHydroErosion( const LandscapeHydroErosionSettings& s )
     {
         if ( s.RainAmount < 1 || s.RainAmount > kLandscapeMaxRainAmount )
-            return Common::MakeError( "landscape hydro erosion: rain amount " + std::to_string( s.RainAmount ) +
-                                      " outside 1.." + std::to_string( kLandscapeMaxRainAmount ) );
+            return Common::MakeError( std::format( "landscape hydro erosion: rain amount {} outside 1..{}",
+                                                   s.RainAmount, kLandscapeMaxRainAmount ) );
         if ( !( s.SedimentCapacity >= kLandscapeMinSedimentCapacity && s.SedimentCapacity <= 1.0f ) )
-            return Common::MakeError( "landscape hydro erosion: sediment capacity " +
-                                      std::to_string( s.SedimentCapacity ) + " outside " +
-                                      std::to_string( kLandscapeMinSedimentCapacity ) + "..1" );
+            return Common::MakeError(
+                 std::format( "landscape hydro erosion: sediment capacity {:f} outside {:f}..1",
+                              s.SedimentCapacity, kLandscapeMinSedimentCapacity ) );
         if ( s.Iterations < 1 || s.Iterations > kLandscapeMaxErosionIterations )
-            return Common::MakeError( "landscape hydro erosion: iterations " + std::to_string( s.Iterations ) +
-                                      " outside 1.." + std::to_string( kLandscapeMaxErosionIterations ) );
+            return Common::MakeError( std::format( "landscape hydro erosion: iterations {} outside 1..{}",
+                                                   s.Iterations, kLandscapeMaxErosionIterations ) );
         if ( !( s.RainScale >= kLandscapeMinNoiseScale && s.RainScale <= kLandscapeMaxNoiseScale ) )
-            return Common::MakeError( "landscape hydro erosion: rain scale " + std::to_string( s.RainScale ) +
-                                      " outside " + std::to_string( kLandscapeMinNoiseScale ) + ".." +
-                                      std::to_string( kLandscapeMaxNoiseScale ) );
+            return Common::MakeError( std::format( "landscape hydro erosion: rain scale {:f} outside {:f}..{:f}",
+                                                   s.RainScale, kLandscapeMinNoiseScale,
+                                                   kLandscapeMaxNoiseScale ) );
         if ( !( s.DetailScale >= 0.0f && s.DetailScale <= kLandscapeMaxHydroDetailScale ) )
-            return Common::MakeError( "landscape hydro erosion: detail scale " + std::to_string( s.DetailScale ) +
-                                      " outside 0.." + std::to_string( kLandscapeMaxHydroDetailScale ) );
+            return Common::MakeError( std::format( "landscape hydro erosion: detail scale {:f} outside 0..{:f}",
+                                                   s.DetailScale, kLandscapeMaxHydroDetailScale ) );
         return Common::MakeSuccess( true );
     }
 

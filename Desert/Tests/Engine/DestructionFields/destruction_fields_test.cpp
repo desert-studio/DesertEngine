@@ -4,7 +4,7 @@
 
 #include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/Destruction/DestructionWorld.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 

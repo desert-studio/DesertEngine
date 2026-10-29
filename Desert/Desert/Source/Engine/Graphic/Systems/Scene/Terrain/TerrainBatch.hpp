@@ -8,13 +8,17 @@
 
 #include <algorithm>
 #include <array>
+#include <memory>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <Common/Json/Template.hpp>
 
 namespace Desert::Graphic
 {
@@ -76,22 +80,34 @@ namespace Desert::Graphic::System
         // Per layer, four to a vec4 like the pages: 1 = the layer is NoWeightBlend (UE LB_AlphaBlend), laid
         // over the weight blend.
         std::array<glm::vec4, 2> LayerAlphaBlend{};
+        // Per layer, four to a vec4 like the pages: the landscape material's input that names this layer's
+        // LayerName (TerrainLayerInputs; -1: no input does, the layer keeps its colour).
+        std::array<glm::vec4, 2> LayerInput{ glm::vec4( -1.0f ), glm::vec4( -1.0f ) };
+        // Per material input k: its slice in the albedo, normal, ARM and height arrays (x, y, z, w; -1 = the
+        // input has no map of that kind - flat colour, flat normal, AO/roughness 1, height 0.5).
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> InputSlices{};
+        // x = the input the GROUND draws with (the root's first layer, by name; -1 = none), yzw unused.
+        glm::vec4 GroundInput{ -1.0f, 0.0f, 0.0f, 0.0f };
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert( sizeof( TerrainInstance ) == 17 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay seventeen 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
-                   "reads these offsets" );
+    static_assert(
+         sizeof( TerrainInstance ) == 28 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay twenty-eight 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         "reads these offsets" );
     static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
                         offsetof( TerrainInstance, LandscapeTile ) == 64 &&
                         offsetof( TerrainInstance, LodEdges ) == 80 &&
                         offsetof( TerrainInstance, LodCorners ) == 96 &&
                         offsetof( TerrainInstance, LayerColors ) == 112 &&
-                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240,
+                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
+                        offsetof( TerrainInstance, LayerInput ) == 272 &&
+                        offsetof( TerrainInstance, InputSlices ) == 304 &&
+                        offsetof( TerrainInstance, GroundInput ) == 432,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -103,13 +119,22 @@ namespace Desert::Graphic::System
     // ground.
     struct LandscapeWeightDraw
     {
-        Image2D*                                                           Weightmap  = nullptr;
+        std::shared_ptr<Image2D> Weightmap;
+        // Bumped by LandscapeECSSystem whenever it rewrites the weightmap's pixels (a paint stroke): the
+        // ray-tracing BLAS of the tile reclassifies its hole cells on a change, and a cached local shadow whose
+        // caster discards by the visibility layer keys on it (TerrainRenderer::LocalShadowSignature).
+        uint64_t                                                           Revision   = 0;
         uint32_t                                                           LayerCount = 0;
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> Colors{};
         std::array<glm::vec4, 2>                                           AlphaBlend{};
+        // Per tile layer, its LayerName (empty for a layer the root does not name and for the visibility
+        // layer): the key TerrainRenderer matches against the material's inputs (UE's LayerBlend LayerName).
+        std::array<std::string, World::Landscape::kLandscapeMaxWeightLayers> LayerNames{};
         // The root's first layer colour (rgb) with a = 1, or a = 0 when the root names no layer - drawn
         // where the tile has no weightmap or its layers leave a pixel unclaimed.
         glm::vec4 Ground{ 0.0f };
+        // That first layer's LayerName (empty when the root names none): the ground's material input.
+        std::string GroundLayer;
         // The tile layer that is its visibility mask (LandscapeWeightChannels::Visibility), -1 for none: the
         // surface and the shadow caster discard where it reaches 0.5 (UE's Landscape Visibility Mask).
         int32_t VisibilityLayer = -1;
@@ -131,6 +156,10 @@ namespace Desert::Graphic::System
         uint32_t QuadsPerTile = 0u;
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
+        // The tile's entity (its GPU-scene motion row and ray-tracing state are keyed by it), and the revision
+        // of the heightmap's pixels, bumped whenever LandscapeECSSystem rewrites them (sculpt, neighbour ring).
+        uint32_t Entity         = 0u;
+        uint64_t HeightRevision = 0u;
     };
 
     // ── Landscape LOD ───────────────────────────────────────────────────────────────────────────────
@@ -141,8 +170,10 @@ namespace Desert::Graphic::System
     // (ComputeBoundsScreenRadiusSquared), adapted: the UE proxy's LOD0ScreenSize / LOD0DistributionSetting /
     // LODDistributionSetting / LODBlendRange are UE's defaults as constants (no per-landscape override yet),
     // no r.StaticMeshLODDistanceScale, and MaxLOD is the last stride-2^L grid of the tile (LandscapeLod.glslh)
-    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD, from the main camera,
-    // for every pass — the cascades draw the camera's vertices, so a shadow cannot swim against its caster.
+    // instead of the heightmap's last mip. The whole tile takes ONE continuous LOD per view: the main camera's
+    // for the camera's passes and the cascades (they draw the camera's vertices, so a sun shadow cannot swim
+    // against its caster), and a point/spot light's own, from its position, for that light's views — their
+    // depth is cached, and a camera-chosen LOD would redraw it on every camera move (TerrainRenderer).
     inline constexpr float kLandscapeLod0ScreenSize   = 0.5f;
     inline constexpr float kLandscapeLod0Distribution = 1.25f;
     inline constexpr float kLandscapeLodDistribution  = 3.0f;
@@ -251,16 +282,14 @@ namespace Desert::Graphic::System
         parts.reserve( overrides.Textures.size() + 2 );
         for ( const auto& [name, handle] : overrides.Textures )
             if ( handle != 0 )
-                parts.push_back( name + "=" + std::to_string( handle ) );
+                parts.push_back( std::format( "{}={}", name, handle ) );
         if ( heightmap != nullptr )
-            parts.push_back( "u_Heightmap=@" + std::to_string( std::bit_cast<uintptr_t>( heightmap ) ) );
+            parts.push_back( std::format( "HeightmapTexture=@{}", std::bit_cast<uintptr_t>( heightmap ) ) );
         if ( weightmap != nullptr )
-            parts.push_back( "u_Weightmap=@" + std::to_string( std::bit_cast<uintptr_t>( weightmap ) ) );
+            parts.push_back( std::format( "WeightmapTexture=@{}", std::bit_cast<uintptr_t>( weightmap ) ) );
         std::sort( parts.begin(), parts.end() );
 
-        std::string key;
-        for ( const auto& part : parts )
-            key += "|" + part;
-        return key;
+        // Every part is led by '|', so a key with no parts is empty.
+        return parts.empty() ? std::string() : std::format( "|{}", Common::Text::Join( parts, "|" ) );
     }
 } // namespace Desert::Graphic::System

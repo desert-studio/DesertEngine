@@ -6,6 +6,7 @@
 #include <Common/Core/UUID.hpp>
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -29,15 +30,21 @@
 #include <Engine/Animation/Timeline/Player.hpp>
 #include <Engine/Animation/Timeline/Sequence.hpp>
 
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Scripting/ScriptProperty.hpp>
 
 #include <CoreReflection/ReflectionMacros.hpp>
+
+namespace Desert::Assets::Serialization
+{
+    struct VFXSystemData;
+}
 #include <UI/Args/UIArgs.hpp>
 
 // Components big enough to own a file. They live in Desert::ECS like everything below, and are included
 // here so that "the components" remains one include for every consumer.
 #include <Engine/ECS/ExponentialHeightFogComponent.hpp>
+#include <Engine/ECS/LightUnits.hpp>
 #include <Engine/ECS/HeroCloudComponent.hpp>
 #include <Engine/ECS/ProceduralFoliageComponent.hpp>
 #include <Engine/ECS/DestructibleComponent.hpp>
@@ -46,12 +53,16 @@
 #include <Engine/ECS/WaterZoneComponent.hpp>
 #include <Engine/ECS/DestructionFieldComponents.hpp>
 #include <Engine/ECS/PostProcessVolumeComponent.hpp>
+#include <Engine/ECS/VolumeComponent.hpp>
 #include <Engine/ECS/ReflectionCaptureComponent.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
 #include <Engine/ECS/WindSourceComponent.hpp>
 #include <Engine/ECS/SkyAtmosphereComponent.hpp>
+#include <Engine/ECS/VFXPointSet.hpp>
+#include <Engine/ECS/VFXUserOverride.hpp>
 #include <Engine/ECS/TimeOfDayComponent.hpp>
 #include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <Engine/World/Landscape/LandscapeSplines.hpp>
 #include <Engine/World/Landscape/LandscapeLayout.hpp>
 #include <string_view>
 
@@ -149,9 +160,24 @@ namespace Desert::ECS
         glm::vec4   Value = glm::vec4( 0.0f );
     };
 
+    // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
+    // REFLECTED, so Details draws the mesh row from them and DesertCtl `set` addresses them (StaticMesh.MeshHandle,
+    // StaticMesh.MaterialSlots[0]); an edit re-states what depends on them through ECS::PostEditStaticMesh (UE
+    // PostEditChangeProperty). On disk they are these two fields' own keys, written by reflection as {Guid, Path}
+    // (asset references v1, Assets::kAssetRefSchemaTag); World Partition, HLOD and WorldGen read the same keys from
+    // raw records through Assets::StaticMeshComponentSer.
     struct StaticMeshComponent
     {
-        Assets::AssetHandle              MeshHandle;
+        REFLECT()
+
+        PROPERTY( DisplayName( "Static Mesh" ), Category( "Static Mesh" ), Summary, Asset<StaticMeshAsset>,
+                  Tooltip( "The mesh asset this component draws (UE StaticMesh). Ignored while a Primitive "
+                           "or an edited mesh is set; setting it clears both." ) )
+        Assets::AssetHandle MeshHandle;
+        // Drawn by the component's Materials list (one row per mesh section, as UE customizes OverrideMaterials).
+        PROPERTY( DisplayName( "Materials" ), Category( "Materials" ), Asset<MaterialAsset>, Hidden,
+                  Tooltip( "One material per mesh section (UE OverrideMaterials); a null slot takes the "
+                           "mesh's own section material." ) )
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
              RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
@@ -230,6 +256,9 @@ namespace Desert::ECS
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
                  RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+        // The displaced (base-cell) siblings of the same slots, drawn over the displaced twin (CONTRACT-DISPLACE
+        // §9.8); built when the mesh is displaced, empty otherwise. Transient like the cache above.
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
@@ -272,6 +301,8 @@ namespace Desert::ECS
         std::optional<Geometry::PrimitiveType>    Primitive;
         std::shared_ptr<DynamicMesh>              RuntimeMesh;
         std::vector<Graphic::MaterialInstancePtr> RuntimeMaterialInstances;
+        // The displaced siblings of the same slots (built when the mesh is displaced, empty otherwise).
+        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
         uint32_t                                  SeenMaterialsVersion = 0; // see StaticMeshComponent
 
         // `InstancesDirty` STOOD HERE, WRITTEN BY FIVE PLACES AND READ BY NONE. Every one of the five was
@@ -407,6 +438,10 @@ namespace Desert::ECS
         // layer's data lives on the tiles it touched (LandscapeTileData::EditLayers, in the DLHT blob), and a
         // tile's samples are their merge (MergeLandscapeEditLayers).
         World::Landscape::LandscapeEditLayerStack EditLayers;
+        // UE ULandscapeSplinesComponent: the landscape's spline control points and segments, world cm. They
+        // write the stack's Splines edit layer (RasterizeLandscapeSplines); the heights they make are that
+        // layer's data on the tiles, so a cooked landscape needs only the merged heights.
+        World::Landscape::LandscapeSplines Splines;
     };
 
     // ONE TILE OF A LANDSCAPE (UE: ALandscapeStreamingProxy of one component).
@@ -481,14 +516,15 @@ namespace Desert::ECS
          */
         bool UpdateAnimationInEditor = false;
 
-        // NO ROOT-MOTION FLAG. `bool EnableRootMotion` sat here, was written to every scene and prefab and
-        // drawn as a checkbox in Details, and NOTHING in the engine ever read it: there was no root-delta
-        // extraction in Animator, in AnimationECSSystem or in LocomotionSystem. A knob that cannot move a
-        // pixel is a stub wearing a feature's clothes (contract §1.3), and the honest removal is cheaper
-        // than a half-implementation. Reopening it is a feature with a design question attached — whether
-        // the delta drives the TransformComponent or the character controller, and what a crossfade between
-        // two clips with different root motion means — and that question belongs with the locomotion work,
-        // not with a checkbox nobody wired.
+        /**
+         * @brief UE ERootMotionMode (Animation/RootMotion.hpp). AUTHORED (scene + prefab block, by name; absent
+         *        = NoExtraction, UE's default). With RootMotionFromEverything the Animator locks the root bone
+         *        and AnimationECSSystem hands its movement, in world space, to the CharacterControllerComponent
+         *        of the entity's parent — consumed by CharacterMovement::Step as the planar velocity, UE
+         *        PhysWalking's root-motion velocity — or, with no controller, moves this entity's
+         *        TransformComponent itself. Play (and UpdateAnimationInEditor) only: a scrub moves nothing.
+         */
+        Animation::RootMotionMode RootMotion = Animation::RootMotionMode::NoExtraction;
 
         // Notify events of the Animator THIS frame (instant markers crossed, notify states begun / ended).
         // Filled by AnimationECSSystem, drained + dispatched to the entity's scripts (OnAnimationNotify /
@@ -874,15 +910,22 @@ namespace Desert::ECS
         REFLECT()
 
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature,
-                  Tooltip( "Tint of the illumination arriving at scene surfaces. The sun you SEE in the sky "
-                           "is the Sky Atmosphere component's Sun Color / Sun Intensity." ) )
+                  Tooltip( "Tint of the sun light (UE). With a Physical Atmosphere sky this is also the sun "
+                           "the sky scatters and the disc you see." ) )
         glm::vec3 Color = glm::vec3( 1.0f );
 
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ), Summary, Units( "x" ),
-                  Tooltip( "Brightness of the illumination arriving at scene surfaces. NOT a photometric "
-                           "unit (lux/candela): the renderer multiplies radiance by this number directly. "
-                           "The sun you SEE in the sky is the Sky Atmosphere component's Sun Color / Sun "
-                           "Intensity." ) )
+        // UE UDirectionalLightComponent::Intensity: ILLUMINANCE in lux on a surface facing the light (a clear
+        // midday sun is ~100 000 lux, an overcast day ~1 000, a full moon ~0.25). The renderer multiplies the BRDF
+        // by Color x Intensity directly - lux IS its unit, the same unit a point light's candelas reach a surface
+        // in (ECS::LightPhotometry) - and the exposure range (PostProcessSettings, EV100) is what makes a physical
+        // value look right. Scenes authored before units existed stated the same number; it was always lux.
+        // As in UE it is the OUTER-SPACE illuminance of the atmosphere sun: the Physical Atmosphere sky
+        // scatters exactly this (Graphic::SkySunInputs), and the ground receives it times the transmittance.
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 150000.0f ), Summary,
+                  Units( "lux" ),
+                  Tooltip( "Illuminance in lux on a surface facing the light (UE): ~100000 clear sun, ~1000 "
+                           "overcast, ~0.25 full moon. With a Physical Atmosphere sky this also drives the "
+                           "sky's brightness and the sun disc." ) )
         float Intensity = 1.0f;
 
         // Defaults to true so that every scene authored before this field existed keeps working: a field
@@ -892,10 +935,11 @@ namespace Desert::ECS
                   Tooltip( "This light drives the sky and the sky's IBL bake." ) )
         bool AtmosphereSunLight = true;
 
-        PROPERTY( DisplayName( "Atmosphere Sun Light Index" ), Category( "Atmosphere" ), Range( 0, 0 ),
+        PROPERTY( DisplayName( "Atmosphere Sun Light Index" ), Category( "Atmosphere" ), Range( 0, 1 ),
                   EditCondition( "AtmosphereSunLight" ),
-                  Tooltip( "The engine renders exactly one directional light; index 1 is reserved for a "
-                           "future second sun." ) )
+                  Tooltip( "0 = the sun, 1 = a second atmosphere light such as the moon (UE). Both light the "
+                           "sky, draw a disc and light the scene; the time-of-day clock and the cascaded "
+                           "shadows belong to index 0." ) )
         int AtmosphereSunLightIndex = 0;
 
         // UE's "Affected By Atmosphere Transmittance", same name, same default (ON): in
@@ -915,6 +959,14 @@ namespace Desert::ECS
                            "sun at ground level, so it reddens and dims at sunset. Physical Atmosphere "
                            "only." ) )
         bool AffectedByAtmosphereTransmittance = true;
+
+        // UE UDirectionalLightComponent::AtmosphereSunDiskColorScale, same name, same default (white): scales
+        // ONLY the disc the physical sky draws for this sun — not the sky's scattering, not the surfaces.
+        // Scenes from before v57, whose sky had its own sun numbers, state here what their disc was.
+        PROPERTY( DisplayName( "Atmosphere Sun Disk Color Scale" ), Category( "Atmosphere" ), Color,
+                  EditCondition( "AtmosphereSunLight" ),
+                  Tooltip( "Scales the sun disc the Physical Atmosphere sky draws for this light (UE)." ) )
+        glm::vec3 AtmosphereSunDiskColorScale = glm::vec3( 1.0f );
 
         // ---- Light Shafts (UE's category, UE's names, UE's defaults) ----------------------------------
         // The screen-space sun streaks: a bright-pass of the HDR scene around the sun's position on
@@ -1035,14 +1087,8 @@ namespace Desert::ECS
         DirectionalLightData Data;
     };
 
-    // Distance falloff model for a point light. Reflected enum — drives a combo in the editor and
-    // round-trips through reflected serialization. (Consumed by the lighting upload path later.)
-    enum class LightFalloff
-    {
-        Linear,
-        Quadratic,
-        InverseSquare
-    };
+    // LightFalloff and LightUnits (UE ELightUnits) live in Engine/ECS/LightUnits.hpp, next to the one conversion
+    // the renderer applies (LightPhotometry::ShaderIntensity).
 
     struct PointLightData
     {
@@ -1051,10 +1097,20 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature )
         glm::vec3 Color = glm::vec3( 1.0f );
 
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ), Summary, Units( "x" ),
-                  Tooltip( "Linear multiplier on the light colour. NOT a photometric unit (lux/candela): "
-                           "the renderer multiplies radiance by this number directly." ) )
-        float Intensity = 1.0f;
+        // UE ULocalLightComponent::Intensity / IntensityUnits: the value in the units beside it (default 8 cd, as
+        // UE). Switching the units in Details re-states the value so the brightness holds (EditorPostEdit); the
+        // renderer reads it only through LightPhotometry::ShaderIntensity. Physical units need InverseSquare.
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 100000.0f ), Summary,
+                  Tooltip( "Brightness in Intensity Units. Candelas: 1 cd lights a surface 1 m away with 1 lux; "
+                           "Lumens: total flux (a 60 W bulb ~800 lm, a street lamp ~2500 lm); EV100: 2^(EV-3) cd; "
+                           "Unitless: the renderer's multiplier at Min Radius. Physical units apply to "
+                           "Inverse Square falloff only." ) )
+        float Intensity = 8.0f;
+
+        PROPERTY( DisplayName( "Intensity Units" ), Category( "Light" ),
+                  Tooltip( "What Intensity is measured in (UE Intensity Units). Changing it converts the value "
+                           "so the light keeps its brightness." ) )
+        LightUnits IntensityUnits = LightUnits::Candelas;
 
         PROPERTY( DisplayName( "Radius" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Summary )
         float Radius = 1000.0f;
@@ -1064,30 +1120,36 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Min Radius" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Advanced )
         float MinRadius = 0.0f;
 
+        // UE ULocalLightComponent::SourceRadius: the emitter is a sphere of this radius, not a point. Traced
+        // shadows (MegaLights, Shadows Stochastic) aim each ray at a point of that sphere, so a shadow is sharp
+        // at its caster and widens with the distance to the receiver. 0 = a point (a hard shadow).
+        PROPERTY( DisplayName( "Source Radius" ), Category( "Light" ), Range( 0.0f, 1000.0f ), Length, Advanced )
+        float SourceRadius = 0.0f;
+
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
-        LightFalloff Falloff = LightFalloff::Quadratic;
+        LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default
 
         PROPERTY( DisplayName( "Show Radius" ), Category( "Light" ) )
         bool ShowRadius = false;
 
         // THE POINT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
         // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
-        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // read by the deferred composite. The two biases are applied by every CASTER of the light's views (the
+        // meshes and the terrain alike, Graphic::LocalCasterBias), in SHADOW-MAP TEXELS at the caster, not
         // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
         // would be too much next to the lamp and too little across the room.
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
         bool CastShadows = true;
 
-        PROPERTY(
-             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
-             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
-                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+                  Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
+                           "that caster. Larger hides acne and detaches contact shadows." ) )
         float ShadowBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
                   Units( "texels" ),
-                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
-                           "a slope of 4)." ) )
+                  Tooltip( "Extra bias of a caster the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 1, 45 degrees - the one clamp every shadow caster has)." ) )
         float ShadowSlopeBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
@@ -1147,13 +1209,28 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Color" ), Category( "Light" ), Color, Temperature )
         glm::vec3 Color = glm::vec3( 1.0f );
 
-        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 10.0f ), Summary, Units( "x" ),
-                  Tooltip( "Linear multiplier on the light colour. NOT a photometric unit (lux/candela): "
-                           "the renderer multiplies radiance by this number directly." ) )
-        float Intensity = 1.0f;
+        // UE ULocalLightComponent::Intensity / IntensityUnits: the value in the units beside it (default 8 cd, as
+        // UE). Switching the units in Details re-states the value so the brightness holds (EditorPostEdit); the
+        // renderer reads it only through LightPhotometry::ShaderIntensity. Physical units need InverseSquare.
+        PROPERTY( DisplayName( "Intensity" ), Category( "Light" ), Range( 0.0f, 100000.0f ), Summary,
+                  Tooltip( "Brightness in Intensity Units. Candelas: 1 cd lights a surface 1 m away with 1 lux; "
+                           "Lumens: total flux (a 60 W bulb ~800 lm, a street lamp ~2500 lm); EV100: 2^(EV-3) cd; "
+                           "Unitless: the renderer's multiplier at Min Radius. Physical units apply to "
+                           "Inverse Square falloff only." ) )
+        float Intensity = 8.0f;
+
+        PROPERTY( DisplayName( "Intensity Units" ), Category( "Light" ),
+                  Tooltip( "What Intensity is measured in (UE Intensity Units). Changing it converts the value "
+                           "so the light keeps its brightness." ) )
+        LightUnits IntensityUnits = LightUnits::Candelas;
 
         PROPERTY( DisplayName( "Range" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Summary )
         float Range = 1500.0f;
+
+        // Inner radius where attenuation == 1 (the point light's Min Radius); falloff runs from here to Range.
+        // 0 = point source. An imported FBX spot sets 100 cm, so InverseSquare reads Intensity / d^2 in metres.
+        PROPERTY( DisplayName( "Min Radius" ), Category( "Light" ), Range( 0.0f, 10000.0f ), Length, Advanced )
+        float MinRadius = 0.0f;
 
         PROPERTY( DisplayName( "Inner Cone" ), Category( "Light" ), Range( 0.0f, 89.0f ), Units( "deg" ) )
         float InnerConeAngle = 20.0f; // degrees — full intensity inside this half-angle
@@ -1161,30 +1238,36 @@ namespace Desert::ECS
         PROPERTY( DisplayName( "Outer Cone" ), Category( "Light" ), Range( 0.0f, 90.0f ), Units( "deg" ), Summary )
         float OuterConeAngle = 30.0f; // degrees — zero intensity outside this half-angle
 
+        // UE ULocalLightComponent::SourceRadius: the emitter is a sphere of this radius, not a point. Traced
+        // shadows (MegaLights, Shadows Stochastic) aim each ray at a point of that sphere, so a shadow is sharp
+        // at its caster and widens with the distance to the receiver. 0 = a point (a hard shadow).
+        PROPERTY( DisplayName( "Source Radius" ), Category( "Light" ), Range( 0.0f, 1000.0f ), Length, Advanced )
+        float SourceRadius = 0.0f;
+
         PROPERTY( DisplayName( "Falloff" ), Category( "Light" ), Advanced )
-        LightFalloff Falloff = LightFalloff::Quadratic;
+        LightFalloff Falloff = LightFalloff::InverseSquare; // UE bUseInverseSquaredFalloff, on by default
 
         PROPERTY( DisplayName( "Show Cone" ), Category( "Light" ) )
         bool ShowCone = false;
 
         // THE SPOT LIGHT'S SHADOW (UE: ULightComponent::CastShadows / ShadowBias / ShadowSlopeBias /
         // ShadowResolutionScale). Drawn into the view's local-light shadow atlas (Graphic/LocalShadows.hpp) and
-        // read by the deferred composite. The two biases are in SHADOW-MAP TEXELS at the receiver, not
+        // read by the deferred composite. The two biases are applied by every CASTER of the light's views (the
+        // meshes and the terrain alike, Graphic::LocalCasterBias), in SHADOW-MAP TEXELS at the caster, not
         // centimetres: one texel of a perspective map grows with the distance from the light, so a fixed length
         // would be too much next to the lamp and too little across the room.
         PROPERTY( DisplayName( "Cast Shadows" ), Category( "Shadows" ) )
         bool CastShadows = true;
 
-        PROPERTY(
-             DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
-             Tooltip( "How far a receiver is moved toward the light before its depth is compared, in "
-                      "shadow-map texels at that receiver. Larger hides acne and detaches contact shadows." ) )
+        PROPERTY( DisplayName( "Shadow Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ), Units( "texels" ),
+                  Tooltip( "How far every caster's depth is pushed away from the light, in shadow-map texels at "
+                           "that caster. Larger hides acne and detaches contact shadows." ) )
         float ShadowBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Slope Bias" ), Category( "Shadows" ), Range( 0.0f, 10.0f ),
                   Units( "texels" ),
-                  Tooltip( "Extra bias of a receiver the light grazes, in texels per unit of slope (clamped at "
-                           "a slope of 4)." ) )
+                  Tooltip( "Extra bias of a caster the light grazes, in texels per unit of slope (clamped at "
+                           "a slope of 1, 45 degrees - the one clamp every shadow caster has)." ) )
         float ShadowSlopeBias = 0.5f;
 
         PROPERTY( DisplayName( "Shadow Resolution Scale" ), Category( "Shadows" ), Range( 0.125f, 4.0f ),
@@ -1253,6 +1336,60 @@ namespace Desert::ECS
         // UE bAutoActivate: false = the system is placed but bears no particles until it is activated.
         PROPERTY( DisplayName( "Auto Activate" ), Category( "VFX" ) )
         bool AutoActivate = true;
+
+        // UE UNiagaraComponent::OverrideParameters: this placement's values for the system's User parameters
+        // (a parameter absent here plays its Default from the `.dfx`). Read by the spawn plan (VFXWorld) and the
+        // GPU parameter rows (ParticleWorldGpu) every tick. Drawn by the VFX entry's "User Parameters" section,
+        // which lists the SYSTEM's rows (a name, a type, a default) - a bare list of name/value pairs cannot.
+        PROPERTY( DisplayName( "User Parameters" ), Category( "VFX" ), Hidden,
+                  Tooltip( "This placement's values for the system's User parameters" ) )
+        std::vector<VFXUserOverride> Overrides;
+
+        // VFX-15: this placement's point sets, painted in VFX Paint mode and read by the stack's PointSet.<name>
+        // bindings (engine:ShapePointSet). Level data, like Overrides: two placements of one system differ by it.
+        PROPERTY( DisplayName( "Point Sets" ), Category( "VFX" ), Hidden,
+                  Tooltip( "The point sets painted for this placement (VFX Paint mode)" ) )
+        std::vector<VFXPointSet> PointSets;
+
+        /// The set named @p name, or null.
+        [[nodiscard]] const VFXPointSet* FindPointSet( std::string_view name ) const
+        {
+            for ( const VFXPointSet& s : PointSets )
+                if ( s.Name == name )
+                    return &s;
+            return nullptr;
+        }
+
+        /// UE SetVariable*: this placement's User.<name> becomes @p value (packed like the row's Default),
+        /// starting from the next VFX tick. The type is the system's to check (VFX.setVariable does).
+        void SetVariable( std::string_view name, const glm::vec4& value )
+        {
+            for ( VFXUserOverride& o : Overrides )
+                if ( o.Name == name )
+                {
+                    o.Value = value;
+                    return;
+                }
+            Overrides.push_back( VFXUserOverride{ std::string( name ), value } );
+        }
+
+        /// The parameter plays its Default again (UE: resetting an override in the Details panel).
+        void ClearVariable( std::string_view name )
+        {
+            std::erase_if( Overrides, [&]( const VFXUserOverride& o ) { return o.Name == name; } );
+        }
+    };
+
+    /// A Level Sequence's hold on an effect (UE: UNiagaraComponent under a Niagara system track - Activate /
+    /// Deactivate plus AgeUpdateMode DesiredAge): Active = the playhead is inside one of its VFX track's
+    /// sections and the effect stands at AgeSeconds (VFXWorld replays this instance's fixed steps to it);
+    /// inactive = outside every section, the instance holds no particles.
+    struct VFXSequencerDrive
+    {
+        bool   Active     = false;
+        double AgeSeconds = 0.0;
+
+        bool operator==( const VFXSequencerDrive& ) const = default;
     };
 
     struct VFXComponent
@@ -1262,6 +1399,17 @@ namespace Desert::ECS
 
         // One-shot restart from the editor (every emitter of the system starts over). Transient - not reflected.
         bool RequestRestart = false;
+
+        // The VFX System editor's working copy (UE: the Niagara editor previews its own copy of the system, not
+        // the asset): when set, this component plays it instead of what Data.System names. Set only on the
+        // preview scene's effect, never on a level's; a new pointer is a new system - every emitter starts over.
+        // Transient - not reflected.
+        std::shared_ptr<const Assets::Serialization::VFXSystemData> EditedSystem;
+
+        // Set by a Level Sequence's VFX track (LevelSequenceEntityHost::DriveEffect); nullopt = the effect runs on
+        // the world's time as authored. While set, this instance's age is the sequence's - the scene's delta and
+        // AutoActivate do not move it. The Sequencer preview gives it back on Restore. Transient - not reflected.
+        std::optional<VFXSequencerDrive> SequencerDrive;
     };
 
     // ============================================================
@@ -1794,6 +1942,18 @@ namespace Desert::ECS
         // replaced by the swim intent (+1 up, -1 down) at Max Swim Speed.
         bool  Swimming     = false;
         float SwimVertical = 0.0f;
+
+        // ROOT MOTION (UE ACharacter::RootMotionParams, consumed by the CharacterMovementComponent). Written by
+        // AnimationECSSystem when this character's skinned child plays with RootMotionFromEverything — this
+        // frame's root movement converted to world space and divided by the animation step (UE
+        // CalcAnimRootMotionVelocity) — and consumed by every fixed step of this frame's physics, where it
+        // REPLACES the planar velocity the input would have produced (gravity and jumps still act). Cleared by
+        // PhysicsECSSystem after the frame's step, so a character whose animation stopped is the input's again.
+        // RootMotionRotation is the frame's turn about world up; PhysicsECSSystem — the one writer of a
+        // character's transform — applies it with the step's position (UE: the CMC rotates the actor).
+        bool      HasRootMotion      = false;
+        glm::vec3 RootMotionVelocity = { 0.0f, 0.0f, 0.0f };       // cm/s, world
+        glm::quat RootMotionRotation = { 1.0f, 0.0f, 0.0f, 0.0f }; // world yaw delta
     };
 
     // UE USpringArmComponent: on a child entity of the pawn, whose rotation is the arm's (scripts pitch it, the
@@ -1898,6 +2058,14 @@ namespace Desert::ECS
                   Tooltip( "How wide the slice is; 360 is the whole circle." ) )
         float SectorAngle = 360.0f;
 
+        // A VIEW AS A SOURCE: a camera that streams what it looks at (a narrow lens reaching far) states the
+        // range and priority; the angle follows the lens as gameplay changes the camera's Field of View.
+        PROPERTY( DisplayName( "Angle From Camera" ), Category( "Streaming Source" ), EditCondition( "IsSector" ),
+                  Tooltip( "On = the slice is as wide as this entity's Camera sees across: its Field of View "
+                           "widened by the viewport's width over height, following every change of it. Sector "
+                           "Angle is not used. The entity must have a Camera." ) )
+        bool SectorAngleFromCamera = false;
+
         PROPERTY( DisplayName( "Shape Offset" ), Category( "Streaming Source" ), Length,
                   Tooltip( "Where the shape's centre sits from the entity, in its own axes (cm): X right, Z "
                            "backward. Height is ignored." ) )
@@ -1912,12 +2080,56 @@ namespace Desert::ECS
                   Tooltip( "On = cells the entity is moving toward load first (UE's "
                            "bUseVelocityContributionToCellsSorting); it never changes which cells load." ) )
         bool UseVelocityForSorting = false;
+
+        // UE's FWorldPartitionStreamingSource::TargetGrids: a camera streaming only the near grid's small props,
+        // a cinematic only the main grid. A name the world has no grid of streams nothing and is an Issue of the
+        // world's plan (Rules::PlanWorldPartition, Entities[i].StreamingSource.TargetGrids). Details draws it as
+        // a pick of the world's grid names (ComponentEditorRegistrations.cpp, MakeStreamingSourceEntry).
+        PROPERTY( DisplayName( "Target Grids" ), Category( "Streaming Source" ),
+                  Tooltip( "The World Partition grids this source streams, by name; empty = every grid." ),
+                  Hidden )
+        std::vector<std::string> TargetGrids;
+
+        // THE LOOK-AHEAD (Rules::StreamingSource): a plane or a car streams the cells it is about to reach, not
+        // only those around it. UE has no such setting; there a game adds a predicted source by hand.
+        PROPERTY( DisplayName( "Look Ahead Time" ), Category( "Streaming Source" ), Units( "s" ),
+                  Range( 0.0f, 120.0f ),
+                  Tooltip( "Cells along the entity's path load ahead of time: the loading shape reaches as far "
+                           "as the entity travels in this many seconds at its present speed (on the ground). "
+                           "0 = only around where it is. About how long a cell takes to load." ) )
+        float LookAheadTime = 0.0f;
+
+        PROPERTY( DisplayName( "Max Look Ahead" ), Category( "Streaming Source" ), Length,
+                  Range( 0.0f, 10000000.0f ),
+                  Tooltip( "The farthest ahead the loading shape reaches however fast the entity moves (cm), "
+                           "so a teleport or a burst of speed does not request half the world." ) )
+        float MaxLookAhead = 100000.0f;
     };
 
     struct StreamingSourceComponent
     {
         COMPONENT( Key( "StreamingSource" ), Block( Data ), Run( ActorsAndUI ) )
         StreamingSourceData Data;
+    };
+
+    // WHICH RUNTIME GRID OF A PARTITIONED WORLD THIS ENTITY STREAMS ON - UE's AActor::RuntimeGrid (WP22). Absent
+    // = the world's first grid, UE's main grid, so there is no present-and-empty second spelling of "main": an
+    // empty or unknown name is refused by the planner with the entity's path (Rules::PlanWorldPartition). A
+    // composite streams on its anchor's grid; the grid sets the cell size and the loading range it uses.
+    struct RuntimeGridData
+    {
+        REFLECT()
+
+        PROPERTY( DisplayName( "Runtime Grid" ), Category( "World Partition" ),
+                  Tooltip( "The name of the World Partition grid this entity streams on; the grid's cell size "
+                           "and loading range apply to it." ) )
+        std::string Grid;
+    };
+
+    struct RuntimeGridComponent
+    {
+        COMPONENT( Key( "RuntimeGrid" ), Block( Data ), Run( ActorsAndUI ) )
+        RuntimeGridData Data;
     };
 
     // Attaches a Lua script to an entity. The ScriptSystem loads the file and calls its OnStart()/OnUpdate(dt);
@@ -1961,9 +2173,8 @@ namespace Desert::ECS
         std::string ScriptKey;
 
         // The file ScriptKey names, on THIS host, in THIS project, right now. One place, so no call site
-        // can forget the resolution and reintroduce the defect above; PathForStableKey returns an
-        // untagged string unchanged, so a key the tag table does not know still behaves exactly as the
-        // old rooted spelling did rather than silently becoming something else.
+        // can forget the resolution and reintroduce the defect above; PathForStableKey refuses a
+        // bare relative string by name (an empty path: no script), so no reader guesses a root for it.
         std::filesystem::path ResolvedPath() const
         {
             return Common::AssetHandle::PathForStableKey( ScriptKey );

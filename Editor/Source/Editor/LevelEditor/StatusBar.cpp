@@ -8,12 +8,14 @@
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/ThemeManager.hpp"
-#include "Editor/Import/BackgroundCook.hpp"
+#include "Editor/LevelEditor/AssetCompiling.hpp"
 #include "Editor/LevelEditor/DocumentHost.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
+#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
+#include "Editor/Widgets/MeshLODRows.hpp"
 #include <Common/Core/Version.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -26,6 +28,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <format>
+#include <optional>
 #include <string>
 
 namespace Desert::Editor
@@ -96,10 +100,9 @@ namespace Desert::Editor
         m_DrawBottomDrawerToggle();
         ImGui::SameLine( 0.0f, 12.0f );
 
-        if ( m_BackgroundCook && m_BackgroundCook->Outstanding() > 0 )
+        if ( const std::size_t cooking = m_Compiling.RemainingAssets(); cooking > 0 )
         {
-            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu of %zu mesh source(s)",
-                                 m_BackgroundCook->Outstanding(), m_BackgroundCook->Total() );
+            ImGui::TextDisabled( ICON_MDI_COG " Cooking %zu mesh source(s)", cooking );
             ImGui::SameLine( 0.0f, 12.0f );
         }
 
@@ -134,9 +137,31 @@ namespace Desert::Editor
         else if ( const auto sel = Core::SelectionManager::GetSelected() )
         {
             std::string selName = "Entity";
+            // THE LEVEL THE SELECTED MESH IS DRAWN AT, beside its name and always on screen. The same answer
+            // the Details "Level of Detail" table marks (MeshLODRows::DrawingLevel — the renderer's own
+            // SelectLOD with the active camera), but that section is collapsed by default and sits below the
+            // material slots, so a reader looking at the viewport could not see which level is up.
+            std::optional<std::size_t> drawnLevel;
             if ( auto e = m_Workspace.ActiveScene()->FindEntityByID( *sel ) )
-                selName = e->get().GetComponent<ECS::TagComponent>().Tag;
-            ImGui::TextDisabled( ICON_MDI_CURSOR_DEFAULT_OUTLINE " %s", selName.c_str() );
+            {
+                const ECS::Entity& entity = e->get();
+                selName                   = entity.GetComponent<ECS::TagComponent>().Tag;
+                if ( entity.HasComponent<ECS::StaticMeshComponent>() )
+                {
+                    const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
+                    if ( const ::Desert::Mesh* mesh = ResolveDrawnMesh( entity );
+                         mesh != nullptr && MeshLODRows::LevelCount( *mesh ) > 1 )
+                        drawnLevel = MeshLODRows::DrawingLevel( m_Workspace.ActiveScene().get(), entity, *mesh,
+                                                                smc.ForcedLOD, smc.LODBias );
+                }
+            }
+            if ( drawnLevel )
+                ImGui::TextDisabled( "%s", std::format( ICON_MDI_CURSOR_DEFAULT_OUTLINE " {}  " ICON_MDI_LAYERS_TRIPLE
+                                                        " LOD {}",
+                                                        selName, *drawnLevel )
+                                                .c_str() );
+            else
+                ImGui::TextDisabled( ICON_MDI_CURSOR_DEFAULT_OUTLINE " %s", selName.c_str() );
         }
         else
         {
@@ -156,6 +181,16 @@ namespace Desert::Editor
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Triangles in the VISIBLE meshes of this scene (LOD 0)." );
         }
+        // What the active view actually DREW last frame, at the level each mesh was drawn with (Auto, or a
+        // forced / previewed LOD): UE's stat "Triangles drawn" beside the scene's content count.
+        if ( const std::optional<uint64_t> drawn = ViewportPanel::ActiveViewportTrianglesDrawn() )
+        {
+            ImGui::SameLine( 0.0f, 8.0f );
+            ImGui::TextDisabled( "(%s drawn)", FormatThousands( *drawn ).c_str() );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Triangles the active viewport drew last frame, at the LOD each mesh was "
+                                   "drawn with (view pass; shadows and GPU-instanced foliage not counted)." );
+        }
 
         // HOW MANY DOCUMENTS, AND HOW MUCH OF THE VIEW BUDGET IS GONE. A count of documents is not the number
         // that matters; the memory the views hold against the device-local budget is, which is why they are
@@ -163,8 +198,8 @@ namespace Desert::Editor
         ImGui::SameLine( 0.0f, 16.0f );
         {
             uint64_t held = 0;
-            for ( const Engine::ViewBudget::HeldView& view : Graphic::SceneRenderer::LiveHoldings() )
-                held += view.Bytes;
+            for ( const Engine::ViewBudget::HeldView& entry : Graphic::ReadBudgetHoldings() ) // views + scenes
+                held += entry.Bytes;
             const uint64_t                    pending = PendingViewBytes( m_Documents.Documents().Documents() );
             const Engine::ViewBudget::Reading reading = Graphic::ReadViewBudget();
 

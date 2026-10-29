@@ -136,18 +136,23 @@ struct CloudFieldParams
     // CloudProceduralLevelOriginKm decides each corner and snaps it to the level's own voxel, and the march
     // only asks which window a position is inside. Level 0 is the finest (side RegionSize / 4), level
     // CLOUD_PROCEDURAL_CLIP_LEVELS - 1 is the whole region. Common/CloudParams.glslh fills it from
-    // u_CloudLevel[k].
+    // CloudLevel[k].
     vec4 ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS];
 
     // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather .y and .w): x the weather strength, y 1 / the
-    // weather's period in km. A vec2 because the payload's x and z are unread (Graphic::kCloudUnreadSlots) —
-    // the Coverage slider is the bake's (CUT-AT-BAKE) — and the unpack fetches only what is read, as
+    // weather's period in km. A vec2 because x is FarScale and z is Coverage, below — and the unpack fetches
+    // only what is read, as
     // LayoutStrength does (WX-PAINT-b). A MEMBER AND NOT A MACRO, because
-    // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
+    // it is a value of the parameter block and not a sampler: a macro naming CloudWeather was read here,
     // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
     // as macros; every block value arrives here through CloudUnpackFieldParams.
     vec2 Weather;
+    // THE COVERAGE SLIDER (Graphic::CloudGpuPayload::Weather.z, WTH-CLOUDS): the threshold the march cuts the
+    // baked field by (CloudCoverageThreshold) — no longer a bake input, so the weather can move it every frame.
+    float Coverage;
+    // PER SPECIES, the share of Coverage that species' channel is cut at (CloudSpeciesCover, WTH-OVERCAST).
+    vec4 SpeciesCover;
     // THE FAR PATH (CLOUD-SEAM24): FarScale the read scale of the world weather map that draws the far
     // column field, 1/km (Assets::CloudFarFieldScale); per height band, per species, the coarsest level's
     // share of cloud voxels and their mean profile (Assets::CloudProceduralFarStatistics). Zero draws no
@@ -477,7 +482,7 @@ vec4 CloudSampleProceduralFar( CloudFieldParams params, float heightFraction, ve
 // level itself. The finest level that holds the column answers; inside its blend band it is lerped toward
 // the next coarser level — and the coarsest toward the far path (CLOUD-SEAM24) — so a second read is paid
 // only in a band. Returns the four species channels.
-vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction, vec3 windPos )
+vec4 CloudSampleProceduralBaked( CloudFieldParams params, float heightFraction, vec3 windPos )
 {
     vec2  column = vec2( windPos.x, windPos.z );
     int   level  = CloudProceduralLevelOf( params, column );
@@ -493,6 +498,28 @@ vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction,
                        ? CloudSampleProceduralFar( params, heightFraction, column )
                        : CLOUD_SAMPLE_MODELLING( CloudProceduralLevelUvw( params, level + 1, heightFraction, windPos ) );
     return mix( coarse, fine, weight );
+}
+
+// THE COVERAGE THRESHOLD, READ BY THE MARCH (WTH-CLOUDS; owner 10-12, cloud-coverage-is-a-field):
+// Assets::CloudProceduralCoverageRemap, `remap(field, 1 - coverage, 1, 0, 1)` — Unreal's Volumetric Cloud and
+// Nubis's weather-map remap — on the field the bake builds WITHOUT the slider. Coverage used to be a bake
+// input, so a value moving every frame (the weather's Clear -> Rain over 60 s) superseded its own pending bake
+// and the sky never changed until the value stopped; here it is four ALU per sample at every Coverage.
+// PER CHANNEL since WTH-OVERCAST: each species is cut at its own coverage (the layer's Coverage times that type's
+// weight), so the weather can take one type out of the sky while bringing another in.
+vec4 CloudCoverageThreshold( vec4 field, vec4 coverage )
+{
+    vec4 c   = clamp( coverage, vec4( 0.0f ), vec4( 1.0f ) );
+    vec4 cut = clamp( ( field - ( vec4( 1.0f ) - c ) ) / max( c, vec4( 1e-4f ) ), vec4( 0.0f ), vec4( 1.0f ) );
+    return mix( vec4( 0.0f ), cut, greaterThan( c, vec4( 0.0f ) ) );
+}
+
+// The read every consumer takes: the baked level (or the far path) cut by this frame's Coverage, so the march,
+// the shadow map, the sky occlusion and the diagnostic views all see one threshold.
+vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction, vec3 windPos )
+{
+    return CloudCoverageThreshold( CloudSampleProceduralBaked( params, heightFraction, windPos ),
+                                   vec4( params.Coverage ) * params.SpeciesCover );
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -529,7 +556,7 @@ vec2 CloudLayoutUv( vec4 place, vec2 windPosXz )
 // pattern is bound (Unreal's Layout, per pixel), else the world weather map W = 1 - smoothstep(f - d, f + d,
 // Phi(w)), f = 1 - s, d = CLOUD_WEATHER_SHORE * min(f, s): one where there is weather, true zeros where the sky
 // is clear (Assets::CloudWeatherPresence, FIELD-GRAIN-b); plus the mask, which adds. The Coverage slider is not
-// in it: the bake chose the clusters by it.
+// in it: CloudCoverageThreshold cut the field by it first.
 #define CLOUD_WEATHER_SHORE 0.15f // Assets::kCloudWeatherShore
 
 float CloudWeatherPresence( float strength, float w )
@@ -643,7 +670,7 @@ CloudFieldSample CloudSampleProceduralField( CloudFieldParams params, float heig
     }
 
     // THE BAKE CHOSE THE CLUSTERS; THE WEATHER IS APPLIED HERE (CUT-AT-BAKE). The winning species' profile is
-    // the form, already cut per cluster by the Coverage slider; the weather the world (or the painting) leaves
+    // the form, cut by the Coverage slider in CloudSampleProceduralVolume (WTH-CLOUDS); the weather the world (or the painting) leaves
     // this column remaps it, as Nubis's weather map does — continuous in both factors, so the seam between a
     // live and an absent cloud is the profile's own surface and never a voxel column.
     vec2  weather    = params.Weather;

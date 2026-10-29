@@ -7,6 +7,7 @@
 #include <Common/Json/Json.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <format>
@@ -25,12 +26,18 @@ namespace Desert::Assets::Serialization
                  settings.Skeleton
                       ? std::optional<std::string>( Common::Content::AssetGuidToText( *settings.Skeleton ) )
                       : std::nullopt,
-                 settings.SpecularMap == Assets::FbxSpecularMap::Specular
+                 settings.SpecularMap == Assets::FbxSpecularMap::FromImage
                       ? std::nullopt
                       : std::optional<std::string>( Assets::FbxSpecularMapName( settings.SpecularMap ) ),
                  settings.FileUnit == Assets::MeshFileUnit::FromFile
                       ? std::nullopt
-                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ) };
+                      : std::optional<std::string>( Assets::MeshFileUnitName( settings.FileUnit ) ),
+                 settings.Mesh.Displacement == Assets::MeshDisplacementMode::None
+                      ? std::nullopt
+                      : std::optional<std::string>( Assets::MeshDisplacementModeName( settings.Mesh.Displacement ) ),
+                 settings.Mesh.DisplacementBake == Assets::MeshDisplacementBakeSettings{}
+                      ? std::nullopt
+                      : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -59,7 +66,7 @@ namespace Desert::Assets::Serialization
             const auto specular = Assets::FbxSpecularMapFromName( *text.SpecularMap );
             if ( !specular )
                 return Common::MakeFormattedError<Result>(
-                     "import settings name Specular map meaning '{}'; this build knows Specular, "
+                     "import settings name Specular map meaning '{}'; this build knows FromImage, Specular, "
                      "OcclusionRoughnessMetallic and RoughnessMetallic",
                      *text.SpecularMap );
             out.SpecularMap = *specular;
@@ -74,6 +81,23 @@ namespace Desert::Assets::Serialization
                      *text.FileUnit );
             out.FileUnit = *unit;
         }
+        if ( text.Displacement )
+        {
+            const auto mode = Assets::MeshDisplacementModeFromName( *text.Displacement );
+            if ( !mode )
+                return Common::MakeFormattedError<Result>(
+                     "import settings name displacement mode '{}'; this build knows None, Runtime and Baked",
+                     *text.Displacement );
+            out.Mesh.Displacement = *mode;
+        }
+        if ( text.DisplacementEdgeLengthCm )
+        {
+            if ( !std::isfinite( *text.DisplacementEdgeLengthCm ) || *text.DisplacementEdgeLengthCm <= 0.0f )
+                return Common::MakeFormattedError<Result>(
+                     "import settings state displacement edge length {} cm, not a finite positive number",
+                     *text.DisplacementEdgeLengthCm );
+            out.Mesh.DisplacementBake.EdgeLengthCm = *text.DisplacementEdgeLengthCm;
+        }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
         out.Mesh.UpAxis       = *axis;
@@ -87,6 +111,49 @@ namespace Desert::Assets::Serialization
         return kind == ContentKind::StaticMesh || kind == ContentKind::SkinnedMesh ||
                kind == ContentKind::Skeleton || kind == ContentKind::Animation;
     }
+
+    namespace
+    {
+        bool Finite3( const std::array<float, 3>& v )
+        {
+            return std::isfinite( v[0] ) && std::isfinite( v[1] ) && std::isfinite( v[2] );
+        }
+
+        // What is wrong with @p light as a record states it; empty when nothing is.
+        std::string ImportRecordLightDefect( const ImportRecordLight& light )
+        {
+            if ( light.Name.empty() )
+                return "has no Name";
+            const bool known = std::ranges::find( ImportRecordLightTypes, std::string_view( light.Type ) ) !=
+                               ImportRecordLightTypes.end();
+            if ( !known )
+                return std::format( "states Type '{}'; a light is Point, Spot or Directional", light.Type );
+            if ( !Finite3( light.Position ) || !Finite3( light.Direction ) || !Finite3( light.Color ) )
+                return "states a Position, Direction or Color that is not finite";
+            const float length =
+                 std::sqrt( light.Direction[0] * light.Direction[0] + light.Direction[1] * light.Direction[1] +
+                            light.Direction[2] * light.Direction[2] );
+            if ( std::abs( length - 1.0f ) > 1e-3f )
+                return std::format( "states a Direction of length {}, not a unit direction", length );
+            if ( light.Color[0] < 0.0f || light.Color[1] < 0.0f || light.Color[2] < 0.0f )
+                return "states a negative Color";
+            if ( !std::isfinite( light.Intensity ) || light.Intensity < 0.0f )
+                return std::format( "states Intensity {}, not a finite number >= 0", light.Intensity );
+            if ( light.Radius && ( !std::isfinite( *light.Radius ) || *light.Radius <= 0.0f ) )
+                return std::format( "states Radius {}, not a finite number > 0", *light.Radius );
+            if ( light.Type == "Directional" && light.Radius )
+                return "is directional and states a Radius";
+            const bool spot = light.Type == "Spot";
+            if ( spot != ( light.InnerConeAngle.has_value() && light.OuterConeAngle.has_value() ) ||
+                 ( !spot && ( light.InnerConeAngle || light.OuterConeAngle ) ) )
+                return "states cone angles: a spot light states both, every other light neither";
+            if ( spot && !( *light.InnerConeAngle >= 0.0f && *light.InnerConeAngle <= *light.OuterConeAngle &&
+                            *light.OuterConeAngle <= 180.0f ) )
+                return std::format( "states cones {} and {} degrees; 0 <= inner <= outer <= 180",
+                                    *light.InnerConeAngle, *light.OuterConeAngle );
+            return {};
+        }
+    } // namespace
 
     Common::ResultStr<ImportRecordData> ParseImportRecord( const std::string& text )
     {
@@ -130,6 +197,16 @@ namespace Desert::Assets::Serialization
                     return Common::MakeFormattedError<ImportRecordData>(
                          "import record: the Placement of node '{}' is not finite", node.Name );
             }
+        if ( data.Lights )
+        {
+            if ( data.Lights->empty() )
+                return Common::MakeFormattedError<ImportRecordData>(
+                     "import record states an empty Lights: a file with no light is written as no key" );
+            for ( const ImportRecordLight& light : *data.Lights )
+                if ( const std::string defect = ImportRecordLightDefect( light ); !defect.empty() )
+                    return Common::MakeFormattedError<ImportRecordData>( "import record: light '{}' {}",
+                                                                         light.Name, defect );
+        }
         if ( data.Thumbnail )
         {
             if ( data.Thumbnail->empty() )
@@ -339,6 +416,61 @@ namespace Desert::Assets::Serialization
         return Common::MakeSuccess( *kind );
     }
 
+    namespace
+    {
+        std::optional<ImportRecordData::Box> RecordBox( const std::optional<Common::Math::AABB>& bounds )
+        {
+            if ( !bounds )
+                return std::nullopt;
+            return ImportRecordData::Box{ { bounds->Min.x, bounds->Min.y, bounds->Min.z },
+                                          { bounds->Max.x, bounds->Max.y, bounds->Max.z } };
+        }
+
+        // What of an import @p data does not state yet (empty: it states all of it) - the one comparison
+        // EnsureImportRecord rewrites by and ReadCurrentImportRecord refuses by.
+        std::string ImportRecordDifference( const ImportRecordData& data, const Common::Content::ContentKind kind,
+                                            const std::optional<ImportRecordData::Box>& box,
+                                            const Assets::SourceImportSettings&         settings )
+        {
+            // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
+            bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
+            if ( data.Settings )
+                if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
+                    sameSettings = stated.GetValue() == settings;
+            if ( !sameSettings )
+                return "other import options";
+            // No box (a file with no mesh: a skeleton and its clips) leaves the stated box as it is.
+            if ( box && !( data.Bounds && data.Bounds->Min == box->Min && data.Bounds->Max == box->Max ) )
+                return "another box";
+            if ( !( data.Header && data.Header->Kind == Common::Content::KindName( kind ) ) )
+                return std::format( "another kind than {}", Common::Content::KindName( kind ) );
+            return {};
+        }
+    } // namespace
+
+    Common::ResultStr<Common::Content::AssetGuid>
+    ReadCurrentImportRecord( const std::filesystem::path& source, const Common::Content::ContentKind kind,
+                             const std::optional<Common::Math::AABB>& bounds,
+                             const Assets::SourceImportSettings&      settings )
+    {
+        using Common::Content::AssetGuid;
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        if ( auto guid = ReadImportRecordGuid( source ); !guid )
+            return guid;
+        const auto held = HeldRecordFor( record );
+        if ( !held )
+            return Common::MakeFormattedError<AssetGuid>( "'{}' was removed while it was read", record.string() );
+        if ( !held->Data )
+            return Common::MakeFormattedError<AssetGuid>( "{}", held->Error );
+        if ( const std::string differs =
+                  ImportRecordDifference( *held->Data, kind, RecordBox( bounds ), settings );
+             !differs.empty() )
+            return Common::MakeFormattedError<AssetGuid>( "'{}' states {} than this import of '{}'",
+                                                          record.generic_string(), differs,
+                                                          source.generic_string() );
+        return ReadImportRecordGuid( source );
+    }
+
     Common::ResultStr<Common::Content::AssetGuid>
     EnsureImportRecord( const std::filesystem::path& source, const Common::Content::ContentKind kind,
                         const std::optional<Common::Math::AABB>& bounds,
@@ -346,10 +478,7 @@ namespace Desert::Assets::Serialization
     {
         using Common::Content::AssetGuid;
         const std::filesystem::path          record = Common::Content::ImportRecordPathFor( source );
-        std::optional<ImportRecordData::Box> box;
-        if ( bounds )
-            box = ImportRecordData::Box{ { bounds->Min.x, bounds->Min.y, bounds->Min.z },
-                                         { bounds->Max.x, bounds->Max.y, bounds->Max.z } };
+        const std::optional<ImportRecordData::Box> box    = RecordBox( bounds );
         ImportRecordData            data;
         std::error_code             ec;
         if ( std::filesystem::is_regular_file( Common::Constants::Path::FullPath( record ), ec ) )
@@ -366,16 +495,7 @@ namespace Desert::Assets::Serialization
             if ( !stored )
                 return Common::MakeFormattedError<AssetGuid>( "{}", held->Error );
             data = *stored;
-            // No Settings key IS UE's defaults (ReadImportRecordSettings), so a default import matches it.
-            bool sameSettings = !data.Settings && settings == Assets::SourceImportSettings{};
-            if ( data.Settings )
-                if ( const auto stated = ImportSettingsFromText( *data.Settings ) )
-                    sameSettings = stated.GetValue() == settings;
-            // No box (a file with no mesh: a skeleton and its clips) leaves the stated box as it is.
-            const bool sameBox =
-                 !box || ( data.Bounds && data.Bounds->Min == box->Min && data.Bounds->Max == box->Max );
-            const bool sameKind = data.Header && data.Header->Kind == Common::Content::KindName( kind );
-            if ( sameBox && sameSettings && sameKind )
+            if ( ImportRecordDifference( data, kind, box, settings ).empty() )
                 return ReadImportRecordGuid( source );
         }
         else
@@ -422,6 +542,36 @@ namespace Desert::Assets::Serialization
             return Common::MakeSuccess( ThumbnailOrbit{} );
         const auto it = thumbnail->find( meshFile );
         return Common::MakeSuccess( it == thumbnail->end() ? ThumbnailOrbit{} : Resolve( it->second ) );
+    }
+
+    Common::BoolResultStr SetImportRecordLights( const std::filesystem::path&          source,
+                                                 const std::vector<ImportRecordLight>& lights )
+    {
+        const std::filesystem::path record = Common::Content::ImportRecordPathFor( source );
+        for ( const ImportRecordLight& light : lights )
+            if ( const std::string defect = ImportRecordLightDefect( light ); !defect.empty() )
+                return Common::MakeFormattedError<bool>( "'{}': light '{}' {}", record.string(), light.Name,
+                                                         defect );
+        auto data = ReadImportRecord( source );
+        if ( !data )
+            return Common::MakeError<bool>( data.GetError() );
+        const auto& stored = data.GetValue();
+        if ( !stored.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' does not exist, so its lights cannot be recorded",
+                                                     record.string() );
+        ImportRecordData                                    out = *stored;
+        const std::optional<std::vector<ImportRecordLight>> stated =
+             lights.empty() ? std::nullopt : std::optional<std::vector<ImportRecordLight>>( lights );
+        if ( out.Lights == stated )
+            return BOOLSUCCESS;
+        out.Lights = stated;
+        if ( !out.Header.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}' states no header", record.string() );
+        const auto kind = Common::Content::ContentKindNamed( out.Header->Kind );
+        const auto text = WriteImportRecord( out, kind.value_or( Common::Content::ContentKind::StaticMesh ) );
+        if ( !text )
+            return Common::MakeFormattedError<bool>( "'{}': {}", record.string(), text.GetError() );
+        return WriteRecordFile( record, text.GetValue() );
     }
 
     Common::BoolResultStr SetImportRecordNodes( const std::filesystem::path&                        source,

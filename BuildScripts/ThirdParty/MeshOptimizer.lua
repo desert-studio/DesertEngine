@@ -9,6 +9,13 @@ if not os.isfile( root .. "/src/meshoptimizer.h" ) then
            "or clone https://github.com/zeux/meshoptimizer into ThirdParty/meshoptimizer." )
 end
 
+-- The pinned release (scripts/MacOS/Setup.sh, scripts/Windows/Setup.bat): LOD reduction relies on its
+-- Permissive / Prune simplification options, so a stale clone is an error, not a silent older reducer.
+if not io.readfile( root .. "/src/meshoptimizer.h" ):find( "#define MESHOPTIMIZER_VERSION 1030", 1, true ) then
+    error( "ThirdParty/meshoptimizer is not v1.3. Re-run scripts/MacOS/Setup.sh (macOS) or " ..
+           "scripts\\Windows\\Setup.bat (Windows); they re-fetch a mismatched version." )
+end
+
 project "MeshOptimizer"
     kind "StaticLib"
     language "C++"

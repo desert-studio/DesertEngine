@@ -31,6 +31,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -330,8 +331,8 @@ namespace
         const INT_PTR code = reinterpret_cast<INT_PTR>( result );
         if ( code <= 32 )
         {
-            outStatus = "could not open the folder (ShellExecute error " + std::to_string( code ) +
-                        "): " + inDirectory.string();
+            outStatus = std::format( "could not open the folder (ShellExecute error {}): {}", code,
+                                     inDirectory.string() );
         }
         else
         {
@@ -870,8 +871,7 @@ int main( int inArgc, char** inArgv )
                     ImGui::EndTabItem();
                 }
 
-                const std::string logLabel =
-                     std::string( kIconLog ) + "  Log tail (" + std::to_string( report.log.size() ) + ")";
+                const std::string logLabel = std::format( "{}  Log tail ({})", kIconLog, report.log.size() );
                 if ( view.showLog && ImGui::BeginTabItem( logLabel.c_str() ) )
                 {
                     if ( !logWasOpen )
@@ -958,8 +958,8 @@ int main( int inArgc, char** inArgv )
                 // The WHOLE report file, [stack] section included - this is the only route the stack
                 // has out of the UI now that the stack card is gone.
                 ImGui::SetClipboardText( report.valid ? report.rawText.c_str() : report.error.c_str() );
-                status = "copied the full report (" + std::to_string( report.rawText.size() ) +
-                         " bytes, stack included) to the clipboard";
+                status = std::format( "copied the full report ({} bytes, stack included) to the clipboard",
+                                      report.rawText.size() );
             }
             ImGui::SameLine();
             ImGui::BeginDisabled( reportDirectory.empty() );

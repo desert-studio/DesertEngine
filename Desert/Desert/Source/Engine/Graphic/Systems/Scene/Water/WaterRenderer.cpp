@@ -13,6 +13,16 @@
 #include <cstddef>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct WaterShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, WaterUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, WaterTiles );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -25,6 +35,7 @@ namespace Desert::Graphic::System
             glm::vec4 CameraPos;
             glm::vec4 SunDir;
             glm::vec4 SunColor;
+            glm::vec4 Exposure; // x = ViewFrame::PreExposure, yzw unused
         };
 
         // Matches WaterTileRow (WaterTiles, binding 1).
@@ -112,6 +123,7 @@ namespace Desert::Graphic::System
         ub.CameraPos          = glm::vec4( observer, 1.0f );
         ub.SunDir             = glm::vec4( glm::normalize( glm::vec3( -0.4f, -0.85f, -0.35f ) ), 0.0f );
         ub.SunColor           = glm::vec4( 1.0f, 0.98f, 0.92f, 3.0f );
+        ub.Exposure           = glm::vec4( viewFrame->PreExposure, 0.0f, 0.0f, 0.0f );
         if ( const auto& lights = m_SceneRenderer->GetDirectionLights().DirectionLights; !lights.empty() )
         {
             ub.SunDir   = lights[0].Direction;
@@ -120,10 +132,10 @@ namespace Desert::Graphic::System
 
         // Uploaded up front at final size, before any draw records (the terrain's reason: growing a storage buffer
         // reallocates it under a draw already recorded against the old one).
-        if ( auto* block = m_Material->Get<UniformBufferProperty>( "WaterUB" ) )
+        if ( auto* block = m_Material->Get<UniformBufferProperty>( WaterShaderParameters::WaterUB ) )
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): a uniform block uploaded as bytes
             block->SetRawData( reinterpret_cast<const std::byte*>( &ub ), sizeof( ub ) );
-        if ( auto* tiles = m_Material->Get<StorageBufferProperty>( "WaterTiles" ) )
+        if ( auto* tiles = m_Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
             tiles->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( WaterTileRow ) ) );
     }
 

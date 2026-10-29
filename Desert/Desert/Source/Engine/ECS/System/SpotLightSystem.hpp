@@ -65,9 +65,16 @@ namespace Desert::ECS
 
                      Graphic::ShaderProtocols::SpotLightPayload light{};
                      light.Color     = spotlight.Data.Color;
-                     light.Intensity = spotlight.Data.Intensity;
+                     // The authored value in its units (UE USpotLightComponent: lumens spread over the OUTER
+                     // cone). The spot's falloff has no Min Radius (LightSources.glslh passes 0), so its reference
+                     // distance is the shader's floor - the same 0 handed to the one conversion here.
+                     light.Intensity = ECS::LightPhotometry::ShaderIntensity(
+                          spotlight.Data.Intensity, spotlight.Data.IntensityUnits, spotlight.Data.Falloff, 0.0f,
+                          glm::cos( outer ) );
                      light.Position  = glm::vec3( worldTransform[3] );
                      light.Range     = spotlight.Data.Range;
+                     light.SourceRadius = spotlight.Data.SourceRadius;
+                     light.MinRadius = spotlight.Data.MinRadius;
                      light.Direction = forward;
                      light.CosInner  = glm::cos( inner );
                      light.CosOuter  = glm::cos( outer );

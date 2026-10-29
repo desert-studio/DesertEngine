@@ -206,6 +206,10 @@ namespace Desert::ECS::CharacterMovement
                                    analog, 0.0f, 0.0f, 0.0f, dt );
             vertical -= gravity * dt;
         }
+        // UE PhysWalking / PhysFalling with HasAnimRootMotion: the animation's root velocity IS the planar
+        // velocity (no acceleration, friction or braking toward it); the vertical stays gravity's and the jump's.
+        if ( cc.HasRootMotion && !cc.Swimming )
+            planar = glm::vec3( cc.RootMotionVelocity.x, 0.0f, cc.RootMotionVelocity.z );
         cc.JumpRequested = false; // one-shot, consumed
 
         const glm::vec3 before = world.GetCharacterPosition( cc.RuntimeCharacter );

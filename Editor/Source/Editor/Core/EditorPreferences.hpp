@@ -16,7 +16,7 @@
 // this header only says where the editor's persisted copy lives.
 #include <Engine/Graphic/DebugViewState.hpp>
 
-#include "Editor/Widgets/PreviewEnvironment.hpp"
+#include "PreviewEnvironment.hpp"
 
 namespace Desert::Editor
 {
@@ -82,6 +82,9 @@ namespace Desert::Editor
         bool  PersistentSnap  = false;
         int   AutosaveMinutes = 5;     // 0 = autosave off
         bool  ShowPerfHud     = false; // in-viewport FPS / frame-graph / top-scopes overlay
+        // The loopback TCP port the script debugger's DAP server listens on when started (palette: Script
+        // Debugger ▸ Start). Per user: it is this person's VS Code launch.json that names it.
+        int ScriptDebugPort = 21110;
         // How many thumbnail pictures each thumbnail cache keeps as GPU textures (UE's FAssetThumbnailPool size,
         // 1024 in the Content Browser). The rest stay on disk and are decoded again when a tile shows them.
         // Read by ThumbnailCache on every upload; per machine, because it is this GPU's memory.

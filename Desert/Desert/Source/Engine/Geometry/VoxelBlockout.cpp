@@ -1,6 +1,7 @@
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Engine/Geometry/GreedyMesher.hpp>
+#include <Engine/Geometry/MikkTangents.hpp>
 
 #include <algorithm>
 #include <array>
@@ -9,6 +10,8 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <new>
+#include <span>
 #include <numeric>
 #include <string>
 
@@ -941,9 +944,8 @@ namespace Desert::Geometry::VoxelBlockout
                     }
             }
 
-            // UVs are taken in the frame (frame-aligned, so the texture turns with the grid) with a tangent
-            // frame that matches them (a normal map on a merged quad lines up with its texture); everything
-            // is then carried into the world by the frame.
+            // UVs are taken in the frame (frame-aligned, so the texture turns with the grid) and everything is
+            // carried into the world by the frame; the tangent frame is MikkTSpace's, per bucket below.
             Bucket&    b      = buckets[q.Material];
             const auto base   = static_cast<uint32_t>( b.Verts.size() );
             auto       vertex = [&]( const glm::vec3& p )
@@ -951,8 +953,6 @@ namespace Desert::Geometry::VoxelBlockout
                 Vertex v{};
                 v.Position  = q.Frame.ToWorldPoint( p );
                 v.Normal    = q.Frame.ToWorldVector( q.N );
-                v.Tangent   = q.Frame.ToWorldVector( q.Uv.T );
-                v.Bitangent = q.Frame.ToWorldVector( q.Uv.B );
                 v.TexCoord  = { glm::dot( p, q.Uv.T ) * kUvPerUnit, glm::dot( p, q.Uv.B ) * kUvPerUnit };
                 b.Verts.push_back( v );
             };
@@ -990,8 +990,11 @@ namespace Desert::Geometry::VoxelBlockout
         RenderMeshData out;
         for ( auto& [material, b] : buckets )
         {
+            // The engine's one tangent generator over the bucket (its indices are bucket-local).
+            if ( !ApplyMikkTangents( b.Verts, 0, std::span( b.Inds ) ) )
+                throw std::bad_alloc();
             Submesh sm{};
-            sm.Name         = "MaterialID " + std::to_string( material );
+            sm.Name         = std::format( "MaterialID {}", material );
             sm.VertexOffset = static_cast<uint32_t>( out.Vertices.size() );
             sm.VertexCount  = static_cast<uint32_t>( b.Verts.size() );
             sm.IndexOffset  = static_cast<uint32_t>( out.Indices.size() * 3 ); // uint32 units

@@ -492,6 +492,21 @@ namespace Desert::Editor
                     return Common::MakeFormattedError<bool>( "'{}': {}", label, created.GetError() );
                 return Common::MakeSuccess( true );
             }
+            case ContentBrowserCommand::DeleteToTrash:
+            {
+                // The menu's Delete without its confirm: into the project's trash, one undo step (Ctrl+Z or the
+                // Trash menu puts it back) - what a scripted step can take back, so it asks nothing.
+                std::vector<std::filesystem::path> paths;
+                paths.reserve( entries.size() );
+                for ( const DirectoryInformation* entry : entries )
+                    paths.emplace_back( entry->AssetPath );
+                const std::vector<std::string> refusals = DeleteAssetsWithUndo( paths );
+                m_Selection.Deselect();
+                m_On.OnRefresh();
+                if ( !refusals.empty() )
+                    return Common::MakeFormattedError<bool>( "'{}': {}", label, refusals.front() );
+                return Common::MakeSuccess( true );
+            }
             case ContentBrowserCommand::ClearSelection:
                 break; // answered above: it needs no selection
         }

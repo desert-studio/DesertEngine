@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "12fe8a31b660dcbb5691dc7d36768daa",
         "Versions": {
-            "MATL": 5
+            "MATL": 7
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44"]
     },
@@ -37,32 +37,23 @@
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
-            "Name": "AlphaCutoff",
-            "Value": [0.0, 0.0, 0.0, 0.0]
-        },
-        {
             "Name": "UVTiling",
             "Value": [1.0, 1.0, 0.0, 0.0]
         }
     ],
     "Textures": [
         {
-            "Name": "u_AlbedoTexture",
+            "Name": "AlbedoTexture",
             "Guid": "",
             "Path": ""
         },
         {
-            "Name": "u_NormalTexture",
+            "Name": "NormalTexture",
             "Guid": "",
             "Path": ""
         },
         {
-            "Name": "u_OpacityTexture",
-            "Guid": "",
-            "Path": ""
-        },
-        {
-            "Name": "u_EmissiveTexture",
+            "Name": "EmissiveTexture",
             "Guid": "",
             "Path": ""
         }

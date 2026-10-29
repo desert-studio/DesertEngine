@@ -1,0 +1,39 @@
+#ifndef MEGALIGHTS_DEMODULATION_GLSLH
+#define MEGALIGHTS_DEMODULATION_GLSLH
+
+// THE ONE DEMODULATION of the MegaLights local lighting (UE MegaLights: the denoiser filters lighting divided by the
+// surface's reflectance, so an albedo edge is not blurred into its neighbours). The lighting travels as two
+// signals, each with its own factor (UE MegaLights' diffuse and specular): the diffuse light divided by the
+// diffuse colour, the specular light by the split-sum specular reflectance - the specular colour weighed by the
+// environment BRDF (Karis' analytic fit, UE EnvBRDFApprox, so neither side needs the BRDF LUT). "MegaLights: Shade
+// Samples" divides by these factors before the denoiser, and the deferred composite's DESERT_MEGALIGHTS program
+// multiplies the denoised texels by the same factors of the same G-buffer texel: one function per factor, so the
+// two sides cannot drift and a pixel the denoiser left alone gets back exactly what was shaded. Each is floored so
+// a black (or metallic: no diffuse) surface is not divided by zero. Binding-free.
+
+vec2 MegaLightsEnvBRDFApprox(float roughness, float NoV)
+{
+	const vec4  c0  = vec4(-1.0, -0.0275, -0.572, 0.022);
+	const vec4  c1  = vec4(1.0, 0.0425, 1.04, -0.04);
+	const vec4  r   = roughness * c0 + c1;
+	const float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+	return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+
+// @p albedo / @p metallic: GBufferA.
+vec3 MegaLightsDiffuseReflectance(vec3 albedo, float metallic)
+{
+	return max(albedo * (1.0 - metallic), vec3(1e-3));
+}
+
+// @p roughness: GBufferB.a floored as the composite floors it (0.04); @p N / @p V: the unit world normal and the
+// unit direction toward the eye.
+vec3 MegaLightsSpecularReflectance(vec3 albedo, float metallic, float roughness, vec3 N, vec3 V)
+{
+	const float NoV = clamp(dot(N, V), 1e-4, 1.0);
+	const vec3  F0  = mix(vec3(0.04), albedo, metallic);
+	const vec2  AB  = MegaLightsEnvBRDFApprox(roughness, NoV);
+	return max(F0 * AB.x + AB.y, vec3(1e-3));
+}
+
+#endif // MEGALIGHTS_DEMODULATION_GLSLH

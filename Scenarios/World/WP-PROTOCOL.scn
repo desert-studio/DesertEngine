@@ -1,0 +1,13 @@
+# WP-PROTOCOL: builds the frozen World Partition world Scenes/WP_Protocol (decision 6 of the WP spec) from the
+# WorldGen landscape preset (`--cells 4 --cell-size 51000`: 4 x 4 tiles of 255 quads at 2 m, 2040 m, 9 MB of
+# heights) + 178 Main-grid buildings (the 4 km city cut to its central 1.94 km) + 400 Foliage-grid bushes + the Player (walks 200 m) and Plane (250 m/s,
+# source off) streaming sources: partition, 3 grids, HLOD (built cell by cell), save. 4 regions of 1 km (WP23).
+# Replay only to REBUILD the world; the WP scenarios open it as saved.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run Scene "Convert scene to World Partition"
+Дано set world WorldPartition '{"Grids":[{"Name":"Main","CellSize":2500,"LoadingRange":20000,"Priority":0,"HLODLayer":"HLOD_Main"},{"Name":"Foliage","CellSize":1280,"LoadingRange":6400,"Priority":0,"HLODLayer":"HLOD_Foliage"},{"Name":"LandscapeTiles","CellSize":5000,"LoadingRange":51000,"Priority":0,"HLODLayer":"HLOD_Landscape"}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Дано run Action "Save Scene"
+Дано run Scene "Build HLODs"
+Дано run Action "Save Scene"
+Дано run Panel "Open World Partition"
+Тогда 0_built WP_Protocol partitioned: World Partition panel lists grids Main, Foliage, LandscapeTiles with their HLOD layers; no issues

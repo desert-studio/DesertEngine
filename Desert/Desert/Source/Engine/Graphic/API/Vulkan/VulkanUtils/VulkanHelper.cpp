@@ -1,5 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 
+#include <format>
+
 namespace Desert::Graphic::API::Vulkan
 {
 
@@ -44,7 +46,7 @@ namespace Desert::Graphic::API::Vulkan
         // The SITE is the call plus the source position, because the first thing a reader asks after
         // "the device is gone" is "gone where?" — and the answer is nearly always a submit or a present,
         // which tells them immediately that it was asynchronous and therefore not this line's fault.
-        std::string site = std::string( call ) + " (" + file + ":" + std::to_string( line ) + ")";
+        const std::string site = std::format( "{} ({}:{})", call, file, line );
         (void)Graphic::DeviceLost::Report( site, VkResultToString( result ) );
         return true;
     }

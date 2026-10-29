@@ -11,7 +11,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Widgets/ThumbnailCache.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailService.hpp>
 #include <Editor/Widgets/ThumbnailSubject.hpp>
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
@@ -25,7 +25,10 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <format>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
+#include <Engine/ECS/EditableMesh.hpp>
 
 namespace Desert::Editor
 {
@@ -68,58 +71,18 @@ namespace Desert::Editor
 
         if ( !staticMesh.Primitive.has_value() )
         {
-            Utils::ImGuiUtilities::BeginPropertyRow( "Asset", nullptr, assetRow );
+            Utils::ImGuiUtilities::BeginPropertyRow( "Preview", nullptr, assetRow );
             DrawMeshThumbnail( staticMesh, kThumb );
-
-            std::string currentSelectionName = "Select Mesh";
-            bool        emptySlot            = true;
-            if ( staticMesh.MeshHandle )
-            {
-                auto meshAsset = m_AssetManager->FindByHandle<Assets::MeshAsset>( staticMesh.MeshHandle );
-                if ( meshAsset )
-                {
-                    currentSelectionName = Common::Utils::FileSystem::GetFileName( meshAsset->GetMetadata().Filepath );
-                    emptySlot = false;
-                }
-            }
-
-            // A sunk asset slot, not a raised button: this row HOLDS a value (UE draws it the same way).
-            const bool clicked =
-                 Utils::ImGuiUtilities::AssetSlot( "MeshSlot", currentSelectionName.c_str(), emptySlot );
-            if ( TakeDetailsPickerRequest( "Static mesh" ) || clicked )
-            {
-                ImGui::OpenPopup( "mesh_selector" );
-            }
-            DrawAssetFieldOpen( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
-            DrawAssetFieldButtons( emptySlot ? 0 : static_cast<uint64_t>( staticMesh.MeshHandle ) );
-
-            if ( ImGui::BeginPopup( "mesh_selector" ) )
-            {
-                const auto             meshAssets = Assets::ContentRegistry::MeshRows( false );
-                static ImGuiTextFilter meshFilter;
-                meshFilter.Draw( "##Search", 200 );
-                ImGui::Separator();
-                // Fixed height that scrolls: a popup as tall as the project's mesh count outgrows the editor
-                // window and, with multi-viewports, becomes a separate OS window away from this slot.
-                constexpr float kPickerRows = 14.0f;
-                ImGui::BeginChild( "##meshes", ImVec2( ImGui::GetFontSize() * 20.0f,
-                                                       ImGui::GetTextLineHeightWithSpacing() * kPickerRows ) );
-
-                for ( const auto& row : meshAssets )
-                {
-                    const std::string meshName = ::Desert::Editor::PickerDisplayName( row );
-                    if ( meshFilter.PassFilter( meshName.c_str() ) )
-                    {
-                        if ( ImGui::Selectable( meshName.c_str(), staticMesh.MeshHandle == row.Handle ) )
-                        {
-                            SetMeshAsset( staticMesh, row.Handle );
-                        }
-                    }
-                }
-                ImGui::EndChild();
-                ImGui::EndPopup();
-            }
             Utils::ImGuiUtilities::EndPropertyRow();
+
+            // THE MESH ROW IS THE REFLECTED FIELD (UE: UStaticMeshComponent::StaticMesh drawn by the generic
+            // Details), so a pick here, a DesertCtl `set` and an undo all write the same member and re-state
+            // what depends on it through the same PostEditStaticMesh.
+            const ECS::StaticMeshComponent before = staticMesh;
+            if ( PropertyEditorBuilder::Draw( &staticMesh, "StaticMeshComponent", m_AssetManager,
+                                              m_Ctx ? m_Ctx->UIHelper : nullptr,
+                                              m_Ctx ? m_Ctx->FieldFilter : nullptr ) )
+                ECS::PostEditStaticMesh( before, staticMesh );
         }
         else
         {
@@ -336,9 +299,8 @@ namespace Desert::Editor
         for ( int i = 0; i < static_cast<int>( bones.size() ); ++i )
         {
             ImGui::PushID( i );
-            std::string label = std::string( ICON_MDI_BONE "  " ) + bones[i].Name;
-            if ( bones[i].Parent < 0 )
-                label += "   (root)";
+            const std::string label =
+                 std::format( ICON_MDI_BONE "  {}{}", bones[i].Name, bones[i].Parent < 0 ? "   (root)" : "" );
             if ( ImGui::Selectable( label.c_str(), i == sel ) )
                 RigBuilder::SelectBone( i );
             ImGui::PopID();
@@ -373,13 +335,6 @@ namespace Desert::Editor
         ImGui::Unindent( 6.0f );
     }
 
-    void StaticMeshComponentWidget::SetMeshAsset( ECS::StaticMeshComponent& staticMesh, const Assets::AssetHandle& handle )
-    {
-        staticMesh.MeshHandle = handle;
-        staticMesh.Primitive.reset();
-        // Load default materials from asset...
-    }
-
     std::string StaticMeshComponentWidget::GetPrimitiveName( const ECS::StaticMeshComponent& staticMesh ) const
     {
         // Was a three-case switch with a `default: return "Primitive"`, so a cylinder, a capsule and a
@@ -389,9 +344,33 @@ namespace Desert::Editor
         return Geometry::PrimitiveTypeName( *staticMesh.Primitive );
     }
 
-    DESERT_REGISTER_CUSTOM_COMPONENT( ECS::StaticMeshComponent, "3D Model", false,
-                                      ( []( ECS::Entity& e, ::Desert::Core::Scene* s,
-                                            const ComponentEditContext& ctx )
-                                        { StaticMeshComponentWidget( ctx.AssetMgr(), &ctx ).Render( e, s ); } ) )
+    namespace
+    {
+        // A custom Details layout (Mesh Type, the Materials list - UE customizes both) over a REFLECTED
+        // component: DataPtr and ReflectedTypeName let the header summary, the search filter and DesertCtl
+        // `set` reach StaticMesh.MeshHandle / StaticMesh.MaterialSlots[i], and EditData re-states what an edit
+        // there changes (PostEditStaticMesh), exactly as a pick in the panel does.
+        ComponentEditorEntry MakeStaticMeshEntry()
+        {
+            using C = ECS::StaticMeshComponent;
+            ComponentEditorEntry e = MakeCustomComponentEntry<C>(
+                 "3D Model",
+                 []( ECS::Entity& en, ::Desert::Core::Scene* s, const ComponentEditContext& ctx )
+                 { StaticMeshComponentWidget( ctx.AssetMgr(), &ctx ).Render( en, s ); },
+                 false );
+            e.ReflectedTypeName = "StaticMeshComponent";
+            e.DataPtr           = []( ECS::Entity& en ) -> void* { return &en.GetComponent<C>(); };
+            e.EditData          = []( ECS::Entity& en, const std::function<void( void* )>& edit )
+            {
+                C&      component = en.GetComponent<C>();
+                const C before    = component;
+                edit( &component );
+                ECS::PostEditStaticMesh( before, component );
+            };
+            return e;
+        }
+
+        [[maybe_unused]] const int s_StaticMeshEntry = ComponentWidgetRegistry::Get().Register( MakeStaticMeshEntry() );
+    } // namespace
 
 } // namespace Desert::Editor

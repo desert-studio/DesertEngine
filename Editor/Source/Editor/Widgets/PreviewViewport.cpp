@@ -16,6 +16,7 @@
 
 #include <ImGui/imgui_internal.h>
 
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
@@ -73,7 +74,7 @@ namespace Desert::Editor
         // Exposure 0.26 and one (Clouds_Sunset) authors 1.0. The dome takes the modal value so that the
         // material is tuned at the exposure it will be shipped at; the row on the Preview Scene tab is
         // there for the level that disagrees.
-        constexpr float kDomeExposure = 0.26f;
+        constexpr float kDomeExposureEV100 = 2.4694853f; // the multiplier 0.26 at the default key 0.18
         // The ground, as a Plane primitive scaled until its edge is past anything the eye reads as a
         // distance. 20 km at 1.7 m of eye height is well beyond where the atmosphere takes over.
         constexpr float kDomeGroundSize = Common::Units::Metres( 20000.0f );
@@ -152,8 +153,8 @@ namespace Desert::Editor
     glm::vec3 PreviewViewport::SceneSetup::LightTravel() const
     {
         // Yaw is a compass bearing about +Y, pitch the sun's ELEVATION above the horizon; this is the
-        // direction TOWARD the sun. What a directional light's Translation stores is where the light
-        // GOES, so the vector is negated exactly once, here — the engine's own rule
+        // direction TOWARD the sun. A directional light is aimed where the light GOES (its Rotation's
+        // forward axis), so the vector is negated exactly once, here — the engine's own rule
         // (ECS::Rules::AtmosphereSunDirection) negates back to get the sun again, and two negations in
         // two places is how a sky ends up lit from below.
         const float     yaw   = glm::radians( SunYawDegrees );
@@ -161,9 +162,7 @@ namespace Desert::Editor
         const float     cp    = std::cos( pitch );
         const glm::vec3 towardSun{ cp * std::sin( yaw ), std::sin( pitch ), cp * std::cos( yaw ) };
 
-        // Scaled rather than unit: nothing downstream needs a length, but a Translation that reads as a
-        // position in the outliner should not sit inside the object it lights.
-        return -towardSun * 600.0f;
+        return -towardSun;
     }
 
     PreviewViewport::SceneSetup& PreviewViewport::Setup()
@@ -267,7 +266,7 @@ namespace Desert::Editor
         auto& lightC          = m_Light.AddComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = m_Setup.LightIntensity;
         lightC.Data.Color     = m_Setup.LightColor;
-        m_Light.GetComponent<ECS::TransformComponent>().Translation = m_Setup.LightTravel();
+        ECS::AimDirectionalLight( *m_Light.GetRegistry(), m_Light.GetHandle(), m_Setup.LightTravel() );
 
         m_Target = m_Scene->CreateNewEntity( "PreviewTarget" );
         m_Target.AddComponent<ECS::StaticMeshComponent>();
@@ -318,7 +317,7 @@ namespace Desert::Editor
         // negation: the palette is read off the component and the sun comes from the light's travel vector.
         m_Renderer->SetProceduralSky( true, ECS::Rules::AtmosphereSunDirection( m_Setup.LightTravel() ),
                                       /*bakeNow=*/true, Graphic::MakeSkySettings( skyC.Data ),
-                                      Graphic::SunLightFx{} );
+                                      Graphic::SunLightFx{}, Graphic::AtmosphereLight1{} );
 
         m_Inited = true;
 
@@ -342,7 +341,7 @@ namespace Desert::Editor
         auto& lightC          = m_Light.GetComponent<ECS::DirectionLightComponent>();
         lightC.Data.Intensity = m_Setup.LightIntensity;
         lightC.Data.Color     = m_Setup.LightColor;
-        m_Light.GetComponent<ECS::TransformComponent>().Translation = m_Setup.LightTravel();
+        ECS::AimDirectionalLight( *m_Light.GetRegistry(), m_Light.GetHandle(), m_Setup.LightTravel() );
 
         // ── The environment ───────────────────────────────────────────────────────────────────────────
         //
@@ -447,7 +446,8 @@ namespace Desert::Editor
         // THE GRADE, EVERY FRAME AND FROM THE SETUP, so the pane follows the row instead of holding
         // whatever SceneSettings was constructed with. See SceneSetup::Exposure for the census behind the
         // dome's value: a cloud material used to be authored four stops off every level that ships it.
-        m_PostVolume.GetComponent<ECS::PostProcessVolumeComponent>().Data.Settings.Exposure = m_Setup.Exposure;
+        m_PostVolume.GetComponent<ECS::PostProcessVolumeComponent>().Data.Settings.ManualExposureEV100 =
+             m_Setup.ExposureEV100;
         // THE GRID IS NOT A SCENE SETTING ANY MORE. К2 moved every debug overlay onto the RENDERER
         // (Graphic::DebugViewState), because a view preference in a level file is one person's opinion
         // travelling through git — and six of those flags reached the Runtime, one of them forcing the
@@ -834,7 +834,7 @@ namespace Desert::Editor
             // among them. The pane's own default of 1.0 is ::Desert::Core::PostProcessSettings' struct default and
             // was never a decision; leaving it there made the preview 78 of 255 brighter on average than any level
             // that would ship the material. See SceneSetup::Exposure.
-            m_Setup.Exposure = kDomeExposure;
+            m_Setup.ExposureEV100 = kDomeExposureEV100;
         }
 
         m_Fill       = Fill::SkyDome;
@@ -842,6 +842,88 @@ namespace Desert::Editor
         m_Framed     = true; // there is nothing to frame — the camera stands still and looks around
         m_HasContent = true;
         ResetView();
+    }
+
+    void PreviewViewport::SetVFXSystem( const Assets::AssetHandle&                system,
+                                       const Assets::Serialization::VFXBounds& bounds )
+    {
+        if ( static_cast<uint64_t>( system ) == 0 )
+        {
+            Clear();
+            return;
+        }
+        ++m_ContentRevision;
+        EnsureInit();
+        if ( !m_Inited )
+            return;
+        DropSkinned();
+
+        // One kind of content at a time: the target mesh and the cubemap ball are emptied (SetVolumeMaterial).
+        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        smc.Primitive.reset();
+        smc.MaterialSlots.clear();
+        smc.RuntimeMaterialInstances.clear();
+        ECS::ClearEditableMesh( smc );
+        if ( m_CubemapPass )
+            m_CubemapPass->ClearSource();
+
+        if ( !m_Effect )
+        {
+            m_Effect = m_Scene->CreateNewEntity( "PreviewEffect" );
+            m_Effect.AddComponent<ECS::VFXComponent>();
+        }
+        auto& vfx             = m_Effect.GetComponent<ECS::VFXComponent>();
+        vfx.Data.System       = system;
+        vfx.Data.AutoActivate = true;
+        vfx.EditedSystem.reset(); // a newly named system plays the asset until SetVFXWorkingCopy says otherwise
+        vfx.RequestRestart    = true;
+        // On the floor's top (the floor entity sits at y = -50, ApplySetup).
+        const glm::vec3 origin( 0.0f, -50.0f, 0.0f );
+        m_Effect.GetComponent<ECS::TransformComponent>().Translation = origin;
+
+        m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        m_Fill            = Fill::Object;
+        m_HasContent      = true;
+        // Framed by the emitters' fixed Bounds (their union) through the effect entity's transform (VFXBoundsAt,
+        // the renderer's culling rule): the box the GPU emitters live in is the box the camera fits.
+        const Common::Math::AABB placed = Assets::Serialization::VFXBoundsAt(
+             bounds, glm::mat4( m_Effect.GetComponent<ECS::TransformComponent>().GetTransform() ) );
+        m_FrameHalfExtent = glm::max( ( placed.Max - placed.Min ) * 0.5f, glm::vec3( 0.0f ) );
+        m_FrameRadius     = std::max( RadiusOfHalfExtent( m_FrameHalfExtent ), 1.0f );
+        m_FrameIsRound    = false; // fitted by its box, as a measured mesh
+        ResetView();
+        m_Focus    = ( placed.Min + placed.Max ) * 0.5f;
+        m_Framed   = true;
+        m_Realtime = true;
+    }
+
+    void PreviewViewport::RestartVFX()
+    {
+        if ( m_Effect )
+            m_Effect.GetComponent<ECS::VFXComponent>().RequestRestart = true;
+        m_Scene->GetVFXWorld().Reset();
+    }
+
+    void PreviewViewport::SetVFXDesiredAge( const std::optional<double> age )
+    {
+        m_Scene->GetVFXWorld().SetDesiredAge( age );
+    }
+
+    double PreviewViewport::GetVFXAge() const
+    {
+        return m_Scene->GetVFXWorld().GetClock().GetAge();
+    }
+
+    double PreviewViewport::GetVFXStepSeconds() const
+    {
+        return m_Scene->GetVFXWorld().GetClock().GetSettings().StepSeconds;
+    }
+
+    void PreviewViewport::SetVFXWorkingCopy( std::shared_ptr<const Assets::Serialization::VFXSystemData> working )
+    {
+        if ( m_Effect )
+            m_Effect.GetComponent<ECS::VFXComponent>().EditedSystem = std::move( working );
     }
 
     void PreviewViewport::InvalidatePipelines( const void* shader )
@@ -1079,6 +1161,8 @@ namespace Desert::Editor
     void PreviewViewport::Clear()
     {
         ++m_ContentRevision;
+        if ( m_Effect )
+            m_Effect.GetComponent<ECS::VFXComponent>().Data.System = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_HasContent = false;
         m_MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Framed     = false;

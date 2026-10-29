@@ -3,8 +3,10 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -70,6 +72,10 @@ namespace Desert::Editor::Control
         Quit,         ///< end the session with an exit status
         Drag,         ///< press, move and release the mouse over a subject's image, through ImGui's input
         Input,
+        SaveAs, ///< save the open scene under a NEW name, through File -> Save's one save path (UE "Save Current
+                ///< Level As")
+        AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
+        Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
     };
 
     /**
@@ -123,7 +129,20 @@ namespace Desert::Editor::Control
          { "quit", Op::Quit, RequiresReady::No },
          { "drag", Op::Drag, RequiresReady::Yes },
          { "input", Op::Input, RequiresReady::Yes },
+         { "save-as", Op::SaveAs, RequiresReady::Yes },
+         { "add-component", Op::AddComponent, RequiresReady::Yes },
+         { "advance", Op::Advance, RequiresReady::Yes },
     };
+
+    /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
+    /// FrameGate::kSettleBudget, wall clock), which 2 s of simulated time sits far inside at any frame rate; the
+    /// cap is the documented protocol limit (DesertCtl usage: 0 < seconds <= 2), and a longer wait is several
+    /// `advance` steps.
+    inline constexpr float kMaxAdvanceSeconds = 2.0f;
+
+    /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
+    /// VFX-13) - the widest property a document offers. A number property still takes exactly its own count.
+    inline constexpr std::size_t kMaxSetNumbers = 64 * 5;
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
     /// build has never heard of is the last thing that should be run against a half-built editor.
@@ -177,6 +196,10 @@ namespace Desert::Editor::Control
         Viewport,  ///< the editor's view: where the camera is and which way it looks
         Modeling,  ///< the Modeling panel's dragged values (Core::kModelingStateRows)
         Selection, ///< the selected entity's transform (Core/Selection/SelectionTransformProperties.hpp)
+        Entity,    ///< one entity's reflected components, addressed by 'entity' (its UUID); values as 'text'
+        World,     ///< the open scene's SceneSettings (World Settings); values as 'text'
+        Tool,      ///< the active editor mode's tool settings (Foliage: Panels/Foliage/FoliageToolProperties.hpp);
+                   ///< 'text'
     };
 
     struct SubjectSpec
@@ -186,22 +209,14 @@ namespace Desert::Editor::Control
     };
 
     inline constexpr SubjectSpec kSubjects[] = {
-         { "document", Subject::Document },
-         { "viewport", Subject::Viewport },
-         { "modeling", Subject::Modeling },
-         { "selection", Subject::Selection },
+         { "document", Subject::Document },   { "viewport", Subject::Viewport }, { "modeling", Subject::Modeling },
+         { "selection", Subject::Selection }, { "entity", Subject::Entity },     { "world", Subject::World },
+         { "tool", Subject::Tool },
     };
 
     [[nodiscard]] inline std::string KnownSubjectList()
     {
-        std::string list;
-        for ( const SubjectSpec& spec : kSubjects )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += spec.Name;
-        }
-        return list;
+        return TextTemplates::JoinList( kSubjects, ", ", []( const SubjectSpec& spec ) { return spec.Name; } );
     }
 
     struct Request
@@ -224,10 +239,23 @@ namespace Desert::Editor::Control
         /// (not by its label: two properties may display the same words).
         std::string Property;
 
+        /// Subject::Entity — the entity's UUID, decimal.
+        std::string Entity;
+
+        /// Op::Set on Subject::Entity / Subject::World — the value as text, parsed by the field's own type
+        /// (Panels/PropertyEditor/ReflectedFieldText.hpp): a float array cannot carry an int64 asset id.
+        std::string Text;
+
         /// Op::Set — the value, with as many components as the property takes. The COUNT is carried rather
         /// than padded to four: a float given three numbers is a client that meant a different property,
         /// and the document refuses it instead of writing something that looks accepted.
         std::vector<float> Value;
+
+        /// Op::AddComponent — the component, by its Details name or its reflected type name.
+        std::string Component;
+
+        /// Op::SaveAs — the scene's new name; the file is <scene dir>/<name with spaces as _>.desce.
+        std::string SceneName;
 
         /// Op::ShotWindow / Op::ShotViewport — where the PNG goes.
         std::string Path;
@@ -241,6 +269,9 @@ namespace Desert::Editor::Control
         /// Op::Drag — how many frames the pointer takes from `from` to `to` (Value holds fromX, fromY,
         /// toX, toY in the subject's image pixels). Optional: absent = PointerDrag::kDefaultSteps, said there.
         std::optional<uint32_t> Steps;
+        /// Op::Drag — modifier keys held for the whole drag, "shift+ctrl" spelling (ParseInputModifiers).
+        /// Optional: absent or empty = none, a plain click.
+        std::string DragModifiers;
 
         std::string              InputKind;
         std::string              Panel;
@@ -255,14 +286,7 @@ namespace Desert::Editor::Control
     /// so an operation added above appears here without anyone remembering to add it.
     [[nodiscard]] inline std::string KnownOpList()
     {
-        std::string list;
-        for ( const OpSpec& spec : kOps )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += spec.Name;
-        }
-        return list;
+        return TextTemplates::JoinList( kOps, ", ", []( const OpSpec& spec ) { return spec.Name; } );
     }
 
     namespace ProtocolDetail
@@ -498,6 +522,13 @@ namespace Desert::Editor::Control
                 }
                 request.Whose = subject->Which;
             }
+            if ( request.Whose == Subject::Entity )
+            {
+                request.Entity = ReadString( fields, "entity" );
+                if ( request.Entity.empty() )
+                    return Common::MakeFormattedError<Request>(
+                         "'{}' on subject 'entity' needs 'entity' (the entity's UUID).", opName );
+            }
         }
 
         switch ( spec->Operation )
@@ -522,6 +553,19 @@ namespace Desert::Editor::Control
                     return Common::MakeError<Request>(
                          "'set' addresses a property of the focused document by name, and none was given. "
                          "Ask 'properties' for the ones it offers right now." );
+                }
+
+                if ( request.Whose == Subject::Entity || request.Whose == Subject::World ||
+                     request.Whose == Subject::Tool )
+                {
+                    // A reflected field takes TEXT, parsed by its own type; absent is refused, "" is a value.
+                    if ( !fields.Find( "text" ) )
+                        return Common::MakeFormattedError<Request>(
+                             "'set' on an entity or the world needs 'text' for '{}' (the value as the field "
+                             "reads it: 7, true, Lux, 1,2,3).",
+                             request.Property );
+                    request.Text = ReadString( fields, "text" );
+                    break;
                 }
 
                 switch ( ReadFloatArray( fields, "value", request.Value ) )
@@ -550,17 +594,39 @@ namespace Desert::Editor::Control
                 // The count is not checked against the property here and cannot be: this parser has never
                 // heard of a shader schema. The DOCUMENT owns that check, because the document is what owns
                 // the declaration — see ISubjectDocument::SetEditableProperty. What is refused here is
-                // only what makes no sense for any property at all.
-                if ( request.Value.size() > 4 )
+                // only what makes no sense for any property at all. The widest write is a curve's key list (a
+                // VFX stack input's `.Keys`: per key its time then up to four values, VFX-13), so the bound is
+                // kMaxSetNumbers, not four - every document refuses a count its own property does not take.
+                if ( request.Value.size() > kMaxSetNumbers )
                 {
                     return Common::MakeFormattedError<Request>(
                          "the 'value' for '{}' carries {} numbers. Nothing this channel can write is wider "
-                         "than four.",
-                         request.Property, request.Value.size() );
+                         "than {} (a curve of {} keys of a float4).",
+                         request.Property, request.Value.size(), kMaxSetNumbers, kMaxSetNumbers / 5 );
                 }
                 break;
             }
 
+            case Op::SaveAs:
+            {
+                request.SceneName = ReadString( fields, "name" );
+                if ( request.SceneName.empty() )
+                {
+                    return Common::MakeError<Request>(
+                         "'save-as' needs the scene's new 'name'. A Save As with no name would be File -> Save "
+                         "under another word." );
+                }
+                break;
+            }
+            case Op::AddComponent:
+            {
+                request.Entity    = ReadString( fields, "entity" );
+                request.Component = ReadString( fields, "component" );
+                if ( request.Entity.empty() || request.Component.empty() )
+                    return Common::MakeError<Request>(
+                         "'add-component' needs 'entity' (the UUID) and 'component' (its Details or type name)." );
+                break;
+            }
             case Op::ShotWindow:
             case Op::ShotViewport:
             {
@@ -576,6 +642,19 @@ namespace Desert::Editor::Control
             case Op::State:
                 request.Sections = ReadStringArray( fields, "sections" );
                 break;
+            case Op::Advance:
+            {
+                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                     request.Value.size() != 1 || !( request.Value[0] > 0.0f ) ||
+                     request.Value[0] > kMaxAdvanceSeconds )
+                {
+                    return Common::MakeFormattedError<Request>(
+                         "'advance' needs 'value' as one number: the seconds of Play's simulated time to wait "
+                         "for, above 0 and at most {}.",
+                         kMaxAdvanceSeconds );
+                }
+                break;
+            }
             case Op::Quit:
             {
                 const auto code = ReadRequiredInt( fields, "code", opName );
@@ -599,7 +678,8 @@ namespace Desert::Editor::Control
                          "'drag' aims at an image: subject 'document' (the focused document's view) or "
                          "'viewport' (the level viewport)." );
                 }
-                const auto steps = ReadOptionalInt( fields, "steps" );
+                request.DragModifiers = ReadString( fields, "modifiers" );
+                const auto steps      = ReadOptionalInt( fields, "steps" );
                 if ( !steps )
                     return Common::MakeFormattedError<Request>( "'drag': {}", steps.GetError() );
                 if ( const auto& stated = steps.GetValue() )

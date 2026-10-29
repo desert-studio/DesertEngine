@@ -102,4 +102,14 @@ namespace Desert::Editor
                            std::span<const std::string>                submeshNodes,
                            std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source,
                            const Assets::SourceImportSettings& settings );
+
+    // THE COOK'S STATIC MESH (UE: a DDC miss rebuilds the derived data from the package): a combined import's
+    // envelope rebuilt into the DDC from the source (CookImportedMeshEnvelope), the record read and never
+    // written. A split import - the record states nodes, or the source now splits - is Content and is refused
+    // with the re-import that writes it.
+    [[nodiscard]] Common::BoolResultStr CookStaticMeshImport( const Assets::Serialization::MeshAssetData& imported,
+                                                              std::span<const std::string> submeshNodes,
+                                                              std::span<const Assets::MeshMaterialSlot> named,
+                                                              const std::filesystem::path&              source,
+                                                              const Assets::SourceImportSettings&       settings );
 } // namespace Desert::Editor

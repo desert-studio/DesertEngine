@@ -381,6 +381,7 @@ namespace
          { "ShowBoundingBoxes", Owner::Machine },
          { "BoundingBoxColor", Owner::Machine },
          { "BoundingBoxLineWidth", Owner::Machine },
+         { "ShowCardPlacement", Owner::Machine },
          { "WireframeMode", Owner::Machine },
          { "ShowNormals", Owner::Machine },
          { "LightingDebug", Owner::Machine },
@@ -389,6 +390,7 @@ namespace
          { "ShowSkyBackdrop", Owner::Machine },
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
+         { "ValidateGpuCulling", Owner::Machine },
          // The viewport's own Screen Percentage override (UE's per-viewport r.ScreenPercentage): one view's
          // render scale, never the game config.
          { "ScreenPercentage", Owner::Machine },
@@ -434,7 +436,7 @@ namespace
     // Four Project fields, one FileMeta, and one that is in the wrong file (EngineVersion).
     // ------------------------------------------------------------------------------------------------
 
-    constexpr const char* kProjectContext = "Desert/Desert/Source/Engine/Project/ProjectContext.cpp";
+    constexpr const char* kProjectContext = "Desert/Projects/Source/Projects/ProjectContext.cpp";
 
     // THE CONSUMER OF THREE OF THESE FIELDS LEFT THIS REPOSITORY (Л3). `FileVersion`, `Description` and
     // `EngineVersion` are written and read by the LAUNCHER, which now lives in `desert-launcher` — so
@@ -1371,24 +1373,24 @@ TEST( ConfigOwnership, AMachineWithNoSavedQualityStartsOnAValidRecommendationAnd
     const MachineSettings::StartingQuality allHigh{ MachineSettings::HighSelection(), false };
 
     MachineSettings fresh;
-    EXPECT_EQ( MachineSettings::StartFrom( fresh, device ), allHigh );
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, {}, device ), allHigh );
 
     fresh.Recommended = recommended;
-    const auto start  = MachineSettings::StartFrom( fresh, device );
+    const auto start  = MachineSettings::StartFrom( fresh, {}, device );
     EXPECT_TRUE( start.FromRecommended );
     EXPECT_EQ( start.Selection.Levels, recommended.Levels );
     EXPECT_TRUE( start.Selection.Overrides.empty() );
 
     auto otherDriver          = device;
     otherDriver.DriverVersion = 43;
-    EXPECT_EQ( MachineSettings::StartFrom( fresh, otherDriver ), allHigh )
+    EXPECT_EQ( MachineSettings::StartFrom( fresh, {}, otherDriver ), allHigh )
          << "a recommendation measured on another driver must not be applied";
 
     MachineSettings chosen = fresh;
     chosen.Quality.emplace();
     chosen.Quality->Levels.fill( Common::Scalability::Level::Low );
     const MachineSettings::StartingQuality saved{ *chosen.Quality, false };
-    EXPECT_EQ( MachineSettings::StartFrom( chosen, device ), saved )
+    EXPECT_EQ( MachineSettings::StartFrom( chosen, {}, device ), saved )
          << "the benchmark overwrote the player's choice";
 }
 

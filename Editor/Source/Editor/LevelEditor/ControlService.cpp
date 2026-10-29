@@ -1,9 +1,11 @@
 #include "Editor/LevelEditor/ControlService.hpp"
 
 #include "Editor/Core/AssetOpen.hpp"
+#include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Core/Commands/CommandRegistry.hpp"
-#include "Editor/Core/Commands/LandscapeLayerCommands.hpp"
+#include "Editor/Panels/Landscape/LandscapeLayerCommands.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
+#include "Editor/Core/Commands/WorldPartitionEditCommand.hpp"
 #include "Editor/Core/Control/ControlDispatch.hpp"
 #include "Editor/Core/Control/InputInjection.hpp"
 #include "Editor/Core/Control/PointerDrag.hpp"
@@ -13,6 +15,8 @@
 #include "Editor/Core/Selection/AuthoringContext.hpp"
 #include "Editor/Core/Selection/ModelingState.hpp"
 #include "Editor/Core/Selection/ModelingStateProperties.hpp"
+#include "Editor/Panels/Foliage/FoliageToolProperties.hpp"
+#include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/SubjectOpenRequest.hpp"
@@ -25,19 +29,259 @@
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 #include "Editor/LevelEditor/WindowTitles.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
+#include "Editor/Panels/PropertyEditor/ComponentWidgetRegistry.hpp"
+#include "Editor/Panels/PropertyEditor/ReflectedFieldText.hpp"
+#include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/EngineContext.hpp>
+#include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
+#include <Engine/ECS/System/PhysicsECSSystem.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
+#include <charconv>
+#include <cmath>
+#include <glm/gtc/quaternion.hpp>
+#include <Common/Json/Json.hpp>
+#include <Engine/Core/Serialize/WorldPartitionRules.hpp>
 #include <format>
 
 namespace Desert::Editor
 {
+    namespace
+    {
+        // Subject::Entity — the entity named by its decimal UUID, in the open scene.
+        // The entity a request names: its decimal UUID, or `selected` - the one selected entity, so a scripted
+        // scenario can address what it just created without knowing the UUID the editor generated.
+        Common::ResultStr<Common::UUID> ControlEntityId( const std::string& id )
+        {
+            if ( id == "selected" )
+            {
+                if ( Core::SelectionManager::Count() != 1 )
+                    return Common::MakeError<Common::UUID>( std::format(
+                         "'selected' names the one selected entity, and {} are selected",
+                         Core::SelectionManager::Count() ) );
+                return Common::MakeSuccess( Common::UUID( Core::SelectionManager::GetSelection().front() ) );
+            }
+            std::uint64_t value = 0;
+            const char*   end   = id.data() + id.size();
+            if ( const auto [at, ec] = std::from_chars( id.data(), end, value ); ec != std::errc{} || at != end )
+                return Common::MakeError<Common::UUID>( std::format(
+                     "'{}' is not an entity UUID (decimal, as 'properties' / the outliner give it) nor "
+                     "'selected'",
+                     id ) );
+            return Common::MakeSuccess( Common::UUID( value ) );
+        }
+
+        Common::ResultStr<ECS::Entity> ControlEntity( ::Desert::Core::Scene& scene, const std::string& id )
+        {
+            const auto uuid = ControlEntityId( id );
+            if ( !uuid )
+                return Common::MakeError<ECS::Entity>( uuid.GetError() );
+            const auto ref = scene.FindEntityByID( uuid.GetValue() );
+            if ( !ref )
+                return Common::MakeError<ECS::Entity>( std::format( "no entity {} in the open scene", id ) );
+            return Common::MakeSuccess( ECS::Entity( ref->get() ) );
+        }
+
+        // Subject::Tool — the tool settings of the active editor mode; only Foliage carries them as rows
+        // (Landscape's are palette entries, group 'Landscape'; Modeling's are subject 'modeling').
+        Common::BoolResultStr ToolSubjectAvailable()
+        {
+            if ( Core::ViewportMode::IsFoliage() )
+                return Common::MakeSuccess( true );
+            return Common::MakeError<bool>(
+                 "subject 'tool' is the active mode's tool settings and Foliage mode is not on; run 'Foliage "
+                 "mode' first (Modeling's values are subject 'modeling', Landscape's are palette entries)" );
+        }
+
+        Common::Json::Object ReflectedRowsToJson( const std::string&                    subject,
+                                                  const std::vector<ReflectedFieldRow>& rows )
+        {
+            Common::Json::Value::Array entries;
+            for ( const ReflectedFieldRow& row : rows )
+            {
+                Common::Json::Object item;
+                item["name"]  = Control::StateDetail::Str( row.Path );
+                item["type"]  = Control::StateDetail::Str( row.Type );
+                item["value"] = Control::StateDetail::Str( row.Text );
+                entries.push_back( Common::Json::Value( item ) );
+            }
+            Common::Json::Object payload;
+            payload["subject"]    = Control::StateDetail::Str( subject );
+            payload["properties"] = Common::Json::Value( entries );
+            return payload;
+        }
+
+        // THE WORLD'S PARTITION AS ROWS: the whole block as JSON, then each grid's fields by the grid's name.
+        void AppendWorldPartitionRows( const ::Desert::Core::Scene& scene, std::vector<ReflectedFieldRow>& rows )
+        {
+            const auto& partition = scene.GetWorldPartition();
+            if ( !partition )
+                return;
+            rows.push_back( { "WorldPartition", "json", Common::Json::Write( *partition ) } );
+            // World Settings > World Partition's one field (WP23): 0 = absent, the world ships in the base archive.
+            rows.push_back( { "WorldPartition.ChunkRegionSize", "float",
+                              std::format( "{}", partition->ChunkRegionSize.value_or( 0.0f ) ) } );
+            for ( const ::Desert::Core::WorldPartitionGridSerialized& grid : partition->Grids )
+            {
+                const std::string at = "WorldPartition.Grids." + grid.Name + ".";
+                rows.push_back( { at + "Name", "string", grid.Name } );
+                rows.push_back( { at + "CellSize", "float", std::format( "{}", grid.CellSize ) } );
+                rows.push_back( { at + "LoadingRange", "float", std::format( "{}", grid.LoadingRange ) } );
+                rows.push_back( { at + "Priority", "int", std::format( "{}", grid.Priority ) } );
+                rows.push_back( { at + "HLODLayer", "string", grid.HLODLayer.value_or( "" ) } );
+            }
+        }
+
+        // `set world WorldPartition <json>` (the whole block) or `set world WorldPartition.Grids.<Name>.<Field>
+        // <text>`: the block after the edit, committed through the panel's own EditWorldPartition (one undo step).
+        Common::BoolResultStr SetWorldPartitionProperty( const std::shared_ptr<::Desert::Core::Scene>& scene,
+                                                         const std::string& property, const std::string& text )
+        {
+            ::Desert::Core::WorldPartitionSerialized after;
+            if ( property == "WorldPartition" )
+            {
+                auto parsed = Common::Json::Read<::Desert::Core::WorldPartitionSerialized>( text );
+                if ( !parsed )
+                    return Common::MakeError<bool>( "WorldPartition: " + parsed.GetError() );
+                after = std::move( parsed.GetValue() );
+            }
+            else
+            {
+                constexpr std::string_view kGrids  = "WorldPartition.Grids.";
+                const auto&                current = scene->GetWorldPartition();
+                if ( !current )
+                    return Common::MakeError<bool>( std::string(
+                         "the world is not partitioned; set 'WorldPartition' to the whole block first" ) );
+                if ( property == "WorldPartition.ChunkRegionSize" )
+                {
+                    // The panel's DragFloat in text: centimetres, 0 clears it (the base archive), as the panel.
+                    after = *current;
+                    try
+                    {
+                        std::size_t used = 0;
+                        const float size = std::stof( text, &used );
+                        if ( used != text.size() || !std::isfinite( size ) || size < 0.0f )
+                            throw std::invalid_argument( text );
+                        after.ChunkRegionSize = size > 0.0f ? std::optional<float>( size ) : std::nullopt;
+                    }
+                    catch ( const std::exception& )
+                    {
+                        return Common::MakeError<bool>( std::format(
+                             "'{}' is not a region size in cm (a finite number >= 0; 0 = the base archive)",
+                             text ) );
+                    }
+                    return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+                }
+                const std::size_t dot = property.rfind( '.' );
+                if ( !property.starts_with( kGrids ) || dot < kGrids.size() )
+                    return Common::MakeError<bool>( std::format(
+                         "'{}' is not WorldPartition, WorldPartition.ChunkRegionSize or WorldPartition.Grids.<Name>.<Field>", property ) );
+                const std::string name  = property.substr( kGrids.size(), dot - kGrids.size() );
+                const std::string field = property.substr( dot + 1 );
+                after                   = *current;
+                const auto index = ::Desert::Core::Rules::GridIndexOf( after, std::optional<std::string>( name ) );
+                if ( !index )
+                    return Common::MakeError<bool>( std::format( "the world states no grid '{}'", name ) );
+                ::Desert::Core::WorldPartitionGridSerialized& grid = after.Grids[*index];
+                try
+                {
+                    std::size_t used = 0;
+                    if ( field == "Name" )
+                        grid.Name = text;
+                    else if ( field == "HLODLayer" )
+                        grid.HLODLayer = text.empty() ? std::nullopt : std::optional<std::string>( text );
+                    else if ( field == "CellSize" )
+                        grid.CellSize = std::stof( text, &used );
+                    else if ( field == "LoadingRange" )
+                        grid.LoadingRange = std::stof( text, &used );
+                    else if ( field == "Priority" )
+                        grid.Priority = std::stoi( text, &used );
+                    else
+                        return Common::MakeError<bool>( std::format(
+                             "a grid's fields are Name, CellSize, LoadingRange, Priority, HLODLayer; not '{}'",
+                             field ) );
+                    if ( used != 0 && used != text.size() )
+                        throw std::invalid_argument( text );
+                }
+                catch ( const std::exception& )
+                {
+                    return Common::MakeError<bool>( std::format( "'{}' is not a value for {}", text, property ) );
+                }
+            }
+            return EditWorldPartition( scene, std::format( "Set {}", property ), std::move( after ) );
+        }
+
+        // ── THE VIEWPORT IN PLAY IS THE PLAYER'S VIEW TARGET ──────────────────────────────────────────
+        //
+        // In Play the viewport looks through the camera entity ResolveViewTarget chose (UE: the player
+        // controller's view target), driven into a GameplayCamera from that entity's WORLD transform every
+        // frame (Scene::UpdateActiveCameraSource). Moving "the viewport camera" there means moving that
+        // entity - the same write the Pilot mode makes (CameraPilot.cpp), world pose -> local transform
+        // under the parent chain - so the next frame's view is the pose asked for. Writing the
+        // GameplayCamera itself would be overwritten from the entity one frame later: the defect this
+        // replaces answered success and left the view where it was. Play's edits are discarded at Stop with
+        // the rest of the played world, so no undo step is recorded.
+        [[nodiscard]] Common::BoolResultStr WritePlayViewCamera( ::Desert::Core::Scene&    scene,
+                                                                 const ViewportCameraWrite which,
+                                                                 const std::vector<float>& value )
+        {
+            const entt::entity target   = scene.GetViewTarget();
+            auto&              registry = scene.GetRegistry();
+            if ( target == entt::null || !registry.valid( target ) ||
+                 !registry.has<ECS::CameraComponent, ECS::TransformComponent>( target ) )
+                return Common::MakeError<bool>(
+                     "the scene is in Play and the view is not a camera entity, so there is no camera to move. "
+                     "Leave Play ('Action' / 'Stop') and place the editor camera instead." );
+
+            ECS::Entity entity( target, registry );
+            auto&       lens = entity.GetComponent<ECS::CameraComponent>().Data;
+            if ( which == ViewportCameraWrite::FOV )
+            {
+                lens.FOV = value[0];
+                return Common::MakeSuccess( true );
+            }
+
+            auto&           tc    = entity.GetComponent<ECS::TransformComponent>();
+            const glm::mat4 world = entity.GetWorldTransform();
+            const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
+
+            const glm::vec3           position = ( which == ViewportCameraWrite::Position )
+                                                      ? glm::vec3( value[0], value[1], value[2] )
+                                                      : now.Position;
+            ::Desert::Core::ViewBasis basis    = now.Basis;
+            if ( which == ViewportCameraWrite::Direction )
+            {
+                // A named direction is an upright one, as SnapToDirection makes it for the editor camera;
+                // straight up or down has no upright, and there the view's top is world -Z (UE's Top view).
+                basis.Forward = glm::normalize( glm::vec3( value[0], value[1], value[2] ) );
+                basis.Up      = ( std::abs( basis.Forward.y ) > 0.9999f ) ? glm::vec3( 0.0f, 0.0f, -1.0f )
+                                                                          : glm::vec3( 0.0f, 1.0f, 0.0f );
+            }
+
+            const glm::mat4 parentWorld = world * glm::inverse( tc.GetTransform() );
+            const glm::vec3 worldScale( glm::length( glm::vec3( world[0] ) ), glm::length( glm::vec3( world[1] ) ),
+                                        glm::length( glm::vec3( world[2] ) ) );
+            const glm::mat4 local = glm::inverse( parentWorld ) *
+                                    ::Desert::Core::CameraWorldTransformFor( position, basis, worldScale );
+            const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
+                                      glm::normalize( glm::vec3( local[1] ) ),
+                                      glm::normalize( glm::vec3( local[2] ) ) );
+            tc.Translation = glm::vec3( local[3] );
+            tc.Rotation    = glm::eulerAngles( glm::quat_cast( rotation ) );
+            return Common::MakeSuccess( true );
+        }
+    } // namespace
     // =============================================================================================
     // THE CONTROL CHANNEL
     //
@@ -126,7 +370,7 @@ namespace Desert::Editor
                       m_FrameQuiescence.Describe() );
             m_ControlInFlight       = request;
             m_ControlInFlightClient = m_ControlSocket.ClientGeneration();
-            m_ControlGate.ArmForReadiness( m_FrameIndex );
+            m_ControlGate.ArmForReadiness( m_FrameIndex, Control::FrameGate::Clock::now() );
             return;
         }
 
@@ -161,7 +405,7 @@ namespace Desert::Editor
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                request.Operation == Control::Op::Drag ||
+                                request.Operation == Control::Op::Drag || request.Operation == Control::Op::Advance ||
                                 request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
@@ -175,7 +419,7 @@ namespace Desert::Editor
         m_ControlInFlight       = request;
         m_ControlPendingReply   = std::move( response );
         m_ControlInFlightClient = m_ControlSocket.ClientGeneration();
-        m_ControlGate.ArmAfterExecution( m_FrameIndex );
+        m_ControlGate.ArmAfterExecution( m_FrameIndex, Control::FrameGate::Clock::now() );
     }
 
     /**
@@ -210,7 +454,23 @@ namespace Desert::Editor
         return true;
     }
 
-    void ControlService::SampleFrameQuiescence( const bool startupLoading )
+    std::optional<double> ControlService::PlaySimulatedSeconds() const
+    {
+        if ( !m_Play.InPlayMode() )
+            return std::nullopt;
+        const auto scene = m_Workspace.ActiveScene();
+        if ( !scene )
+            return std::nullopt;
+        const auto* system = scene->FindSystem<ECS::PhysicsECSSystem>();
+        const auto* world  = system != nullptr ? system->GetPhysicsWorld() : nullptr;
+        if ( world == nullptr )
+            return std::nullopt;
+        return world->GetSimulatedSeconds();
+    }
+
+    void ControlService::SampleFrameQuiescence( const bool startupLoading, const bool reflectionCapturesFilling,
+                                                const bool texturesStreaming, const bool hlodBuildRunning,
+                                                const bool meshDropsLoading )
     {
         Control::EditorQuiescence quiescence;
         // CONTENT SETTLING COUNTS AS STARTUP LOADING FOR THE CHANNEL, and it has to: the channel's whole
@@ -218,6 +478,13 @@ namespace Desert::Editor
         // work from that command remained. A `shot.viewport` answered while a worker is still reading the
         // sky would hand back a picture of a scene without its clouds and call it the scene.
         quiescence.Set( Control::PendingWork::StartupLoading, startupLoading );
+        // UE's tool Accept is disabled until the background compute has a valid result (HaveValidResult); here
+        // Accept stays raised until it lands (MeshProcessingTool::Update), and the reply to it waits with it.
+        {
+            const Core::ModelingState& modeling = Core::ModelingState::Get();
+            quiescence.Set( Control::PendingWork::ModelingAccept,
+                            modeling.ReqAccept && modeling.ActiveTool != Core::ModelingState::Tool::None );
+        }
         quiescence.Set( Control::PendingWork::SceneLoad, m_SceneFiles.HasPendingLoad() );
         quiescence.Set( Control::PendingWork::NewScene, m_SceneFiles.HasPendingNew() );
         // THE GRID BELONGS HERE TOO, and the pending DOCK is part of it: the layout is applied a frame
@@ -238,15 +505,60 @@ namespace Desert::Editor
         quiescence.Set( Control::PendingWork::ControlNudge, Core::ControlNudgeRequests::HasPending() );
         quiescence.Set( Control::PendingWork::PointerDrag,
                         Control::PointerInjection::Playing() || Control::InputInjection::Playing() );
+        // Asked of the clock the world moves by, not of frames or wall time: physics banks real time and caps
+        // its steps per frame, so only its own count says how far the fall has gone. Leaving Play ends the wait.
+        if ( m_AdvanceUntil )
+        {
+            const auto now = PlaySimulatedSeconds();
+            if ( !now || *now >= *m_AdvanceUntil )
+                m_AdvanceUntil.reset();
+        }
+        quiescence.Set( Control::PendingWork::GameTime, m_AdvanceUntil.has_value() );
+        // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
+        // captures are filled for the first time, or while textures are still landing, is not the scene - the
+        // first Starter shot after boot came back with a black sky that the next frame had filled.
+        quiescence.Set( Control::PendingWork::ReflectionCaptures, reflectionCapturesFilling );
+        quiescence.Set( Control::PendingWork::TexturesStreaming, texturesStreaming );
+        // UE's Build HLODs is one modal step: it returns once the HLOD packages are on disk. Here the landscape
+        // BaseColor bake runs over editor frames (TickBuild), so the reply to `run "Build HLODs"` waits for it -
+        // a Save or quit answered earlier cut the bake and no <Scene>_HLOD/ was written (WP-PROTOCOL.scn).
+        quiescence.Set( Control::PendingWork::HLODBuild, hlodBuildRunning );
+        // UE's drop of a source file into the level imports it modally (the factory runs before the actor is
+        // spawned). Here the import runs on a worker and the entity waits empty, so the reply to "Drop into the
+        // viewport" waits for the mesh: a frame taken earlier showed an entity with no mesh (WP-FAR-2.scn).
+        quiescence.Set( Control::PendingWork::MeshDrops, meshDropsLoading );
         // Asked of the run itself: it stays running until FinishCreateLandscape has applied it. Background work:
         // Create answers "started" at once and a client polls `state` until idle before photographing it.
         quiescence.Set( Control::BackgroundWork::LandscapeGenerate, Commands::IsCreatingLandscape() );
         m_FrameQuiescence = quiescence;
     }
 
-    std::optional<int32_t> ControlService::OnFramePresented()
+    std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
+                                                             const bool subsurfaceHistoryConverging,
+                                                             const bool materialPipelinesCompiling,
+                                                             const bool grassInstancesSettling )
     {
         ++m_FrameIndex;
+        // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
+        // it: its renderer asks for the displaced twins, launches their tessellation and swaps in the ones that
+        // landed, all while it is drawn. Sampled at OnUpdate it would describe the PREVIOUS frame - and the frame
+        // after "Open Scene" or a Quality change had asked for nothing yet, read as settled, and was photographed
+        // with the base mesh (DISPLACE 1_on: 4,696 tris drawn instead of 111,268).
+        m_FrameQuiescence.Set( Control::PendingWork::Displacement, displacementUnsettled );
+        // The same kind of after-the-frame fact: the frame's renderer decides whether the scatter it just built
+        // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
+        // texels).
+        m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
+        // Also decided by the frame itself (GRASS-SETTLE): a draw whose pipeline was still on a worker was drawn
+        // with the default surface, so the frame is not the scene. UE's automated screenshot calls
+        // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
+        // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
+        m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
+        // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
+        // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
+        // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
+        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -278,8 +590,8 @@ namespace Desert::Editor
         // The frame just presented is judged by the quiescence sampled while it was being BUILT. The gate
         // uses m_FrameIndex - 1 because the counter was advanced above: the frame that has just gone out
         // is the one that was being made when ServiceControlChannel armed the gate.
-        const Control::GateVerdict verdict =
-             m_ControlGate.ObserveFramePresented( m_FrameIndex - 1, m_FrameQuiescence );
+        const Control::GateVerdict verdict = m_ControlGate.ObserveFramePresented(
+             m_FrameIndex - 1, m_FrameQuiescence, Control::FrameGate::Clock::now() );
 
         if ( verdict == Control::GateVerdict::Waiting || verdict == Control::GateVerdict::Idle )
             return std::nullopt;
@@ -296,7 +608,8 @@ namespace Desert::Editor
             {
                 m_ControlSocket.SendResponseLine( Control::FormatResponse( Control::Response::Failure(
                      m_ControlInFlight->Id,
-                     Control::DescribeReadinessTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited() ) ) ) );
+                     Control::DescribeReadinessTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited(),
+                                                        m_ControlGate.Waited() ) ) ) );
                 m_ControlInFlight.reset();
             }
             return std::nullopt;
@@ -318,9 +631,10 @@ namespace Desert::Editor
 
         if ( verdict == Control::GateVerdict::TimedOut )
         {
-            reply = Control::Response::Failure(
-                 m_ControlInFlight->Id,
-                 Control::DescribeSettleTimeout( m_FrameQuiescence, m_ControlGate.FramesWaited() ) );
+            reply = Control::Response::Failure( m_ControlInFlight->Id,
+                                                Control::DescribeSettleTimeout( m_FrameQuiescence,
+                                                                                m_ControlGate.FramesWaited(),
+                                                                                m_ControlGate.Waited() ) );
         }
         else if ( Control::IsShot( m_ControlInFlight->Operation ) )
         {
@@ -340,6 +654,11 @@ namespace Desert::Editor
                 // Named on the wire so a report cannot quote a viewport capture as a picture of the
                 // editor. The two are different subjects and only one of them contains an interface.
                 payload["subject"] = rfl::Generic( std::string( window ? "window" : "viewport" ) );
+                // The unit a caller must divide by to aim `drag` / `input` from this picture: the window
+                // capture is the swapchain, in framebuffer pixels; the viewport capture is drawn at the
+                // viewport's size in points, so it is already in the channel's one unit.
+                payload["pixelsPerPoint"] = rfl::Generic(
+                     window ? static_cast<double>( ::ImGui::GetIO().DisplayFramebufferScale.x ) : 1.0 );
                 reply              = Control::Response::Success( m_ControlInFlight->Id, std::move( payload ) );
             }
             else
@@ -429,16 +748,59 @@ namespace Desert::Editor
                 }
                 if ( request.Whose == Control::Subject::Viewport )
                 {
-                    ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
-                    if ( camera == nullptr )
+                    // The camera the viewport looks through: the editor's fly camera, or in Play the
+                    // GameplayCamera driven from the view target (what a write above moves).
+                    const auto viewCamera =
+                         m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetActiveCamera() : nullptr;
+                    if ( viewCamera == nullptr )
                         return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+                    const glm::vec3 forward =
+                         -glm::normalize( glm::vec3( glm::inverse( viewCamera->GetViewMatrix() )[2] ) );
 
                     return Control::Response::Success(
                          request.Id,
                          Control::PropertiesToJson(
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
-                              DescribeViewportCamera( camera->GetPosition(), camera->GetDirection(),
-                                                      camera->GetFOV() ) ) );
+                              DescribeViewportCamera( viewCamera->GetPosition(), forward,
+                                                      viewCamera->GetFOV(),
+                                                      EditorPreferences::Get().DebugView.ValidateGpuCulling ) ) );
+                }
+
+                if ( request.Whose == Control::Subject::Tool )
+                {
+                    if ( const auto on = ToolSubjectAvailable(); !on )
+                        return Control::Response::Failure( request.Id, on.GetError() );
+                    std::vector<ReflectedFieldRow> rows;
+                    for ( const Core::FoliageToolRow& row : Core::kFoliageToolRows )
+                        rows.push_back( { std::string( row.Name ), Core::FoliageToolRowType( row ),
+                                          Core::FoliageToolRowText( row ) } );
+                    return Control::Response::Success( request.Id, ReflectedRowsToJson( "tool", rows ) );
+                }
+                if ( request.Whose == Control::Subject::Entity || request.Whose == Control::Subject::World )
+                {
+                    auto scene = m_Workspace.ActiveScene();
+                    if ( !scene )
+                        return Control::Response::Failure( request.Id, "no scene is open" );
+                    if ( request.Whose == Control::Subject::World )
+                    {
+                        std::vector<ReflectedFieldRow> rows =
+                             DescribeReflectedFields( "SceneSettings", &scene->GetSettings() );
+                        AppendWorldPartitionRows( *scene, rows );
+                        return Control::Response::Success( request.Id, ReflectedRowsToJson( "world", rows ) );
+                    }
+                    auto entity = ControlEntity( *scene, request.Entity );
+                    if ( !entity )
+                        return Control::Response::Failure( request.Id, entity.GetError() );
+                    ECS::Entity                    en = entity.GetValue();
+                    std::vector<ReflectedFieldRow> rows;
+                    for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                    {
+                        if ( !entry.DataPtr || entry.ReflectedTypeName.empty() || !entry.Has( en ) )
+                            continue;
+                        auto block = DescribeReflectedFields( entry.ReflectedTypeName, entry.DataPtr( en ) );
+                        rows.insert( rows.end(), block.begin(), block.end() );
+                    }
+                    return Control::Response::Success( request.Id, ReflectedRowsToJson( request.Entity, rows ) );
                 }
 
                 // `m_Documents` here on А6-1's side; О9-2 moved document OWNERSHIP out of the well into
@@ -469,6 +831,9 @@ namespace Desert::Editor
                     if ( !selected )
                         return Control::Response::Failure( request.Id, selected.GetError() );
                     const auto& [uuid, before] = selected.GetValue();
+                    if ( request.Property == Core::kSelectionSunElevation ||
+                         request.Property == Core::kSelectionSunAzimuth )
+                        return SetSelectedSunAngle( request, uuid, before );
                     const auto after = Core::WriteSelectionTransform( before, request.Property, request.Value );
                     if ( !after )
                         return Control::Response::Failure( request.Id, after.GetError() );
@@ -485,12 +850,103 @@ namespace Desert::Editor
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
+                if ( request.Whose == Control::Subject::Tool )
+                {
+                    if ( const auto on = ToolSubjectAvailable(); !on )
+                        return Control::Response::Failure( request.Id, on.GetError() );
+                    if ( const auto written = Core::SetFoliageToolProperty( request.Property, request.Text );
+                         !written )
+                        return Control::Response::Failure( request.Id, written.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
                 if ( request.Whose == Control::Subject::Modeling )
                 {
                     if ( const auto written = Core::SetModelingStateProperty( Core::ModelingState::Get(),
                                                                               request.Property, request.Value );
                          !written )
                         return Control::Response::Failure( request.Id, written.GetError() );
+                    return Control::Response::Success( request.Id );
+                }
+
+                if ( request.Whose == Control::Subject::Entity || request.Whose == Control::Subject::World )
+                {
+                    // THE DETAILS PANEL'S WRITE (UE Remote Control: a property by path): the reflected field,
+                    // WriteField's admission rules, the same undo record — so it is undoable and dirties the
+                    // scene.
+                    auto scene = m_Workspace.ActiveScene();
+                    if ( !scene )
+                        return Control::Response::Failure( request.Id, "no scene is open" );
+                    if ( request.Whose == Control::Subject::World &&
+                         request.Property.starts_with( "WorldPartition" ) )
+                    {
+                        if ( const auto edited =
+                                  SetWorldPartitionProperty( scene, request.Property, request.Text );
+                             !edited )
+                            return Control::Response::Failure( request.Id, edited.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
+                    const std::size_t dot = request.Property.find( '.' );
+                    if ( dot == std::string::npos )
+                        return Control::Response::Failure(
+                             request.Id, std::format( "'{}' is not <Type>.<Field>; ask 'properties' for the names",
+                                                      request.Property ) );
+                    const std::string typeName  = request.Property.substr( 0, dot );
+                    const std::string fieldPath = request.Property.substr( dot + 1 );
+
+                    if ( request.Whose == Control::Subject::World )
+                    {
+                        if ( typeName != "SceneSettings" )
+                            return Control::Response::Failure(
+                                 request.Id,
+                                 std::format( "the world's properties are SceneSettings.*, not '{}'", typeName ) );
+                        if ( const auto written =
+                                  SetReflectedFieldFromText( &scene->GetSettings(), typeName, fieldPath,
+                                                             request.Text, CommandHistory::Get() );
+                             !written )
+                            return Control::Response::Failure( request.Id, written.GetError() );
+                        return Control::Response::Success( request.Id );
+                    }
+
+                    auto entity = ControlEntity( *scene, request.Entity );
+                    if ( !entity )
+                        return Control::Response::Failure( request.Id, entity.GetError() );
+                    ECS::Entity                 en    = entity.GetValue();
+                    const ComponentEditorEntry* found = nullptr;
+                    for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                        if ( entry.DataPtr && ( entry.ReflectedTypeName == typeName || entry.Name == typeName ) &&
+                             entry.Has( en ) )
+                            found = &entry;
+                    if ( found == nullptr )
+                        return Control::Response::Failure(
+                             request.Id,
+                             std::format( "entity {} has no reflected component '{}'; ask 'properties'",
+                                          request.Entity, typeName ) );
+
+                    // Selected first, as a person editing it in Details has it selected: the undo record
+                    // and the panel's view of the edit are then the ones a hand edit produces.
+                    const auto         entityWord = ControlEntityId( request.Entity );
+                    const Common::UUID entityId   = entityWord.GetValue();
+                    Core::SelectionManager::SetSelected( entityId );
+                    // Only this entity's file is rewritten by the next save (WP17), as from Details.
+                    const CommandHistory::FieldSubject fieldSubject( entityId );
+                    Common::BoolResultStr written = Common::MakeSuccess( true );
+                    const auto            edit    = [&]( void* data )
+                    {
+                        written = SetReflectedFieldFromText( data, found->ReflectedTypeName, fieldPath,
+                                                             request.Text, CommandHistory::Get() );
+                    };
+                    if ( found->EditData )
+                        found->EditData( en, edit );
+                    else
+                        edit( found->DataPtr( en ) );
+                    if ( !written )
+                    {
+                        // Named in the editor's log as well as in the reply: a scenario that expects the refusal
+                        // reads its reason there.
+                        LOG_WARN( "[Control] set {} {} '{}' refused: {}", request.Entity, request.Property,
+                                  request.Text, written.GetError() );
+                        return Control::Response::Failure( request.Id, written.GetError() );
+                    }
                     return Control::Response::Success( request.Id );
                 }
 
@@ -513,6 +969,53 @@ namespace Desert::Editor
                 {
                     return Control::Response::Failure( request.Id, written.GetError() );
                 }
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Advance:
+            {
+                // The scenario's wait for gameplay (a fall, a trigger): held behind the gate until Play's
+                // simulated clock has moved on by the asked seconds -- the client sleeps nowhere.
+                const auto now = PlaySimulatedSeconds();
+                if ( !now )
+                    return Control::Response::Failure(
+                         request.Id, "'advance' waits for Play's simulated time: press Play first (the scene "
+                                     "has no running physics world)." );
+                m_AdvanceUntil = *now + static_cast<double>( request.Value[0] );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::AddComponent:
+            {
+                // DETAILS' ADD COMPONENT (UE: the Details panel's +Add): selected first, as a person adding it
+                // has the entity selected, then the menu's own undoable add.
+                auto scene = m_Workspace.ActiveScene();
+                if ( !scene )
+                    return Control::Response::Failure( request.Id, "no scene is open" );
+                auto entity = ControlEntity( *scene, request.Entity );
+                if ( !entity )
+                    return Control::Response::Failure( request.Id, entity.GetError() );
+                ECS::Entity                 en    = entity.GetValue();
+                const ComponentEditorEntry* found = nullptr;
+                for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                    if ( entry.Name == request.Component || entry.ReflectedTypeName == request.Component )
+                        found = &entry;
+                if ( found == nullptr )
+                    return Control::Response::Failure(
+                         request.Id,
+                         std::format( "no component '{}' in the Add Component menu", request.Component ) );
+                const auto entityWord = ControlEntityId( request.Entity );
+                Core::SelectionManager::SetSelected( entityWord.GetValue() );
+                if ( const auto added = AddComponentUndoable( en, *found ); !added )
+                    return Control::Response::Failure( request.Id, added.GetError() );
+                return Control::Response::Success( request.Id );
+            }
+            case Control::Op::SaveAs:
+            {
+                // File -> Save's one save path under a new name (SceneFiles::SaveOpenSceneAs); a refusal
+                // names why — an existing file is never overwritten.
+                if ( const auto saved = m_SceneFiles.SaveOpenSceneAs( request.SceneName ); !saved )
+                    return Control::Response::Failure( request.Id, saved.GetError() );
                 return Control::Response::Success( request.Id );
             }
 
@@ -548,11 +1051,15 @@ namespace Desert::Editor
                 }
                 const auto plan = Control::PointerDrag::Plan(
                      *target, { request.Value[0], request.Value[1], request.Value[2], request.Value[3] },
-                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ),
-                     ::ImGui::GetIO().DisplayFramebufferScale.x );
+                     request.Steps.value_or( Control::PointerDrag::kDefaultSteps ) );
                 if ( !plan.IsSuccess() )
                     return Control::Response::Failure( request.Id, plan.GetError() );
-                if ( const auto armed = Control::PointerInjection::Arm( plan.GetValue() ); !armed.IsSuccess() )
+                const auto mods = Control::ParseInputModifiers( request.DragModifiers );
+                if ( !mods.IsSuccess() )
+                    return Control::Response::Failure( request.Id, mods.GetError() );
+                if ( const auto armed =
+                          Control::PointerInjection::Arm( plan.GetValue().WithModifiers( mods.GetValue() ) );
+                     !armed.IsSuccess() )
                     return Control::Response::Failure( request.Id, armed.GetError() );
                 return Control::Response::Success( request.Id );
             }
@@ -613,9 +1120,38 @@ namespace Desert::Editor
     {
         if ( !m_Workspace.ActiveScene() )
             return "there is no scene, so there is no view to address.";
-        return "the active view is not the editor's fly camera — the scene is in Play and its own "
-               "CameraComponent is driving. Leave Play ('Action' / 'Stop' in the palette) and ask again; "
-               "moving the editor camera now would change a view nobody is looking through.";
+        return "the active view has no camera to address: it is neither the editor's fly camera nor, in Play, "
+               "a camera entity the player looks through. Open a scene view, or leave Play ('Action' / 'Stop').";
+    }
+
+    // `selection set SunElevation|SunAzimuth <deg>`: the Details direction widget's two numbers, through the same
+    // rule (ECS::Rules::SunAngles -> ECS::AimDirectionalLight) and the same one-step TransformCommand.
+    Control::Response ControlService::SetSelectedSunAngle( const Control::Request& request, Common::UUID uuid,
+                                                           const Core::SelectionTransform& before )
+    {
+        const auto ref = m_Workspace.ActiveScene()->FindEntityByID( uuid );
+        if ( !ref )
+            return Control::Response::Failure(
+                 request.Id, fmt::format( "the selected entity {} is not in the scene", static_cast<uint64_t>( uuid ) ) );
+        const ECS::Entity entity = ref->get();
+        if ( !entity.HasComponent<ECS::DirectionLightComponent>() )
+            return Control::Response::Failure(
+                 request.Id, fmt::format( "'{}' is a directional light's property; the selected entity {} has no "
+                                          "Directional Light component",
+                                          request.Property, static_cast<uint64_t>( uuid ) ) );
+        if ( request.Value.size() != 1 || !std::isfinite( request.Value[0] ) )
+            return Control::Response::Failure(
+                 request.Id, fmt::format( "'{}' takes one finite number of degrees", request.Property ) );
+        entt::registry&         registry = *entity.GetRegistry();
+        ECS::Rules::SunAngles   angles   = ECS::Rules::SunAnglesFromToward(
+             ECS::Rules::AtmosphereSunDirection( ECS::WorldRotation( registry, entity.GetHandle() ) ) );
+        if ( request.Property == Core::kSelectionSunElevation )
+            angles.ElevationDeg = glm::clamp( request.Value[0], -90.0f, 90.0f );
+        else
+            angles.AzimuthDeg = request.Value[0];
+        ECS::AimDirectionalLight( registry, entity.GetHandle(), -ECS::Rules::TowardSunFromAngles( angles ) );
+        Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
+        return Control::Response::Success( request.Id );
     }
 
     Common::ResultStr<std::pair<Common::UUID, Core::SelectionTransform>> ControlService::SelectedTransform() const
@@ -644,13 +1180,30 @@ namespace Desert::Editor
 
     Control::Response ControlService::SetViewportCameraProperty( const Control::Request& request )
     {
-        ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
-        if ( camera == nullptr )
-            return Control::Response::Failure( request.Id, NoEditorCameraReason() );
-
         const auto which = ValidateViewportCameraWrite( request.Property, request.Value );
         if ( !which )
             return Control::Response::Failure( request.Id, which.GetError() );
+
+        // The viewport's "Validate GPU Culling" checkbox: the user's DebugView, pushed to the renderer each frame.
+        if ( which.GetValue() == ViewportCameraWrite::ValidateGpuCulling )
+        {
+            EditorPreferences::Get().DebugView.ValidateGpuCulling = request.Value[0] != 0.0f;
+            return Control::Response::Success( request.Id );
+        }
+
+        ::Desert::Core::EditorCamera* camera = m_Workspace.ActiveEditorCamera();
+        if ( camera == nullptr )
+        {
+            if ( m_Workspace.ActiveScene() && m_Play.InPlayMode() )
+            {
+                const auto written =
+                     WritePlayViewCamera( *m_Workspace.ActiveScene(), which.GetValue(), request.Value );
+                if ( !written )
+                    return Control::Response::Failure( request.Id, written.GetError() );
+                return Control::Response::Success( request.Id );
+            }
+            return Control::Response::Failure( request.Id, NoEditorCameraReason() );
+        }
 
         // The lens, through the same setter the viewport's FOV slider calls.
         if ( which.GetValue() == ViewportCameraWrite::FOV )
@@ -671,6 +1224,16 @@ namespace Desert::Editor
                                         : camera->GetDirection();
 
         PlaceEditorCamera( *camera, position, forward );
+        // A PLACED POSE IS A TELEPORT, so it is a camera cut for every view this camera feeds (UE
+        // FEditorViewportClient::SetIsCameraCut -> FSceneView::bCameraCut, as a bookmark jump makes it): the
+        // histories reprojected from the old pose are reset. Without it the temporal history of the pose before
+        // (a far view seconds away) was reprojected into the new one and settled over seconds as a pale block with
+        // a straight edge (GRASS-SETTLE p21). A camera a person flies is never cut.
+        if ( const auto& scene = m_Workspace.ActiveScene() )
+            for ( size_t view = 0; view < scene->GetViewCount(); ++view )
+                if ( scene->GetViewCamera( view ).get() == camera )
+                    if ( auto* renderer = scene->GetViewRenderer( view ) )
+                        renderer->ResetTemporalHistory();
 
         // INPUT IS NOT DISABLED, and the difference from the capture path is deliberate. `--shot` turns it
         // off because nothing may nudge the camera between the placement and the readback, and there is no
@@ -789,6 +1352,38 @@ namespace Desert::Editor
             snapshot.IsmInstancesDrawn                = m_Workspace.PrimaryRenderer() != nullptr
                                                              ? m_Workspace.PrimaryRenderer()->GetIsmInstancesDrawn()
                                                              : 0u;
+            const Graphic::GeometryPoolStats pool = Graphic::GeometryPool::Get().GetStats();
+            snapshot.GeometryPoolBinds            = pool.Binds;
+            snapshot.GeometryPoolMeshBinds        = pool.MeshBinds;
+        }
+
+        {
+            // The NN layer's device facts and kernel path (Engine::DeviceCapabilities::Neural), as chosen at
+            // start-up.
+            const Engine::DeviceCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
+            const Engine::NeuralComputeCaps&  neural       = capabilities.Neural;
+            Control::DeviceSnapshot&          device       = snapshot.Device;
+            device.Name                                    = capabilities.Name;
+            device.NnPath                                  = Engine::NeuralKernelPathName( neural.Path );
+            device.NnTile                                  = neural.Path == Engine::NeuralKernelPath::CoopMatFp16
+                                                                  ? Engine::FormatCooperativeMatrixShape( neural.Tile )
+                                                                  : std::string{};
+            device.NnReason                                = neural.Reason;
+            device.NnShaderFloat16                         = neural.ShaderFloat16;
+            device.NnShaderInt8                            = neural.ShaderInt8;
+            device.NnStorageBuffer16BitAccess              = neural.StorageBuffer16BitAccess;
+            device.NnStorageBuffer8BitAccess               = neural.StorageBuffer8BitAccess;
+            device.NnSubgroupSizeControl                   = neural.SubgroupSizeControl;
+            device.NnCooperativeMatrix                     = neural.CooperativeMatrix;
+            device.NnCooperativeMatrixCompute              = neural.CooperativeMatrixInCompute;
+            device.NnComputeRequiredSubgroupSize           = neural.ComputeSubgroupSizeRequirable;
+            device.NnSubgroupSize                          = neural.SubgroupSize;
+            device.NnMinSubgroupSize                       = neural.MinSubgroupSize;
+            device.NnMaxSubgroupSize                       = neural.MaxSubgroupSize;
+            device.NnMaxPushConstantsSize                  = neural.MaxPushConstantsSize;
+            device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
+            for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
+                device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
@@ -812,6 +1407,11 @@ namespace Desert::Editor
 
         snapshot.Quiescence = m_FrameQuiescence;
         return snapshot;
+    }
+
+    bool ControlService::WindowShotPending() const
+    {
+        return m_ControlInFlight && m_ControlInFlight->Operation == Control::Op::ShotWindow;
     }
 
     void ControlService::RecordWindowCaptureIfDue()

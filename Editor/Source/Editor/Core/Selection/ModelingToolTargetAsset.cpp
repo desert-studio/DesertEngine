@@ -2,7 +2,7 @@
 // ModelingToolTarget.cpp so the rule itself compiles into a suite with no asset registry and no device.
 #include "ModelingToolTarget.hpp"
 
-#include <Editor/Import/EditedMeshAsset.hpp>
+#include <Editor/Core/Selection/EditedMeshAsset.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
@@ -14,9 +14,15 @@ namespace Desert::Editor
     {
         if ( component.EditableMesh || !component.MeshHandle )
             return GetToolTargetMeshAt( component.EditableMesh, {} );
-        const auto* asset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( component.MeshHandle );
+        // A tool is a command the user is waiting on, so a mesh that is not resident yet (just accepted, just
+        // evicted) is read now through the editor-tool door instead of being refused as "pending".
+        auto*       service = Runtime::ResourceRegistry::GetMeshService();
+        const auto* asset   = service->GetAsset( component.MeshHandle );
+        if ( !asset && service->LoadNow( component.MeshHandle ) )
+            asset = service->GetAsset( component.MeshHandle );
         if ( !asset )
-            return Common::MakeFormattedError<ToolTargetMesh>( "static mesh asset {} is not loaded",
+            return Common::MakeFormattedError<ToolTargetMesh>( "static mesh asset {} could not be read (the log "
+                                                               "names why)",
                                                                static_cast<uint64_t>( component.MeshHandle ) );
         return GetToolTargetMeshAt( nullptr, asset->GetMetadata().Filepath );
     }
@@ -46,6 +52,11 @@ namespace Desert::Editor
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was written but not reloaded: {}",
                                                                       path.generic_string(), unloaded.GetError() );
         service->EvictBuilt( component.MeshHandle );
+        // UE's CommitDynamicMeshUpdate rebuilds the render data before Accept returns: the rewritten file is
+        // read and built now (the user is waiting on this command), not left pending for a later frame.
+        if ( !service->LoadNow( component.MeshHandle ) )
+            return Common::MakeFormattedError<std::filesystem::path>(
+                 "'{}' was written but could not be rebuilt (the log names why)", path.generic_string() );
         // The entity's own copy is now the asset's: it draws the asset again, like every other user of it.
         ECS::ClearEditableMesh( component );
         return Common::MakeSuccess( path );

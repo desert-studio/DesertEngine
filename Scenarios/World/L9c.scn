@@ -1,0 +1,57 @@
+# L9c: the Splines edit layer is re-applied when a layer BELOW it is hidden/shown, re-weighted or deleted (UE: ALandscape
+# re-renders the splines layer on any change of the layers beneath it), each change one undo step.
+# Start: L9.scn's straight road - three points across the TerrainPlain hill at (6300|9282|12300, -1906), Width 400.
+# Stack after the setup: Base, "Bump" (Create Edit Layer = "Layer 3", raised under the road), Splines (on top).
+# The scenario SAVES nothing; still `git checkout -- Projects/Desert/Content/Scenes/G3_TwoTerrains*` after a play.
+Дано run Scene "Open Scene G3_TwoTerrains.desce"
+Дано run Landscape "Sculpt mode"
+Дано run Landscape "Tool: Splines"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
+Дано --subject viewport set Camera.Position 6300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 9282,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 12300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+# "Bump": a new edit layer between Base and Splines (it lands above the editing layer, the bottom one), then a strong
+# raise right under the middle point - the stroke re-applies the road over it (L9b).
+Дано run Landscape "Create Edit Layer"
+Дано run Landscape "Tool: Sculpt"
+Дано run Landscape "Brush radius: larger"
+Дано run Landscape "Brush radius: larger"
+Дано run Landscape "Brush radius: larger"
+Дано --subject viewport set Camera.Position 9282,9000,-1906
+Дано run Landscape "Stroke at the viewport centre"
+Дано run Landscape "Stroke at the viewport centre"
+Дано run Landscape "Stroke at the viewport centre"
+# Low along the road (as L9b 1b_sculpt_side, the road here straight at Z -1906).
+Дано --subject viewport set Camera.Position 6900,1400,-1906
+Дано --subject viewport set Camera.Direction 1,-0.22,0.001
+Когда state
+Тогда 0_bump the road flat across the hill, bump walls rising on both sides of it
+Когда run Landscape "Editing edit layer: toggle visibility"
+Когда state
+Тогда 1_hidden the bump gone, the road still flat at the ground height (no trench, no ridge)
+Когда run Landscape "Editing edit layer: toggle visibility"
+Когда run Landscape "Editing edit layer: alphas 0.5"
+Когда state
+Тогда 2_half half-height bump walls beside the road, the road flat
+Когда run Landscape "Editing edit layer: delete"
+Когда state
+Тогда 3_deleted same as 1_hidden: no bump, the road flat at the ground height
+Когда run Action "Undo"
+Когда state
+Тогда 4_undo same as 2_half: half-height walls, the road flat

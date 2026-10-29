@@ -32,6 +32,7 @@
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/AssetGuidRef.hpp>
+#include <Engine/Assets/Serialization/VFXEffectType.hpp>
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <glm/glm.hpp>
 
@@ -54,13 +55,32 @@ namespace Desert::Migration
     // them when it stamps the header, and rfl omits an empty optional, so the file this tool writes is the
     // file the engine reads. A deliberate second copy of the shape; the static_assert below is what keeps
     // it from forking (a member added to the engine's struct and not here fails to compile).
+    // THE WORLD PARTITION BLOCK THIS TOOL READS: the engine's Core::WorldPartitionSerialized PLUS the v50..v66
+    // world-wide DefaultHLODLayer, frozen here. v67 moved the layer onto each grid (Core::
+    // WorldPartitionGridSerialized::HLODLayer), and the read is strict, so an older file's key needs a member to
+    // land in. Read, never written: MigrateGridHLODLayerV67ToV68 moves it onto the grids and clears it, and rfl
+    // omits an empty optional, so the block this tool writes is the block the engine reads.
+    struct WorldPartitionSerialized
+    {
+        std::vector<Core::WorldPartitionGridSerialized>       Grids;
+        std::optional<std::vector<Core::HLODLayerSerialized>> HLODLayers;
+        // Core::WorldPartitionSerialized::ChunkRegionSize, carried through untouched (no step reads it).
+        std::optional<float> ChunkRegionSize;
+        // v50..v66 files only.
+        std::optional<std::string> DefaultHLODLayer;
+    };
+    static_assert( rfl::named_tuple_t<WorldPartitionSerialized>::size() ==
+                        rfl::named_tuple_t<Core::WorldPartitionSerialized>::size() + 1,
+                   "Core::WorldPartitionSerialized gained or lost a member: mirror it in "
+                   "Migration::WorldPartitionSerialized, or this tool drops it from every scene it rewrites" );
+
     struct SceneSerialized
     {
         std::optional<Common::Content::TextAssetHeaderSerialized> Header;
         std::string                                               SceneName;
         std::vector<Assets::EntityData>                           Entities;
         std::optional<rfl::Generic>                               Settings;
-        std::optional<Core::WorldPartitionSerialized>             WorldPartition;
+        std::optional<WorldPartitionSerialized>                   WorldPartition;
         // Pre-v26 files only; read so a refusal can name the version, never written.
         std::optional<int> UnitVersion;
         std::optional<int> SceneVersion;
@@ -274,11 +294,13 @@ namespace Desert::Migration
 
     //  53 - A VIEW STATES ITS RENDER METHODS (RMODE-IFACE, RENDER-ARCH). PostProcessSettings.GlobalIllumination
     //       (GIMode: 0 Off, 1 ScreenSpace, 2 RSM) is GlobalIlluminationMethod (Common::Scalability::GIMethod, the
-    //       method ladder: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3) and EnableSSR (bool) is ReflectionsMethod
-    //       (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod, ContactShadows and
-    //       DistanceFieldShadows are new keys with their defaults (MigrateRenderMethodsV52ToV53). Both the record's
-    //       volume and a prefab override's delta are renamed: the key is gone from the type either way. A value
-    //       outside the old type is refused, naming the entity. Scenes and prefabs alike.
+    //       method ladder of v53: Off 0, ScreenSpace 2, ReflectiveShadowMaps 3 — RSM is ProbeVolume 3 on today's
+    //       ladder, which kSceneVersionGIMethodLadder re-states every number of) and EnableSSR
+    //       (bool) is ReflectionsMethod (ReflectionMethod: false -> Off 0, true -> ScreenSpace 2); ShadowsMethod,
+    //       ContactShadows and DistanceFieldShadows are new keys with their defaults
+    //       (MigrateRenderMethodsV52ToV53). Both the record's volume and a prefab override's delta are renamed:
+    //       the key is gone from the type either way. A value outside the old type is refused, naming the entity.
+    //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionRenderMethods = 53;
 
     //  54 - A SCRIPT SLOT HOLDS ONLY WHAT DIFFERS FROM THE SCRIPT (SCR-DETAILS, UE's delta against the CDO). Every
@@ -290,18 +312,182 @@ namespace Desert::Migration
     //       Scenes and prefabs alike.
     inline constexpr int kSceneVersionScriptDefaults = 54;
 
-    //  59 - VOLUMETRIC FOG (VOLFOG, UE's Volumetric Fog group and ULightComponent::VolumetricScatteringIntensity).
+    //  55 - THE SUN STATES ITS SOURCE ANGLE (RT-SHADOWS; UE UDirectionalLightComponent::LightSourceAngle).
+    //       ECS::DirectionalLightData::SourceAngle (degrees, the sun's angular diameter) drives the cascades'
+    //       penumbra and the ray-traced sun shadow's cone. Every DirectionLight record that does not state it is
+    //       given kSourceAngleDefault, the component's default (MigrateSourceAngleV54ToV55). A prefab override
+    //       is a delta and is left alone. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSourceAngle = 55;
+
+    //  56 - LIGHTS STATE THEIR UNITS; THE EXPOSURE RANGE IS EV100 (LIGHT-UNITS, UE ELightUnits). PointLight /
+    //       SpotLight gained IntensityUnits (Unitless 0, Candelas 1, Lumens 2, EV100 3) and their defaults became
+    //       UE's (8 cd, InverseSquare): every block states IntensityUnits Unitless - the meaning every older value
+    //       had - and a record that stated no Falloff / Intensity states the old defaults (Quadratic, 1). The
+    //       volume's AutoExposureMin / Max (luminance clamps, default 0.02 / 8) are AutoExposureMinEV100 /
+    //       MaxEV100 = log2(L) + 3, the same clamp (defaults now UE's -10 / 20). A DirectionLight's Intensity was
+    //       always the illuminance the BRDF integrates: it is lux now by name, the number is kept. An override
+    //       (a delta) only gains the units and has its stated exposure keys renamed (MigrateLightUnitsV55ToV56).
+    //       v55 is SourceAngle (Windows); scenes and prefabs alike.
+    inline constexpr int kSceneVersionLightUnits = 56;
+
+    //  57 - THE PHYSICAL SKY'S SUN IS THE LIGHT; MANUAL EXPOSURE IS EV100 (LIGHT-UNITS-2, UE). The Physical
+    //       Atmosphere sky stopped reading SkyAtmosphere SunColor x SunIntensity: it scatters the atmosphere sun
+    //       light's Color x Intensity (lux), as UE. A scene whose physical sky had its own sun keeps its picture
+    //       by UE's factors: r = SunColor*SunIntensity / (light Color*Intensity), per channel, multiplies the
+    //       sky's SkyAndAerialPerspectiveLuminanceFactor (LUTs, aerial perspective, distant light, bake) and
+    //       becomes the light's AtmosphereSunDiskColorScale (the disc). The volume's manual Exposure (a
+    //       multiplier m, default 1) is ManualExposureEV100 = log2(key / m) + 3 at the volume's AutoExposureKey
+    //       (default 0.18) - the same scale through Graphic::ManualExposureScale. A physical sky with no
+    //       atmosphere sun light, or a light of zero illuminance under a lit sky, is refused
+    //       (MigrateSkySunFromLightV56ToV57). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSkySunFromLight = 57;
+
+    //  58 - THE CLOCK HAS A CALENDAR (TOD1, UE SunPosition). TimeOfDay gained Longitude, TimeZone,
+    //       DaylightSavingTime, Year, Month, Day, and the sun is NOAA's / UE's solar position for that date and
+    //       place instead of the equinox path in solar time. Every TimeOfDay block in a record states the
+    //       calendar closest to that path - 2026-03-20 at longitude 0 in UTC, no daylight saving - so an old
+    //       clock keeps its sun to within the equation of time (minutes) and the equinox declination (under a
+    //       degree); a block that already states a calendar key is left alone, and an override (a delta) is
+    //       not touched (MigrateSunCalendarV57ToV58). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionSunCalendar = 58;
+
+    //  64 - THE GI METHOD LADDER LOST A RUNG (GI-METHOD-RENUMBER). GI-PROBE-SW removed ReflectiveShadowMaps from
+    //       Common::Scalability::GIMethod and every method above it moved down one number: the ladder a v53..v63
+    //       file was written on is Off 0, Lightmaps 1, ScreenSpace 2, ReflectiveShadowMaps 3, ProbeVolume 4,
+    //       SoftwareTraced 5, HardwareTraced 6, PathTraced 7; today's is Off 0, Lightmaps 1, ScreenSpace 2,
+    //       ProbeVolume 3, SoftwareTraced 4, HardwareTraced 5, PathTraced 6. Every stated
+    //       PostProcessVolume.Settings.GlobalIlluminationMethod - a record's and a prefab override's delta - is
+    //       re-stated by that table; ReflectiveShadowMaps 3 becomes ProbeVolume 3 (the off-screen bounce that
+    //       replaced it), the number unchanged. A value outside the old ladder is refused, naming the entity
+    //       (MigrateGIMethodLadderV63ToV64). v59..v63 are Windows' steps. Scenes and prefabs alike.
+    inline constexpr int kSceneVersionGIMethodLadder = 64;
+
+    //  65 - THE DISPLAY TRANSFER IS THE sRGB OETF (RENDER-LOOK round 05). The composite encodes with the sRGB
+    //  curve,
+    //       as UE does for its sRGB output device (GammaCorrectionCommon.ush LinearToSrgb), in place of
+    //       pow(1 / Gamma): the transfer belongs to the display, not to a volume's look, so
+    //       Core::PostProcessSettings lost Gamma. Every stated PostProcessVolume.Settings.Gamma - a record's and a
+    //       prefab override's delta - is dropped, whatever its value: no value of it has a meaning now
+    //       (MigrateDisplayTransferV64ToV65). Scenes and prefabs alike.
+    inline constexpr int kSceneVersionDisplayTransfer = 65;
+
+    //  66 - A WORLD PARTITION GRID HAS A NAME (WP22). An entity chooses its grid by name (RuntimeGrid block, UE
+    //       AActor::RuntimeGrid), so every grid states one, unique in the world, and a Priority (default 0). Every
+    //       v65 world partitioned everything on its first grid, so that grid becomes "Main" (what an entity with
+    //       no RuntimeGrid streams on, as before) and every further grid "Grid<index>" - no record names those, so
+    //       none of them gains a member (MigrateGridNamesV65ToV66). Scenes only: a prefab has no WorldPartition.
+    inline constexpr int kSceneVersionGridNames = 66;
+
+    //  67 - A LANDSCAPE TILE'S HeightFile IS A CONTENT KEY (WP-FAR-6B). The record names its height file as
+    //       "assets:<dir>/<scene>_Landscape/<id>.dlht" (Common::AssetHandle::StableKeyForPath, UE's /Game/...
+    //       package path), not as the project-relative folder ("Content/..."): a package mounts the assets root
+    //       under its own name, so only the key resolves there, and the load refuses any other spelling
+    //       (World::Landscape::ReadLandscapeTileByKey). The old spelling is relative to the PROJECT; the step
+    //       finds the project by the .deproj above the scene and measures against its AssetsRoot. A spelling
+    //       that is not under it is refused, naming the entity (MigrateLandscapeHeightKeysV66ToV67). Scenes
+    //       only: a landscape tile is a scene's.
+    inline constexpr int kSceneVersionLandscapeHeightKeys = 67;
+
+    //  68 - THE HLOD LAYER IS A GRID'S (WP22c). UE states HLOD setup per runtime partition
+    //       (FRuntimePartitionDesc::HLODSetups), so WorldPartitionGridSerialized gains HLODLayer and the world's
+    //       DefaultHLODLayer is gone. A v67 world built every cell's HLOD with its DefaultHLODLayer, whatever the
+    //       grid, so every grid that states no layer is given that one; a world that stated none gives none
+    //       (its cells had no HLOD and still have none) (MigrateGridHLODLayerV67ToV68). Scenes only.
+    inline constexpr int kSceneVersionGridHLODLayer = 68;
+
+    //  69 - EVERY ASSET REFERENCE IS A CONTENT KEY (PATH1). Sixteen asset types (materials, cloud volumes,
+    //       rigs, graphs, themes, retargets, prefabs, foliage types, fractures, waves, input contexts, physics,
+    //       sounds, VFX systems, world parameters, weather presets) wrote the path relative to the assets root
+    //       ("Materials/M.demat") and the loader joined it to ASSETS_PATH; meshes were also spelled relative to
+    //       the project ("Resources/Assets/Meshes/M.skmesh"). The joins are gone - the load refuses a bare
+    //       spelling (ComponentRegistry FileForStoredReference) - so every string of a block (records, prefab
+    //       overrides, scene settings) that is a relative file path naming a file under the assets root, by
+    //       either spelling, becomes "assets:<relative>" (MigrateAssetKeysV68ToV69). A spelling that names no
+    //       file is left as stated: it cannot be told from text, and its load refuses it by name. Scenes and
+    //       prefabs alike.
+    inline constexpr int kSceneVersionAssetKeys = 69;
+
+    //  70 - AN EXTERNAL-ENTITIES SCENE PERSISTS NO ROOT ORDER (WP17). Its roots are the cells streamed in,
+    //       appended in load order, so the running root count v69 wrote said 0 with the cells away and 28 with
+    //       Load All - an untouched entity differed from its own file depending on what was loaded. UE keeps no
+    //       order for OFPA top-level actors either. A ROOT record of a scene with a WorldPartition block states
+    //       no siblingIndex; children keep theirs (MigrateRootSiblingIndexV69ToV70). Scenes only.
+    inline constexpr int kSceneVersionRootSiblingIndex = 70;
+
+    //  71 - VOLUMETRIC FOG (VOLFOG, UE's Volumetric Fog group and ULightComponent::VolumetricScatteringIntensity).
     //       ExponentialHeightFog gains VolumetricFog, VolumetricFogScatteringDistribution, VolumetricFogAlbedo,
     //       VolumetricFogEmissive, VolumetricFogExtinctionScale, VolumetricFogDistance, VolumetricFogStartDistance
     //       and VolumetricFogNearFadeInDistance; DirectionLight, PointLight and SpotLight gain
     //       VolumetricScatteringIntensity. Every new field is ADDITIVE with a default that reproduces the old
     //       picture (VolumetricFog off, intensity 1), so the step has no transform of its own: the record is read
     //       with the declared defaults and the migrator's save states them. Scenes and prefabs alike.
-    inline constexpr int kSceneVersionVolumetricFog = 59;
+    inline constexpr int kSceneVersionVolumetricFog = 71;
 
     static_assert( kSceneVersionVolumetricFog == kSceneVersion,
                    "the last migration step and the engine's required scene version must be the same "
                    "generation - raise Core::kSceneVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
+    // WORLD PARTITION'S OWN CHAIN (MIGRATE-SUBSYS, owner 2026-10-22; UE FCustomVersion). The steps below are keyed
+    // by the number a file states under Assets::kWorldPartitionSchemaTag, not by the scene schema number, and run
+    // after the scene chain (MigrateScene / MigratePrefab, RunWorldPartitionSteps): a World Partition change takes
+    // the next number HERE, so it cannot collide with a scene step another branch is adding at the same time.
+    //
+    //   1 - THE COUNTER EXISTS (MIGRATE-SUBSYS). World Partition's block and streamed records are exactly what
+    //       scene schema v70 states; v1 is that format under its own tag. Nothing in a file changes but the
+    //       header, which states WPAR 1 (the stamp, MigrationHeader). Scenes and prefabs alike - a prefab's
+    //       records are a scene's, so it states the same three tags.
+    inline constexpr int kWorldPartitionVersionTagged = 1;
+
+    // THE REFLECTED ASSET-REFERENCE FORMAT'S OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a
+    // file states under Assets::kAssetRefSchemaTag and run after the scene chain and World Partition's.
+    //
+    //   1 - STATIC MESHES AND MATERIALS BY {Guid, Path} (STATICMESH-FORMAT). The Static Mesh block's MeshGuid +
+    //       MeshPath become its reflected `MeshHandle` {Guid, Path} and MaterialGuids + MaterialPaths its
+    //       `MaterialSlots` [{Guid, Path}] (the GUIDs the file already states); every reflected material field
+    //       stated as a bare key (LandscapeMaterial.Material, VolumetricCloud.Material,
+    //       Destructible.InteriorMaterial, UIPanel.Material) becomes {Guid, Path}, the GUID read from the
+    //       `.demat` header. Records and prefab overrides alike. MigrateReflectedAssetRefsV0ToV1.
+    inline constexpr int kAssetRefVersionReflected = 1;
+
+    static_assert( kAssetRefVersionReflected == Core::kAssetRefVersion,
+                   "the last asset-reference step and the engine's required asset-reference version must be the "
+                   "same generation - raise Core::kAssetRefVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
+    // THE LIGHT COMPONENTS' OWN CHAIN (MIGRATE-SUBSYS; UE FCustomVersion), keyed by the number a file states under
+    // Assets::kLightSchemaTag and run after the asset-reference chain.
+    //
+    //   1 - A DIRECTIONAL LIGHT IS AIMED BY ITS ROTATION (PORT-SUN-ROTATION), as in UE: the light travels along
+    //       the entity's world forward axis (-Z) and its Translation is only where it sits. Every record with a
+    //       DirectionLight block whose Translation is a direction (longer than 1e-4, the old engine's gate) gets
+    //       the Rotation that aims its world forward axis along normalize(Translation) - the parents' stated
+    //       Rotations divided out - and a zero Translation, so no direction is stored twice. A light whose
+    //       Translation was no direction emitted nothing before; it keeps its Rotation and is counted. A prefab
+    //       override that states a Translation beside a DirectionLight block is converted the same way, its
+    //       parent rotation unknown here and taken as identity, and counted (MigrateLightRotationV0ToV1).
+    //       Scenes and prefabs alike.
+    inline constexpr int kLightVersionRotation = 1;
+
+    static_assert( kLightVersionRotation == Core::kLightVersion,
+                   "the last light step and the engine's required light version must be the same generation - "
+                   "raise Core::kLightVersion in Engine/Core/Serialize/SceneFormat.hpp" );
+
+    // What MigrateReflectedAssetRefsV0ToV1 did to one file.
+    struct ReflectedAssetRefsReport
+    {
+        std::size_t              MeshBlocks     = 0; // Static Mesh blocks (records and overrides) restated
+        std::size_t              MaterialFields = 0; // bare material keys restated as {Guid, Path}
+        std::vector<std::string> Refused;            // a material file with no header GUID, or a wrong shape
+    };
+
+    // Restates the reflected static-mesh and material references as {Guid, Path} (kAssetRefVersionReflected).
+    // `assetsRoot` locates the `.demat` an "assets:" key names. Reads files; writes none.
+    ReflectedAssetRefsReport MigrateReflectedAssetRefsV0ToV1( std::vector<Assets::EntityData>& entities,
+                                                              const std::filesystem::path&     assetsRoot );
+
+    static_assert(
+         kWorldPartitionVersionTagged == Core::kWorldPartitionVersion,
+         "the last World Partition step and the engine's required World Partition version must be the "
+         "same generation - raise Core::kWorldPartitionVersion in Engine/Core/Serialize/SceneFormat.hpp" );
 
     // What MigratePathOnlyMeshGuidsV31ToV32 did to one file (also the shape of the v27->28 step this tool
     // no longer carries: kept as one struct name so a future step over the same MeshGuid slot need not
@@ -352,6 +538,14 @@ namespace Desert::Migration
     // Re-states every DirectionLight block's ShadowBias of @p entities (records and their prefab overrides)
     // as kShadowBiasCentimetresDefault. Returns how many it re-stated. PURE.
     std::size_t MigrateShadowBiasCentimetresV48ToV49( std::vector<Assets::EntityData>& entities );
+
+    // What a pre-v55 DirectionLight is given: ECS::DirectionalLightData::SourceAngle's default, in degrees (UE's
+    // LightSourceAngle default, the sun's angular diameter).
+    inline constexpr float kSourceAngleDefault = 0.5357f;
+
+    // States kSourceAngleDefault in every DirectionLight record of @p entities that has no SourceAngle (prefab
+    // overrides are deltas: untouched). Returns how many it stated. PURE.
+    std::size_t MigrateSourceAngleV54ToV55( std::vector<Assets::EntityData>& entities );
 
     // The keys MigrateLandscapeLayerModesV37ToV38 takes out of every LandscapeMaterial block.
     inline constexpr std::array<const char*, 3> kRetiredLandscapeLayerModeKeys = { "GrassMode", "RockMode",
@@ -575,9 +769,117 @@ namespace Desert::Migration
     ScriptDefaultsReport MigrateScriptDefaultsV53ToV54( std::vector<Assets::EntityData>& entities,
                                                         const std::filesystem::path&     assetsRoot );
 
+    // What MigrateLightUnitsV55ToV56 did to one file.
+    struct LightUnitsReport
+    {
+        std::size_t              Lights  = 0; // PointLight / SpotLight blocks that now state IntensityUnits
+        std::size_t              Volumes = 0; // PostProcessVolume Settings re-stated in EV100
+        std::vector<std::string> Refused;     // a Settings / exposure value that is not the old shape
+    };
+
+    // Raises PointLight / SpotLight and PostProcessVolume blocks to the rule kSceneVersionLightUnits states, in
+    // the record and in every prefab override. PURE.
+    LightUnitsReport MigrateLightUnitsV55ToV56( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSkySunFromLightV56ToV57 did to one file.
+    struct SkySunFromLightReport
+    {
+        std::size_t              Skies   = 0; // physical skies whose sun ratio was folded into UE's factors
+        std::size_t              Volumes = 0; // PostProcessVolume Settings whose Exposure is now EV100
+        std::vector<std::string> Refused;
+    };
+
+    // Raises SkyAtmosphere / DirectionLight / PostProcessVolume blocks to the rule kSceneVersionSkySunFromLight
+    // states, in the record and in every prefab override (an override only has its stated Exposure re-stated).
+    // PURE.
+    SkySunFromLightReport MigrateSkySunFromLightV56ToV57( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateSunCalendarV57ToV58 did to one file.
+    struct SunCalendarReport
+    {
+        std::size_t Clocks = 0; // TimeOfDay blocks that now state the equinox calendar
+    };
+
+    // States the calendar kSceneVersionSunCalendar names on every record's TimeOfDay block that states none.
+    // PURE.
+    SunCalendarReport MigrateSunCalendarV57ToV58( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateGIMethodLadderV63ToV64 did to one file.
+    struct GIMethodLadderReport
+    {
+        std::size_t              Restated = 0; // GlobalIlluminationMethod values whose number changed
+        std::vector<std::string> Refused;      // a Settings block or a value that is not on the old ladder
+    };
+
+    // Re-states every PostProcessVolume.Settings.GlobalIlluminationMethod by the old -> new table
+    // kSceneVersionGIMethodLadder states, in the record and in every prefab override. PURE.
+    GIMethodLadderReport MigrateGIMethodLadderV63ToV64( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateDisplayTransferV64ToV65 did to one file.
+    struct DisplayTransferReport
+    {
+        std::size_t              Dropped = 0; // PostProcessVolume.Settings.Gamma keys removed
+        std::vector<std::string> Refused;     // a Settings block that is not an object
+    };
+
+    // Drops every PostProcessVolume.Settings.Gamma kSceneVersionDisplayTransfer names, in the record and in every
+    // prefab override. PURE.
+    DisplayTransferReport MigrateDisplayTransferV64ToV65( std::vector<Assets::EntityData>& entities );
+
+    // What MigrateLightRotationV0ToV1 did to one file.
+    struct SunRotationReport
+    {
+        std::size_t Aimed      = 0; // records whose Translation became their Rotation
+        std::size_t Overrides  = 0; // prefab overrides converted with an identity parent rotation
+        std::size_t Undirected = 0; // lights whose Translation was no direction; Rotation kept as stated
+    };
+
+    // Moves every directional light's direction from its Translation into its Rotation, under the rule
+    // kLightVersionRotation states. PURE.
+    SunRotationReport MigrateLightRotationV0ToV1( std::vector<Assets::EntityData>& entities );
+
     // States the Instancing HLOD layer as the default of a partitioned world that states no layers, under the
     // rule kSceneVersionHLODLayers states. True when it wrote one. PURE.
     bool MigrateHLODLayersV49ToV50( SceneSerialized& scene );
+
+    // Names every unnamed grid of a partitioned world (kSceneVersionGridNames); how many it named.
+    std::size_t MigrateGridNamesV65ToV66( SceneSerialized& scene );
+
+    // What MigrateAssetKeysV68ToV69 did to one file.
+    struct AssetKeysReport
+    {
+        std::size_t              Keyed            = 0; // bare spellings restated as "assets:" keys (all sites)
+        std::size_t              PrefabPathsKeyed = 0; // of Keyed: records' own PrefabPath
+        std::vector<std::string> Refused;              // non-empty: the file is not written
+    };
+
+    // Restates every bare relative file path naming a file under @p assetsRoot as its "assets:" key, in every
+    // record (its PrefabPath and its blocks), every prefab override and, when given, the scene settings
+    // (kSceneVersionAssetKeys). A bare PrefabPath that names no file under the root is refused by name.
+    AssetKeysReport MigrateAssetKeysV68ToV69( std::vector<Assets::EntityData>& entities,
+                                              std::optional<rfl::Generic>*     settings,
+                                              const std::filesystem::path&     assetsRoot );
+
+    // What MigrateLandscapeHeightKeysV66ToV67 did to one scene.
+    struct LandscapeHeightKeysReport
+    {
+        std::size_t              Keyed = 0; // LandscapeTile.HeightFile spellings re-stated as content keys
+        std::vector<std::string> Refused;   // a spelling with no project, or not under its assets root
+    };
+
+    // Re-states every LandscapeTile.HeightFile that is not an "assets:" key - a path relative to the project
+    // that holds @p sourceFile (the nearest .deproj above it) - as the key of that file under the project's
+    // AssetsRoot (kSceneVersionLandscapeHeightKeys), in the record and in every prefab override.
+    LandscapeHeightKeysReport MigrateLandscapeHeightKeysV66ToV67( std::vector<Assets::EntityData>& entities,
+                                                                  const std::filesystem::path&     sourceFile );
+
+    // Moves a partitioned world's DefaultHLODLayer onto every grid that states no HLODLayer and clears it
+    // (kSceneVersionGridHLODLayer); how many grids were given the layer.
+    std::size_t MigrateGridHLODLayerV67ToV68( SceneSerialized& scene );
+
+    // Drops siblingIndex from every root record of a partitioned (external-entities) scene
+    // (kSceneVersionRootSiblingIndex); how many records lost it.
+    std::size_t MigrateRootSiblingIndexV69ToV70( SceneSerialized& scene );
 
     // What MigrateSceneDependenciesV51ToV52 did to one scene.
     struct SceneDependenciesReport
@@ -659,6 +961,22 @@ namespace Desert::Migration
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
 
+    // The current VFXS text of a VFXS 1 .. 4 `.dfx`: one step per generation, each on the UNTYPED body (no step
+    // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,
+    // GUID kept, Dependencies stamped from the stacks).
+    //   1 -> 2 (VFX-09): a Ribbon row gets the default ribbon settings, no row a Material; a v1 Mesh row (no mesh)
+    //          or a v1 row stating a VFXS 2 key is an error naming the emitter.
+    //   2 -> 3 (VFX-11): the system names the project's `Default` effect type (the caller creates the project's
+    //          VFX/Default.dfxtype from DefaultVFXEffectTypeForV3 when it has none).
+    //   3 -> 4 (VFX-MODULE-ASSET): every stack row's `engine:<Name>` becomes {Guid, Path} of <Name>.dfxmod in the
+    //          engine module library (the frozen kEngineVFXModulesV3); LocalModules goes (a non-empty list is an
+    //          error - a local module becomes a project .dfxmod by hand).
+    //   4 -> 5 (VFX-PORT-2): the system's fixed Bounds move into every emitter (VFXEmitterData::Bounds, UE
+    //          UNiagaraEmitter::FixedBounds); a system without Bounds or an emitter already stating them is an error.
+    // A file that states no VFXS, or the current one or later, is an error naming what it states. PURE - no
+    // filesystem access.
+    Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text );
+
     // ANIM-SKELREF: one .skeleton as the TargetSkeleton step matches it - header GUID, path relative to its
     // `Assets` root (ReadSkeletonCandidate's form) and every bone name.
     struct TargetSkeletonRig
@@ -701,6 +1019,12 @@ namespace Desert::Migration
     Common::ResultStr<std::string>
     MigrateMeshBinaryToV5( std::string_view path, std::string_view bytes,
                            std::span<const Animation::SkeletonCandidate> skeletons );
+
+    // MeshBinary 5 -> 6 (DISPLACE-5): v6 gives the skinned mesh's displacement mode the header byte at 72 that v5
+    // wrote as zero, and zero is MeshDisplacementMode::None - so the raise is the version field alone. A v5 file
+    // whose byte 72 is not zero is refused by name (no writer produced one). The result is judged by the engine's
+    // DecodeMeshBinary and re-stated by EncodeMeshBinary. PURE.
+    Common::ResultStr<std::string> MigrateMeshBinaryV5ToV6( std::string_view path, std::string_view bytes );
 
     // MSAS SRCE 2 -> 3 (a `.stmesh` / `.skmesh` mesh source asset): the skin's bone signature (U64) becomes its
     // skeleton's GUID (Hi, Lo; same rule as above) and the header's dependencies gain it after the materials; a
@@ -752,14 +1076,27 @@ namespace Desert::Migration
     // state CLTY 6 is an error naming what it states. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateCloudTypeV6ToV7( const std::string& text );
 
-    // A MATL 4 `PatchStrength` s — the slope of the ramp W = saturate(1 - 2 s u) — as the MATL 5 clear share of
-    // the sky that ramp left: max(0, 1 - 1/(2s)), the fraction of the sky with W = 0 (FIELD-GRAIN-b).
-    float MigratePatchStrengthV4ToV5( float strength );
+    // The v6 text of a v5 `.demat`: every texture stored under a shipped schema's GLSL spelling (`u_NormalTexture`)
+    // renamed to the parameter name its shader now declares (`NormalTexture`); everything else and the header's
+    // GUID kept. A file that does not state MATL 5, or a `u_` texture no shipped schema declared, is an error
+    // naming it. PURE - no filesystem access.
+    Common::ResultStr<std::string> MigrateMaterialV5ToV6( const std::string& text );
 
-    // The v5 text of a v4 `.demat`: every `PatchStrength` parameter (the cloud material's and its instances')
-    // raised by MigratePatchStrengthV4ToV5, everything else and the header's GUID kept. A file that does not
-    // state MATL 4 is an error naming what it states. PURE - no filesystem access.
-    Common::ResultStr<std::string> MigrateMaterialV4ToV5( const std::string& text );
+    // The v7 text of a v6 `.demat` (SSS-PROFILE): every value kept, the tag raised - the SubsurfaceProfile
+    // reference is additive. A file that does not state MATL 6 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateMaterialV6ToV7( const std::string& text );
+
+    // The `Default` effect type the 2 -> 3 step names (VFX-11): the global distance ladder VFXS 2 culled by
+    // (the removed Effects.MaxDistance row, Low .. Cinematic 5000 / 10000 / 20000 / 50000 / 0 cm) with no spawn
+    // scaling, so a raised system plays exactly as it did. The migrator writes it as <VFX root>/Default.dfxtype
+    // beside the first system it raises when the project has none. PURE.
+    Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3();
+
+    // The VFXT 2 text of a VFXT 1 `.dfxtype` (VFX-11 p7): every v1 value kept; the type gets CullReaction
+    // DeactivateResume and Significance Distance, every level MaxInstances / MaxSystemInstances 0 (no limit),
+    // CullByViewFrustum false and MaxTimeWithoutRender 0 - what a v1 type did. The header's GUID kept; a file that
+    // does not state VFXT 1 is an error naming what it states. PURE.
+    Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.
@@ -835,6 +1172,28 @@ namespace Desert::Migration
 
         bool HLODLayersRaised = false; // below kSceneVersionHLODLayers
         bool HLODLayerStated  = false; // a partitioned world was given the Instancing layer
+        bool        GridNamesRaised = false; // below kSceneVersionGridNames
+        std::size_t GridsNamed      = 0;     // grids given a name
+        bool                      LandscapeHeightKeysRaised = false; // below kSceneVersionLandscapeHeightKeys
+        LandscapeHeightKeysReport LandscapeHeightKeys;
+        bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
+        std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
+        bool        RootSiblingIndexRaised  = false; // below kSceneVersionRootSiblingIndex
+        // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
+        int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
+        bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
+        // The asset-reference chain (keyed by the AREF number the file states).
+        int                      StatedAssetRefVersion = 0;
+        bool                     ReflectedAssetRefsRaised = false; // below kAssetRefVersionReflected
+        ReflectedAssetRefsReport ReflectedAssetRefs;
+        // The light chain (keyed by the LGHT number the file states).
+        int               StatedLightVersion = 0;
+        bool              SunRotationRaised  = false; // below kLightVersionRotation
+        SunRotationReport SunRotation;
+        std::size_t RootSiblingIndexDropped = 0;     // root records that lost their siblingIndex
+
+        bool                      AssetKeysRaised = false; // below kSceneVersionAssetKeys
+        AssetKeysReport           AssetKeys;
 
         bool                    SceneDependenciesRaised = false; // below kSceneVersionSceneDependencies
         SceneDependenciesReport SceneDependencies;
@@ -844,6 +1203,24 @@ namespace Desert::Migration
 
         bool                 ScriptDefaultsRaised = false; // below kSceneVersionScriptDefaults
         ScriptDefaultsReport ScriptDefaults;
+
+        bool        SourceAngleRaised  = false; // below kSceneVersionSourceAngle
+        std::size_t SourceAnglesStated = 0;
+
+        bool             LightUnitsRaised = false; // below kSceneVersionLightUnits
+        LightUnitsReport LightUnits;
+
+        bool                  SkySunFromLightRaised = false; // below kSceneVersionSkySunFromLight
+        SkySunFromLightReport SkySunFromLight;
+
+        bool              SunCalendarRaised = false; // below kSceneVersionSunCalendar
+        SunCalendarReport SunCalendar;
+
+        bool                 GIMethodLadderRaised = false; // below kSceneVersionGIMethodLadder
+        GIMethodLadderReport GIMethodLadder;
+
+        bool                  DisplayTransferRaised = false; // below kSceneVersionDisplayTransfer
+        DisplayTransferReport DisplayTransfer;
 
         // TMLN v1 -> v2 (ANIM-FMT): gated by each UIAnim block's own TMLN number, at any scene version.
         bool                       UIAnimationTimelinesRaised = false;
@@ -858,7 +1235,11 @@ namespace Desert::Migration
                    WindSourceRaised || TimeOfDayComponentRaised || GameModeSettingsRaised || SoundRefsRaised ||
                    ParticleSpriteMaterialsRaised || SSRDefaultOnRaised || ShadowBiasCentimetresRaised ||
                    HLODLayersRaised || ParticleEmittersToVFXRaised || SceneDependenciesRaised ||
-                   RenderMethodsRaised || ScriptDefaultsRaised;
+                   RenderMethodsRaised || ScriptDefaultsRaised || SourceAngleRaised || LightUnitsRaised ||
+                   SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
+                   GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
+                   RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
+                   SunRotationRaised;
         }
     };
 

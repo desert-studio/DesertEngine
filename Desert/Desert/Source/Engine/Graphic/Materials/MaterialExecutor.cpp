@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
+#include <Engine/Graphic/Materials/Material.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Core/Formats/MaterialLayout.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanMaterialBackend.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanShader.hpp>
@@ -9,6 +11,7 @@
 #include <Engine/ShaderResources/ShaderResourcesManager.hpp>
 
 #include <cstring>
+#include <format>
 
 namespace Desert::Graphic
 {
@@ -127,6 +130,20 @@ namespace Desert::Graphic
              { return uniformManager->GetUniformImage2D( n ); }, [&]( const std::string& n, const auto& r )
              { return std::make_shared<Texture2DProperty>( r, parameterFor( n, false )->DefaultTexture ); },
              m_Texture2DPropertiesStorage, m_Texture2DPropertiesLookup, "image2D" );
+
+        // ROW TEXTURES have no descriptor to reflect: the shader reads them from the material row through the
+        // bindless table (Core::Formats::IsRowTexture, BuildMaterialLayout). Their property holds the image and
+        // the sampler state the row slot is written from (DataDrivenMaterial::GetParamRow), so assigning a
+        // texture is the same call for both kinds. ReconcileMaterialLayout refuses a sampler of the same name.
+        for ( const auto& param : parameterSchema.Params )
+        {
+            if ( !Core::Formats::IsRowTexture( parameterSchema.LayoutBindings, param ) ||
+                 m_Texture2DPropertiesLookup.contains( param.Name ) )
+                continue;
+            m_Texture2DPropertiesStorage.push_back(
+                 std::make_shared<Texture2DProperty>( nullptr, param.DefaultTexture ) );
+            m_Texture2DPropertiesLookup[param.Name] = m_Texture2DPropertiesStorage.size() - 1;
+        }
     }
 
     RDG::OtherRouteFill MaterialExecutor::GetRouteFill() const
@@ -144,8 +161,19 @@ namespace Desert::Graphic
         for ( const auto& [name, index] : m_StorageBufferPropertiesLookup )
             if ( m_StorageBufferPropertiesStorage[index]->IsWritten() )
                 fill.Slots.push_back( name );
-        add( m_Texture2DPropertiesLookup );
-        add( m_TextureCubePropertiesLookup );
+        // A row texture fills no slot of the pass: it is a row value read through the bindless table. A bound
+        // texture fills its separate texture and its own sampler state (`<name>Sampler`).
+        const auto addTexture = [&fill]( const std::string& name, const auto& uniform )
+        {
+            fill.Slots.push_back( name );
+            if ( uniform && uniform->GetSamplerBinding() )
+                fill.Slots.push_back( std::format( "{}{}", name, Core::Formats::kMaterialTextureSamplerSuffix ) );
+        };
+        for ( const auto& [name, index] : m_Texture2DPropertiesLookup )
+            if ( !m_Texture2DPropertiesStorage[index]->IsRowTexture() )
+                addTexture( name, m_Texture2DPropertiesStorage[index]->GetUniform() );
+        for ( const auto& [name, index] : m_TextureCubePropertiesLookup )
+            addTexture( name, m_TextureCubePropertiesStorage[index]->GetUniform() );
         // Deterministic, so a validation message does not depend on hash-map order.
         std::sort( fill.Slots.begin(), fill.Slots.end() );
         return fill;
@@ -158,6 +186,20 @@ namespace Desert::Graphic
         {
             LOG_ERROR( "MaterialExecutor::Apply: MaterialBackend is null for: {}", m_DebugName );
             return;
+        }
+
+        // 1. The owner's dirty MPROPERTY values into their fields (a no-op after a Bind, which cleaned them).
+        if ( m_Owner )
+            m_Owner->UploadRegisteredProperties();
+
+        // 2. Fields into the active copy. Only buffers that claimed the field route: an unclaimed buffer's fields
+        //    are the constructor's zeros (FieldProperty starts every field dirty), and flushing them would claim
+        //    the route for a buffer someone else fills whole. Idempotent per copy (UpdateFields writes only
+        //    fields newer than the copy's applied version), so a Bind just before costs nothing more here.
+        for ( auto& prop : m_UniformBufferPropertiesStorage )
+        {
+            if ( prop->GetFillKind() == ShaderResources::FillKind::Fields && prop->HasDirtyFields() )
+                prop->UpdateFields();
         }
 
         for ( auto& prop : m_UniformBufferPropertiesStorage )

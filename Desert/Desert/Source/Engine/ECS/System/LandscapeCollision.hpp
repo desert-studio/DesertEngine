@@ -16,7 +16,7 @@
 // existing shape; the body is created once per tile and kept, so a brush stroke never re-creates it.
 
 #include <Engine/ECS/LandscapeRootOf.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 #include <Engine/World/Landscape/LandscapeData.hpp>
 
 #include <entt/entt.hpp>

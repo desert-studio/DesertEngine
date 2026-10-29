@@ -1,0 +1,58 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "cdd32b25ecbf02877d37a24a5dba1e82",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "5aaeace4bfc9be5eaee70db11bb99336", "f611caccb7b277fdd29e666f68d8947e", "26e89c547cb4f065aafb0e67209d9bbf"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [0.6200000047683716, 0.6000000238418579, 0.6000000238418579, 1.0]
+        },
+        {
+            "Name": "MetallicFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "AOStrength",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "NormalScale",
+            "Value": [1.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "EmissiveColor",
+            "Value": [0.0, 0.0, 0.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "5aaeace4bfc9be5eaee70db11bb99336",
+            "Path": "assets:Environments/FieldBarn/Textures/rusty_corrugated_iron/rusty_corrugated_iron_Diffuse_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "f611caccb7b277fdd29e666f68d8947e",
+            "Path": "assets:Environments/FieldBarn/Textures/rusty_corrugated_iron/rusty_corrugated_iron_arm_2k.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "26e89c547cb4f065aafb0e67209d9bbf",
+            "Path": "assets:Environments/FieldBarn/Textures/rusty_corrugated_iron/rusty_corrugated_iron_nor_gl_2k.detex"
+        }
+    ],
+    "CloudAssets": []
+}

@@ -100,6 +100,44 @@ namespace Desert::UI
         std::vector<NodeId>                Scopes;  // the scopes that had a focusable last frame, draw order
     };
 
+    // WHY THE FOCUSED CONTROL HAS FOCUS (Slate's EFocusCause, SlateCore/Public/Input/Events.h). Recorded with
+    // the control it was recorded for, so a host that moves focus itself (the editor, a script) is seen: a
+    // record whose Node is not the host's focus is stale and reads as SetDirectly.
+    //   * Pointer     — the pointer entered the control (UCommonButtonBase::NativeOnHovered: hover moves focus).
+    //   * Navigation  — a key or gamepad step (Tab, arrows; ResolveNavigation).
+    //   * SetDirectly — anything else: a screen / overlay handing focus over (UpdateFocusScopes), the host.
+    enum class UIFocusCause : uint8_t
+    {
+        Pointer,
+        Navigation,
+        SetDirectly,
+    };
+
+    struct FocusRecord
+    {
+        NodeId       Node  = NodeId::Null;
+        UIFocusCause Cause = UIFocusCause::SetDirectly;
+    };
+
+    // The cause of @p focused per @p record (SetDirectly when the record is for another control).
+    NO_DISCARD UIFocusCause FocusCauseOf( const FocusRecord& record, NodeId focused );
+
+    // Is the focus ring drawn for focus held for @p cause? Only for keyboard / gamepad navigation: the pointer
+    // already shows where it is, and a screen's initial focus is not something the player did — UE's
+    // ERenderFocusRule::NavigationOnly (Engine/Classes/Engine/UserInterfaceSettings.h:18-28). The rule is
+    // fixed here until it becomes a setting (owner question 2: canvas field or project UI settings); that
+    // setting replaces this function's body, not its callers.
+    NO_DISCARD bool ShowsFocusRing( UIFocusCause cause );
+
+    // HOVER TAKES FOCUS (UCommonButtonBase::NativeOnHovered, CommonButtonBase.h:677). The control the pointer
+    // ENTERED this frame — @p pointerTarget differs from last frame's @p prevPointerTarget — takes focus when
+    // it is a focusable button drawn this frame; a pointer resting still takes nothing, so an arrow key that
+    // moved focus off the hovered row is not undone next frame. A text field being edited keeps its focus
+    // (the pointer passing over a button must not end typing). Entering the button that already has focus
+    // returns it too: focus stays, its cause becomes Pointer. Returns the control to focus, or Null.
+    NO_DISCARD NodeId PointerFocusTarget( const IUITree& tree, const std::vector<FocusEntry>& entries,
+                                          NodeId pointerTarget, NodeId prevPointerTarget, NodeId focused );
+
     // The scope @p n belongs to.
     NO_DISCARD NodeId FocusScopeOf( const IUITree& tree, NodeId n );
 

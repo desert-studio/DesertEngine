@@ -46,10 +46,10 @@ Shader "UIMatRadialGlow"
         {
             // 0 at the centre, 1 on the inscribed ellipse.
             float r    = length( v_TexCoord - vec2( 0.5 ) ) * 2.0;
-            float ramp = clamp( ( 1.0 - r ) / max( 1.0 - u_Material.Inner, 1e-4 ), 0.0, 1.0 );
-            float glow = pow( ramp, max( u_Material.Exponent, 1e-3 ) );
+            float ramp = clamp( ( 1.0 - r ) / max( 1.0 - Material.Inner, 1e-4 ), 0.0, 1.0 );
+            float glow = pow( ramp, max( Material.Exponent, 1e-3 ) );
 
-            o_Color = vec4( v_Color.rgb * u_Material.Tint.rgb, v_Color.a * u_Material.Tint.a * glow );
+            o_Color = vec4( v_Color.rgb * Material.Tint.rgb, v_Color.a * Material.Tint.a * glow );
         }
     }
 }

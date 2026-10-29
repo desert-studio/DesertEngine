@@ -6,7 +6,7 @@
 #include <Common/Core/Core.hpp> // Common::Filepath, which AssetMetadata.hpp names without including
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Assets/AssetMetadata.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <glm/glm.hpp>
 

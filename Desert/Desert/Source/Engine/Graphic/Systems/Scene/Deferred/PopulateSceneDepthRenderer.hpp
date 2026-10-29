@@ -23,6 +23,13 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct PopulateSceneDepthBindingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
     // "Scene: PopulateSceneDepth" (TAA1-B step 6, UE PopulateSceneDepth before the editor primitives): after the
     // temporal resolve the overlay phases (debug lines, grid, gizmos, UI) draw into an OUTPUT-extent target set —
     // the resolved colour, an overlay velocity and an overlay depth. This node fills that depth from the
@@ -67,7 +74,9 @@ namespace Desert::Graphic::System
         void DeclareBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneDepth ) const
         {
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
-                 .Sampled( "u_Depth", sceneDepth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All(),
+                 .Texture( PopulateSceneDepthBindingShaderParameters::SourceDepthTexture, sceneDepth,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( PopulateSceneDepthBindingShaderParameters::PointClampSampler,
                            RDG::SamplerDesc::PointClamp() );
         }
 

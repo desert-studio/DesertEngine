@@ -1,0 +1,69 @@
+#ifndef DESERT_RAY_TRACING_HIT_TRIANGLE_GLSLH
+#define DESERT_RAY_TRACING_HIT_TRIANGLE_GLSLH
+
+// THE TRIANGLE A HIT STAGE MET, from its hit group's shader record (Common/RayTracingHitRecord.glslh): the hit
+// attribute, the ray's payload and the triangle's vertices, positions, UVs and the interpolated normal at the
+// hit. Shared by every hit group: a surface template's cell (Mesh/Surface/Pass_RayHit.glslh) and the landscape's
+// (Programs/Terrain/TerrainRayHit.shader).
+
+#include <Common/RayTracingPayload.glslh>
+#include <Common/RayTracingHitRecord.glslh>
+
+hitAttributeEXT vec2 a_DesertBarycentrics;
+
+layout( location = 0 ) rayPayloadInEXT DesertRayPayload payload;
+
+// The triangle at the hit, object space: positions, UVs, the interpolated normal and UV.
+struct DesertRayHitTriangle
+{
+    vec3 P0;
+    vec3 P1;
+    vec3 P2;
+    vec2 UV0;
+    vec2 UV1;
+    vec2 UV2;
+    vec3 Normal; // interpolated (face normal when the segment has no normal stream), not normalized
+    vec2 UV;     // interpolated; 0 when the segment has no UV stream
+};
+
+// Which triangle the closest hit is (RayTracingPayload.glslh): every closest-hit stage writes it with its material.
+void DesertRayHitIdentify()
+{
+    payload.InstanceIndex  = uint( gl_InstanceID );
+    payload.GeometryIndex  = uint( gl_GeometryIndexEXT );
+    payload.PrimitiveIndex = uint( gl_PrimitiveID );
+}
+
+DesertRayHitTriangle DesertRayHitFetch()
+{
+    const uvec3 corner  = DesertRayHitCorners( uint( gl_PrimitiveID ) );
+    const vec3  weights = vec3( 1.0 - a_DesertBarycentrics.x - a_DesertBarycentrics.y, a_DesertBarycentrics.x,
+                                a_DesertBarycentrics.y );
+    DesertRayHitTriangle t;
+    // Position offset 0: RayTracingGeometrySegment::PositionOffset of every engine vertex (Desert::Vertex).
+    t.P0 = DesertRayHitVertexVec3( corner.x, 0u );
+    t.P1 = DesertRayHitVertexVec3( corner.y, 0u );
+    t.P2 = DesertRayHitVertexVec3( corner.z, 0u );
+    if ( RayHitRecord.UvOffset != kDesertRayHitNoOffset )
+    {
+        t.UV0 = DesertRayHitVertexVec2( corner.x, RayHitRecord.UvOffset );
+        t.UV1 = DesertRayHitVertexVec2( corner.y, RayHitRecord.UvOffset );
+        t.UV2 = DesertRayHitVertexVec2( corner.z, RayHitRecord.UvOffset );
+    }
+    else
+    {
+        t.UV0 = vec2( 0.0 );
+        t.UV1 = vec2( 0.0 );
+        t.UV2 = vec2( 0.0 );
+    }
+    t.UV = t.UV0 * weights.x + t.UV1 * weights.y + t.UV2 * weights.z;
+    if ( RayHitRecord.NormalOffset != kDesertRayHitNoOffset )
+        t.Normal = DesertRayHitVertexVec3( corner.x, RayHitRecord.NormalOffset ) * weights.x +
+                   DesertRayHitVertexVec3( corner.y, RayHitRecord.NormalOffset ) * weights.y +
+                   DesertRayHitVertexVec3( corner.z, RayHitRecord.NormalOffset ) * weights.z;
+    else
+        t.Normal = cross( t.P1 - t.P0, t.P2 - t.P0 );
+    return t;
+}
+
+#endif

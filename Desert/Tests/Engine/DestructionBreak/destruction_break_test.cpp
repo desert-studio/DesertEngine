@@ -11,7 +11,7 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/DestructionEvents.hpp>
 #include <Engine/ECS/System/DestructibleLifetime.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include "../PhysicsFixture.hpp"
 
@@ -187,6 +187,7 @@ TEST( DestructionBreak, BreakIsNamedByItsEntity )
     const auto     entity       = registry.create();
     auto&          destructible = registry.emplace<ECS::DestructibleComponent>( entity );
     destructible.RuntimeObject  = added.GetValue();
+    destructible.Data.NotifyBreaks = true;
     ECS::DestructibleLifetime const owner( *f.destruction );
 
     f.Run( 5 );
@@ -207,16 +208,20 @@ TEST( DestructionBreak, BreakIsNamedByItsEntity )
     EXPECT_TRUE( registry.ctx<ECS::DestructionEventQueue>().Breaks.empty() );
 }
 
-TEST( DestructionBreak, RemovedAndUnownedNameNothing )
+TEST( DestructionBreak, UnaskedAndUnownedNameNothing )
 {
     const DestructibleHandle object = 7;
     const DestructionEvent   removed{ DestructionEventKind::Removed, object, 1 };
+    const DestructionEvent   broke{ DestructionEventKind::Break, object, 3 };
     const DestructionEvent   unowned{ DestructionEventKind::Break, object + 1, 2 };
-    const DestructionEvent   events[] = { removed, unowned };
+    const DestructionEvent   events[] = { removed, broke, unowned };
 
-    entt::registry                                             registry;
-    const std::unordered_map<DestructibleHandle, entt::entity> objects = { { object, registry.create() } };
-    std::vector<ECS::DestructionBreakEvent>                    out;
-    ECS::NameBreakEvents( events, objects, out );
-    EXPECT_TRUE( out.empty() ) << "Removed is the simulation's bookkeeping; an object with no entity names no one";
+    entt::registry                                                            registry;
+    const std::unordered_map<DestructibleHandle, ECS::DestructionEventTarget> targets = {
+         { object, { registry.create(), /*NotifyBreaks*/ true, false, /*NotifyRemovals*/ false } } };
+    ECS::DestructionEventQueue out;
+    ECS::NameDestructionEvents( events, targets, out );
+    ASSERT_EQ( out.Breaks.size(), 1u ) << "an object with no entity names no one";
+    EXPECT_EQ( out.Breaks.front().Node, 3 );
+    EXPECT_TRUE( out.Removals.empty() ) << "Notify Removals off: the removal is nobody's news";
 }

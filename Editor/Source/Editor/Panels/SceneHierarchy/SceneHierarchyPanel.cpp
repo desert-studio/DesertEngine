@@ -447,25 +447,15 @@ namespace Desert::Editor
                 deleteEntity = true;
 
             // The padlock gutter is a 16px target; the menu is how you find the feature at all, and how a
-            // whole selection is locked in one go. Both spellings call the same recursive setter.
+            // whole selection is locked in one go. Both spellings call the same recorded edit
+            // (Commands::SetLocked).
             if ( ImGui::Selectable( locked ? ICON_MDI_LOCK_OPEN_OUTLINE " Unlock"
                                            : ICON_MDI_LOCK " Lock (no picking, no gizmo)" ) )
             {
-                auto& reg = *entity.GetRegistry();
                 if ( Core::SelectionManager::Count() > 1 && Core::SelectionManager::IsSelected( UUID ) )
-                {
-                    for ( const auto& id : Core::SelectionManager::GetSelection() )
-                        if ( auto ref = m_Scene->FindEntityByID( id ) )
-                        {
-                            ECS::SetLockedRecursive( reg, ref->get().GetHandle(), !locked );
-                            m_Scene->MarkModifiedSubtree( ref->get() );
-                        }
-                }
+                    Commands::SetLocked( Core::SelectionManager::GetSelection(), !locked );
                 else
-                {
-                    ECS::SetLockedRecursive( reg, entity.GetHandle(), !locked );
-                    m_Scene->MarkModifiedSubtree( entity );
-                }
+                    Commands::SetLocked( { UUID }, !locked );
             }
 
             ImGui::Separator();
@@ -506,6 +496,15 @@ namespace Desert::Editor
                 // reaches and one it does not.
                 m_InstantiatePrefabParent = UUID;
                 m_OpenInstantiatePrefab   = true; // deferred: OpenPopup at panel scope (see OnUIRender)
+            }
+
+            if ( ImGui::Selectable( ICON_MDI_PACKAGE_VARIANT " Replace with Prefab..." ) )
+            {
+                // UE's "Replace Selected Actors with": the whole selection when this row is in it, else this row.
+                m_ReplacePrefabTargets = Core::SelectionManager::IsSelected( UUID )
+                                              ? Core::SelectionManager::GetSelection()
+                                              : std::vector<Common::UUID>{ UUID };
+                m_OpenReplacePrefab    = true; // deferred: OpenPopup at panel scope (see OnUIRender)
             }
 
             if ( isPrefab )
@@ -554,10 +553,7 @@ namespace Desert::Editor
         ImGui::TextUnformatted( locked ? ICON_MDI_LOCK : ICON_MDI_LOCK_OPEN_OUTLINE );
         ImGui::PopStyleColor();
         if ( ImGui::IsItemClicked() )
-        {
-            ECS::SetLockedRecursive( *entity.GetRegistry(), entity.GetHandle(), !locked );
-            m_Scene->MarkModifiedSubtree( entity );
-        }
+            Commands::SetLocked( { entity.GetComponent<ECS::UUIDComponent>().UUID }, !locked );
         if ( ImGui::IsItemHovered() )
             ImGui::SetTooltip( locked ? "Unlock (allow picking and gizmo edits)"
                                       : "Lock (refuse picking and gizmo edits)" );
@@ -798,6 +794,13 @@ namespace Desert::Editor
             m_OpenInstantiatePrefab = false;
         }
         DrawInstantiatePrefabPopup();
+
+        if ( m_OpenReplacePrefab )
+        {
+            ImGui::OpenPopup( "ReplacePrefabPopup" );
+            m_OpenReplacePrefab = false;
+        }
+        DrawReplacePrefabPopup();
 
         if ( m_OpenSavePrefab )
         {
@@ -1245,6 +1248,50 @@ namespace Desert::Editor
 
             ImGui::EndPopup();
         }
+    }
+
+    void SceneHierarchyPanel::DrawReplacePrefabPopup()
+    {
+        if ( !ImGui::BeginPopupModal( "ReplacePrefabPopup", nullptr, ImGuiWindowFlags_AlwaysAutoResize ) )
+            return;
+
+        ImGui::Text( "Replace %zu entit%s (and their children) with an instance of:",
+                     m_ReplacePrefabTargets.size(), m_ReplacePrefabTargets.size() == 1 ? "y" : "ies" );
+        ImGui::SetNextItemWidth( 420.0f );
+        Utils::ImGuiUtilities::InputText( m_PrefabInstantiatePath, "##PrefabReplacePath" );
+        ImGui::Checkbox( "Keep each entity's static mesh", &m_ReplaceKeepMesh );
+        ImGui::TextDisabled( "Same parent, transform and name. One undo step." );
+        if ( !m_ReplacePrefabError.empty() )
+            ImGui::TextColored( ImVec4( 1.0f, 0.4f, 0.4f, 1.0f ), "%s", m_ReplacePrefabError.c_str() );
+        ImGui::Spacing();
+
+        if ( ImGui::Button( "Replace", ImVec2( 130, 0 ) ) )
+        {
+            // The popup stays open on a refusal and says why; nothing in the scene has changed then.
+            const auto replaced =
+                 Commands::ReplaceWithPrefab( m_ReplacePrefabTargets, m_PrefabInstantiatePath,
+                                              m_ReplaceKeepMesh ? Commands::ReplaceMeshSource::KeepEntityMesh
+                                                                : Commands::ReplaceMeshSource::Prefab );
+            if ( !replaced.IsSuccess() )
+            {
+                m_ReplacePrefabError = replaced.GetError();
+                LOG_ERROR( "{}", m_ReplacePrefabError );
+            }
+            else
+            {
+                m_ReplacePrefabError.clear();
+                m_ReplacePrefabTargets.clear();
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::SameLine();
+        if ( ImGui::Button( "Cancel", ImVec2( 90, 0 ) ) )
+        {
+            m_ReplacePrefabError.clear();
+            m_ReplacePrefabTargets.clear();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
 } // namespace Desert::Editor

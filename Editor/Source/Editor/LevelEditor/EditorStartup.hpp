@@ -81,6 +81,9 @@ namespace Desert::Editor
         {
             return m_Content.Loading();
         }
+        // The active scene's reflection captures are still being written for the first time
+        // (ReflectionCaptureRenderer::FirstFillPending): the reveal and a capture's first frame wait for them.
+        [[nodiscard]] bool ReflectionCapturesFilling() const;
         [[nodiscard]] bool Revealed() const
         {
             return m_Revealed;

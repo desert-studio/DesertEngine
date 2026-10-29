@@ -42,6 +42,12 @@ namespace Desert::Graphic::System
 
         // The parameter block is not created here: it is a buffer of each frame's graph (DeclareFrameNodes), one
         // per (frame x view) by construction, read by the opaque composite and by every translucent surface.
+        if ( const auto valid = m_FogLayout.Validate( m_FogPipeline->GetShader(), HeightFogFogShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_ApplyLayout.Validate( m_ApplyPipeline->GetShader(), HeightFogApplyShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -202,7 +208,11 @@ namespace Desert::Graphic::System
         payload.View =
              glm::vec4( static_cast<float>( fogWidth ), static_cast<float>( fogHeight ),
                         atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale );
-        payload.Gates               = glm::vec4( apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f, 0.0f, 0.0f );
+        // z = the scale the scene colour is stored at this frame (ViewFrame::PreExposure): ViewFogEvaluate writes
+        // the inscattering multiplied by it, for the opaque composite and every translucent surface alike.
+        const ViewFrame* viewFrame  = m_SceneRenderer->GetViewFrame();
+        payload.Gates               = glm::vec4( apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f,
+                                                 viewFrame ? viewFrame->PreExposure : 1.0f, 0.0f );
         payload.Forward             = glm::vec4( FogCameraForward( camera->GetViewMatrix() ), 0.0f );
         payload.Camera              = glm::vec4( camera->GetPosition(), 0.0f );
         const RDG::BufferRef params = publishParams();
@@ -239,21 +249,21 @@ namespace Desert::Graphic::System
         auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
-        block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
-             .Storage( kSceneFogParamsBlockName, params, RDG::Access::StorageRead )
-             .Sampled( "u_SceneDepth", depth, RDG::Access::SampledCompute, GlobalTextureFilterSampler(),
-                       "SceneDepth.Compute" )
-             .Sampled( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute, VolumeSampler(),
+        block.Storage( HeightFogFogShaderParameters::FogApplyTexture, fogImage, RDG::Access::StorageWrite )
+             .Storage( HeightFogFogShaderParameters::FogParamsBuffer, params, RDG::Access::StorageRead )
+             .Texture( HeightFogFogShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( HeightFogFogShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+             .Texture( HeightFogFogShaderParameters::AerialPerspectiveTexture, aerialPerspective, RDG::Access::SampledCompute,
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
-             .Sampled( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
-                       GlobalTextureFilterSampler(),
+             .Sampler( HeightFogFogShaderParameters::LinearRepeatSampler, VolumeSampler() )
+             .Texture( HeightFogFogShaderParameters::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" )
-             .Sampled( "u_VolumetricFog",
-                       volumetric
-                            ? volume.Integrated
-                            : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ),
-                       RDG::Access::SampledCompute, VolumeSampler(),
-                       volumetric ? "VolumetricFog.Integrated" : "HeightFog.VolumetricFogFallback" );
+             .Texture( HeightFogFogShaderParameters::VolumetricFogTexture,
+                       volumetric ? volume.Integrated
+                                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ),
+                       RDG::Access::SampledCompute,
+                       volumetric ? "VolumetricFog.Integrated" : "HeightFog.VolumetricFogFallback" )
+             .Sampler( HeightFogFogShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
         {
@@ -265,7 +275,7 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( fog ) );
 
-        transients.HeightFog = fogImage; // -> HeightFogApply (u_FogApply)
+        transients.HeightFog = fogImage; // -> HeightFogApply (FogApplyTexture)
         return nodes;
     }
 
@@ -301,8 +311,9 @@ namespace Desert::Graphic::System
                 return;
             }
             declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
-                 .Sampled( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
-                           RDG::SubresourceRange::All(), RDG::SamplerDesc::PointClamp() );
+                 .Texture( HeightFogApplyShaderParameters::FogApplyTexture, refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( HeightFogApplyShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         };
 
         return config;

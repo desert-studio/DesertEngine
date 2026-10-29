@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <format>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -73,9 +74,9 @@ namespace Desert::Graphic
             if ( !slot )
             {
                 m_Frames[frameIndex].erase( key.Value() );
-                throw std::logic_error( "ViewResources::Acquire: factory returned no copy for key " +
-                                        std::to_string( key.Value() ) + ", frame " + std::to_string( frameIndex ) +
-                                        ", view '" + m_Name + "'" );
+                throw std::logic_error( std::format(
+                     "ViewResources::Acquire: factory returned no copy for key {}, frame {}, view '{}'",
+                     key.Value(), frameIndex, m_Name ) );
             }
         }
         return *slot;
@@ -108,15 +109,6 @@ namespace Desert::Graphic
         for ( const CopyMap& frame : m_Frames )
             count += frame.size();
         return static_cast<uint32_t>( count );
-    }
-
-    uint64_t ViewResources::HeldBytes() const noexcept
-    {
-        uint64_t bytes = 0;
-        for ( const CopyMap& frame : m_Frames )
-            for ( const auto& entry : frame )
-                bytes += entry.second->HeldBytes();
-        return bytes;
     }
 
     uint32_t ViewResourceRegistry::LiveCount()

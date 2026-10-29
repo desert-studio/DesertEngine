@@ -156,6 +156,9 @@ namespace Desert::ECS
         void SetCamera( const std::optional<Animation::Timeline::ResolvedBinding>& camera ) override;
         void PlayAnimation( const Animation::Timeline::ResolvedBinding& target,
                             const Animation::Timeline::AnimationSample& sample ) override;
+        /// A VFX track's state: the bound entity's VFXComponent::SequencerDrive (activate / age / deactivate).
+        void DriveEffect( const Animation::Timeline::ResolvedBinding& target,
+                          const Animation::Timeline::VFXSample&       sample ) override;
 
         /// The camera entity the Camera Cut in force names; nullopt = no cut in force this step.
         [[nodiscard]] const std::optional<entt::entity>& CameraCut() const

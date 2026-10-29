@@ -166,6 +166,56 @@ end
 -- MSVC, both of which ccache hashes: five premake runs over the same tree gave five orders and therefore
 -- five cache keys for every engine object. Integer keys (a list such as getVulkanLibs' result) come first
 -- in their own order, then names in byte order, so the generated project files are identical run to run.
+-- NVIDIA STREAMLINE (DLSS Super Resolution), Windows only. The headers and licence are committed under
+-- ThirdParty/Streamline; the runtime binaries are DOWNLOADED, never committed (owner 2026-10-15):
+-- ThirdParty/Streamline/manifest.json pins the release and every file's SHA-256, and
+-- scripts/Windows/FetchVendorBinaries.py (run by Setup.bat) fetches them into DesertStreamlineRuntimeDir. The engine
+-- compiles against the headers (Desert/Desert/premake5.lua) and LOADS sl.interposer.dll at run time from the
+-- executable's directory (Graphic/API/Vulkan/Streamline/StreamlineRuntime): nothing links it, so a machine without
+-- it starts and reports DLSS unavailable by name. The manifest's Files ARE the list of files that run, plus NVIDIA's
+-- redistribution licence the DLSS runtime requires shipped with it: this copies them next to every executable that
+-- renders, and the game packager ships the same list beside the packaged game
+-- (Editor/Source/Editor/Packaging/GamePackager.cpp), so the two can never disagree.
+DesertStreamlineManifest = "ThirdParty/Streamline/manifest.json"
+DesertStreamlineRuntimeDir = "ThirdParty/Streamline/bin/x64"
+
+-- The runtime file names, in manifest order (premake must generate before the fetch has run, so the list comes from
+-- the committed manifest, never from the directory).
+function DesertStreamlineRuntimeFiles()
+    local manifestPath = path.join(_MAIN_SCRIPT_DIR, DesertStreamlineManifest)
+    local text = io.readfile(manifestPath)
+    if text == nil then
+        error(DesertStreamlineManifest .. " is missing: it pins the DLSS runtime the build copies")
+    end
+    local manifest, decodeError = json.decode(text)
+    if manifest == nil then
+        error(DesertStreamlineManifest .. ": " .. tostring(decodeError))
+    end
+    local names = {}
+    for _, entry in ipairs(manifest.Files) do
+        table.insert(names, path.getname(entry.Archive))
+    end
+    return names
+end
+
+-- Called inside an executable's project: copies the Streamline runtime into its target directory after the link
+-- (Windows only). A file not fetched yet is not copied and the build says which one and how to fetch it: the
+-- executable still runs and reports DLSS unavailable, which is the state of a machine without the files.
+function DesertCopyStreamlineRuntime()
+    filter "system:windows"
+        for _, name in ipairs(DesertStreamlineRuntimeFiles()) do
+            -- Backslashes: cmd's `if exist` is the one reader here that does not take forward slashes reliably.
+            local source = path.translate(path.join(_MAIN_SCRIPT_DIR, DesertStreamlineRuntimeDir, name), "\\")
+            -- Two plain `if` lines, no ( ) block: a parenthesis in the checkout path would close a block early.
+            postbuildcommands {
+                'if exist "' .. source .. '" {COPYFILE} "' .. source .. '" "%{cfg.targetdir}"',
+                'if not exist "' .. source .. '" echo ' .. DesertStreamlineRuntimeDir .. '/' .. name ..
+                    ' is not fetched, DLSS will be unavailable: run python scripts/Windows/FetchVendorBinaries.py',
+            }
+        end
+    filter {}
+end
+
 function DesertSortedPairs(t)
     local keys = {}
     for key in pairs(t) do
@@ -232,6 +282,10 @@ Dependencies = {
             meshoptimizer = baseDir .. "/meshoptimizer/src",
             -- <opensubdiv/far/...>: the CPU refiner the Subdivide port runs on (BuildScripts/ThirdParty/OpenSubdiv.lua).
             opensubdiv = baseDir .. "/OpenSubdiv",
+            -- <embree4/rtcore.h>: the distance-field builder (BuildScripts/ThirdParty/Embree.lua); its configured
+            -- rtcore_config.h lives beside the build script, not in the submodule.
+            embree = baseDir .. "/embree/include",
+            embree_config = baseDir .. "/../BuildScripts/ThirdParty/EmbreeConfig/include/embree4",
             jolt = baseDir .. "/JoltPhysics",
             lua = baseDir .. "/lua",
             Vulkan = vulkan and vulkan.include or nil,

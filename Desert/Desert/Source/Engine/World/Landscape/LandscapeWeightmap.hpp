@@ -61,6 +61,10 @@ namespace Desert::World::Landscape
         std::array<glm::vec4, kLandscapeMaxWeightLayers> Colors{};
         /// 1 per tile layer whose root layer is NoWeightBlend (UE's LB_AlphaBlend).
         std::array<float, kLandscapeMaxWeightLayers> AlphaBlend{};
+        /// Per tile layer, its root layer's LayerName (empty: the root does not name it, or it is the visibility
+        /// layer). The landscape material's inputs are matched to channels by this name (TerrainRenderer), as
+        /// UE's LandscapeLayerBlend matches its inputs by LayerName, so the root's order picks nothing.
+        std::array<std::string, kLandscapeMaxWeightLayers> Names{};
         /// The tile's layer count (0 = no weightmap; the shader then keeps the rule-only path).
         uint32_t Count = 0u;
         /// Tile layers the root no longer names: kept on the tile (LandscapeWeightLayer), reported by the caller.
@@ -96,9 +100,10 @@ namespace Desert::World::Landscape
             {
                 if ( info.LayerName != layers[c].Name )
                     continue;
-                out.Colors[c]           = glm::vec4( info.LayerUsageDebugColor, 1.0f );
-                out.AlphaBlend[c]       = info.NoWeightBlend ? 1.0f : 0.0f;
-                named                   = true;
+                out.Colors[c]     = glm::vec4( info.LayerUsageDebugColor, 1.0f );
+                out.AlphaBlend[c] = info.NoWeightBlend ? 1.0f : 0.0f;
+                out.Names[c]      = info.LayerName;
+                named             = true;
                 break;
             }
             if ( !named )

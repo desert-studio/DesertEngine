@@ -571,7 +571,7 @@ namespace Desert::Editor
                 }
             if ( !taken )
                 break;
-            name = "NewClip_" + std::to_string( n );
+            name = std::format( "NewClip_{}", n );
         }
 
         Animation::AnimationClip clip;
@@ -1776,26 +1776,13 @@ namespace Desert::Editor
 
         if ( ImGui::IsItemActivated() )
         {
-            constexpr float kGrab = 5.0f; // pixels of edge that resize rather than move
-            const float     mx    = ImGui::GetMousePos().x;
-            m_SectionDrag         = -1;
             // TOPMOST FIRST — the reverse of the draw order — so a click lands on the section the animator
             // is looking at, not one hidden under it.
-            for ( const auto index : std::views::reverse( order ) )
-            {
-                const TL::Section& section = track->Sections[index];
-                const float        xa      = axis.TimeToX( TickToSeconds( section.Start, rate ) );
-                const float        xb      = axis.TimeToX( TickToSeconds( section.End, rate ) );
-                if ( mx < xa - kGrab || mx > xb + kGrab )
-                {
-                    continue;
-                }
-                m_SectionDrag     = static_cast<int>( index );
-                m_SectionDragEdge = ( mx <= xa + kGrab ) ? 1 : ( mx >= xb - kGrab ? 2 : 0 );
-                break;
-            }
+            std::vector<size_t> topmostFirst( order.rbegin(), order.rend() );
+            GrabSection(
+                 *track, topmostFirst, ImGui::GetMousePos().x, [&]( const Animation::FrameNumber tick )
+                 { return axis.TimeToX( TickToSeconds( tick, rate ) ); }, tickUnderMouse() );
             SelectSection( m_SectionDrag );
-            m_SectionDragTick = tickUnderMouse();
             if ( m_SectionDrag >= 0 )
             {
                 if ( const auto began = m_ClipEdit.Begin( OwnerOf( clip ), animator ); !began.IsSuccess() )
@@ -1805,34 +1792,9 @@ namespace Desert::Editor
             }
         }
 
-        if ( ImGui::IsItemActive() && m_SectionDrag >= 0 &&
-             m_SectionDrag < static_cast<int>( track->Sections.size() ) )
+        if ( ImGui::IsItemActive() && DragSection( *track, tickUnderMouse() ) )
         {
-            const auto now   = tickUnderMouse();
-            const auto index = static_cast<size_t>( m_SectionDrag );
-            if ( !( now == m_SectionDragTick ) )
-            {
-                Common::BoolResultStr moved = Common::MakeSuccess( true );
-                if ( m_SectionDragEdge == 0 )
-                {
-                    moved = TL::MoveSection( *track, index, now.Value - m_SectionDragTick.Value );
-                }
-                else if ( m_SectionDragEdge == 1 )
-                {
-                    moved = TL::SetSectionRange( *track, index, now, track->Sections[index].End );
-                }
-                else
-                {
-                    moved = TL::SetSectionRange( *track, index, track->Sections[index].Start, now );
-                }
-                // THE ANCHOR ADVANCES ONLY ON AN ACCEPTED MOVE, so a section pushed against a limit starts
-                // moving again the instant the mouse comes back past where it stopped.
-                if ( moved.IsSuccess() )
-                {
-                    m_SectionDragTick = now;
-                    ++sequence.Revision;
-                }
-            }
+            ++sequence.Revision;
         }
 
         if ( ImGui::IsItemDeactivated() )
@@ -3813,6 +3775,49 @@ namespace Desert::Editor
         dl->AddLine( ImVec2( playX, top.y ), ImVec2( playX, bottom ), IM_COL32( 255, 90, 90, 255 ), 2.0f );
         ImGui::Dummy( ImVec2( 0.0f, 0.0f ) );
         ImGui::EndChild();
+    }
+
+    void SequencerPanel::GrabSection( const TL::Track& track, const std::span<const size_t> topmostFirst,
+                                      const float                                           mouseX,
+                                      const std::function<float( Animation::FrameNumber )>& xOf,
+                                      const Animation::FrameNumber                          pressTick )
+    {
+        constexpr float kGrab = 5.0f; // points of either end that resize rather than move
+        m_SectionDrag         = -1;
+        m_SectionDragTick     = pressTick;
+        for ( const size_t index : topmostFirst )
+        {
+            if ( index >= track.Sections.size() )
+                continue;
+            const float xa = xOf( track.Sections[index].Start );
+            const float xb = xOf( track.Sections[index].End );
+            if ( mouseX < xa - kGrab || mouseX > xb + kGrab )
+                continue;
+            m_SectionDrag     = static_cast<int>( index );
+            m_SectionDragEdge = ( mouseX <= xa + kGrab ) ? 1 : ( mouseX >= xb - kGrab ? 2 : 0 );
+            return;
+        }
+    }
+
+    bool SequencerPanel::DragSection( TL::Track& track, const Animation::FrameNumber now )
+    {
+        if ( m_SectionDrag < 0 || m_SectionDrag >= static_cast<int>( track.Sections.size() ) ||
+             now == m_SectionDragTick )
+            return false;
+        const auto            index = static_cast<size_t>( m_SectionDrag );
+        Common::BoolResultStr moved = Common::MakeSuccess( true );
+        if ( m_SectionDragEdge == 0 )
+            moved = TL::MoveSection( track, index, now.Value - m_SectionDragTick.Value );
+        else if ( m_SectionDragEdge == 1 )
+            moved = TL::SetSectionRange( track, index, now, track.Sections[index].End );
+        else
+            moved = TL::SetSectionRange( track, index, track.Sections[index].Start, now );
+        // THE ANCHOR ADVANCES ONLY ON AN ACCEPTED MOVE, so a section pushed against a limit starts moving
+        // again the instant the mouse comes back past where it stopped.
+        if ( !moved.IsSuccess() )
+            return false;
+        m_SectionDragTick = now;
+        return true;
     }
 
 } // namespace Desert::Editor

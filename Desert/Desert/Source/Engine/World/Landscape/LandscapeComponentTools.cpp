@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <string>
 
 namespace Desert::World::Landscape
@@ -54,8 +55,8 @@ namespace Desert::World::Landscape
         const bool rotate = op == Op::RotateMinusXToPlusX || op == Op::RotatePlusXToMinusX ||
                             op == Op::RotateMinusZToPlusZ || op == Op::RotatePlusZToMinusZ;
         if ( mirror.SmoothingWidth < 0 )
-            return Common::MakeError( "landscape mirror: smoothing width " +
-                                      std::to_string( mirror.SmoothingWidth ) + " is negative" );
+            return Common::MakeError(
+                 std::format( "landscape mirror: smoothing width {} is negative", mirror.SmoothingWidth ) );
         if ( m_Bounds.Empty() )
             return Common::MakeError( "landscape mirror: the landscape has no samples" );
 
@@ -69,9 +70,9 @@ namespace Desert::World::Landscape
                                      m_Root.SpacingCm )
                            : static_cast<int32_t>( std::floor( static_cast<float>( lo + hi ) / 2.0f + 0.5f ) );
         if ( mirrorPos <= lo || mirrorPos >= hi )
-            return Common::MakeError( "landscape mirror: the mirror line at sample " +
-                                      std::to_string( mirrorPos ) + " is not inside the landscape (" +
-                                      std::to_string( lo ) + ".." + std::to_string( hi ) + ")" );
+            return Common::MakeError( std::format(
+                 "landscape mirror: the mirror line at sample {} is not inside the landscape ({}..{})", mirrorPos,
+                 lo, hi ) );
         const int32_t mirrorSize = std::max( hi - mirrorPos, mirrorPos - lo ); // not including the mirror line
         const int32_t blend =
              std::min( std::clamp( mirror.SmoothingWidth, 0, kLandscapeMaxMirrorSmoothing ), mirrorSize );
@@ -207,8 +208,8 @@ namespace Desert::World::Landscape
         const int32_t cx = LatticeRound( atCm.x, m_Root.Origin.x, m_Root.SpacingCm );
         const int32_t cz = LatticeRound( atCm.z, m_Root.Origin.z, m_Root.SpacingCm );
         if ( cx < m_Bounds.X1 || cx > m_Bounds.X2 || cz < m_Bounds.Z1 || cz > m_Bounds.Z2 )
-            return Common::MakeError( "landscape paste: the paste point (" + std::to_string( cx ) + ", " +
-                                      std::to_string( cz ) + ") is outside the landscape" );
+            return Common::MakeError(
+                 std::format( "landscape paste: the paste point ({}, {}) is outside the landscape", cx, cz ) );
         const int32_t               x1 = cx - buffer.SizeX / 2;
         const int32_t               z1 = cz - buffer.SizeZ / 2;
         const LandscapeSampleBounds rect =

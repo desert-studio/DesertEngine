@@ -8,23 +8,27 @@
 #include <Common/MaterialTransport.glslh>
 
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_WEATHER
+#include <Mesh/Surface/SurfaceWeather.glslh>
+#endif
 
 layout( location = 0 ) out vec4 oGBufferA;        // BaseColor.rgb, Metallic.a
 layout( location = 1 ) out vec4 oGBufferB;        // world Normal.rgb, Roughness.a
-// DESERT_GBUFFER_RSM (the reflective shadow map's permutation, ShaderVariant::Defines in MeshRendererDeferred.cpp):
-// the RSM's colour slot 2 is an UNUSED slot — GI reads VPL positions from the RSM depth, never a shading word — so
-// the permutation declares no output there and writes nothing. Locations stay fixed: slot 3 is emissive in both.
-#ifndef DESERT_GBUFFER_RSM
 layout( location = 2 ) out uvec2 oGBufferShadingWord; // RG32_UINT shading word (ShadingModelContract.glslh); no
                                                     // world position: readers reconstruct it from the depth
-#endif
 layout( location = 3 ) out vec4 oGBufferEmissive; // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
 // The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): this pass writes the view's depth,
-// so it writes the same surface's motion. DESERT_GBUFFER_RSM is the RSM permutation of this pass (a light view with
-// its own attachment set and no previous frame): defined (to 1) only there, it compiles without the output.
-#ifndef DESERT_GBUFFER_RSM
-#include <Common/ObjectMotion.glslh>
-layout( location = 4 ) out vec2 oVelocity;
+// so it writes the same surface's motion.
+#include <Common/Velocity.glslh>
+layout( location = 4 ) out vec4 oVelocity;
+// The view's thin-geometry coverage (slot 5 of the G-buffer target, Common/ThinGeometryCoverage.glslh): this pass
+// writes the view's depth, so it says what material won it.
+#include <Common/ThinGeometryCoverage.glslh>
+layout( location = 5 ) out float oThinGeometryCoverage;
+#ifdef DESERT_SURFACE_PARALLAX
+// The Pixel Depth Offset only moves the fragment away from the eye: in this reverse-Z view a smaller depth, which the
+// layout promises so the depth test can still reject against the rasterised depth before the fragment runs.
+layout( depth_less ) out float gl_FragDepth;
 #endif
 
 void main()
@@ -32,22 +36,31 @@ void main()
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
+    DESERT_SURFACE_CLIP( i );
+#ifdef DESERT_SURFACE_WEATHER
+    // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
     const SurfaceOutput s = EvaluateSurface( i );
-    DESERT_SURFACE_CLIP( s );
+#endif
+    vec4 clip     = v_Surface.Clip;
+    vec4 prevClip = v_Surface.PrevClip;
+#ifdef DESERT_SURFACE_PARALLAX
+    // The relief's depth and motion (SurfaceParallax.glslh); the composite reconstructs the moved position from it.
+    gl_FragDepth = DesertPixelDepthOffsetDepth( i, s );
+    DesertPixelDepthOffsetVelocity( i, s, clip, prevClip );
+#endif
     oGBufferA        = vec4( s.BaseColor, s.Metallic );
     oGBufferB        = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
-#ifndef DESERT_GBUFFER_RSM
     const uvec2 word =
-         DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount,
+         DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
                                 DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
     // The material's sun-shadow receive, then the primitive's contact-shadow cast (UE bCastContactShadow): the
     // draw pushes it (PrimitiveFlags, Common/MaterialTransport.glslh), as UE's primitive data carries it.
     oGBufferShadingWord = DesertMarkContactShadowCast(
-         DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ),
+         DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
          ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
-#endif
     oGBufferEmissive = vec4( s.Emissive, s.AmbientOcclusion );
-#ifndef DESERT_GBUFFER_RSM
-    oVelocity = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip );
-#endif
+    oVelocity             = DesertVelocity( clip, prevClip, v_Surface.ObjectMoved );
+    oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
 }

@@ -32,7 +32,15 @@ namespace Desert::Geometry
     };
     [[nodiscard]] const char* ToString( TopologyLevel level );
 
-    // @p topology is GroupTopology( &mesh, true ): MeshElementSelection keeps the two together. The hit's Id is
+    // The polygroup topology every Modeling Mode pick and operation runs on (UE UEditMeshPolygonsTool's
+    // Topology): a group edge is also cut where its boundary turns sharper than
+    // PolyEditExtraCornerAngleDegrees, so a plane's one-group border is four edges, not one loop. UE's
+    // UPolyEditTopologyProperties default: bAddExtraCorners on, ExtraCornerAngleThresholdDegrees 135. The
+    // selection and every operation that maps its mesh IDs back to group edges must build the SAME topology.
+    inline constexpr double     PolyEditExtraCornerAngleDegrees = 135.0;
+    [[nodiscard]] GroupTopology PolyEditTopology( const DynamicMesh3& mesh );
+
+    // @p topology is PolyEditTopology( mesh ): MeshElementSelection keeps the two together. The hit's Id is
     // a mesh ID in every mode and level (a group edge's picked SEGMENT, a corner's vertex); HitElements turns it
     // into what a click selects.
     [[nodiscard]] ElementHit PickElement( const DynamicMesh3& mesh, const GroupTopology& topology,

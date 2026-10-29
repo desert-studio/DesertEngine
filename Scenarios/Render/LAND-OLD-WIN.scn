@@ -1,0 +1,6 @@
+# LAND-OLD-WIN: phase 0 of the render plan - old Windows branches (ENG-MODULES-P0, STR-FMT-A/B/C, DISPLACE) merged on
+# top of dev 5ef52fb31 and made MSVC-green. The proof is that dev's Starter scene still renders as before: sky, ground,
+# lights, no new errors.
+Дано run Scene "Open Scene Starter.desce"
+Когда state
+Тогда 0_dev Starter renders as on dev before the landings (sky, ground, lights lit), editor.log 0 errors

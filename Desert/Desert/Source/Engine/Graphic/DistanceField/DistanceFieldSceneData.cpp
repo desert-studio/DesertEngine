@@ -1,6 +1,7 @@
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 
 #include <Engine/Graphic/Image.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -139,7 +140,26 @@ namespace Desert::Graphic::DistanceField
         m_Free.insert( m_Free.end(), slots.begin(), slots.end() );
     }
 
-    DistanceFieldSceneData::DistanceFieldSceneData()  = default;
+    namespace
+    {
+        template <typename T>
+        Common::BoolResultStr UploadRecords( ShaderResources::StorageBuffer& buffer, const std::vector<T>& data,
+                                             const char* what )
+        {
+            // A zero-sized write has nowhere to go; an empty list is uploaded as one zero element nobody reads.
+            static const T zero{};
+            const void*    bytes = data.empty() ? static_cast<const void*>( &zero ) : data.data();
+            const auto     size  = static_cast<uint32_t>( std::max<size_t>( 1, data.size() ) * sizeof( T ) );
+            if ( const auto wrote = buffer.SetData( bytes, size ); !wrote )
+                return Common::MakeFormattedError<bool>( "mesh distance fields: {} upload ({} bytes): {}", what,
+                                                         size, wrote.GetError() );
+            return BOOLSUCCESS;
+        }
+    } // namespace
+
+    DistanceFieldSceneData::DistanceFieldSceneData( const ResourceOwnerInstance scene ) : m_LedgerInstance( scene )
+    {
+    }
     DistanceFieldSceneData::~DistanceFieldSceneData() = default;
 
     bool DistanceFieldSceneData::SetPoolMiB( const uint32_t poolMiB )
@@ -152,6 +172,7 @@ namespace Desert::Graphic::DistanceField
         m_AssetSlots       = {};
         m_AssetData.clear();
         m_Indirection.clear();
+        ++m_Revision;
         m_Pending.clear();
         m_Atlas.reset();
         m_PoolMiB = poolMiB;
@@ -259,11 +280,13 @@ namespace Desert::Graphic::DistanceField
         // The bricks are written by FlushUploads before any pass of this frame reads the record.
         ++resident.NumMips;
         record[0] = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );
+        ++m_Revision;
         return true;
     }
 
     void DistanceFieldSceneData::DropMip( Resident& resident )
     {
+        ++m_Revision;
         const uint32_t r        = --resident.NumMips;
         glm::vec4*     record   = &m_AssetData[static_cast<size_t>( resident.AssetIndex ) * kDfAssetStride];
         record[0]               = glm::vec4( DfBits( resident.NumMips ), 0.0f, 0.0f, 0.0f );
@@ -440,5 +463,119 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeFormattedError<bool>( "distance-field brick atlas upload of {} bricks: {}",
                                                      writes.size(), wrote.GetError() );
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr DistanceFieldSceneData::BeginViewFrame( const uint64_t frame, const uint32_t poolMiB,
+                                                                  const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields )
+    {
+        if ( !m_HasFrame || frame != m_Frame )
+        {
+            // The scene's frame starts. The pool every view of the frame that ended asked for at most (a view's
+            // request lands the frame after: views never resize the pool under one another within a frame).
+            const bool     hadFrame = m_HasFrame;
+            const uint32_t pool     = hadFrame ? std::max( m_RequestedPoolMiB, poolMiB ) : poolMiB;
+            m_Frame                 = frame;
+            m_HasFrame              = true;
+            m_RequestedPoolMiB      = poolMiB;
+            m_FrameError.reset();
+            if ( const auto decided = DecideFrame( hadFrame, pool, fields ); !decided )
+                m_FrameError = decided.GetError();
+        }
+        else
+            m_RequestedPoolMiB = std::max( m_RequestedPoolMiB, poolMiB );
+        if ( m_FrameError )
+            return Common::MakeError<bool>( *m_FrameError );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr DistanceFieldSceneData::DecideFrame( const bool hadFrame, const uint32_t pool,
+                                                               const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>& fields )
+    {
+        // The atlas and the buffers are the scene's rows, whichever view's scope is open.
+        const ResourceAttributionScope scope( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        ReleaseUnused();
+        if ( SetPoolMiB( pool ) )
+            ++m_PoolGeneration;
+        else if ( hadFrame )
+        {
+            // The streaming, once for the scene: toward the nearest distance any view looked a field up at last
+            // frame (a field no view looked up gives its finer mips back).
+            m_UploadedThisFrame = 0;
+            Stream();
+            LogStreaming();
+        }
+        BeginFrame();
+        // The frame's set: the fields that waited first (their coarse mip is guaranteed now), then every field of
+        // the scene's primitives. Their distances are the views' lookups of this frame.
+        const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>> waiting = std::move( m_Waiting );
+        m_Waiting.clear();
+        for ( const std::vector<std::shared_ptr<const Assets::MeshDistanceFieldVolume>>* list : { &waiting, &fields } )
+            for ( const auto& field : *list )
+                if ( const auto acquired = Acquire( field, std::numeric_limits<float>::max() ); !acquired )
+                    return Common::MakeError<bool>( acquired.GetError() );
+
+        if ( !m_AssetBuffer || !m_IndirectionBuffer )
+        {
+            m_AssetBuffer =
+                 ShaderResources::StorageBuffer::Create( "DFAssetData", 16, kMeshDistanceFieldAssetBinding, false );
+            m_IndirectionBuffer = ShaderResources::StorageBuffer::Create( "DFIndirection", 16,
+                                                                          kMeshDistanceFieldIndirectionBinding, false );
+            if ( !m_AssetBuffer || !m_IndirectionBuffer )
+            {
+                m_AssetBuffer.reset();
+                m_IndirectionBuffer.reset();
+                return Common::MakeError<bool>(
+                     "mesh distance fields: the asset / indirection buffers could not be created" );
+            }
+        }
+        // The atlas and this frame's copies of the records, once: nothing changes them until the next frame start.
+        if ( const auto flushed = FlushUploads(); !flushed )
+            return flushed;
+        if ( const auto r = UploadRecords( *m_AssetBuffer, m_AssetData, "asset data" ); !r )
+            return r;
+        if ( const auto r = UploadRecords( *m_IndirectionBuffer, m_Indirection, "indirection" ); !r )
+            return r;
+        return BOOLSUCCESS;
+    }
+
+    std::optional<uint32_t>
+    DistanceFieldSceneData::Lookup( const std::shared_ptr<const Assets::MeshDistanceFieldVolume>& field,
+                                    const float                                                   distance )
+    {
+        if ( !field )
+            return std::nullopt;
+        if ( const auto it = m_Resident.find( field.get() );
+             it != m_Resident.end() && it->second.Field.lock() == field )
+        {
+            it->second.Used     = true;
+            it->second.Distance = std::min( it->second.Distance, distance );
+            return it->second.AssetIndex;
+        }
+        // Not in the frame's set (it appeared after the frame start): it waits for the next one.
+        if ( field->Mips[0].IndirectionDimensions.x != 0 &&
+             std::none_of( m_Waiting.begin(), m_Waiting.end(), [&field]( const auto& w ) { return w == field; } ) )
+            m_Waiting.push_back( field );
+        return std::nullopt;
+    }
+
+    void DistanceFieldSceneData::LogStreaming()
+    {
+        const DistanceFieldStreamingStats& stats = m_Stats;
+        if ( stats.UploadedBricks > 0 )
+            m_StreamingMoved = true;
+        // Settled = a frame that uploaded nothing; a field still wanting a finer mip then waits for room in the
+        // pool.
+        if ( !m_StreamingMoved || stats.UploadedBricks > 0 )
+            return;
+        m_StreamingMoved = false;
+        const auto mib   = []( const uint64_t bricks )
+        { return static_cast<double>( bricks * Assets::kDistanceFieldBrickVoxels ) / ( 1024.0 * 1024.0 ); };
+        LOG_INFO(
+             "[DistanceField] streaming settled: {} field(s) resident ({} coarse only, {} with 2 mips, {} with "
+             "all 3); {:.1f} of {:.1f} MiB of bricks in use, {:.1f} MiB of them coarse; {} field(s) want a finer "
+             "mip the pool has no room for",
+             stats.Fields, stats.ResidentByMips[0], stats.ResidentByMips[1], stats.ResidentByMips[2],
+             mib( stats.UsedBricks ), mib( stats.CapacityBricks ), mib( stats.CoarseBricks ),
+             stats.UnmetRequests );
     }
 } // namespace Desert::Graphic::DistanceField

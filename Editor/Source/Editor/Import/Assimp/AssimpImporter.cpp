@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <limits>
+#include <new>
+#include <type_traits>
 #include <functional>
 #include <optional>
 
@@ -24,6 +26,7 @@
 
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/Mesh.hpp>
+#include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Assets/Serialization/Skeleton.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 
@@ -335,20 +338,18 @@ namespace Desert::Editor
             if ( sum <= 0.0f )
                 continue;
             m /= sum;
-            const glm::mat3 r      = glm::mat3( m );
-            const glm::mat3 normal = glm::transpose( glm::inverse( r ) );
-            const auto      unit   = []( const glm::vec3& d )
-            { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+            const Geometry::SurfaceFrameTransform frame( ( glm::mat3( m ) ) );
+            const glm::vec3                       restNormal = v.Normal;
             v.Position  = glm::vec3( m * glm::vec4( v.Position, 1.0f ) );
-            v.Normal    = unit( normal * v.Normal );
-            v.Tangent   = unit( r * v.Tangent );
-            v.Bitangent = unit( r * v.Bitangent );
+            v.Normal    = frame.Normal( v.Normal );
+            v.Tangent   = frame.UnitDirection( v.Tangent );
+            v.Bitangent = frame.UnitDirection( v.Bitangent );
             for ( auto& morph : mesh.MorphTargets )
             {
                 if ( vi < morph.DeltaPositions.size() )
-                    morph.DeltaPositions[vi] = r * morph.DeltaPositions[vi];
+                    morph.DeltaPositions[vi] = frame.Direction( morph.DeltaPositions[vi] );
                 if ( vi < morph.DeltaNormals.size() )
-                    morph.DeltaNormals[vi] = normal * morph.DeltaNormals[vi];
+                    morph.DeltaNormals[vi] = frame.NormalDelta( restNormal, morph.DeltaNormals[vi] );
             }
         }
         for ( std::size_t i = 0; i < n; ++i )
@@ -450,7 +451,7 @@ namespace Desert::Editor
             ImportedMaterial out;
             aiString         name;
             mat->Get( AI_MATKEY_NAME, name );
-            out.Name = name.length > 0 ? std::string( name.C_Str() ) : ( "Material_" + std::to_string( i ) );
+            out.Name = name.length > 0 ? std::string( name.C_Str() ) : std::format( "Material_{}", i );
 
             // Keyed on the mesh's place in the project, NOT on its file stem — see CookPaths::MaterialKey
             // for what the stem-only key merged and why the repository is one same-named file away from it.
@@ -679,9 +680,10 @@ namespace Desert::Editor
             if ( !skinnedVertices )
             {
                 // -------- STATIC -------- (bake the node world transform so orientation/placement match the
-                // DCC tool; normals/tangents use the 3x3 part, renormalized to survive any scale.)
-                const glm::mat4 world     = placement.World;
-                const glm::mat3 normalMat = glm::mat3( world );
+                // DCC tool; normals go by the inverse transpose, so they stay perpendicular to the surface under
+                // non-uniform scale. Tangents are generated over the baked vertices below.)
+                const glm::mat4                       world = placement.World;
+                const Geometry::SurfaceFrameTransform frame( ( glm::mat3( world ) ) );
 
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
                 {
@@ -692,18 +694,8 @@ namespace Desert::Editor
                     v.Position = { p.x, p.y, p.z };
 
                     if ( mesh->HasNormals() )
-                        v.Normal = glm::normalize(
-                             normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
-
-                    if ( mesh->HasTangentsAndBitangents() )
-                    {
-                        v.Tangent = glm::normalize( normalMat * glm::vec3( mesh->mTangents[i].x,
-                                                                           mesh->mTangents[i].y,
-                                                                           mesh->mTangents[i].z ) );
-                        v.Bitangent = glm::normalize( normalMat * glm::vec3( mesh->mBitangents[i].x,
-                                                                            mesh->mBitangents[i].y,
-                                                                            mesh->mBitangents[i].z ) );
-                    }
+                        v.Normal = frame.Normal(
+                             glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
 
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
@@ -717,11 +709,8 @@ namespace Desert::Editor
                 // -------- RIGID (a mesh in the bone hierarchy) -------- the node's global transform puts the
                 // vertices where the bind pose draws them, the same rest space BakeBindPose takes the skinned
                 // vertices to; one bone, full weight.
-                const glm::mat4 world      = placement.World;
-                const glm::mat3 tangentMat = glm::mat3( world );
-                const glm::mat3 normalMat  = glm::transpose( glm::inverse( tangentMat ) );
-                const auto      unit       = []( const glm::vec3& d )
-                { return glm::length( d ) > 0.0f ? glm::normalize( d ) : d; };
+                const glm::mat4                       world = placement.World;
+                const Geometry::SurfaceFrameTransform frame( ( glm::mat3( world ) ) );
 
                 rigidVertices.resize( meshData.SkinnedVertices.size(), 0 );
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
@@ -730,15 +719,8 @@ namespace Desert::Editor
                     v.Position = glm::vec3( world * glm::vec4( mesh->mVertices[i].x, mesh->mVertices[i].y,
                                                                mesh->mVertices[i].z, 1.0f ) );
                     if ( mesh->HasNormals() )
-                        v.Normal = unit( normalMat * glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y,
-                                                                mesh->mNormals[i].z ) );
-                    if ( mesh->HasTangentsAndBitangents() )
-                    {
-                        v.Tangent   = unit( tangentMat * glm::vec3( mesh->mTangents[i].x, mesh->mTangents[i].y,
-                                                                    mesh->mTangents[i].z ) );
-                        v.Bitangent = unit( tangentMat * glm::vec3( mesh->mBitangents[i].x, mesh->mBitangents[i].y,
-                                                                    mesh->mBitangents[i].z ) );
-                    }
+                        v.Normal = frame.Normal(
+                             glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z ) );
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
                     v.BoneIDs[0]     = *rigidBone;
@@ -761,12 +743,6 @@ namespace Desert::Editor
 
                     if ( mesh->HasNormals() )
                         v.Normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
-
-                    if ( mesh->HasTangentsAndBitangents() )
-                    {
-                        v.Tangent   = { mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z };
-                        v.Bitangent = { mesh->mBitangents[i].x, mesh->mBitangents[i].y, mesh->mBitangents[i].z };
-                    }
 
                     if ( mesh->HasTextureCoords( 0 ) )
                         v.TexCoord = { mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y };
@@ -834,6 +810,8 @@ namespace Desert::Editor
                 AppendVertexStreams( *mesh, streams, meshData.Colors, meshData.UV1 );
             }
 
+            const size_t firstMorph = morphContribs.size();
+
             // ============================
             // MORPH TARGETS (blendshapes)
             // ============================
@@ -849,27 +827,34 @@ namespace Desert::Editor
                     continue;
 
                 MorphContribution mc;
-                mc.Name = anim->mName.length > 0 ? std::string( anim->mName.C_Str() )
-                                                 : ( "Morph_" + std::to_string( a ) );
+                mc.Name =
+                     anim->mName.length > 0 ? std::string( anim->mName.C_Str() ) : std::format( "Morph_{}", a );
                 mc.VertexOffset    = submesh.VertexOffset;
                 const bool hasNorm = anim->mNormals != nullptr && mesh->HasNormals();
                 mc.DeltaPos.resize( mesh->mNumVertices );
                 if ( hasNorm )
                     mc.DeltaNorm.resize( mesh->mNumVertices );
 
-                const glm::mat3 dirMat = meshHasBones ? glm::mat3( 1.0f ) : glm::mat3( placement.World );
+                // A static mesh's deltas take the node transform its vertices were baked with; a skinned one's
+                // stay in mesh space and BakeBindPose carries them with the vertices.
+                const Geometry::SurfaceFrameTransform frame( meshHasBones ? glm::mat3( 1.0f )
+                                                                          : glm::mat3( placement.World ) );
                 for ( uint32_t i = 0; i < mesh->mNumVertices; ++i )
                 {
                     const glm::vec3 dp( anim->mVertices[i].x - mesh->mVertices[i].x,
                                         anim->mVertices[i].y - mesh->mVertices[i].y,
                                         anim->mVertices[i].z - mesh->mVertices[i].z );
-                    mc.DeltaPos[i] = dirMat * dp;
+                    mc.DeltaPos[i] = frame.Direction( dp );
                     if ( hasNorm )
                     {
                         const glm::vec3 dn( anim->mNormals[i].x - mesh->mNormals[i].x,
                                             anim->mNormals[i].y - mesh->mNormals[i].y,
                                             anim->mNormals[i].z - mesh->mNormals[i].z );
-                        mc.DeltaNorm[i] = dirMat * dn;
+                        mc.DeltaNorm[i] = meshHasBones
+                                               ? dn
+                                               : frame.NormalDelta( glm::vec3( mesh->mNormals[i].x, mesh->mNormals[i].y,
+                                                                               mesh->mNormals[i].z ),
+                                                                    dn );
                     }
                 }
                 morphContribs.push_back( std::move( mc ) );
@@ -909,6 +894,52 @@ namespace Desert::Editor
                 }
 
                 submesh.BoundingBox = { aabbMin, aabbMax };
+            }
+
+            // ============================
+            // TANGENTS (MikkTSpace)
+            // ============================
+            // The engine's one generator (Engine/Geometry/MikkTangents.hpp) over the vertices as stored: static
+            // and rigid ones with the node transform baked, skinned ones in mesh space (BakeBindPose turns the
+            // frame with them). A vertex whose corners disagree is split, and every per-vertex array of this
+            // submesh (vertices, colour / UV1 streams, rigid flags, morph deltas) and its triangles follow the
+            // split. Without UV0 there is no tangent space to derive; the frame stays zero, as no normal map
+            // can be sampled on such a mesh.
+            if ( mesh->HasTextureCoords( 0 ) && mesh->mNumFaces > 0 )
+            {
+                const size_t first         = submesh.VertexOffset;
+                const size_t firstTriangle = meshData.Indices.size() - mesh->mNumFaces;
+                const auto   triangles     = std::span( meshData.Indices ).subspan( firstTriangle );
+                // MikkTSpace fails only when its working set cannot be allocated.
+                const auto sourceVertex = skinnedVertices
+                                               ? Geometry::ApplyMikkTangents( meshData.SkinnedVertices, first, triangles )
+                                               : Geometry::ApplyMikkTangents( meshData.StaticVertices, first, triangles );
+                if ( !sourceVertex )
+                    throw std::bad_alloc();
+
+                const auto follow = [&]( auto& values, size_t offset )
+                {
+                    using Value = typename std::decay_t<decltype( values )>::value_type;
+                    std::vector<Value> remapped;
+                    remapped.reserve( sourceVertex->size() );
+                    for ( const uint32_t source : *sourceVertex )
+                        remapped.push_back( values[offset + source] );
+                    values.resize( offset );
+                    values.insert( values.end(), remapped.begin(), remapped.end() );
+                };
+                if ( streams.Colors )
+                    follow( meshData.Colors, first );
+                if ( streams.UV1 )
+                    follow( meshData.UV1, first );
+                if ( skinnedVertices && rigidVertices.size() >= first + mesh->mNumVertices )
+                    follow( rigidVertices, first );
+                for ( size_t m = firstMorph; m < morphContribs.size(); ++m )
+                {
+                    follow( morphContribs[m].DeltaPos, 0 );
+                    if ( !morphContribs[m].DeltaNorm.empty() )
+                        follow( morphContribs[m].DeltaNorm, 0 );
+                }
+                submesh.VertexCount = static_cast<uint32_t>( sourceVertex->size() );
             }
 
             meshData.Submeshes.push_back( submesh );
@@ -1208,6 +1239,88 @@ namespace Desert::Editor
         return false;
     }
 
+    // THE FILE'S LIGHT SOURCES (BISTRO-LIGHTS; ports UE FbxLightImport.cpp CreateLight / Interchange
+    // FbxLight.cpp AddLightsRecursively): one entry per aiLight, at its node's world transform (the same root-down
+    // composition the meshes are baked with in ProcessScene, so a light stands where the file put it among them).
+    // assimp's FBX reader (FBXConverter.cpp ConvertLight) folds Intensity / 100 into the colour, points the light
+    // down its node's -Y, and turns DecayStart into attenuation terms; those are read back into the radius UE
+    // takes from DecayStart. @p centimetresPerUnit is the file unit the geometry was scaled by: DecayStart is
+    // stated in file units and assimp's scaling step does not touch lights.
+    static std::vector<ImportedLight> ReadSceneLights( const aiScene& scene, const std::string& fileName,
+                                                       const float centimetresPerUnit )
+    {
+        std::vector<ImportedLight> lights;
+        for ( uint32_t i = 0; i < scene.mNumLights; ++i )
+        {
+            const aiLight& source = *scene.mLights[i];
+            ImportedLight  light;
+            light.Name = source.mName.C_Str();
+            switch ( source.mType )
+            {
+                case aiLightSource_DIRECTIONAL:
+                    light.Type = ImportedLightType::Directional;
+                    break;
+                case aiLightSource_SPOT:
+                    light.Type             = ImportedLightType::Spot;
+                    light.InnerConeDegrees = glm::degrees( source.mAngleInnerCone );
+                    light.OuterConeDegrees = glm::degrees( source.mAngleOuterCone );
+                    break;
+                case aiLightSource_POINT:
+                    light.Type = ImportedLightType::Point;
+                    break;
+                default:
+                    // UE FbxLightImport: "default: LightClass = APointLight" - an area or volume light the engine
+                    // has no type for is imported as a point light at its node, and the log says so.
+                    LOG_WARN( "[Import] {}: light '{}' is of a type the engine has no light for (assimp type {}); "
+                              "imported as a point light, as UE does",
+                              fileName, light.Name, static_cast<int>( source.mType ) );
+                    light.Type = ImportedLightType::Point;
+                    break;
+            }
+
+            const aiNode* node = scene.mRootNode->FindNode( source.mName );
+            glm::mat4     world( 1.0f );
+            for ( const aiNode* at = node; at != nullptr; at = at->mParent )
+                world = ConvertMatrix( at->mTransformation ) * world;
+            if ( node == nullptr )
+                LOG_WARN( "[Import] {}: light '{}' names no node of the file, so it stands at the file's origin",
+                          fileName, light.Name );
+            light.Position = glm::vec3(
+                 world * glm::vec4( source.mPosition.x, source.mPosition.y, source.mPosition.z, 1.0f ) );
+            const glm::vec3 direction = glm::vec3(
+                 world * glm::vec4( source.mDirection.x, source.mDirection.y, source.mDirection.z, 0.0f ) );
+            if ( glm::length( direction ) <= 1e-6f )
+            {
+                LOG_WARN( "[Import] {}: light '{}' has no direction under its node's transform; it is skipped",
+                          fileName, light.Name );
+                continue;
+            }
+            light.Direction = glm::normalize( direction );
+            light.Radiance  = glm::vec3( source.mColorDiffuse.r, source.mColorDiffuse.g, source.mColorDiffuse.b );
+
+            // DecayStart back out of assimp's terms: None -> constant = DecayStart; Linear -> linear = 2 / start;
+            // Quadratic -> quadratic = 2 / start^2 (FBXConverter.cpp ConvertLight). UE: AttenuationRadius =
+            // DecayStart, and no decay = an unbounded radius.
+            if ( light.Type != ImportedLightType::Directional )
+            {
+                std::optional<float> decayStart;
+                if ( source.mAttenuationLinear > 0.0f )
+                    decayStart = 2.0f / source.mAttenuationLinear;
+                else if ( source.mAttenuationQuadratic > 0.0f )
+                    decayStart = std::sqrt( 2.0f / source.mAttenuationQuadratic );
+                if ( decayStart && std::isfinite( *decayStart ) && *decayStart > 0.0f )
+                    light.Radius = *decayStart * centimetresPerUnit;
+            }
+            LOG_INFO( "[Import] {}: light '{}' ({}) at ({}, {}, {}) cm", fileName, light.Name,
+                      light.Type == ImportedLightType::Directional ? "directional"
+                      : light.Type == ImportedLightType::Spot      ? "spot"
+                                                                   : "point",
+                      light.Position.x, light.Position.y, light.Position.z );
+            lights.push_back( std::move( light ) );
+        }
+        return lights;
+    }
+
     Common::ResultStr<ImportContentKind> AssimpImporter::Probe( const std::filesystem::path& path )
     {
         static const ScopedAssimpLogger logger;
@@ -1243,7 +1356,7 @@ namespace Desert::Editor
         // that lands the geometry in centimetres. Scaling it ourselves is not the cheaper option:
         // ScaleProcess also scales bone offset matrices, node translations and animation position keys,
         // and a second implementation of that is a second thing to keep in agreement.
-        const uint32_t readFlags = aiProcess_Triangulate | aiProcess_GenNormals | aiProcess_CalcTangentSpace |
+        const uint32_t readFlags = aiProcess_Triangulate | aiProcess_GenNormals |
                                    aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights;
 
         // The source is read where its outputs are written: a relative path is off the project (FullPath),
@@ -1298,9 +1411,9 @@ namespace Desert::Editor
 
         if ( !ImportUnits::IsUsableScale( assimpMetresPerUnit ) )
         {
-            throw std::runtime_error( "Refusing to import " + path.string() + ": the reader reports " +
-                                      std::to_string( assimpMetresPerUnit ) +
-                                      " metres per file unit, which is not a usable scale." );
+            throw std::runtime_error( std::format( "Refusing to import {}: the reader reports {:f} metres per "
+                                                   "file unit, which is not a usable scale.",
+                                                   path.string(), assimpMetresPerUnit ) );
         }
 
         importer.SetPropertyFloat(
@@ -1314,7 +1427,9 @@ namespace Desert::Editor
             throw std::runtime_error( "Failed to scale to centimetres on import: " + path.string() );
         }
 
-        return ProcessScene( scene, manager, path, pass );
+        ImportResult result = ProcessScene( scene, manager, path, pass );
+        result.Lights       = ReadSceneLights( *scene, fileName, unit.CentimetresPerUnit );
+        return result;
     }
 
 } // namespace Desert::Editor

@@ -4,6 +4,7 @@
 #include <Engine/Localization/LocaleFormat.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Json/Template.hpp>
 
 #include <unordered_set>
 
@@ -76,13 +77,7 @@ namespace Desert::Localization
                     return BOOLSUCCESS;
             }
 
-            std::string allowed;
-            for ( const std::string& name : ValidFormSelectors() )
-            {
-                if ( !allowed.empty() )
-                    allowed += ", ";
-                allowed += name;
-            }
+            const std::string allowed = Common::Text::Join( ValidFormSelectors(), ", " );
             return Common::MakeFormattedError<bool>(
                  "key '{}' has form '{}', which is not a form selector; the grammar is: {}", key, selector,
                  allowed );

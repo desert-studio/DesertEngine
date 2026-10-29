@@ -211,6 +211,7 @@ namespace Desert::Animation::Timeline
                 case TrackKind::CameraCut:
                 case TrackKind::Subsequence:
                 case TrackKind::Audio:
+                case TrackKind::VFX:
                     return false;
             }
             return false;
@@ -452,6 +453,7 @@ namespace Desert::Animation::Timeline
         out.Values.clear();
         out.Events.clear();
         out.Animations.clear();
+        out.Effects.clear();
         out.Subsequences.clear();
         out.Sounds.clear();
         out.ActiveCamera.reset();
@@ -502,6 +504,24 @@ namespace Desert::Animation::Timeline
                                   section.Blend, WeightAt( section, at, rate ), anim->Loop } );
                          } );
                     break;
+                case TrackKind::VFX:
+                {
+                    // The last covering section in fold order sets the age (one effect has one age).
+                    VFXSample sample{ ti, false, 0.0 };
+                    ForEachCovering( track, at,
+                                     [&]( const Section& section )
+                                     {
+                                         if ( const auto* vfx = std::get_if<VFXSectionContent>( &section.Content ) )
+                                         {
+                                             const double into =
+                                                  at.AsTicks() - section.Start.Value + vfx->StartOffset.Value;
+                                             sample.Active     = true;
+                                             sample.AgeSeconds = into / rate.AsDouble();
+                                         }
+                                     } );
+                    out.Effects.push_back( sample );
+                    break;
+                }
                 case TrackKind::Audio:
                     // Every covering section sounds — overlapping rows MIX, they do not fold (UE).
                     for ( uint32_t si = 0; si < track.Sections.size(); ++si )
@@ -650,6 +670,14 @@ namespace Desert::Animation::Timeline
                 host.PlayAnimation( **target, sample );
             }
         }
+        for ( const VFXSample& sample : frame.Effects )
+        {
+            const Track& track = sequence.Tracks[sample.TrackIndex];
+            if ( const auto* target = resolvedOf( track.Binding ); target != nullptr && target->has_value() )
+            {
+                host.DriveEffect( **target, sample );
+            }
+        }
         for ( const FiredEvent& event : frame.Events )
         {
             fire( event );
@@ -702,6 +730,36 @@ namespace Desert::Animation::Timeline
         return table;
     }
 
+    namespace
+    {
+        /// Every Transform section of @p track covering @p at, folded over @p acc in section order — the ONE fold
+        /// of a bone track, shared by the whole-pose and the single-bone sample.
+        void FoldBoneTrack( const Track& track, const FrameTime at, const FrameRate tickRate, BoneTransform& acc )
+        {
+            ForEachCovering( track, at,
+                             [&]( const Section& section )
+                             {
+                                 const auto* channel = std::get_if<Channel>( &section.Content );
+                                 const auto* typed =
+                                      channel != nullptr ? std::get_if<TransformChannel>( channel ) : nullptr;
+                                 if ( typed == nullptr )
+                                 {
+                                     return; // Validate refuses a section of another kind
+                                 }
+                                 const BoneTransform v = Evaluate( *typed, at, tickRate );
+                                 const float         w = WeightAt( section, at, tickRate );
+                                 if ( section.Blend == SectionBlendType::Additive )
+                                 {
+                                     Additive( acc, v, w );
+                                 }
+                                 else
+                                 {
+                                     Absolute( acc, v, w );
+                                 }
+                             } );
+        }
+    } // namespace
+
     Common::BoolResultStr EvaluatePose( const Sequence& sequence, const BoneBindingTable& table,
                                         const FrameTime at, LocalPose& pose )
     {
@@ -729,28 +787,27 @@ namespace Desert::Animation::Timeline
             // THE FOLD STARTS FROM THE POSE, not from the channel's Default: for a bone the rest value the host
             // states IS what the caller seeded (the bind or retarget pose — ApplySection's `reference`), so a
             // partial Absolute section blends from it exactly as the generation-3 clip did.
-            BoneTransform& acc = pose[bone];
-            ForEachCovering( track, at,
-                             [&]( const Section& section )
-                             {
-                                 const auto* channel = std::get_if<Channel>( &section.Content );
-                                 const auto* typed =
-                                      channel != nullptr ? std::get_if<TransformChannel>( channel ) : nullptr;
-                                 if ( typed == nullptr )
-                                 {
-                                     return; // Validate refuses a section of another kind
-                                 }
-                                 const BoneTransform v = Evaluate( *typed, at, sequence.TickRate );
-                                 const float         w = WeightAt( section, at, sequence.TickRate );
-                                 if ( section.Blend == SectionBlendType::Additive )
-                                 {
-                                     Additive( acc, v, w );
-                                 }
-                                 else
-                                 {
-                                     Absolute( acc, v, w );
-                                 }
-                             } );
+            FoldBoneTrack( track, at, sequence.TickRate, pose[bone] );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr EvaluateBone( const Sequence& sequence, const BoneBindingTable& table,
+                                        const FrameTime at, const uint32_t bone, BoneTransform& acc )
+    {
+        if ( table.Revision != sequence.Revision || table.BoneOfTrack.size() != sequence.Tracks.size() )
+        {
+            return Common::MakeFormattedError<bool>(
+                 "EvaluateBone: the bone table was bound at revision {} for {} tracks and the sequence is at "
+                 "revision {} with {} tracks; bind again (BindBones)",
+                 table.Revision, table.BoneOfTrack.size(), sequence.Revision, sequence.Tracks.size() );
+        }
+        for ( size_t ti = 0; ti < sequence.Tracks.size(); ++ti )
+        {
+            if ( table.BoneOfTrack[ti] == bone && !sequence.Tracks[ti].Muted )
+            {
+                FoldBoneTrack( sequence.Tracks[ti], at, sequence.TickRate, acc );
+            }
         }
         return Common::MakeSuccess( true );
     }

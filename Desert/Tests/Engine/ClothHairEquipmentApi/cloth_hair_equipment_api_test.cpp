@@ -10,7 +10,7 @@
 // slots or equip events (owner, 2026-09-27); it has the four mechanisms of IModularCharacter.
 #include <Engine/Animation/Modular/ModularCharacter.hpp>
 #include <Engine/Hair/GroomSimulation.hpp>
-#include <Engine/Physics/Cloth/ClothingSimulation.hpp>
+#include <PhysicsCore/Cloth/ClothingSimulation.hpp>
 
 #include <gtest/gtest.h>
 

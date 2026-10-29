@@ -28,6 +28,8 @@ namespace Desert::Core::Rules
 {
     // The one label the button and the command palette both show, so the two cannot drift apart.
     inline constexpr std::string_view kConvertToWorldPartitionLabel = "Convert scene to World Partition";
+    // UE's Build > Build HLODs: the step that builds every cell's HLOD and saves it beside the world.
+    inline constexpr std::string_view kBuildHLODsLabel = "Build HLODs";
 
     /// The partition an UNPARTITIONED world gets: exactly one grid, at the format's own defaults
     /// (WorldPartitionGridSerialized — 128 m cells, 256 m loading range, in centimetres).
@@ -48,13 +50,17 @@ namespace Desert::Core::Rules
         if ( !partition.HLODLayers.has_value() )
             partition.HLODLayers.emplace();
         partition.HLODLayers->push_back( std::move( layer ) );
-        partition.DefaultHLODLayer = std::string( kInstancingHLODLayerName );
+        // Every grid the world has builds its cells' HLOD with it (the layer is a grid's choice, UE
+        // FRuntimePartitionDesc::HLODSetups); state the grids first.
+        for ( WorldPartitionGridSerialized& grid : partition.Grids )
+            grid.HLODLayer = std::string( kInstancingHLODLayerName );
     }
 
     [[nodiscard]] inline WorldPartitionSerialized DefaultWorldPartition()
     {
         WorldPartitionSerialized partition;
-        partition.Grids.emplace_back();
+        // UE's main grid: the one every record that names no RuntimeGrid streams on.
+        partition.Grids.emplace_back().Name = "Main";
         StateInstancingHLODLayer( partition );
         return partition;
     }

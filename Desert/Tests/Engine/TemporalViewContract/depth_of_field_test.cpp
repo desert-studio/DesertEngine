@@ -222,7 +222,7 @@ TEST( DepthOfField, TheSixNodesDeclareTheirReadsAndWritesAndRunBeforeMotionBlur 
         uint32_t mask = MemoryAccess_None;
         if ( const CompiledPass* pass = result.FindPass( passName ) )
             for ( const Barrier& barrier : pass->Barriers )
-                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                     mask |= barrier.After.Memory;
         return mask;
     };
@@ -235,7 +235,7 @@ TEST( DepthOfField, TheSixNodesDeclareTheirReadsAndWritesAndRunBeforeMotionBlur 
         for ( const CompiledPass& pass : result.Passes )
         {
             for ( const Barrier& barrier : pass.Barriers )
-                if ( barrier.Kind == ResourceKind::Texture && barrier.Resource == resource.Index )
+                if ( barrier.Kind == RDG::ResourceKind::Texture && barrier.Resource == resource.Index )
                     mask = barrier.After.Memory;
             if ( pass.Name == passName )
                 return mask;
@@ -247,7 +247,7 @@ TEST( DepthOfField, TheSixNodesDeclareTheirReadsAndWritesAndRunBeforeMotionBlur 
     {
         if ( const CompiledPass* pass = result.FindPass( passName ) )
             for ( const Barrier& barrier : pass->Barriers )
-                if ( barrier.Kind == ResourceKind::Texture &&
+                if ( barrier.Kind == RDG::ResourceKind::Texture &&
                      ( barrier.After.Memory & MemoryAccess_ShaderStorageWrite ) )
                 {
                     const TextureRef ref{ barrier.Resource };

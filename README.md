@@ -28,6 +28,20 @@ is missing and change nothing. **Visual Studio 2022 or newer is required and the
 toolset specifically**: the generated solution asks for `PlatformToolset=v143`, so a newer Visual
 Studio satisfies it only if v143 is one of its installed toolsets.
 
+The DLSS runtime (NVIDIA Streamline: `sl.*.dll`, `nvngx_dlss.dll`) is **downloaded, never committed**.
+`ThirdParty/Streamline/manifest.json` pins the release (v2.14.1) and the SHA-256 of the archive and of every
+file; `Setup.bat` runs the fetch, or run it alone:
+
+```bat
+python scripts\Windows\FetchVendorBinaries.py           :: download, verify, unpack into ThirdParty\Streamline\bin\x64
+python scripts\Windows\FetchVendorBinaries.py --check   :: verify only
+```
+
+It does nothing when the files are already there and verified. A hash mismatch (`HashMismatch`) or no network
+(`NetworkUnavailable`) fails by name and writes nothing. Without the files the solution still generates and
+builds (the build prints which file is missing), the editor and game report DLSS unavailable, and the game
+packager refuses by name.
+
 ## Both platforms
 
 ```

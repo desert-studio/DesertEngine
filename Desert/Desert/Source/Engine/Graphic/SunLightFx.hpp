@@ -22,15 +22,19 @@ namespace Desert::Graphic
 
         // The sun light's OWN illuminance before the atmosphere touches it — the authored Color times
         // Intensity of the directional light that was chosen as the atmosphere sun. UE calls this the
-        // outer-space illuminance in the physical model, and it is NOT the same number as the sky's
-        // SunIntensity: that one says how bright the DISC in the sky looks, this one says how brightly
-        // the sun LIGHTS THINGS. They are authored on two different components and routinely differ by
-        // more than an order of magnitude.
+        // outer-space illuminance in the physical model, and in that model it is ALSO the sky's sun: the
+        // Sky-View LUT, the aerial perspective, the distant sky light, the IBL bake and the disc integrate
+        // it (SkySunInputs, SkyPayload.hpp). Only the artistic gradient keeps the sky component's own
+        // SunColor x SunIntensity, a palette value with no unit.
         //
         // It travels here with the other properties of the chosen sun so that a consumer which needs the
         // light's illuminance — the fog's directional lobe — reads the sun the sky is driving, and not
         // whichever directional light happened to be first in the registry.
         glm::vec3 OuterSpaceIlluminance = glm::vec3( 0.0f );
+
+        // UE's Atmosphere Sun Disk Color Scale: scales the disc the physical sky draws for this light, and
+        // nothing else (not the sky's scattering, not the surfaces).
+        glm::vec3 SunDiskColorScale = glm::vec3( 1.0f );
 
         // UE's "Affected By Atmosphere Transmittance": whether this sun's colour is multiplied by the
         // atmosphere's transmittance at ground level (physical model only — see the component).
@@ -40,5 +44,19 @@ namespace Desert::Graphic
         // chosen" must not silently redden a light that the sky is not driving. A chosen sun overwrites
         // this with its own authored value, which defaults to on as UE ships it.
         bool AffectedByAtmosphereTransmittance = false;
+    };
+    // UE's ATMOSPHERE LIGHT 1 (Atmosphere Sun Light Index 1, the moon), in transport form: the second light the
+    // physical sky scatters and draws a disc for. Present == false is "the scene has no second atmosphere light"
+    // and every consumer then contributes exactly nothing (the sky passes branch on it, so a scene without one
+    // renders bit-for-bit what it rendered before the slot existed).
+    struct AtmosphereLight1
+    {
+        bool      Present = false;
+        glm::vec3 TowardLight{ 0.0f, 1.0f, 0.0f };   // normalized, ECS::Rules::AtmosphereSunDirection
+        glm::vec3 OuterSpaceIlluminance{ 0.0f };     // the light's Color x Intensity (lux), as the sun's
+        glm::vec3 DiskColorScale{ 1.0f };            // its Atmosphere Sun Disk Color Scale
+        float     DiskAngularRadius = 0.0f;          // radians: half the light's Source Angle (UE draws the
+                                                     // disc of an atmosphere light at its source angle)
+        bool AffectedByAtmosphereTransmittance = false; // as SunLightFx: false until a chosen light says
     };
 } // namespace Desert::Graphic

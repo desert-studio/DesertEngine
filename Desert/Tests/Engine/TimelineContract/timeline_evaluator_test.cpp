@@ -96,6 +96,9 @@ namespace
         void PlayAnimation( const ResolvedBinding&, const AnimationSample& ) override
         {
         }
+        void DriveEffect( const ResolvedBinding&, const VFXSample& ) override
+        {
+        }
     };
 } // namespace
 

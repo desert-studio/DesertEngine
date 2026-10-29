@@ -11,7 +11,8 @@ BASE="${1:-origin/dev}"
 cd "$DEV_ROOT" || exit 2
 branch=$(git symbolic-ref --short -q HEAD) || { echo "merge_dev: detached HEAD"; exit 2; }
 case "$branch" in dev|main) echo "merge_dev: refusing to merge into $branch"; exit 2 ;; esac
-git diff --quiet HEAD -- . ':!.cache' || { echo "merge_dev: tracked files modified — commit or stash first"; exit 2; }
+# Agent trees carry symlinked submodules (new_tree.sh): a typechange (T) is the tree's layout, not a change.
+[ -z "$(git diff --name-status HEAD -- . ':!.cache' | grep -v '^T')" ] || { echo "merge_dev: tracked files modified — commit or stash first"; exit 2; }
 LOG=$(dev_logdir merge)
 remote="${BASE%%/*}"; [ "$remote" != "$BASE" ] && { git fetch -q "$remote" >"$LOG/fetch.log" 2>&1 || { echo "merge_dev: fetch $remote failed; log $LOG/fetch.log"; exit 2; }; }
 before=$(git rev-parse --short HEAD)
