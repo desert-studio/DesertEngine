@@ -10,7 +10,7 @@ namespace Desert::Project
     // DefaultEngine.ini — kept in `<project>/Config/Engine.json` beside Game.json. What the PROJECT decides about
     // its rendering, once, for every machine it runs on; what a machine can afford is Scalability, not this.
     // UE ETextureEncodeSpeed (TextureEncodingSettings.h): which of the two encode efforts a process builds with.
-    enum class TextureEncodeSpeed : uint32_t
+    enum class TextureEncodeSpeed
     {
         Final,            // always the final effort: a miss is built final
         FinalIfAvailable, // a final entry already in the DDC is used (a cook put it there); a miss is built fast
