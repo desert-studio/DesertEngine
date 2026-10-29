@@ -211,6 +211,17 @@ namespace Desert::Graphic::System
             hash.Add( rd.SectionSlot );
             hash.Add( shading.Surface );
             hash.Add( shading.Instance );
+            // Its clustered set (VsmClusteredSubmeshes): the clusters' depth is the cut's, the walk's the mesh LOD's,
+            // so a submesh moving between them redraws its pages. The set is this frame's clusterable submeshes
+            // under LAST frame's issue (this frame's cut is made after the pages, from their dirty mask): a twin's
+            // pipeline or a DAG upload redraws in the frame it lands, a refused or returning cut one frame later.
+            hash.Add( m_VsmClusteredLastFrame );
+            if ( m_VsmClusteredLastFrame )
+            {
+                VsmClusterableSubmeshes( rd, m_VsmClusteredScratch );
+                for ( const uint64_t word : m_VsmClusteredScratch )
+                    hash.Add( word );
+            }
             addStill( hash.Value,
                       [&rd] {
                           return WorldBox( Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ), rd.Transform, 0.0f );
@@ -370,7 +381,14 @@ namespace Desert::Graphic::System
     void MeshRenderer::VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const
     {
         words.clear();
-        if ( !m_VsmGeometry || !m_DrawCommandCache || rd.Mesh == nullptr )
+        if ( m_VsmGeometry )
+            VsmClusterableSubmeshes( rd, words );
+    }
+
+    void MeshRenderer::VsmClusterableSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const
+    {
+        words.clear();
+        if ( !m_DrawCommandCache || rd.Mesh == nullptr )
             return;
         const auto* registration = rd.Mesh->GetVirtualMesh();
         if ( registration == nullptr || !*registration )
@@ -411,6 +429,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::ResetVirtualShadowGeometry()
     {
+        m_VsmClusteredLastFrame = std::exchange( m_VsmClusteredThisFrame, false );
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;
         m_VsmFallbackSubmeshes = 0;
@@ -697,6 +716,7 @@ namespace Desert::Graphic::System
         if ( m_VsmGeometryDraws.GetError() )
             return Common::MakeError(
                  std::format( "virtual shadow map clusters: {}", *m_VsmGeometryDraws.GetError() ) );
+        m_VsmClusteredThisFrame = true;
         const VirtualShadowBlockParameters clusterParameters =
              [&frame]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& )
         {

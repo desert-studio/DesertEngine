@@ -649,6 +649,10 @@ namespace Desert::Graphic::System
         // The levels' CPU walk hides exactly these submeshes (VsmWalkHidden) and draws the rest (a mesh with VG on
         // some submeshes keeps both shadows; a held refusal stays walked). @p words is resized to the mesh's words.
         void VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const;
+        // VsmClusteredSubmeshes without the "the cluster raster is issued this frame" term: the submeshes of @p rd
+        // that WOULD be clusters (uploaded DAG rows, shown, a VirtualShadow group with a pipelined twin). The page
+        // cache's invalidation reads it before this frame's cut exists (CollectVirtualShadowInvalidation).
+        void VsmClusterableSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const;
         // VsmFallbackSubmeshes of this frame: the static queue's VG submeshes binned into a group flagged in
         // @p fallbackGroups (index = VirtualShadow table group). Called by SetVirtualShadowGeometry.
         [[nodiscard]] uint32_t CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const;
@@ -1709,6 +1713,13 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList               m_VsmGeometryDraws;
         uint32_t                                       m_VsmRefusedGroups     = 0;
         uint32_t                                       m_VsmFallbackSubmeshes = 0;
+        // Whether this frame / the last frame recorded the levels' cluster raster ("VSM: Raster VirtualGeometry",
+        // AddVirtualShadowRasterPasses; ResetVirtualShadowGeometry shifts this into last): the page cache's signature
+        // of a VG caster includes its clustered set under the last frame's raster, so a submesh moving between the
+        // clusters and the CPU walk (a twin's pipeline arrives, DAG rows upload, the cut is refused or comes back)
+        // re-renders its pages.
+        bool m_VsmClusteredThisFrame = false;
+        bool m_VsmClusteredLastFrame = false;
         // VsmWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views the
         // levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
         std::set<std::vector<uint64_t>> m_VsmHiddenWords;

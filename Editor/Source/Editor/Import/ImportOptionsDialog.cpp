@@ -4,6 +4,7 @@
 #include "ImportManager.hpp"
 #include "ImportedAssetSource.hpp"
 #include "ImportSettingsEdits.hpp"
+#include "VirtualGeometryGate.hpp"
 
 #include <Common/Content/ImportRecord.hpp>
 #include <Common/Core/AssetHandle.hpp>
@@ -15,6 +16,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Mesh/AnimationAsset.hpp>
+#include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/Mesh/SkeletonAsset.hpp>
 #include <Engine/Assets/Serialization/Animation.hpp>
 #include <Engine/Assets/Serialization/ImportRecord.hpp>
@@ -928,6 +930,79 @@ namespace Desert::Editor::ImportOptions
         if ( !edit )
             return Common::MakeError<bool>( edit.GetError() );
         SetUpAxis( edit.GetValue()->Edit, axis );
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetStoredVirtualGeometry( const std::filesystem::path& assetPath, const bool on )
+    {
+        if ( assetPath.extension() != ".stmesh" )
+            return Common::MakeFormattedError<bool>( "'{}' is not a static mesh asset", assetPath.generic_string() );
+        // A mesh whose source sits beside it under its own name stores what its import made: the flag is the
+        // import's (its record), so it is set on the section's working copy and the mesh reimported from it.
+        if ( Common::Content::MeshSourceBeside( assetPath ) && !Assets::IsEditedImportedMesh( assetPath ) )
+        {
+            const auto source = ImportSourceOfAsset( assetPath );
+            if ( !source )
+                return Common::MakeFormattedError<bool>( "'{}' has no import source", assetPath.generic_string() );
+            const auto kind = RecordedImportKind( *source );
+            if ( !kind )
+                return Common::MakeError<bool>( kind.GetError() );
+            const auto edit = EditOf( *source );
+            if ( !edit )
+                return Common::MakeError<bool>( edit.GetError() );
+            if ( const auto set = SetVirtualGeometry( edit.GetValue()->Edit, on, kind.GetValue() ); !set )
+                return set;
+            return Reimport( assetPath );
+        }
+
+        // THE ASSET IS THE FILE (a node of a split import, an edited import, a modeling output): UE's Asset
+        // Actions > Nanite > Enable - the stored flag changes and the mesh is derived again from the geometry the
+        // file holds (the DDC key states the flag, MeshDerivedData), with no source file read.
+        auto asset = Assets::ReadMeshSourceAssetFile( assetPath );
+        if ( !asset )
+            return Common::MakeError<bool>( asset.GetError() );
+        Assets::MeshSourceAsset stored = asset.ExtractValue();
+        if ( stored.Kind != Common::Content::ContentKind::StaticMesh || stored.Source.Skin.has_value() )
+            return Common::MakeFormattedError<bool>( "'{}': Virtual Geometry: a skinned mesh is drawn by the binned "
+                                                     "path (its clusters would be one pose)",
+                                                     assetPath.generic_string() );
+        if ( stored.Import.Settings.VirtualGeometry == on )
+            return BOOLSUCCESS;
+        Assets::MeshImportSettings settings = stored.Import.Settings;
+        settings.VirtualGeometry            = on;
+        // The materials are judged where the import wrote them (MaterialAdoption: beside the import source); a
+        // mesh with no import source names its own folder.
+        const std::filesystem::path materialsOf =
+             stored.Import.Provenance == Assets::MeshSourceProvenance::Imported && !stored.Import.SourceFile.empty()
+                  ? Common::AssetHandle::PathForStableKey( stored.Import.SourceFile )
+                  : assetPath;
+        if ( const auto refused = VirtualGeometryRefusal( settings, stored.Source.MaterialSlots, materialsOf ) )
+            return Common::MakeFormattedError<bool>( "'{}': Virtual Geometry refused: {}", assetPath.generic_string(),
+                                                     *refused );
+        stored.Import.Settings = settings;
+        if ( auto written = Assets::WriteMeshSourceAssetFile( assetPath, stored ); !written )
+            return Common::MakeFormattedError<bool>( "'{}' could not be written: {}", assetPath.generic_string(),
+                                                     written.GetError() );
+        Assets::ContentRegistry::NoteFile( assetPath );
+        // Every entity that draws it draws the new derivation from now (ModelingToolTargetAsset's commit): the
+        // parsed payload and the built GPU mesh are dropped and read again now, the user waiting on the command.
+        const auto row = Assets::ContentRegistry::RowAtPath( Common::Content::ContentKind::StaticMesh, assetPath );
+        if ( !row )
+            return Common::MakeFormattedError<bool>( "'{}' was written but the registry has no row for it",
+                                                     assetPath.generic_string() );
+        auto* service = Runtime::ResourceRegistry::GetMeshService();
+        if ( auto* loaded = service->GetAsset( row->Handle ); loaded != nullptr )
+        {
+            if ( auto unloaded = loaded->Unload(); !unloaded.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "'{}' was written but not reloaded: {}",
+                                                         assetPath.generic_string(), unloaded.GetError() );
+            service->EvictBuilt( row->Handle );
+            if ( !service->LoadNow( row->Handle ) )
+                return Common::MakeFormattedError<bool>( "'{}' was written but could not be rebuilt (the log names "
+                                                         "why)",
+                                                         assetPath.generic_string() );
+        }
+        LOG_INFO( "[Import] '{}': Virtual Geometry {}", assetPath.generic_string(), on ? "on" : "off" );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Editor::ImportOptions

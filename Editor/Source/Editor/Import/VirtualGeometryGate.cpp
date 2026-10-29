@@ -89,6 +89,25 @@ namespace Desert::Editor
         return std::nullopt;
     }
 
+    std::optional<std::string> VirtualGeometryRefusal( const Assets::MeshImportSettings&         settings,
+                                                       std::span<const Assets::MeshMaterialSlot> slots,
+                                                       const std::filesystem::path&              source )
+    {
+        if ( !settings.VirtualGeometry )
+            return std::nullopt;
+        if ( settings.Displacement == Assets::MeshDisplacementMode::Runtime )
+            return std::string( "Displacement Runtime dices the surface per frame, so it has no cooked clusters" );
+        for ( const Assets::MeshMaterialSlot& slot : slots )
+        {
+            // A null GUID is an unassigned slot: it draws the engine's default material, which is Opaque.
+            if ( slot.Material.IsNull() )
+                continue;
+            if ( auto refused = MaterialRefusal( slot, source ) )
+                return refused;
+        }
+        return std::nullopt;
+    }
+
     Assets::MeshImportSettings GateVirtualGeometry( Assets::MeshImportSettings                  settings,
                                                     const Assets::Serialization::MeshAssetData& mesh,
                                                     std::span<const Assets::MeshMaterialSlot>   named,

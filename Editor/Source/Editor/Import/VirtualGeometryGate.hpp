@@ -36,6 +36,13 @@ namespace Desert::Editor
                             const Assets::Serialization::MeshAssetData& mesh,
                             std::span<const Assets::MeshMaterialSlot> named, const std::filesystem::path& source );
 
+    // The same verdict for a mesh asset already stored (a static mesh's own Virtual Geometry flag turned on after
+    // its import, ImportOptions::SetStoredVirtualGeometry - UE's Asset Actions > Nanite > Enable): every material
+    // slot @p slots names is judged (the .demat beside @p source, the asset's import source), no render form needed.
+    [[nodiscard]] std::optional<std::string> VirtualGeometryRefusal( const Assets::MeshImportSettings&         settings,
+                                                                     std::span<const Assets::MeshMaterialSlot> slots,
+                                                                     const std::filesystem::path&              source );
+
     // @p settings as the mesh @p meshName stores them: Virtual Geometry cleared, and the reason logged as a
     // warning naming the mesh, when VirtualGeometryRefusal refuses it; unchanged otherwise.
     [[nodiscard]] Assets::MeshImportSettings GateVirtualGeometry( Assets::MeshImportSettings settings,

@@ -1,30 +1,37 @@
 # VG-RASTER (VIRT-GEOM step 12/13): the cluster cut's clusters are HARDWARE-rastered through the material cells (each
 # opaque Static group's `.Binned.VirtualGeometry` permutation) into the main pass, and the VG instances are out of the
-# main view's bins. Project: F:/BistroFoliageProj. UNVERIFIED (written unbuilt): the lantern import repeats
-# VIRT-GEOM-COOK.scn's first steps; the camera is VIRT-GEOM-COOK's [vg_cut] near position.
+# main view's bins. Project: F:/BistroFoliageProj. UNVERIFIED (written unbuilt): the VG mesh and the B16 cameras are
+# step 21's (below).
 # The "bins-only" reference frames: the same steps on commit 92fbdd55d (VG instances drawn by the bins).
 # Step 14: per-cut-view candidate regions (each view's cut dispatch covers only its own candidates), the post
 # phase's carried clusters packed 64 per workgroup, cascade cuts LOD by the cascade's own texel size.
 # Step 13: post phase (a cluster the previous frame's HZB hid is re-cut against this frame's HZB and drawn by the
 # GBuffer post pass) and the shadow cascades' own cuts (VG instances out of the cascade bins too).
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
-Когда run Assets "Drop into the viewport: Meshes/Bistro/Bistro_Exterior_Lantern.fbx"
-Когда run Assets "Import Options: Virtual Geometry On"
-Когда run Assets "Import Options: Import"
+# Step 21: the VG mesh is an EXISTING B16 static mesh made Virtual Geometry by the new asset action "Static Mesh:
+# Virtual Geometry on" (UE Asset Actions > Nanite > Enable; ImportOptions::SetStoredVirtualGeometry) over the
+# Content Browser selection. Not a lantern: B16's lanterns (BistroExterior_Lantern_Wind_21..25) draw LanternEmissive,
+# a StandardSurfaceMasked material, which VirtualGeometryGate refuses (and their entities have CastShadows false).
+# The table Paris_Table_01___6__6503 draws only Paris_Table_Terrace (StandardSurface, opaque) and casts shadows;
+# its entity (tag Bistro_Research_Exterior_Paris_Table_01___6__6503) stands at world (-66, 37, 570).
+# The project must be on MSAS 3 (migrate.sh) for the file to be read. The last step turns the flag off again, so the Bistro repo is left as it was.
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Bistro_Research_Exterior_Paris_Table_01___6__6503.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Тогда [vg_raster] editor.log: "[Import] '...Paris_Table_01___6__6503.stmesh': Virtual Geometry on" and "[VirtualMeshTable] '...Paris_Table_01___6__6503...' registered N clusters" with N > 0, no "Virtual Geometry refused"
 Когда run View "View mode: Lit"
-Когда --subject viewport set Camera.Position -800,190,-60
-Когда --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда --subject viewport set Camera.Position -316,150,320
+Когда --subject viewport set Camera.Direction 0.66,-0.30,0.66
 Когда 60 frames render
-Когда --subject viewport set Camera.Position 300,190,400
-Когда --subject viewport set Camera.Direction -0.6,-0.17,-0.78
+Когда --subject viewport set Camera.Position 184,150,820
+Когда --subject viewport set Camera.Direction -0.66,-0.30,-0.66
 Когда 1 frames render
 Когда shot viewport "vg_raster_cut60.png"
 Когда 59 frames render
 Когда DesertCtl state views.virtualGeometry
-Тогда [vg_raster] views.virtualGeometry.instances >= 1, binnedVgInstances == 0 (main AND cascade views: every cull view has a cut view), clustersDrawn > 0, shadowClustersDrawn > 0 (the sun's cascades draw the lantern's clusters), overflow 0
-Тогда [vg_raster] editor.log: 0 VUID, no "[MeshRenderer] ... has no `.VirtualGeometry` pipeline" for the lantern's cell, no "the view draws no virtual geometry this frame", no "occluded entries past the post carry's capacity"
+Тогда [vg_raster] views.virtualGeometry.instances >= 1, binnedVgInstances == 0 (main AND cascade views: every cull view has a cut view), clustersDrawn > 0, shadowClustersDrawn > 0 (the sun's cascades draw the table's clusters), overflow 0
+Тогда [vg_raster] editor.log: 0 VUID, no "[MeshRenderer] ... has no `.VirtualGeometry` pipeline" for the table's cell, no "the view draws no virtual geometry this frame", no "occluded entries past the post carry's capacity"
 Тогда-вид [vg_raster] vg_raster_cut60.png (the frame right after the camera cut, where last frame's HZB is of the other camera): no missing cluster - pixel diff vs the bins-only frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
-Тогда-вид [vg_raster] the lit frame at frame 120 shows the lantern and its shadow as in the bins-only frame: frame mean within 1%
+Тогда-вид [vg_raster] the lit frame at frame 120 shows the table and its shadow as in the bins-only frame: frame mean within 1%
 Тогда [vg_raster_views] (step 14: candidates compacted per cut view, post clusters 64 per workgroup, cascade LOD by the cascade's own texel) vg_raster_cut60.png differs from the bins-only frame by < 1% of pixels; views.virtualGeometry.clustersDrawn > 0 and shadowClustersDrawn > 0; editor.log 0 VUID
 Тогда [vg_vsm] (step 16: the VSM clipmap levels are cluster cut views, their clusters rastered into the pages; Shadows.Method VirtualMaps, Bistro, 120 frames) views.virtualGeometry.vsmClustersDrawn[level] > 0 on every level that drew pages; the sun shadow (lit frame 120) differs from the bins-only VSM frame by < 1% of pixels (pixel diff); editor.log 0 VUID, no "the virtual shadow map draws its virtual geometry on the CPU walk"
 # Step 18-20 [vg_vsm_mixed]: the VSM levels' cluster raster beside their CPU walk. Shadows method = the PPV's request
@@ -42,12 +49,16 @@
 Когда 120 frames render
 Когда shot viewport "vg_vsm_mixed120.png"
 Когда DesertCtl state views.virtualGeometry
-Тогда [vg_vsm_mixed] views.virtualGeometry.vsmClustersDrawn: one entry per clipmap level (17), > 0 on every level that drew pages (named per level in the report); views.virtualGeometry.vsmRefusedGroups == 0; views.virtualGeometry.vsmFallbackSubmeshes == the lantern's sections whose VSM caster template declares no `.VirtualGeometry` twin (0 with the shipped templates); overflow == 0 (the cut of 17 levels fits kMaxVisibleClustersPerCut)
+Тогда [vg_vsm_mixed] views.virtualGeometry.vsmClustersDrawn: one entry per clipmap level (17), > 0 on every level that drew pages (named per level in the report); views.virtualGeometry.vsmRefusedGroups == 0; views.virtualGeometry.vsmFallbackSubmeshes == the table's sections whose VSM caster template declares no `.VirtualGeometry` twin (0 with the shipped templates); overflow == 0 (the cut of 17 levels fits kMaxVisibleClustersPerCut)
 Тогда [vg_vsm_mixed] editor.log: 0 VUID, no "has no `.VirtualGeometry` twin", no "the virtual shadow map draws its virtual geometry on the CPU walk"
-Тогда-вид [vg_vsm_mixed] vg_vsm_mixed120.png: the lantern's shadow - pixel diff of the shadow vs the bins-only VSM frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
+Тогда-вид [vg_vsm_mixed] vg_vsm_mixed120.png: the table's shadow - pixel diff of the shadow vs the bins-only VSM frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
 Когда 2 frames render
 Когда DesertCtl state views.virtualGeometry
 Тогда [vg_vsm_mixed] after switching back to cascades: views.virtualGeometry.vsmRefusedGroups == 0 and vsmFallbackSubmeshes == 0 (reset every frame the method is not VirtualMaps)
 Когда run View "View mode: Virtual Geometry Clusters"
-Тогда-вид [vg_raster] the lantern shows per-cluster colours on the same silhouette as the lit frame
+Тогда-вид [vg_raster] the table shows per-cluster colours on the same silhouette as the lit frame
+Когда run View "View mode: Lit"
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Bistro_Research_Exterior_Paris_Table_01___6__6503.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Тогда [vg_raster] editor.log: "[Import] '...Paris_Table_01___6__6503.stmesh': Virtual Geometry off" (the Bistro repo's file back to no clusters)
