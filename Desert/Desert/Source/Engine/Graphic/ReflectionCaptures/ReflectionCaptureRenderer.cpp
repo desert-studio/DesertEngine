@@ -583,7 +583,7 @@ namespace Desert::Graphic
         if ( !m_FaceField )
             m_FaceField = std::make_unique<DistanceField::GlobalDistanceField>( m_Scene ); // the scene's rows
         if ( !m_FaceSurfaceCache )
-            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
+            m_FaceSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>( m_Scene ); // the scene's rows
         if ( !m_Faces[face] )
         {
             m_Faces[face] = std::make_unique<FaceView>();
@@ -600,7 +600,10 @@ namespace Desert::Graphic
         view.Renderer->BorrowEnvironment( environment );
         // The capture point's one field (m_FaceField), shared by the six faces.
         view.Renderer->ShareGlobalDistanceField( m_FaceField.get() );
-        // ... and its one surface cache (m_FaceSurfaceCache).
+        // ... and its one surface cache (m_FaceSurfaceCache), whose one view this frame stands at the capture point.
+        m_FaceSurfaceCache->BeginFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                        { capture.CapturePosition }, scene.GetRegistry(),
+                                        scene.GetSettings().RenderingPath == Core::RenderPath::Deferred );
         view.Renderer->ShareSurfaceCache( m_FaceSurfaceCache.get() );
         if ( const auto begun = view.Renderer->BeginScene( scene, &view.View ); !begun )
         {
