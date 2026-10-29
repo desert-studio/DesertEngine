@@ -11,9 +11,11 @@
 Тогда-вид 1_off contact shadows off: grass bases, stones and the barn's steps lit to the ground
 Когда set 8180000000000003 PostProcessVolumeData.Settings.ContactShadows true
 Тогда-вид 2_on thin dark contacts at the grass bases, under the barn's stones/steps and in the bark folds; beyond 50 m as 1_off; no bands or stairs
-Когда --subject viewport set Camera.Position 300,250,900
-Когда --subject viewport set Camera.Direction 0.2,-0.35,-1
+Когда --subject viewport set Camera.Position 250,650,1700
+Когда --subject viewport set Camera.Direction 0.25,-0.5,-1
 Когда set 8180000000000003 PostProcessVolumeData.Settings.ContactShadows false
 Тогда-вид 3_close_off close to the grass, contacts off
 Когда set 8180000000000003 PostProcessVolumeData.Settings.ContactShadows true
 Тогда-вид 4_close_on close to the grass, contacts on: each blade's base darkened, no grain
+Когда set 8180000000000003 PostProcessVolumeData.Settings.ContactShadows false
+Тогда-вид 5_close_off_again contacts off again after 4 (settled grass): differs from 4_close_on only by the blade-base and barn-foot contacts
