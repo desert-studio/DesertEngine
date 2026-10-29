@@ -27,10 +27,17 @@ TEST( MeshBufferUsage, ADeviceWithoutAccelerationStructuresKeepsTheRasterFlags )
 {
     const DeviceCaps caps = CapsWith( { Capability::BufferDeviceAddress } );
 
+    // VIRT-GEOM: bufferDeviceAddress alone adds SHADER_DEVICE_ADDRESS (the cluster passes read the pool spans by
+    // address) and STORAGE on the index page (its cluster words), never the build-input bit.
     EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Vertex, caps ),
                VkBufferUsageFlags{ VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT } );
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT } );
     EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Index, caps ),
+               VkBufferUsageFlags{ VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT } );
+    // Without bufferDeviceAddress the raster flags stay exactly as they were.
+    const DeviceCaps none = CapsWith( {} );
+    EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Index, none ),
                VkBufferUsageFlags{ VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT } );
 }
 
