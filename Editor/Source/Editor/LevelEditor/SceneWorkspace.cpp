@@ -89,6 +89,28 @@ namespace Desert::Editor
         m_RenderRegistry = std::make_unique<Render::RenderRegistry>( m_ActiveScene );
     }
 
+    namespace
+    {
+        Graphic::API::Vulkan::VulkanAllocator* DeviceAllocator()
+        {
+            const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
+                 EngineContext::GetInstance().GetRendererContext() );
+            return context ? context->GetVulkanAllocator().get() : nullptr;
+        }
+    } // namespace
+
+    void SceneWorkspace::BeginSceneOpenMeasure( std::string_view scene )
+    {
+        if ( auto* allocator = DeviceAllocator() )
+            allocator->BeginSceneOpen( scene );
+    }
+
+    void SceneWorkspace::SampleSceneOpenMeasure()
+    {
+        if ( auto* allocator = DeviceAllocator() )
+            allocator->SampleSceneOpen();
+    }
+
     void SceneWorkspace::ReleaseActiveWorld()
     {
         std::size_t views = 0;

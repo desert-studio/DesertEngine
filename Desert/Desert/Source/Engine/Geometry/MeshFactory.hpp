@@ -53,6 +53,7 @@ namespace Desert::Graphic
                 return nullptr;
             }
 
+            asset->AcquireCpuGeometryForUpload(); // a rebuild after ReleaseCpuGeometry reads the arrays back
             const auto staticMesh = std::make_shared<StaticMesh>(
                  asset->GetVertices(), asset->GetIndices(), asset->GetSubmeshes(), asset->GetVertexStreams() );
             if ( !staticMesh->Invalidate() )
@@ -63,6 +64,10 @@ namespace Desert::Graphic
             staticMesh->SetCards( asset->GetCards() );
             staticMesh->SetDisplacementTopology( asset->GetDisplacementTopology() );
             staticMesh->SetDisplacedMesh( asset->GetDisplacedMesh() );
+            // The GPU copy is staged (StageGeometry copied the bytes): the asset's CPU arrays are released, UE
+            // bAllowCPUAccess=false. The distance-field/cards/displacement job took its copy in
+            // ResolveDependencies.
+            asset->ReleaseCpuGeometry();
 
             return staticMesh;
         }
