@@ -27,8 +27,9 @@
 //   * the instance rows are a graph buffer filled by Builder::QueueBufferUpload (AccelStructBuildInput);
 //   * the scratch is a graph transient (AccelStructBuildWrite), sized by the API for this frame's count;
 //   * the TLAS storage is the view's PERSISTENT acceleration structure, registered as a graph external
-//     (AccelStructBuildWrite) — kept across frames, rebuilt every frame (instances move), recreated only when the
-//     instance count outgrows it. A reader (RT-SHADOWS, ray-traced reflections / GI) declares AccelStructRead on
+//     (AccelStructBuildWrite) — kept across frames, updated in place on a frame whose rows only moved and built
+//     otherwise (RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild), recreated only when the instance count
+//     outgrows it. A reader (RT-SHADOWS, ray-traced reflections / GI) declares AccelStructRead on
 //     RayTracingSceneFrame::Tlas and binds it through RDG::ShaderResourceKind::AccelerationStructure.
 // A frame whose methods trace no ray declares nothing: no pass, no buffer, no upload.
 //
@@ -47,6 +48,8 @@ namespace Desert::Graphic::GpuDriven
 
 namespace Desert::Graphic::RayTracing
 {
+    struct RayTracingGatherInputs;
+
     inline constexpr std::string_view kTlasPassName               = "RayTracingScene.TLAS";
     inline constexpr std::string_view kTlasInstancesName          = "RayTracingScene.Instances";
     inline constexpr std::string_view kTlasScratchName            = "RayTracingScene.Scratch";
@@ -398,11 +401,52 @@ namespace Desert::Graphic::RayTracing
         {
             return m_SceneGatherMoves;
         }
-        // The primitives (GetPrimitives indices) whose World this frame's GatherScene moved in place; empty on a
-        // frame that gathered in full, built a TLAS, or moved nothing.
+        // The primitives (GetPrimitives indices) whose World this frame's gather (GatherScene, or AddPasses'
+        // kept TLAS gather) moved in place; empty on a frame that gathered in full or moved nothing.
         [[nodiscard]] std::span<const uint32_t> GetSceneMovedPrimitives() const
         {
             return m_SceneMoved;
+        }
+
+        // THE TLAS FOLLOWS THE CHANGE STREAM (GI-ALL-LIGHTS step 8): a TLAS frame keeps the last TLAS gather while
+        // the GpuScene stream carries only moves since its cursor (the same test as GatherScene), the variants it
+        // resolved still answer the same BLAS and the skinned queue is the same; the moved primitives' rows are
+        // then patched in place (PatchRayTracingSceneRow) and the TLAS UPDATED from its last build. The instance
+        // list is rebuilt on a full gather, on a change of the external primitives (landscape tiles: their
+        // shape, records, opacity) and when a patched row would trace another BLAS (or a dynamic primitive gains
+        // or loses its BLAS); the TLAS is BUILT then, when the GPU-written rows trace other BLASes, and after
+        // @p updates in-place updates in a row (BVH quality: an update refits, never re-sorts;
+        // Scalability GlobalIllumination.TlasUpdatesBeforeRebuild; 0 = build every frame).
+        void SetTlasUpdatesBeforeRebuild( const uint32_t updates )
+        {
+            m_TlasUpdatesBeforeRebuild = updates;
+        }
+        // Since the view was made: frames whose TLAS was built, frames whose TLAS was updated in place, and rows
+        // an update frame patched with other bytes (a moving primitive: one per frame it moves).
+        [[nodiscard]] uint64_t GetTlasFullBuildCount() const
+        {
+            return m_TlasFullBuilds;
+        }
+        [[nodiscard]] uint64_t GetTlasUpdateCount() const
+        {
+            return m_TlasUpdates;
+        }
+        [[nodiscard]] uint64_t GetTlasMovedRowCount() const
+        {
+            return m_TlasMovedRows;
+        }
+        // Moves exactly when GetPrimitives / GetSegmentRecords / GetInstances were laid out anew (a full gather,
+        // scene or TLAS, or an instance-list rebuild): a reader keyed on their indices (the emissive light list)
+        // rebuilds then, and otherwise follows GetSceneMovedPrimitives.
+        [[nodiscard]] uint64_t GetLayoutSerial() const
+        {
+            return m_LayoutSerial;
+        }
+        // This frame's TLAS traces a skinned primitive's skin-cache stream (RayTracingPrimitive::DeformedPositions):
+        // a reader holding that graph ref must take this frame's.
+        [[nodiscard]] bool HasDeformedPositions() const
+        {
+            return m_FrameDeformed;
         }
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
@@ -469,6 +513,48 @@ namespace Desert::Graphic::RayTracing
         // GatherScene: each Moved change of @p changes onto the kept primitives of its row (the GpuScene row's first
         // instance, RayTracingPrimitive::GpuSceneRow); returns whether any primitive of the gather moved.
         bool MoveScenePrimitives( const GpuDriven::GpuScene& scene, std::span<const GpuDriven::PrimitiveChange> changes );
+        // The changes since the kept gather's cursor when they keep it (only moves of meshed primitives, the same
+        // stream, the same unsynced key), nullopt when it must be gathered anew. @p inputs: this frame's.
+        [[nodiscard]] std::optional<std::span<const GpuDriven::PrimitiveChange>>
+        KeptGatherChanges( const GpuDriven::GpuScene& scene, const RayTracingGatherInputs& inputs );
+        // After a full gather of @p inputs: the rows map, the stream cursor and the unsynced key it follows from.
+        void FollowGather( const GpuDriven::GpuScene& scene, const RayTracingGatherInputs& inputs );
+        // AddPasses: whether the kept TLAS gather still answers this frame (KeptGatherChanges + the skinned queue
+        // + every variant it resolved); fills @p changes when it does.
+        [[nodiscard]] bool KeepTlasGather( const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
+                                           const RayTracingGatherInputs&                         inputs,
+                                           std::optional<std::span<const GpuDriven::PrimitiveChange>>& changes );
+        // AddPasses: whether @p external is the shape the instance list was built with (World aside: patched).
+        [[nodiscard]] bool SameExternal( const RayTracingExternalPrimitives& external ) const;
+
+        // The TLAS gather (AddPasses): m_Gather resolved BLASes (variants, skin cache, procedural) and carries the
+        // external tail after m_GatherSceneCount primitives / m_GatherSceneRecords records; the scene's part is
+        // what the stream follows. m_DynamicPrimitives: its skinned and procedural primitives, refilled each frame.
+        bool                  m_GatherHasBlas      = false;
+        std::size_t           m_GatherSceneCount   = 0;
+        std::size_t           m_GatherSceneRecords = 0;
+        std::vector<uint32_t> m_DynamicPrimitives;
+        // The external primitives the instance list was built with (SameExternal).
+        std::vector<RayTracingPrimitive>                     m_LastExternalPrimitives;
+        std::vector<RayTracingSegmentRecord>                 m_LastExternalRecords;
+        std::vector<std::optional<RayTracingMaterialRecord>> m_LastLandscapeOpacity;
+        uint64_t                                             m_LastGpuRowsKey = 0;
+        // The instance list's own counts as built (BuildRayTracingInstances + the gather's skips), before the
+        // GPU-written rows' Prepare adds theirs: a patch frame starts from them again.
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          m_ListSkipped{};
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> m_ListInstancesByKind{};
+        bool                                                                             m_ListValid = false;
+        RayTracingSceneRows                 m_SceneRows;        // the CPU rows of the last build, patched since
+        std::optional<RayTracingMetadataBuild> m_Metadata;      // the kept metadata (rebuilt with the list)
+        uint32_t                            m_TlasUpdatesBeforeRebuild = 0;
+        uint32_t                            m_UpdatesSinceBuild        = 0;
+        uint64_t                            m_TlasFullBuilds           = 0;
+        uint64_t                            m_TlasUpdates              = 0;
+        uint64_t                            m_TlasMovedRows            = 0;
+        uint64_t                            m_LayoutSerial             = 0;
+        bool                                m_FrameDeformed            = false;
+        // An instance-list rebuild was declared and no build has followed it yet: the next frame builds too.
+        bool                                m_BuildPending             = false;
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;

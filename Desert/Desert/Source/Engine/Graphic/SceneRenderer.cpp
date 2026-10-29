@@ -1046,6 +1046,8 @@ namespace Desert::Graphic
                                              .ShadowSteps = quality.As<int>( Parameter::ShadingParallaxShadowSteps ) };
         m_RayTracedShadowSamples =
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_RayTracingScene.SetTlasUpdatesBeforeRebuild(
+             quality.As<uint32_t>( Parameter::GlobalIlluminationTlasUpdatesBeforeRebuild ) );
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };

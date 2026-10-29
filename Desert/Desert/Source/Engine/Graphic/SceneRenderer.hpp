@@ -494,6 +494,11 @@ namespace Desert::Graphic
             uint64_t GpuFullRebuilds      = 0;
             uint64_t GpuMoves             = 0;
             uint64_t GpuMovesRetried      = 0;
+            // GI-ALL-LIGHTS step 8: how the view's TLAS followed the scene - frames it was built, frames it was
+            // updated in place, and rows those updates patched with other bytes (RayTracingSceneRenderer).
+            uint64_t TlasFullBuilds = 0;
+            uint64_t TlasUpdates    = 0;
+            uint64_t TlasMovedRows  = 0;
         };
         [[nodiscard]] EmissiveLightCounters GetEmissiveLightCounters() const
         {
@@ -503,7 +508,10 @@ namespace Desert::Graphic
                      .ListMoves          = m_EmissiveList.GetMoveCount(),
                      .GpuFullRebuilds    = m_EmissiveLights.GetStaticRebuildCount(),
                      .GpuMoves           = m_EmissiveLights.GetStaticMoveCount(),
-                     .GpuMovesRetried    = m_EmissiveLights.GetStaticMoveRetryCount() };
+                     .GpuMovesRetried    = m_EmissiveLights.GetStaticMoveRetryCount(),
+                     .TlasFullBuilds     = m_RayTracingScene.GetTlasFullBuildCount(),
+                     .TlasUpdates        = m_RayTracingScene.GetTlasUpdateCount(),
+                     .TlasMovedRows      = m_RayTracingScene.GetTlasMovedRowCount() };
         }
         // Read back by the editor's own external passes (grid, colliders), which draw INTO this view and
         // therefore must ask this view what it is showing — not a global, or every offscreen preview would
@@ -1561,9 +1569,9 @@ namespace Desert::Graphic
         // The scene's emissive triangles as lights, kept on the GPU across frames (AddFrameEmissiveLights).
         RayTracing::EmissiveLightsRenderer  m_EmissiveLights;
         // The CPU list across frames (rebuilt only on a regathered frame or a moved material estimate), and the
-        // scene-gather count it was last given (~0: a TLAS frame's gather, never equal to a count).
+        // RT scene's layout serial it was last given (RayTracingSceneRenderer::GetLayoutSerial; ~0: none yet).
         RayTracing::EmissiveTriangleListCache m_EmissiveList;
-        uint64_t                              m_EmissiveGatherCount = ~0ull;
+        uint64_t                              m_EmissiveLayoutSerial = ~0ull;
         std::shared_ptr<DataDrivenMaterial> m_ReflectionDefaultSurface;
         bool                                m_ReportedHitLightingDevice = false;
         // Templates already reported as shading on the default hit group (no compiled `RayTracing.Hit` cell):

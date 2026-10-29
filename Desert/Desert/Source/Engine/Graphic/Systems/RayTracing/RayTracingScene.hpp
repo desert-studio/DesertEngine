@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -378,6 +379,21 @@ namespace Desert::Graphic::RayTracing
         return instance;
     }
 
+    // Why a CPU-instanced primitive (any kind but GpuInstanced) gets no TLAS instance, or nullopt when it gets
+    // one: the one rule BuildRayTracingInstances counts by and a kept list (RayTracingSceneRenderer::AddPasses)
+    // tests a row against.
+    [[nodiscard]] inline std::optional<RayTracingSkip> RayTracingInstanceSkipOf( const RayTracingPrimitive& primitive )
+    {
+        if ( primitive.Geometry == nullptr )
+            return primitive.Kind == RayTracingPrimitiveKind::Skinned ? RayTracingSkip::Skinned
+                                                                      : RayTracingSkip::NoGeometry;
+        if ( primitive.GpuSceneRow > kMaxGpuSceneRow )
+            return RayTracingSkip::RowOutOfRange;
+        if ( primitive.FirstSegmentRecord > kMaxSegmentRecord )
+            return RayTracingSkip::SegmentRecordOutOfRange;
+        return std::nullopt;
+    }
+
     // The TLAS instances of @p primitives, in primitive order, the instances of one GPU-scene row kept contiguous
     // (a row's later primitive joins its first one's range), so RayTracingInstanceList::Ranges names every row's
     // instances as one range. Primitives that cannot be traced are counted by reason, never silently dropped.
@@ -396,24 +412,9 @@ namespace Desert::Graphic::RayTracing
             // Its rows are the GPU's (RayTracingGpuInstanceSource): none on the CPU, nothing skipped here.
             if ( primitive.Kind == RayTracingPrimitiveKind::GpuInstanced )
                 continue;
-            if ( primitive.Kind == RayTracingPrimitiveKind::Skinned && primitive.Geometry == nullptr )
+            if ( const std::optional<RayTracingSkip> reason = RayTracingInstanceSkipOf( primitive ) )
             {
-                skip( RayTracingSkip::Skinned );
-                continue;
-            }
-            if ( primitive.Geometry == nullptr )
-            {
-                skip( RayTracingSkip::NoGeometry );
-                continue;
-            }
-            if ( primitive.GpuSceneRow > kMaxGpuSceneRow )
-            {
-                skip( RayTracingSkip::RowOutOfRange );
-                continue;
-            }
-            if ( primitive.FirstSegmentRecord > kMaxSegmentRecord )
-            {
-                skip( RayTracingSkip::SegmentRecordOutOfRange );
+                skip( *reason );
                 continue;
             }
             traced.push_back( static_cast<uint32_t>( i ) );

@@ -150,6 +150,11 @@ namespace Desert::Editor::Control
         uint64_t EmissiveGpuFullRebuilds    = 0;
         uint64_t EmissiveGpuMoves           = 0;
         uint64_t EmissiveGpuMovesRetried    = 0;
+        /// How the view's TLAS followed the scene: frames it was built, frames it was updated in place, rows the
+        /// updates patched with other bytes (RayTracingSceneRenderer). All 0 when no main viewport traces rays.
+        uint64_t TlasFullBuilds = 0;
+        uint64_t TlasUpdates    = 0;
+        uint64_t TlasMovedRows  = 0;
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -452,6 +457,9 @@ namespace Desert::Editor::Control
             emissive["gpuMoves"]                 = count( device.EmissiveGpuMoves );
             emissive["gpuMovesRetried"]          = count( device.EmissiveGpuMovesRetried );
             section["emissiveLights"] = Common::Json::Value( emissive );
+            section["tlasFullBuilds"] = count( device.TlasFullBuilds );
+            section["tlasUpdates"]    = count( device.TlasUpdates );
+            section["tlasMovedRows"]  = count( device.TlasMovedRows );
             root["device"]  = Common::Json::Value( section );
         }
 

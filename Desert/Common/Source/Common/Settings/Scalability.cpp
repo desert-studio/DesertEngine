@@ -388,6 +388,11 @@ namespace Common::Scalability
              { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
                "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)",
                131072, Vis::Advanced },
+             { P::GlobalIlluminationTlasUpdatesBeforeRebuild, G::GlobalIllumination,
+               "GlobalIllumination.TlasUpdatesBeforeRebuild", 0, 240, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild (the TLAS is "
+               "built after this many in-place updates in a row; 0 = every frame)",
+               60, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

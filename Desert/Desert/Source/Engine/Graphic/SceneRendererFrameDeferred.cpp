@@ -1412,13 +1412,15 @@ namespace Desert::Graphic
                 estimate.UvRotation = rotation->x;
             return estimate;
         };
-        // The CPU list is rebuilt only when its gather was redone (every TLAS frame; a scene gather only when
-        // the GpuScene stream carried a structure change) or a material's estimate moved (EmissiveTriangleListCache);
-        // a scene gather that only moved primitives moves their rows in place (GetSceneMovedPrimitives). The GPU
-        // side then re-expands only what changed (EmissiveLightsRenderer::AddPasses).
-        const uint64_t gathers    = m_RayTracingScene.GetSceneGatherCount();
-        const bool     regathered = tlas || gathers != m_EmissiveGatherCount;
-        m_EmissiveGatherCount     = tlas ? ~0ull : gathers;
+        // The CPU list is rebuilt only when the rows it indexes were laid out anew (GetLayoutSerial: a full gather,
+        // scene or TLAS, only when the GpuScene stream carried a structure change; a TLAS instance-list rebuild),
+        // when it holds this frame's skin-cache streams (graph refs of this graph only), or when a material's
+        // estimate moved (EmissiveTriangleListCache); a gather that only moved primitives moves their rows in place
+        // (GetSceneMovedPrimitives, on TLAS and scene frames alike). The GPU side then re-expands only what changed
+        // (EmissiveLightsRenderer::AddPasses).
+        const uint64_t layout     = m_RayTracingScene.GetLayoutSerial();
+        const bool     regathered = layout != m_EmissiveLayoutSerial || m_RayTracingScene.HasDeformedPositions();
+        m_EmissiveLayoutSerial    = layout;
         {
             DESERT_PROFILE_SCOPE( "EmissiveLights: List" );
             const Common::BoolResultStr updated = m_EmissiveList.Update(

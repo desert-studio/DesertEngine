@@ -328,6 +328,11 @@ namespace Common::Scalability
         // pool slots (emitter Capacity) every playing system of a world may hold together; over it, the least
         // significant systems are refused (their effect type's CullReaction). 0 = no budget.
         EffectsMaxWorldParticles, // 0..4194304
+        // The view's TLAS (RayTracing::RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild): in-place updates in
+        // a row before it is built again. An update refits the last build's tree and never re-sorts it, so a
+        // moving scene's tree degrades until the next build; 0 = built every frame. A cost/quality knob of every
+        // ray-traced method; in the GlobalIllumination group, whose tracer reads the TLAS most. 0..240
+        GlobalIlluminationTlasUpdatesBeforeRebuild,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

@@ -1568,6 +1568,9 @@ namespace Desert::Editor
                 device.EmissiveGpuFullRebuilds    = emissive.GpuFullRebuilds;
                 device.EmissiveGpuMoves           = emissive.GpuMoves;
                 device.EmissiveGpuMovesRetried    = emissive.GpuMovesRetried;
+                device.TlasFullBuilds             = emissive.TlasFullBuilds;
+                device.TlasUpdates                = emissive.TlasUpdates;
+                device.TlasMovedRows              = emissive.TlasMovedRows;
             }
         }
 
