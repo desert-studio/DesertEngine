@@ -289,6 +289,13 @@ namespace Desert::Graphic::System
     // cannot refuse a batch (Initialize validated every one), and a refusal it still gives leaves the passes it
     // added - the sum it composited into is this frame's only (it restarts every Nrc frame), and the next frame,
     // without the cache, restarts it and empties the history (a method change).
+    // A RUNNING cache follows the same inputs: it is built under MachineSettings::ForcedNeuralKernelPath and
+    // ShaderService::RecompileGeneration (CacheInputs), and the first Nrc frame either differs at rebuilds it once
+    // - the old cache retired (FrameRetireQueue: frames in flight still read its buffers and pipelines), a new one
+    // made with the new path (fresh weights and hash table: the old ones were trained by other kernels), the sum
+    // restarted and the history emptied (it holds the old cache's light) - so switching the path while the cache
+    // runs takes effect on the next frame; GetRadianceCacheStatus counts the rebuilds and the cache's stats name
+    // the path it runs.
     //
     // Not here (each is UE's and a task of its own): UE's offline denoiser plugin (OIDN), rough glass (the
     // raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel filters other than a
@@ -488,8 +495,11 @@ namespace Desert::Graphic::System
 
         // THE NEURAL RADIANCE CACHE'S PIECES, made on the first Nrc frame: the cache (its programs, the NN layer's
         // kernel path) and the trace built with PATH_TRACING_NRC=1 over the same hit groups as EnsurePipeline's.
-        [[nodiscard]] Common::BoolResultStr EnsureRadianceCache()
+        // @p inputs: what this frame builds it under (m_RadianceCacheInputs, THE NEURAL RADIANCE CACHE above).
+        [[nodiscard]] Common::BoolResultStr EnsureRadianceCache( const CacheInputs& inputs )
         {
+            const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+            m_RetiringCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             if ( !m_RadianceCache )
             {
                 auto cache = std::make_unique<Engine::Neural::NeuralRadianceCache>(
@@ -499,7 +509,8 @@ namespace Desert::Graphic::System
                     m_CacheShaderRefusal = cache->GetShaderRefusal();
                     return made;
                 }
-                m_RadianceCache = std::move( cache );
+                m_RadianceCache       = std::move( cache );
+                m_RadianceCacheInputs = inputs;
             }
             if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
                 return BOOLSUCCESS;
@@ -552,6 +563,24 @@ namespace Desert::Graphic::System
             return CacheInputs{ .ForcedPath = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath,
                                 .Generation =
                                      Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration() };
+        }
+
+        // The running cache was built under other inputs than this frame's @p inputs: it is retired (kept alive
+        // until no frame in flight reads it) and EnsureRadianceCache makes the new one this frame; the sum restarts
+        // and the history empties, both made with the old cache's light.
+        void RetireRadianceCache( const CacheInputs& inputs )
+        {
+            const auto&       frames = ::Desert::Engine::FrameManager::GetInstance();
+            const std::string from   = m_RadianceCache->GetStats().KernelPath;
+            const auto forcedName = []( const std::optional<Common::Settings::NeuralKernelPath>& forced )
+            { return forced ? Engine::NeuralKernelPathName( *forced ) : "none"; };
+            LOG_INFO( "[PathTracer] radiance cache rebuilt (ForcedNeuralKernelPath {} -> {}, shader recompile "
+                      "generation {} -> {}); it ran the {} path",
+                      forcedName( m_RadianceCacheInputs.ForcedPath ), forcedName( inputs.ForcedPath ),
+                      m_RadianceCacheInputs.Generation, inputs.Generation, from );
+            m_RetiringCaches.Park( std::move( m_RadianceCache ), frames.GetAbsoluteFrameCount() );
+            ++m_RadianceCacheRebuilds;
+            Restart();
         }
 
         // The cache's refusal @p reason this frame under @p inputs: held as the standing refusal (no build is
@@ -633,8 +662,10 @@ namespace Desert::Graphic::System
             if ( m_CacheRefusal && ( !m_NrcRequested || m_CacheRefusal->Inputs != cacheInputs ) )
                 m_RetriedCacheRefusal = std::exchange( m_CacheRefusal, std::nullopt );
             bool nrc = m_NrcRequested && !m_CacheRefusal;
+            if ( nrc && m_RadianceCache && m_RadianceCacheInputs != cacheInputs )
+                RetireRadianceCache( cacheInputs );
             if ( nrc )
-                if ( const auto ready = EnsureRadianceCache(); !ready )
+                if ( const auto ready = EnsureRadianceCache( cacheInputs ); !ready )
                 {
                     RefuseRadianceCache( ready.GetError(), cacheInputs );
                     nrc = false;
@@ -764,12 +795,14 @@ namespace Desert::Graphic::System
                  Common::Scalability::PathTracingRadianceCacheMethod::Off;
             std::string Reason;
             std::string RetryOn;
+            uint32_t    Rebuilds = 0; ///< running caches rebuilt because their inputs changed (RetireRadianceCache)
         };
         [[nodiscard]] RadianceCacheStatus GetRadianceCacheStatus() const
         {
             using Method = Common::Scalability::PathTracingRadianceCacheMethod;
             RadianceCacheStatus status{ .Requested = m_NrcRequested ? Method::Nrc : Method::Off,
-                                        .Effective = m_Nrc ? Method::Nrc : Method::Off };
+                                        .Effective = m_Nrc ? Method::Nrc : Method::Off,
+                                        .Rebuilds  = m_RadianceCacheRebuilds };
             if ( m_NrcRequested && m_CacheRefusal )
             {
                 const CacheInputs& held   = m_CacheRefusal->Inputs;
@@ -1474,6 +1507,10 @@ namespace Desert::Graphic::System
         std::optional<Engine::Neural::NeuralShaderRefusal> m_CacheShaderRefusal; // EnsureRadianceCache's, if any
         uint32_t                                              m_NrcFrames = 0;     // the training offset's seed
         std::unique_ptr<Engine::Neural::NeuralRadianceCache> m_RadianceCache;
+        CacheInputs m_RadianceCacheInputs;       // what m_RadianceCache was built under (EnsureRadianceCache)
+        uint32_t    m_RadianceCacheRebuilds = 0; // RadianceCacheStatus::Rebuilds
+        // Retired caches (RetireRadianceCache), alive until no frame in flight reads their buffers and pipelines.
+        Assets::FrameRetireQueue<std::unique_ptr<Engine::Neural::NeuralRadianceCache>> m_RetiringCaches;
         std::shared_ptr<Shader>                               m_TraceShaderNrc;
         std::shared_ptr<RayTracingPipeline>                   m_TracePipelineNrc;
         std::vector<std::string>                              m_PipelineTemplatesNrc;

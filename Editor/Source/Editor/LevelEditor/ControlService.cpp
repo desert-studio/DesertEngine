@@ -1568,6 +1568,7 @@ namespace Desert::Editor
             snapshot.Nrc.Status    = name( status.Effective );
             snapshot.Nrc.Reason    = status.Reason;
             snapshot.Nrc.RetryOn   = status.RetryOn;
+            snapshot.Nrc.Rebuilds  = status.Rebuilds;
             if ( const Engine::Neural::NrcStats* stats = renderer->GetRadianceCacheStats() )
             {
                 Control::NrcSnapshot& nrc = snapshot.Nrc;
