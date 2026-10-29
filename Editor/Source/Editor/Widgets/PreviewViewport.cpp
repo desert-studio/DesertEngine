@@ -411,17 +411,18 @@ namespace Desert::Editor
             // In dome mode it is not a floor at all but the GROUND, and its size is fixed at a distance
             // the eye reads as a horizon rather than left to a control that means nothing there.
             const float size = ( m_Fill == Fill::SkyDome ) ? kDomeGroundSize : m_Setup.FloorSize;
-            auto&       tc   = m_Floor.GetComponent<ECS::TransformComponent>();
-            tc.Scale         = glm::vec3( size / 100.0f );
+            ECS::LocalTransform floor;
+            floor.Scale = glm::vec3( size / 100.0f );
             // LAID DOWN. The Plane primitive is a vertical CARD (normal +Z), which is what a foliage
             // material wants and is not what a floor is; without this quarter turn the "floor" was a
             // 20 km wall standing on edge, and the ground in the first dome frame was the procedural
             // sky's own ground hemisphere rather than anything this scene drew. Radians, negative, so
             // the card's +Z normal ends up pointing at +Y.
-            tc.Rotation = glm::vec3( -glm::half_pi<float>(), 0.0f, 0.0f );
+            floor.Rotation = glm::vec3( -glm::half_pi<float>(), 0.0f, 0.0f );
             // Just below the subject rather than at its centre: the primitives are generated about the
             // origin, so a floor at y=0 would cut every one of them in half.
-            tc.Translation = glm::vec3( 0.0f, ( m_Fill == Fill::SkyDome ) ? 0.0f : -50.0f, 0.0f );
+            floor.Translation = glm::vec3( 0.0f, ( m_Fill == Fill::SkyDome ) ? 0.0f : -50.0f, 0.0f );
+            m_Floor.SetLocalTransform( floor );
         }
         else if ( floorMesh.Primitive.has_value() )
         {
@@ -672,8 +673,7 @@ namespace Desert::Editor
 
         // A flat card must face the camera to be readable (a grass atlas garbles on a sphere), so the plane
         // preview keeps a fixed front-on view instead of an orbit start angle.
-        auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
-        tc.Rotation = glm::vec3( 0.0f );
+        m_Target.SetLocalRotation( glm::vec3( 0.0f ) );
 
         m_MeshHandle  = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Framed      = true; // a primitive's size is known up front

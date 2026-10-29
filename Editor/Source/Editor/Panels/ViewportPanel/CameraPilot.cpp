@@ -109,7 +109,7 @@ namespace Desert::Editor
             return;
         }
 
-        auto& tc = entity->GetComponent<ECS::TransformComponent>();
+        const auto& tc = entity->GetComponent<ECS::TransformComponent>();
 
         const glm::vec3                 position = camera.GetPosition();
         const ::Desert::Core::ViewBasis basis    = camera.GetBasis();
@@ -135,8 +135,10 @@ namespace Desert::Editor
             const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
                                       glm::normalize( glm::vec3( local[1] ) ),
                                       glm::normalize( glm::vec3( local[2] ) ) );
-            tc.Translation = glm::vec3( local[3] );
-            tc.Rotation    = glm::eulerAngles( glm::quat_cast( rotation ) );
+            ECS::LocalTransform posed = tc.GetLocal();
+            posed.Translation         = glm::vec3( local[3] );
+            posed.Rotation            = glm::eulerAngles( glm::quat_cast( rotation ) );
+            entity->SetLocalTransform( posed );
         }
         else
         {

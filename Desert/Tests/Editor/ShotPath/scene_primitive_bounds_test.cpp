@@ -26,9 +26,10 @@ namespace
                                  const Geometry::PrimitiveType type )
     {
         const entt::entity entity = registry.create();
-        auto&              xf     = registry.emplace<ECS::TransformComponent>( entity );
-        xf.Translation            = at;
-        xf.Scale                  = scale;
+        ECS::LocalTransform xf;
+        xf.Translation = at;
+        xf.Scale       = scale;
+        registry.emplace<ECS::TransformComponent>( entity, xf );
         registry.emplace<ECS::StaticMeshComponent>( entity ).Primitive = type;
         return entity;
     }

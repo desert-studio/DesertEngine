@@ -552,12 +552,12 @@ namespace Desert::Editor
                 // THE BOUNDS REST ON THE SURFACE (UE FActorPositioning): the mesh is resident now (the
                 // closure was awaited), so its box - skinned ones in their baked bind pose - is known. An
                 // entity the user already moved off the drop point keeps where they put it.
-                auto& transform = e.GetComponent<ECS::TransformComponent>();
-                if ( dropTarget && transform.Translation == dropTarget->Point )
+                const auto& transform = e.GetComponent<ECS::TransformComponent>();
+                if ( dropTarget && transform.GetTranslation() == dropTarget->Point )
                     if ( const auto* meshAsset =
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
-                        transform.Translation = ActorDrop::PlacedOrigin(
-                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() );
+                        e.SetLocalTranslation( ActorDrop::PlacedOrigin(
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() ) );
                 PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
@@ -3086,7 +3086,7 @@ namespace Desert::Editor
         // THE SOURCE'S BOX RESTS ON THE SURFACE (UE FActorPositioning), the box its record states - every node at
         // its placement, in the engine's space (ImportRecord.hpp `Bounds`). A root the user already moved keeps
         // where they put it.
-        auto& transform = root.GetComponent<ECS::TransformComponent>();
+        const auto& transform = root.GetComponent<ECS::TransformComponent>();
         if ( !dropTarget || transform.GetTranslation() != dropTarget->Point )
             return;
         const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
@@ -3096,11 +3096,11 @@ namespace Desert::Editor
         if ( !recordValue.has_value() || !recordValue->Bounds.has_value() )
             return;
         const auto& box = *recordValue->Bounds;
-        transform.Translation =
+        root.SetLocalTranslation(
              ActorDrop::PlacedOrigin( *dropTarget,
                                       ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
                                                             glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
-                                      transform.GetScale() );
+                                      transform.GetScale() ) );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )

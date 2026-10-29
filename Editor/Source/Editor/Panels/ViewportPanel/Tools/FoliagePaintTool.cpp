@@ -1220,7 +1220,7 @@ namespace Desert::Editor::Tools
                 // The field is now its cell's (a field whose grid changed was filed by its instances): its entity
                 // moves into that cell (FoliageCells.hpp, THE INVARIANT) and a cell field's name follows the cell.
                 const auto& cell        = out[*slotOf[i]].Cell;
-                auto&       translation = ref->get().GetComponent<ECS::TransformComponent>().GetTranslation();
+                const glm::vec3 translation = ref->get().GetComponent<ECS::TransformComponent>().GetTranslation();
                 auto&       tag         = ref->get().GetComponent<ECS::TagComponent>().Tag;
                 const FoliageFieldPlace now{ translation, tag };
                 FoliageFieldPlace       wanted = now;
@@ -1234,7 +1234,7 @@ namespace Desert::Editor::Tools
                     return Common::MakeFormattedError<bool>(
                          "foliage: field {} was re-filed without being gathered",
                          static_cast<uint64_t>( gather.Fields[i] ) );
-                translation = wanted.Translation;
+                ref->get().SetLocalTranslation( wanted.Translation );
                 tag         = wanted.Tag;
             }
 

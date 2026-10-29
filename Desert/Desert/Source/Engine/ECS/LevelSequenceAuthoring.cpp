@@ -1325,7 +1325,7 @@ namespace Desert::ECS
                 saved.Entity       = entity;
                 saved.HadTransform = registry.has<TransformComponent>( entity );
                 if ( saved.HadTransform )
-                    saved.Transform = registry.get<TransformComponent>( entity );
+                    saved.Transform = registry.get<TransformComponent>( entity ).GetLocal();
                 saved.HadVisibility = registry.has<VisibilityComponent>( entity );
                 if ( saved.HadVisibility )
                     saved.Visible = registry.get<VisibilityComponent>( entity ).Visible;
@@ -1368,7 +1368,7 @@ namespace Desert::ECS
             if ( !registry.valid( saved.Entity ) )
                 continue;
             if ( saved.HadTransform && registry.has<TransformComponent>( saved.Entity ) )
-                registry.get<TransformComponent>( saved.Entity ) = saved.Transform;
+                SetLocalTransform( registry, saved.Entity, saved.Transform );
             if ( saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )
                 registry.get<VisibilityComponent>( saved.Entity ).Visible = saved.Visible;
             else if ( !saved.HadVisibility && registry.has<VisibilityComponent>( saved.Entity ) )

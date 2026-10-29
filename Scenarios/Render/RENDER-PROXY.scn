@@ -1,4 +1,10 @@
-# RENDER-PROXY: the render-state dirty set is fed at the source - only the orbiting glass is dirtied per frame.
-Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night_MovingEmitter.desce
-Дано run View "View mode: Lit"
-Тогда-вид 1_render_dirty after 120 frames with nothing edited: DesertCtl state --sections scene -> scene.renderDirty == 1 (the moving glass); a gizmo drag of a parent raises it by its children; editor.log has 0 error lines
+# RENDER-PROXY: the render-state dirty set is fed at the source - ECS::SetLocalTransform (the one TransformComponent writer, a registry.patch) dirties the entity and its subtree; an unchanged value dirties nothing.
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce (static in edit mode: nothing moves by itself)
+Дано run View "View mode: Lit"; select Bistro_Research_Exterior_Paris_StreetLight_Glass_01B_6337 (the glass)
+Тогда-вид 0_idle after 120 frames with nothing edited: DesertCtl state --sections scene -> scene.renderDirty == 0; editor.log 0 error lines, 0 VUID
+Когда set selection Translation to the glass's translation + (0, 0, 50) (ControlService set-transform -> entity.SetLocalTransform)
+Тогда [render_proxy_dirty] 1_set: on that frame scene.renderDirty >= 1 (the glass, plus its children if it has any - a subtree); the next idle frame scene.renderDirty == 0; 0 VUID
+Когда gizmo-drag the glass (Translate) one step, then release
+Тогда [render_proxy_dirty] 2_gizmo: the drag frame scene.renderDirty >= 1; the next idle frame after release == 0; 0 VUID
+Когда set selection Translation to the SAME value it already has
+Тогда 3_same: scene.renderDirty == 0 on that frame (an unchanged value is not a write)

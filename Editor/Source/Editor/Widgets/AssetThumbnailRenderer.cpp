@@ -284,9 +284,6 @@ namespace Desert::Editor
 
     void AssetThumbnailRenderer::FitTarget( const glm::vec3& center, float worldSize )
     {
-        auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
-        tc.Rotation = glm::vec3( 0.0f );
-
         // Frame from the camera's OWN view/projection rather than an assumed pose (see ThumbnailFraming
         // for why: the preview camera's position and look-at both moved in the centimetre migration, which
         // is what made re-captured material thumbnails come out as a wall of colour or an empty sky — Д30).
@@ -295,16 +292,14 @@ namespace Desert::Editor
         {
             // No camera yet (should not happen after EnsureInit): keep the subject visible at unit scale
             // rather than divide framing math by a matrix that is not there.
-            tc.Scale       = glm::vec3( 1.0f );
-            tc.Translation = -center;
+            m_Target.SetLocalTransform( ECS::LocalTransform{ -center, glm::vec3( 0.0f ), glm::vec3( 1.0f ) } );
             return;
         }
 
         const auto placement = ThumbnailFraming::PlaceInView( cam->GetViewMatrix(), cam->GetProjectionMatrix(),
                                                               worldSize, center, m_PendingThumbnail.Orbit );
-        tc.Scale       = glm::vec3( placement.Scale );
-        tc.Translation = placement.Translation;
-        tc.Rotation          = glm::eulerAngles( placement.Rotation );
+        m_Target.SetLocalTransform( ECS::LocalTransform{
+             placement.Translation, glm::eulerAngles( placement.Rotation ), glm::vec3( placement.Scale ) } );
     }
 
     void AssetThumbnailRenderer::RecordRender()

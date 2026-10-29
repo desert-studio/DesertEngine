@@ -691,7 +691,11 @@ TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedT
 
     // Press, drag (nothing written while held), release: one key at the playhead with the live pose.
     EXPECT_EQ( observe( true ), 0U );
-    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 777.0F;
+    {
+        ECS::LocalTransform moved = world.registry.get<ECS::TransformComponent>( world.door ).GetLocal();
+        moved.Translation.x       = 777.0F;
+        ECS::SetLocalTransform( world.registry, world.door, moved );
+    }
     EXPECT_EQ( observe( true ), 0U );
     EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "nothing is keyed mid-gesture";
     EXPECT_EQ( observe( false ), 1U );
@@ -701,7 +705,11 @@ TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedT
 
     // Reset mid-gesture (REC switched off): the release keys nothing.
     EXPECT_EQ( observe( true ), 0U );
-    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 5.0F;
+    {
+        ECS::LocalTransform moved = world.registry.get<ECS::TransformComponent>( world.door ).GetLocal();
+        moved.Translation.x       = 5.0F;
+        ECS::SetLocalTransform( world.registry, world.door, moved );
+    }
     autoKey.Reset();
     EXPECT_FALSE( autoKey.Releasing( false ) );
     EXPECT_EQ( observe( false ), 0U );
@@ -741,8 +749,9 @@ TEST( LevelSequenceAsset, ATransformTrackKeepsEveryInterpolationAndTangentThroug
 {
     T::Sequence             authored = AuthoredDoor();
     auto                    door     = authored.Bindings.front().Guid;
-    ECS::TransformComponent middle;
-    middle.Translation.x = 30.0F;
+    ECS::LocalTransform     middleLocal;
+    middleLocal.Translation.x = 30.0F;
+    const ECS::TransformComponent middle( middleLocal );
     ASSERT_TRUE( ECS::SetEntityTransformKey( authored, door, A::FrameNumber{ 50 }, ECS::EntityPose( middle ) )
                       .IsSuccess() );
     T::FloatChannel* x = DoorTranslationX( authored );
