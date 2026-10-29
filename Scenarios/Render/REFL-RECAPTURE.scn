@@ -11,7 +11,7 @@
 Когда --subject viewport drag 600,40 600,40 225
 Когда --subject viewport drag 600,40 600,40 225
 Тогда-вид 1_settled улица Бистро, отражения на витринах/мокрой брусчатке как на dev; лог: после первого «every capture settled» до смены времени - ни одного «relit»
-Когда set 4576059197435775655 TimeOfDay.TimeOfDay 11.75
+Когда set 4576059197435775655 TimeOfDayData.TimeOfDay 11.75
 Когда --subject viewport drag 600,40 600,40 225
 Когда --subject viewport drag 600,40 600,40 225
 Тогда-вид 2_sun_moved тени повернулись (~20 deg); лог: ровно один «relit» после смены, затем «every capture settled», отражения обновлены
