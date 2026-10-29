@@ -223,10 +223,14 @@ namespace Desert::Player
         m_QualityStart = Graphic::QualityBoot::Start(
              Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) /
              "machine.json" );
-        // The game's view IS the window, so here — and only here — the window's size is the view's.
-        const auto window = EngineContext::GetInstance().GetWindow();
-        m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
-             Graphic::ViewExtent{ window->GetWidth(), window->GetHeight() } );
+        // The game's view IS the window, so here — and only here — the window's size is the view's, at the
+        // extent the first present asks for (GameViewExtent). Built at the window's full pixels and resized on
+        // that present, a Retina game allocated the whole native-resolution target set once and left it owed
+        // for deletion at the footprint peak (UE sizes the view from the screen percentage before the first
+        // allocation, too).
+        const auto window         = EngineContext::GetInstance().GetWindow();
+        const auto [viewW, viewH] = GameViewExtent( window->GetWidth(), window->GetHeight(), true );
+        m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ viewW, viewH } );
         m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
     }
 
