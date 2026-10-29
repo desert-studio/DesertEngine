@@ -96,6 +96,9 @@ layout( binding = 21 ) uniform CloudShadowUB
 #define CONTACT_SHADOW_INV_VP       cameraUB.InvJitteredViewProjection
 #define CONTACT_SHADOW_SHADING_WORD SceneShadingWordTexture
 #include <Common/ContactShadow.glslh>
+// The view's fog at this fragment's own depth (the opaque scene behind it, and so the refraction, is already fogged).
+#include <Mesh/Surface/SceneFog.glslh>
+
 // The point and spot lights, through the same statement the opaque forward cells shade them with.
 #include <Mesh/ForwardLocalLights.glslh>
 
@@ -178,10 +181,16 @@ void main()
         localSpec = GlassHotspot( N, V, local.L ) * local.Radiance;
     }
 
-    // `refracted` is read from this frame's scene colour, already pre-exposed; only the terms lit here are scaled.
+    // Fogged as UE fogs a translucent surface, at its own depth: the surface's own light (the sky's reflection
+    // weighted by its Fresnel coverage, the hotspots, the emissive) is attenuated by the fog in front of it and the
+    // reflection's coverage gains the fog's inscattering; the refracted scene is the fogged scene copy already (the
+    // opaque fog ran before the copy), so it is not fogged a second time. `refracted` is read from this frame's
+    // scene colour, already pre-exposed, as is the fog's inscattering (FogGates.z); only the terms lit here are
+    // scaled.
     const float preExposure = cameraUB.PreExposure;
-    oColor = vec4( mix( refracted, envRefl * preExposure, fresnel ) + ( spec + localSpec + s.Emissive ) * preExposure,
-                   1.0 );
+    const vec4  fog         = DesertSceneFog( v_Surface.WorldPosition );
+    const vec3  surface     = ( envRefl * fresnel + spec + localSpec + s.Emissive ) * preExposure;
+    oColor = vec4( refracted * ( 1.0 - fresnel ) + surface * fog.a + fog.rgb * fresnel, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
 #endif

@@ -109,9 +109,20 @@ namespace Desert::Core
     inline constexpr uint32_t kGpuSceneVisibleInstancesBinding  = kSceneReadBindingFirst + 17u;
     inline constexpr uint32_t kGpuSceneDrawSlotsBinding         = kSceneReadBindingFirst + 18u;
     inline constexpr uint32_t kGpuSceneSubmeshTransformsBinding = kSceneReadBindingFirst + 19u;
-    inline constexpr uint32_t kSceneReadBindingCount            = 20u;
     static_assert( kGpuSceneInstancesBinding == 41u && kGpuSceneSubmeshTransformsBinding == 44u,
                    "Common/GpuScene.glslh spells 41-44" );
+    // The view's FOG, which a translucent surface applies at its own depth (UE: translucency fogs itself, it is
+    // not fogged by the opaque depth behind it): the height fog's parameter block (`FogParamsBuffer`), the sky's
+    // aerial perspective volume, its distant sky light and the volumetric fog's integrated froxels. Declared by
+    // Mesh/Surface/SceneFog.glslh in the translucent mesh cell and the particle sprite cell (and by the water
+    // program through the same header), bound by name (BindSceneFogInputs).
+    inline constexpr uint32_t kSceneFogParamsBinding            = kSceneReadBindingFirst + 20u;
+    inline constexpr uint32_t kSceneFogAerialPerspectiveBinding = kSceneReadBindingFirst + 21u;
+    inline constexpr uint32_t kSceneFogDistantSkyLightBinding   = kSceneReadBindingFirst + 22u;
+    inline constexpr uint32_t kSceneFogVolumeBinding            = kSceneReadBindingFirst + 23u;
+    static_assert( kSceneFogParamsBinding == 45u && kSceneFogVolumeBinding == 48u,
+                   "Mesh/Surface/SceneFog.glslh spells 45-48" );
+    inline constexpr uint32_t kSceneReadBindingCount = 24u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
     {
@@ -137,8 +148,8 @@ namespace Desert::Core
     inline constexpr uint32_t kVsmRasterLevelBinding           = kVirtualShadowRasterBindingFirst + 3u;
     inline constexpr uint32_t kVsmInstanceRemapBinding         = kVirtualShadowRasterBindingFirst + 4u;
     inline constexpr uint32_t kVirtualShadowRasterBindingCount = 5u;
-    static_assert( kVsmFrameDataBinding == 45u && kVsmInstanceRemapBinding == 49u,
-                   "Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh spell 45-49" );
+    static_assert( kVsmFrameDataBinding == 49u && kVsmInstanceRemapBinding == 53u,
+                   "Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh spell 49-53" );
 
     [[nodiscard]] constexpr bool IsVirtualShadowRasterBinding( uint32_t binding )
     {
@@ -151,10 +162,11 @@ namespace Desert::Core
     // world parameters joined it), then from 36 (the rain occlusion's map and block joined it), then from 38 (the
     // local shadow atlas and its views joined it), then from 40 (the ray-traced local shadow masks joined it), then
     // from 41 (the virtual shadow raster's slots got a range of their own), then from 46 (the binned draw's four
-    // tables joined the scene-read range and pushed the raster range up by four), to sit above both ranges; see the
+    // tables joined the scene-read range and pushed the raster range up by four), then from 50 (the view's fog
+    // joined the scene-read range and pushed the raster range up by four again), to sit above both ranges; see the
     // paragraph on moving it above (10-22: no generated `.shader` under Resources spells a TextureBinding).
     inline constexpr uint32_t kGraphOwnedBindingFirst =
          kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 50u,
+    static_assert( kGraphOwnedBindingFirst == 54u,
                    "the graph's window opens right above the virtual shadow raster's range" );
 } // namespace Desert::Core
