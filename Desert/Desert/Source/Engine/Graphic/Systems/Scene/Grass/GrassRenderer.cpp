@@ -513,6 +513,35 @@ namespace Desert::Graphic::System
                                 static_cast<int32_t>( std::floor( lo.y / cell ) ) - 1,
                                 static_cast<int32_t>( std::ceil( ( hi.x - lo.x ) / cell ) ) + 2,
                                 static_cast<int32_t>( std::ceil( ( hi.y - lo.y ) / cell ) ) + 2 );
+        { // GRASS-SETTLE p18 probe (temporary)
+            static std::unordered_map<const void*, glm::vec3> s_LastEye;
+            static std::unordered_map<const void*, int>       s_Left;
+            glm::vec3&                                        last = s_LastEye[this];
+            int&                                              left = s_Left[this];
+            if ( glm::length( last - frame.CameraPosition ) > 50.0f )
+                left = 400;
+            last = frame.CameraPosition;
+            if ( left > 0 && ( left-- % 40 ) == 0 )
+            {
+                uint64_t    sum = 0;
+                std::string cs, ks;
+                for ( uint32_t b = 0; b < buckets; ++b )
+                {
+                    sum += counted[b];
+                    cs += std::format( "{},", counted[b] );
+                    ks += std::format( "{},", capacities[b] );
+                }
+                LOG_INFO( "[GrassProbe] gr={} key={:016x} idx={} layer={} eye=({:.0f},{:.0f},{:.0f}) lens={:.3f} "
+                          "radius={:.0f} lod={:.0f} fedBack={} written={} counted=[{}] sum={} caps=[{}] "
+                          "cells=({},{},{},{}) settle={} inst={} params={} left={}",
+                          static_cast<const void*>( this ), variety.Key, gpu.Index, variety.Layer,
+                          frame.CameraPosition.x, frame.CameraPosition.y, frame.CameraPosition.z, lens, radius,
+                          lodDistance, fedBack, counted[buckets], cs, sum, ks, gpu.Cells.x, gpu.Cells.y,
+                          gpu.Cells.z, gpu.Cells.w, gpu.SettleReads,
+                          static_cast<const void*>( gpu.Instances.get() ),
+                          static_cast<const void*>( gpu.Params.get() ), left );
+            }
+        }
         return &gpu;
     }
 
