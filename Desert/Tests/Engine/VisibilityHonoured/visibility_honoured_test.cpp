@@ -47,6 +47,7 @@
 #include <vector>
 
 using Desert::ECS::IsHidden;
+using Desert::ECS::SetVisible;
 using Desert::ECS::VisibilityComponent;
 
 // ---------------------------------------------------------------------------------------------------

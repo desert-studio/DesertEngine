@@ -380,7 +380,7 @@ namespace Desert::Graphic::VirtualGeometry
             result.OccludedCandidates = b.OccludedCandidates;
             result.OccludedCount      = b.OccludedCount;
         }
-        return result;
+        return Common::MakeSuccess( std::move( result ) );
     }
 
     Common::ResultStr<RasterBins> VirtualGeometryRenderer::AddRasterBinning(
@@ -466,7 +466,7 @@ namespace Desert::Graphic::VirtualGeometry
                      return Renderer::DispatchCompute( bindings, *pipeline, groupsX, 1u, 1u );
                  } );
         }
-        return bins;
+        return Common::MakeSuccess( std::move( bins ) );
     }
 
     // --- ClusterCutCounts ------------------------------------------------------------------------------------

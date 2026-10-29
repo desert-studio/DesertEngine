@@ -1358,7 +1358,7 @@ namespace Desert::Graphic::System
                 // into and rastered by ("VSM: Raster VirtualGeometry", MeshRenderer::SetVirtualShadowGeometry).
                 // A movable caster (skinned, swaying) stays out of it: the cluster raster draws rest-pose geometry
                 // into cached pages, so its clusters would cast the unanimated shape; the CPU walk redraws it.
-                if ( path == MeshVertexPath::Skinned || feed->Sways )
+                if ( path == MeshVertexPath::Skinned || ( feed->Flags & GpuDriven::PrimitiveFlags::kMovableCaster ) != 0 )
                     return fallback( BinFallback::MovableCaster );
                 const auto defaultCell =
                      MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::VirtualShadowDepth );
