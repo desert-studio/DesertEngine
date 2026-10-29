@@ -108,6 +108,8 @@ namespace Desert::Editor
                     return "UI";
                 case D::Particle:
                     return "Particle";
+                case D::SingleLayerWater:
+                    return "Single Layer Water";
             }
             return "engine-internal";
         }
@@ -138,6 +140,11 @@ namespace Desert::Editor
                     return "is a VFX fragment — a stack module or a compiled emitter stack — compiled into "
                            "the particle simulation, not an object this pane could place. Look at the effect "
                            "that uses it in the viewport.";
+                case D::SingleLayerWater:
+                    return "is the look of a water body — drawn over the water zone's quadtree grid with the "
+                           "scene behind it refracted, absorbed and scattered, not an object this pane could "
+                           "place. Drop it into a Water Body's Water Material slot and look at the water in "
+                           "the viewport.";
                 case D::Unspecified:
                 case D::Surface:
                 case D::Skybox: // no longer a refusal: the pane wraps its cubemap onto a ball (see

@@ -6,10 +6,16 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
+#include <Engine/Assets/Common.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 
 #include <glm/glm.hpp>
 
+#include <chrono>
 #include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <memory>
 #include <vector>
 
@@ -21,14 +27,21 @@ namespace Desert::Graphic::System
     {
         Water::WaterQuadTreeDesc              Zone;
         std::vector<Water::WaterQuadTreeBody> Bodies;
+        // Each body's water material (ECS::WaterBodyData::WaterMaterial), in Bodies' order.
+        std::vector<Assets::AssetHandle> BodyMaterials;
     };
 
     // THE WATER SURFACE RENDERER (WATER-W6; UE FWaterMeshSceneProxy + its water vertex factory). Each frame it
     // walks every submitted zone's quadtree from the main camera (Water::WaterQuadTree::Traverse: LOD by distance,
     // frustum-culled), packs the selected tiles as rows of one storage buffer, and draws them in the deferred
-    // path's "Deferred: Water" node — after the scene-colour copy (the scene without water, which WATER-W7's
-    // refraction reads) and before the glass — as one vertexless instanced draw per grid density
-    // (WaterSurface.shader).
+    // path's "Deferred: Water" node — after the scene-colour copy (the scene without water, which the refraction
+    // reads) and before the glass — as one vertexless instanced draw per grid density.
+    //
+    // THE LOOK IS AN ASSET (UE UWaterBodyComponent::WaterMaterial): each body names a `.demat` whose template is a
+    // `Domain SingleLayerWater` program (WaterSurface.shader is the engine's); this renderer builds that program's
+    // pipeline, folds the material's values over the program's Properties schema by name
+    // (MaterialService::ResolveOverrides, as the terrain and the clouds do) into WaterMaterialUB and binds its
+    // ripple maps. The code is the physics of light in water and the grid; no colour is stated here.
     class WaterRenderer final : public RenderSystem
     {
     public:
@@ -45,8 +58,10 @@ namespace Desert::Graphic::System
             return !m_FrameDraws.empty();
         }
 
-        // SETUP of the water node: its one binding block (WaterSurface.shader samples no scene/view input yet).
-        void                                DeclareDraws( RDG::PassBuilder& pass );
+        // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
+        // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
+        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes).
+        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         void Submit( WaterZoneDraw zone )
@@ -69,9 +84,26 @@ namespace Desert::Graphic::System
             uint32_t QuadsPerSide = 0;
         };
 
-        std::shared_ptr<GraphicsPipeline>   m_Pipeline;
-        ShaderBindingLayoutCache            m_Layout;
-        std::unique_ptr<DataDrivenMaterial> m_Material;
+        // One SingleLayerWater program's pipeline and its material (the frame block, the rows and the values of
+        // the `.demat` drawn with it), built on first use of the template.
+        struct WaterProgram
+        {
+            std::shared_ptr<GraphicsPipeline>   Pipeline;
+            std::unique_ptr<DataDrivenMaterial> Material;
+        };
+
+        // The program of @p material's template, built on first use; null (said once per handle) when the handle
+        // names no material, or one whose template is not of the SingleLayerWater domain or does not build.
+        WaterProgram* ProgramFor( const Assets::AssetHandle& material );
+        // Folds @p material's values over its program's schema into the program's WaterMaterialUB and ripple maps.
+        void ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program );
+        void WarnOnce( const Assets::AssetHandle& material, const std::string& why );
+
+        std::unordered_map<std::string, WaterProgram> m_Programs; // by template compile name
+        WaterProgram*                                 m_Frame = nullptr; // this frame's program
+        ShaderBindingLayoutCache                      m_Layout;
+        std::unordered_set<uint64_t>                  m_Warned;
+        std::chrono::steady_clock::time_point         m_Start = std::chrono::steady_clock::now();
 
         std::vector<WaterZoneDraw> m_Queue;
         std::vector<FrameDraw>     m_FrameDraws;

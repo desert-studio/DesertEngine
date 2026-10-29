@@ -35,7 +35,8 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "WaterBody": {
-                "WaterWaves": "",
+                "WaterWaves": "d97a0cb255554c92a315a3330db71f5f",
+                "WaterMaterial": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
                 "OceanExtents": [4096000.0, 4096000.0],
                 "TargetWaveMaskDepth": 2048.0
             }

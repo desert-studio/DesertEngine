@@ -210,8 +210,11 @@ namespace Desert::Core::Formats
         PostProcess,
         Volume,  // participating media marched by a compute pass (the volumetric cloud layer)
         UI,      // the fill of a 2D UI element, rasterized by the Render2D batcher
-        Particle // a VFX fragment (a stack module or a compiled emitter stack), compiled INTO a simulation
-                 // program; never drawn and never assigned to a renderable
+        Particle, // a VFX fragment (a stack module or a compiled emitter stack), compiled INTO a simulation
+                  // program; never drawn and never assigned to a renderable
+        SingleLayerWater // UE's Single Layer Water material: the look of a water body (scattering, absorption,
+                         // ripples), drawn by Graphic::System::WaterRenderer over its quadtree vertex factory and
+                         // assigned to a WaterBodyComponent, never to a mesh
     };
 
     // The enum's own spelling, for diagnostics. It lives beside the enum so a domain added above cannot
@@ -242,6 +245,8 @@ namespace Desert::Core::Formats
                 return "UI";
             case ShaderDomain::Particle:
                 return "Particle";
+            case ShaderDomain::SingleLayerWater:
+                return "SingleLayerWater";
         }
         return "Unspecified";
     }

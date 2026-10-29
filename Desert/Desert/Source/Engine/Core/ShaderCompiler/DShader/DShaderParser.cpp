@@ -2176,6 +2176,8 @@ namespace Desert::Core::Preprocess
                     result.Meta.Domain = ShaderDomain::UI;
                 else if ( v == "particle" )
                     result.Meta.Domain = ShaderDomain::Particle;
+                else if ( v == "singlelayerwater" )
+                    result.Meta.Domain = ShaderDomain::SingleLayerWater;
                 else
                 {
                     err = { line, "unknown Domain '" + v + "'" };
