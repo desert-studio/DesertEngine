@@ -7,7 +7,7 @@
 # The scenario dirties the scene but does not save it.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
 Дано run View "View mode: Lit"
-Дано --subject viewport set Camera.Position 0,30,700
+Дано --subject viewport set Camera.Position 0,30,320
 Дано --subject viewport set Camera.Direction 0,0,-1
 Когда state
 Тогда-вид 1_impacts two impact bursts: the left one (x=-150) throws sparks and dust upward, the right one (x=+150) sideways along +X
