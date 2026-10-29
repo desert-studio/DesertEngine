@@ -113,6 +113,11 @@ namespace Desert::Graphic::API::Vulkan
 
         // The ledger keys a row by the allocation's address: VmaAllocation is an opaque pointer and its
         // value is the identity, never dereferenced through the integer.
+        // RELEASE THE ROW BEFORE vmaDestroy*, everywhere. A staging copy is destroyed by whichever thread runs
+        // CommandBufferAllocator::CollectFinished (the render thread or a loader thread), while other loader
+        // threads allocate. VMA may hand the freed VmaAllocation to the next vmaCreate* at once; destroyed first,
+        // a concurrent Record of the reused key could land before this Release and be erased by it, leaving a
+        // live allocation out of the census. The ledger itself is locked (AllocationLedger::m_Mutex).
         uint64_t LedgerKey( VmaAllocation allocation )
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -136,6 +141,7 @@ namespace Desert::Graphic::API::Vulkan
         allocatorInfo.device                 = device->GetVulkanLogicalDevice();
         allocatorInfo.instance               = instance;
         m_DeviceCaps                         = device->GetPhysicalDevice()->GetDeviceCaps();
+        m_Sharing                            = device->GetPhysicalDevice()->GetResourceSharing();
         // A buffer created with SHADER_DEVICE_ADDRESS (a BLAS build input, an acceleration structure, its
         // scratch) must be bound to memory allocated with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT; VMA adds it
         // only when told. Only where the device enabled bufferDeviceAddress — the flag is invalid otherwise.
@@ -161,8 +167,8 @@ namespace Desert::Graphic::API::Vulkan
             // longer has a reader.
             if ( m_ZeroBufferAllocation != VK_NULL_HANDLE )
             {
-                vmaDestroyBuffer( s_VmaAllocator, m_ZeroBuffer, m_ZeroBufferAllocation );
                 m_Ledger.Release( LedgerKey( m_ZeroBufferAllocation ) );
+                vmaDestroyBuffer( s_VmaAllocator, m_ZeroBuffer, m_ZeroBufferAllocation );
                 m_ZeroBuffer           = VK_NULL_HANDLE;
                 m_ZeroBufferAllocation = VK_NULL_HANDLE;
             }
@@ -190,8 +196,8 @@ namespace Desert::Graphic::API::Vulkan
             MappedMemory mapped = MapMemory( allocation );
             if ( const auto filled = mapped.Fill( 0, kBytes ); !filled.IsSuccess() )
             {
-                vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
                 m_Ledger.Release( LedgerKey( allocation ) );
+                vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
                 return Common::MakeFormattedError<VkBuffer>( "zeroing the zero buffer failed: {}",
                                                              filled.GetError() );
             }
@@ -199,8 +205,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( const VkResult flushed = vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
              flushed != VK_SUCCESS )
         {
-            vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
             m_Ledger.Release( LedgerKey( allocation ) );
+            vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
             return Common::MakeFormattedError<VkBuffer>( "flushing the zero buffer failed: {}",
                                                          VkResultToString( flushed ) );
         }
@@ -224,6 +230,10 @@ namespace Desert::Graphic::API::Vulkan
 
         VkBufferCreateInfo localInfo = bufferCreateInfo;
         if ( localInfo.size == 0 ) localInfo.size = 1; // Vulkan requires size > 0
+        // THE ONE PLACE a buffer's queue-family sharing is decided, whatever the caller's create info said
+        // (VulkanResourceSharing.hpp: CONCURRENT across the device's families, so a read on async compute that no
+        // graph declared - an upload, a device address - is never a read on a family that does not own it).
+        m_Sharing.ApplyTo( localInfo );
 
         // Initialised, because a caller that ignores the result below must get a NULL handle rather
         // than a stack value: null is refused by the validation layers at the point of use and names
@@ -306,8 +316,13 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocationCreateInfo allocInfo = {};
         allocInfo.usage                   = usage;
 
+        // The image's queue-family sharing is decided here and only here, as for RT_AllocateBuffer: an uploaded
+        // texture a bindless read on async compute reaches is CONCURRENT (VulkanResourceSharing.hpp).
+        VkImageCreateInfo localInfo = imageCreateInfo;
+        m_Sharing.ApplyTo( localInfo );
+
         VmaAllocation allocation = VK_NULL_HANDLE; // see RT_AllocateBuffer above
-        VkResult res = vmaCreateImage( s_VmaAllocator, &imageCreateInfo, &allocInfo, &outImage, &allocation, nullptr );
+        VkResult res = vmaCreateImage( s_VmaAllocator, &localInfo, &allocInfo, &outImage, &allocation, nullptr );
         if ( res != VK_SUCCESS )
         {
             // Same reasoning as RT_AllocateBuffer above, and the same defect it fixes.
@@ -350,8 +365,8 @@ namespace Desert::Graphic::API::Vulkan
             RT_DestroyBuffer( buffer, allocation );
             return;
         }
-        vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
         m_Ledger.Release( LedgerKey( allocation ) );
+        vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
     }
 
     void VulkanAllocator::LogCensusIfDue()
@@ -761,8 +776,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             if ( takeFrame( it->FrameIndex ) )
             {
-                vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
                 m_Ledger.Release( LedgerKey( it->Allocation ) );
+                vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
                 it = m_BufferDeletionQueue.erase( it );
                 ++destroyed;
             }
@@ -777,8 +792,8 @@ namespace Desert::Graphic::API::Vulkan
                     vkDestroyImageView( device, it->ImageView, nullptr );
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
-                vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
                 m_Ledger.Release( LedgerKey( it->Allocation ) );
+                vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
                 it = m_ImageDeletionQueue.erase( it );
                 ++destroyed;
             }
