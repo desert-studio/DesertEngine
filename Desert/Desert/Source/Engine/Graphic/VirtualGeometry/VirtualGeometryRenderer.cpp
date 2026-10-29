@@ -47,6 +47,8 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutRasterArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutStatus );
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutDispatchArgs );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, ClusterCutHzbTexture );
         };
 
         constexpr const char* kClusterCutShader = "ClusterCut"; // Programs/VirtualGeometry/ClusterCut.shader
@@ -58,6 +60,7 @@ namespace Desert::Graphic::VirtualGeometry
         {
             glm::uvec4 Params{
                  0u }; // step, visible capacity, primitive rows of the pass table, candidate capacity
+            glm::uvec4 Params2{ 0u }; // x = 1 when a HZB is bound
         };
 
         template <typename T>
@@ -119,6 +122,7 @@ namespace Desert::Graphic::VirtualGeometry
             RDG::BufferRef Visible, RasterArgs, Status;
             RDG::BufferRef DispatchArgs; // step 0 writes it, step 1 reads it as its indirect arguments
             RDG::BufferRef ArgsSlot;     // step 1's DispatchArgs slot: an unread buffer
+            RDG::TextureRef Hzb;         // the views' previous-frame furthest HZB, or the neutral texture
         };
 
         void BindCut( RDG::PassBuilder& pass, const VirtualGeometryRenderer::Programs::Program& program,
@@ -145,6 +149,8 @@ namespace Desert::Graphic::VirtualGeometry
                  .Storage( P::ClusterCutVisibleClusters, b.Visible, W )
                  .Storage( P::ClusterCutRasterArgs, b.RasterArgs, W )
                  .Storage( P::ClusterCutStatus, b.Status, W )
+                 .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
             if ( indirect )
             {
@@ -160,7 +166,8 @@ namespace Desert::Graphic::VirtualGeometry
          RDG::Builder& graph, const GpuDriven::CullPhase phase, const GpuDriven::GpuSceneBuffers& scene,
          const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
          const GpuDriven::PassDrawBuffers& passSlots, const RDG::BufferRef submeshTransforms,
-         const ClusterCandidates& candidates, const std::span<const ClusterCullView> views ) const
+         const ClusterCandidates& candidates, const std::span<const ClusterCullView> views,
+         const RDG::TextureRef neutralHzb ) const
     {
         using Result = ClusterCullResult;
         if ( phase != GpuDriven::CullPhase::Main )
@@ -183,6 +190,19 @@ namespace Desert::Graphic::VirtualGeometry
                  pass, passTable.PrimitiveDraws.size(), passSlots.PrimitiveDraws.IsValid() ? "valid" : "invalid",
                  passSlots.DrawSlots.IsValid() ? "valid" : "invalid",
                  submeshTransforms.IsValid() ? "valid" : "invalid" ) );
+        // One HZB per dispatch (the instance cull's rule): the views' previous-frame furthest HZB.
+        RDG::TextureRef hzb{};
+        for ( const ClusterCullView& view : views )
+            if ( view.Instance.PrevHzb.IsValid() )
+            {
+                if ( hzb.IsValid() && hzb != view.Instance.PrevHzb )
+                    return Common::MakeError<Result>(
+                         "VirtualGeometry: Cluster Cut: views with two previous-frame HZBs in one dispatch" );
+                hzb = view.Instance.PrevHzb;
+            }
+        const bool hasHzb = hzb.IsValid();
+        if ( !hasHzb && !neutralHzb.IsValid() )
+            return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: no HZB and no neutral texture to bind" );
         if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() || !meshes.Hierarchy.IsValid() )
             return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: the VirtualMeshTable has no tables" );
         if ( !candidates.Rows.IsValid() || !candidates.Count.IsValid() || candidates.Capacity == 0u ||
@@ -247,14 +267,15 @@ namespace Desert::Graphic::VirtualGeometry
         const std::vector<uint32_t> zeros( 4u, 0u );
         b.DispatchArgs = Upload( graph, "VirtualGeometry.CutDispatchArgs", Bytes( zeros ) );
         b.ArgsSlot     = Upload( graph, "VirtualGeometry.CutArgsSlot", Bytes( zeros ) );
+        b.Hzb          = hasHzb ? hzb : neutralHzb;
 
         const Programs::Program& program       = m_Programs->ClusterCut;
         const auto               primitiveRows = static_cast<uint32_t>( passTable.PrimitiveDraws.size() );
         for ( const uint32_t step : { kStepArgs, kStepCut } )
         {
             const bool    indirect = step == kStepCut;
-            const CutPush push{
-                 glm::uvec4( step, candidates.VisibleCapacity, primitiveRows, candidates.Capacity ) };
+            const CutPush push{ glm::uvec4( step, candidates.VisibleCapacity, primitiveRows, candidates.Capacity ),
+                                glm::uvec4( hasHzb ? 1u : 0u, 0u, 0u, 0u ) };
             graph.AddPass(
                  indirect ? "VirtualGeometry: Cluster Cut" : "VirtualGeometry: Cluster Cut Args",
                  RDG::PassFlags::Compute,

@@ -111,21 +111,19 @@ namespace Desert::Graphic::VirtualGeometry
         VirtualGeometryRenderer( const VirtualGeometryRenderer& )            = delete;
         VirtualGeometryRenderer& operator=( const VirtualGeometryRenderer& ) = delete;
 
-        // The device can run it: shaderBufferInt64Atomics + fragmentStoresAndAtomics + bufferDeviceAddress
-        // (the capability row "VirtualGeometry"). Without it the method is refused with the missing feature named
-        // and VG meshes draw their DAG-cut discrete LODs through the bins.
-        [[nodiscard]] static Common::BoolResultStr CheckDevice();
-
         // Step 2/5: "VirtualGeometry: Cluster Cut" of @p candidates (InstanceCulling's VG output) for @p views
         // (Programs/VirtualGeometry/ClusterCut.shader). Every view is of the one mesh pass @p passTable /
         // @p passSlots describe: a candidate's submesh transform is the row that pass's DrawCommandCache placed
         // for (primitive, lod 0, the DAG's submesh), indexing @p submeshTransforms. Refused: no view, views of two
-        // passes, a missing table, the PostOcclusion phase (its HZB carry is not built yet).
+        // passes, a missing table, the PostOcclusion phase (its HZB carry is not built yet), views with two
+        // previous-frame HZBs. Node and cluster boxes are tested against the views' Instance.PrevHzb (the instance
+        // cull's test, Common/GpuCullTests.glslh); @p neutralHzb is bound when no view has one (nothing occluded).
         [[nodiscard]] Common::ResultStr<ClusterCullResult>
         AddClusterCull( RDG::Builder& graph, GpuDriven::CullPhase phase, const GpuDriven::GpuSceneBuffers& scene,
                         const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
                         const GpuDriven::PassDrawBuffers& passSlots, RDG::BufferRef submeshTransforms,
-                        const ClusterCandidates& candidates, std::span<const ClusterCullView> views ) const;
+                        const ClusterCandidates& candidates, std::span<const ClusterCullView> views,
+                        RDG::TextureRef neutralHzb ) const;
 
         // Step 3/5: SW then HW raster of @p culled into @p target.
         [[nodiscard]] Common::BoolResultStr
@@ -169,8 +167,8 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t MissingSlotDag     = 0xFFFFFFFFu;
         uint32_t VisibleOverflow    = 0; // clusters past ClusterCandidates::VisibleCapacity
         uint32_t VisibleOverflowDag = 0xFFFFFFFFu;
-        uint32_t Pad0               = 0;
-        uint32_t Pad1               = 0;
+        uint32_t OccludedNodes      = 0; // node children the previous-frame HZB hid (not a failure)
+        uint32_t OccludedClusters   = 0; // clusters the previous-frame HZB hid (not a failure)
     };
     static_assert( sizeof( ClusterCutStatus ) == 32, "std430 twin: ClusterCut.shader ClusterCutStatus" );
 

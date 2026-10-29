@@ -1394,6 +1394,16 @@ namespace Desert::Editor
                       m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
                     snapshot.DrawBinViews.push_back(
                          DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
+            snapshot.VirtualGeometry = {};
+            if ( m_Workspace.PrimaryRenderer() != nullptr )
+            {
+                const Graphic::SceneRenderer::VirtualGeometryCounts vg =
+                     m_Workspace.PrimaryRenderer()->GetVirtualGeometryCounts();
+                snapshot.VirtualGeometry = VirtualGeometrySnapshot{ .Instances        = vg.Instances,
+                                                                    .ClustersVisible  = vg.ClustersVisible,
+                                                                    .Overflow         = vg.Overflow,
+                                                                    .OccludedClusters = vg.OccludedClusters };
+            }
         }
 
         {

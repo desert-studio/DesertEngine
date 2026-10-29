@@ -32,6 +32,7 @@ Shader "InstanceCull"
         #include <Common/GpuScene.glslh>
         #include <Common/VirtualShadowMap.glslh>
         #include <Common/VirtualGeometry.glslh>
+        #include <Common/GpuCullTests.glslh>
 
         ReadBuffer(0) GpuCullPrimitives
         {
@@ -145,20 +146,6 @@ Shader "InstanceCull"
         uint ThreadIndex()
         {
             return ( gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x ) * 64u + gl_LocalInvocationIndex;
-        }
-
-        // Core::Frustum::Intersects: the corner farthest along each plane's normal; a zero plane accepts.
-        bool FrustumIntersects( GpuCullView view, vec3 boxMin, vec3 boxMax )
-        {
-            for ( uint p = 0u; p < 6u; ++p )
-            {
-                const vec4 plane    = view.FrustumPlanes[p];
-                const vec3 positive = vec3( plane.x >= 0.0 ? boxMax.x : boxMin.x, plane.y >= 0.0 ? boxMax.y : boxMin.y,
-                                            plane.z >= 0.0 ? boxMax.z : boxMin.z );
-                if ( dot( positive, plane.xyz ) + plane.w < 0.0 )
-                    return false;
-            }
-            return true;
         }
 
         // "VSM: Cull Casters"' page test (Programs/Shadows/VirtualShadowMapCullCasters.shader), same arithmetic.
@@ -300,45 +287,6 @@ Shader "InstanceCull"
             return false;
         }
 
-        // FURTHEST-HZB occlusion (UE HZBOcclusion.usf IsVisibleHZB): the box's screen rect through @p viewProjection,
-        // the mip at which it spans at most 2 x 2 texels, the furthest depth of those texels against the box's
-        // nearest depth. Reversed-Z (1 = near): occluded when the box's nearest is below every texel's furthest.
-        // A box crossing the near plane, or leaving the screen, is not occluded.
-        bool IsOccludedByHzb( GpuCullView view, mat4 viewProjection, vec3 boxMin, vec3 boxMax )
-        {
-            vec2  rectMin = vec2( 1.0e30 );
-            vec2  rectMax = vec2( -1.0e30 );
-            float nearest = 0.0;
-            for ( uint c = 0u; c < 8u; ++c )
-            {
-                const vec3 corner =
-                     mix( boxMin, boxMax, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
-                const vec4 clip = viewProjection * vec4( corner, 1.0 );
-                if ( clip.w <= 0.0 )
-                    return false;
-                const vec3 ndc = clip.xyz / clip.w;
-                // Vulkan clip space: +y is down the screen, so uv.y = ndc.y * 0.5 + 0.5 is the texel row.
-                const vec2 uv = ndc.xy * 0.5 + 0.5;
-                rectMin       = min( rectMin, uv );
-                rectMax       = max( rectMax, uv );
-                nearest       = max( nearest, ndc.z );
-            }
-            if ( nearest >= 1.0 || any( lessThan( rectMin, vec2( 0.0 ) ) ) || any( greaterThan( rectMax, vec2( 1.0 ) ) ) )
-                return false; // touches the near plane or leaves the HZB: last frame's depth does not cover it
-            const vec2  size    = ( rectMax - rectMin ) * vec2( view.HzbExtent.xy );
-            const uint  mips    = max( view.HzbExtent.z, 1u );
-            const float level   = ceil( log2( max( max( size.x, size.y ), 1.0 ) ) );
-            const int   mip     = int( clamp( level, 0.0, float( mips - 1u ) ) );
-            const ivec2 mipSize = max( ivec2( view.HzbExtent.xy ) >> mip, ivec2( 1 ) );
-            const ivec2 t0      = clamp( ivec2( floor( rectMin * vec2( mipSize ) ) ), ivec2( 0 ), mipSize - 1 );
-            const ivec2 t1      = clamp( ivec2( floor( rectMax * vec2( mipSize ) ) ), ivec2( 0 ), mipSize - 1 );
-            float       furthest = 1.0;
-            for ( int y = t0.y; y <= t1.y; ++y )
-                for ( int x = t0.x; x <= t1.x; ++x )
-                    furthest = min( furthest, texelFetch( GpuCullHzb, ivec2( x, y ), mip ).r );
-            return nearest < furthest;
-        }
-
         // Counts the instance into each submesh bin of its LOD in the pass and writes its visible entries.
         void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod )
         {
@@ -425,7 +373,7 @@ Shader "InstanceCull"
             const bool empty = WorldBox( primitive, instance, world, boxMin, boxMax );
             if ( !empty )
             {
-                bool inside = FrustumIntersects( view, boxMin, boxMax );
+                bool inside = GpuCull_FrustumIntersects( view, boxMin, boxMax );
                 if ( inside && ( view.Flags & DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK ) != 0u )
                     inside = CoversDrawnVsmCell( view, boxMin, boxMax );
                 if ( !inside )
@@ -441,7 +389,7 @@ Shader "InstanceCull"
 
             if ( !empty && Params2.w != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
                  ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u &&
-                 IsOccludedByHzb( view, view.PrevViewProjection, boxMin, boxMax ) )
+                 GpuCull_IsOccludedByHzb( GpuCullHzb, view, view.PrevViewProjection, boxMin, boxMax ) )
             {
                 const uint slot = atomicAdd( OccludedCount, 1u );
                 if ( slot < OccludedCapacity )
@@ -472,7 +420,7 @@ Shader "InstanceCull"
             vec3                    boxMin;
             vec3                    boxMax;
             WorldBox( primitive, instance, world, boxMin, boxMax );
-            if ( Params2.w != 0u && IsOccludedByHzb( view, view.ViewProjection, boxMin, boxMax ) )
+            if ( Params2.w != 0u && GpuCull_IsOccludedByHzb( GpuCullHzb, view, view.ViewProjection, boxMin, boxMax ) )
                 return;
             const uint cell = entry.View * Params.y + entry.Instance;
             const uint lod  = Visibility[cell] & DESERT_GPU_CULL_VISIBILITY_LOD_MASK;

@@ -424,11 +424,15 @@ namespace Desert::Graphic
         }
         /// VIRT-GEOM (DesertCtl `state views.virtualGeometry`): the VG instances this frame's draw bins made cut
         /// candidates of, and the clusters the main view's cluster cut drew (read back slots-in-flight late,
-        /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn.
+        /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn. Overflow: what the cut could not do
+        /// (full traversal stacks + clusters past the visible capacity + candidates without a draw slot);
+        /// OccludedClusters: clusters the previous-frame HZB hid.
         struct VirtualGeometryCounts
         {
-            uint32_t Instances       = 0;
-            uint32_t ClustersVisible = 0;
+            uint32_t Instances        = 0;
+            uint32_t ClustersVisible  = 0;
+            uint32_t Overflow         = 0;
+            uint32_t OccludedClusters = 0;
         };
         [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const;
         /// The mesh passes' cached draw commands (MeshRenderer::GetDrawCommandCache): bins, slots and the CPU
@@ -1779,6 +1783,8 @@ namespace Desert::Graphic
             GpuDriven::VirtualGeometryCandidateOutput VgCandidates;
             uint32_t                                  VgVisibleCapacity = 0;
             uint32_t                                  VgInstances       = 0;
+            // The texture the culls bind where a view has no HZB (System.Black: nothing occluded).
+            RDG::TextureRef NeutralHzb{};
         };
         std::optional<FrameDrawBins> m_FrameDrawBins;
         // This graph's furthest HZBs of the main view when the draw bins built them: last frame's (registered from

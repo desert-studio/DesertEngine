@@ -257,9 +257,10 @@ namespace Desert::Graphic
             m_VirtualGeometryLastError = made.GetError();
         }
 
+        bins.NeutralHzb = textures.GraphRefs().System.Black;
         const Common::ResultStr<GpuDriven::MainPhaseResult> culled = m_GpuCull.AddMainPhase(
              graph, scene.GetValue(), meshes->GetDrawCommandCache()->Passes(), upload.GetValue().Passes, views,
-             textures.GraphRefs().System.Black, vgTables.Input );
+             bins.NeutralHzb, vgTables.Input );
         if ( !culled )
         {
             refuse( culled.GetError() );
@@ -533,7 +534,7 @@ namespace Desert::Graphic
         const auto culled = m_VirtualGeometry->AddClusterCull(
              graph, GpuDriven::CullPhase::Main, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
              meshes->GetDrawCommandCache()->Passes()[pass], bins.Upload.Passes[pass], bins.Upload.SubmeshTransforms,
-             candidates, std::span( &view, 1 ) );
+             candidates, std::span( &view, 1 ), bins.NeutralHzb );
         if ( !culled )
         {
             m_ClusterCutCounts->Forget();
@@ -554,7 +555,12 @@ namespace Desert::Graphic
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
     {
-        return { .Instances       = m_VirtualGeometryInstances,
-                 .ClustersVisible = m_ClusterCutCounts ? m_ClusterCutCounts->LastCount().ClustersVisible : 0u };
+        if ( !m_ClusterCutCounts )
+            return { .Instances = m_VirtualGeometryInstances };
+        const VirtualGeometry::ClusterCutCount& last = m_ClusterCutCounts->LastCount();
+        return { .Instances        = m_VirtualGeometryInstances,
+                 .ClustersVisible  = last.ClustersVisible,
+                 .Overflow         = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
+                 .OccludedClusters = last.Status.OccludedClusters };
     }
 } // namespace Desert::Graphic

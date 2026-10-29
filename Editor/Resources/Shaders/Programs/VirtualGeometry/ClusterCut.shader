@@ -17,6 +17,14 @@ Shader "ClusterCut"
     //          Drawn clusters are HW clusters (no SW raster yet): VisibleClusters[capacity - 1 - i], counted in
     //          RasterArgs.HwDraw[1] (GpuClusterRasterArgs, the UE layout: SW from the front, HW from the back).
     //
+    // OCCLUSION: the instance cull appends VG candidates before its HZB test, so the cut owns VG occlusion. A node
+    // child and a cluster past the frustum test are tested against the PREVIOUS frame's furthest HZB through
+    // PrevViewProjection with the instance cull's own test (Common/GpuCullTests.glslh GpuCull_IsOccludedByHzb, one
+    // source), when a HZB is bound (Params2.x), the view tests it (DESERT_GPU_CULL_VIEW_TEST_HZB) and the primitive
+    // does not skip occlusion. The occluded are counted in Status (OccludedNodes / OccludedClusters) and dropped:
+    // no carry into a post phase yet (the lit image still draws VG instances through the bins, so the HZB those
+    // bins build stays complete).
+    //
     // Nothing is dropped silently: a stack that fills, a candidate whose primitive has no draw slot for its DAG's
     // submesh in the view's pass, and a visible list past its capacity each count in Status with the lowest DAG
     // row, and the host names the mesh (ClusterCutCounts).
@@ -26,6 +34,7 @@ Shader "ClusterCut"
 
         #include <Common/GpuScene.glslh>
         #include <Common/VirtualGeometry.glslh>
+        #include <Common/GpuCullTests.glslh>
 
         ReadBuffer(0) ClusterCutPrimitives
         {
@@ -91,8 +100,8 @@ Shader "ClusterCut"
             uint MissingSlotDag;
             uint VisibleOverflow;  // clusters past Params.y
             uint VisibleOverflowDag;
-            uint StatusPad0;
-            uint StatusPad1;
+            uint OccludedNodes;    // node children the previous-frame HZB hid (their subtree not visited)
+            uint OccludedClusters; // clusters of the cut the previous-frame HZB hid
         };
         Buffer(15) ClusterCutDispatchArgs
         {
@@ -102,9 +111,14 @@ Shader "ClusterCut"
             uint DispatchPad;
         };
 
+        Uniform sampler PointClampSampler;
+        Uniform(16) texture2D ClusterCutHzbTexture; // the previous frame's furthest HZB of the views (neutral: none)
+        #define ClusterCutHzb sampler2D(ClusterCutHzbTexture, PointClampSampler)
+
         PushConstant PushConstants
         {
-            uvec4 Params; // x = step, y = visible capacity, z = primitive rows of the pass table, w = candidate capacity
+            uvec4 Params;  // x = step, y = visible capacity, z = primitive rows of the pass table, w = candidate capacity
+            uvec4 Params2; // x = 1 when a HZB is bound, yzw = 0
         };
 
         #define kQueueCapacity 512u
@@ -112,30 +126,26 @@ Shader "ClusterCut"
 
         shared uint s_Queue[2][kQueueCapacity];
         shared uint s_QueueCount[2];
+        shared uint s_Occluded[2]; // the workgroup's occluded node children / clusters, added to Status once
         // The thread's own depth-first stack (per invocation, not shared).
         uint g_Stack[kStackDepth];
         uint g_Depth = 0u;
 
-        // Core::Frustum::Intersects (InstanceCull.shader): the corner farthest along each plane; a zero plane accepts.
-        bool FrustumIntersects( GpuCullView view, vec3 boxMin, vec3 boxMax )
-        {
-            for ( uint p = 0u; p < 6u; ++p )
-            {
-                const vec4 plane    = view.FrustumPlanes[p];
-                const vec3 positive = vec3( plane.x >= 0.0 ? boxMax.x : boxMin.x, plane.y >= 0.0 ? boxMax.y : boxMin.y,
-                                            plane.z >= 0.0 ? boxMax.z : boxMin.z );
-                if ( dot( positive, plane.xyz ) + plane.w < 0.0 )
-                    return false;
-            }
-            return true;
-        }
-
-        bool BoxInFrustum( GpuCullView view, vec3 center, vec3 extent, mat4 world )
+        // A node child's or a cluster's box: in the frustum, and not hidden by last frame's furthest HZB when the
+        // candidate tests it (CutFrame::TestHzb). @p occludedSlot: the s_Occluded counter an occluded box adds to.
+        bool BoxVisible( GpuCullView view, vec3 center, vec3 extent, mat4 world, bool testHzb, uint occludedSlot )
         {
             vec3 boxMin;
             vec3 boxMax;
             VgWorldBox( center, extent, world, boxMin, boxMax );
-            return FrustumIntersects( view, boxMin, boxMax );
+            if ( !GpuCull_FrustumIntersects( view, boxMin, boxMax ) )
+                return false;
+            if ( testHzb && GpuCull_IsOccludedByHzb( ClusterCutHzb, view, view.PrevViewProjection, boxMin, boxMax ) )
+            {
+                atomicAdd( s_Occluded[occludedSlot], 1u );
+                return false;
+            }
+            return true;
         }
 
         // The candidate's frame: everything both tests need, the same for every thread of the workgroup.
@@ -149,6 +159,7 @@ Shader "ClusterCut"
             uint  Instance;
             uint  Dag;
             uint  View;
+            bool  TestHzb; // a HZB is bound, the view tests it and the primitive does not skip occlusion
         };
 
         void EmitCluster( CutFrame f, uint cluster )
@@ -173,7 +184,7 @@ Shader "ClusterCut"
                 if ( VgProjectedError( cluster.LodBounds, cluster.BoxCenter.w, f.World, f.WorldScale, f.Origin,
                                        f.LodScale ) > f.Tau )
                     continue;
-                if ( !BoxInFrustum( view, cluster.BoxCenter.xyz, cluster.BoxExtent.xyz, f.World ) )
+                if ( !BoxVisible( view, cluster.BoxCenter.xyz, cluster.BoxExtent.xyz, f.World, f.TestHzb, 1u ) )
                     continue;
                 EmitCluster( f, firstCluster + c );
             }
@@ -191,7 +202,7 @@ Shader "ClusterCut"
                 if ( VgProjectedError( n.LodBounds[k], n.BoxExtent[k].w, f.World, f.WorldScale, f.Origin,
                                        f.LodScale ) <= f.Tau )
                     continue; // every cluster below is fine enough at its parent's level
-                if ( !BoxInFrustum( view, n.BoxCenter[k].xyz, n.BoxExtent[k].xyz, f.World ) )
+                if ( !BoxVisible( view, n.BoxCenter[k].xyz, n.BoxExtent[k].xyz, f.World, f.TestHzb, 0u ) )
                     continue;
                 if ( ( child & VG_HIERARCHY_LEAF ) != 0u )
                 {
@@ -245,8 +256,9 @@ Shader "ClusterCut"
                 return; // uniform
             }
 
-            CutFrame f;
-            f.World = GpuScene_UnpackAffine( Primitives[instance.Primitive].LocalToWorld ) *
+            const GpuScenePrimitive primitive = Primitives[instance.Primitive];
+            CutFrame                f;
+            f.World = GpuScene_UnpackAffine( primitive.LocalToWorld ) *
                       GpuScene_InstanceToPrimitive( instance ) * SubmeshTransforms[DrawSlots[slot].SubmeshTransform];
             f.WorldScale = VgMaxScale( f.World );
             f.Origin     = view.LodOrigin.xyz;
@@ -255,12 +267,16 @@ Shader "ClusterCut"
             f.Instance   = candidate.Instance;
             f.Dag        = candidate.Dag;
             f.View       = candidate.View;
+            f.TestHzb    = Params2.x != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
+                        ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u;
 
             if ( gl_LocalInvocationIndex == 0u )
             {
                 s_Queue[0][0]   = candidate.Node;
                 s_QueueCount[0] = 1u;
                 s_QueueCount[1] = 0u;
+                s_Occluded[0]   = 0u;
+                s_Occluded[1]   = 0u;
             }
             barrier();
 
@@ -283,6 +299,15 @@ Shader "ClusterCut"
             // What did not fit the queues, depth first on this thread.
             while ( g_Depth > 0u )
                 VisitNode( f, view, g_Stack[--g_Depth], 0u, false );
+
+            barrier(); // every thread reaches it: the stack loop above has no barrier inside
+            if ( gl_LocalInvocationIndex == 0u )
+            {
+                if ( s_Occluded[0] != 0u )
+                    atomicAdd( OccludedNodes, s_Occluded[0] );
+                if ( s_Occluded[1] != 0u )
+                    atomicAdd( OccludedClusters, s_Occluded[1] );
+            }
         }
 
         void WriteDispatchArgs()

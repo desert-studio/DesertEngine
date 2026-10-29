@@ -12,6 +12,21 @@
 Тогда [vg_table] editor.log has "[VirtualMeshTable] '...Bistro_Exterior_Lantern...' registered" with N clusters > 0 and "(1 meshes resident)" or more
 Когда run View "View mode: Virtual Geometry Clusters"
 Тогда-вид [vg_clusters] the lantern shows flat per-cluster colours (patches of ~128 triangles), every other mesh lit as in "View mode: Lit"; 0 VUID
+# [vg_cut] (VIRT-GEOM step 10): the cluster cut per frame - LOD by distance and occlusion by last frame's HZB. UNVERIFIED
+# (written unbuilt): the camera positions assume the lantern dropped at the viewport centre of the VFX-PORT camera; the
+# first run re-picks them so the lantern fills the view (near), is a few pixels tall (far), and sits behind the
+# Bistro facade (wall) with the camera looking through it.
+Когда --subject viewport set Camera.Position -800,190,-60
+Когда --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_cut] near: views.virtualGeometry.instances >= 1, clustersVisible = N_near > 0, overflow 0; the vg_clusters frame shows coloured clusters on the lantern
+Когда --subject viewport set Camera.Position -1400,260,-840
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_cut] far: same direction, clustersVisible = N_far with 0 < N_far < N_near (coarser DAG levels), overflow 0; the lantern still coloured
+Когда --subject viewport set Camera.Position -800,190,-600
+Когда --subject viewport set Camera.Direction 0,0,1
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_cut] behind the wall: instances >= 1 (the instance cull hands VG candidates in before its HZB test), clustersVisible drops to ~0, occludedClusters > 0, overflow 0; frame shows no lantern clusters; 0 VUID in editor.log over the whole walk
 Когда run View "View mode: Lit"
 Когда run Scene "Open Scene Bistro.desce"
 Тогда [vg_table] after the reload without save the lantern is gone: editor.log "[VirtualMeshTable] '...Bistro_Exterior_Lantern...' released"

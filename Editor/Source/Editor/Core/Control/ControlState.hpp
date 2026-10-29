@@ -95,6 +95,17 @@ namespace Desert::Editor::Control
         uint32_t    Phase2 = 0;
     };
 
+    // The main view's virtual-geometry cluster cut (SceneRenderer::GetVirtualGeometryCounts, read back a few
+    // frames late): the VG instances made cut candidates, the clusters drawn, what the cut could not do (Overflow:
+    // full stacks + clusters past capacity + candidates without a draw slot) and the clusters last frame's HZB hid.
+    struct VirtualGeometrySnapshot
+    {
+        uint32_t Instances        = 0;
+        uint32_t ClustersVisible  = 0;
+        uint32_t Overflow         = 0;
+        uint32_t OccludedClusters = 0;
+    };
+
     struct EntitySnapshot
     {
         std::string Tag;
@@ -183,6 +194,7 @@ namespace Desert::Editor::Control
         std::vector<MeshPassDrawSnapshot> MeshPasses;
         // Per view the draw bins served this frame, in cull order (main view first).
         std::vector<DrawBinViewSnapshot> DrawBinViews;
+        VirtualGeometrySnapshot          VirtualGeometry;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -396,6 +408,12 @@ namespace Desert::Editor::Control
                 drawBinViews[view.Name] = Common::Json::Value( item );
             }
             views["drawBinViews"] = Common::Json::Value( drawBinViews );
+            Common::Json::Object virtualGeometry;
+            virtualGeometry["instances"]        = Num( snapshot.VirtualGeometry.Instances );
+            virtualGeometry["clustersVisible"]  = Num( snapshot.VirtualGeometry.ClustersVisible );
+            virtualGeometry["overflow"]         = Num( snapshot.VirtualGeometry.Overflow );
+            virtualGeometry["occludedClusters"] = Num( snapshot.VirtualGeometry.OccludedClusters );
+            views["virtualGeometry"]            = Common::Json::Value( virtualGeometry );
             root["views"]         = Common::Json::Value( views );
         }
 
