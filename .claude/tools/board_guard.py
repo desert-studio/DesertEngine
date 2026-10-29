@@ -130,7 +130,7 @@ NIGHT_MIN_AGENTS = 3
 # Day floor (owner 10-29 «у тебя опять 2 агента. я разрешил больше ... отслеживай через хуки»): ~/.claude/min_agents
 # holds the number of agents that must be running; Stop refuses a lead below it unless a merge is in progress.
 MIN_AGENTS_FILE = os.path.expanduser("~/.claude/min_agents")
-MAX_AGENTS = 5  # owner 10-29 «минимуи 3, а максимум 5»: a launch above it is refused
+MAX_AGENTS = 4  # owner 10-30 «не меньше 2, не больше 4»: a launch above it is refused
 
 
 def min_agents():
@@ -261,6 +261,26 @@ def launch_refusal(s, code, prompt):
     return (f"{code} — не хвост (статус «{row.get('status', 'Бэклог/новая')}»), а открытых хвостов {len(t)} "
             "(владелец 10-27: хвосты первыми, «фичи можно, если хвосты закрыты»). Запусти хвост; закрывашку хвоста помечай "
             "в промпте «ХВОСТ: <КОД хвоста>»; новую фичу — только с «ВЛАДЕЛЕЦ: «<его слова этой сессии>»».")
+
+
+# Owner 10-29 «почему так много неслитых веток??»: 16 branches, 7 of them ~340 h, because new steps went into
+# branches nobody landed. A launch on a task branch whose oldest commit not in dev is older than a day is refused
+# unless the prompt marks it as landing work («ПОСАДКА:» — merge, build-readiness, compile fixes; no new feature).
+def stale_branch_refusal(code, prompt):
+    if "ПОСАДКА:" in prompt:
+        return None
+    base = re.sub(r"-\d+$", "", code)
+    for br in (f"origin/task/{code}", f"origin/task/{base}"):
+        r = subprocess.run(["git", "log", "--format=%ct", "--reverse", f"origin/dev..{br}"],
+                           capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            age = (time.time() - int(r.stdout.split()[0])) / 3600
+            if age > 24:
+                return (f"{br} не в dev уже {age:.0f} ч: новый шаг в невлитую ветку запрещён (владелец 10-29, «почему так "
+                        "много неслитых веток??»). Сначала влей её; работа на посадку (слияние, готовность к сборке, "
+                        "ошибки компиляции) — с «ПОСАДКА: <что>» в промпте.")
+            return None
+    return None
 
 
 def session_start(s):
@@ -493,6 +513,9 @@ def main():
             refusal = code not in s["writes"] or launch_refusal(s, code, str(tin.get("prompt") or ""))
             if isinstance(refusal, str):
                 deny(refusal)
+            stale = stale_branch_refusal(code, str(tin.get("prompt") or ""))
+            if stale:
+                deny(stale)
             if code not in s["writes"]:
                 deny(f"нет карточки {code} на доске «Задачи»: создай/обнови ДО запуска (Код={code}, Статус «В работе», "
                      "Ветка, «Кто ведёт»; заголовок «КОД · …»): notion-search по коду → update_properties по шаблону "
