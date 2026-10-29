@@ -80,8 +80,9 @@ namespace Desert::Core::Preprocess
     // the one home of the cell set and of the headers a cell is built from — the parser writes the cells
     // from them and ComputeShaderMapKey hashes the same headers, so the two cannot disagree.
     inline constexpr std::array<std::string_view, 3> kSurfaceVertexPaths = { "Static", "Instanced", "Skinned" };
-    inline constexpr std::array<std::string_view, 4> kSurfaceCellPasses   = { "Forward", "GBuffer", "ShadowDepth",
-                                                                              "VirtualShadowDepth" };
+    // "Depth" last: the view's depth prepass (kSurfaceViewDepthPass), appended so the other cells keep their order.
+    inline constexpr std::array<std::string_view, 5> kSurfaceCellPasses   = { "Forward", "GBuffer", "ShadowDepth",
+                                                                              "VirtualShadowDepth", "Depth" };
     inline constexpr std::string_view                kSurfaceTypesInclude = "Mesh/Surface/SurfaceTypes.glslh";
     // THE PARALLAX PERMUTATION (UE: the static permutation of a material whose ParallaxOcclusionMapping node and
     // Pixel Depth Offset pin are wired). A template that declares `Height <Texture2D> ... Scale(<Float>)` gets every mesh cell a
@@ -200,9 +201,19 @@ namespace Desert::Core::Preprocess
     // writing the physical pool): the same depth-only cell, its fragment stage writing the pool by an atomic max
     // instead of a depth attachment (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
     inline constexpr std::string_view kSurfaceVirtualDepthPass = "VirtualShadowDepth";
-    constexpr bool                    IsSurfaceDepthOnlyPass( const std::string_view pass )
+    // The VIEW's depth prepass (UE: the DepthPass mesh pass, FDepthPassMeshProcessor + DepthOnlyVertexShader /
+    // DepthOnlyPixelShader): the camera's own frame, depth only, before the base pass. Its vertex stage is the
+    // path's view header (the GpuScene row, the jittered camera matrix - the base pass's very gl_Position), its
+    // fragment stage Mesh/Surface/Pass_Depth.glslh: nothing for an opaque template, the opacity mask's clip for a
+    // Masked one, the relief's depth for a `.Parallax` cell. The base pass then tests its own depth against this one
+    // and writes none.
+    inline constexpr std::string_view kSurfaceViewDepthPass = "Depth";
+    // Whether an OPAQUE cell of @p pass evaluates no surface: its fragment stage is the pass header alone (no
+    // surface function, no material row). The caster passes' cells also push no block (the shadow shader's
+    // layout); the view depth cell's vertex stage keeps the view pass's push block (its GpuScene row).
+    constexpr bool IsSurfaceDepthOnlyPass( const std::string_view pass )
     {
-        return pass == kSurfaceDepthPass || pass == kSurfaceVirtualDepthPass;
+        return pass == kSurfaceDepthPass || pass == kSurfaceVirtualDepthPass || pass == kSurfaceViewDepthPass;
     }
 
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the

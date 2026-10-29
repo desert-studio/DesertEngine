@@ -4,6 +4,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
+#include <algorithm>
 #include <unordered_set>
 
 // GPU-INSTANCED SECTIONS (GpuInstances.hpp): the landscape grass. The transforms and the instance count are the
@@ -86,7 +87,15 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
-            const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
+            // The masked depth prepass draws the Masked sections alone; the G-buffer draws a section it drew at
+            // its depth, without writes (m_InstancedGBufferEqualPipeline).
+            const bool masked = IsMaskedSurface( parent );
+            if ( pass == MeshPass::Depth && !masked )
+                continue;
+            const bool prepassed = pass == MeshPass::GBuffer && masked &&
+                                   std::find( m_MaskedPrepassed.begin(), m_MaskedPrepassed.end(), gpu.Key ) !=
+                                        m_MaskedPrepassed.end();
+            const uint32_t view = kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( pass );
             DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
                                                   ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
                                                   : nullptr;
@@ -99,8 +108,9 @@ namespace Desert::Graphic::System
                                MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
                 continue;
             }
-            GraphicsPipeline* pipeline =
-                 CullPermutation( CellPipeline( instancedPipeline, *cell ), gpu.Material->IsTwoSided() );
+            GraphicsPipeline* pipeline = CullPermutation(
+                 CellPipeline( prepassed ? m_InstancedGBufferEqualPipeline.get() : instancedPipeline, *cell ),
+                 gpu.Material->IsTwoSided() );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
 
@@ -115,6 +125,8 @@ namespace Desert::Graphic::System
             const uint32_t row = *materialRow;
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
+            if ( pass == MeshPass::Depth )
+                m_MaskedPrepassed.push_back( gpu.Key );
 
             // One draw per LOD level the producer sorted its instances into, each reading its level's records.
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
