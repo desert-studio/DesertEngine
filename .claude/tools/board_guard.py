@@ -225,8 +225,12 @@ def ingest_rows(s, resp, full, paged=False):
 
 
 def owner_quote_ok(s, prompt):
-    m = re.search(r"ВЛАДЕЛЕЦ:\s*«([^»]{12,})»", prompt)
-    return bool(m) and any(m.group(1).strip().lower() in t.lower() for _, t in s["prompts"])
+    m = re.search(r"ВЛАДЕЛЕЦ:\s*«([^»]{3,})»", prompt)
+    if not m:
+        return False
+    q = m.group(1).strip().lower()
+    # a short consent («Запускай») counts only as the owner's whole message, never as a substring of one
+    return any((q in t.lower()) if len(q) >= 12 else (q == t.strip().strip(".!").lower()) for _, t in s["prompts"])
 
 
 def launch_refusal(s, code, prompt):
