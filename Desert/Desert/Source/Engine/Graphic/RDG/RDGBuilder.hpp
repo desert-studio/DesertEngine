@@ -307,6 +307,18 @@ namespace Desert::Graphic::RDG
             return m_PassCulling;
         }
 
+        // RenderPipeline.AsyncCompute (Scalability). On by default. Off, BeginPass strips PassFlags::AsyncCompute from
+        // every pass added AFTER the call, so the graph records them on the graphics queue in AddPass order and logs
+        // no demotion (UE FRDGBuilder::OverridePassFlags under r.RDG.AsyncCompute 0). Set it before the first pass.
+        void SetAsyncCompute( bool enabled )
+        {
+            m_AsyncCompute = enabled;
+        }
+        [[nodiscard]] bool IsAsyncComputeEnabled() const
+        {
+            return m_AsyncCompute;
+        }
+
         // RDG-FAULT1 (RDGFault.hpp). What a surviving reader reads when every pass that defined @p texture's
         // contents was removed by a fault. Declared by the creator of the transient (only the producer knows what
         // "nothing" is for its output); None, the default, culls the readers instead. Refused (a graph-level
@@ -449,6 +461,7 @@ namespace Desert::Graphic::RDG
         std::string                 m_DeclarationError;
         bool                        m_Executed    = false;
         bool                        m_PassCulling = true;
+        bool                        m_AsyncCompute = true;
         // RDG-FAULT1. What a FaultDefault names and clears to (FaultDefaults), the faults of the last
         // Execute, and the substitutions Execute made for LATE faults (PassContext::GetTexture honours them
         // together with CompileResult::Substitutions).

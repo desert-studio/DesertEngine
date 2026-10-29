@@ -431,7 +431,9 @@ namespace Desert::Graphic
         {
             ComputeNodeDeclaration& node = nodes[i];
             graph.AddPass(
-                 node.Name, RDG::PassFlags::Compute | RDG::PassFlags::NeverCull,
+                 node.Name,
+                 RDG::PassFlags::Compute | RDG::PassFlags::NeverCull |
+                      ( node.AsyncCompute ? RDG::PassFlags::AsyncCompute : RDG::PassFlags::None ),
                  [&]( RDG::PassBuilder& pass ) { DeclareOn( pass, images[i], node.Access ); },
                  [record = std::move( node.Record ), refs = textures.GraphRefs()](
                       RDG::PassContext& context ) -> Common::BoolResultStr { return record( context, refs ); } );

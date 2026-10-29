@@ -330,6 +330,15 @@ namespace Common::Scalability
         // pool slots (emitter Capacity) every playing system of a world may hold together; over it, the least
         // significant systems are refused (their effect type's CullReaction). 0 = no budget.
         EffectsMaxWorldParticles, // 0..4194304
+        // 0/1: the view graph's AsyncCompute passes run on the device's compute queue family, overlapping the
+        // graphics queue (UE r.RDG.AsyncCompute and the per-feature r.*.AsyncCompute). 0 = every pass records on the
+        // graphics queue in AddPass order. Narrowed by the catalog: a device without a separate compute family (or a
+        // portability device, CapabilityCatalog::AsyncCompute) resolves it to 0, said as a fallback. Read by
+        // SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute.  Key "RenderPipeline.AsyncCompute": it is not a
+        // quality level's choice (equal at every level, so no level of Scalability.json names it), only a machine
+        // override; Effects owns it for the selector's listing because the passes it moves are particles, clouds
+        // and the light grids.
+        AsyncCompute,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
@@ -351,6 +360,9 @@ namespace Common::Scalability
         // PathTracingDenoiserMethod: RR needs DLSSRayReconstruction in AntiAliasingMethods; an RR the device does
         // not offer falls back to ReLAX ("not offered by this device"); Auto settles to RR or ReLAX, unreported.
         PathTracingDenoisers,
+        // AsyncCompute (0/1): 1 needs CapabilityCatalog::AsyncCompute; a device without it resolves to 0
+        // ("not offered by this device").
+        AsyncCompute,
     };
 
     // WHO A PARAMETER IS SHOWN TO (SCAL-UX, owner 10-27 "too many switches"). Basic: what a game's graphics menu

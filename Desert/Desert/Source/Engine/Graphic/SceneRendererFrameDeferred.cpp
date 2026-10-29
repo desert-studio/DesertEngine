@@ -358,26 +358,28 @@ namespace Desert::Graphic
         const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
         textures.Transients.SSAO       = ao;         // -> Deferred: Composite (SsaoTexture)
+        // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
+        // reconstructs positions with its inverse (both from the ViewFrame, one copy).
+        const RDG::BufferRef uniforms = System::SSAORenderer::UploadUniforms(
+             graph, System::SSAOUniforms::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                  .View                      = frame.View,
+                                                  .Projection                = frame.Projection,
+                                                  .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
+                                                  .FrameIndex       = frame.FrameIndex,
+                                                  .WorldRadius      = kGTAOWorldRadius,
+                                                  .ThicknessBlend   = kGTAOThicknessBlend,
+                                                  .TapsPerDirection = m_SSAOSamples,
+                                                  .Angles           = kGTAOAngles } );
+        // UE r.AmbientOcclusion.Compute: a compute dispatch whose every input is a graph resource, so it runs on
+        // the async compute pipe (RenderPipeline.AsyncCompute; the builder strips the flag when that is off). Fork:
+        // the last graphics writer of the depth / GBufferB (the G-buffer, its resolve / expand); join: the first
+        // graphics reader of the AO, Deferred: Composite. HZB and SSR (and everything else between) overlap it.
         graph.AddPass(
-             "Deferred: SSAO", RDG::PassFlags::Raster,
-             [&]( RDG::PassBuilder& pass )
-             {
-                 ssao->DeclareBindings( pass, depth, normal );
-                 pass.ColorTarget( 0, ao, EngineClearColor() ); // AO is fully recomputed each frame
-             },
-             // The G-buffer was rasterised with the jittered matrix: SSAO projects its samples through it and
-             // reconstructs positions with its inverse (both from the ViewFrame, one copy).
-             [ssao, inputs = MaterialSSAO::Inputs{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
-                                                   .View                      = frame.View,
-                                                   .Projection                = frame.Projection,
-                                                   .TargetSize       = { aoDesc.Size.Width, aoDesc.Size.Height },
-                                                   .FrameIndex       = frame.FrameIndex,
-                                                   .WorldRadius      = kGTAOWorldRadius,
-                                                   .ThicknessBlend   = kGTAOThicknessBlend,
-                                                   .TapsPerDirection = m_SSAOSamples,
-                                                   .Angles           = kGTAOAngles }](
+             "Deferred: SSAO", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [&]( RDG::PassBuilder& pass ) { ssao->DeclareBindings( pass, depth, normal, ao, uniforms ); },
+             [ssao, width = aoDesc.Size.Width, height = aoDesc.Size.Height](
                   RDG::PassContext& context ) -> Common::BoolResultStr
-             { return ssao->Record( context, inputs ); } );
+             { return ssao->Record( context, width, height ); } );
     }
 
     LightGridParamsPayload SceneRenderer::AddFrameLightGrid( RDG::Builder& graph, FrameTextures& textures,
@@ -407,7 +409,10 @@ namespace Desert::Graphic
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
         // it, before any lit node reads the lists.
         graph.AddPass(
-             "LightGrid", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             // ASYNC COMPUTE: reads only the light uploads above, its first reader (MegaLights volume when it runs,
+             // else the forward base pass or the deferred composite) comes after the G-buffer fill.
+             "LightGrid", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, lights]( RDG::PassBuilder& pass )
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::Frustum ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
@@ -726,7 +731,9 @@ namespace Desert::Graphic
                                                                       GetPointLights(), GetSpotLights() );
         System::DeferredLightingRenderer::UploadWorldGrid( graph, grid, lights );
         graph.AddPass(
-             "LightGridWorld", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             // ASYNC COMPUTE: reads the world-grid upload above; read first by the traced GI after the G-buffer.
+             "LightGridWorld", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, lights]( RDG::PassBuilder& pass )
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::WorldClipmaps ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );

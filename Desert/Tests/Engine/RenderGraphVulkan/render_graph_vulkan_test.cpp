@@ -189,6 +189,8 @@ namespace
             out.Rdg.Device        = out.Device.device;
             out.Rdg.Allocator     = out.Allocator;
             out.Rdg.Limits        = out.Device.physical_device.properties.limits;
+            // The engine's sharing rule over this device's families (the async tests cross them).
+            out.Rdg.Sharing = VulkanResourceSharing::FromFamilies( out.QueueFamily, out.ComputeFamily, out.ComputeFamily );
             out.Rdg.CmdBeginLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
                  vkGetInstanceProcAddr( out.Instance.instance, "vkCmdBeginDebugUtilsLabelEXT" ) );
             out.Rdg.CmdEndLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
