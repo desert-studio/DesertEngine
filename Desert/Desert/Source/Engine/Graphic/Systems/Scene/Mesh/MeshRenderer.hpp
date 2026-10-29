@@ -629,7 +629,7 @@ namespace Desert::Graphic::System
         // [.Parallax].Binned.VirtualGeometry` on the VSM caster state), whose vertex stage takes the level's matrix
         // and fragment stage the level's page table from the cluster's view. The carriers are made by
         // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
-        // twin draws (ClusterWalkHidden). Returns per group whether its clusters are drawn. A group with clusters
+        // twin draws (CpuWalkHidden). Returns per group whether its clusters are drawn. A group with clusters
         // binned and no twin is one of two states, both kept in the CPU walk (no shadow is lost):
         //  - a FALLBACK (UE: a material with no Nanite path renders the fallback mesh - a known state, not an
         //    error) when its template declares no `.VirtualGeometry` twin (DeclaresVirtualGeometryTwin): counted per
@@ -657,19 +657,46 @@ namespace Desert::Graphic::System
         // VsmFallbackSubmeshes of this frame: the static and ISM queues' VG submeshes binned into a group flagged in
         // @p fallbackGroups (index = VirtualShadow table group). Called by SetVirtualShadowGeometry.
         [[nodiscard]] uint32_t CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const;
-        // THE CPU WALK OF A VG PRIMITIVE in a view whose cluster raster of @p pass is issued this frame (@p
-        // rasterIssued: a cascade's SetFrameVirtualGeometry, the VSM's SetVirtualShadowGeometry). Empty when the
-        // raster is not issued or @p mesh is not a VG primitive (ClusterableSubmeshes left no words): the caller's
-        // own rule decides (a cascade's bins). Otherwise the primitive is the cluster raster's in the view - its
-        // instances are cut candidates, never in the view's bins - so the walk hides exactly its own hidden plus
-        // the clustered submeshes and draws every other shown one: no submesh is drawn twice, none is lost (a
-        // submesh whose group has no twin is walked). The words past the first 64 submeshes are interned in
-        // m_ClusterWalkWords (kept until the next ResetVirtualShadowGeometry), so equal masks share one view and
-        // their entries batch together.
-        [[nodiscard]] std::optional<SubmeshMask> ClusterWalkHidden( GpuDriven::MeshPass pass, bool rasterIssued,
-                                                                    const Desert::StaticMesh* mesh,
-                                                                    GpuDriven::PrimitiveIndex primitive,
-                                                                    uint64_t                  hidden );
+        // THE CPU WALK OF ONE RECORD (a static entry, an ISM / foliage field, a generic or skinned draw) in one
+        // view - THE ONE RULE "who draws this submesh" for every view pass (main Forward / GBuffer, a sun
+        // cascade's layer, a VSM level; VIRT-GEOM step 26). UE: a primitive the cluster path cannot draw is drawn
+        // by its fallback mesh, never lost. Returns the submeshes the CPU walk HIDES (the record's own @p hidden
+        // plus what the GPU draws), or empty when the GPU draws every submesh the record shows:
+        //  - a VG primitive in the view (a binned view: InstanceCull took its instances out of the view's bins as
+        //    cluster-cut candidates, m_FrameClusterCandidates; a VSM level: its mesh has uploaded DAG rows): the
+        //    walk hides only the submeshes the view's cluster raster DRAWS - a candidate DAG binned into a group
+        //    whose `.VirtualGeometry` carrier the issued raster holds (a VSM level: whose twin pipeline exists,
+        //    its carriers are made later). A refused cut, a refused carrier, a twin-less group or a submesh with
+        //    no candidate DAG: walked, so the clusters it would have drawn are drawn by the mesh's own submeshes;
+        //  - any other record of a binned view: empty when the bins hold every shown submesh
+        //    (DrawCommandCache::SubmeshesBinned), else @p hidden;
+        //  - a view with neither (a local light, a movable layer, a refused bins issue): @p hidden.
+        // The words past the first 64 submeshes are interned in m_ClusterWalkWords (kept until the next
+        // ResetVirtualShadowGeometry), so equal masks share one view and their records batch together.
+        struct ClusterWalkView
+        {
+            GpuDriven::MeshPass Pass = GpuDriven::MeshPass::Forward;
+            // The view issues GPU-culled bins this frame (FrameBinned): the main view or a sun cascade's static
+            // layer.
+            bool BinsIssued = false;
+            // The phase-1 cluster raster's carriers per Table->Groups (BinnedIssue::VirtualGeometry, made by
+            // SetFrameVirtualGeometry); null: no raster this frame (no cut, or the cut / its carriers refused).
+            const std::vector<const MaterialExecutor*>* RasterCarriers = nullptr;
+            // A VSM level: the view issues no bins; its VG-only raster (m_VsmGeometry) is issued when set.
+            bool VirtualShadow = false;
+        };
+        [[nodiscard]] ClusterWalkView BinnedWalkView( GpuDriven::MeshPass pass, uint32_t viewKey ) const;
+        [[nodiscard]] ClusterWalkView VirtualShadowWalkView() const;
+        [[nodiscard]] ClusterWalkView UnbinnedWalkView( GpuDriven::MeshPass pass ) const;
+        // @p mesh: the record's mesh (its submesh count; a StaticMesh's DAG rows for a VSM level), may be null.
+        [[nodiscard]] std::optional<SubmeshMask> CpuWalkHidden( const ClusterWalkView& view, const Desert::Mesh* mesh,
+                                                                GpuDriven::PrimitiveIndex primitive,
+                                                                uint64_t                  hidden );
+        // THE CLUSTER-CUT CANDIDATES OF THIS FRAME (SceneRenderer::AddFrameDrawBins, after InstanceCull's main
+        // phase took them with candidates appended): per primitive, the submeshes whose DAG rows InstanceCull
+        // appends for EVERY cull view (MakeVirtualGeometryCandidates' spans, one bit per submesh, no 64 cap). Such
+        // a primitive's instances reach no bin of any binned view. Forgotten by BeginFrameBins.
+        void SetFrameClusterCandidates( std::unordered_map<GpuDriven::PrimitiveIndex, std::vector<uint64_t>> submeshes );
         // A new frame of the virtual shadow map's cluster path: drops the last frame's issue, its refusal and
         // fallback counts and its interned walk masks. Called by SceneRenderer before every frame's graph, so a frame whose
         // method is not VirtualMaps (or whose VSM cut is refused) reports no refused groups.
@@ -1724,7 +1751,7 @@ namespace Desert::Graphic::System
         std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
         // This frame's VG-only issue of every level (SetVirtualShadowGeometry), consumed by AddVirtualShadowRasterPasses
         // into m_VsmGeometryDraws ("VSM: Raster VirtualGeometry"); while set, the levels' CPU walk leaves out the
-        // submeshes whose clusters it draws (ClusterWalkHidden).
+        // submeshes whose clusters it draws (CpuWalkHidden).
         std::optional<MeshRendererDetail::BinnedIssue> m_VsmGeometry;
         MeshRendererDetail::MeshDrawList               m_VsmGeometryDraws;
         uint32_t                                       m_VsmRefusedGroups     = 0;
@@ -1736,10 +1763,12 @@ namespace Desert::Graphic::System
         // re-renders its pages.
         bool m_VsmClusteredThisFrame = false;
         bool m_VsmClusteredLastFrame = false;
-        // ClusterWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views
+        // CpuWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views
         // the cascades' and levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
         std::set<std::vector<uint64_t>> m_ClusterWalkWords;
         std::vector<uint64_t>           m_ClusterWalkScratch;
+        // SetFrameClusterCandidates: per VG primitive of this frame, its candidate submeshes (word i / 64).
+        std::unordered_map<GpuDriven::PrimitiveIndex, std::vector<uint64_t>> m_FrameClusterCandidates;
         // Per non-mesh caster: its first block on the level's node and its first culled argument record.
         struct VsmCasterEntry
         {
@@ -2027,10 +2056,6 @@ namespace Desert::Graphic::System
         // The ISM queue's primitives (GpuSceneRecordRows::FieldPrimitives, per m_InstancedQueue entry) the feed saw.
         std::vector<GpuDriven::PrimitiveIndex> m_FieldPrimitives;
         [[nodiscard]] const FrameBinnedView* FrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey ) const;
-        // True when (pass, view) issues its bins this frame and they hold every submesh of @p primitive that
-        // @p hiddenSubmeshMask leaves visible: the CPU list drops the record.
-        [[nodiscard]] bool SkipsBinned( GpuDriven::MeshPass pass, uint32_t viewKey, GpuDriven::PrimitiveIndex primitive,
-                                        uint64_t hiddenSubmeshMask ) const;
         // Attaches (pass, view)'s issue to @p list when it is active this frame.
         void AttachBinned( MeshRendererDetail::MeshDrawList& list, GpuDriven::MeshPass pass, uint32_t viewKey ) const;
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;

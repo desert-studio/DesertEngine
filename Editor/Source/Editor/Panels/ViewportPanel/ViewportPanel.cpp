@@ -1491,6 +1491,11 @@ namespace Desert::Editor
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Run every render-graph pass, even those whose output nothing reads.\n"
                                        "A picture that changes names a pass the graph cannot see." );
+                viewChanged |=
+                     ImGui::Checkbox( "Force Virtual Geometry Cut Refusal", &view.ForceVirtualGeometryCutRefusal );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Refuse every cluster cut after the bins gave up the VG meshes.\n"
+                                       "The meshes must still draw (their own submeshes): equal to VG off." );
                 ImGui::Separator();
                 // UE's viewport "Realtime": while editing, whether the world's preview time moves — the
                 // cloud wind, particles, a material's Time node. The user's answer, so it lives in

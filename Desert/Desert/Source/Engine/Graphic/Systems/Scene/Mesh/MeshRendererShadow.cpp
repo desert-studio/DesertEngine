@@ -884,46 +884,21 @@ namespace Desert::Graphic::System
         };
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
 
-        // The sun cascade's static layer issued from its GPU-culled bins (AttachBinned below): its CPU loops drop
-        // every record the bins hold. Local views, VSM levels and the movable layer never do.
+        // The sun cascade's static layer issued from its GPU-culled bins (AttachBinned below).
         const bool binnedLayer = layer == ShadowCasterLayer::Static;
-        const auto heldByBins  = [&]( const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden )
-        { return binnedLayer && SkipsBinned( GpuDriven::MeshPass::ShadowCascade, c, primitive, hidden ); };
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
-        // THE CLUSTER RASTER of this view, one rule for a sun cascade's static layer (its bins' VG issue,
-        // SetFrameVirtualGeometry, attached to the list with them) and a VSM level (SetVirtualShadowGeometry): a
-        // VG primitive's instances are cut candidates there, never in the view's bins, so its record's walk
-        // (ClusterWalkHidden) hides exactly the submeshes whose clusters a twin draws and draws every other shown
-        // one - none drawn twice, none lost (a submesh in a group with no twin). A record that is not the raster's
-        // falls to the bins' rule (heldByBins: all its shown submeshes binned, or none of it is dropped).
-        const bool                vsmView     = IsVirtualShadowView( c );
-        const GpuDriven::MeshPass clusterPass = vsmView ? GpuDriven::MeshPass::VirtualShadow
-                                                        : GpuDriven::MeshPass::ShadowCascade;
-        bool clustersDrawn = vsmView && m_VsmGeometry.has_value();
-        if ( !vsmView && binnedLayer )
-            if ( const FrameBinnedView* binned = FrameBinned( GpuDriven::MeshPass::ShadowCascade, c ) )
-                clustersDrawn = binned->Issue.VirtualGeometry.has_value();
-        // The submeshes the CPU walk hides of a record (static entry or ISM / foliage field); empty: the walk
-        // draws none of it (the bins or the clusters hold every submesh it shows).
-        const auto walkHidden = [&]( const Desert::StaticMesh* mesh, const std::size_t submeshes,
+        // THE CPU WALK of this view (CpuWalkHidden, the one rule of every view pass): a VSM level (its VG-only
+        // raster), a sun cascade's static layer (its bins and their cluster raster: a VG primitive is walked for
+        // every submesh the raster does not draw - a refused cut or carrier leaves it whole to the walk), or a view
+        // with neither (the movable layer, a local light): everything. Empty: the walk draws none of the record.
+        const ClusterWalkView walkView = IsVirtualShadowView( c ) ? VirtualShadowWalkView()
+                                         : binnedLayer ? BinnedWalkView( GpuDriven::MeshPass::ShadowCascade, c )
+                                                       : UnbinnedWalkView( GpuDriven::MeshPass::ShadowCascade );
+        const auto walkHidden = [&]( const Desert::Mesh* mesh, const std::size_t /*submeshes*/,
                                      const GpuDriven::PrimitiveIndex primitive,
                                      const uint64_t hidden ) -> std::optional<SubmeshMask>
-        {
-            if ( const std::optional<SubmeshMask> walk =
-                      ClusterWalkHidden( clusterPass, clustersDrawn, mesh, primitive, hidden ) )
-            {
-                std::size_t shown = 0;
-                while ( shown < submeshes && walk->Hides( shown ) )
-                    ++shown;
-                if ( shown == submeshes )
-                    return std::nullopt; // every submesh it shows is drawn as clusters
-                return walk;
-            }
-            if ( heldByBins( primitive, hidden ) )
-                return std::nullopt;
-            return SubmeshMask{ hidden };
-        };
+        { return CpuWalkHidden( walkView, mesh, primitive, hidden ); };
         for ( const auto& rd : m_StaticQueue )
         {
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
@@ -1163,15 +1138,17 @@ namespace Desert::Graphic::System
         // lit draw runs the shader's own program, which clips nothing, so an opaque caster is what it shows.
         for ( const auto& g : m_GenericQueue )
         {
-            if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
-                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) &&
-                 !heldByBins( g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+            if ( !drawStatic || g.Mesh == nullptr || !g.CastShadows ||
+                 !IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                continue;
+            if ( const std::optional<SubmeshMask> walk =
+                      walkHidden( g.Mesh, g.Mesh->GetSubmeshes().size(), g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
             {
                 list.Add( { .Pipeline          = casters.Static,
                             .Mesh              = g.Mesh,
                             .Transform         = g.Transform,
                             .Material          = casterExecutor,
-                            .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
+                            .HiddenSubmeshMask = *walk,
                             .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
             }
         }

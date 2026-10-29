@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <format>
 #include <map>
+#include <unordered_map>
 #include <span>
 #include <string>
 #include <vector>
@@ -62,6 +63,10 @@ namespace Desert::Graphic
             GpuDriven::VirtualGeometryCandidateInput Input;
             uint32_t                                 Instances       = 0;
             uint32_t                                 VisibleCapacity = 0;
+            // Per primitive with candidates: the submeshes whose DAG rows are appended (word i / 64), handed to
+            // MeshRenderer::SetFrameClusterCandidates - the CPU walk's view of what InstanceCull takes out of the
+            // bins (one source: the same spans as PrimitiveDags).
+            std::unordered_map<GpuDriven::PrimitiveIndex, std::vector<uint64_t>> CandidateSubmeshes;
         };
 
         // From the static queue and the ISM queue: per primitive row, the DAG rows of every submesh one of its queue
@@ -130,6 +135,13 @@ namespace Desert::Graphic
                 }
                 capacity += instances * spans.size();
                 instancesTotal += instances;
+                std::vector<uint64_t>& submeshWords = out.CandidateSubmeshes[primitive];
+                for ( const VirtualGeometry::VirtualMeshDagSpan& span : spans )
+                {
+                    if ( submeshWords.size() <= span.Submesh / 64u )
+                        submeshWords.resize( span.Submesh / 64u + 1u, uint64_t{ 0 } );
+                    submeshWords[span.Submesh / 64u] |= uint64_t{ 1 } << ( span.Submesh % 64u );
+                }
             }
             const uint32_t views = std::max( viewCount, 1u );
             if ( capacity * views > UINT32_MAX )
@@ -138,7 +150,10 @@ namespace Desert::Graphic
                                   "index range",
                                   instancesTotal, capacity * views ) );
             if ( capacity == 0u || visible == 0u )
+            {
+                out.CandidateSubmeshes.clear(); // nothing appended: every instance stays in the bins
                 return Common::MakeSuccess( std::move( out ) );
+            }
 
             std::vector<uint32_t> cutViewOf( views, 0u );
             for ( uint32_t v = 0; v < views; ++v )
@@ -289,6 +304,10 @@ namespace Desert::Graphic
         for ( size_t v = 0; v < views.size(); ++v )
             meshes->SetFrameBinned( static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v],
                                     culled.GetValue().Draws[v], upload.GetValue(), scene.GetValue() );
+        // The primitives InstanceCull just took out of every cull view's bins (only when it appended candidates):
+        // the CPU walk draws what of them no cluster raster draws (MeshRenderer::CpuWalkHidden).
+        if ( vgTables.Input.PrimitiveDags.IsValid() )
+            meshes->SetFrameClusterCandidates( std::move( vgTables.CandidateSubmeshes ) );
         bins.Carry      = culled.GetValue().Carry;
         bins.Upload     = upload.GetValue();
         bins.Scene      = scene.GetValue();
@@ -651,6 +670,15 @@ namespace Desert::Graphic
                 LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), message );
             m_VirtualGeometryLastError = message;
         };
+        // DebugViewState::ForceVirtualGeometryCutRefusal: every cut of the frame refused AFTER InstanceCull took
+        // the candidates out of the bins - the state a refused cut leaves, so the CPU walk's fallback
+        // (MeshRenderer::CpuWalkHidden) is what draws the VG primitives ([vg_refused_fallback]).
+        if ( m_DebugView.ForceVirtualGeometryCutRefusal )
+        {
+            logOnce( "VirtualGeometry: every cluster cut refused (Debug 'Force Virtual Geometry Cut Refusal'); the VG "
+                     "primitives are drawn by their own submeshes" );
+            return;
+        }
         // Shadow cascades: the cascade's static layer draws the clusters (only drawn cascades are cull views).
         bool cascadesCut = true;
         for ( size_t v = 1; v < bins.Views.size(); ++v )
@@ -753,6 +781,11 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), message );
             m_VirtualGeometryLastError = message;
         };
+        if ( m_DebugView.ForceVirtualGeometryCutRefusal )
+        {
+            logOnce( "VSM levels: the cluster cut refused (Debug 'Force Virtual Geometry Cut Refusal')" );
+            return;
+        }
 
         // THE LEVELS AS CULL VIEWS (the validation path's VSM views, AddFrameGpuCull): the far plane open, as the
         // casters' cull, and the level's drawn-page mask; cull view = cut view = level.

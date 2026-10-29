@@ -766,7 +766,8 @@ namespace Desert::Editor
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
                               DescribeViewportCamera( viewCamera->GetPosition(), forward,
                                                       viewCamera->GetFOV(),
-                                                      EditorPreferences::Get().DebugView.ValidateGpuCulling ) ) );
+                                                      EditorPreferences::Get().DebugView.ValidateGpuCulling,
+                                                      EditorPreferences::Get().DebugView.ForceVirtualGeometryCutRefusal ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1191,6 +1192,12 @@ namespace Desert::Editor
         if ( which.GetValue() == ViewportCameraWrite::ValidateGpuCulling )
         {
             EditorPreferences::Get().DebugView.ValidateGpuCulling = request.Value[0] != 0.0f;
+            return Control::Response::Success( request.Id );
+        }
+        // [vg_refused_fallback]: every cluster cut refused, the CPU walk draws the VG primitives.
+        if ( which.GetValue() == ViewportCameraWrite::ForceVgCutRefusal )
+        {
+            EditorPreferences::Get().DebugView.ForceVirtualGeometryCutRefusal = request.Value[0] != 0.0f;
             return Control::Response::Success( request.Id );
         }
 

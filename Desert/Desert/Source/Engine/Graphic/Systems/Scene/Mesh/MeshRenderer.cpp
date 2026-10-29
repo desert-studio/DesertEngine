@@ -933,6 +933,7 @@ namespace Desert::Graphic::System
     Common::ResultStr<GpuDriven::DrawCommandBuffers> MeshRenderer::BeginFrameBins( RDG::Builder& graph )
     {
         m_FrameBinned.clear();
+        m_FrameClusterCandidates.clear();
         std::erase_if( m_BinnedCarriers, []( const auto& entry ) { return entry.second.Program.expired(); } );
         if ( !m_DrawCommandCache )
             return Common::MakeFormattedError( "no draw command cache (SyncGpuScene has not fed it)" );
@@ -1136,11 +1137,33 @@ namespace Desert::Graphic::System
         return nullptr;
     }
 
-    bool MeshRenderer::SkipsBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
-                                    const GpuDriven::PrimitiveIndex primitive, const uint64_t hiddenSubmeshMask ) const
+    MeshRenderer::ClusterWalkView MeshRenderer::BinnedWalkView( const GpuDriven::MeshPass pass,
+                                                                const uint32_t            viewKey ) const
     {
-        return m_DrawCommandCache && FrameBinned( pass, viewKey ) != nullptr &&
-               m_DrawCommandCache->SubmeshesBinned( pass, primitive, hiddenSubmeshMask );
+        ClusterWalkView walk{ .Pass = pass };
+        if ( const FrameBinnedView* binned = FrameBinned( pass, viewKey ) )
+        {
+            walk.BinsIssued = true;
+            if ( binned->Issue.VirtualGeometry )
+                walk.RasterCarriers = &binned->Issue.VirtualGeometry->GroupCarriers;
+        }
+        return walk;
+    }
+
+    MeshRenderer::ClusterWalkView MeshRenderer::VirtualShadowWalkView() const
+    {
+        return ClusterWalkView{ .Pass = GpuDriven::MeshPass::VirtualShadow, .VirtualShadow = true };
+    }
+
+    MeshRenderer::ClusterWalkView MeshRenderer::UnbinnedWalkView( const GpuDriven::MeshPass pass ) const
+    {
+        return ClusterWalkView{ .Pass = pass };
+    }
+
+    void MeshRenderer::SetFrameClusterCandidates(
+         std::unordered_map<GpuDriven::PrimitiveIndex, std::vector<uint64_t>> submeshes )
+    {
+        m_FrameClusterCandidates = std::move( submeshes );
     }
 
     void MeshRenderer::AttachBinned( MeshRendererDetail::MeshDrawList& list, const GpuDriven::MeshPass pass,

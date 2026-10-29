@@ -393,6 +393,8 @@ namespace
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
          { "ValidateGpuCulling", Owner::Machine },
+         // VIRT-GEOM step 26: the virtual-geometry fallback check, one person's diagnostic switch.
+         { "ForceVirtualGeometryCutRefusal", Owner::Machine },
          // The viewport's own Screen Percentage override (UE's per-viewport r.ScreenPercentage): one view's
          // render scale, never the game config.
          { "ScreenPercentage", Owner::Machine },

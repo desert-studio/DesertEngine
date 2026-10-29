@@ -192,6 +192,13 @@ namespace Desert::Graphic
         // viewport subject's 'Debug.ValidateGpuCulling'.
         bool ValidateGpuCulling = false;
 
+        // VIRTUAL-GEOMETRY FALLBACK check (VIRT-GEOM step 26; UE: a primitive the cluster path cannot draw renders
+        // its fallback mesh): every cluster cut of the frame (main view, sun cascades, VSM levels) is refused AFTER
+        // InstanceCull took the VG instances out of the bins, so the CPU walk (MeshRenderer::CpuWalkHidden) must
+        // draw them - a picture equal to VG off. Logged once while on. Set from a scenario through the viewport
+        // subject's 'Debug.ForceVirtualGeometryCutRefusal'.
+        bool ForceVirtualGeometryCutRefusal = false;
+
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
         // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent
         // (Scalability); present = THIS view renders at that percent instead. The viewport menu writes only

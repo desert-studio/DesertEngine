@@ -434,29 +434,74 @@ namespace Desert::Graphic::System
         }
     }
 
-    std::optional<SubmeshMask> MeshRenderer::ClusterWalkHidden( const GpuDriven::MeshPass       pass,
-                                                                const bool                      rasterIssued,
-                                                                const Desert::StaticMesh*       mesh,
-                                                                const GpuDriven::PrimitiveIndex primitive,
-                                                                const uint64_t                  hidden )
+    std::optional<SubmeshMask> MeshRenderer::CpuWalkHidden( const ClusterWalkView&           view,
+                                                            const Desert::Mesh*             mesh,
+                                                            const GpuDriven::PrimitiveIndex primitive,
+                                                            const uint64_t                  hidden )
     {
-        if ( !rasterIssued )
-            return std::nullopt;
+        const std::size_t submeshes = mesh != nullptr ? mesh->GetSubmeshes().size() : 0u;
         std::vector<uint64_t>& words = m_ClusterWalkScratch;
-        ClusterableSubmeshes( pass, mesh, primitive, hidden, words );
+        words.clear();
+        if ( view.VirtualShadow )
+        {
+            // A VSM level issues no bins: without its raster the walk draws the record whole.
+            if ( !m_VsmGeometry )
+                return SubmeshMask{ hidden };
+            ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow, dynamic_cast<const Desert::StaticMesh*>( mesh ),
+                                  primitive, hidden, words );
+            if ( words.empty() )
+                return SubmeshMask{ hidden }; // not a VG primitive
+        }
+        else
+        {
+            if ( !view.BinsIssued || !m_DrawCommandCache )
+                return SubmeshMask{ hidden };
+            const auto candidate = m_FrameClusterCandidates.find( primitive );
+            if ( candidate == m_FrameClusterCandidates.end() )
+            {
+                // Not a VG primitive: its instances are in the view's bins.
+                if ( m_DrawCommandCache->SubmeshesBinned( view.Pass, primitive, hidden ) )
+                    return std::nullopt;
+                return SubmeshMask{ hidden };
+            }
+            // A VG primitive: in no bin of this view. Hidden from the walk is only what the raster draws.
+            words.assign( ( submeshes + 63u ) / 64u, uint64_t{ 0 } );
+            if ( view.RasterCarriers != nullptr )
+            {
+                const std::vector<uint64_t>& taken = candidate->second;
+                const SubmeshMask            own{ hidden };
+                for ( std::size_t submesh = 0; submesh < submeshes; ++submesh )
+                {
+                    const std::size_t word = submesh / 64u;
+                    const uint64_t    bit  = uint64_t{ 1 } << ( submesh % 64u );
+                    if ( word >= taken.size() || ( taken[word] & bit ) == 0u || own.Hides( submesh ) )
+                        continue;
+                    const std::optional<uint32_t> group = m_DrawCommandCache->SubmeshGroup(
+                         view.Pass, primitive, static_cast<uint32_t>( submesh ) );
+                    if ( group && *group < view.RasterCarriers->size() && ( *view.RasterCarriers )[*group] != nullptr )
+                        words[word] |= bit;
+                }
+            }
+        }
         if ( words.empty() )
-            return std::nullopt; // not a VG primitive: the caller's rule (a cascade's bins)
-        const uint64_t low = hidden | words.front();
+            words.push_back( 0u );
+        const SubmeshMask low{ hidden | words.front() };
         // The words past submesh 63, without trailing zero words: equal sets intern to one element.
         std::size_t end = words.size();
         while ( end > 1u && words[end - 1u] == 0u )
             --end;
-        if ( end <= 1u )
-            return SubmeshMask{ low };
-        const auto first    = words.begin() + 1;
-        const auto last     = words.begin() + static_cast<std::ptrdiff_t>( end );
-        const auto interned = m_ClusterWalkWords.emplace( first, last ).first;
-        return SubmeshMask{ low, std::span<const uint64_t>( *interned ) };
+        SubmeshMask walk = low;
+        if ( end > 1u )
+        {
+            const auto first    = words.begin() + 1;
+            const auto last     = words.begin() + static_cast<std::ptrdiff_t>( end );
+            const auto interned = m_ClusterWalkWords.emplace( first, last ).first;
+            walk                = SubmeshMask{ low.Low, std::span<const uint64_t>( *interned ) };
+        }
+        for ( std::size_t submesh = 0; submesh < submeshes; ++submesh )
+            if ( !walk.Hides( submesh ) )
+                return walk;
+        return std::nullopt; // every submesh it shows is drawn as clusters
     }
 
     void MeshRenderer::ResetVirtualShadowGeometry()
