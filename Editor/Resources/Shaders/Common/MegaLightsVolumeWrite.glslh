@@ -1,11 +1,16 @@
 #ifndef MEGALIGHTS_VOLUME_WRITE_GLSLH
 #define MEGALIGHTS_VOLUME_WRITE_GLSLH
-// "MegaLights: Volume", the one body of its three programs (one per Common::Scalability::StochasticVisibility):
+// "MegaLights: Volume", the one body of its four programs, one per set of visibility sources the frame's lights
+// resolved to (Common::Scalability::StochasticSources, MegaLightsVolume.hpp ProgramOf):
 // Programs/Shadows/MegaLightsVolume.shader (ray query), MegaLightsVolumeVirtual.shader (the local lights' virtual
-// shadow map pages) and MegaLightsVolumeScreen.shader (unshadowed: a froxel has no screen trace). The includer
-// defines its MEGALIGHTS_VOLUME_VISIBILITY_* source (RAY_QUERY: Common/RayQueryVisibility.glslh included first;
-// VSM: the VSM reader's tables, DESERT_VSM_READ and VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; } declared
-// first; NONE), then includes this file. The read side is Common/MegaLightsVolume.glslh.
+// shadow map pages), MegaLightsVolumeRayQueryVirtual.shader (both, per light) and MegaLightsVolumeScreen.shader
+// (unshadowed: a froxel has no screen trace). The includer defines each MEGALIGHTS_VOLUME_VISIBILITY_* source it
+// holds (RAY_QUERY: Common/RayQueryVisibility.glslh included first; VSM: the VSM reader's tables, DESERT_VSM_READ
+// and VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; } declared first; NONE), then includes this file. The
+// read side is Common/MegaLightsVolume.glslh.
+#if !defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM) &&     !defined(MEGALIGHTS_VOLUME_VISIBILITY_NONE)
+#error "MegaLightsVolumeWrite.glslh: define a MEGALIGHTS_VOLUME_VISIBILITY_* source"
+#endif
 
 #include <Common/ReconstructPosition.glslh>
 #include <Common/RisReservoir.glslh>
@@ -99,15 +104,27 @@ float VolumeTarget(int light, vec3 p)
 	return dot(VolumeLightAt(light, p).Radiance, vec3(0.2126, 0.7152, 0.0722));
 }
 
+// The segment from the point @p p to @p light's source sphere: x y z = toward the centre (cm), w = the sphere's
+// radius (cm).
+vec4 VolumeLightReach(int light, vec3 p)
+{
+	const int points = int(Counts.x);
+	return light < points ? vec4(pointLights[light].position - p, pointLights[light].sourceRadius)
+	                      : vec4(spotLights[light - points].position - p, spotLights[light - points].sourceRadius);
+}
+
 #if defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY)
-float VolumeRayVisibility(vec3 toLight, float distance, float radius, vec3 p, inout uint random)
+float VolumeRayVisibility(int light, vec3 p, inout uint random)
 {
 	// A ray toward a point of the light's source sphere, uniform in the solid angle the sphere subtends (UE
 	// UniformSampleCone), stopped short of the sphere by the bias.
-	const float bias = Params.y;
+	const vec4  reachTo  = VolumeLightReach(light, p);
+	const float distance = length(reachTo.xyz);
+	const float radius   = reachTo.w;
+	const float bias     = Params.y;
 	if (distance <= max(2.0 * bias, radius))
 		return 1.0; // on or inside the emitter
-	const vec3 axis  = toLight / distance;
+	const vec3 axis  = reachTo.xyz / distance;
 	vec3       dir   = axis;
 	float      reach = distance;
 	if (radius > 0.0)
@@ -129,51 +146,44 @@ float VolumeRayVisibility(vec3 toLight, float distance, float radius, vec3 p, in
 #endif
 
 #if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
-float VolumeVsmVisibility(int light, vec3 toLight, float distance, float radius, vec3 p)
+float VolumeVsmVisibility(int light, vec3 p)
 {
 	const int points = int(Counts.x);
 	// The light's virtual shadow map (VSM-LOCAL), the same pages MegaLights' surface trace reads: slot = the light's
 	// index in the frame's VsmLocalLights (AssignLocalShadowMaskSlots). A froxel point has no surface: its "normal"
 	// faces the light, so the receiver offset moves it toward the light by half a texel of its mip. A froxel no
 	// G-buffer pixel marked reads the light's coarse mip ("VSM: Mark Coarse", VsmLocalOccluderDistance).
-	const int slot = light < points ? pointLights[light].shadowMaskSlot : spotLights[light - points].shadowMaskSlot;
-	if (slot < 0 || distance <= max(2.0 * Params.y, radius))
+	const int   slot     = light < points ? pointLights[light].shadowMaskSlot : spotLights[light - points].shadowMaskSlot;
+	const vec4  reachTo  = VolumeLightReach(light, p);
+	const float distance = length(reachTo.xyz);
+	if (slot < 0 || distance <= max(2.0 * Params.y, reachTo.w))
 		return 1.0; // no page for the light this frame (outside the view), or on/inside the emitter
-	return VsmLocalVisibility(vsmLocalLights[slot], p, toLight / distance);
+	return VsmLocalVisibility(vsmLocalLights[slot], p, reachTo.xyz / distance);
 }
 #endif
 
-// How much of @p light reaches the point @p p, by the frame's visibility source. A light whose shadowCaster is 0
-// (CastShadows off) is not tested.
+// How much of @p light reaches the point @p p. Each light tests its own source, the payload's ShadowVisibility
+// (Common::Scalability::StochasticVisibility: 0 RayQuery, 1 vsm+screen, 2 Screen); a source this program does not
+// hold is not in the frame's set (SceneRenderer::StochasticTraceSources), and a Screen light is unshadowed (a froxel
+// is not on the screen). A light whose shadowCaster is 0 (CastShadows off) is not tested.
 float VolumeVisibility(int light, vec3 p, inout uint random)
 {
-	const int  points  = int(Counts.x);
-	const bool casts   = (light < points ? pointLights[light].shadowCaster
-	                                     : spotLights[light - points].shadowCaster) != 0;
+	const int  points = int(Counts.x);
+	const bool casts  = (light < points ? pointLights[light].shadowCaster
+	                                    : spotLights[light - points].shadowCaster) != 0;
 	if (!casts)
 		return 1.0;
-	const vec3  toLight  = (light < points ? pointLights[light].position : spotLights[light - points].position) - p;
-	const float distance = length(toLight);
-	const float radius   = light < points ? pointLights[light].sourceRadius : spotLights[light - points].sourceRadius;
-#if !defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM) && \
-    !defined(MEGALIGHTS_VOLUME_VISIBILITY_NONE)
-#error "MegaLightsVolumeWrite.glslh: define a MEGALIGHTS_VOLUME_VISIBILITY_* source"
-#endif
-	// Each light tests its own source, the payload's ShadowVisibility (Common::Scalability::StochasticVisibility:
-	// 0 RayQuery, 1 vsm+screen, 2 Screen); a source this program does not hold is not in the frame's set
-	// (SceneRenderer::StochasticTraceSources), and a Screen light is unshadowed (a froxel is not on the screen).
 	const int source = light < points ? pointLights[light].shadowVisibility : spotLights[light - points].shadowVisibility;
 #if defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY)
 	if (source == 0)
-		return VolumeRayVisibility(toLight, distance, radius, p, random);
+		return VolumeRayVisibility(light, p, random);
 #endif
 #if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
 	if (source == 1)
-		return VolumeVsmVisibility(light, toLight, distance, radius, p);
+		return VolumeVsmVisibility(light, p);
 #endif
 	return 1.0;
 }
-
 
 LocalSize(4, 4, 4);
 
