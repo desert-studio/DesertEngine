@@ -290,7 +290,6 @@ namespace Desert::Editor::Tools
             default:
                 break;
         }
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
@@ -301,7 +300,7 @@ namespace Desert::Editor::Tools
             return;
         }
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
-        if ( auto set = ECS::SetEditableMesh( *component, preview ); !set.IsSuccess() )
+        if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), preview ); !set.IsSuccess() )
         {
             ms.UVStatus = set.GetError();
             Restore( scene );
@@ -323,15 +322,16 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
-        switch ( PlanMeshRestore( component->EditableMesh, m_Session->Committed ) )
+        switch ( PlanMeshRestore( component->GetEditableMesh(), m_Session->Committed ) )
         {
             case MeshRestore::Unchanged:
                 break;
             case MeshRestore::Clear:
-                ECS::ClearEditableMesh( *component );
+                ECS::ClearEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle() );
                 break;
             case MeshRestore::Set:
-                if ( auto set = ECS::SetEditableMesh( *component, m_Session->Committed ); !set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Committed );
+                     !set.IsSuccess() )
                     LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}", ToolName( m_Session->Tool ),
                                set.GetError() );
                 break;
@@ -352,7 +352,7 @@ namespace Desert::Editor::Tools
         if ( !m_Session->Preview )
             return refuse( ms.UVStatus );
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
-        if ( component == nullptr || component->EditableMesh != m_Session->Preview )
+        if ( component == nullptr || component->GetEditableMesh() != m_Session->Preview )
             return refuse( "the entity no longer draws the preview" );
         Commands::RecordMeshChange( m_Session->Entity, std::format( "Modeling: {}", ToolName( m_Session->Tool ) ),
                                     m_Session->Committed );

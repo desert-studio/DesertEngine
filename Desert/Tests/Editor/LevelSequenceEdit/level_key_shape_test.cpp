@@ -36,7 +36,7 @@ namespace
         const auto binding  = ECS::AddEntityBinding( door.Sequence, ::Common::UUID( 0x5E01C0DEULL ), "Door" );
         EXPECT_TRUE( binding.IsSuccess() );
         door.Binding = binding.GetValue();
-        ECS::TransformComponent pose;
+        ECS::LocalTransform     pose;
         for ( const int32_t tick : { 0, 50, 100 } )
         {
             pose.Translation.x = static_cast<float>( tick );

@@ -279,7 +279,7 @@ namespace Desert::Editor
                    const auto ref = scene->FindEntityByID( uuid );
                    if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                        return Common::MakeError( "the edited type has no instanced mesh" );
-                   bool& casts = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().CastShadows;
+                   bool& casts = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetCastShadows();
                    casts       = !casts;
                    return BOOLSUCCESS;
                } },

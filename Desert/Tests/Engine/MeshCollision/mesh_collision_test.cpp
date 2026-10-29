@@ -286,20 +286,23 @@ namespace
 
 TEST( MeshCollision, ColliderSourceFollowsTheDrawOrder )
 {
-    ECS::StaticMeshComponent mesh;
+    ECS::StaticMeshDesc mesh;
     mesh.RuntimeMesh = StandInRuntimeMesh();
     mesh.Primitive   = Geometry::PrimitiveType::Cube;
     mesh.MeshHandle  = Assets::AssetHandle( 42ull );
-    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::RuntimeMesh ); // edited mesh wins
+    EXPECT_EQ( ECS::PickColliderMeshSource( ECS::StaticMeshComponent( mesh ) ),
+               ECS::ColliderMeshSource::RuntimeMesh ); // edited mesh wins
 
     mesh.RuntimeMesh.reset();
-    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::Primitive ); // then the primitive
+    EXPECT_EQ( ECS::PickColliderMeshSource( ECS::StaticMeshComponent( mesh ) ),
+               ECS::ColliderMeshSource::Primitive ); // then the primitive
 
     mesh.Primitive.reset();
-    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::Asset ); // then the asset
+    EXPECT_EQ( ECS::PickColliderMeshSource( ECS::StaticMeshComponent( mesh ) ),
+               ECS::ColliderMeshSource::Asset ); // then the asset
 
     mesh.MeshHandle = Assets::AssetHandle();
-    EXPECT_EQ( ECS::PickColliderMeshSource( mesh ), ECS::ColliderMeshSource::None );
+    EXPECT_EQ( ECS::PickColliderMeshSource( ECS::StaticMeshComponent( mesh ) ), ECS::ColliderMeshSource::None );
 }
 
 TEST( MeshCollision, ColliderMeshCarriesTheEntityScale )

@@ -347,12 +347,12 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false,
                                                                     "the viewport centre looks at no surface" );
                                   auto& e       = MainScene()->CreateNewEntity( "Cube" );
-                                  auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
-                                  smc.Primitive = Geometry::PrimitiveType::Cube;
+                                  ECS::StaticMeshDesc cube;
+                                  cube.Primitive = Geometry::PrimitiveType::Cube;
+                                  ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), cube );
                                   // The primitive cube is one metre, centred on its pivot: lift it by half
                                   // along the surface normal so it stands on the surface, not in it.
-                                  e.GetComponent<ECS::TransformComponent>().Translation =
-                                       hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre );
+                                  e.SetLocalTranslation( hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre ) );
                                   const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
                                   Core::SelectionManager::SetSelected( uuid );
                                   Commands::NotifyCreated( { uuid } );

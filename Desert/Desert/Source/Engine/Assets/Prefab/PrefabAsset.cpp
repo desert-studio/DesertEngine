@@ -329,12 +329,11 @@ namespace Desert::Assets
         {
             if ( rootEntity.HasComponent<ECS::TransformComponent>() )
             {
-                auto& tc       = rootEntity.GetComponent<ECS::TransformComponent>();
-                tc.Translation = *position;
+                rootEntity.SetLocalTranslation( *position );
             }
             else
             {
-                rootEntity.AddComponent<ECS::TransformComponent>().Translation = *position;
+                rootEntity.AddComponent<ECS::TransformComponent>( ECS::LocalTransform{ .Translation = *position } );
             }
         }
 
