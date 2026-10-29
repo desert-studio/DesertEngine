@@ -29,9 +29,11 @@ namespace Desert::Runtime
          * The default variant is refused rather than served: that is what GetByName is for, and answering
          * it here would build a second, unregistered copy of a program that already exists.
          *
-         * @return nullptr when the name is unknown, when @p variant is default, when the asset behind the
-         *         name has expired, or when the substituted source DID NOT COMPILE — each logged with the
-         *         name, never silently.
+         * @return the program, or an ERROR naming why not: the name is unknown, @p variant is default, the
+         *         asset behind the name has expired, or the substituted source DID NOT COMPILE OR REFLECT (the
+         *         compiler's / SPIRV-Cross's own text). The service does not log the refusal: the caller owns
+         *         the consequence (fall back, mark a path refused, fail its own Result) and logs or
+         *         propagates the reason with it, so a refusal reads once, in the caller's terms.
          *
          * The last of those was added by О1-G and is the one worth reading twice: a program with no
          * compiled stages used to be returned, on the stated ground that the caller would decide. Neither
@@ -39,8 +41,8 @@ namespace Desert::Runtime
          * element 0 of the stage list a failed compile leaves empty. An answer a caller cannot use is a
          * refusal; returning it as a success is the "empty successful answer" the contract forbids.
          */
-        std::shared_ptr<Graphic::Shader> AcquireVariant( const std::string&            name,
-                                                         const Graphic::ShaderVariant& variant );
+        Common::ResultStr<std::shared_ptr<Graphic::Shader>> AcquireVariant( const std::string&            name,
+                                                                            const Graphic::ShaderVariant& variant );
 
         /// Every (name, variant) AcquireVariant was asked for with ShippedByCook this session, once each - the census
         /// the package cook (PackageCook CookShaderVariants) checks its cooked set against: a recorded request the

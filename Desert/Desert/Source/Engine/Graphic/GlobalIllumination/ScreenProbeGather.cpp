@@ -300,10 +300,11 @@ namespace Desert::Graphic::GlobalIllumination
             if ( program == TraceNearField || program == TraceFarField )
                 continue; // tracer permutations, EnsureTraceProgram
             const std::string name( kScreenProbeShaderNames[program] );
-            auto              shader = shaders->AcquireVariant( name, variant );
-            if ( !shader )
-                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({} px, {} texels) did not compile",
-                                                         name, downsample, tracedTexels );
+            auto              acquired = shaders->AcquireVariant( name, variant );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({} px, {} texels) was refused: {}",
+                                                         name, downsample, tracedTexels, acquired.GetError() );
+            auto shader = acquired.ExtractValue();
             auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
             if ( !pipeline )
                 return Common::MakeFormattedError<bool>( "screen probes: {}: {}", name, pipeline.GetError() );
@@ -325,11 +326,12 @@ namespace Desert::Graphic::GlobalIllumination
         {
             const std::string   name( kScreenProbeShaderNames[program] );
             const Core::ShaderVariant variant = TraceVariant( pipeline, leg, m_ProgramDownsample, m_ProgramTracedTexels );
-            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
-            if ( !shader )
-                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) did not compile",
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( name, variant );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) was refused: {}",
                                                          name, TracerDefine( pipeline.Tracer ),
-                                                         HitLightingDefine( pipeline.Hits ), leg );
+                                                         HitLightingDefine( pipeline.Hits ), leg, acquired.GetError() );
+            auto shader = acquired.ExtractValue();
             auto compute = ComputePipeline::Create(
                  { .Shader    = shader,
                    .DebugName = std::format( "{} ({}, {})", name, TracerDefine( pipeline.Tracer ), leg ) } );

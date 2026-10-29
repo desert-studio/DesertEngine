@@ -207,13 +207,13 @@ namespace Desert::Engine::Neural
         if ( !service )
             return Common::MakeFormattedError<KernelResult>( "no shader service to compile '{}' ({})", kShaderName,
                                                              key );
-        const std::shared_ptr<Graphic::Shader> shader = service->AcquireVariant( kShaderName, variant );
-        if ( !shader )
+        auto acquired = service->AcquireVariant( kShaderName, variant );
+        if ( !acquired )
             return Common::MakeFormattedError<KernelResult>(
-                 "the shader '{}' ({}) was refused by ShaderService (the reason — a glslang error, a refused "
-                 "resource or a SPIR-V module SPIRV-Cross cannot reflect — is the [ShaderService] error logged "
-                 "just before this); source Editor/Resources/Shaders/Programs/Compute/NeuralFusedMlp.shader",
-                 kShaderName, key );
+                 "the shader '{}' ({}) was refused: {} (source "
+                 "Editor/Resources/Shaders/Programs/Compute/NeuralFusedMlp.shader)",
+                 kShaderName, key, acquired.GetError() );
+        const std::shared_ptr<Graphic::Shader> shader = acquired.ExtractValue();
 
         Graphic::ComputePipelineSpecification specification;
         specification.Shader               = shader;

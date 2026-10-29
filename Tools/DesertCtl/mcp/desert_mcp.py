@@ -220,7 +220,8 @@ TOOLS = [
             "Run the NN layer's fused MLP (forward + backward + weight gradient) on the GPU against its CPU "
             "reference on a fixed seeded batch: machine.json's forced kernel path (palette group Neural, "
             "'Neural: Kernel path Fp32|Fp16|CoopMatFp16|Auto'), or every path the device runs. Returns per path "
-            "max abs / rel error of outputs and weight gradients and the ReLU mask-flip count; an error when a "
+            "max abs / rel error of outputs and weight gradients and the ReLU mask-flip count, or 'refused' with the reason (device cannot run it, or the kernel's "
+            "compile/reflect error); an error when no path ran or a "
             "path is out of tolerance (1e-5 fp32, 1e-2 fp16)."
         ),
         "inputSchema": {"type": "object", "properties": {}},

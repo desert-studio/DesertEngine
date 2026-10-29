@@ -5,7 +5,8 @@ local baseDir = "%{_MAIN_SCRIPT_DIR}/ThirdParty"
 -- Returns a table { include = <dir>, lib = <dir> } or nil.
 --   Windows: LunarG SDK layout  <sdk>/Include, <sdk>/Lib
 --   macOS:   LunarG SDK layout  $VULKAN_SDK/include, $VULKAN_SDK/lib
---            or Homebrew (vulkan-headers + vulkan-loader + molten-vk + shaderc + spirv-cross)
+--            or Homebrew (vulkan-headers + vulkan-loader + molten-vk + shaderc)
+--   SPIRV-Cross is never the SDK's: the vendored ThirdParty/SPIRV-Cross (BuildScripts/ThirdParty/SPIRVCross.lua).
 --   Linux:   /usr/local/vulkan fallback
 -- ============================================================================
 local function findVulkanSDK()
@@ -83,10 +84,10 @@ local vulkan = findVulkanSDK()
 if not vulkan then
     error( "Vulkan SDK not found.\n" ..
            "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n" ..
-           "           shaderc + spirv-cross), or install the LunarG SDK into ~/VulkanSDK.\n" ..
+           "           shaderc), or install the LunarG SDK into ~/VulkanSDK.\n" ..
            "  Windows: run scripts\\Windows\\Setup.bat, which installs the pinned LunarG SDK and sets\n" ..
            "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n" ..
-           "           and spirv-cross-*.lib out of the SDK's Lib directory." )
+           "           out of the SDK's Lib directory (SPIRV-Cross is vendored)." )
 end
 
 -- Shader-toolchain + Vulkan libraries the engine links against.

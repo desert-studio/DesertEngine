@@ -202,19 +202,18 @@ namespace Desert::Runtime
         return ( it != m_Shaders.end() ) ? it->second : nullptr;
     }
 
-    std::shared_ptr<Graphic::Shader> ShaderService::AcquireVariant( const std::string&            name,
-                                                                    const Graphic::ShaderVariant& variant )
+    Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+    ShaderService::AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant )
     {
         // The default variant is GetByName's question, and answering it here would build an unregistered
         // second copy of a program that already exists — two objects, two sets of modules, and a
         // material picking whichever it was handed.
         if ( variant.IsDefault() )
         {
-            LOG_ERROR( "[ShaderService] AcquireVariant('{}') was asked for the DEFAULT variant. That is "
-                       "GetByName's question; serving it here would build a second copy of a registered "
-                       "program.",
-                       name );
-            return nullptr;
+            return Common::MakeFormattedError<std::shared_ptr<Graphic::Shader>>(
+                 "AcquireVariant('{}') was asked for the DEFAULT variant. That is GetByName's question; "
+                 "serving it here would build a second copy of a registered program.",
+                 name );
         }
 
         // A NAMED PASS ("<Shader>/<Pass>", as GetByName answers it) is compiled from its shader's asset with
@@ -240,8 +239,8 @@ namespace Desert::Runtime
         const auto handleIt = m_NameToHandleMap.find( programName );
         if ( handleIt == m_NameToHandleMap.end() )
         {
-            LOG_ERROR( "[ShaderService] AcquireVariant: no program or pass named '{}' is registered.", name );
-            return nullptr;
+            return Common::MakeFormattedError<std::shared_ptr<Graphic::Shader>>(
+                 "AcquireVariant: no program or pass named '{}' is registered.", name );
         }
 
         const std::string key =
@@ -252,7 +251,7 @@ namespace Desert::Runtime
         if ( const auto it = m_Variants.find( key ); it != m_Variants.end() )
         {
             if ( auto live = it->second.Program.lock() )
-                return live;
+                return Common::MakeSuccess( std::move( live ) );
             m_Variants.erase( it ); // the last holder let it go; build a fresh one below
         }
 
@@ -260,8 +259,8 @@ namespace Desert::Runtime
         auto       asset   = assetIt != m_ShaderAssets.end() ? assetIt->second.lock() : nullptr;
         if ( !asset )
         {
-            LOG_ERROR( "[ShaderService] AcquireVariant('{}'): the shader asset behind that name is gone.", name );
-            return nullptr;
+            return Common::MakeFormattedError<std::shared_ptr<Graphic::Shader>>(
+                 "AcquireVariant('{}'): the shader asset behind that name is gone.", name );
         }
 
         // RE-READ IF THE SWEEP HAS BEEN THROUGH. A registered shader compiles ONCE at startup and never
@@ -275,10 +274,9 @@ namespace Desert::Runtime
         {
             if ( const auto loaded = asset->Load(); !loaded )
             {
-                LOG_ERROR( "[ShaderService] AcquireVariant('{}'): the shader's source had been released "
-                           "and could not be re-read: {}",
-                           name, loaded.GetError() );
-                return nullptr;
+                return Common::MakeFormattedError<std::shared_ptr<Graphic::Shader>>(
+                     "AcquireVariant('{}'): the shader's source had been released and could not be re-read: {}",
+                     name, loaded.GetError() );
             }
         }
 
@@ -300,17 +298,16 @@ namespace Desert::Runtime
             // silence and ShaderReflection::ReflectStage refuses by name (Г17).
             //
             // Refusing here rather than at each call site is what makes those two branches true. It costs
-            // nothing the header did not already say: the doc lists the refusals and the log names which
-            // one this is, so "unknown name" and "did not compile" are still distinguishable to a reader —
-            // they were never distinguishable to the CODE, which is what mattered.
-            LOG_ERROR( "[ShaderService] Variant {} of '{}' has no compiled stages — the substituted "
-                       "source did not compile: {}. The caller falls back to the shipped program.",
-                       key, name, program->GetCompileError() );
-            return nullptr;
+            // nothing the header did not already say: the doc lists the refusals and the error names which
+            // one this is, and since NN-RUNTIME-6 the reason travels in the Result, so the caller that marks
+            // a path refused or falls back says WHY in its own log or report instead of a line nobody pairs.
+            return Common::MakeFormattedError<std::shared_ptr<Graphic::Shader>>(
+                 "Variant {} of '{}' has no compiled stages - the source did not compile or reflect: {}", key,
+                 name, program->GetCompileError() );
         }
 
         m_Variants[key] = VariantEntry{ handleIt->second, program };
-        return program;
+        return Common::MakeSuccess( std::move( program ) );
     }
 
     std::vector<Core::CookedProgramVariant> ShaderService::ShippedByCookRequests() const
