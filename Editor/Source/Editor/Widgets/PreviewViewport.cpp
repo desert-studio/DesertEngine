@@ -507,10 +507,12 @@ namespace Desert::Editor
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::StaticMeshComponent>() )
             return;
-        int& forced = m_Target.GetComponent<ECS::StaticMeshComponent>().GetForcedLOD();
-        if ( forced != lod )
-            ++m_ContentRevision;
-        forced = lod;
+        ECS::StaticMeshDesc desc = m_Target.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+        if ( desc.ForcedLOD == lod )
+            return;
+        desc.ForcedLOD = lod;
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        ++m_ContentRevision;
     }
 
     void PreviewViewport::SetMesh( const Assets::AssetHandle&              mesh,
