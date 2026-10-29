@@ -3,10 +3,10 @@ Module "SpawnBurst"
 {
     Category Spawn
     Description "Spawns SpawnCount particles once per loop, SpawnTime seconds into it."
-    Usage EmitterSpawn EmitterUpdate
+    Usage EmitterUpdate
     Input SpawnCount int = 10
     Input SpawnTime float = 0
 
     // Engine CPU module SpawnBurst (UE SpawnBurst_Instantaneous): SpawnCount particles once per loop, SpawnTime
-    // seconds into it; in Emitter Spawn, once when the instance starts. Engine C++ (VFX/VFXEmitterSpawn.cpp).
+    // seconds into it; Loop Once makes a one-shot. Engine C++ (VFX/VFXEmitterSpawn.cpp).
 }

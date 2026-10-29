@@ -20,7 +20,6 @@
 #define LANDSCAPE_GRASS_COVER_GLSLH
 
 #include <Common/TerrainInstance.glslh>
-#include <Common/GrassBladeLook.glslh>
 
 struct LandscapeGrassCover
 {
@@ -54,8 +53,8 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
     }
     if ( c.Lai > 0.0 )
     {
-        // The clump tint's mean: the blades' colour as the vertex stage tints it.
-        c.Albedo     = c.Albedo / c.Lai * GrassClumpTint( 0.5 );
+        // The blades' mean colour, their material's clump tint included (LandscapeECSSystem's cover sum).
+        c.Albedo     = c.Albedo / c.Lai;
         c.Subsurface = c.Subsurface / c.Lai;
         c.Roughness  = c.Roughness / c.Lai;
     }

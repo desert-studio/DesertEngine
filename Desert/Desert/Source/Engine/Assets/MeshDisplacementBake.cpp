@@ -24,14 +24,11 @@ namespace Desert::Assets
         std::mutex           s_BuilderMutex;
         DisplacedMeshBuilder s_Builder;
 
-        // The chain a material's values resolve through: the material first, its template-owning root last.
-        struct MaterialChain
-        {
-            std::vector<std::shared_ptr<SurfaceMaterialAsset>> Links;
-            Core::Formats::ShaderProgramMeta                   Meta;
-        };
+    } // namespace
 
-        Common::ResultStr<MaterialChain> ResolveChain( AssetManager&                     manager,
+        // The chain a material's values resolve through: the material first, its template-owning root last.
+
+        Common::ResultStr<MaterialChain> ResolveMaterialChain( AssetManager&                     manager,
                                                        const Common::Content::AssetGuid& material )
         {
             // ResolveMaterialTwoSided and MaterialService::CreateRuntimeInstance walk the same chain, as deep.
@@ -86,7 +83,7 @@ namespace Desert::Assets
 
         // Child first, then each parent, then the template's default (MaterialData.hpp: silence is answered by
         // the chain, then the shader).
-        glm::vec4 ParamOf( const MaterialChain& chain, const std::string& name )
+        glm::vec4 MaterialChainParam( const MaterialChain& chain, const std::string& name )
         {
             for ( const auto& link : chain.Links )
                 if ( const glm::vec4* value = link->Data().FindParam( name ) )
@@ -96,6 +93,9 @@ namespace Desert::Assets
                     return param.Default;
             return glm::vec4( 0.0f );
         }
+
+    namespace
+    {
 
         template <typename T>
         void HashValue( uint64_t& h, const T& value )
@@ -161,7 +161,7 @@ namespace Desert::Assets
     ResolveSubmeshHeight( AssetManager& manager, const Common::Content::AssetGuid& material )
     {
         using Result  = std::optional<SubmeshHeightInput>;
-        auto resolved = ResolveChain( manager, material );
+        auto resolved = ResolveMaterialChain( manager, material );
         if ( !resolved.IsSuccess() )
             return Common::MakeError<Result>( resolved.GetError() );
         const MaterialChain& chain = resolved.GetValue();
@@ -197,15 +197,15 @@ namespace Desert::Assets
         input.Channel      = height.Channel;
         if ( !height.ChannelParam.empty() )
             input.Channel =
-                 static_cast<uint32_t>( std::clamp( ParamOf( chain, height.ChannelParam ).x, 0.0f, 3.0f ) );
-        input.ScaleCm = ParamOf( chain, height.ScaleParam ).x;
+                 static_cast<uint32_t>( std::clamp( MaterialChainParam( chain, height.ChannelParam ).x, 0.0f, 3.0f ) );
+        input.ScaleCm = MaterialChainParam( chain, height.ScaleParam ).x;
         if ( !height.CenterParam.empty() )
-            input.Center = std::clamp( ParamOf( chain, height.CenterParam ).x, 0.0f, 1.0f );
+            input.Center = std::clamp( MaterialChainParam( chain, height.CenterParam ).x, 0.0f, 1.0f );
         if ( !height.TilingParam.empty() )
         {
-            input.Tiling       = glm::vec2( ParamOf( chain, height.TilingParam ) );
-            input.Offset       = glm::vec2( ParamOf( chain, height.OffsetParam ) );
-            input.Rotation     = ParamOf( chain, height.RotationParam ).x;
+            input.Tiling       = glm::vec2( MaterialChainParam( chain, height.TilingParam ) );
+            input.Offset       = glm::vec2( MaterialChainParam( chain, height.OffsetParam ) );
+            input.Rotation     = MaterialChainParam( chain, height.RotationParam ).x;
             input.HasTransform = true;
         }
         return Common::MakeSuccess<Result>( std::move( input ) );

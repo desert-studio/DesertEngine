@@ -24,9 +24,9 @@ namespace Desert::Assets::Serialization
             return guid && !guid.GetValue().IsNull();
         }
 
-        bool UnitColour( const std::array<float, 3>& c )
+        bool UnitRect( const std::array<float, 4>& r )
         {
-            return std::all_of( c.begin(), c.end(),
+            return std::all_of( r.begin(), r.end(),
                                 []( float x ) { return std::isfinite( x ) && x >= 0.0f && x <= 1.0f; } );
         }
 
@@ -59,28 +59,24 @@ namespace Desert::Assets::Serialization
                         return Common::MakeFormattedError<bool>( "grass variety {} (Blade) has no Blade shape",
                                                                  i );
                     const GrassBlade& b      = *v.Blade;
-                    const bool        finite = std::isfinite( b.Height ) && std::isfinite( b.Width ) &&
-                                        std::isfinite( b.Taper ) && std::isfinite( b.Curvature ) &&
+                    const bool        finite = std::isfinite( b.Height ) && std::isfinite( b.Curvature ) &&
                                         std::isfinite( b.CurvatureSpread ) && std::isfinite( b.BendSpread ) &&
                                         std::isfinite( b.Tilt ) && std::isfinite( b.FacingJitter ) &&
-                                        std::isfinite( b.Stiffness ) && std::isfinite( b.DryTipShare ) &&
-                                        std::isfinite( b.DryTipLength ) && std::isfinite( b.Clumping ) &&
+                                        std::isfinite( b.Stiffness ) && std::isfinite( b.Clumping ) &&
                                         std::isfinite( b.ClumpPull ) && std::isfinite( b.ClumpSize ) &&
                                         std::isfinite( b.Scatter ) && std::isfinite( b.Patchiness ) &&
                                         std::isfinite( b.PatchSize ) && std::isfinite( b.LodDistance );
-                    if ( !finite || !( b.Height > 0.0f ) || !( b.Width > 0.0f ) || !( b.ClumpSize > 0.0f ) ||
-                         !( b.PatchSize > 0.0f ) || !( b.LodDistance > 0.0f ) )
-                        return Common::MakeFormattedError<bool>( "grass variety {} (Blade): Height {}, Width {}, "
+                    if ( !finite || !( b.Height > 0.0f ) || !( b.ClumpSize > 0.0f ) || !( b.PatchSize > 0.0f ) ||
+                         !( b.LodDistance > 0.0f ) )
+                        return Common::MakeFormattedError<bool>( "grass variety {} (Blade): Height {}, "
                                                                  "ClumpSize {}, PatchSize {} and LodDistance {} "
                                                                  "must be finite and > 0",
-                                                                 i, b.Height, b.Width, b.ClumpSize, b.PatchSize,
+                                                                 i, b.Height, b.ClumpSize, b.PatchSize,
                                                                  b.LodDistance );
                     for ( const auto& [name, value] :
-                          { std::pair{ "Taper", b.Taper }, std::pair{ "Curvature", b.Curvature },
-                            std::pair{ "Stiffness", b.Stiffness }, std::pair{ "DryTipShare", b.DryTipShare },
-                            std::pair{ "DryTipLength", b.DryTipLength }, std::pair{ "Clumping", b.Clumping },
-                            std::pair{ "ClumpPull", b.ClumpPull }, std::pair{ "Scatter", b.Scatter },
-                            std::pair{ "Patchiness", b.Patchiness },
+                          { std::pair{ "Curvature", b.Curvature }, std::pair{ "Stiffness", b.Stiffness },
+                            std::pair{ "Clumping", b.Clumping }, std::pair{ "ClumpPull", b.ClumpPull },
+                            std::pair{ "Scatter", b.Scatter }, std::pair{ "Patchiness", b.Patchiness },
                             std::pair{ "CurvatureSpread", b.CurvatureSpread },
                             std::pair{ "BendSpread", b.BendSpread } } )
                         if ( value < 0.0f || value > 1.0f )
@@ -99,10 +95,19 @@ namespace Desert::Assets::Serialization
                         return Common::MakeFormattedError<bool>(
                              "grass variety {} (Blade): Segments {} is outside 1..{}", i, b.Segments,
                              kGrassBladeMaxSegments );
-                    if ( !UnitColour( b.BaseColor ) || !UnitColour( b.TipColor ) || !UnitColour( b.DryTipColor ) )
-                        return Common::MakeFormattedError<bool>( "grass variety {} (Blade): BaseColor, TipColor "
-                                                                 "and DryTipColor are linear RGB in 0..1",
-                                                                 i );
+                    if ( b.Cards.empty() || b.Cards.size() > kGrassBladeMaxCards )
+                        return Common::MakeFormattedError<bool>(
+                             "grass variety {} (Blade): {} Cards, 1..{} wanted", i, b.Cards.size(),
+                             kGrassBladeMaxCards );
+                    for ( size_t c = 0; c < b.Cards.size(); ++c )
+                    {
+                        const auto& r = b.Cards[c];
+                        if ( !UnitRect( r ) || !( r[2] > r[0] ) || !( r[3] > r[1] ) )
+                            return Common::MakeFormattedError<bool>(
+                                 "grass variety {} (Blade): card {} is not a rectangle (u0 < u1, vTip < vRoot) in "
+                                 "0..1",
+                                 i, c );
+                    }
                     return BOOLSUCCESS;
                 }
             }
