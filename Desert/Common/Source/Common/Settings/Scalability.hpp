@@ -282,8 +282,8 @@ namespace Common::Scalability
         // quality).
         PathTracingDenoiser,
         // 0/1: the ReLAX denoiser's anti-firefly (NRD ReLAX enableAntiFirefly, System::PathTracer "Denoise
-        // AntiFirefly"): a lobe's luminance above its 3 x 3 neighbourhood is handed to that neighbourhood before the
-        // a-trous, by at most two deviations of its mean (energy-conserving; the converged image is untouched)
+        // AntiFirefly"): a lobe's luminance above its 3 x 3 neighbourhood is handed to that neighbourhood before
+        // the a-trous, by at most two deviations of its mean (energy-conserving; the converged image is untouched)
         PathTracingDenoiserAntiFirefly,
         // How the path tracer chooses the one light of each vertex (System::PathTracer::LightSampling): 0 = every
         // light by its estimate at the vertex (UE EstimateLight, O(lights) per vertex), 1 = the light grid (NVIDIA

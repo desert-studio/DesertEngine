@@ -327,10 +327,13 @@ namespace Common::Scalability
                Of( PathTracingDenoiserMethod::Auto ), Vis::Basic },
              { P::PathTracingDenoiserAntiFirefly, G::PathTracing, "PathTracing.Denoiser.AntiFirefly", 0, 1,
                CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the ReLAX denoiser's firefly clamp before "
-               "the a-trous)", 1, Vis::Advanced },
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the ReLAX denoiser's firefly clamp "
+               "before "
+               "the a-trous)",
+               1, Vis::Advanced },
              { P::PathTracingLightSampling, G::PathTracing, "PathTracing.LightSampling", 0, 1, CL::None,
-               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the light choice at each vertex: every "
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the light choice at each vertex: "
+               "every "
                "light by its estimate, or the light grid)",
                0, Vis::Advanced },
              { P::ScreenProbeDownsample, G::GlobalIllumination, "GlobalIllumination.ScreenProbeDownsample", 8, 64,

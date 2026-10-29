@@ -221,14 +221,15 @@ namespace Desert::Graphic::System
     // pyramid of its weights is reduced level by level (PathTracerSky.shader "Prepare" / "Reduce"); the paths
     // importance-sample it (Common/PathTracingSky.glslh).
     //
-    // THE LIGHT CHOICE (PathTracing.LightSampling, Settings::LightSampling): each vertex samples ONE of the sun, the
-    // sky, the moon and the local lights (UE: one light chosen by its estimate). AllLights evaluates every light's
-    // estimate at the vertex (UE EstimateLight), O(lights) per vertex; Grid (NVIDIA RTXDI ReGIR) builds a world grid
-    // of light reservoirs around the camera each traced frame ("PathTracing: Light Grid", PathTracerLightGrid.shader:
-    // kLightGridSlots per cell, each the weighted-reservoir pick of kLightGridCandidates uniformly drawn local lights
-    // by their luminance at the cell), and a vertex resamples a few slots of its cell by the light's unshadowed
-    // f * cos (PathTracer.shader PathTracingChooseLights). Both are unbiased and converge to the same image; a vertex
-    // outside the grid takes AllLights. A change of the method restarts the sum (each sum is one estimator).
+    // THE LIGHT CHOICE (PathTracing.LightSampling, Settings::LightSampling): each vertex samples ONE of the sun,
+    // the sky, the moon and the local lights (UE: one light chosen by its estimate). AllLights evaluates every
+    // light's estimate at the vertex (UE EstimateLight), O(lights) per vertex; Grid (NVIDIA RTXDI ReGIR) builds a
+    // world grid of light reservoirs around the camera each traced frame ("PathTracing: Light Grid",
+    // PathTracerLightGrid.shader: kLightGridSlots per cell, each the weighted-reservoir pick of
+    // kLightGridCandidates uniformly drawn local lights by their luminance at the cell), and a vertex resamples a
+    // few slots of its cell by the light's unshadowed f * cos (PathTracer.shader PathTracingChooseLights). Both
+    // are unbiased and converge to the same image; a vertex outside the grid takes AllLights. A change of the
+    // method restarts the sum (each sum is one estimator).
     //
     // THE EMISSIVE SURFACES (RayTracing::EmissiveLightsFrame, the scene's one emissive triangle list): each vertex
     // also samples one emissive triangle by power and a point on it, a strategy of its own beside the analytic
@@ -253,20 +254,22 @@ namespace Desert::Graphic::System
     //    PathsPerFrame paths through each jittered pixel centre every frame and hands that raw estimate to it -
     //    no accumulation, the upscaler's history is the integration - with this frame's guide sums
     //    (PathTracedGuides, AddPasses' result), the factors the colour was made with, in place of the G-buffer's;
-    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every frame before the resolve:
+    //  - ReLAX, and RR whose runtime refused: the ReLAX-style denoiser (PathTracerDenoise.shader) runs on every
+    //  frame before the resolve:
     //    per lobe, a temporal history reprojected by the camera's motion on the frames the camera moved (THE
     //    DENOISER'S HISTORY below), the variance of the integrated signal, NRD ReLAX's anti-firefly
-    //    (PathTracing.Denoiser.AntiFirefly: an energy-conserving neighbourhood clamp whose reach is two deviations of
-    //    the mean), an energy-conserving variance-guided a-trous, and the remodulation. Its edge-stopping width is the estimate's standard deviation, so it fades
-    //    as the paths add up and the converged image is the tracer's own.
+    //    (PathTracing.Denoiser.AntiFirefly: an energy-conserving neighbourhood clamp whose reach is two deviations
+    //    of the mean), an energy-conserving variance-guided a-trous, and the remodulation. Its edge-stopping width
+    //    is the estimate's standard deviation, so it fades as the paths add up and the converged image is the
+    //    tracer's own.
     //
     // THE DENOISER'S HISTORY: the accumulation is the temporal integration of a still camera; a moving camera
     // restarts it every frame, and the history carries the integration across that restart instead - only that
     // restart: any other (a cut, a resize, the scene, the bounces, the clamp, the denoising upscaler) empties the
     // history, as it empties the sum. On a moving frame "Denoise Snapshot" folds the previous frame's sum into the
-    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still frame
-    // the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader).
-    // It is not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
+    // history before the trace overwrites it and "Denoise Temporal" reprojects it after the trace; on a still
+    // frame the history stays as the camera left it and the sum grows beside it (PathTracerDenoise.shader). It is
+    // not IScreenSpaceDenoiser's work: that one reconstructs one lighting signal of the raster (diffuse,
     // reflections, shadow visibility) with the raster's G-buffer; here the signal is the whole path-traced
     // radiance with guides from the paths themselves (glass looked through, sub-pixel averaged), as UE keeps its
     // path tracer's denoiser apart from the screen-space one.
@@ -291,14 +294,14 @@ namespace Desert::Graphic::System
             Grid      = 1,
         };
 
-        // THE LIGHT CHOICE's grid: kLightGridCellsXZ x kLightGridCellsY x kLightGridCellsXZ cells of kLightGridCellSide around the camera (snapped to the
-        // cell side, so a still camera keeps its cells), kLightGridSlots reservoirs per cell, each picked from
-        // kLightGridCandidates lights.
-        static constexpr float      kLightGridCellSide   = 400.0f; // cm
-        static constexpr uint32_t   kLightGridCellsXZ    = 32u; // cells along x and z
-        static constexpr uint32_t   kLightGridCellsY     = 16u; // cells along y (up)
-        static constexpr uint32_t   kLightGridSlots      = 32u;
-        static constexpr uint32_t   kLightGridCandidates = 32u;
+        // THE LIGHT CHOICE's grid: kLightGridCellsXZ x kLightGridCellsY x kLightGridCellsXZ cells of
+        // kLightGridCellSide around the camera (snapped to the cell side, so a still camera keeps its cells),
+        // kLightGridSlots reservoirs per cell, each picked from kLightGridCandidates lights.
+        static constexpr float    kLightGridCellSide   = 400.0f; // cm
+        static constexpr uint32_t kLightGridCellsXZ    = 32u;    // cells along x and z
+        static constexpr uint32_t kLightGridCellsY     = 16u;    // cells along y (up)
+        static constexpr uint32_t kLightGridSlots      = 32u;
+        static constexpr uint32_t kLightGridCandidates = 32u;
 
         // Scalability PathTracing.* (BeginScene).
         struct Settings
@@ -547,10 +550,9 @@ namespace Desert::Graphic::System
             // Every restart but the camera's motion: the previous sum is not this frame's scene (THE DENOISER'S
             // HISTORY empties with it).
             const bool sumKept = !resized && m_Stamp.ReadableIn( frame ) && settings.MaxBounces == m_MaxBounces &&
-                                 settings.LightSampling == m_LightSampling &&
-                                 inputs.SceneHash == m_SceneHash && !inputs.DynamicGeometry &&
-                                 settings.MaxPathIntensity == m_MaxPathIntensity && !exposureLeft &&
-                                 !inputs.RawToUpscaler && !m_RawToUpscaler;
+                                 settings.LightSampling == m_LightSampling && inputs.SceneHash == m_SceneHash &&
+                                 !inputs.DynamicGeometry && settings.MaxPathIntensity == m_MaxPathIntensity &&
+                                 !exposureLeft && !inputs.RawToUpscaler && !m_RawToUpscaler;
             const bool cameraMoved = frame.ViewProjection != frame.PrevViewProjection;
             const bool restart     = !sumKept || cameraMoved;
             const bool denoise     = settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::Off &&
@@ -568,7 +570,7 @@ namespace Desert::Graphic::System
                 m_ClampPreExposure = frame.PreExposure;
             }
             m_MaxBounces                       = settings.MaxBounces;
-            m_LightSampling                    = settings.LightSampling;
+            m_LightSampling                     = settings.LightSampling;
             m_MaxPathIntensity                 = settings.MaxPathIntensity;
             m_SceneHash                        = inputs.SceneHash;
             m_RawToUpscaler                     = inputs.RawToUpscaler;
@@ -630,7 +632,8 @@ namespace Desert::Graphic::System
             glm::vec4  LightGrid;     // LightGridTargets::Grid
             glm::uvec4 LightGridSize; // LightGridTargets::Size
         };
-        static_assert( sizeof( TracePush ) <= 128u, "the trace's push constants exceed Vulkan's guaranteed 128 bytes" );
+        static_assert( sizeof( TracePush ) <= 128u,
+                       "the trace's push constants exceed Vulkan's guaranteed 128 bytes" );
         // PathTracerLightGrid.shader "PushConstants".
         struct LightGridPush
         {
@@ -904,10 +907,10 @@ namespace Desert::Graphic::System
             return sky;
         }
 
-        // "PathTracing: Light Grid" (THE LIGHT CHOICE above): this frame's grid around the camera when @p sampling is
-        // Grid and the scene has local lights; otherwise one empty slot the trace binds and never reads (Size.x = 0).
-        // The seed moves with every traced frame (the restarts and the paths summed), so each frame's slots are
-        // independent draws and the sum converges.
+        // "PathTracing: Light Grid" (THE LIGHT CHOICE above): this frame's grid around the camera when @p sampling
+        // is Grid and the scene has local lights; otherwise one empty slot the trace binds and never reads (Size.x
+        // = 0). The seed moves with every traced frame (the restarts and the paths summed), so each frame's slots
+        // are independent draws and the sum converges.
         LightGridTargets AddLightGridPass( RDG::Builder& graph, const FrameInputs& inputs, const ViewFrame& frame,
                                            const LightSamplingMethod sampling )
         {
@@ -915,25 +918,27 @@ namespace Desert::Graphic::System
             const uint32_t   lights = inputs.PointLightCount + inputs.SpotLightCount;
             if ( sampling != LightSamplingMethod::Grid || lights == 0u )
             {
-                grid.Buffer = graph.CreateBuffer( RDG::BufferDesc{ sizeof( glm::uvec2 ) }, "PathTracing.LightGrid" );
+                grid.Buffer =
+                     graph.CreateBuffer( RDG::BufferDesc{ sizeof( glm::uvec2 ) }, "PathTracing.LightGrid" );
                 const glm::uvec2 empty{ 0xFFFFFFFFu, 0u };
                 graph.QueueBufferUpload( grid.Buffer, std::as_bytes( std::span( &empty, 1 ) ) );
                 return grid;
             }
             const glm::uvec3 cellCount( kLightGridCellsXZ, kLightGridCellsY, kLightGridCellsXZ );
             const glm::vec3  cells( cellCount );
-            const glm::vec3 corner =
+            const glm::vec3  corner =
                  ( glm::floor( frame.CameraPosition / kLightGridCellSide ) - glm::floor( cells * 0.5f ) ) *
                  kLightGridCellSide;
             grid.Grid = glm::vec4( corner, kLightGridCellSide );
             grid.Size = glm::uvec4( cellCount, kLightGridSlots );
             const uint64_t slots =
                  static_cast<uint64_t>( cellCount.x ) * cellCount.y * cellCount.z * kLightGridSlots;
-            grid.Buffer = graph.CreateBuffer( RDG::BufferDesc{ slots * sizeof( glm::uvec2 ) }, "PathTracing.LightGrid" );
+            grid.Buffer =
+                 graph.CreateBuffer( RDG::BufferDesc{ slots * sizeof( glm::uvec2 ) }, "PathTracing.LightGrid" );
 
             const LightGridPush push{ grid.Grid, grid.Size,
-                                      glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, kLightGridCandidates,
-                                                  m_Restarts * 0x9E3779B9u + m_Summed ) };
+                                      glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount,
+                                                  kLightGridCandidates, m_Restarts * 0x9E3779B9u + m_Summed ) };
             graph.AddPass(
                  "PathTracing: Light Grid", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -955,7 +960,8 @@ namespace Desert::Graphic::System
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      return Renderer::GetInstance().DispatchCompute(
                           bindings, *m_LightGridPipeline,
-                          static_cast<uint32_t>( ( slots + kLightGridGroupSize - 1u ) / kLightGridGroupSize ), 1, 1 );
+                          static_cast<uint32_t>( ( slots + kLightGridGroupSize - 1u ) / kLightGridGroupSize ), 1,
+                          1 );
                  } );
             return grid;
         }
@@ -1330,7 +1336,8 @@ namespace Desert::Graphic::System
         PassHistoryStamp   m_Stamp;               // the view frame whose resolve last stood behind the sum
         uint32_t           m_Summed      = 0;     // paths per pixel in the sum
         uint32_t           m_MaxBounces  = 0;     // the bounces the sum was traced with
-        LightSamplingMethod m_LightSampling = LightSamplingMethod::AllLights; // the light choice the sum was traced with
+        LightSamplingMethod m_LightSampling =
+             LightSamplingMethod::AllLights;          // the light choice the sum was traced with
         float              m_MaxPathIntensity = 0.0f; // Settings::MaxPathIntensity the sum was clamped with
         float              m_ClampPreExposure = 1.0f; // the PreExposure that clamp was stated at (its restart's)
         uint64_t           m_SceneHash   = 0;     // FrameInputs::SceneHash the sum was traced over
