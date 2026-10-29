@@ -130,6 +130,7 @@ NIGHT_MIN_AGENTS = 3
 # Day floor (owner 10-29 «у тебя опять 2 агента. я разрешил больше ... отслеживай через хуки»): ~/.claude/min_agents
 # holds the number of agents that must be running; Stop refuses a lead below it unless a merge is in progress.
 MIN_AGENTS_FILE = os.path.expanduser("~/.claude/min_agents")
+MAX_AGENTS = 5  # owner 10-29 «минимуи 3, а максимум 5»: a launch above it is refused
 
 
 def min_agents():
@@ -400,8 +401,8 @@ def main():
         if floor and not night_until() and not late and not data.get("stop_hook_active"):
             busy = running_count(s)
             if busy < floor and not landing():
-                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 10-29 разрешил "
-                      "больше, ~/.claude/min_agents). Запусти следующие карточки из очереди HANDOVER, потом заканчивай ход."})
+                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 10-29: минимум 3, "
+                      "максимум 5, ~/.claude/min_agents). Запусти следующие карточки из очереди HANDOVER, потом заканчивай ход."})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
@@ -481,6 +482,10 @@ def main():
             if not code:
                 deny("в промпте нет кода задачи («You are agent <КОД>» или /private/tmp/claude-501/<КОД>/BRIEF.md) — "
                      "без кода карточку не сверить. Промпт — шаблон ~/.claude/tools/lead_templates.md §5.")
+            busy = running_count(s)
+            if busy >= MAX_AGENTS:
+                deny(f"работает агентов {busy}, максимум {MAX_AGENTS} (владелец 10-29 «минимум 3, а максимум 5»). "
+                     "Дождись сдачи одного, прими его, потом запускай.")
             alive = running_agent(s, code)
             if alive:
                 deny(f"агент {code} ещё работает ({alive}): второй агент на ту же задачу правит то же дерево и сжигает "
