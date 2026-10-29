@@ -432,10 +432,17 @@ Shader "DeferredLighting"
         	const int dbg = int(Params.x + 0.5);
 
         	// No geometry here (zero normal — the G-buffer is cleared to 0): discard so the LOADed forward scene
-        	// (real procedural sky / skybox + grid) shows through.
+        	// (real procedural sky / skybox + grid) shows through. A G-BUFFER VIEW (UE Buffer Visualization:
+        	// BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel; the same set SceneRenderer composites no
+        	// fog or clouds over) shows the stored surface, and the sky stores none: black there, as UE's BaseColor.
         	const bool hasGeometry = dot(normal, normal) > 0.001;
         	if (!hasGeometry)
         	{
+        		if ((dbg >= 1 && dbg <= 5) || dbg == 10 || dbg == 11)
+        		{
+        			oColor = vec4(0.0, 0.0, 0.0, 1.0);
+        			return;
+        		}
         		discard;
         	}
 

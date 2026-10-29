@@ -1,6 +1,6 @@
 // THE VIEW'S FOG, for a surface that applies it to ITSELF at its own depth: the translucent mesh cell
 // (Pass_Forward_Translucent.glslh), the particle sprite cell (Pass_ParticleSprite.glslh) and the water program
-// (Programs/Water/WaterSurface.shader). UE's arrangement: the height fog, the volumetric fog and the aerial
+// (Mesh/Surface/Pass_SingleLayerWater.glslh). UE's arrangement: the height fog, the volumetric fog and the aerial
 // perspective are built before the translucency, the opaque composite fogs the opaque scene only, and every
 // translucent surface evaluates the same fog at the point it is drawn (Common/ViewFog.glslh), so a pane of glass in
 // front of a far wall is fogged by the air in front of the pane.

@@ -26,6 +26,7 @@ struct LandscapeGrassCover
     vec3  Albedo;     // the blades' mean albedo
     vec3  Subsurface; // the blade material's SubsurfaceColor
     float Roughness;
+    float Opacity;    // the blade material's subsurface Opacity (UE's pin: the density the sun crosses to it)
     float Lai;        // the leaf area index the thinned-out blades leave to the cover at this point
 };
 
@@ -36,6 +37,7 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
     c.Albedo     = vec3( 0.0 );
     c.Subsurface = vec3( 0.0 );
     c.Roughness  = 0.0;
+    c.Opacity    = 0.0;
     c.Lai        = 0.0;
     for ( int i = 0; i < 8; ++i )
     {
@@ -49,6 +51,7 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
         c.Albedo += lai * t.GrassCover[i].rgb;
         c.Subsurface += lai * t.GrassCoverLight[i].rgb;
         c.Roughness += lai * t.GrassCoverLight[i].a;
+        c.Opacity += lai * rng.w;
         c.Lai += lai;
     }
     if ( c.Lai > 0.0 )
@@ -57,6 +60,7 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
         c.Albedo     = c.Albedo / c.Lai;
         c.Subsurface = c.Subsurface / c.Lai;
         c.Roughness  = c.Roughness / c.Lai;
+        c.Opacity    = c.Opacity / c.Lai;
     }
     return c;
 }

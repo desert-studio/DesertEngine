@@ -1241,9 +1241,7 @@ namespace Desert::Graphic
                            const FrameFrontLayer& frontLayer );
         // The water surface (WATER-W6), into the scene target with depth, after the scene copy and before the
         // glass.
-        // Returns whether a water node was added (it writes the scene depth: the depth consumers after it need the
-        // resolve again at MSAA > 1).
-        bool AddFrameWater( RDG::Builder& graph, FrameTextures& textures );
+        void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
@@ -1492,7 +1490,13 @@ namespace Desert::Graphic
         // with which every translucent surface after it evaluates the same fog at its own depth
         // (Mesh/Surface/SceneFog.glslh over Common/ViewFog.glslh). The froxels are AddFrameVolumetricFog's, added
         // just before.
+        // with no apply in a G-buffer view (IsGBufferDebugView: the stored surface value, no fog over it; the
+        // translucency's fog inputs are still published).
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
+        // Whether the view shows a stored G-buffer value (UE Buffer Visualization: BaseColor, WorldNormal,
+        // Metallic, Roughness, AO, ShadingModel, the sun shadow receive): no height fog apply and no cloud layer
+        // is composited over it (GRASS-ASSET p5: the Albedo view read +0.08 fog blue on the far cover).
+        [[nodiscard]] bool IsGBufferDebugView() const;
         // The volumetric fog's two compute nodes (VolumetricFogRenderer), after the light grid and the shadow
         // depths, before AddFrameAtmosphericFog, which composes its integrated volume.
         void AddFrameVolumetricFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );

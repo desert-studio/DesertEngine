@@ -2247,9 +2247,9 @@ namespace Desert::Graphic
                 const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
                      graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
-                // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-                // the glass, which then refracts the water behind it.
-                AddFrameWater( graph, textures );
+                // The water after the copy (the scene without water, which its refraction reads) and before the
+                // glass.
+                AddFrameWater( graph, textures, sceneCopy );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
@@ -2278,13 +2278,18 @@ namespace Desert::Graphic
         // which the capture marches through, is still written.
         // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
         // scene copy (AddFrameOpaqueFog); a path-traced frame added none, so its sky LUTs are added here.
-        if ( !pathTraced )
-            AddFrameVolumetricClouds( graph, textures, frame );
-        else
+        // A G-buffer view (UE Buffer Visualization) composites no cloud layer over the stored surface value
+        // (IsGBufferDebugView; its height fog apply is skipped in AddFrameAtmosphericFog). The clouds'
+        // sky-occlusion volume is still written.
+        if ( pathTraced )
         {
             AddFrameSkyAtmosphereLuts( graph, textures );
             AddFrameCloudSkyOcclusion( graph, textures );
         }
+        else if ( IsGBufferDebugView() )
+            AddFrameCloudSkyOcclusion( graph, textures );
+        else
+            AddFrameVolumetricClouds( graph, textures, frame );
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.

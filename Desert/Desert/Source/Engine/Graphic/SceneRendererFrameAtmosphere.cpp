@@ -229,6 +229,13 @@ namespace Desert::Graphic
         AddFrameAtmosphericFog( graph, textures );
     }
 
+    bool SceneRenderer::IsGBufferDebugView() const
+    {
+        const DeferredDebugMode debugView = m_DebugView.DeferredDebug;
+        return ( debugView >= DeferredDebugMode::Albedo && debugView <= DeferredDebugMode::AO ) ||
+               debugView == DeferredDebugMode::ShadingModel || debugView == DeferredDebugMode::SunShadowReceive;
+    }
+
     void SceneRenderer::AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -242,7 +249,7 @@ namespace Desert::Graphic
         // The evaluation of the OPAQUE depth, then its apply over the scene target - the opaque composite only.
         AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients, volumeResult ) );
         // No fog image this frame (neither fog nor aerial perspective): no apply node at all.
-        if ( textures.Transients.HeightFog.IsValid() )
+        if ( textures.Transients.HeightFog.IsValid() && !IsGBufferDebugView() )
             AddSystemRaster( graph, textures, fog->ApplyPass() );
 
         // What every translucent surface after this point fogs itself with, at its own depth

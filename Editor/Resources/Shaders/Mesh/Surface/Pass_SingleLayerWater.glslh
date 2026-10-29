@@ -1,0 +1,163 @@
+// Surface cell pass: SINGLE LAYER WATER (UE SingleLayerWater.usf + SingleLayerWaterComposite.usf, folded into one
+// forward draw) - the `WaterMesh.SingleLayerWater` cell of a `ShadingModel SingleLayerWater` / `Usage WaterMesh`
+// template (DShaderParser kSurfaceSingleLayerWaterPass). Graphic::System::WaterRenderer draws it after the opaque
+// scene's copy and before the glass, into the scene target with depth.
+//
+// The surface (EvaluateSurface: the ripple normal, roughness, specular) and the volume (EvaluateSingleLayerWater:
+// scattering, absorption, phase, the tint behind) are the MATERIAL's; this header is the physics, stating no colour:
+//   - the scene behind (the opaque copy, without water) refracted by the surface normal, refused where the bent
+//     sample lands in front of the surface;
+//   - Beer-Lambert transmittance over the view ray's length through the water (the opaque depth is the bottom: UE's
+//     SceneDepthWithoutSingleLayerWater) plus the single-scattered sun (Henyey-Greenstein) and sky;
+//   - the interface through the SHADING MODEL (ShadingModels/SingleLayerWater.shadingmodel): the sun's specular and
+//     the environment's reflection, the volume weighted by what the split-sum Fresnel lets through.
+#include <Common/Velocity.glslh>
+
+DESERT_SURFACE_VARYINGS( in )
+
+layout( location = 0 ) out vec4 oColor;
+layout( location = 1 ) out vec4 oVelocity; // the view's velocity, slot 1 of the scene target
+// The view's thin-geometry coverage, slot 3 of the scene target: water counts as a regular surface (UE).
+layout( location = 3 ) out float oThinGeometryCoverage;
+
+#include <Common/DirectionLightsUB.glslh>
+
+Uniform sampler LinearClampSampler;
+Uniform sampler PointClampSampler;
+
+layout( binding = 8 ) uniform textureCube EnvironmentSpecularTexture;
+#define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+layout( binding = 9 ) uniform textureCube EnvironmentIrradianceTexture;
+#define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
+layout( binding = 10 ) uniform texture2D BrdfLutTexture;
+#define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
+layout( binding = 22 ) uniform SkyLookUB
+{
+    vec4 YawCosSin; // xy = (cos yaw, sin yaw) - Graphic::SkyLookGPU
+    vec4 Gain;      // rgb = tint * intensity
+}
+skyLook;
+#include <Common/SkyLook.glslh>
+
+// The composited opaque scene, pre-exposed, without the water (SceneRenderer::AddFrameSceneCopy).
+layout( binding = 19 ) uniform texture2D SceneColorTexture;
+#define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
+// The opaque scene's device depth (reversed-Z): the water's bottom (SceneViewInputs::SceneDepth, Core::kSceneDepthBinding).
+#ifndef DESERT_SURFACE_DEPTH_FADE
+layout( binding = 27 ) uniform texture2D SceneDepthTexture;
+#endif
+#define WaterSceneDepth sampler2D(SceneDepthTexture, PointClampSampler)
+
+#include <Mesh/BRDF.glslh>
+#include <Mesh/AmbientIBL.glslh>
+#include <Generated/ShadingModels.glslh>
+// After the lighting half of Mesh/AmbientIBL.glslh: this header includes the generated models, whose own
+// include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
+#include <Common/ThinGeometryCoverage.glslh>
+// The view's fog at the surface's own depth: the water is drawn after the opaque fog composite (UE fogs a
+// translucent surface the same way; SceneRenderer::AddFrameOpaqueFog). Its images read through LinearClampSampler.
+#include <Mesh/Surface/SceneFog.glslh>
+
+const float kWaterPi = 3.14159265;
+
+vec3 WaterWorldAt( vec2 uv, float deviceDepth )
+{
+    const vec4 w = cameraUB.InvJitteredViewProjection * vec4( uv * 2.0 - 1.0, deviceDepth, 1.0 );
+    return w.xyz / w.w;
+}
+
+float WaterHenyeyGreenstein( float cosTheta, float g )
+{
+    const float g2 = g * g;
+    return ( 1.0 - g2 ) / ( 4.0 * kWaterPi * pow( max( 1.0 + g2 - 2.0 * g * cosTheta, 1e-4 ), 1.5 ) );
+}
+
+void main()
+{
+    const SurfaceInput i =
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor, gl_FrontFacing );
+    const SurfaceOutput          s = EvaluateSurface( i );
+    const SingleLayerWaterOutput w = EvaluateSingleLayerWater( i );
+
+    const vec3 V = normalize( i.CameraPosition - i.WorldPosition );
+    vec3       N = DesertSurfaceWorldNormal( i, s );
+    if ( dot( N, V ) < 0.0 )
+        N = normalize( N + V * ( 0.01 - dot( N, V ) ) ); // a ripple never faces away from the eye
+
+    const float exposure = cameraUB.PreExposure;
+    const vec3  L        = normalize( -directionLights.directionLights.Direction.xyz );
+    const vec3  sun      = directionLights.directionLights.ColorIntensity.rgb *
+                     directionLights.directionLights.ColorIntensity.a; // not yet pre-exposed
+
+    // --- The scene behind, refracted (UE SingleLayerWater's distortion: the offset grows with the water in front).
+    const vec2  screen   = vec2( textureSize( WaterSceneDepth, 0 ) );
+    const vec2  uv       = gl_FragCoord.xy / screen;
+    const float baseDev  = texture( WaterSceneDepth, uv ).r;
+    const vec3  baseBack = WaterWorldAt( uv, baseDev );
+    const float baseLen  = baseDev <= 0.0 ? 1e7 : distance( i.WorldPosition, baseBack );
+    const vec3  bent     = i.WorldPosition + vec3( N.x, 0.0, N.z ) * w.RefractionOffset * clamp( baseLen / 100.0, 0.0, 1.0 );
+    const vec4  clipOff  = cameraUB.JitteredViewProjection * vec4( bent, 1.0 );
+    vec2        refrUv   = clamp( ( clipOff.xy / clipOff.w ) * 0.5 + 0.5, vec2( 0.0 ), vec2( 1.0 ) );
+    float       refrDev  = texture( WaterSceneDepth, refrUv ).r;
+    vec3        refrBack = WaterWorldAt( refrUv, refrDev );
+    const bool  inFront  = refrDev > 0.0 && dot( refrBack - i.CameraPosition, -V ) < dot( i.WorldPosition - i.CameraPosition, -V );
+    if ( inFront )
+    {
+        refrUv   = uv;
+        refrDev  = baseDev;
+        refrBack = baseBack;
+    }
+    const float pathCm = refrDev <= 0.0 ? 1e7 : distance( i.WorldPosition, refrBack );
+    const vec3  behind = texture( SceneColorTexture, refrUv ).rgb; // pre-exposed
+
+    // --- The water volume: Beer-Lambert over the path, plus the single-scattered sun and sky.
+    const vec3  sigmaS = w.ScatteringCoefficients;
+    const vec3  sigmaT = max( w.AbsorptionCoefficients + sigmaS, vec3( 1e-5 ) );
+    const vec3  trans  = exp( -sigmaT * ( pathCm * 0.01 ) );
+    const vec3  albedo = sigmaS / sigmaT;
+    const vec3  skyIrr = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
+    const float phase  = WaterHenyeyGreenstein( dot( -V, L ), w.PhaseG );
+    const vec3  inscat = ( sun * max( L.y, 0.0 ) * phase + skyIrr / ( 4.0 * kWaterPi ) ) * albedo * ( 1.0 - trans );
+
+    // --- The interface, through the shading model: the sun's specular and the environment's reflection (the
+    // reflection of a surface seen from above is of the upper hemisphere).
+    const DesertSurface S = DesertMakeSurface( i.WorldPosition, N, V, vec3( 0.0 ), 0.0, s.Roughness, s.Specular );
+    const DesertPayload P = DesertQuantizePayload( DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
+    DesertLight         sunLight;
+    sunLight.L                  = L;
+    sunLight.Radiance           = sun;
+    sunLight.Shadow             = 1.0;
+    sunLight.TransmissionShadow = 1.0;
+    const vec3 direct = DesertEvaluateShadingModel( DESERT_SHADING_MODEL_INDEX, sunLight, S, P );
+
+    vec3        R   = reflect( -V, N );
+    R.y             = abs( R.y );
+    const float NoV = max( dot( N, V ), 1e-4 );
+    DesertAmbient A;
+    A.Irradiance     = DesertAmbientIrradiance( N );
+    A.Prefiltered    = DesertAmbientSpecular( R, S.Roughness );
+    A.SpecularBRDF   = texture( BrdfLutTexture, vec2( NoV, S.Roughness ) ).rg;
+    A.Indirect       = vec3( 0.0 );
+    A.Occlusion      = 1.0;
+    A.Traced         = 0.0;
+    A.BackIrradiance = vec3( 0.0 );
+    const vec3 reflected = DesertEvaluateShadingModelAmbient( DESERT_SHADING_MODEL_INDEX, A, S, P );
+
+    // What the interface does not reflect enters the eye from the volume (UE: 1 - EnvBRDF).
+    const vec3 F0      = DesertSpecularF0( S );
+    const vec3 through = vec3( 1.0 ) - ( F0 * A.SpecularBRDF.x + A.SpecularBRDF.y );
+
+    // Fogged at its own depth: the scene behind is the fogged scene copy already (the opaque fog ran before the
+    // copy), so only what is lit here - the volume's inscattering and the interface - is attenuated by the fog in
+    // front of the surface, and the fog's inscattering (pre-exposed, FogGates.z) covers what does not show the
+    // scene behind.
+    const vec4 fog   = DesertSceneFog( i.WorldPosition );
+    const vec3 seen  = trans * through; // the fraction of the (fogged) scene behind that reaches the eye
+    const vec3 lit   = ( inscat * through + direct + reflected ) * exposure;
+    oColor           = vec4( behind * w.ColorScaleBehindWater * seen + lit * fog.a +
+                                  fog.rgb * ( 1.0 - dot( seen, vec3( 1.0 / 3.0 ) ) ),
+                             1.0 );
+    oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
+    oThinGeometryCoverage = kThinGeometryCoverageSurface;
+}
