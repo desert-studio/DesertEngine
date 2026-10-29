@@ -221,6 +221,11 @@ namespace Desert::Graphic::System
             if ( g.Mesh != nullptr &&
                  !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
+            // A surface override held by the view's GPU-culled bins (AttachBinned) is issued from them.
+            if ( ( slice == GenericSlice::DeferredSurfaceGBuffer || slice == GenericSlice::Forward ) &&
+                 SkipsBinned( slice == GenericSlice::Forward ? GpuDriven::MeshPass::Forward : GpuDriven::MeshPass::GBuffer,
+                              kBinnedMainView, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                continue;
 
             // Per-slot draws carry their own material (asset params already applied at build);
             // Shader Override draws use a shader-keyed shared material + per-frame overrides.
@@ -1219,6 +1224,10 @@ namespace Desert::Graphic::System
 
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
+            // Held by the view's GPU-culled bins this frame (AttachBinned): issued from them, not from here.
+            if ( SkipsBinned( m_DeferredGeometry ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
+                              kBinnedMainView, data.GpuPrimitive, data.HiddenSubmeshes ) )
+                continue;
 
             // The entry's section slot drives its batch (one entry per section material, made at submit by
             // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
@@ -1705,6 +1714,12 @@ namespace Desert::Graphic::System
             {
                 if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
                     continue;
+                // Held by the view's GPU-culled bins (AttachBinned): the cull decides its instances.
+                if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                     field < m_FieldPrimitives.size() &&
+                     SkipsBinned( m_DeferredGeometry ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
+                                  kBinnedMainView, m_FieldPrimitives[field], ism.HiddenSubmeshes ) )
+                    continue;
                 auto* mat = dynamic_cast<DataDrivenMaterial*>( ism.Material->GetParentMaterial() );
                 if ( mat == nullptr )
                     continue;
@@ -1910,7 +1925,9 @@ namespace Desert::Graphic::System
             if ( data.Mesh == nullptr )
                 continue;
             for ( const auto& section : data.Sections )
-                if ( section.Material != nullptr && section.Instance != nullptr )
+                if ( section.Material != nullptr && section.Instance != nullptr &&
+                     !SkipsBinned( gbuffer ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
+                                   kBinnedMainView, data.GpuPrimitive, section.HiddenSubmeshes ) )
                     if ( DataDrivenMaterial* const mat = passMaterial( section.Material ) )
                         groupFor( mat ).push_back( { &data, &section } );
         }

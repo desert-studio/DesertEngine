@@ -45,6 +45,78 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    void SceneRenderer::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
+    {
+        m_FrameGpuSceneTables.reset();
+        const auto refuse = [this]( std::string message )
+        {
+            if ( message != m_DrawBinsLastError )
+                LOG_ERROR( "[SceneRenderer] {}: GPUDriven: DrawBins: {}; every pass draws on the CPU path",
+                           m_ViewResources.GetName(), message );
+            m_DrawBinsLastError = std::move( message );
+        };
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        const GpuDriven::GpuScene* gpuScene = meshes != nullptr ? meshes->GetGpuScene() : nullptr;
+        const Core::Camera*        camera   = GetMainCamera();
+        if ( meshes == nullptr || gpuScene == nullptr || camera == nullptr || meshes->GetDrawCommandCache() == nullptr )
+            return; // nothing to draw from bins: the CPU lists draw everything
+        const Common::ResultStr<GpuDriven::DrawCommandBuffers> upload = meshes->BeginFrameBins( graph );
+        if ( !upload )
+        {
+            refuse( upload.GetError() );
+            return;
+        }
+        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = gpuScene->ImportTables( graph );
+        if ( !scene )
+        {
+            refuse( scene.GetError() );
+            return;
+        }
+        m_FrameGpuSceneTables = scene.GetValue();
+
+        const Geometry::LODView lod{ .Origin = camera->GetPosition(), .Projection = camera->GetProjectionMatrix() };
+        const float             lensScale = Graphic::DrawDistanceScale( lod );
+        const uint32_t          lodFlag   = meshes->IsLODEnabled() ? 0u : GpuDriven::CullViewFlags::kLodDisabled;
+
+        // Frustum only, no HZB: phase 1 against last frame's HZB without the phase-2 redraw would leave holes
+        // where objects are disoccluded (REMAINDER: the two-phase G-buffer split).
+        std::vector<GpuDriven::CullViewInput> views;
+        std::vector<uint32_t>                 viewKeys;
+        const GpuDriven::MeshPass             mainPass = meshes->MainViewPass();
+        views.push_back( MakeCullView( mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(),
+                                       lod, lensScale, lodFlag ) );
+        viewKeys.push_back( System::MeshRenderer::kBinnedMainView );
+        if ( m_FrameCascades )
+        {
+            const uint32_t cascades = meshes->DirectionalShadows()[SceneResources::kDirectionalShadowSun].Count;
+            for ( uint32_t c = 0; c < cascades; ++c )
+            {
+                const uint32_t view = SceneResources::kDirectionalShadowSun * System::MeshRenderer::kMaxCascades + c;
+                if ( !meshes->CascadeBinsDrawn( view ) )
+                    continue;
+                const glm::mat4& vp = meshes->GetCasterViewProjection( view );
+                views.push_back( MakeCullView( GpuDriven::MeshPass::ShadowCascade, vp, vp,
+                                               Core::Frustum( vp, glm::mat4( 1.0f ) ), lod, lensScale,
+                                               GpuDriven::CullViewFlags::kShadowCaster |
+                                                    GpuDriven::CullViewFlags::kOrthographic | lodFlag ) );
+                viewKeys.push_back( view );
+            }
+        }
+
+        const Common::ResultStr<GpuDriven::MainPhaseResult> culled = m_GpuCull.AddMainPhase(
+             graph, scene.GetValue(), meshes->GetDrawCommandCache()->Passes(), upload.GetValue().Passes, views, textures.GraphRefs().System.Black );
+        if ( !culled )
+        {
+            refuse( culled.GetError() );
+            return;
+        }
+        for ( size_t v = 0; v < views.size(); ++v )
+            meshes->SetFrameBinned( static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v],
+                                    culled.GetValue().Draws[v], upload.GetValue(), scene.GetValue() );
+        m_DrawBinsLastError.clear();
+    }
+
     void SceneRenderer::AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         // Logged once per distinct message: the gate is a debug view held on for many frames.
@@ -67,8 +139,11 @@ namespace Desert::Graphic
             return;
         }
 
-        // Refused while an upload is pending: this frame's tables are not what the CPU path culls.
-        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene = gpuScene->ImportTables( graph );
+        // Refused while an upload is pending: this frame's tables are not what the CPU path culls. One import per
+        // graph: AddFrameDrawBins' when it made one.
+        const Common::ResultStr<GpuDriven::GpuSceneBuffers> scene =
+             m_FrameGpuSceneTables ? Common::ResultStr<GpuDriven::GpuSceneBuffers>( *m_FrameGpuSceneTables )
+                                   : gpuScene->ImportTables( graph );
         if ( !scene )
         {
             refuse( std::format( "GPUDriven: Cull: {}", scene.GetError() ) );

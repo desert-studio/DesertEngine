@@ -873,11 +873,19 @@ namespace Desert::Graphic::System
         };
         const auto isMasked = []( const DataDrivenMaterial* material ) { return IsMaskedSurface( material ); };
 
+        // The sun cascade's static layer issued from its GPU-culled bins (AttachBinned below): its CPU loops drop
+        // every record the bins hold. Local views, VSM levels and the movable layer never do.
+        const bool binnedLayer = layer == ShadowCasterLayer::Static;
+        const auto heldByBins  = [&]( const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden )
+        { return binnedLayer && SkipsBinned( GpuDriven::MeshPass::ShadowCascade, c, primitive, hidden ); };
+        if ( binnedLayer )
+            AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
         for ( const auto& rd : m_StaticQueue )
         {
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
                  !IsVisibleInView( cascadeFrustum, rd.Transform,
-                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) ||
+                 heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) )
             {
                 continue;
             }
@@ -982,6 +990,9 @@ namespace Desert::Graphic::System
                 // branch had no condition at all.
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
                      !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
+                    continue;
+                if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                     field < m_FieldPrimitives.size() && heldByBins( m_FieldPrimitives[field], ism.HiddenSubmeshes ) )
                     continue;
 
                 // Per-instance, against this cascade. A cascade covers a slice of the view,
@@ -1092,7 +1103,8 @@ namespace Desert::Graphic::System
         for ( const auto& g : m_GenericQueue )
         {
             if ( drawStatic && g.Mesh != nullptr && g.CastShadows &&
-                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) &&
+                 !heldByBins( g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
             {
                 list.Add( { .Pipeline          = casters.Static,
                             .Mesh              = g.Mesh,

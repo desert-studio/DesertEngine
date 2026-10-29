@@ -204,6 +204,11 @@ namespace Desert::Graphic::GpuDriven
         [[nodiscard]] bool NeedsRebuild() const;
 
         [[nodiscard]] const PassDrawTable& Pass( MeshPass pass ) const;
+        // Every pass's table, indexed by MeshPass (InstanceCulling's @p tables).
+        [[nodiscard]] std::span<const PassDrawTable, kMeshPassCount> Passes() const
+        {
+            return m_Passes;
+        }
         // The gl_InstanceIndex base of the primitive's draw of (lod, submesh) in @p pass on the unculled list:
         // its instances are the rows [base, base + InstanceCount) (PassDrawTable::UnculledVisible), so a CPU-
         // recorded draw passes firstInstance = base and pushes nothing. nullopt: the primitive has no draw there

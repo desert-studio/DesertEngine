@@ -1961,6 +1961,7 @@ namespace Desert::Graphic
         // cache comes before the traced GI - so they are forgotten HERE, before any reader: a handle from the last
         // frame's graph is not a handle in this one.
         m_TracedFrameShared = {};
+        AddFrameDrawBins( graph, textures, frame );
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).

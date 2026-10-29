@@ -168,6 +168,12 @@ namespace Desert::Graphic::SceneResources
     inline constexpr RDG::UniformBufferParameter kTimeBlock{ kTimeBlockName };
     inline constexpr RDG::UniformBufferParameter kCloudShadowBlock{ kCloudShadowBlockName };
     inline constexpr RDG::StorageBufferParameter kGpuScenePrimitives{ kGpuScenePrimitivesName };
+    // The binned draw's tables (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS, bindings 41-44): bound by the mesh
+    // pass that issues the GPU-culled bins (MeshRendererDetail::MeshDrawList::SetBinned), never by a material.
+    inline constexpr RDG::StorageBufferParameter kGpuSceneInstances{ "GpuSceneInstances" };
+    inline constexpr RDG::StorageBufferParameter kGpuSceneVisibleInstances{ "GpuSceneVisibleInstances" };
+    inline constexpr RDG::StorageBufferParameter kGpuSceneDrawSlots{ "GpuSceneDrawSlots" };
+    inline constexpr RDG::StorageBufferParameter kGpuSceneSubmeshTransforms{ "GpuSceneSubmeshTransforms" };
     inline constexpr RDG::StorageBufferParameter kObjectBones{ kObjectBonesName };
     inline constexpr RDG::StorageBufferParameter kWorldParameters{ kWorldParametersName };
     inline constexpr RDG::UniformBufferParameter kRainOcclusionBlock{ kRainOcclusionBlockName };

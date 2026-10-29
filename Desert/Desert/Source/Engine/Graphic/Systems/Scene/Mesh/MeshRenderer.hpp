@@ -28,6 +28,7 @@
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
+#include <Engine/Graphic/GpuDriven/IndirectDrawSubmission.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
@@ -49,6 +50,8 @@
 #include <Engine/Geometry/StaticMesh.hpp>
 
 #include <functional>
+#include <map>
+#include <utility>
 #include <memory>
 #include <array>
 #include <vector>
@@ -118,10 +121,29 @@ namespace Desert::Graphic::System
         // executor's route fill, and the scene/view inputs the layout has slots for), so ValidatePassBindings
         // judges every draw before anything is recorded; Record (the exec) walks the same list with the block each
         // draw's executor was declared as. A build that failed is kept and is Record's error, before any draw.
+        // The GPU-culled bins a MeshDrawList issues after its CPU commands (UE FInstanceCullingDrawParams +
+        // SubmitDrawCommands): one view's CulledDraws of one pass's table, the scene / pass tables the binned vertex
+        // stage reads by name (Common/GpuScene.glslh 41-44), the device's submission mode, and per IndirectGroup the
+        // view's carrier of the scene blocks (null for an empty group).
+        struct BinnedIssue
+        {
+            const GpuDriven::PassDrawTable*      Table = nullptr;
+            GpuDriven::CulledDraws               Culled;
+            RDG::BufferRef                       Instances;         // GpuSceneBuffers::Instances
+            RDG::BufferRef                       DrawSlots;         // PassDrawBuffers::DrawSlots
+            RDG::BufferRef                       SubmeshTransforms; // DrawCommandBuffers::SubmeshTransforms
+            GpuDriven::IndirectSubmissionMode    Mode;
+            std::vector<const MaterialExecutor*> GroupCarriers; // per Table->Groups
+        };
+
         class MeshDrawList
         {
         public:
             void Clear();
+            // Record issues @p issue's non-empty groups after the CPU commands, one block per distinct (carrier,
+            // group shader) declared with the binned tables. Refused (the list fails) for a table without carriers
+            // for its groups or a non-empty group without pipeline or carrier. Until the next Clear.
+            void SetBinned( BinnedIssue issue );
             // A draw without pipeline, mesh or material (or whose material has no shader) is refused here.
             void               Add( MeshDrawCommand command );
             void               Fail( std::string error );
@@ -187,6 +209,7 @@ namespace Desert::Graphic::System
             {
                 const MaterialExecutor* Material = nullptr;
                 const GraphicsPipeline* Pipeline = nullptr;
+                bool                    Binned   = false; // declares the binned tables (SetBinned)
             };
 
             template <typename Declaration, typename PerBlock>
@@ -199,6 +222,8 @@ namespace Desert::Graphic::System
             std::optional<std::string>   m_Error;
             RDG::BufferRef               m_IndirectArguments; // SetIndirect; invalid: the commands' own counts
             std::vector<uint32_t>        m_FirstRecords;
+            std::optional<BinnedIssue>   m_Binned;     // SetBinned
+            std::vector<uint32_t>        m_GroupBlock; // per group of m_Binned: its block (kInvalidBlock: empty)
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
@@ -542,6 +567,22 @@ namespace Desert::Graphic::System
         {
             return m_GpuScene;
         }
+
+        // GPU-DRIVEN PASSES (SceneRenderer::AddFrameDrawBins): which (pass, view) draws this frame from GPU-culled
+        // bins. BeginFrameBins forgets the last frame's issues and uploads the cache's tables ("DrawCommands:
+        // Upload"); SetFrameBinned hands one view's culled draws to the lists of (pass, view): the main view
+        // (kBinnedMainView) of MainViewPass, or a sun cascade view (slot * kMaxCascades + c) of ShadowCascade whose
+        // static layer is drawn (CascadeBinsDrawn: binned casters live only in the cached static layer). An active
+        // (pass, view) issues its bins and its CPU loops drop every record the bins hold
+        // (DrawCommandCache::SubmeshesBinned); any other draws everything on the CPU, as before.
+        static constexpr uint32_t kBinnedMainView = ~0u;
+        [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
+        [[nodiscard]] GpuDriven::MeshPass                             MainViewPass() const;
+        [[nodiscard]] bool                                            CascadeBinsDrawn( uint32_t view ) const;
+        // Refused (logged once per message, the view stays on the CPU) when a non-empty group's carrier cannot be
+        // made.
+        void SetFrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled,
+                             const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
 
         // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
         // runs before the sync (the terrain's, SceneRenderer::OnUpdate) then finds none instead of the previous
@@ -1803,9 +1844,38 @@ namespace Desert::Graphic::System
             // with no Surface block, a slot material's own program: no `.Binned` permutation).
             bool                   Generic  = false;
             GpuDriven::BinFallback Fallback = GpuDriven::BinFallback::None;
+            // An ISM whose wind sways it: a caster of the cascade cache's movable layer (BinFallback::MovableCaster in
+            // ShadowCascade), drawn every frame over the copied cache on the CPU.
+            bool Sways = false;
             bool                  operator==( const BinnedPrimitiveFeed& ) const = default;
         };
         std::unique_ptr<GpuDriven::DrawCommandCache>                       m_DrawCommandCache;
+        // This frame's issued (pass, view)s (SetFrameBinned), forgotten by BeginFrameBins.
+        struct FrameBinnedView
+        {
+            GpuDriven::MeshPass                       Pass    = GpuDriven::MeshPass::GBuffer;
+            uint32_t                                  ViewKey = kBinnedMainView;
+            MeshRendererDetail::BinnedIssue           Issue;
+        };
+        std::vector<FrameBinnedView> m_FrameBinned;
+        // The carriers of the scene blocks a binned group draws with: one material per (cell shader, view), its
+        // uniform blocks written once per frame for that view (the camera, or the cascade's light camera).
+        struct BinnedCarrier
+        {
+            std::weak_ptr<Shader>               Program;
+            std::unique_ptr<DataDrivenMaterial> Material;
+        };
+        std::map<std::pair<const Shader*, uint32_t>, BinnedCarrier> m_BinnedCarriers;
+        std::string                                                 m_BinnedLastError; // logged once per message
+        // The ISM queue's primitives (GpuSceneRecordRows::FieldPrimitives, per m_InstancedQueue entry) the feed saw.
+        std::vector<GpuDriven::PrimitiveIndex> m_FieldPrimitives;
+        [[nodiscard]] const FrameBinnedView* FrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey ) const;
+        // True when (pass, view) issues its bins this frame and they hold every submesh of @p primitive that
+        // @p hiddenSubmeshMask leaves visible: the CPU list drops the record.
+        [[nodiscard]] bool SkipsBinned( GpuDriven::MeshPass pass, uint32_t viewKey, GpuDriven::PrimitiveIndex primitive,
+                                        uint64_t hiddenSubmeshMask ) const;
+        // Attaches (pass, view)'s issue to @p list when it is active this frame.
+        void AttachBinned( MeshRendererDetail::MeshDrawList& list, GpuDriven::MeshPass pass, uint32_t viewKey ) const;
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_ScratchBinnedFeed;
         std::unordered_set<std::string>                                    m_BinnedRefused; // said once each

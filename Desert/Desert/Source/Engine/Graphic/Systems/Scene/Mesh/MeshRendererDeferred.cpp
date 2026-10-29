@@ -25,6 +25,7 @@ namespace Desert::Graphic::System
         m_DeferredGeometry = false;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
+        AttachBinned( m_GBufferDraws, GpuDriven::MeshPass::GBuffer, kBinnedMainView );
         m_GBufferDraws.Declare( pass, view );
         // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
         // pass reads them after "SkinCache: Skin" wrote them.

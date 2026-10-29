@@ -3,6 +3,7 @@
 
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -273,7 +274,52 @@ namespace Desert::Graphic::System
             m_Error.reset();
             m_IndirectArguments = {};
             m_FirstRecords.clear();
+            m_Binned.reset();
+            m_GroupBlock.clear();
             m_Layouts.DropExpired();
+        }
+
+        void MeshDrawList::SetBinned( BinnedIssue issue )
+        {
+            if ( m_Error )
+                return;
+            if ( issue.Table == nullptr || issue.GroupCarriers.size() != issue.Table->Groups.size() )
+            {
+                Fail( std::format( "binned mesh draws: {} carriers for {} groups", issue.GroupCarriers.size(),
+                                   issue.Table != nullptr ? issue.Table->Groups.size() : 0u ) );
+                return;
+            }
+            constexpr uint32_t kInvalidBlock = ~0u;
+            m_GroupBlock.assign( issue.Table->Groups.size(), kInvalidBlock );
+            for ( size_t group = 0; group < issue.Table->Groups.size(); ++group )
+            {
+                const GpuDriven::IndirectGroup& indirect = issue.Table->Groups[group];
+                if ( indirect.BinCount == 0u )
+                    continue;
+                const MaterialExecutor* carrier = issue.GroupCarriers[group];
+                const Shader* recordedWith =
+                     indirect.Pipeline != nullptr ? indirect.Pipeline->GetSpecification().Shader.get() : nullptr;
+                if ( carrier == nullptr || recordedWith == nullptr )
+                {
+                    Fail( std::format( "binned mesh draws: group {} has no {}", group,
+                                       carrier == nullptr ? "carrier" : "pipeline shader" ) );
+                    return;
+                }
+                // Deduped as Add does: the groups of one cell shader (several geometry bindings) share a block.
+                const auto known = std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                                                 [&]( const Block& block )
+                                                 {
+                                                     return block.Material == carrier &&
+                                                            block.Pipeline->GetSpecification().Shader.get() ==
+                                                                 recordedWith;
+                                                 } );
+                m_GroupBlock[group] = static_cast<uint32_t>( known - m_Blocks.begin() );
+                if ( known == m_Blocks.end() )
+                    m_Blocks.push_back( Block{ carrier, indirect.Pipeline, true } );
+                else
+                    known->Binned = true;
+            }
+            m_Binned = std::move( issue );
         }
 
         void MeshDrawList::SetIndirect( const RDG::BufferRef arguments, std::vector<uint32_t> firstRecords )
@@ -367,8 +413,22 @@ namespace Desert::Graphic::System
                 {
                     BindSceneViewInputs( block, *view, *layout );
                 }
+                // The binned vertex stage's tables (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS), where the
+                // block's shader reads them.
+                if ( declared.Binned && m_Binned )
+                {
+                    for ( const auto& [name, buffer] :
+                          { std::pair{ SceneResources::kGpuSceneInstances, m_Binned->Instances },
+                            std::pair{ SceneResources::kGpuSceneVisibleInstances, m_Binned->Culled.VisibleInstances },
+                            std::pair{ SceneResources::kGpuSceneDrawSlots, m_Binned->DrawSlots },
+                            std::pair{ SceneResources::kGpuSceneSubmeshTransforms, m_Binned->SubmeshTransforms } } )
+                        if ( SceneViewDetail::LayoutReadsBuffer( *layout, name.Name ) )
+                            block.Storage( name, buffer, RDG::Access::StorageRead );
+                }
                 perBlock( block, *layout );
             }
+            if ( m_Binned )
+                declaration.Read( m_Binned->Culled.IndirectDraws, RDG::Access::IndirectArgs );
             // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
             std::vector<RDG::BufferRef> read;
@@ -450,6 +510,18 @@ namespace Desert::Graphic::System
                      !drawn.IsSuccess() )
                     return drawn;
             }
+            // The GPU-culled bins, after the CPU commands (whatever the CPU lists still draw is what the bins do
+            // not hold: MeshRenderer::SkipsBinned).
+            if ( m_Binned )
+            {
+                std::vector<const RDG::PassBindings*> groupBindings( m_Binned->Table->Groups.size(), nullptr );
+                for ( size_t group = 0; group < groupBindings.size(); ++group )
+                    if ( m_GroupBlock[group] < blocks.size() )
+                        groupBindings[group] = blocks[m_GroupBlock[group]].get();
+                return GpuDriven::RecordIndirectGroups( *Renderer::GetInstance().GetRendererAPI(), groupBindings,
+                                                        m_Binned->GroupCarriers, m_Binned->Mode, *m_Binned->Table,
+                                                        m_Binned->Culled );
+            }
             return BOOLSUCCESS;
         }
     } // namespace MeshRendererDetail
@@ -495,6 +567,7 @@ namespace Desert::Graphic::System
             BuildStaticDraws( m_ForwardDraws );
             BuildSkinnedDraws( m_ForwardDraws );
             BuildGenericDraws( m_ForwardDraws, GenericSlice::Forward );
+            AttachBinned( m_ForwardDraws, GpuDriven::MeshPass::Forward, kBinnedMainView );
             m_ForwardDraws.Declare( declared, SceneViewInputsOf( refs ) );
             // The skin cache's streams the forward skinned cell fetches by address (Vertex_Skinned.glslh).
             for ( const RDG::BufferRef& streams : m_SkinCacheReads )
@@ -657,7 +730,8 @@ namespace Desert::Graphic::System
                                             const MeshVertexPath path, const uint32_t firstInstance,
                                             const uint32_t instanceCount, const uint64_t hidden, const uint32_t row,
                                             const bool                   generic  = false,
-                                            const GpuDriven::BinFallback fallback = GpuDriven::BinFallback::None )
+                                            const GpuDriven::BinFallback fallback = GpuDriven::BinFallback::None,
+                                            const bool                   sways    = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -678,6 +752,7 @@ namespace Desert::Graphic::System
             // A primitive shared by a generic record and a batched one (one per entity slot) takes the generic's
             // rules: it cannot be half binned through two vertex contracts.
             f.Generic = f.Generic || generic;
+            f.Sways   = f.Sways || sways;
             if ( fallback != GpuDriven::BinFallback::None )
                 f.Fallback = fallback;
             f.HiddenSubmeshMask &= hidden;
@@ -699,8 +774,11 @@ namespace Desert::Graphic::System
                 continue;
             if ( const auto row = FindMaterialRow( mat, data.Material.get(), true ) )
                 claim( rows.FieldPrimitives[f], data.Mesh, MeshVertexPath::Instanced, rows.FieldInstances[f],
-                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row );
+                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row, false,
+                       GpuDriven::BinFallback::None, data.Wind.Sways() );
         }
+        // The CPU ISM loops find an entry's primitive here (SkipsBinned): the queue's order is the rows' order.
+        m_FieldPrimitives.assign( rows.FieldPrimitives.begin(), rows.FieldPrimitives.end() );
         for ( const auto& data : m_SkinnedQueue )
             for ( const auto& section : data.Sections )
                 if ( section.Material != nullptr && section.Instance != nullptr )
@@ -752,6 +830,112 @@ namespace Desert::Graphic::System
                 m_DrawCommandCache->RemovePrimitive( primitive );
         m_BinnedFeed.swap( feed );
         m_DrawCommandCache->Rebuild();
+    }
+
+    Common::ResultStr<GpuDriven::DrawCommandBuffers> MeshRenderer::BeginFrameBins( RDG::Builder& graph )
+    {
+        m_FrameBinned.clear();
+        std::erase_if( m_BinnedCarriers, []( const auto& entry ) { return entry.second.Program.expired(); } );
+        if ( !m_DrawCommandCache )
+            return Common::MakeFormattedError( "no draw command cache (SyncGpuScene has not fed it)" );
+        return m_DrawCommandCache->AddUploadPass( graph );
+    }
+
+    GpuDriven::MeshPass MeshRenderer::MainViewPass() const
+    {
+        const bool deferred = m_SceneRenderer != nullptr &&
+                              m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred && m_StaticGBufferPipeline;
+        return deferred ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward;
+    }
+
+    bool MeshRenderer::CascadeBinsDrawn( const uint32_t view ) const
+    {
+        // The sun's cascade whose static layer ShadowCascadePasses draws this frame (state.RedrawStatic).
+        return view < kCascadeViews && view < m_CascadeSlots * kMaxCascades &&
+               view / kMaxCascades == SceneResources::kDirectionalShadowSun &&
+               view % kMaxCascades < m_Shadow.CascadeCount && m_ShadowPipeline && m_CascadeStaticFB[view] &&
+               m_CascadeCache[view].Rebuild && m_CascadeCache[view].RedrawStatic;
+    }
+
+    void MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
+                                       const GpuDriven::CulledDraws& culled, const GpuDriven::DrawCommandBuffers& upload,
+                                       const GpuDriven::GpuSceneBuffers& scene )
+    {
+        const auto refuse = [this]( std::string message )
+        {
+            if ( message != m_BinnedLastError )
+                LOG_ERROR( "[MeshRenderer] {}; the view draws on the CPU path", message );
+            m_BinnedLastError = std::move( message );
+        };
+        if ( !m_DrawCommandCache || m_SceneRenderer == nullptr ||
+             ( viewKey != kBinnedMainView && ( pass != GpuDriven::MeshPass::ShadowCascade || !CascadeBinsDrawn( viewKey ) ) ) )
+            return;
+        const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( pass );
+        MeshRendererDetail::BinnedIssue issue;
+        issue.Table             = &table;
+        issue.Culled            = culled;
+        issue.Instances         = scene.Instances;
+        issue.DrawSlots         = upload.Passes[static_cast<size_t>( pass )].DrawSlots;
+        issue.SubmeshTransforms = upload.SubmeshTransforms;
+        const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+        issue.Mode = GpuDriven::SelectIndirectSubmission( { .MultiDrawIndirect    = capabilities.SupportsMultiDrawIndirect,
+                                                            .MaxDrawIndirectCount = capabilities.MaxDrawIndirectCount } );
+        issue.GroupCarriers.assign( table.Groups.size(), nullptr );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        for ( size_t group = 0; group < table.Groups.size(); ++group )
+        {
+            const GpuDriven::IndirectGroup& indirect = table.Groups[group];
+            if ( indirect.BinCount == 0u )
+                continue;
+            const std::shared_ptr<Shader> shader =
+                 indirect.Pipeline != nullptr ? indirect.Pipeline->GetSpecification().Shader : nullptr;
+            if ( !shader )
+            {
+                refuse( std::format( "binned group {} of pass {} has no pipeline shader", group,
+                                     static_cast<uint32_t>( pass ) ) );
+                return;
+            }
+            BinnedCarrier& carrier = m_BinnedCarriers[{ shader.get(), viewKey }];
+            if ( !carrier.Material || carrier.Program.lock() != shader )
+            {
+                carrier.Program  = shader;
+                carrier.Material = std::make_unique<DataDrivenMaterial>( shader );
+            }
+            frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
+            if ( viewKey != kBinnedMainView )
+                WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
+                                  m_CascadeCasterBias[viewKey], m_ParallaxQuality );
+            if ( !LendMaterialTable( *carrier.Material ) )
+            {
+                refuse( std::format( "binned carrier '{}' has no material table", shader->GetName() ) );
+                return;
+            }
+            issue.GroupCarriers[group] = carrier.Material->GetMaterialExecutor();
+        }
+        m_FrameBinned.push_back( FrameBinnedView{ pass, viewKey, std::move( issue ) } );
+    }
+
+    const MeshRenderer::FrameBinnedView* MeshRenderer::FrameBinned( const GpuDriven::MeshPass pass,
+                                                                    const uint32_t            viewKey ) const
+    {
+        for ( const FrameBinnedView& view : m_FrameBinned )
+            if ( view.Pass == pass && view.ViewKey == viewKey )
+                return &view;
+        return nullptr;
+    }
+
+    bool MeshRenderer::SkipsBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
+                                    const GpuDriven::PrimitiveIndex primitive, const uint64_t hiddenSubmeshMask ) const
+    {
+        return m_DrawCommandCache && FrameBinned( pass, viewKey ) != nullptr &&
+               m_DrawCommandCache->SubmeshesBinned( pass, primitive, hiddenSubmeshMask );
+    }
+
+    void MeshRenderer::AttachBinned( MeshRendererDetail::MeshDrawList& list, const GpuDriven::MeshPass pass,
+                                     const uint32_t viewKey ) const
+    {
+        if ( const FrameBinnedView* view = FrameBinned( pass, viewKey ) )
+            list.SetBinned( view->Issue );
     }
 
     const GraphicsPipeline* MeshRenderer::BinnedCellPipeline( const std::string&      cellShader,
@@ -866,6 +1050,10 @@ namespace Desert::Graphic::System
             }
             case GpuDriven::MeshPass::ShadowCascade:
             {
+                // Binned casters are issued only into the cascade's cached static layer (SetFrameBinned): what
+                // moves by itself is drawn over the copied cache every frame, on the CPU.
+                if ( path == MeshVertexPath::Skinned || feed->Sways )
+                    return fallback( BinFallback::MovableCaster );
                 const auto defaultCell = MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
                 if ( !defaultCell )
                     return fallback( BinFallback::NoBinnedCell );

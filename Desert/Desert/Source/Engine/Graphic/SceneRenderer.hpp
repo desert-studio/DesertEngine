@@ -1028,6 +1028,12 @@ namespace Desert::Graphic
         // the sun's cascades (m_FrameCascades) and the VSM clipmap levels (m_FrameVsmPages), then this frame's
         // furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // GPU-DRIVEN PASSES, before the cascade depths and the base pass: the draw command cache's upload, the GPU
+        // scene's tables (m_FrameGpuSceneTables, reused by AddFrameGpuCull) and one frustum-only phase-1 cull of
+        // the main view (MeshRenderer::MainViewPass) and of the sun cascades whose static layer is drawn, each
+        // view's culled draws handed to MeshRenderer::SetFrameBinned. A refusal is logged once per message and
+        // leaves every pass on the CPU path.
+        void AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
@@ -1653,6 +1659,9 @@ namespace Desert::Graphic
         // occlusion input (registered only when its size is this frame's depth size).
         RDG::ExternalTexture m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
+        // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
+        std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
+        std::string                               m_DrawBinsLastError;
         // The CPU recount of the cull's Visibility words, logged per view (one frame-in-flight late).
         GpuDriven::InstanceCullValidation m_GpuCullValidation;
         // This frame's VSM page passes (AddFrameVirtualSunShadow), for the cull's VSM level views; reset before
