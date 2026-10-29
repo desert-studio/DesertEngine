@@ -227,6 +227,9 @@ namespace Desert::Assets
     // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
     // 2: a DDS source keeps its blocks or is encoded by intent without the gates (IMP-DDS-BLOCKS).
     inline constexpr uint32_t kTextureBlockEncoderVersion = 2;
+    // Revision of how the block-format gate grades a colour under a ColorDilationMask (1 = only texels the mask
+    // keeps visible, plus their bilinear neighbours, at every level). Part of the DDC key of masked textures only.
+    inline constexpr uint32_t kTextureMaskedGateVersion = 1;
 
     // What the runtime needs from a `.detex` to reach its platform data (UE: the package summary + the
     // FTextureSource id, not the bulk data). Read from IMPT in an editor asset, from PAYL in a cooked one;
