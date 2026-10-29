@@ -26,6 +26,8 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <unordered_set>
 #include <mutex>
@@ -46,6 +48,7 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
@@ -956,6 +959,9 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
+        // A shader recompiled since the standing program refusals were made: every refused method is resolved and
+        // asked for again this frame (a fixed program draws, one still broken is refused again without a new line).
+        RetryRefusedProgramsAfterRecompile();
         // The captures' programs serve every Reflections method that reads the captures: built here, before the
         // resolution, so one that did not build refuses those methods from this frame on (by its name).
         if ( !m_FrameReflectionCaptures->EnsurePipelines() )
@@ -2874,13 +2880,16 @@ namespace Desert::Graphic
 
     namespace
     {
+        // @p retried: the refusals that stood before the last recompile - the same one again is not said again.
         template <typename Method, std::size_t N>
-        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals, const std::span<const Method> methods,
+        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals,
+                            const std::vector<MethodRefusal<Method>>& retried, const std::span<const Method> methods,
                             const std::string_view axis, const std::array<std::string_view, N>& names,
                             const std::string_view program, const std::string_view error )
         {
             for ( const Method method : methods )
-                if ( AddRefusal( refusals, method, program ) )
+                if ( AddRefusal( refusals, method, program, error ) &&
+                     !HoldsRefusal( retried, method, program, error ) )
                     LOG_ERROR( "[SceneRenderer] {} {} refused on this device: its program '{}' did not build: {}",
                                axis, names[static_cast<std::size_t>( method )], program, error );
         }
@@ -2889,15 +2898,31 @@ namespace Desert::Graphic
     void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
                                               const std::string_view program, const std::string_view error )
     {
-        RefuseMethods( m_ProgramRefusals.GlobalIllumination, methods, "GI", Common::Scalability::kGIMethodNames,
-                       program, error );
+        RefuseMethods( m_ProgramRefusals.GlobalIllumination, m_RetriedProgramRefusals.GlobalIllumination, methods,
+                       "GI", Common::Scalability::kGIMethodNames, program, error );
     }
 
     void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
                                               const std::string_view program, const std::string_view error )
     {
-        RefuseMethods( m_ProgramRefusals.Reflections, methods, "Reflections",
+        RefuseMethods( m_ProgramRefusals.Reflections, m_RetriedProgramRefusals.Reflections, methods, "Reflections",
                        Common::Scalability::kReflectionMethodNames, program, error );
+    }
+
+    void SceneRenderer::RetryRefusedProgramsAfterRecompile()
+    {
+        const std::uint64_t generation = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
+        if ( generation == m_ProgramRefusalsGeneration )
+            return;
+        m_ProgramRefusalsGeneration = generation;
+        // Only the refusals of the generation just ended are remembered: a method that drew after a fix and breaks
+        // again with the old reason is a new failure, and is said again.
+        m_RetriedProgramRefusals.GlobalIllumination = std::exchange( m_ProgramRefusals.GlobalIllumination, {} );
+        m_RetriedProgramRefusals.Reflections        = std::exchange( m_ProgramRefusals.Reflections, {} );
+        // The renderers latched as failed with those refusals are brought up again on their next use (the GI
+        // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again).
+        m_SSRResourcesFailed         = false;
+        m_ScreenTraceResourcesFailed = false;
     }
 
     bool SceneRenderer::EnsurePathTracerResources()

@@ -3,6 +3,7 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <cstdint>
 #include <unordered_set>
 
 namespace Desert::Runtime
@@ -52,7 +53,7 @@ namespace Desert::Runtime
          *
          * The service remembers the last refusal of each (name, variant) AcquireVariant made. A different
          * reason (the source was edited and fails elsewhere) is a new refusal and answers true again; a
-         * success, a recompile of the shader's file (Recompile: hot reload, the shader graph, the shader library)
+         * success, a recompile of the shader's file (Recompile: hot reload, the shader graph)
          * and a re-Register of the name forget
          * it, so a fixed shader that is broken again is reported again.
          *
@@ -137,8 +138,16 @@ namespace Desert::Runtime
          *         The refusals are forgotten either way - the bytes changed, so the old answer is stale.
          */
         Common::ResultStr<int> Recompile( const Assets::AssetHandle& handle );
-        /// Recompile by registered program name (an editor that holds the program, not its handle).
-        Common::ResultStr<int> Recompile( const std::string& name );
+
+        /// A counter that moves every time the service forgets refusals because a program's bytes may have
+        /// changed (Recompile, a re-Register, Clear). A renderer that stopped drawing a method because one of
+        /// its programs did not build (SceneRenderer::RefuseProgramMethods) retries that method once this has
+        /// moved past the value it refused under - polled, not subscribed, so no renderer has to outlive or
+        /// unregister from the service.
+        [[nodiscard]] std::uint64_t RecompileGeneration() const
+        {
+            return m_RecompileGeneration;
+        }
 
         // All registered shader program names (for the editor's material shader picker).
         //
@@ -182,6 +191,8 @@ namespace Desert::Runtime
             bool                Reported = false; ///< ClaimRefusalReport answered true for this Reason
         };
         std::unordered_map<std::string, Refusal> m_Refusals;
+        /// RecompileGeneration: bumped by ForgetRefusalsOf, ForgetRefusalsOfProgram and Clear.
+        std::uint64_t m_RecompileGeneration = 0;
         /// Record (or keep) the refusal of @p key and return it as AcquireVariant's error.
         Common::ResultStr<std::shared_ptr<Graphic::Shader>> Refuse( const std::string& key, Refusal refusal );
         /// Forget the refusals of names that resolve to @p program (Register of that name).
