@@ -760,8 +760,9 @@ namespace Desert::Graphic
             views.push_back( input );
         }
 
-        // The levels' VG candidates: one more instance cull over the levels, appending only (VirtualShadow has no
-        // bins: MeshRenderer.cpp PassNotBinned).
+        // The levels' VG candidates: one more instance cull over the levels, appending only: no table is handed
+        // (the VirtualShadow bins are not issued - the levels' CPU walk draws the other casters - so culling them
+        // would be work nobody reads).
         auto vgTables = MakeVirtualGeometryCandidates( graph, *meshes, *meshes->GetGpuScene(),
                                                        bins.Scene.PrimitiveCount, static_cast<uint32_t>( views.size() ) );
         if ( !vgTables )
@@ -772,8 +773,9 @@ namespace Desert::Graphic
         if ( !vgTables.GetValue().Input.PrimitiveDags.IsValid() )
             return; // no VG instance casts
         const Common::ResultStr<GpuDriven::MainPhaseResult> culled =
-             m_GpuCull.AddMainPhase( graph, bins.Scene, meshes->GetDrawCommandCache()->Passes(), bins.Upload.Passes,
-                                     views, bins.NeutralHzb, vgTables.GetValue().Input );
+             m_GpuCull.AddMainPhase( graph, bins.Scene, std::array<GpuDriven::PassDrawTable, GpuDriven::kMeshPassCount>{},
+                                     std::array<GpuDriven::PassDrawBuffers, GpuDriven::kMeshPassCount>{}, views,
+                                     bins.NeutralHzb, vgTables.GetValue().Input );
         if ( !culled )
         {
             logOnce( std::format( "VSM levels: {}", culled.GetError() ) );
@@ -783,62 +785,64 @@ namespace Desert::Graphic
         const VirtualGeometry::ClusterCandidates candidates{ .Rows            = appended.Rows,
                                                              .Count           = appended.Count,
                                                              .Capacity        = appended.Capacity,
-                                                             .VisibleCapacity = vgTables.GetValue().VisibleCapacity,
+                                                             // One cut of every level: each level may emit every
+                                                             // cluster its candidates' DAGs hold.
+                                                             .VisibleCapacity = vgTables.GetValue().VisibleCapacity *
+                                                                                System::kVsmClipmapLevelCount,
                                                              .Layout   = VirtualGeometry::ClusterCandidateLayout::PerCutView,
                                                              .CutViews = appended.CutViews };
         const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
 
-        // Per level: the cut at the level's own texel (UE: shadow LOD by the shadow view's resolution), binned into
-        // the ShadowCascade table's material groups (VirtualShadow has no table yet, REMAINDER C), drawn by
-        // "VSM: Raster L<level>" (MeshRenderer::SetVirtualShadowGeometry).
-        constexpr GpuDriven::MeshPass   kTablePass = GpuDriven::MeshPass::ShadowCascade;
+        // ONE CUT OF EVERY LEVEL (UE: Nanite culls all the VSM views in one pass, the view per cluster): cut view =
+        // level, each at its own texel (shadow LOD by the shadow view's resolution); binned into the VSM's own
+        // table's groups (MeshPass::VirtualShadow) and rastered by ONE "VSM: Raster VirtualGeometry"
+        // (MeshRenderer::SetVirtualShadowGeometry).
+        constexpr GpuDriven::MeshPass   kTablePass = GpuDriven::MeshPass::VirtualShadow;
         const auto                      tableIndex = static_cast<size_t>( kTablePass );
         const GpuDriven::PassDrawTable& passTable  = meshes->GetDrawCommandCache()->Passes()[tableIndex];
+        std::vector<VirtualGeometry::ClusterCullView> cutViews;
+        cutViews.reserve( views.size() );
         for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
+            cutViews.push_back(
+                 { .Instance         = views[level],
+                   .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                   .Lod = VirtualGeometry::ClusterLodMeasure::OrthographicTexel( pages.LevelTexelWorld[level] ) } );
+        const auto cut = m_VirtualGeometry->AddClusterCull(
+             graph, GpuDriven::CullPhase::Main, bins.Scene, vgMeshes, passTable, bins.Upload.Passes[tableIndex],
+             bins.Upload.SubmeshTransforms, candidates, cutViews, 0u, bins.NeutralHzb );
+        if ( !cut )
         {
-            const VirtualGeometry::ClusterCullView view{
-                 .Instance         = views[level],
-                 .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
-                 .Lod = VirtualGeometry::ClusterLodMeasure::OrthographicTexel( pages.LevelTexelWorld[level] ) };
-            const auto cut = m_VirtualGeometry->AddClusterCull(
-                 graph, GpuDriven::CullPhase::Main, bins.Scene, vgMeshes, passTable, bins.Upload.Passes[tableIndex],
-                 bins.Upload.SubmeshTransforms, candidates, std::span( &view, 1 ), level, bins.NeutralHzb );
-            if ( !cut )
-            {
-                logOnce( std::format( "VSM level {}: {}", level, cut.GetError() ) );
-                continue;
-            }
-            const auto rasterBins = m_VirtualGeometry->AddRasterBinning( graph, bins.Scene, vgMeshes, passTable,
-                                                                         bins.Upload.Passes[tableIndex], cut.GetValue() );
-            if ( !rasterBins )
-            {
-                m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr,
-                                         {}, level );
-                logOnce( std::format( "VSM level {}: {}", level, rasterBins.GetError() ) );
-                continue;
-            }
-            const VirtualGeometry::RasterBins& raster = rasterBins.GetValue();
-            auto                               drawn  = meshes->SetVirtualShadowGeometry(
-                 level, kTablePass,
-                 System::MeshRendererDetail::VirtualGeometryIssue{
-                      .GroupArgs       = raster.GroupArgs,
-                      .Rows            = raster.Rows,
-                      .VisibleClusters = raster.VisibleClusters,
-                      .Clusters        = vgMeshes.Clusters,
-                      .Dags            = vgMeshes.Dags,
-                      .PrimitiveDraws  = bins.Upload.Passes[tableIndex].PrimitiveDraws,
-                      .GroupCount      = raster.GroupCount },
-                 bins.Upload, bins.Scene );
-            if ( !drawn )
-            {
-                m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr,
-                                         {}, level );
-                logOnce( std::format( "VSM level {}: {}", level, drawn.GetError() ) );
-                continue;
-            }
-            m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), &raster,
-                                     std::move( drawn.GetValue() ), level );
+            logOnce( std::format( "VSM levels: {}", cut.GetError() ) );
+            return;
         }
+        const auto rasterBins = m_VirtualGeometry->AddRasterBinning( graph, bins.Scene, vgMeshes, passTable,
+                                                                     bins.Upload.Passes[tableIndex], cut.GetValue() );
+        if ( !rasterBins )
+        {
+            m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr, {} );
+            logOnce( std::format( "VSM levels: {}", rasterBins.GetError() ) );
+            return;
+        }
+        const VirtualGeometry::RasterBins& raster = rasterBins.GetValue();
+        auto                               drawn  = meshes->SetVirtualShadowGeometry(
+             System::MeshRendererDetail::VirtualGeometryIssue{
+                  .GroupArgs       = raster.GroupArgs,
+                  .Rows            = raster.Rows,
+                  .VisibleClusters = raster.VisibleClusters,
+                  .Clusters        = vgMeshes.Clusters,
+                  .Dags            = vgMeshes.Dags,
+                  .PrimitiveDraws  = bins.Upload.Passes[tableIndex].PrimitiveDraws,
+                  .GroupCount      = raster.GroupCount },
+             bins.Upload, bins.Scene );
+        if ( !drawn )
+        {
+            m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), nullptr, {} );
+            logOnce( std::format( "VSM levels: {}", drawn.GetError() ) );
+            return;
+        }
+        // The per-level split of the drawn clusters is not counted yet (REMAINDER-VIRT-GEOM-17): level 0 holds all.
+        m_ClusterCutCounts->Add( graph, VirtualGeometry::ClusterCutKind::VirtualShadow, cut.GetValue(), &raster,
+                                 std::move( drawn.GetValue() ), 0u );
     }
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const

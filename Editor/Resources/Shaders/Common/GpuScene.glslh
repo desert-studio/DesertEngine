@@ -323,6 +323,7 @@ struct DesertVgDraw
     DesertMeshDraw Draw;
     VgClusterDag   Dag;
     VgCluster      Cluster;
+    uint           View; // the cut view the cluster was found for (a VSM cut: the clipmap level)
 };
 
 DesertVgDraw DesertResolveVgDraw()
@@ -331,6 +332,7 @@ DesertVgDraw DesertResolveVgDraw()
     DesertVgDraw           vg;
     vg.Cluster = vgRasterClusters.Clusters[visible.Cluster];
     vg.Dag     = vgRasterDags.Dags[vg.Cluster.Dag];
+    vg.View    = visible.View;
     const uint primitive = gpuSceneInstances.Instances[visible.Instance].Primitive;
     GpuVisibleInstance row;
     row.Instance = visible.Instance;

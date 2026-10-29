@@ -103,8 +103,11 @@ namespace Desert::Core::Preprocess
     // only.
     inline constexpr std::string_view                kSurfaceBinnedCellSuffix = ".Binned";
     inline constexpr std::string_view                kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
-    inline constexpr std::array<std::string_view, 3> kSurfaceBinnedCellPasses = { "Forward", "GBuffer",
-                                                                                  "ShadowDepth" };
+    // VirtualShadowDepth (VIRT-GEOM step 17): the virtual shadow map's own binned table (GpuDriven::MeshPass::
+    // VirtualShadow), whose groups are what its `.VirtualGeometry` cells are twins of.
+    inline constexpr std::array<std::string_view, 4> kSurfaceBinnedCellPasses = { "Forward", "GBuffer",
+                                                                                  "ShadowDepth",
+                                                                                  "VirtualShadowDepth" };
     // THE VIRTUAL GEOMETRY PERMUTATION (VIRT-GEOM step 11; UE: the Nanite raster's vertex factory): every binned
     // cell of the Static path (`.Parallax` too) once more, named `<Cell>[.Parallax].Binned.VirtualGeometry`, after
     // the binned cells, with kSurfaceBinnedDefine AND kSurfaceVirtualGeometryDefine: the vertex stage draws one
@@ -114,14 +117,10 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceVirtualGeometryCellSuffix = ".VirtualGeometry";
     inline constexpr std::string_view kSurfaceVirtualGeometryDefine     = "DESERT_SURFACE_VIRTUAL_GEOMETRY";
     inline constexpr std::string_view kSurfaceVirtualGeometryPath       = "Static";
-    // The passes a `.VirtualGeometry` cell exists for: the binned ones plus the virtual shadow map's raster
-    // (VIRT-GEOM step 16: the VSM levels are cluster cut views, their clusters rastered into the pages by
-    // "<T>/Static.VirtualShadowDepth[.Parallax].Binned.VirtualGeometry" - the ShadowDepth cell's vertex stage, the
-    // VSM pass header's fragment). VirtualShadowDepth has no `.Binned` cell: only clusters are drawn into pages
-    // GPU-driven, the rest of the VSM casters stay the CPU walk.
-    inline constexpr std::array<std::string_view, 4> kSurfaceVirtualGeometryCellPasses = { "Forward", "GBuffer",
-                                                                                           "ShadowDepth",
-                                                                                           "VirtualShadowDepth" };
+    // The passes a `.VirtualGeometry` cell exists for: every binned one (VIRT-GEOM step 17: the virtual shadow map
+    // rasters the clusters of every level in one pass, "VSM: Raster VirtualGeometry", with
+    // "<T>/Static.VirtualShadowDepth[.Parallax].Binned.VirtualGeometry" - the twin of its own table's group).
+    inline constexpr std::array<std::string_view, 4> kSurfaceVirtualGeometryCellPasses = kSurfaceBinnedCellPasses;
     // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless
     // the stage defined it first (a binned cell: the vertex stage's resolved row, SurfaceTypes.glslh
     // g_SurfaceMaterialRow).

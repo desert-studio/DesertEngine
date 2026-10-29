@@ -94,11 +94,13 @@ namespace Desert::Graphic
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
                                                       Core::Formats::SurfaceBlendMode blend, const bool parallax,
-                                                      MeshVertexPath path )
+                                                      MeshVertexPath path, const MeshPass casterPass )
     {
+        if ( casterPass != MeshPass::ShadowDepth && casterPass != MeshPass::VirtualShadowDepth )
+            return std::nullopt;
         const std::string_view owner =
              ShadowCasterCellFor( blend, parallax ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
-        auto cell = MeshShaderFor( owner, path, MeshPass::ShadowDepth );
+        auto cell = MeshShaderFor( owner, path, casterPass );
         if ( cell && parallax )
             return ParallaxCellOf( *cell );
         return cell;

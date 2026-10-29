@@ -322,9 +322,11 @@ namespace Desert::Graphic
     // The caster shader of a material on @p materialTemplate with @p blend, drawn on @p path:
     // MeshShaderFor on the material's template when ShadowCasterCellFor says Own, on @p defaultTemplate (the
     // template declaring `Default Surface`) when it says Shared; a parallax material's is its own template's
-    // `.Parallax` cell. Empty where MeshShaderFor is.
+    // `.Parallax` cell. Empty where MeshShaderFor is. @p casterPass: ShadowDepth (cascades, local lights) or
+    // VirtualShadowDepth (the virtual shadow map's caster cell, same rule); empty for any other pass.
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
                                                       Core::Formats::SurfaceBlendMode blend, bool parallax,
-                                                      MeshVertexPath path );
+                                                      MeshVertexPath path,
+                                                      MeshPass       casterPass = MeshPass::ShadowDepth );
 } // namespace Desert::Graphic

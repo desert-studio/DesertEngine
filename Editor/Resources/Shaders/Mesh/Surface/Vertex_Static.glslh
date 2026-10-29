@@ -29,6 +29,20 @@
 #include <Common/GpuScene.glslh>
 #include <Common/Velocity.glslh>
 
+#if defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) && defined( DESERT_SURFACE_PASS_VirtualShadowDepth )
+// "VSM: Raster VirtualGeometry" (MeshRenderer::AddVirtualShadowRasterPasses): one pass for every level, the level is
+// the cluster's cut view; its matrix is the level's (Common/VirtualShadowRaster.glslh's VsmFrameData, binding 45),
+// not the carrier's camera block, and the fragment stage takes the level from v_VsmLevel.
+#define DESERT_VSM_CLUSTER_RASTER 1
+#include <Common/VirtualShadowMap.glslh>
+layout( std430, binding = 45 ) restrict readonly buffer VsmFrameData
+{
+    VsmFrame Frame;
+    VsmLevel Levels[];
+};
+layout( location = 15 ) flat out uint v_VsmLevel;
+#endif
+
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 // The ONE engine push block, as the fragment stage's material row index reads it.
 #include <Common/MaterialTransport.glslh>
@@ -109,10 +123,16 @@ void main()
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.
-    gl_Position = cameraUB.JitteredViewProjection * worldPos;
+#ifdef DESERT_VSM_CLUSTER_RASTER
+    v_VsmLevel                      = vg.View;
+    const mat4 rasterViewProjection = Levels[vg.View].ViewProjection;
+#else
+    const mat4 rasterViewProjection = cameraUB.JitteredViewProjection;
+#endif
+    gl_Position = rasterViewProjection * worldPos;
 #ifdef DESERT_SURFACE_CASTER_PASS
     // The caster's slope depth bias, from the vertex normal (UE: ShadowDepthVertexShader.usf).
-    gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection,
+    gl_Position = ShadowCasterSlopeBias( gl_Position, rasterViewProjection,
                                          transpose( inverse( mat3( world ) ) ) * a_Normal, cameraUB.ShadowSlopeBias,
                                          cameraUB.ShadowSlopeClamp );
 #endif

@@ -335,17 +335,15 @@ namespace Desert::Graphic::System
             {
                 const VirtualGeometryIssue& vg = *issue.VirtualGeometry;
                 if ( vg.GroupCount != issue.Table->Groups.size() || vg.GroupCarriers.size() != vg.GroupCount ||
-                     ( !vg.GroupPipelines.empty() && vg.GroupPipelines.size() != vg.GroupCount ) ||
                      !vg.GroupArgs.IsValid() || !vg.Rows.IsValid() )
                 {
-                    Fail( std::format( "virtual geometry raster: {} bins, {} carriers and {} pipelines for {} groups",
-                                       vg.GroupCount, vg.GroupCarriers.size(), vg.GroupPipelines.size(),
-                                       issue.Table->Groups.size() ) );
+                    Fail( std::format( "virtual geometry raster: {} bins and {} carriers for {} groups", vg.GroupCount,
+                                       vg.GroupCarriers.size(), issue.Table->Groups.size() ) );
                     return;
                 }
                 for ( size_t group = 0; group < issue.Table->Groups.size(); ++group )
                 {
-                    const GraphicsPipeline* pipeline = vg.PipelineOf( *issue.Table, group );
+                    const GraphicsPipeline* pipeline = issue.Table->Groups[group].VirtualGeometryPipeline;
                     const MaterialExecutor* carrier  = vg.GroupCarriers[group];
                     if ( pipeline == nullptr || carrier == nullptr )
                         continue; // SetFrameVirtualGeometry said why
@@ -593,7 +591,7 @@ namespace Desert::Graphic::System
                     {
                         if ( m_VgGroupBlock[group] >= blocks.size() )
                             continue;
-                        const GraphicsPipeline& pipeline = *vg.PipelineOf( *m_Binned->Table, group );
+                        const GraphicsPipeline& pipeline = *m_Binned->Table->Groups[group].VirtualGeometryPipeline;
                         const ClusterIndirectGroupDraw draw{
                              .Args       = vg.GroupArgs,
                              .ArgsOffset = uint64_t{ group } * VirtualGeometry::kRasterBinsArgsStride,
@@ -1084,7 +1082,7 @@ namespace Desert::Graphic::System
                                                                          const GraphicsPipeline&   group )
     {
         if ( pass != GpuDriven::MeshPass::GBuffer && pass != GpuDriven::MeshPass::Forward &&
-             pass != GpuDriven::MeshPass::ShadowCascade )
+             pass != GpuDriven::MeshPass::ShadowCascade && pass != GpuDriven::MeshPass::VirtualShadow )
             return nullptr;
         const std::shared_ptr<Shader>& shader = group.GetSpecification().Shader;
         if ( !shader || !IsBinnedCell( shader->GetName() ) ||
@@ -1208,14 +1206,22 @@ namespace Desert::Graphic::System
         const std::array<const GraphicsPipeline*, 3> casterStates{ m_ShadowPipeline.get(),
                                                                    m_ShadowInstancedPipeline.get(),
                                                                    m_ShadowSkinnedPipeline.get() };
-        if ( feed->Generic && pass == GpuDriven::MeshPass::ShadowCascade )
+        // The virtual shadow map's caster states (EnsureVirtualShadowPipelines: no attachment, depth clamp), its
+        // own table's (VIRT-GEOM step 17): what its groups' `.VirtualGeometry` twins draw the clusters of every
+        // level with. Built on first ask; a refusal leaves the pass unbinned (its casters are the CPU walk's).
+        std::array<const GraphicsPipeline*, 3> vsmStates{};
+        if ( pass == GpuDriven::MeshPass::VirtualShadow && EnsureVirtualShadowPipelines().IsSuccess() )
+            vsmStates = { m_VsmPipeline.get(), m_VsmInstancedPipeline.get(), m_VsmSkinnedPipeline.get() };
+        if ( feed->Generic && GpuDriven::IsShadowPass( pass ) )
         {
             // The generic casters' rule: the default surface's opaque Static caster, never the program's own.
-            const auto defaultCell =
-                 MeshRendererDetail::DefaultSurfaceShaderName( MeshVertexPath::Static, MeshPass::ShadowDepth );
+            const bool     vsm        = pass == GpuDriven::MeshPass::VirtualShadow;
+            const MeshPass casterPass = vsm ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
+            const auto     defaultCell = MeshRendererDetail::DefaultSurfaceShaderName( MeshVertexPath::Static, casterPass );
             if ( !defaultCell )
                 return fallback( BinFallback::NoBinnedCell );
-            return binned( BinnedCellPipeline( BinnedCellOf( *defaultCell ), casterStates[0], false ) );
+            return binned(
+                 BinnedCellPipeline( BinnedCellOf( *defaultCell ), vsm ? vsmStates[0] : casterStates[0], false ) );
         }
         if ( IsTranslucentSurface( row.Surface ) )
             return {}; // translucency is sorted per view, never binned
@@ -1290,8 +1296,26 @@ namespace Desert::Graphic::System
                 // Draws only generic programs' DepthNormal today (BuildGenericDraws), which answered GenericProgram
                 // above: a surface is not in this pass.
                 return {};
-            case GpuDriven::MeshPass::VirtualShadow: // its own per-page remap until the cull feeds it (REMAINDER C)
-                return fallback( BinFallback::PassNotBinned );
+            case GpuDriven::MeshPass::VirtualShadow:
+            {
+                // The VSM's own table (UE: the VSM mesh pass's cached commands): the cascade rule with the VSM cell.
+                // Its bins are not issued yet - the levels' CPU walk draws every non-cluster caster through its
+                // per-page remap ("VSM: Cull Casters"); the table is what the clusters of every level are binned
+                // into and rastered by ("VSM: Raster VirtualGeometry", MeshRenderer::SetVirtualShadowGeometry).
+                if ( path == MeshVertexPath::Skinned || feed->Sways )
+                    return fallback( BinFallback::MovableCaster );
+                const auto defaultCell =
+                     MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::VirtualShadowDepth );
+                if ( !defaultCell )
+                    return fallback( BinFallback::NoBinnedCell );
+                const std::string_view defaultTemplate =
+                     std::string_view( *defaultCell ).substr( 0, defaultCell->find( '/' ) );
+                const auto cell = ShadowCasterShaderFor( templ, defaultTemplate, row.Surface->GetSchema().Blend,
+                                                         parallax, path, MeshPass::VirtualShadowDepth );
+                if ( !cell )
+                    return fallback( BinFallback::NoBinnedCell );
+                return binned( BinnedCellPipeline( BinnedCellOf( *cell ), vsmStates[pathIndex], false ) );
+            }
             case GpuDriven::MeshPass::Count:
                 break;
         }

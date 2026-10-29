@@ -891,16 +891,17 @@ namespace Desert::Graphic::System
         { return binnedLayer && SkipsBinned( GpuDriven::MeshPass::ShadowCascade, c, primitive, hidden ); };
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
-        // A VSM level whose cluster cut is issued this frame (SetVirtualShadowGeometry): its VG primitives are
-        // rastered as clusters into the level's pages, never also by this walk.
-        const bool clustersDrawn = IsVirtualShadowView( c ) && m_VsmGeometry[c - kVsmViewBase].has_value();
+        // A VSM level while the levels' cluster raster is issued this frame (SetVirtualShadowGeometry): the
+        // primitives whose clusters it draws (VsmDrawsClusters) are rastered into the level's pages as clusters,
+        // never also by this walk.
+        const bool clustersDrawn = IsVirtualShadowView( c ) && m_VsmGeometry.has_value();
         for ( const auto& rd : m_StaticQueue )
         {
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
                  !IsVisibleInView( cascadeFrustum, rd.Transform,
                                    Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) ||
                  heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) ||
-                 ( clustersDrawn && DrawsVirtualGeometry( rd ) ) )
+                 ( clustersDrawn && VsmDrawsClusters( rd ) ) )
             {
                 continue;
             }

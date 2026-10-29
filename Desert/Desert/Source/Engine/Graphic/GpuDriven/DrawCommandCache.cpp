@@ -92,8 +92,6 @@ namespace Desert::Graphic::GpuDriven
         {
             case BinFallback::None:
                 return "None";
-            case BinFallback::PassNotBinned:
-                return "PassNotBinned";
             case BinFallback::NoBinnedCell:
                 return "NoBinnedCell";
             case BinFallback::PipelineUnavailable:
@@ -518,6 +516,24 @@ namespace Desert::Graphic::GpuDriven
             any = true;
         }
         return any;
+    }
+
+    const GraphicsPipeline* DrawCommandCache::SubmeshVirtualGeometryPipeline( const MeshPass       pass,
+                                                                              const PrimitiveIndex primitive,
+                                                                              const uint32_t       submesh ) const
+    {
+        // RasterBinning.shader GroupOf, on the host mirrors: lod-0 slot -> bin -> group.
+        const PassDrawTable& table = m_Passes[static_cast<uint32_t>( pass )];
+        if ( primitive >= table.PrimitiveDraws.size() )
+            return nullptr;
+        const GpuPrimitivePassDraws& draws = table.PrimitiveDraws[primitive];
+        if ( submesh >= draws.SubmeshCount )
+            return nullptr;
+        const size_t slot = size_t{ draws.FirstDrawSlot } + submesh;
+        if ( slot >= table.DrawSlots.size() || table.DrawSlots[slot].Bin >= table.Bins.size() )
+            return nullptr;
+        const uint32_t group = table.Bins[table.DrawSlots[slot].Bin].Group;
+        return group < table.Groups.size() ? table.Groups[group].VirtualGeometryPipeline : nullptr;
     }
 
     Common::ResultStr<DrawCommandBuffers> DrawCommandCache::AddUploadPass( RDG::Builder& graph )

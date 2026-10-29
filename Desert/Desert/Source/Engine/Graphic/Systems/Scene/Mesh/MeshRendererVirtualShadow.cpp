@@ -338,89 +338,79 @@ namespace Desert::Graphic::System
         return result;
     }
 
-    bool MeshRenderer::DrawsVirtualGeometry( const StaticMeshRenderData& rd )
+    bool MeshRenderer::VsmDrawsClusters( const StaticMeshRenderData& rd ) const
     {
-        if ( rd.Mesh == nullptr )
+        if ( !m_VsmGeometry || !m_DrawCommandCache || rd.Mesh == nullptr )
             return false;
         const auto* registration = rd.Mesh->GetVirtualMesh();
         if ( registration == nullptr || !*registration )
             return false;
         const size_t submeshes = rd.Mesh->GetSubmeshes().size();
-        return std::ranges::any_of( VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ),
-                                    [&rd, submeshes]( const VirtualGeometry::VirtualMeshDagSpan& span )
-                                    {
-                                        return span.Submesh < submeshes &&
-                                               !( span.Submesh < 64u &&
-                                                  ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u );
-                                    } );
+        bool         any       = false;
+        for ( const VirtualGeometry::VirtualMeshDagSpan& span :
+              VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
+        {
+            if ( span.Submesh >= submeshes ||
+                 ( span.Submesh < 64u && ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u ) )
+                continue;
+            // A submesh whose group has no twin (a held refusal, SetVirtualShadowGeometry): the walk draws the
+            // primitive, so its shadow is never lost.
+            if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( GpuDriven::MeshPass::VirtualShadow,
+                                                                     rd.GpuPrimitive, span.Submesh ) == nullptr )
+                return false;
+            any = true;
+        }
+        return any;
     }
 
     Common::ResultStr<std::vector<uint8_t>>
-    MeshRenderer::SetVirtualShadowGeometry( const uint32_t level, const GpuDriven::MeshPass tablePass,
-                                            MeshRendererDetail::VirtualGeometryIssue issue,
+    MeshRenderer::SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                             const GpuDriven::DrawCommandBuffers&     upload,
                                             const GpuDriven::GpuSceneBuffers&        scene )
     {
-        using Result = std::vector<uint8_t>;
-        if ( level >= kVsmClipmapLevelCount )
-            return Common::MakeError<Result>(
-                 std::format( "virtual shadow map level {} past the {} levels", level, kVsmClipmapLevelCount ) );
-        m_VsmGeometry[level].reset();
+        using Result                        = std::vector<uint8_t>;
+        constexpr GpuDriven::MeshPass kPass = GpuDriven::MeshPass::VirtualShadow;
+        m_VsmGeometry.reset();
+        m_VsmRefusedGroups = 0;
         if ( !m_DrawCommandCache )
-            return Common::MakeError<Result>(
-                 std::format( "virtual shadow map level {}: no draw command cache to bin clusters by", level ) );
+            return Common::MakeError<Result>( "virtual shadow map clusters: no draw command cache to bin them by" );
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
             return Common::MakeError<Result>( pipelines.GetError() );
-        const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( tablePass );
+        const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( kPass );
         if ( issue.GroupCount != table.Groups.size() )
-            return Common::MakeError<Result>( std::format( "virtual shadow map level {}: {} cluster bins for {} groups",
-                                                           level, issue.GroupCount, table.Groups.size() ) );
-        // A group's VSM cell: its `Static.ShadowDepth[.Parallax].Binned` cell with the pass swapped
-        // (DShaderParser kSurfaceVirtualGeometryCellPasses), then the `.VirtualGeometry` suffix.
-        constexpr std::string_view kCasterCell = "/Static.ShadowDepth.";
-        constexpr std::string_view kVsmCell    = "/Static.VirtualShadowDepth.";
+            return Common::MakeError<Result>( std::format( "virtual shadow map clusters: {} cluster bins for {} groups",
+                                                           issue.GroupCount, table.Groups.size() ) );
         Result drawn( table.Groups.size(), uint8_t{ 0 } );
-        issue.GroupPipelines.assign( table.Groups.size(), nullptr );
-        issue.GroupCarriers.assign( table.Groups.size(), nullptr );
         for ( size_t group = 0; group < table.Groups.size(); ++group )
         {
             const GpuDriven::IndirectGroup& indirect = table.Groups[group];
             if ( indirect.BinCount == 0u || indirect.Pipeline == nullptr )
                 continue;
+            if ( indirect.VirtualGeometryPipeline != nullptr )
+            {
+                drawn[group] = 1u;
+                continue;
+            }
+            // Only a Static cell's group can hold clusters (the VG permutation is the Static path's).
             const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
-            const size_t       at   = cell.find( kCasterCell );
-            if ( !IsBinnedCell( cell ) || at == std::string::npos )
-            {
-                if ( m_BinnedRefused.insert( cell + "|vsm" ).second )
-                    LOG_WARN( "[MeshRenderer] '{}' is not a Static ShadowDepth cell: virtual-geometry clusters "
-                              "binned into it are not rastered into the virtual shadow map",
-                              cell );
+            if ( MeshCellPath( cell ) != MeshVertexPath::Static )
                 continue;
-            }
-            const std::string vsmCell =
-                 VirtualGeometryCellOf( std::format( "{}{}{}", cell.substr( 0, at ), kVsmCell,
-                                                     cell.substr( at + kCasterCell.size() ) ) );
-            if ( !Runtime::ResourceRegistry::GetShaderService()->GetByName( vsmCell ) )
-            {
-                if ( m_BinnedRefused.insert( vsmCell ).second )
-                    LOG_WARN( "[MeshRenderer] '{}' is not registered (a translucent template, or compiling): "
-                              "virtual-geometry clusters of '{}' are not rastered into the virtual shadow map",
-                              vsmCell, cell );
-                continue;
-            }
-            // The VSM caster state (no attachment, no culling: EnsureVirtualShadowPipelines), the cell swapped.
-            issue.GroupPipelines[group] = BinnedCellPipeline( vsmCell, m_VsmPipeline.get(), false );
-            drawn[group]                = static_cast<uint8_t>( issue.GroupPipelines[group] != nullptr );
+            ++m_VsmRefusedGroups;
+            if ( m_BinnedRefused.insert( cell + "|vsm-vg" ).second )
+                LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` twin (no such cell, or it is compiling): "
+                          "its virtual-geometry meshes cast into the virtual shadow map through the CPU walk",
+                          cell );
         }
+        issue.GroupCarriers.assign( table.Groups.size(), nullptr );
         MeshRendererDetail::BinnedIssue binned;
         binned.Table             = &table;
         binned.Instances         = scene.Instances;
-        binned.DrawSlots         = upload.Passes[static_cast<size_t>( tablePass )].DrawSlots;
+        binned.DrawSlots         = upload.Passes[static_cast<size_t>( kPass )].DrawSlots;
         binned.SubmeshTransforms = upload.SubmeshTransforms;
         binned.GroupCarriers.assign( table.Groups.size(), nullptr );
         binned.BinsIssued      = false;
         binned.VirtualGeometry = std::move( issue );
-        m_VsmGeometry[level]   = std::move( binned );
+        m_VsmGeometry          = std::move( binned );
         return Common::MakeSuccess( std::move( drawn ) );
     }
 
@@ -428,6 +418,11 @@ namespace Desert::Graphic::System
                                                                       const VirtualShadowMapFrame&    frame,
                                                                       const VirtualShadowMapRenderer& map )
     {
+        // This frame's cluster issue (SetVirtualShadowGeometry) is consumed by this call whatever it returns: the
+        // next frame's walk draws every caster unless that frame's cut is set again.
+        const std::unique_ptr<std::optional<MeshRendererDetail::BinnedIssue>,
+                              void ( * )( std::optional<MeshRendererDetail::BinnedIssue>* )>
+             consumed( &m_VsmGeometry, +[]( std::optional<MeshRendererDetail::BinnedIssue>* issue ) { issue->reset(); } );
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
             return pipelines;
 
@@ -442,39 +437,41 @@ namespace Desert::Graphic::System
                 return Common::MakeError(
                      std::format( "virtual shadow map level {} has no caster materials", level ) );
 
-            // The level's clusters (SetVirtualShadowGeometry): the carriers of their cells carry the level's
-            // matrix, written just above. While the issue is set the walk below leaves the VG primitives out.
-            if ( m_VsmGeometry[level] )
+        }
+
+        // The clusters of every level (SetVirtualShadowGeometry): one carrier per group with a twin. The level
+        // comes from the cluster (its cut view), the matrix and the page table from the level (the cell's vertex
+        // and fragment stages), so the carrier's view is any VSM one: level 0's. Made before the walks below,
+        // which leave out the primitives the clusters draw while the issue is set.
+        if ( m_VsmGeometry )
+        {
+            MeshRendererDetail::VirtualGeometryIssue& vg         = *m_VsmGeometry->VirtualGeometry;
+            const SceneFrameBinding                   frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+            for ( size_t group = 0; group < m_VsmGeometry->Table->Groups.size(); ++group )
             {
-                MeshRendererDetail::VirtualGeometryIssue& vg = *m_VsmGeometry[level]->VirtualGeometry;
-                const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
-                for ( size_t group = 0; group < vg.GroupPipelines.size(); ++group )
+                const GraphicsPipeline* twin = m_VsmGeometry->Table->Groups[group].VirtualGeometryPipeline;
+                if ( twin == nullptr )
+                    continue;
+                std::string error;
+                vg.GroupCarriers[group] =
+                     PrepareBinnedCarrier( twin->GetSpecification().Shader, kVsmViewBase, frameState, error );
+                if ( vg.GroupCarriers[group] == nullptr )
                 {
-                    if ( vg.GroupPipelines[group] == nullptr )
-                        continue;
-                    std::string error;
-                    vg.GroupCarriers[group] = PrepareBinnedCarrier( vg.GroupPipelines[group]->GetSpecification().Shader,
-                                                                    view, frameState, error );
-                    if ( vg.GroupCarriers[group] == nullptr )
-                    {
-                        m_VsmGeometry[level].reset();
-                        return Common::MakeError(
-                             std::format( "virtual shadow map level {} clusters: {}", level, error ) );
-                    }
+                    m_VsmGeometry.reset();
+                    return Common::MakeError( std::format( "virtual shadow map clusters: {}", error ) );
                 }
             }
+        }
 
-            MeshDrawList& draws = m_VsmDraws[level];
+        for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
+        {
+            const uint32_t view  = kVsmViewBase + level;
+            MeshDrawList&  draws = m_VsmDraws[level];
             draws.Clear();
             BuildShadowCascadeDraws( view, draws, ShadowCasterLayer::All );
             if ( draws.GetError() )
-            {
-                m_VsmGeometry[level].reset();
                 return Common::MakeError(
                      std::format( "virtual shadow map level {}: {}", level, *draws.GetError() ) );
-            }
-            // Consumed: the next frame's walk draws every caster unless that frame's cut is set again.
-            std::optional<MeshRendererDetail::BinnedIssue> clusters = std::exchange( m_VsmGeometry[level], std::nullopt );
 
             // THE LEVEL'S CULL (UE CullPerPageDrawCommands): every draw's argument records (instance counts 0) and
             // every instance it may draw with its world box; "VSM: Cull Casters" keeps the instances over a page
@@ -543,36 +540,16 @@ namespace Desert::Graphic::System
                     cull.RemapSize += 1u;
                 }
             }
-            // Nothing casts into this level: no node at all. With clusters but no CPU caster the node draws the
-            // clusters alone (no caster cull, no CPU command: a command whose submeshes are all hidden draws
-            // nothing anyway).
-            if ( cull.Instances.empty() && !clusters )
+            // Nothing casts into this level on the CPU: no node (its clusters are "VSM: Raster VirtualGeometry"'s).
+            if ( cull.Instances.empty() )
                 continue;
 
-            RDG::BufferRef arguments{};
-            RDG::BufferRef remap{};
-            if ( cull.Instances.empty() )
-            {
-                draws.Clear();
-                m_VsmCasters[level].clear();
-            }
-            else
-            {
-                const auto culled = map.AddCasterCulling( graph, frame, level, cull );
-                if ( !culled )
-                    return Common::MakeError( culled.GetError() );
-                arguments = culled.GetValue().Arguments;
-                remap     = culled.GetValue().InstanceRemap;
-                draws.SetIndirect( arguments, std::move( firstRecords ) );
-            }
-            // The clusters after the CPU casters, into the same pages (MeshDrawList: a VG-only issue).
-            if ( clusters )
-            {
-                draws.SetBinned( std::move( *clusters ) );
-                if ( draws.GetError() )
-                    return Common::MakeError(
-                         std::format( "virtual shadow map level {} clusters: {}", level, *draws.GetError() ) );
-            }
+            const auto culled = map.AddCasterCulling( graph, frame, level, cull );
+            if ( !culled )
+                return Common::MakeError( culled.GetError() );
+            const RDG::BufferRef arguments = culled.GetValue().Arguments;
+            const RDG::BufferRef remap     = culled.GetValue().InstanceRemap;
+            draws.SetIndirect( arguments, std::move( firstRecords ) );
 
             // The pass parameters of every block the level's node declares (the mesh cells' and the non-mesh
             // casters'): every VirtualShadowDepth program includes Common/VirtualShadowRaster.glslh; the instanced
@@ -636,6 +613,37 @@ namespace Desert::Graphic::System
                      return BOOLSUCCESS;
                  } );
         }
+
+        // THE CLUSTERS OF EVERY LEVEL IN ONE PASS (UE: one Nanite raster for all the VSM views): each draw
+        // instance is a cluster whose cut view is its level; the `.VirtualGeometry` VSM cell takes the level's
+        // matrix (VsmFrameData Levels[]) in its vertex stage and the level's page table in its fragment stage.
+        if ( !m_VsmGeometry )
+            return BOOLSUCCESS;
+        m_VsmGeometryDraws.Clear();
+        m_VsmGeometryDraws.SetBinned( std::move( *m_VsmGeometry ) );
+        if ( m_VsmGeometryDraws.GetError() )
+            return Common::MakeError(
+                 std::format( "virtual shadow map clusters: {}", *m_VsmGeometryDraws.GetError() ) );
+        const VirtualShadowBlockParameters clusterParameters =
+             [&frame]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& )
+        {
+            block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData, RDG::Access::StorageRead )
+                 .Storage( MeshVirtualShadowShaderParameters::VsmPageTable, frame.PageTable, RDG::Access::StorageRead )
+                 .Storage( MeshVirtualShadowShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
+                           RDG::Access::StorageWrite );
+        };
+        graph.AddPass(
+             "VSM: Raster VirtualGeometry", RDG::PassFlags::Raster,
+             [this, &clusterParameters]( RDG::PassBuilder& pass )
+             {
+                 pass.RenderArea( kVsmVirtualResolution, kVsmVirtualResolution );
+                 m_VsmGeometryDraws.Declare( pass, std::nullopt, clusterParameters );
+             },
+             [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 DESERT_PROFILE_PASS( "VSM: Raster VirtualGeometry" );
+                 return m_VsmGeometryDraws.Record( context );
+             } );
         return BOOLSUCCESS;
     }
 } // namespace Desert::Graphic::System

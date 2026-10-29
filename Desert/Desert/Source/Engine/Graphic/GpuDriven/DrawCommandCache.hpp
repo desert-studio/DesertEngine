@@ -103,7 +103,6 @@ namespace Desert::Graphic::GpuDriven
     enum class BinFallback : uint8_t
     {
         None,
-        PassNotBinned,       // the pass has no binned path yet (DepthPrepass, VirtualShadow)
         NoBinnedCell,        // the material's template emits no `.Binned` cell for the pass / vertex path
         PipelineUnavailable, // the `.Binned` cell is not registered, or its PSO failed to build
         NoMaterialRow,       // the submesh's scene material row names no surface (SyncGpuScene did not register it)
@@ -229,6 +228,12 @@ namespace Desert::Graphic::GpuDriven
         // bins (a record's submeshes share one material, so they are binned together or not at all). False for a
         // primitive the cache does not hold, or with any such submesh on a fallback or out of the pass.
         [[nodiscard]] bool SubmeshesBinned( MeshPass pass, PrimitiveIndex primitive, uint64_t hiddenSubmeshMask ) const;
+        // The `.VirtualGeometry` twin (IndirectGroup::VirtualGeometryPipeline) of the group @p submesh of
+        // @p primitive is binned into in @p pass at lod 0 - the group "VirtualGeometry: Raster Binning" puts the
+        // submesh's clusters in, so the pipeline that rasters them. Null: no bin there (not in the cache, not in the
+        // pass, a fallback) or the group has no twin (no such cell, still compiling). Valid after Rebuild.
+        [[nodiscard]] const GraphicsPipeline* SubmeshVirtualGeometryPipeline( MeshPass pass, PrimitiveIndex primitive,
+                                                                              uint32_t submesh ) const;
         [[nodiscard]] std::span<const glm::mat4> SubmeshTransforms() const
         {
             return m_SubmeshTransforms;
