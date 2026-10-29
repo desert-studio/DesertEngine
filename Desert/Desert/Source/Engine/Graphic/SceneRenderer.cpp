@@ -2662,7 +2662,8 @@ namespace Desert::Graphic
         const System::MeshRenderer::VirtualShadowInvalidation invalidation =
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
-             graph, view, hasSun ? &sun : nullptr, locals, m_VirtualShadowQuality, invalidation.Boxes,
+             graph, view, hasSun ? &sun : nullptr, locals, std::span<const RDG::TextureRef>{}, m_VirtualShadowQuality,
+             invalidation.Boxes,
              invalidation.StaticCastersChanged );
         if ( !pages )
         {
@@ -2685,6 +2686,12 @@ namespace Desert::Graphic
             m_VirtualShadowReady  = false;
             return {};
         }
+        // The map for its readers (DESERT_LOCAL_SHADOW_VSM: the forward and translucent cells, the composite's
+        // transmission, the surface cache's cards), bound by name through SceneViewInputs::Vsm.
+        textures.Transients.Vsm = VirtualShadowMapReadRefs{ .FrameData    = pages.GetValue().FrameData,
+                                                             .PageTable    = pages.GetValue().PageTable,
+                                                             .PhysicalPool = pages.GetValue().PhysicalPool,
+                                                             .LocalLights  = pages.GetValue().LocalLights };
         FrameVirtualShadows result;
         if ( hasSun )
         {

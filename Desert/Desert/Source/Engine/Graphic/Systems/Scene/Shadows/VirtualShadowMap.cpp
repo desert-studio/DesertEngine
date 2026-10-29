@@ -108,6 +108,11 @@ namespace Desert::Graphic::System
 
         constexpr uint32_t kGroup64    = 64; // LocalSize(64, 1, 1) of the page and physical-page kernels
         constexpr uint32_t kScreenTile = 8;  // LocalSize(8, 8, 1) of Mark and Project
+        // VirtualShadowMapMarkLocal.shader's modes (RenderSize.w, VSM_MARK_*) and its coarse mip.
+        constexpr uint32_t kVsmMarkPixels     = 0;
+        constexpr uint32_t kVsmMarkReceivers  = 1;
+        constexpr uint32_t kVsmMarkCoarse     = 2;
+        constexpr uint32_t kVsmLocalCoarseMip = 6; // VSM_LOCAL_COARSE_MIP
 
         constexpr uint32_t Groups( const uint32_t items, const uint32_t size )
         {
@@ -397,6 +402,8 @@ namespace Desert::Graphic::System
             stats->Requested += counts.x;
             stats->Rendered += counts.y;
             stats->Cached += counts.z;
+            stats->Coarse += counts.w & 0xFFFFu;
+            stats->Receivers += counts.w >> 16u;
         }
     }
 
@@ -459,7 +466,8 @@ namespace Desert::Graphic::System
     }
 
     Common::ResultStr<VirtualShadowMapFrame> VirtualShadowMapRenderer::AddPagePasses(
-         RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun& sun,
+         RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* const sun,
+         const std::span<const VirtualShadowMapLocalLight> locals, const std::span<const RDG::TextureRef> receiverDepths,
          const VirtualShadowMapQuality& quality, const std::span<const VsmInvalidationBox> invalidations,
          const bool staticCastersChanged )
     {
@@ -689,20 +697,36 @@ namespace Desert::Graphic::System
         if ( !gpuLights.empty() )
         {
             const RDG::BufferRef localLights = frame.LocalLights;
-            dispatch(
-                 MarkLocal,
-                 [&]( RDG::BindingBlockBuilder& block )
-                 {
-                     block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
-                          .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
-                          .Sampler( VirtualShadowMapPagesShaderParameters::PointClampSampler,
-                                    RDG::SamplerDesc::PointClamp() )
-                          .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, view.Depth,
-                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Storage( VirtualShadowMapPagesShaderParameters::VsmLocalLights, localLights, kR );
-                 },
-                 glm::uvec4( view.Width, view.Height, static_cast<uint32_t>( gpuLights.size() ), 0u ),
-                 glm::uvec3( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u ) );
+            const auto           lightCount  = static_cast<uint32_t>( gpuLights.size() );
+            // One "VSM: Mark Local" kernel, three receivers (VirtualShadowMapMarkLocal.shader VSM_MARK_*): the
+            // G-buffer's pixels, each forward receiver's own depth, every light's coarse mip.
+            const auto markLocal = [&]( const RDG::TextureRef depth, const uint32_t mode, const glm::uvec3 groups )
+            {
+                dispatch(
+                     MarkLocal,
+                     [&]( RDG::BindingBlockBuilder& block )
+                     {
+                         block.Storage( VirtualShadowMapPagesShaderParameters::VsmFrameData, frameData, kR )
+                              .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
+                              .Sampler( VirtualShadowMapPagesShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( VirtualShadowMapPagesShaderParameters::GBufferDepthTexture, depth,
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                              .Storage( VirtualShadowMapPagesShaderParameters::VsmLocalLights, localLights, kR );
+                     },
+                     glm::uvec4( view.Width, view.Height, lightCount, mode ), groups );
+            };
+            const glm::uvec3 screen( Groups( view.Width, kScreenTile ), Groups( view.Height, kScreenTile ), 1u );
+            markLocal( view.Depth, kVsmMarkPixels, screen );
+            for ( const RDG::TextureRef& receiver : receiverDepths )
+                if ( receiver.IsValid() )
+                    markLocal( receiver, kVsmMarkReceivers, screen );
+            // The coarse mip has at most 2 x 2 pages per view (VSM_LOCAL_COARSE_MIP), a light at most six views:
+            // one 8 x 8 group per light covers them.
+            static_assert( VsmLocalMipPages( kVsmLocalCoarseMip ) * VsmLocalMipPages( kVsmLocalCoarseMip ) <=
+                                kScreenTile &&
+                           kPointShadowFaces <= kScreenTile );
+            markLocal( view.Depth, kVsmMarkCoarse, glm::uvec3( 1u, 1u, lightCount ) );
         }
 
         dispatch(

@@ -317,6 +317,27 @@ Shader "DeferredLighting"
         // (Graphic/LocalShadows.hpp; MeshRenderer::UpdateLocalShadows writes both, and each light's shadowView).
         // The row struct first, then the two bindings, then the reader, which names them.
         #ifndef DESERT_MEGALIGHTS
+        #ifdef DESERT_LOCAL_SHADOW_VSM
+        // Shadows.Method VirtualMaps: the shadow is "VSM: Project Local"'s mask (below), the subsurface transmission
+        // the virtual map itself through the reader the mask was made with (Common/VirtualShadowMap.glslh); no atlas.
+        #include <Common/VirtualShadowMap.glslh>
+        ReadBuffer(13) VsmFrameData
+        {
+        	VsmFrame Frame;
+        	VsmLevel Levels[];
+        };
+        ReadBuffer(14) VsmPageTable
+        {
+        	VsmPageEntry Entries[];
+        };
+        layout(set = 0, binding = 33, r32ui) restrict readonly uniform uimage2D PhysicalPoolTexture; // 33: MegaLights' only
+        ReadBuffer(15) VsmLocalLightsUB
+        {
+        	VsmLocalLight vsmLocalLights[];
+        };
+        #define DESERT_VSM_READ
+        #include <Common/VirtualShadowMap.glslh>
+        #else
         #include <Mesh/LocalLightShadowView.glslh>
         Uniform(13) texture2D LocalShadowAtlasTexture; // 13/14: freed by the cascade array
         #define LocalShadowAtlasTexture sampler2D(LocalShadowAtlasTexture, PointClampSampler)
@@ -324,6 +345,7 @@ Shader "DeferredLighting"
         {
         	LocalShadowView localShadowViews[];
         };
+        #endif
         #ifdef DESERT_LOCAL_SHADOW_SCREEN_MASK
         // "Shadows: Ray Traced Local" (Shadows HardwareTraced): one layer per shadowed light, by its shadowMaskSlot
         // (Mesh/LocalLightShadow.glslh reads it before the light's shadow view). 32 is MegaLights' only.

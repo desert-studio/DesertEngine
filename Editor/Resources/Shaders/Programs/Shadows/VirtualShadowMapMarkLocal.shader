@@ -6,6 +6,11 @@ Shader "VirtualShadowMapMarkLocal"
     // view, the point light's cube face), the page of the mip its footprint asks for (VsmLocalMip), and the light's
     // coarsest page (UE MarkCoarsePagesLocal): the projection falls back to a coarser mip where a filter tap leaves
     // the requested page, and the coarsest one is always mapped.
+    // The same kernel marks for the other receivers (RenderSize.w, VSM_MARK_*): "VSM: Mark Receivers" runs it over a
+    // forward receiver's own depth (the translucent front layer: UE marks translucency from its front layer), flagging
+    // its pages VSM_FLAG_RECEIVER; "VSM: Mark Coarse" requests every page of each light's coarse mip
+    // (VSM_LOCAL_COARSE_MIP, UE MarkCoarsePagesLocal), one invocation per page, for the readers with no depth to mark
+    // from (the surface cache's off-screen cards), flagging them VSM_FLAG_COARSE.
     Compute
     {
         LocalSize(8, 8, 1);
@@ -32,18 +37,44 @@ Shader "VirtualShadowMapMarkLocal"
 
         PushConstant PushConstants
         {
-            uvec4 RenderSize; // xy = render size, z = local light count
+            uvec4 RenderSize; // xy = render size, z = local light count, w = VSM_MARK_*
         };
+        #define VSM_MARK_PIXELS    0u // the G-buffer's depth
+        #define VSM_MARK_RECEIVERS 1u // a forward receiver's depth
+        #define VSM_MARK_COARSE    2u // x = page of the coarse mip, y = view, z = light
 
-        void Request( uint level, ivec2 page )
+        void Request( uint level, ivec2 page, uint kind )
         {
             const uint index = VsmLevelEntryIndex( Levels[level], level, page );
-            if ( ( Entries[index].Flags & VSM_FLAG_REQUESTED ) == 0u )
-                atomicOr( Entries[index].Flags, VSM_FLAG_REQUESTED );
+            const uint want  = VSM_FLAG_REQUESTED | kind;
+            if ( ( Entries[index].Flags & want ) != want )
+                atomicOr( Entries[index].Flags, want );
+        }
+
+        // Every page of light @p lightIndex's coarse mip: @p id.x = the page within its view's mip, @p id.y = the view.
+        void MarkCoarse( uint lightIndex, uvec2 id )
+        {
+            if ( lightIndex >= RenderSize.z )
+                return;
+            const VsmLocalLight light = Lights[lightIndex];
+            const uint          mip   = max( VSM_LOCAL_COARSE_MIP, light.Views.w );
+            if ( id.y >= light.Views.y )
+                return;
+            const uint level = light.Views.x + id.y * VSM_LOCAL_MIPS + mip;
+            const uint side  = Levels[level].Pages.y;
+            if ( id.x >= side * side )
+                return;
+            Request( level, ivec2( int( id.x % side ), int( id.x / side ) ), VSM_FLAG_COARSE );
         }
 
         void main()
         {
+            if ( RenderSize.w == VSM_MARK_COARSE )
+            {
+                MarkCoarse( gl_GlobalInvocationID.z, gl_GlobalInvocationID.xy );
+                return;
+            }
+            const uint  kind  = RenderSize.w == VSM_MARK_RECEIVERS ? VSM_FLAG_RECEIVER : 0u;
             const ivec2 pixel = ivec2( gl_GlobalInvocationID.xy );
             if ( pixel.x >= int( RenderSize.x ) || pixel.y >= int( RenderSize.y ) )
                 return;
@@ -67,8 +98,8 @@ Shader "VirtualShadowMapMarkLocal"
                     continue;
                 const uint  level = first + VsmLocalMip( Frame, light, world, clip.w );
                 const float side  = float( Levels[level].Pages.y );
-                Request( level, ivec2( min( ( ndc * 0.5 + 0.5 ) * side, vec2( side - 1.0 ) ) ) );
-                Request( first + VSM_LOCAL_MIPS - 1u, ivec2( 0 ) );
+                Request( level, ivec2( min( ( ndc * 0.5 + 0.5 ) * side, vec2( side - 1.0 ) ) ), kind );
+                Request( first + VSM_LOCAL_MIPS - 1u, ivec2( 0 ), kind );
             }
         }
     }

@@ -44,6 +44,11 @@ Shader "VirtualShadowMapDirtyMask"
             if ( ( flags & VSM_FLAG_REQUESTED ) != 0u )
             {
                 atomicAdd( LevelStats[level].x, 1u );
+                // w: the pages "VSM: Mark Coarse" asked for (low 16 bits), "VSM: Mark Receivers" (high 16 bits).
+                if ( ( flags & VSM_FLAG_COARSE ) != 0u )
+                    atomicAdd( LevelStats[level].w, 1u );
+                if ( ( flags & VSM_FLAG_RECEIVER ) != 0u )
+                    atomicAdd( LevelStats[level].w, 0x10000u );
                 if ( ( flags & VSM_FLAG_ALLOCATED ) != 0u )
                 {
                     if ( ( flags & VSM_FLAG_DIRTY ) != 0u )

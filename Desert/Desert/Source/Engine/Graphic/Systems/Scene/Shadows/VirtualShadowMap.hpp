@@ -281,6 +281,8 @@ namespace Desert::Graphic::System
         uint32_t Requested = 0; // pages a pixel asked for
         uint32_t Rendered  = 0; // of them, cleared and drawn that frame
         uint32_t Cached    = 0; // of them, kept from an earlier frame
+        uint32_t Coarse    = 0; // of them, asked for by "VSM: Mark Coarse" (the coarse mip, every frame)
+        uint32_t Receivers = 0; // of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
     };
 
     // What the casters' raster reads to draw this frame's dirty pages, and what the projection reads.
@@ -316,10 +318,13 @@ namespace Desert::Graphic::System
         // lights whose sphere meets the view, each with its mask layer (Mark Local, the local rasters, Project
         // Local). @p invalidations: the boxes of the casters that moved or changed (now and last frame), the
         // motion mask every level's cached pages are tested against. @p staticCastersChanged: every cached page is
-        // dropped.
+        // dropped. @p receiverDepths: the forward receivers' own device depths (reversed-Z, the view's render size;
+        // the translucent front layer), each marked for the local lights like the G-buffer ("VSM: Mark Receivers").
+        // Every local light's coarse mip is marked as well ("VSM: Mark Coarse"), for the readers with no depth.
         [[nodiscard]] Common::ResultStr<VirtualShadowMapFrame>
         AddPagePasses( RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* sun,
-                       std::span<const VirtualShadowMapLocalLight> locals, const VirtualShadowMapQuality& quality,
+                       std::span<const VirtualShadowMapLocalLight> locals,
+                       std::span<const RDG::TextureRef> receiverDepths, const VirtualShadowMapQuality& quality,
                        std::span<const VsmInvalidationBox> invalidations, bool staticCastersChanged );
 
         // "VSM: Cull Casters" of level @p level (UE CullPerPageDrawCommands): every instance of @p cull whose

@@ -76,7 +76,7 @@ Shader "VirtualShadowMapAllocate"
                     Entries[previous].Flags = 0u; // a cached page nobody requested: its entry is unmapped
                 Owners[physical] = index;
                 const ivec2 world  = VsmExpectedTag( Levels[level], local );
-                flags              = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
+                flags = ( flags & VSM_FLAG_MARK_KINDS ) | VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
                 Entries[index]   = VsmPageEntry( physical, flags, world.x, world.y );
             }
             if ( ( flags & VSM_FLAG_DIRTY ) != 0u )

@@ -109,7 +109,21 @@ namespace Desert::Core
     inline constexpr uint32_t kGpuSceneVisibleInstancesBinding  = kSceneReadBindingFirst + 17u;
     inline constexpr uint32_t kGpuSceneDrawSlotsBinding         = kSceneReadBindingFirst + 18u;
     inline constexpr uint32_t kGpuSceneSubmeshTransformsBinding = kSceneReadBindingFirst + 19u;
-    inline constexpr uint32_t kSceneReadBindingCount            = 20u;
+    // THE VIEW'S VIRTUAL SHADOW MAP AS A READER SEES IT (Shadows.Method VirtualMaps, DESERT_LOCAL_SHADOW_VSM): the
+    // frame's level table (`VsmFrameData`), the page table (`VsmPageTable`), the physical pool
+    // (`PhysicalPoolTexture`, read only) and the frame's shadowed point / spot lights (`VsmLocalLightsUB`, indexed by
+    // a light's shadowMaskSlot), read by the forward and translucent cells and the forward terrain through
+    // Mesh/LocalLightShadow.glslh in place of the local shadow atlas (Common/VirtualShadowMap.glslh's reader, the
+    // one "VSM: Project Local" uses). Bound by name from the frame graph (BindSceneViewInputs, SceneViewInputs::Vsm*);
+    // declared in Mesh/ForwardLocalLights.glslh. The raster's own copies of the first three are write targets of a
+    // different pass and keep their range below.
+    inline constexpr uint32_t kVsmReadFrameDataBinding    = kSceneReadBindingFirst + 20u;
+    inline constexpr uint32_t kVsmReadPageTableBinding    = kSceneReadBindingFirst + 21u;
+    inline constexpr uint32_t kVsmReadPhysicalPoolBinding = kSceneReadBindingFirst + 22u;
+    inline constexpr uint32_t kVsmReadLocalLightsBinding  = kSceneReadBindingFirst + 23u;
+    inline constexpr uint32_t kSceneReadBindingCount      = 24u;
+    static_assert( kVsmReadFrameDataBinding == 45u && kVsmReadLocalLightsBinding == 48u,
+                   "Mesh/ForwardLocalLights.glslh spells 45-48" );
     static_assert( kGpuSceneInstancesBinding == 41u && kGpuSceneSubmeshTransformsBinding == 44u,
                    "Common/GpuScene.glslh spells 41-44" );
 
@@ -137,8 +151,8 @@ namespace Desert::Core
     inline constexpr uint32_t kVsmRasterLevelBinding           = kVirtualShadowRasterBindingFirst + 3u;
     inline constexpr uint32_t kVsmInstanceRemapBinding         = kVirtualShadowRasterBindingFirst + 4u;
     inline constexpr uint32_t kVirtualShadowRasterBindingCount = 5u;
-    static_assert( kVsmFrameDataBinding == 45u && kVsmInstanceRemapBinding == 49u,
-                   "Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh spell 45-49" );
+    static_assert( kVsmFrameDataBinding == 49u && kVsmInstanceRemapBinding == 53u,
+                   "Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh spell 49-53" );
 
     [[nodiscard]] constexpr bool IsVirtualShadowRasterBinding( uint32_t binding )
     {
@@ -151,10 +165,12 @@ namespace Desert::Core
     // world parameters joined it), then from 36 (the rain occlusion's map and block joined it), then from 38 (the
     // local shadow atlas and its views joined it), then from 40 (the ray-traced local shadow masks joined it), then
     // from 41 (the virtual shadow raster's slots got a range of their own), then from 46 (the binned draw's four
-    // tables joined the scene-read range and pushed the raster range up by four), to sit above both ranges; see the
+    // tables joined the scene-read range and pushed the raster range up by four), then from 50 (the virtual shadow
+    // map's reader tables joined the scene-read range and pushed the raster range up by four), to sit above both
+    // ranges; see the
     // paragraph on moving it above (10-22: no generated `.shader` under Resources spells a TextureBinding).
     inline constexpr uint32_t kGraphOwnedBindingFirst =
          kVirtualShadowRasterBindingFirst + kVirtualShadowRasterBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 50u,
+    static_assert( kGraphOwnedBindingFirst == 54u,
                    "the graph's window opens right above the virtual shadow raster's range" );
 } // namespace Desert::Core

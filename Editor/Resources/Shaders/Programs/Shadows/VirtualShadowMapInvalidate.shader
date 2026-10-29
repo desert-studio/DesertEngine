@@ -48,7 +48,7 @@ Shader "VirtualShadowMapInvalidate"
             const uint drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
             if ( ( flags & drawn ) == drawn )
                 flags &= ~VSM_FLAG_DIRTY;
-            flags &= ~VSM_FLAG_REQUESTED;
+            flags &= ~( VSM_FLAG_REQUESTED | VSM_FLAG_MARK_KINDS );
 
             if ( ( flags & VSM_FLAG_ALLOCATED ) != 0u )
             {
