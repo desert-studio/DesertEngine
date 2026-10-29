@@ -128,6 +128,15 @@ namespace Desert::Graphic::API::Vulkan
              // path reads it (SelectNeuralKernelPath).
              { C::VulkanMemoryModel, "vulkanMemoryModel", N::Optional, V12,
                VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME },
+             // Memory and timeline semaphores exported to another API on the same GPU (OIDN on CUDA / HIP shares
+             // the path tracer's buffers instead of a host copy). VK_KHR_external_memory / _semaphore are core in
+             // 1.1; the handle-type extensions are not core anywhere. Optional: only PathTracing.Denoiser OIDN
+             // reads them (CapabilityCatalog::GpuSharing), and it is refused by name without them.
+             { C::ExternalMemoryWin32, "external_memory_win32", N::Optional, 0, "VK_KHR_external_memory_win32" },
+             { C::ExternalSemaphoreWin32, "external_semaphore_win32", N::Optional, 0,
+               "VK_KHR_external_semaphore_win32" },
+             { C::ExternalMemoryFd, "external_memory_fd", N::Optional, 0, "VK_KHR_external_memory_fd" },
+             { C::ExternalSemaphoreFd, "external_semaphore_fd", N::Optional, 0, "VK_KHR_external_semaphore_fd" },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every
