@@ -58,6 +58,9 @@ namespace Desert::Graphic::Denoise
         [[nodiscard]] static OidnStatus Status();
         // The caller's facts about the image a successful run filtered (OidnStatus::LastPaths), kept with the run.
         static void NoteRun( uint32_t paths, uint32_t width, uint32_t height, double milliseconds );
+        // A refusal the caller met with this denoiser's image (a Denoise error, a read-back or an upload that
+        // failed), kept in Status().Error until the next successful run.
+        static void NoteError( const std::string& error );
 
         [[nodiscard]] const std::string& GetDeviceName() const override
         {

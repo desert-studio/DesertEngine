@@ -34,6 +34,7 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -1368,6 +1369,17 @@ namespace Desert::Editor
             device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
+
+            const Graphic::Denoise::OidnStatus oidn = Graphic::Denoise::OidnDenoiser::Status();
+            device.OidnCreated                      = oidn.Created;
+            device.OidnDevice                       = oidn.Device;
+            device.OidnReason                       = oidn.Reason;
+            device.OidnError                        = oidn.Error;
+            device.OidnRuns                         = oidn.Runs;
+            device.OidnLastPaths                    = oidn.LastPaths;
+            device.OidnLastWidth                    = oidn.LastWidth;
+            device.OidnLastHeight                   = oidn.LastHeight;
+            device.OidnLastMilliseconds             = oidn.LastMilliseconds;
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

@@ -120,6 +120,19 @@ namespace Desert::Editor::Control
         uint32_t NnMaxComputeSharedMemorySize = 0;
 
         std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
+
+        /// PathTracing.Denoiser OIDN (Graphic::Denoise::OidnDenoiser::Status): the device OIDN filters on and why,
+        /// the last refusal, and the last successful run - so a scenario reads "GPU or CPU, and why" and the filter
+        /// time from the state, not from the log.
+        bool        OidnCreated = false; ///< an OIDN device was made in this process
+        std::string OidnDevice;          ///< "CUDA: <name>" | "HIP: <name>" | "SYCL: <name>" | "Metal: <name>" | "CPU"
+        std::string OidnReason;          ///< why that device
+        std::string OidnError;           ///< the last refusal; empty when none since the last run
+        uint64_t    OidnRuns             = 0;
+        uint32_t    OidnLastPaths        = 0; ///< paths per pixel of the image the last run filtered
+        uint32_t    OidnLastWidth        = 0;
+        uint32_t    OidnLastHeight       = 0;
+        double      OidnLastMilliseconds = 0.0; ///< OIDN's Denoise call: its buffers written, filtered, read
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -385,9 +398,21 @@ namespace Desert::Editor::Control
             nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
             nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
 
+            Common::Json::Object oidn;
+            oidn["created"] = Common::Json::Value( device.OidnCreated );
+            oidn["device"] = Str( device.OidnDevice );
+            oidn["reason"] = Str( device.OidnReason );
+            oidn["error"] = Str( device.OidnError );
+            oidn["runs"] = Num( static_cast<double>( device.OidnRuns ) );
+            oidn["lastPaths"] = Num( device.OidnLastPaths );
+            oidn["lastWidth"] = Num( device.OidnLastWidth );
+            oidn["lastHeight"] = Num( device.OidnLastHeight );
+            oidn["lastFilterMs"] = Num( device.OidnLastMilliseconds );
+
             Common::Json::Object section;
             section["name"] = Str( device.Name );
             section["nn"]   = Common::Json::Value( nn );
+            section["oidn"] = Common::Json::Value( oidn );
             root["device"]  = Common::Json::Value( section );
         }
 

@@ -307,6 +307,11 @@ namespace Desert::Graphic::Denoise
         g_Status.Error.clear();
     }
 
+    void OidnDenoiser::NoteError( const std::string& error )
+    {
+        KeepError( error );
+    }
+
     Common::ResultStr<ImageDenoiseReport> OidnDenoiser::Denoise( const ImageDenoiseInputs& inputs,
                                                                  const ImageDenoiseQuality quality,
                                                                  const std::span<float>    output )
