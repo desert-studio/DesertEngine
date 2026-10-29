@@ -603,9 +603,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::ResultStr<GpuDriven::DrawCommandBuffers> BeginFrameBins( RDG::Builder& graph );
         [[nodiscard]] GpuDriven::MeshPass                             MainViewPass() const;
         [[nodiscard]] bool                                            CascadeBinsDrawn( uint32_t view ) const;
-        // Refused (logged once per message, the view stays on the CPU) when a non-empty group's carrier cannot be
-        // made.
-        void SetFrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled,
+        // True when (pass, view) issues its bins this frame. Refused (false, logged once per message, the view stays
+        // on the CPU) when a non-empty group's carrier cannot be made; false without a log for a view that issues
+        // no bins (a cascade not drawn this frame). The main view's answer is phase 2's precondition
+        // (SetFramePostOcclusion), so it is part of the cluster cut's two-pass decision
+        // (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb).
+        bool SetFrameBinned( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled,
                              const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
         // TWO-PHASE OCCLUSION, phase 2 (UE FInstanceCullingContext's post pass): the draws of the instances phase 1
         // held back by last frame's HZB that this frame's HZB finds visible, issued by a second slice of (pass,

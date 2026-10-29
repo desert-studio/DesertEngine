@@ -956,7 +956,7 @@ namespace Desert::Graphic::System
                m_CascadeCache[view].Rebuild && m_CascadeCache[view].RedrawStatic;
     }
 
-    void MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
+    bool MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
                                        const GpuDriven::CulledDraws& culled, const GpuDriven::DrawCommandBuffers& upload,
                                        const GpuDriven::GpuSceneBuffers& scene )
     {
@@ -965,10 +965,11 @@ namespace Desert::Graphic::System
             if ( message != m_BinnedLastError )
                 LOG_ERROR( "[MeshRenderer] {}; the view draws on the CPU path", message );
             m_BinnedLastError = std::move( message );
+            return false;
         };
         if ( !m_DrawCommandCache || m_SceneRenderer == nullptr ||
              ( viewKey != kBinnedMainView && ( pass != GpuDriven::MeshPass::ShadowCascade || !CascadeBinsDrawn( viewKey ) ) ) )
-            return;
+            return false;
         const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( pass );
         MeshRendererDetail::BinnedIssue issue;
         issue.Table             = &table;
@@ -989,20 +990,15 @@ namespace Desert::Graphic::System
             const std::shared_ptr<Shader> shader =
                  indirect.Pipeline != nullptr ? indirect.Pipeline->GetSpecification().Shader : nullptr;
             if ( !shader )
-            {
-                refuse( std::format( "binned group {} of pass {} has no pipeline shader", group,
-                                     static_cast<uint32_t>( pass ) ) );
-                return;
-            }
+                return refuse( std::format( "binned group {} of pass {} has no pipeline shader", group,
+                                            static_cast<uint32_t>( pass ) ) );
             std::string error;
             issue.GroupCarriers[group] = PrepareBinnedCarrier( shader, viewKey, frameState, error );
             if ( issue.GroupCarriers[group] == nullptr )
-            {
-                refuse( std::move( error ) );
-                return;
-            }
+                return refuse( std::move( error ) );
         }
         m_FrameBinned.push_back( FrameBinnedView{ pass, viewKey, std::move( issue ) } );
+        return true;
     }
 
     const MaterialExecutor* MeshRenderer::PrepareBinnedCarrier( const std::shared_ptr<Shader>& shader,

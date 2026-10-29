@@ -1496,6 +1496,11 @@ namespace Desert::Editor
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Refuse every cluster cut after the bins gave up the VG meshes.\n"
                                        "The meshes must still draw (their own submeshes): equal to VG off." );
+                viewChanged |= ImGui::Checkbox( "Force Virtual Geometry Post Cut Refusal",
+                                                &view.ForceVirtualGeometryPostCutRefusal );
+                if ( ImGui::IsItemHovered() )
+                    ImGui::SetTooltip( "Refuse the main view's post-occlusion cluster cut, before the main cut.\n"
+                                       "The main cut then tests no HZB: nothing is held back, nothing is lost." );
                 ImGui::Separator();
                 // UE's viewport "Realtime": while editing, whether the world's preview time moves — the
                 // cloud wind, particles, a material's Time node. The user's answer, so it lives in

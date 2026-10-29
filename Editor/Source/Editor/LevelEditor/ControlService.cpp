@@ -759,6 +759,7 @@ namespace Desert::Editor
                         return Control::Response::Failure( request.Id, NoEditorCameraReason() );
                     const glm::vec3 forward =
                          -glm::normalize( glm::vec3( glm::inverse( viewCamera->GetViewMatrix() )[2] ) );
+                    const Graphic::DebugViewState& debugView = EditorPreferences::Get().DebugView;
 
                     return Control::Response::Success(
                          request.Id,
@@ -766,8 +767,9 @@ namespace Desert::Editor
                               Control::kSubjects[static_cast<std::size_t>( Control::Subject::Viewport )].Name,
                               DescribeViewportCamera( viewCamera->GetPosition(), forward,
                                                       viewCamera->GetFOV(),
-                                                      EditorPreferences::Get().DebugView.ValidateGpuCulling,
-                                                      EditorPreferences::Get().DebugView.ForceVirtualGeometryCutRefusal ) ) );
+                                                      debugView.ValidateGpuCulling,
+                                                      debugView.ForceVirtualGeometryCutRefusal,
+                                                      debugView.ForceVirtualGeometryPostCutRefusal ) ) );
                 }
 
                 if ( request.Whose == Control::Subject::Tool )
@@ -1198,6 +1200,12 @@ namespace Desert::Editor
         if ( which.GetValue() == ViewportCameraWrite::ForceVgCutRefusal )
         {
             EditorPreferences::Get().DebugView.ForceVirtualGeometryCutRefusal = request.Value[0] != 0.0f;
+            return Control::Response::Success( request.Id );
+        }
+        // [vg_refused_fallback], post cut: the post cluster cut refused before the main cut, which then holds nothing back.
+        if ( which.GetValue() == ViewportCameraWrite::ForceVgPostCutRefusal )
+        {
+            EditorPreferences::Get().DebugView.ForceVirtualGeometryPostCutRefusal = request.Value[0] != 0.0f;
             return Control::Response::Success( request.Id );
         }
 

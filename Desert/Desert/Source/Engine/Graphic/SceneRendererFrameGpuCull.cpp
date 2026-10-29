@@ -301,9 +301,36 @@ namespace Desert::Graphic
             refuse( culled.GetError() );
             return;
         }
+        bool mainIssued = false;
         for ( size_t v = 0; v < views.size(); ++v )
-            meshes->SetFrameBinned( static_cast<GpuDriven::MeshPass>( views[v].View.Pass ), viewKeys[v],
-                                    culled.GetValue().Draws[v], upload.GetValue(), scene.GetValue() );
+        {
+            const bool issued = meshes->SetFrameBinned( static_cast<GpuDriven::MeshPass>( views[v].View.Pass ),
+                                                        viewKeys[v], culled.GetValue().Draws[v], upload.GetValue(),
+                                                        scene.GetValue() );
+            if ( v == 0u )
+                mainIssued = issued;
+        }
+        // THE CLUSTERS' TWO-PASS DECISION (UE Nanite: the main pass tests last frame's HZB only when the post pass
+        // runs), made here, before AddFrameVirtualGeometry's main cut, by the instances' rule plus what phase 2's
+        // post cut needs on top of it:
+        //  - MainTestsHzb: AddFrameDrawBinsPostOcclusion builds this frame's furthest HZB from the same depth, HZB
+        //    pipeline and history this rule checked, and re-runs the instance cull with the program phase 1 just
+        //    ensured - so the HZB is there and the instance phase 2 is accepted;
+        //  - mainIssued: the main view issues its bins, the precondition of SetFramePostOcclusion (the phase-2 slice
+        //    the post cut's raster attaches to);
+        //  - the post cut itself: its checks are the main cut's (same tables, pass, view, view key and carriers,
+        //    MeshRenderer::SetFrameVirtualGeometry) plus this frame's HZB (the first point), so it is accepted
+        //    whenever the main cut is; only DebugViewState::ForceVirtualGeometryPostCutRefusal refuses it.
+        // A "no" leaves the main cut frustum-only (AddFrameVirtualGeometry): it holds nothing back, so a refused
+        // post cut loses no cluster.
+        const bool forcePostRefusal = m_DebugView.ForceVirtualGeometryPostCutRefusal;
+        if ( forcePostRefusal && !m_VirtualGeometryPostRefusalLogged )
+            LOG_WARN( "[SceneRenderer] {}: VirtualGeometry: the post-occlusion cluster cut refused (Debug 'Force "
+                      "Virtual Geometry Post Cut Refusal'); the main cut tests no HZB and draws every visible "
+                      "cluster in phase 1",
+                      m_ViewResources.GetName() );
+        m_VirtualGeometryPostRefusalLogged = forcePostRefusal;
+        bins.ClusterMainTestsHzb           = bins.MainTestsHzb && mainIssued && !forcePostRefusal;
         // The primitives InstanceCull just took out of every cull view's bins (only when it appended candidates):
         // the CPU walk draws what of them no cluster raster draws (MeshRenderer::CpuWalkHidden).
         if ( vgTables.Input.PrimitiveDags.IsValid() )
@@ -701,9 +728,18 @@ namespace Desert::Graphic
             }
         }
 
-        const VirtualGeometry::ClusterCullView view   = viewOf( 0 ).GetValue(); // the main view never refuses
-        const uint32_t                         pass   = view.Instance.View.Pass;
-        const auto                             culled = AddVirtualGeometryCut(
+        // The main view never refuses. It tests last frame's HZB (Views[0] carries it when MainTestsHzb) only when
+        // its post cut runs (FrameDrawBins::ClusterMainTestsHzb, decided before this cut); otherwise frustum only:
+        // the cut carries nothing (VirtualGeometryRenderer::AddClusterCull: no HZB -> no carry) and
+        // AddFrameVirtualGeometryPostOcclusion has nothing to re-cut.
+        VirtualGeometry::ClusterCullView view = viewOf( 0 ).GetValue();
+        if ( !bins.ClusterMainTestsHzb )
+        {
+            view.Instance.PrevHzb = RDG::TextureRef{};
+            view.Instance.View.Flags &= ~GpuDriven::CullViewFlags::kTestHzb;
+        }
+        const uint32_t pass = view.Instance.View.Pass;
+        const auto     culled = AddVirtualGeometryCut(
              graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, view, 0u,
              System::MeshRenderer::kBinnedMainView, GpuDriven::CullPhase::Main, VirtualGeometry::ClusterCutKind::Main );
         if ( !culled )
@@ -729,7 +765,7 @@ namespace Desert::Graphic
         if ( !m_FrameVirtualGeometry || !m_FrameVirtualGeometry->OccludedCandidates.IsValid() || !m_FrameDrawBins ||
              !m_VirtualGeometry || !m_ClusterCutCounts || meshes == nullptr ||
              meshes->GetDrawCommandCache() == nullptr )
-            return; // the main cut tested no HZB: nothing was held back
+            return; // the main cut tested no HZB (FrameDrawBins::ClusterMainTestsHzb false): nothing was held back
         const FrameDrawBins& bins = *m_FrameDrawBins;
         // The main phase's carry, re-cut against this frame's HZB (AddFrameDrawBinsPostOcclusion set the main
         // view's Hzb) with the main cut's view.
@@ -752,9 +788,12 @@ namespace Desert::Graphic
                   .Scene = bins.Scene, .Upload = bins.Upload, .Meshes = vgMeshes, .NeutralHzb = bins.NeutralHzb },
              candidates, view, 0u, bins.ViewKeys.front(), GpuDriven::CullPhase::PostOcclusion,
              VirtualGeometry::ClusterCutKind::PostOcclusion );
+        // Unreachable by the two-pass decision (FrameDrawBins::ClusterMainTestsHzb accepts the post cut before the
+        // main cut carries anything): a refusal here is a broken contract between the two, said as an error.
         if ( !post && post.GetError() != m_VirtualGeometryLastError )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}: the clusters the main cut held back are not drawn this frame",
+            LOG_ERROR( "[SceneRenderer] {}: {}: the post cut refused after the two-pass decision accepted it; the "
+                       "clusters the main cut held back are not drawn this frame",
                        m_ViewResources.GetName(), post.GetError() );
             m_VirtualGeometryLastError = post.GetError();
         }

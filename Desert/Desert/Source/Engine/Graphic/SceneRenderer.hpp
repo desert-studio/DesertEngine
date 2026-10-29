@@ -1564,6 +1564,8 @@ namespace Desert::Graphic
         std::unique_ptr<VirtualGeometry::VirtualGeometryRenderer> m_VirtualGeometry;
         std::unique_ptr<VirtualGeometry::ClusterCutCounts>        m_ClusterCutCounts;
         std::string                                               m_VirtualGeometryLastError;
+        // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
+        bool                                                      m_VirtualGeometryPostRefusalLogged = false;
         float                                                     m_VirtualGeometryMaxPixelsPerEdge = 1.0f;
         // This frame's cut (reset by AddFrameVirtualGeometry): what the vg_clusters view draws.
         struct FrameVirtualGeometry
@@ -1815,6 +1817,13 @@ namespace Desert::Graphic
             GpuDriven::DrawCommandBuffers         Upload;
             GpuDriven::GpuSceneBuffers            Scene;
             bool                                  MainTestsHzb = false;
+            // TWO-PASS OCCLUSION OF THE CLUSTERS (UE Nanite: the main pass tests last frame's HZB only when the post
+            // pass runs): whether the main view's cluster cut tests last frame's HZB and carries what it holds back.
+            // Decided in AddFrameDrawBins BEFORE AddFrameVirtualGeometry's main cut: the instances' rule
+            // (MainTestsHzb) AND phase 2's consumer (the main view issues its bins: SetFramePostOcclusion's
+            // precondition) AND the post cut not refused (DebugViewState::ForceVirtualGeometryPostCutRefusal).
+            // False: the main cut is frustum-only, holds nothing back, and there is no post cut to lose it.
+            bool                                  ClusterMainTestsHzb = false;
             // The VG candidates phase 1 appended for every view (cull view v = cut view v); invalid Rows = none
             // this frame. VgVisibleCapacity: one view's exact cluster bound (each candidate instance x its DAGs'
             // ClusterCount).

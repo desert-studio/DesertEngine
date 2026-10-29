@@ -199,6 +199,14 @@ namespace Desert::Graphic
         // subject's 'Debug.ForceVirtualGeometryCutRefusal'.
         bool ForceVirtualGeometryCutRefusal = false;
 
+        // VIRTUAL-GEOMETRY POST CUT check (VIRT-GEOM step 29; UE Nanite two-pass: the main pass tests occlusion only
+        // when the post pass runs): the main view's post-occlusion cluster cut is refused for the frame, and that
+        // refusal is decided BEFORE the main cut (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb), so the main
+        // cut tests no HZB and holds nothing back - every visible cluster is drawn in phase 1, a picture equal to VG
+        // off within the cut's LOD. Logged once while on. Set from a scenario through the viewport subject's
+        // 'Debug.ForceVirtualGeometryPostCutRefusal'.
+        bool ForceVirtualGeometryPostCutRefusal = false;
+
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
         // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent
         // (Scalability); present = THIS view renders at that percent instead. The viewport menu writes only

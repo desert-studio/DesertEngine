@@ -188,3 +188,17 @@
 Когда shot viewport "vg_refused_off.png"
 Тогда-вид [vg_refused_fallback] vg_refused_on.png vs vg_refused_off.png: pixel diff < 0.5% of pixels (the table and its cascade shadow drawn by their own submeshes; numeric diff, not thumbnails)
 Тогда [vg_refused_fallback] editor.log: 0 VUID; Debug.ForceVirtualGeometryCutRefusal back to 0 (a machine preference: it persists)
+# [vg_refused_fallback] post cut (VIRT-GEOM step 29; UE Nanite two-pass: the main pass tests occlusion only when the
+# post pass runs): the main view's post-occlusion cluster cut refused, DECIDED BEFORE the main cut
+# (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb, Debug.ForceVirtualGeometryPostCutRefusal) - the main cut tests no
+# HZB, holds nothing back, and draws every visible cluster in phase 1: a picture equal to VG off, nothing lost.
+Когда --subject viewport set Debug.ForceVirtualGeometryPostCutRefusal 1
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Когда 120 frames render
+Когда shot viewport "vg_post_refused_on.png"
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_refused_fallback] editor.log: "the post-occlusion cluster cut refused (Debug 'Force Virtual Geometry Post Cut Refusal')" logged once; no "the clusters the main cut held back are not drawn"; views.virtualGeometry.clustersDrawn > 0
+Тогда-вид [vg_refused_fallback] vg_post_refused_on.png vs vg_refused_off.png: pixel diff < 0.5% of pixels (every visible cluster drawn by the frustum-only main cut; numeric diff, not thumbnails)
+Когда --subject viewport set Debug.ForceVirtualGeometryPostCutRefusal 0
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Тогда [vg_refused_fallback] editor.log: 0 VUID; Debug.ForceVirtualGeometryPostCutRefusal back to 0 (a machine preference: it persists)
