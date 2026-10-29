@@ -73,6 +73,13 @@ namespace Desert::Editor
         };
         commands.push_back( { "Debug", "Particles: Freeze", [freeze] { return freeze( true ); } } );
         commands.push_back( { "Debug", "Particles: Unfreeze", [freeze] { return freeze( false ); } } );
+        // UE's Niagara "Reset" (the debugger's restart of every system): the effects start again from age zero, so
+        // a frozen shot after Restart + Step x N is the same moment however long the editor ran before it.
+        commands.push_back( { "Debug", "Particles: Restart", [scene]
+                              {
+                                  scene->GetVFXWorld().Reset();
+                                  return PaletteCommandDone();
+                              } } );
         commands.push_back( { "Debug", "Particles: Step", [scene]() -> Common::BoolResultStr
                               {
                                   VFX::VFXWorld& world = scene->GetVFXWorld();

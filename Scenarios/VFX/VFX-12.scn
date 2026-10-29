@@ -16,6 +16,8 @@
 Когда run Action Simulate
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
+Когда state
+Тогда-вид 1a_flipbook_early two steps in (1/30 s, early in the flash's 0.14-0.22 s life): each flash is the first cell of T_ImpactFlash - a broad glowing star with long thin rays (Kenney star_09), not a round blurred disc; the sparks are thin straight streaks (trace_01)
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
@@ -23,10 +25,18 @@
 Когда state
 Тогда 0_debugger the Particle Debugger (frozen) lists Dust, Flash and Sparks of both ImpactUp and ImpactPlusX with Total spawned > 0 and Alive > 0 for Flash and Sparks
 Когда state
-Тогда-вид 1_impacts each impact shows a bright flash and velocity-aligned spark streaks; the left one (x=-150) throws them upward, the right one (x=+150) sideways along +X - the difference is plain to the eye
-Когда run Debug "Particles: Unfreeze"
+Тогда-вид 1_impacts each impact shows a flash whose shape is a later cell of the T_ImpactFlash flipbook (a thinner four-ray star, different from 1a_flipbook_early) and velocity-aligned spark streaks textured from T_ImpactSpark; the left one (x=-150) throws them upward, the right one (x=+150) sideways along +X - the difference is plain to the eye
 Когда run Action Stop
 Когда run Entity "Add to selection ImpactPlusX"
 Когда set selected VFX.Overrides[0].Value 0,0,1,0
+# A chosen moment, not wherever the editor clock lands: the effects restart from age zero and step 0.1 s, frozen.
+Когда run Debug "Particles: Freeze"
+Когда run Debug "Particles: Restart"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
 Когда state
-Тогда 2_details Details of ImpactPlusX shows the "User Parameters" section with a ticked (overridden) Vec3 row SurfaceNormal = 0, 0, 1; in the viewport the right burst now throws toward the camera (+Z, a round splash) while the left one still throws upward
+Тогда 2_details Details of ImpactPlusX shows the "User Parameters" section with a ticked (overridden) Vec3 row SurfaceNormal = 0, 0, 1; in the viewport frozen 0.1 s after a restart, the right burst throws toward the camera (+Z, a round splash seen whole) while the left one still throws upward
