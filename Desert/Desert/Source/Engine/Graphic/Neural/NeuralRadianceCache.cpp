@@ -56,6 +56,9 @@ namespace Desert::Engine::Neural
             DESERT_SHADER_PARAMETER( StorageBuffer, NrcAdamMlpUB );
             DESERT_SHADER_PARAMETER( StorageBuffer, NrcAdamHashUB );
             DESERT_SHADER_PARAMETER( StorageBuffer, NrcQueriesUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, NrcWeightsEmaUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, NrcInferenceWeightsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, NrcHashEmaUB );
             DESERT_SHADER_PARAMETER( StorageTexture, AccumulationTexture );
             DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedDiffuseTexture );
             DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedSpecularTexture );
@@ -149,13 +152,15 @@ namespace Desert::Engine::Neural
                  Erase( Slots::NrcCountersUB ), Erase( Slots::NrcHashGradUB ) } },
              { &m_AdamMlp,
                { Erase( Slots::NnWeightGrad ), Erase( Slots::NrcWeightsUB ), Erase( Slots::NrcAdamMlpUB ),
-                 Erase( Slots::NrcCountersUB ) } },
+                 Erase( Slots::NrcCountersUB ), Erase( Slots::NrcWeightsEmaUB ),
+                 Erase( Slots::NrcInferenceWeightsUB ) } },
              { &m_AdamHash,
                { Erase( Slots::NrcHashTableUB ), Erase( Slots::NrcAdamHashUB ), Erase( Slots::NrcHashGradUB ),
-                 Erase( Slots::NrcCountersUB ) } },
+                 Erase( Slots::NrcCountersUB ), Erase( Slots::NrcHashEmaUB ) } },
              { &m_Composite,
                { Erase( Slots::NrcQueriesUB ), Erase( Slots::NnOutput ), Erase( Slots::AccumulationTexture ),
-                 Erase( Slots::DemodulatedDiffuseTexture ), Erase( Slots::DemodulatedSpecularTexture ) } },
+                 Erase( Slots::DemodulatedDiffuseTexture ), Erase( Slots::DemodulatedSpecularTexture ),
+                 Erase( Slots::NrcCountersUB ) } },
         };
         for ( const auto& [program, expected] : programs )
         {
@@ -195,6 +200,8 @@ namespace Desert::Engine::Neural
     {
         m_Persistent.Built = false;
         m_AdamStep         = 0;
+        m_QueryCapacity    = 0;
+        m_QueryDemand.clear();
         for ( ReadBack& slot : m_ReadBacks )
             slot.Pending = false;
         const std::string path = m_Stats.KernelPath;
@@ -209,7 +216,11 @@ namespace Desert::Engine::Neural
                      .AdamMlp   = graph.RegisterExternal( m_Persistent.AdamMlp, "NRC.AdamMlp" ),
                      .HashTable = graph.RegisterExternal( m_Persistent.HashTable, "NRC.HashTable" ),
                      .AdamHash  = graph.RegisterExternal( m_Persistent.AdamHash, "NRC.AdamHash" ),
-                     .HashGrad  = graph.RegisterExternal( m_Persistent.HashGrad, "NRC.HashGrad" ) };
+                     .HashGrad  = graph.RegisterExternal( m_Persistent.HashGrad, "NRC.HashGrad" ),
+                     .WeightsEma = graph.RegisterExternal( m_Persistent.WeightsEma, "NRC.WeightsEma" ),
+                     .InferenceWeights =
+                          graph.RegisterExternal( m_Persistent.InferenceWeights, "NRC.InferenceWeights" ),
+                     .HashEma = graph.RegisterExternal( m_Persistent.HashEma, "NRC.HashEma" ) };
 
         // A fresh cache: He-uniform MLP weights (FusedMlp.hpp's seeded initialiser, zero outside the shape), the
         // hash table uniform in +-kNrcHashInitScale (instant-ngp), every moment and gradient zero.
@@ -223,6 +234,8 @@ namespace Desert::Engine::Neural
         const std::vector<float>   adamMlp( 2u * kWeightElements, 0.0f );
         const std::vector<float>   adamHash( 2u * kHashElements, 0.0f );
         const std::vector<int32_t> hashGrad( kHashElements, 0 );
+        const std::vector<float>   weightsEma( kWeightElements, 0.0f );
+        const std::vector<float>   hashEma( kHashElements, 0.0f );
 
         const auto create = [&graph]( const auto& values, const char* name )
         {
@@ -235,12 +248,18 @@ namespace Desert::Engine::Neural
                                    .AdamMlp   = create( adamMlp, "NRC.AdamMlp" ),
                                    .HashTable = create( table, "NRC.HashTable" ),
                                    .AdamHash  = create( adamHash, "NRC.AdamHash" ),
-                                   .HashGrad  = create( hashGrad, "NRC.HashGrad" ) };
+                                   .HashGrad  = create( hashGrad, "NRC.HashGrad" ),
+                                   .WeightsEma       = create( weightsEma, "NRC.WeightsEma" ),
+                                   .InferenceWeights = create( weights, "NRC.InferenceWeights" ),
+                                   .HashEma          = create( hashEma, "NRC.HashEma" ) };
         graph.Extract( refs.Weights, m_Persistent.Weights, RDG::Access::StorageWrite );
         graph.Extract( refs.AdamMlp, m_Persistent.AdamMlp, RDG::Access::StorageWrite );
         graph.Extract( refs.HashTable, m_Persistent.HashTable, RDG::Access::StorageWrite );
         graph.Extract( refs.AdamHash, m_Persistent.AdamHash, RDG::Access::StorageWrite );
         graph.Extract( refs.HashGrad, m_Persistent.HashGrad, RDG::Access::StorageWrite );
+        graph.Extract( refs.WeightsEma, m_Persistent.WeightsEma, RDG::Access::StorageWrite );
+        graph.Extract( refs.InferenceWeights, m_Persistent.InferenceWeights, RDG::Access::StorageWrite );
+        graph.Extract( refs.HashEma, m_Persistent.HashEma, RDG::Access::StorageWrite );
         m_Persistent.Built = true;
         return refs;
     }
@@ -283,6 +302,10 @@ namespace Desert::Engine::Neural
             m_Stats.SelfQueries   = std::min( count[uint32_t( NrcCounter::SelfQueries )], kNrcMaxTrainingPaths );
             m_Stats.TrainingPaths = count[uint32_t( NrcCounter::TrainingPaths )];
             m_Stats.RenderQueries = count[uint32_t( NrcCounter::RenderQueries )];
+            // THE QUERIES: this frame's demand per segment into the window that sizes the capacity.
+            m_QueryDemand.push_back( ( m_Stats.RenderQueries + slot->Paths - 1u ) / std::max( slot->Paths, 1u ) );
+            if ( m_QueryDemand.size() > kNrcQueryDemandWindow )
+                m_QueryDemand.erase( m_QueryDemand.begin() );
             if ( rows <= 0.0 )
                 continue; // a frame that trained on nothing has no loss to report
             m_Stats.TrainLoss = float( sum / rows );
@@ -309,16 +332,36 @@ namespace Desert::Engine::Neural
         targets.Width          = width;
         targets.Height         = height;
         targets.PathsPerFrame  = pathsPerFrame;
-        const uint64_t queries = uint64_t( width ) * height * pathsPerFrame;
+        // THE QUERIES: the capacity per segment from the demand window (the start share before a read-back), in
+        // whole inference chunks, at most a chunk-rounded pixel count.
+        const uint64_t pixelCount = uint64_t( width ) * height;
+        const auto     chunks     = []( const double rows )
+        {
+            return uint32_t( ( uint64_t( std::ceil( rows ) ) + kNrcInferenceChunk - 1 ) / kNrcInferenceChunk *
+                             kNrcInferenceChunk );
+        };
+        const uint32_t ceiling = std::max( kNrcInferenceChunk, chunks( double( pixelCount ) ) );
+        if ( m_QueryDemand.empty() )
+            m_QueryCapacity = m_QueryCapacity ? m_QueryCapacity : chunks( double( pixelCount ) * kNrcQueryStartShare );
+        else
+            m_QueryCapacity = chunks( double( *std::max_element( m_QueryDemand.begin(), m_QueryDemand.end() ) ) *
+                                      kNrcQueryHeadroom );
+        m_QueryCapacity        = std::clamp( m_QueryCapacity, kNrcInferenceChunk, ceiling );
+        targets.QueryCapacity  = m_QueryCapacity;
+        const uint64_t queries = uint64_t( m_QueryCapacity ) * pathsPerFrame;
         targets.Queries = graph.CreateBuffer( RDG::BufferDesc{ queries * sizeof( NrcQueryGpu ) }, "NRC.Queries" );
+        m_Stats.QueryCapacity    = m_QueryCapacity;
+        m_Stats.QueryMemoryBytes = queries * sizeof( NrcQueryGpu ) +
+                                   2ull * std::min( kNrcInferenceChunk, m_QueryCapacity ) * W * sizeof( float );
         targets.TrainingSamples = graph.CreateBuffer(
              RDG::BufferDesc{ uint64_t( kNrcTrainingSamples ) * sizeof( NrcTrainingSampleGpu ) },
              "NRC.TrainingSamples" );
         targets.SelfQueries = graph.CreateBuffer(
              RDG::BufferDesc{ uint64_t( kNrcMaxTrainingPaths ) * sizeof( NrcVertexGpu ) }, "NRC.SelfQueries" );
-        targets.Counters = graph.CreateBuffer( RDG::BufferDesc{ 4 * sizeof( uint32_t ) }, "NRC.Counters" );
-        static constexpr uint32_t kZero[4] = {};
-        graph.QueueBufferUpload( targets.Counters, std::as_bytes( std::span( kZero ) ) );
+        const std::vector<uint32_t> zero( uint32_t( NrcCounter::Segments ) + pathsPerFrame, 0u );
+        targets.Counters =
+             graph.CreateBuffer( RDG::BufferDesc{ zero.size() * sizeof( uint32_t ) }, "NRC.Counters" );
+        graph.QueueBufferUpload( targets.Counters, std::as_bytes( std::span( zero ) ) );
 
         // One training pixel per tile, about kNrcMaxTrainingPaths of them; the pixel inside the tile moves every
         // frame (the paper's random offset), from a hash of the frame seed.
@@ -327,20 +370,21 @@ namespace Desert::Engine::Neural
         uint64_t       state = frameSeed;
         const uint64_t offset = SplitMix( state );
         targets.Push.Params =
-             glm::uvec4( 1u, tile, uint32_t( offset % tile ), uint32_t( ( offset >> 32 ) % tile ) );
+             glm::uvec4( m_QueryCapacity, tile, uint32_t( offset % tile ), uint32_t( ( offset >> 32 ) % tile ) );
         targets.Push.Spread =
              glm::vec4( kNrcSpreadThreshold, float( kNrcUnbiasedTrainingPaths ), kNrcMinThroughput, 0.0f );
         return Common::MakeSuccess( std::move( targets ) );
     }
 
-    RDG::BufferRef NeuralRadianceCache::AddEncodePass( RDG::Builder& graph, const PersistentRefs& cache,
+    RDG::BufferRef NeuralRadianceCache::AddEncodePass( RDG::Builder& graph, const RDG::BufferRef hashTable,
+                                                       const float hashScale,
                                                        const RDG::BufferRef source, const uint32_t strideVec4,
                                                        const uint32_t firstRow, const uint32_t rows,
                                                        const RDG::BufferRef counters, const uint32_t countIndex )
     {
         // The records a row may encode: the counter's appended rows (capped at its capacity) for the training
         // samples and the self queries, every query of the chunk for the render queries. Rows past them are zero.
-        uint32_t records = firstRow + rows, capacity = 0;
+        uint32_t records = firstRow + rows;
         if ( countIndex == uint32_t( NrcCounter::TrainingSamples ) )
             records = capacity = kNrcTrainingSamples;
         else if ( countIndex == uint32_t( NrcCounter::SelfQueries ) )
@@ -350,7 +394,8 @@ namespace Desert::Engine::Neural
              RDG::BufferDesc{ uint64_t( dispatched ) * W * sizeof( float ) }, "NRC.Input" );
         NrcPush push;
         push.Rows  = glm::uvec4( strideVec4, firstRow, dispatched, records );
-        push.Extra = glm::uvec4( countIndex, capacity, 0u, 0u );
+        push.Extra = glm::uvec4( countIndex, capacity, countBase, 0u );
+        push.Adam  = glm::vec4( hashScale, 0.0f, 0.0f, 0.0f );
         graph.AddPass(
              "NRC: Encode", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -358,7 +403,7 @@ namespace Desert::Engine::Neural
                  pass.Bindings( m_Encode.Layout.Get( m_Encode.Shader ),
                                 Graphic::Renderer::GetPipelineRouteFill( *m_Encode.Pipeline ) )
                       .Storage( Slots::NrcSourceUB, source, RDG::Access::StorageRead )
-                      .Storage( Slots::NrcHashTableUB, cache.HashTable, RDG::Access::StorageRead )
+                      .Storage( Slots::NrcHashTableUB, hashTable, RDG::Access::StorageRead )
                       .Storage( Slots::NrcCountersUB, counters, RDG::Access::StorageRead )
                       .Storage( Slots::NnInput, input, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
@@ -374,55 +419,67 @@ namespace Desert::Engine::Neural
             return Common::MakeError( "NRC: Initialize was not called or refused" );
         const PersistentRefs cache = AcquirePersistent( graph );
         const auto           mlpInputs =
-             [&]( const RDG::BufferRef input, const uint32_t batch, const RDG::BufferRef outputGrad )
+             [&]( const RDG::BufferRef input, const uint32_t batch, const RDG::BufferRef outputGrad,
+                  const RDG::BufferRef weights )
         {
-            return FusedMlpGraphInputs{ .Weights    = cache.Weights,
+            return FusedMlpGraphInputs{ .Weights    = weights,
                                         .Input      = input,
                                         .OutputGrad = outputGrad,
                                         .Shape      = kNrcShape,
                                         .Batch      = batch };
         };
 
-        // ---- Inference of this frame's render queries, chunk by chunk, each composited into the sums. ----
-        const uint32_t pixels = trace.Width * trace.Height;
-        const uint32_t total  = pixels * trace.PathsPerFrame;
-        // At most one query of a pixel per chunk (Composite writes its pixel without atomics).
-        const uint32_t chunk = std::max( kGroup, std::min( kNrcInferenceChunk, pixels ) / kGroup * kGroup );
-        for ( uint32_t first = 0; first < total; first += chunk )
-        {
-            const uint32_t       rows  = std::min( chunk, total - first );
-            const RDG::BufferRef input = AddEncodePass( graph, cache, trace.Queries, kQueryStride, first, rows,
-                                                        trace.Counters, kNoCounter );
-            const auto           output =
-                 m_Mlp->AddInferencePass( graph, mlpInputs( input, Groups( rows ) * kGroup, {} ), m_Path );
-            if ( !output )
-                return Common::MakeFormattedError( "NRC inference: {}", output.GetError() );
-            NrcPush push;
-            push.Rows = glm::uvec4( first, rows, trace.Width, trace.Height );
-            graph.AddPass(
-                 "NRC: Composite", RDG::PassFlags::Compute,
-                 [&]( RDG::PassBuilder& pass )
-                 {
-                     pass.Bindings( m_Composite.Layout.Get( m_Composite.Shader ),
-                                    Graphic::Renderer::GetPipelineRouteFill( *m_Composite.Pipeline ) )
-                          .Storage( Slots::NrcQueriesUB, trace.Queries, RDG::Access::StorageRead )
-                          .Storage( Slots::NnOutput, output.GetValue(), RDG::Access::StorageRead )
-                          .Storage( Slots::AccumulationTexture, composite.Radiance, RDG::Access::StorageWrite )
-                          .Storage( Slots::DemodulatedDiffuseTexture, composite.DemodulatedDiffuse,
-                                    RDG::Access::StorageWrite )
-                          .Storage( Slots::DemodulatedSpecularTexture, composite.DemodulatedSpecular,
-                                    RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
-                 },
-                 RecordDispatch( m_Composite.Pipeline, push, Groups( rows ), 1 ) );
-        }
+        // ---- Inference of this frame's render queries, segment by segment, chunk by chunk, each composited into the
+        // sums - with THE INFERENCE WEIGHTS (the optimiser's own before the first step). ----
+        const bool           averaged   = m_AdamStep > 0u;
+        const RDG::BufferRef inferTable = averaged ? cache.HashEma : cache.HashTable;
+        const RDG::BufferRef inferMlp   = averaged ? cache.InferenceWeights : cache.Weights;
+        const float          hashScale =
+             averaged ? float( 1.0 / ( 1.0 - std::pow( double( kNrcEmaDecay ), double( m_AdamStep ) ) ) ) : 1.0f;
+        const uint32_t capacity = trace.QueryCapacity;
+        const uint32_t chunk    = std::min( kNrcInferenceChunk, capacity );
+        for ( uint32_t segment = 0; segment < trace.PathsPerFrame; ++segment )
+            for ( uint32_t first = 0; first < capacity; first += chunk )
+            {
+                const uint32_t rows    = std::min( chunk, capacity - first );
+                const uint32_t counter = uint32_t( NrcCounter::Segments ) + segment;
+                const uint32_t base    = segment * capacity;
+                const RDG::BufferRef input =
+                     AddEncodePass( graph, inferTable, hashScale, trace.Queries, kQueryStride, base + first, rows,
+                                    trace.Counters, counter, capacity, base );
+                const auto output = m_Mlp->AddInferencePass(
+                     graph, mlpInputs( input, Groups( rows ) * kGroup, {}, inferMlp ), m_Path );
+                if ( !output )
+                    return Common::MakeFormattedError( "NRC inference: {}", output.GetError() );
+                NrcPush push;
+                push.Rows  = glm::uvec4( base, rows, first, trace.Width );
+                push.Extra = glm::uvec4( counter, capacity, 0u, 0u );
+                push.Adam  = glm::vec4( composite.PathIntensityClamp, 0.0f, 0.0f, 0.0f );
+                graph.AddPass(
+                     "NRC: Composite", RDG::PassFlags::Compute,
+                     [&]( RDG::PassBuilder& pass )
+                     {
+                         pass.Bindings( m_Composite.Layout.Get( m_Composite.Shader ),
+                                        Graphic::Renderer::GetPipelineRouteFill( *m_Composite.Pipeline ) )
+                              .Storage( Slots::NrcQueriesUB, trace.Queries, RDG::Access::StorageRead )
+                              .Storage( Slots::NnOutput, output.GetValue(), RDG::Access::StorageRead )
+                              .Storage( Slots::AccumulationTexture, composite.Radiance, RDG::Access::StorageWrite )
+                              .Storage( Slots::DemodulatedDiffuseTexture, composite.DemodulatedDiffuse,
+                                        RDG::Access::StorageWrite )
+                              .Storage( Slots::DemodulatedSpecularTexture, composite.DemodulatedSpecular,
+                                        RDG::Access::StorageWrite )
+                              .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
+                     },
+                     RecordDispatch( m_Composite.Pipeline, push, Groups( rows ), 1 ) );
+            }
 
         // ---- The cache at the self-training suffix ends, before this frame's training. ----
         const RDG::BufferRef selfInput =
-             AddEncodePass( graph, cache, trace.SelfQueries, kVertexStride, 0, kNrcMaxTrainingPaths,
+             AddEncodePass( graph, cache.HashTable, 1.0f, trace.SelfQueries, kVertexStride, 0, kNrcMaxTrainingPaths,
                             trace.Counters, uint32_t( NrcCounter::SelfQueries ) );
         const auto selfOutput =
-             m_Mlp->AddInferencePass( graph, mlpInputs( selfInput, kNrcMaxTrainingPaths, {} ), m_Path );
+             m_Mlp->AddInferencePass( graph, mlpInputs( selfInput, kNrcMaxTrainingPaths, {}, cache.Weights ), m_Path );
         if ( !selfOutput )
             return Common::MakeFormattedError( "NRC self-training inference: {}", selfOutput.GetError() );
 
@@ -432,9 +489,9 @@ namespace Desert::Engine::Neural
         for ( uint32_t step = 0; step < kNrcTrainingSteps; ++step )
         {
             const RDG::BufferRef input =
-                 AddEncodePass( graph, cache, trace.TrainingSamples, kTrainingStride, step * kNrcTrainingBatch,
+                 AddEncodePass( graph, cache.HashTable, 1.0f, trace.TrainingSamples, kTrainingStride, step * kNrcTrainingBatch,
                                 kNrcTrainingBatch, trace.Counters, uint32_t( NrcCounter::TrainingSamples ) );
-            const auto forward = m_Mlp->AddForwardPass( graph, mlpInputs( input, kNrcTrainingBatch, {} ), m_Path );
+            const auto forward = m_Mlp->AddForwardPass( graph, mlpInputs( input, kNrcTrainingBatch, {}, cache.Weights ), m_Path );
             if ( !forward )
                 return Common::MakeFormattedError( "NRC training forward: {}", forward.GetError() );
 
@@ -460,7 +517,7 @@ namespace Desert::Engine::Neural
                  RecordDispatch( m_Loss.Pipeline, lossPush, Groups( kNrcTrainingBatch ), 1 ) );
 
             const auto backward = m_Mlp->AddBackwardPasses(
-                 graph, mlpInputs( input, kNrcTrainingBatch, outputGrad ), forward.GetValue(), m_Path );
+                 graph, mlpInputs( input, kNrcTrainingBatch, outputGrad, cache.Weights ), forward.GetValue(), m_Path );
             if ( !backward )
                 return Common::MakeFormattedError( "NRC training backward: {}", backward.GetError() );
 
@@ -485,7 +542,9 @@ namespace Desert::Engine::Neural
             NrcPush        mlpPush;
             mlpPush.Rows  = glm::uvec4( step, kNrcTrainingBatch, kWeightElements, t );
             mlpPush.Adam  = glm::vec4( kNrcLearningRate, kNrcAdamBeta1, kNrcAdamBeta2, kNrcAdamEpsilon );
-            mlpPush.Adam2 = glm::vec4( kNrcWeightDecay, 0.0f, 0.0f, 0.0f );
+            mlpPush.Adam2 = glm::vec4( kNrcWeightDecay, kNrcEmaDecay,
+                                       float( 1.0 / ( 1.0 - std::pow( double( kNrcEmaDecay ), double( t ) ) ) ),
+                                       0.0f );
             graph.AddPass(
                  "NRC: Adam MLP", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
@@ -495,6 +554,9 @@ namespace Desert::Engine::Neural
                           .Storage( Slots::NnWeightGrad, backward.GetValue().WeightGrad, RDG::Access::StorageRead )
                           .Storage( Slots::NrcWeightsUB, cache.Weights, RDG::Access::StorageWrite )
                           .Storage( Slots::NrcAdamMlpUB, cache.AdamMlp, RDG::Access::StorageWrite )
+                          .Storage( Slots::NrcWeightsEmaUB, cache.WeightsEma, RDG::Access::StorageWrite )
+                          .Storage( Slots::NrcInferenceWeightsUB, cache.InferenceWeights,
+                                    RDG::Access::StorageWrite )
                           .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
@@ -502,7 +564,7 @@ namespace Desert::Engine::Neural
 
             NrcPush hashPush = mlpPush;
             hashPush.Rows.z  = kHashElements;
-            hashPush.Adam2   = glm::vec4( 0.0f );
+            hashPush.Adam2   = glm::vec4( 0.0f, kNrcEmaDecay, 0.0f, 0.0f );
             // 2D: 1024 groups of 64 per row of the dispatch (the shader's e = x + y * 65536).
             constexpr uint32_t kHashGroupsX = 1024;
             graph.AddPass(
@@ -513,6 +575,7 @@ namespace Desert::Engine::Neural
                                     Graphic::Renderer::GetPipelineRouteFill( *m_AdamHash.Pipeline ) )
                           .Storage( Slots::NrcHashTableUB, cache.HashTable, RDG::Access::StorageWrite )
                           .Storage( Slots::NrcAdamHashUB, cache.AdamHash, RDG::Access::StorageWrite )
+                          .Storage( Slots::NrcHashEmaUB, cache.HashEma, RDG::Access::StorageWrite )
                           .Storage( Slots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
                           .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
@@ -528,6 +591,7 @@ namespace Desert::Engine::Neural
         ReadBack&      slot  = m_ReadBacks[frame % m_ReadBacks.size()];
         slot.Frame           = frame;
         slot.Pending         = true;
+        slot.Paths           = trace.PathsPerFrame;
         graph.Extract( trace.Counters, slot.Counters, RDG::Access::HostRead );
         graph.Extract( lossPartials, slot.LossPartials, RDG::Access::HostRead );
         return BOOLSUCCESS;

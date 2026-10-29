@@ -34,6 +34,10 @@
 #define NRC_COUNTER_SELF_QUERIES 1
 #define NRC_COUNTER_TRAINING_PATHS 2
 #define NRC_COUNTER_RENDER_QUERIES 3
+// Counter NRC_COUNTER_SEGMENTS + s: the query slots path s of the frame claimed (its segment of Queries; claims
+// past the segment's capacity are refused and the path goes on without the cache).
+#define NRC_COUNTER_SEGMENTS 4
+#define NRC_HALF_MAX 65504.0
 
 // ---- Records (std430; NrcVertexGpu / NrcQueryGpu / NrcTrainingSampleGpu) ----
 // A.xyz = world position (cm) bits, A.w = packUnorm2x16(octahedral(w_o) * 0.5 + 0.5)
@@ -45,15 +49,51 @@ struct NrcVertex
     uvec4 B;
 };
 
-// Weight.rgb = T (0: no query); DiffuseWeight.rgb = T (1 - share) / D_d1, .a = lum(I_d) before the cache;
-// SpecularWeight.rgb = T share / D_s1, .a = lum(I_s) before the cache.
+// One path of the image that ended in the cache, appended to its path's segment (64 B). Lobes: x / y =
+// packHalf2x16 of DiffuseWeight = T (1 - share) / D_d1 and .a = lum(I_d) before the cache, z / w = SpecularWeight
+// = T share / D_s1 and .a = lum(I_s) before the cache. Weight: x / y = packHalf2x16 of (T.rg), (T.b, 0); z = the
+// pixel (y * width + x); w = 0. Halves saturate at NRC_HALF_MAX.
 struct NrcQuery
 {
     NrcVertex Vertex;
-    vec4      Weight;
-    vec4      DiffuseWeight;
-    vec4      SpecularWeight;
+    uvec4     Lobes;
+    uvec4     Weight;
 };
+
+struct NrcQueryData
+{
+    vec3 Throughput;     // T
+    vec4 DiffuseWeight;  // rgb T (1 - share) / D_d1, a lum(I_d) before the cache
+    vec4 SpecularWeight; // rgb T share / D_s1, a lum(I_s) before the cache
+    uint Pixel;
+};
+
+uvec2 NrcPackHalf4(vec4 v)
+{
+    v = clamp(v, vec4(-NRC_HALF_MAX), vec4(NRC_HALF_MAX));
+    return uvec2(packHalf2x16(v.xy), packHalf2x16(v.zw));
+}
+
+vec4 NrcUnpackHalf4(uvec2 p)
+{
+    return vec4(unpackHalf2x16(p.x), unpackHalf2x16(p.y));
+}
+
+void NrcPackQuery(NrcQueryData d, out uvec4 lobes, out uvec4 weight)
+{
+    lobes  = uvec4(NrcPackHalf4(d.DiffuseWeight), NrcPackHalf4(d.SpecularWeight));
+    weight = uvec4(NrcPackHalf4(vec4(d.Throughput, 0.0)), d.Pixel, 0u);
+}
+
+NrcQueryData NrcUnpackQuery(NrcQuery q)
+{
+    NrcQueryData d;
+    d.DiffuseWeight  = NrcUnpackHalf4(q.Lobes.xy);
+    d.SpecularWeight = NrcUnpackHalf4(q.Lobes.zw);
+    d.Throughput     = NrcUnpackHalf4(q.Weight.xy).rgb;
+    d.Pixel          = q.Weight.z;
+    return d;
+}
 
 // Radiance.rgb = (R_end - R_i) / T_i, Radiance.a = uintBitsToFloat(self query index | NRC_NO_SELF_QUERY),
 // Throughput.rgb = T_end / T_i.

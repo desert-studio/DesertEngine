@@ -134,7 +134,9 @@ namespace Desert::Editor::Control
         uint32_t           TrainingSamples = 0; ///< training samples of the last read-back frame
         uint32_t           TrainingPaths   = 0;
         uint32_t           SelfQueries     = 0;
-        uint32_t           RenderQueries   = 0; ///< paths of the image that ended in the cache
+        uint32_t           RenderQueries   = 0; ///< paths of the image that asked to end in the cache (demand)
+        uint32_t           QueryCapacity   = 0; ///< render queries per path segment (live-sized)
+        uint64_t           QueryMemoryBytes = 0; ///< Queries buffer + one inference chunk's input and output
         float              TrainLoss       = 0; ///< mean relative L2 of the last read-back frame's steps
         float              FirstTrainLoss  = 0; ///< the first read-back after the last reset
         std::vector<float> LossHistory;         ///< the last read-backs, oldest first
@@ -421,6 +423,8 @@ namespace Desert::Editor::Control
             section["trainingPaths"]   = Num( nrc.TrainingPaths );
             section["selfQueries"]     = Num( nrc.SelfQueries );
             section["renderQueries"]   = Num( nrc.RenderQueries );
+            section["queryCapacity"]   = Num( nrc.QueryCapacity );
+            section["queryMemoryMB"]   = Num( static_cast<double>( nrc.QueryMemoryBytes ) / ( 1024.0 * 1024.0 ) );
             section["trainLoss"]       = Num( nrc.TrainLoss );
             section["firstTrainLoss"]  = Num( nrc.FirstTrainLoss );
             section["lossHistory"]     = Common::Json::Value( history );

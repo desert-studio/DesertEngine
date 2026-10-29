@@ -59,10 +59,11 @@ namespace Desert::Graphic::RDG
 // FRAME ORDER IN THE GRAPH (each a compute pass of this frame's graph, AddCachePasses; NeuralRadianceCache.shader
 // passes in quotes):
 //   "PathTracing: Trace"          the Nrc trace writes Queries, TrainingSamples, SelfQueries, Counters
-//   per inference chunk c        (kNrcInferenceChunk queries each, the last one partial)
-//     "NRC: Encode"   Queries[c]   -> NnInput rows
-//     "NN: Inference"              NnInput -> NnOutput (FusedMlpCompute::AddInferencePass, NN_KERNEL 3)
-//     "NRC: Composite"             AccumulationTexture.rgb += T * c, the denoiser's lobe sums likewise
+//   per path s of the frame, per inference chunk c of its segment (kNrcInferenceChunk queries each)
+//     "NRC: Encode"   Queries[c]   -> NnInput rows, from the INFERENCE table (HashEma, debiased)
+//     "NN: Inference"              NnInput -> NnOutput with the INFERENCE weights (FusedMlpCompute::
+//                                  AddInferencePass, NN_KERNEL 3)
+//     "NRC: Composite"             AccumulationTexture.rgb += clamp(T * c), the denoiser's lobe sums likewise
 //   "NRC: Encode" + "NN: Inference" on SelfQueries -> SelfOutput (the cache before this frame's training)
 //   per training step s < kNrcTrainingSteps (kNrcTrainingBatch rows each, rows past the count masked)
 //     "NRC: Encode"                TrainingSamples[s] -> NnInput
@@ -70,22 +71,45 @@ namespace Desert::Graphic::RDG
 //     "NRC: Loss"                  relative L2 vs the target -> NnOutputGrad, the step's loss partials
 //     "NN: Backward", "NN: Weight gradient" (FusedMlpCompute::AddBackwardPasses) -> Grads, WeightGrad
 //     "NRC: Input gradient"        dL/dh_0 = W_0^T g_0 of the 32 hash features, scattered into HashGrad
-//     "NRC: Adam MLP"              Weights, AdamMlp moments
-//     "NRC: Adam Hash"             HashTable, AdamHash moments; HashGrad back to zero
+//     "NRC: Adam MLP"              Weights, AdamMlp moments; WeightsEma, InferenceWeights
+//     "NRC: Adam Hash"             HashTable, AdamHash moments, HashEma; HashGrad back to zero
 //   then the denoiser and the resolve as without the cache.
 // Under Nrc the accumulation holds THIS frame's paths only (the cache they ended in changes every frame it
 // trains, so earlier paths' cached radiance is stale): PathTracing.SamplesPerPixel caps the paths of a frame.
+// The image's temporal integration is the denoiser's history instead (PathTracer: the per-frame restart of the
+// sum under Nrc keeps that history, as a moving camera's does).
+//
+// THE INFERENCE WEIGHTS (Muller et al. 2021 §5): the image reads an exponential moving average of the trained
+// parameters - MLP weights and hash table, decay kNrcEmaDecay per Adam step, debiased by 1 / (1 - decay^t) -
+// not the optimiser's latest, so the cache's output is as stable over frames as the paper's; training, the loss
+// and the self-training queries use the optimiser's own (the target the network is being moved toward). Before
+// the first step (t = 0) the image reads the optimiser's (initial) parameters.
+//
+// THE PATH INTENSITY CLAMP: the cached contribution T * cache of a path is one contribution like each the path
+// traced, so "NRC: Composite" applies PathTracer.shader's PathTracingAccumulate rule (largest channel at most
+// MaxPathIntensity in radiance, hue kept) with the trace's own value (NrcCompositeTargets::PathIntensityClamp).
+//
+// THE QUERIES (live-sized): a path that ends in the cache claims a slot of its path's SEGMENT (path s of the frame
+// -> Queries[s * capacity, (s + 1) * capacity), counter NrcCounter::Segments + s); a claim past the capacity is
+// refused and that path goes on as without the cache (unbiased, only slower), so a too-small capacity costs time,
+// never light. The capacity follows the read-back demand (NrcCounter::RenderQueries / paths, the peak of the last
+// kNrcQueryDemandWindow read-backs, times kNrcQueryHeadroom, rounded up to kNrcInferenceChunk), starting at
+// kNrcQueryStartShare of the pixels before the first read-back. A segment holds one path per pixel, so a chunk
+// inside it composites each pixel at most once (no atomics).
 //
 // BUFFERS (persistent ones are the cache's; transients are this frame's graph):
-//   persistent  Weights   fp32 [kNrcMatrixCount][64][64]           FusedMlp.hpp layout
-//               AdamMlp   fp32 [2][kNrcMatrixCount][64][64]        first, second moment
-//               HashTable fp32 [kNrcHashLevels][kNrcHashTableSize][kNrcHashFeatures]
-//               AdamHash  fp32 [2][kNrcHashLevels][kNrcHashTableSize][kNrcHashFeatures]
-//               HashGrad  int32 same shape as HashTable: fixed point, kNrcHashGradScale per unit (atomicAdd)
-//   transient   Queries         NrcQuery [width * height * pathsPerFrame], index = pixel + path * width * height
+//   persistent  Weights          fp32 [kNrcMatrixCount][64][64]           FusedMlp.hpp layout (training)
+//               AdamMlp          fp32 [2][kNrcMatrixCount][64][64]        first, second moment
+//               WeightsEma       fp32 like Weights: the moving average, from 0
+//               InferenceWeights fp32 like Weights: WeightsEma debiased (what the image's inference reads)
+//               HashTable        fp32 [kNrcHashLevels][kNrcHashTableSize][kNrcHashFeatures] (training)
+//               AdamHash         fp32 [2][kNrcHashLevels][kNrcHashTableSize][kNrcHashFeatures]
+//               HashEma          fp32 like HashTable: the moving average, from 0 (debiased in "NRC: Encode")
+//               HashGrad         int32 like HashTable: fixed point, kNrcHashGradScale per unit (atomicAdd)
+//   transient   Queries         NrcQuery [pathsPerFrame][capacity] (THE QUERIES)
 //               TrainingSamples NrcTrainingSample [kNrcTrainingSamples]
 //               SelfQueries     NrcVertex [kNrcMaxTrainingPaths]
-//               Counters        uint [4] (NrcCounter), zero at the frame's start (an upload)
+//               Counters        uint [NrcCounter::Segments + pathsPerFrame], zero at the frame's start (an upload)
 //               LossPartials    float [kNrcTrainingSteps][kNrcTrainingBatch / 64][2] (sum, valid rows)
 //
 // SHADER-SIDE TYPES: Editor/Resources/Shaders/Common/NeuralRadianceCache.glslh holds NrcVertex, NrcQuery,
@@ -140,9 +164,16 @@ namespace Desert::Engine::Neural
     inline constexpr float    kNrcAdamBeta2       = 0.99f;
     inline constexpr float    kNrcAdamEpsilon     = 1.0e-8f;
     inline constexpr float    kNrcWeightDecay     = 1.0e-6f; // L2 on the MLP weights only (instant-ngp)
+    inline constexpr float    kNrcEmaDecay        = 0.99f;   // THE INFERENCE WEIGHTS' average, per Adam step
 
     // ---- Inference ----
-    inline constexpr uint32_t kNrcInferenceChunk = 1u << 18; // queries per "NRC: Encode" + inference + composite
+    // Queries per "NRC: Encode" + inference + composite: one chunk's input and output rows are 2 x 64 floats each
+    // (8 MB + 8 MB), aliased chunk to chunk by the graph.
+    inline constexpr uint32_t kNrcInferenceChunk = 1u << 15;
+    // THE QUERIES' capacity per segment.
+    inline constexpr float    kNrcQueryHeadroom     = 1.25f;
+    inline constexpr uint32_t kNrcQueryDemandWindow = 8;     // read-backs whose peak demand sizes the capacity
+    inline constexpr float    kNrcQueryStartShare   = 0.25f; // of the pixels, before the first read-back
 
     // Counters (uint [4]) the trace appends with.
     enum class NrcCounter : uint32_t
@@ -151,7 +182,8 @@ namespace Desert::Engine::Neural
              0, ///< NrcTrainingSample rows appended (may exceed kNrcTrainingSamples: the excess dropped)
         SelfQueries   = 1, ///< NrcVertex rows appended to SelfQueries
         TrainingPaths = 2, ///< training paths traced
-        RenderQueries = 3, ///< render queries written (paths that terminated into the cache)
+        RenderQueries = 3, ///< paths of the image that asked to end in the cache (claims, refused ones included)
+        Segments      = 4, ///< + s: the slots path s of the frame claimed in its segment (may exceed the capacity)
     };
 
     // GLSL mirrors (Common/NeuralRadianceCache.glslh), std430.
@@ -163,16 +195,16 @@ namespace Desert::Engine::Neural
         glm::uvec4 A;
         glm::uvec4 B;
     };
-    // NrcQuery: the vertex, then Weight.rgb = T (0: the path did not terminate into the cache), DiffuseWeight.rgb
-    // = T * (1 - share) / D_d1 and .a = lum(I_d) of the path before the cache, SpecularWeight.rgb = T * share /
-    // D_s1 and .a = lum(I_s) before the cache (share = the first surface's bounce specular share, D_x1 its guides:
-    // Common/PathTracingDenoise.glslh; both weights 0 when the path had no first-surface bounce).
+    // NrcQuery (64 B, halves packed by packHalf2x16, saturated at 65504): the vertex; Lobes.xy = DiffuseWeight
+    // (rgb T * (1 - share) / D_d1, a lum(I_d) of the path before the cache), Lobes.zw = SpecularWeight (rgb
+    // T * share / D_s1, a lum(I_s) before the cache) (share = the first surface's bounce specular share, D_x1 its
+    // guides: Common/PathTracingDenoise.glslh; both 0 when the path had no first-surface bounce); Weight.xy = T
+    // (0: a path dropped after its claim adds nothing), Weight.z = the pixel y * width + x, Weight.w = 0.
     struct NrcQueryGpu
     {
         NrcVertexGpu Vertex;
-        glm::vec4    Weight;
-        glm::vec4    DiffuseWeight;
-        glm::vec4    SpecularWeight;
+        glm::uvec4   Lobes;
+        glm::uvec4   Weight;
     };
     // NrcTrainingSample: the vertex, Radiance.rgb = (R_end - R_i) / T_i, Radiance.a = uintBitsToFloat(the self
     // query index, 0xFFFFFFFF none), Throughput.rgb = T_end / T_i.
@@ -182,13 +214,14 @@ namespace Desert::Engine::Neural
         glm::vec4    Radiance;
         glm::vec4    Throughput;
     };
-    static_assert( sizeof( NrcVertexGpu ) == 32 && sizeof( NrcQueryGpu ) == 80 &&
+    static_assert( sizeof( NrcVertexGpu ) == 32 && sizeof( NrcQueryGpu ) == 64 &&
                    sizeof( NrcTrainingSampleGpu ) == 64 );
 
     // The trace's NRC push (PathTracer TracePush::Nrc, PathTracer.shader NrcParams / NrcSpread).
     struct NrcTraceParams
     {
-        glm::uvec4 Params; ///< x = 1 (Nrc), y = training tile side, z / w = this frame's pixel offset in the tile
+        glm::uvec4 Params; ///< x = each segment's query capacity (> 0: Nrc), y = training tile side, z / w = this
+                           ///< frame's pixel offset in the tile
         glm::vec4 Spread; ///< x = kNrcSpreadThreshold, y = kNrcUnbiasedTrainingPaths, z = kNrcMinThroughput, w = 0
     };
 
@@ -203,6 +236,7 @@ namespace Desert::Engine::Neural
         uint32_t       Width         = 0;
         uint32_t       Height        = 0;
         uint32_t       PathsPerFrame = 0;
+        uint32_t       QueryCapacity = 0; ///< queries per segment (THE QUERIES)
     };
 
     // The images the composite adds the cached radiance to (PathTracer AccumulationRefs; this frame's paths only).
@@ -211,6 +245,7 @@ namespace Desert::Engine::Neural
         RDG::TextureRef Radiance;            ///< rgb += T * cache
         RDG::TextureRef DemodulatedDiffuse;  ///< rgb += DiffuseWeight * cache, a: the squared luminance's change
         RDG::TextureRef DemodulatedSpecular; ///< likewise with SpecularWeight
+        float           PathIntensityClamp = 0.0f; ///< the trace's clamp in radiance (TracePush Sun.w; 0: none)
     };
 
     // What DesertCtl's state section "nrc" reports (ControlState): read back from frames whose fence passed.
@@ -222,7 +257,9 @@ namespace Desert::Engine::Neural
         uint32_t           TrainingSamples = 0; ///< samples of the last read-back frame (capped at capacity)
         uint32_t           TrainingPaths   = 0;
         uint32_t           SelfQueries     = 0;
-        uint32_t           RenderQueries   = 0;
+        uint32_t           RenderQueries    = 0; ///< paths that asked to end in the cache (the demand)
+        uint32_t           QueryCapacity    = 0; ///< queries per segment of the last frame built (THE QUERIES)
+        uint64_t           QueryMemoryBytes = 0; ///< its Queries buffer + one inference chunk's input and output
         float              TrainLoss       = 0; ///< mean relative L2 of the last read-back frame's steps
         float              FirstTrainLoss  = 0; ///< the first read-back after the last reset
         std::vector<float> LossHistory;         ///< the last kNrcLossHistory read-backs, oldest first
@@ -278,6 +315,9 @@ namespace Desert::Engine::Neural
             RDG::ExternalBuffer HashTable;
             RDG::ExternalBuffer AdamHash;
             RDG::ExternalBuffer HashGrad;
+            RDG::ExternalBuffer WeightsEma;
+            RDG::ExternalBuffer InferenceWeights;
+            RDG::ExternalBuffer HashEma;
             bool                Built = false;
         };
         struct PersistentRefs
@@ -287,6 +327,9 @@ namespace Desert::Engine::Neural
             RDG::BufferRef HashTable;
             RDG::BufferRef AdamHash;
             RDG::BufferRef HashGrad;
+            RDG::BufferRef WeightsEma;
+            RDG::BufferRef InferenceWeights;
+            RDG::BufferRef HashEma;
         };
         // One frame's read-back: the counters and the loss partials, extracted HostRead.
         struct ReadBack
@@ -294,13 +337,17 @@ namespace Desert::Engine::Neural
             RDG::ExternalBuffer Counters;
             RDG::ExternalBuffer LossPartials;
             uint64_t            Frame   = 0;
+            uint32_t            Paths   = 1; ///< the frame's paths per pixel (its segments)
             bool                Pending = false;
         };
 
         [[nodiscard]] PersistentRefs AcquirePersistent( RDG::Builder& graph );
-        [[nodiscard]] RDG::BufferRef AddEncodePass( RDG::Builder& graph, const PersistentRefs& cache,
+        // @p hashTable / @p hashScale: the table the hash features are read from and their scale (THE INFERENCE
+        // WEIGHTS); @p capacity / @p countBase: the counted range's capacity and first record (a render segment;
+        // 0: the training samples' or self queries' own).
+        [[nodiscard]] RDG::BufferRef AddEncodePass( RDG::Builder& graph, RDG::BufferRef hashTable, float hashScale,
                                                     RDG::BufferRef source, uint32_t strideVec4, uint32_t firstRow,
-                                                    uint32_t rows, RDG::BufferRef counters, uint32_t countIndex );
+                                                    uint32_t rows, RDG::BufferRef counters, uint32_t countIndex, uint32_t capacity = 0, uint32_t countBase = 0 );
         void                         CollectReadBacks();
 
         NeuralComputeCaps                m_Caps;
@@ -315,6 +362,8 @@ namespace Desert::Engine::Neural
         Persistent                       m_Persistent;
         std::vector<ReadBack>            m_ReadBacks; ///< MaxFramesInFlight + 1 slots
         uint64_t                         m_AdamStep    = 0;
+        uint32_t                         m_QueryCapacity = 0;  ///< THE QUERIES' capacity per segment, 0: start
+        std::vector<uint32_t>            m_QueryDemand;        ///< per-segment demand of the last read-backs
         bool                             m_Initialized = false;
         NrcStats                         m_Stats;
     };

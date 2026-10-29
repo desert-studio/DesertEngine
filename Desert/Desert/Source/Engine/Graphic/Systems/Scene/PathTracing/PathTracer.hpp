@@ -264,8 +264,12 @@ namespace Desert::Graphic::System
     // the contract): the trace runs PathTracer.shader "PathTracing" built with PATH_TRACING_NRC=1, whose paths end
     // in the cache once their footprint has spread (the paper's heuristic) and whose training paths feed it; the
     // cache's passes then add the cached radiance into the sums and train it, before the denoiser and the resolve.
-    // The cache changes every frame it trains, so under Nrc the sum holds this frame's paths only (it restarts
-    // every frame, and with it the denoiser's history: REMAINDER - a history carried across that restart).
+    // The cache changes every frame it trains, so under Nrc the sum holds this frame's paths only: it restarts
+    // every frame, and that restart keeps THE DENOISER'S HISTORY as a moving camera's does (the previous frame's
+    // sum folded into the history, reprojected - by no motion on a still camera), so the temporal integration of
+    // the image is the denoiser's history and the cache term (THE INFERENCE WEIGHTS: a moving average) is a stable
+    // input to it, not a reset. Turning the cache on or off empties the history (a method change). The cached
+    // contribution goes through the same path intensity clamp as the traced ones (NrcCompositeTargets).
     //
     // Not here (each is UE's and a task of its own): UE's offline denoiser plugin (OIDN), rough glass (the
     // raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel filters other than a
@@ -567,17 +571,27 @@ namespace Desert::Graphic::System
             const bool sumKept = !resized && m_Stamp.ReadableIn( frame ) && settings.MaxBounces == m_MaxBounces &&
                                  inputs.SceneHash == m_SceneHash && !inputs.DynamicGeometry &&
                                  settings.MaxPathIntensity == m_MaxPathIntensity && !exposureLeft &&
-                                 !inputs.RawToUpscaler && !m_RawToUpscaler && !nrc && !m_Nrc;
+                                 !inputs.RawToUpscaler && !m_RawToUpscaler && nrc == m_Nrc;
             const bool cameraMoved = frame.ViewProjection != frame.PrevViewProjection;
-            const bool restart     = !sumKept || cameraMoved;
+            // Under Nrc the sum restarts every frame (THE NEURAL RADIANCE CACHE above) and keeps the history.
+            const bool restart     = !sumKept || cameraMoved || nrc;
             const bool denoise     = settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::Off &&
                                  !inputs.RawToUpscaler;
             // The previous frame's sum is folded into the history and reprojected (THE DENOISER'S HISTORY).
             // A history made in this graph (the denoiser just turned on) is written by the combine before any read.
-            const bool reproject = denoise && sumKept && cameraMoved && m_Summed > 0u && m_History.Built &&
+            const bool reproject = denoise && sumKept && ( cameraMoved || nrc ) && m_Summed > 0u && m_History.Built &&
                                    m_History.Width == width && m_History.Height == height;
             if ( !denoise || !sumKept )
+            {
+                if ( m_HistoryValid && denoise )
+                    LOG_INFO( "[PathTracer] denoiser history reset (resized {}, stamp {}, bounces {}, scene {}, "
+                              "dynamic geometry {}, clamp {}, exposure {}, raw to upscaler {}, radiance cache {})",
+                              resized, !m_Stamp.ReadableIn( frame ), settings.MaxBounces != m_MaxBounces,
+                              inputs.SceneHash != m_SceneHash, inputs.DynamicGeometry,
+                              settings.MaxPathIntensity != m_MaxPathIntensity, exposureLeft,
+                              inputs.RawToUpscaler || m_RawToUpscaler, nrc != m_Nrc );
                 m_HistoryValid = false;
+            }
             if ( restart )
             {
                 m_Summed = 0;
@@ -609,7 +623,9 @@ namespace Desert::Graphic::System
                     const Engine::Neural::NrcCompositeTargets composite{
                          .Radiance            = accumulation.Radiance,
                          .DemodulatedDiffuse  = accumulation.DemodulatedDiffuse,
-                         .DemodulatedSpecular = accumulation.DemodulatedSpecular };
+                         .DemodulatedSpecular = accumulation.DemodulatedSpecular,
+                         .PathIntensityClamp =
+                              m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure : 0.0f };
                     if ( const auto cached = m_RadianceCache->AddCachePasses( graph, targets.GetValue(), composite );
                          !cached )
                         return Common::MakeFormattedError<Refused>( "PathTracer: {}", cached.GetError() );

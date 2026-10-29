@@ -10,7 +10,10 @@ Shader "NeuralRadianceCache"
 {
     // RECORDS -> MLP INPUT ROWS. Rows: x = record stride in uvec4 (the vertex is the record's first two), y = first
     // record, z = rows dispatched, w = records in the source. Extra: x = the counter bounding the valid records
-    // (0xFFFFFFFF: none), y = that counter's capacity. Row r encodes record y + r, or zeros past the valid ones.
+    // (0xFFFFFFFF: none), y = that counter's capacity, z = the record its count starts at (a render query
+    // segment's base; 0 otherwise). Adam.x = the scale of the hash features read (the debiasing of the hash
+    // table's moving average for the render queries; 1 for the training table). Row r encodes record y + r, or
+    // zeros past the valid ones.
     Pass "Encode"
     {
         Compute
@@ -40,7 +43,7 @@ Shader "NeuralRadianceCache"
                 const uint record = Rows.y + row;
                 uint       valid  = Rows.w;
                 if (Extra.x != 0xFFFFFFFFu)
-                    valid = min(valid, min(nrcCounters[Extra.x], Extra.y));
+                    valid = min(valid, Extra.z + min(nrcCounters[Extra.x], Extra.y));
                 const uint out0 = row * 64u;
                 if (record >= valid)
                 {
@@ -66,8 +69,8 @@ Shader "NeuralRadianceCache"
                         feature += weight * vec2(nrcHashTable[entry * NRC_HASH_FEATURES],
                                                  nrcHashTable[entry * NRC_HASH_FEATURES + 1u]);
                     }
-                    nnInput[out0 + level * NRC_HASH_FEATURES]      = feature.x;
-                    nnInput[out0 + level * NRC_HASH_FEATURES + 1u] = feature.y;
+                    nnInput[out0 + level * NRC_HASH_FEATURES]      = feature.x * Adam.x;
+                    nnInput[out0 + level * NRC_HASH_FEATURES + 1u] = feature.y * Adam.x;
                 }
                 // [32, 64): w_o, normal, roughness, reflectances, zero padding.
                 for (uint c = NRC_HASH_LEVELS * NRC_HASH_FEATURES; c < 64u; ++c)
@@ -252,7 +255,11 @@ Shader "NeuralRadianceCache"
 
     // ADAM ON THE MLP WEIGHTS (Kingma & Ba 2015; the instant-ngp settings, L2 weight decay on the MLP only). Rows:
     // x = the step, y = the batch, z = the weights, w = Adam's t (>= 1). Adam: lr, beta1, beta2, eps; Adam2.x = the
-    // weight decay. A step with no valid rows changes nothing.
+    // weight decay. A step with no valid rows changes no weight.
+    // THEN THE MOVING AVERAGE THE IMAGE IS INFERRED WITH (Muller et al. 2021 §5: an exponential moving average of
+    // the weights against the cache's temporal flicker; the training weights stay the optimiser's own): every step,
+    // valid rows or not, ema = Adam2.y * ema + (1 - Adam2.y) * w, and the inference weights = ema * Adam2.z (the
+    // debiasing 1 / (1 - Adam2.y^t) of an average that starts at 0).
     Pass "AdamMlp"
     {
         Compute
@@ -265,6 +272,8 @@ Shader "NeuralRadianceCache"
             Buffer(1) NrcWeightsUB { float nrcWeights[]; };
             Buffer(2) NrcAdamMlpUB { float nrcAdamMlp[]; };       // [2][weights]: first, second moment
             ReadBuffer(3) NrcCountersUB { uint nrcCounters[]; };
+            Buffer(4) NrcWeightsEmaUB { float nrcWeightsEma[]; };             // the average, from 0
+            Buffer(5) NrcInferenceWeightsUB { float nrcInferenceWeights[]; }; // the debiased average
 
             PushConstant NrcPush
             {
@@ -281,27 +290,34 @@ Shader "NeuralRadianceCache"
                     return;
                 const int count = int(min(nrcCounters[NRC_COUNTER_TRAINING_SAMPLES], NRC_TRAINING_SAMPLES));
                 const int rows  = clamp(count - int(Rows.x * Rows.y), 0, int(Rows.y));
-                if (rows == 0)
-                    return;
-                const float w = nrcWeights[e];
-                const float g = nnWeightGrad[e] / float(rows) + Adam2.x * w;
-                if (isnan(g) || isinf(g))
-                    return;
-                const float m      = Adam.y * nrcAdamMlp[e] + (1.0 - Adam.y) * g;
-                const float v      = Adam.z * nrcAdamMlp[Rows.z + e] + (1.0 - Adam.z) * g * g;
-                nrcAdamMlp[e]          = m;
-                nrcAdamMlp[Rows.z + e] = v;
-                const float t      = float(Rows.w);
-                const float mHat   = m / (1.0 - pow(Adam.y, t));
-                const float vHat   = v / (1.0 - pow(Adam.z, t));
-                nrcWeights[e]      = w - Adam.x * mHat / (sqrt(vHat) + Adam.w);
+                float w = nrcWeights[e];
+                if (rows > 0)
+                {
+                    const float g = nnWeightGrad[e] / float(rows) + Adam2.x * w;
+                    if (!isnan(g) && !isinf(g))
+                    {
+                        const float m      = Adam.y * nrcAdamMlp[e] + (1.0 - Adam.y) * g;
+                        const float v      = Adam.z * nrcAdamMlp[Rows.z + e] + (1.0 - Adam.z) * g * g;
+                        nrcAdamMlp[e]          = m;
+                        nrcAdamMlp[Rows.z + e] = v;
+                        const float t      = float(Rows.w);
+                        const float mHat   = m / (1.0 - pow(Adam.y, t));
+                        const float vHat   = v / (1.0 - pow(Adam.z, t));
+                        w                  = w - Adam.x * mHat / (sqrt(vHat) + Adam.w);
+                        nrcWeights[e]      = w;
+                    }
+                }
+                const float ema        = Adam2.y * nrcWeightsEma[e] + (1.0 - Adam2.y) * w;
+                nrcWeightsEma[e]       = ema;
+                nrcInferenceWeights[e] = ema * Adam2.z;
             }
         }
     }
 
     // ADAM ON THE HASH TABLE: the fixed-point gradient back to float, divided by the step's valid rows, and the
-    // gradient zeroed for the next step. Rows / Adam as "AdamMlp" (no weight decay). Dispatched 2D: element
-    // e = x + y * (groups x * 64).
+    // gradient zeroed for the next step. Rows / Adam as "AdamMlp" (no weight decay), and the table's moving average
+    // likewise every step (Adam2.y the decay; its debiasing is applied where the render queries read it, "Encode"
+    // Adam.x, as the encoding is linear in the table). Dispatched 2D: element e = x + y * (groups x * 64).
     Pass "AdamHash"
     {
         Compute
@@ -314,6 +330,7 @@ Shader "NeuralRadianceCache"
             Buffer(1) NrcAdamHashUB { float nrcAdamHash[]; }; // [2][entries * features]
             Buffer(2) NrcHashGradUB { int nrcHashGrad[]; };
             ReadBuffer(3) NrcCountersUB { uint nrcCounters[]; };
+            Buffer(4) NrcHashEmaUB { float nrcHashEma[]; }; // the average, from 0
 
             PushConstant NrcPush
             {
@@ -332,17 +349,21 @@ Shader "NeuralRadianceCache"
                 nrcHashGrad[e]      = 0;
                 const int count     = int(min(nrcCounters[NRC_COUNTER_TRAINING_SAMPLES], NRC_TRAINING_SAMPLES));
                 const int rows      = clamp(count - int(Rows.x * Rows.y), 0, int(Rows.y));
-                if (rows == 0)
-                    return;
-                const float g      = float(fixedGrad) / (NRC_HASH_GRAD_SCALE * float(rows));
-                const float m      = Adam.y * nrcAdamHash[e] + (1.0 - Adam.y) * g;
-                const float v      = Adam.z * nrcAdamHash[Rows.z + e] + (1.0 - Adam.z) * g * g;
-                nrcAdamHash[e]          = m;
-                nrcAdamHash[Rows.z + e] = v;
-                const float t      = float(Rows.w);
-                const float mHat   = m / (1.0 - pow(Adam.y, t));
-                const float vHat   = v / (1.0 - pow(Adam.z, t));
-                nrcHashTable[e]    = nrcHashTable[e] - Adam.x * mHat / (sqrt(vHat) + Adam.w);
+                float value = nrcHashTable[e];
+                if (rows > 0)
+                {
+                    const float g      = float(fixedGrad) / (NRC_HASH_GRAD_SCALE * float(rows));
+                    const float m      = Adam.y * nrcAdamHash[e] + (1.0 - Adam.y) * g;
+                    const float v      = Adam.z * nrcAdamHash[Rows.z + e] + (1.0 - Adam.z) * g * g;
+                    nrcAdamHash[e]          = m;
+                    nrcAdamHash[Rows.z + e] = v;
+                    const float t      = float(Rows.w);
+                    const float mHat   = m / (1.0 - pow(Adam.y, t));
+                    const float vHat   = v / (1.0 - pow(Adam.z, t));
+                    value              = value - Adam.x * mHat / (sqrt(vHat) + Adam.w);
+                    nrcHashTable[e]    = value;
+                }
+                nrcHashEma[e] = Adam2.y * nrcHashEma[e] + (1.0 - Adam2.y) * value;
             }
         }
     }
@@ -350,8 +371,12 @@ Shader "NeuralRadianceCache"
     // THE CACHED RADIANCE INTO THE PATH TRACER'S SUMS: each query of the chunk that ended in the cache adds T times
     // the cache (the network's output times the vertex's factor) to its pixel's radiance, and its lobe weights
     // times the cache to the denoiser's demodulated sums, whose .a (the paths' squared luminance) changes by the
-    // square of the path's new lobe luminance minus its old one. Rows: x = the chunk's first query, y = its rows,
-    // z / w = the view's width / height. A chunk holds at most one query per pixel (chunk <= width * height).
+    // square of the path's new lobe luminance minus its old one. The cached contribution T * cache is a contribution
+    // of the path like any it traced, so it is scaled down by PathTracer.shader's PathTracingAccumulate rule (hue
+    // kept, its largest channel at most Adam.x = MaxPathIntensity in radiance; 0: no clamp), its lobe shares with
+    // it. Rows: x = the segment's first query (path s * capacity), y = the chunk's rows, z = the chunk's first row
+    // in the segment, w = the view's width. Extra: x = the segment's counter, y = its capacity. A segment holds one
+    // path of each pixel at most, so a chunk (inside one segment) at most one query per pixel.
     Pass "Composite"
     {
         Compute
@@ -366,6 +391,7 @@ Shader "NeuralRadianceCache"
             layout(binding = 2, rgba32f) uniform image2D AccumulationTexture;
             layout(binding = 3, rgba32f) uniform image2D DemodulatedDiffuseTexture;
             layout(binding = 4, rgba32f) uniform image2D DemodulatedSpecularTexture;
+            ReadBuffer(5) NrcCountersUB { uint nrcCounters[]; };
 
             PushConstant NrcPush
             {
@@ -387,20 +413,27 @@ Shader "NeuralRadianceCache"
                 const uint row = gl_GlobalInvocationID.x;
                 if (row >= Rows.y)
                     return;
-                const NrcQuery q = nrcQueries[Rows.x + row];
-                if (all(equal(q.Weight.rgb, vec3(0.0))))
+                const uint index = Rows.z + row;
+                if (index >= min(nrcCounters[Extra.x], Extra.y))
                     return;
-                const uint  p      = (Rows.x + row) % (Rows.z * Rows.w);
-                const ivec2 pixel  = ivec2(p % Rows.z, p / Rows.z);
-                const vec3  cached = max(vec3(nnOutput[row * 64u], nnOutput[row * 64u + 1u], nnOutput[row * 64u + 2u]),
+                const NrcQuery     q = nrcQueries[Rows.x + index];
+                const NrcQueryData d = NrcUnpackQuery(q);
+                if (all(equal(d.Throughput, vec3(0.0))))
+                    return;
+                const ivec2 pixel  = ivec2(d.Pixel % Rows.w, d.Pixel / Rows.w);
+                vec3        cached = max(vec3(nnOutput[row * 64u], nnOutput[row * 64u + 1u], nnOutput[row * 64u + 2u]),
                                          vec3(0.0)) *
                                      NrcFactor(NrcUnpackVertex(q.Vertex));
+                const vec3  contribution = d.Throughput * cached;
+                const float brightest    = max(contribution.r, max(contribution.g, contribution.b));
+                if (Adam.x > 0.0 && brightest > Adam.x)
+                    cached *= Adam.x / brightest;
                 const vec4 radiance = imageLoad(AccumulationTexture, pixel);
-                imageStore(AccumulationTexture, pixel, vec4(radiance.rgb + q.Weight.rgb * cached, radiance.a));
+                imageStore(AccumulationTexture, pixel, vec4(radiance.rgb + d.Throughput * cached, radiance.a));
                 imageStore(DemodulatedDiffuseTexture, pixel,
-                           NrcAddLobe(imageLoad(DemodulatedDiffuseTexture, pixel), q.DiffuseWeight, cached));
+                           NrcAddLobe(imageLoad(DemodulatedDiffuseTexture, pixel), d.DiffuseWeight, cached));
                 imageStore(DemodulatedSpecularTexture, pixel,
-                           NrcAddLobe(imageLoad(DemodulatedSpecularTexture, pixel), q.SpecularWeight, cached));
+                           NrcAddLobe(imageLoad(DemodulatedSpecularTexture, pixel), d.SpecularWeight, cached));
             }
         }
     }

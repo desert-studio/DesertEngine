@@ -144,7 +144,8 @@ Shader "PathTracer"
                 uvec4 CameraParams;          // x = 1: camera rays through the (jittered) pixel centre, the signal a denoising upscaler takes raw
                 // The neural radiance cache (NeuralRadianceCache.hpp NrcTraceParams; zero without it, and read only
                 // under PATH_TRACING_NRC - declared in both variants so the push range is the C++ TracePush's):
-                // NrcParams x = 1 under Nrc, y = training tile side, z / w = this frame's pixel offset in the tile;
+                // NrcParams x = the query capacity of each path's segment (0: no cache), y = training tile side,
+                // z / w = this frame's pixel offset in the tile;
                 // NrcSpread x = spread threshold c, y = 1 training path in y never stops on the spread rule, z = the
                 // throughput below which a training vertex gives no sample.
                 uvec4 NrcParams;
@@ -696,9 +697,24 @@ Shader "PathTracer"
             // Where the last traced path ended in the cache (PathTracingTracePath -> main, which writes the query once
             // the path's lobe sums are known): the vertex, the throughput reaching it (0: no query) and the first
             // bounce's specular share (the composite splits the cached radiance between the denoiser's lobes by it).
+            // gNrcSlot: the query slot the path claimed in its segment (NRC_NO_SELF_QUERY: none).
             NrcVertex gNrcVertex;
             vec3      gNrcWeight;
             vec3      gNrcShare;
+            uint      gNrcSlot;
+
+            // The image's path @p segment (its index in this frame's paths) asks to end in the cache: the demand is
+            // counted, and a slot of its segment is claimed - refused past the segment's capacity (NrcParams.x), and
+            // the path then goes on as without the cache (unbiased; the next frames' capacity follows the demand).
+            bool NrcClaimQuery(uint segment)
+            {
+                atomicAdd(nrcCounters[NRC_COUNTER_RENDER_QUERIES], 1u);
+                const uint slot = atomicAdd(nrcCounters[NRC_COUNTER_SEGMENTS + segment], 1u);
+                if (slot >= NrcParams.x)
+                    return false;
+                gNrcSlot = slot;
+                return true;
+            }
 
             NrcVertex NrcVertexAt(vec3 P, vec3 V, vec3 N, PathTracingMaterial m)
             {
@@ -805,6 +821,7 @@ Shader "PathTracer"
                 gNrcWeight                 = vec3(0.0);
                 gNrcShare                  = vec3(0.0);
                 gNrcVertex                 = nrcEnd;
+                gNrcSlot                   = NRC_NO_SELF_QUERY;
             #endif
                 for (uint bounce = 0u;; ++bounce)
                 {
@@ -903,7 +920,7 @@ Shader "PathTracer"
                         const NrcVertex vertex = NrcVertexAt(P, V, N, m);
                         const bool      limit  = bounce >= Counts.w;
                         const bool      spread = nrcSpread * nrcSpread > NrcSpread.x * nrcA0;
-                        if (!nrcImageEnded && nrcSurfaces >= 2u && (spread || limit))
+                        if (!nrcImageEnded && nrcSurfaces >= 2u && (spread || limit) && NrcClaimQuery(sampleIndex - Counts.z))
                         {
                             gNrcVertex       = vertex;
                             gNrcWeight       = throughput;
@@ -1090,18 +1107,23 @@ Shader "PathTracer"
             #if PATH_TRACING_NRC
                     if (NrcParams.x != 0u)
                     {
-                        // Every slot of the frame is written: Weight 0 tells the composite the path did not end in
-                        // the cache. The lobe weights carry the first bounce's share over that surface's reflectance
-                        // and the path's lobe luminance before the cache (the composite completes lum^2).
-                        const bool cached = any(greaterThan(gNrcWeight, vec3(0.0)));
-                        NrcQuery   query;
-                        query.Vertex         = gNrcVertex;
-                        query.Weight         = vec4(cached ? gNrcWeight : vec3(0.0), 0.0);
-                        query.DiffuseWeight  = vec4(cached ? NrcSafeDivide(gNrcWeight * (1.0 - gNrcShare), guide.Albedo.rgb) : vec3(0.0), d);
-                        query.SpecularWeight = vec4(cached ? NrcSafeDivide(gNrcWeight * gNrcShare, guide.Specular.rgb) : vec3(0.0), l);
-                        nrcQueries[uint(pixel.y) * uint(size.x) + uint(pixel.x) + s * uint(size.x) * uint(size.y)] = query;
-                        if (cached)
-                            atomicAdd(nrcCounters[NRC_COUNTER_RENDER_QUERIES], 1u);
+                        // A claimed slot is always written: Throughput 0 (a path dropped as NaN after its claim)
+                        // tells the composite to add nothing. The lobe weights carry the first bounce's share over
+                        // that surface's reflectance and the path's lobe luminance before the cache (the composite
+                        // completes lum^2).
+                        if (gNrcSlot != NRC_NO_SELF_QUERY)
+                        {
+                            const bool   cached = any(greaterThan(gNrcWeight, vec3(0.0)));
+                            NrcQueryData data;
+                            data.Throughput     = cached ? gNrcWeight : vec3(0.0);
+                            data.DiffuseWeight  = vec4(cached ? NrcSafeDivide(gNrcWeight * (1.0 - gNrcShare), guide.Albedo.rgb) : vec3(0.0), d);
+                            data.SpecularWeight = vec4(cached ? NrcSafeDivide(gNrcWeight * gNrcShare, guide.Specular.rgb) : vec3(0.0), l);
+                            data.Pixel          = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+                            NrcQuery query;
+                            query.Vertex = gNrcVertex;
+                            NrcPackQuery(data, query.Lobes, query.Weight);
+                            nrcQueries[s * NrcParams.x + gNrcSlot] = query;
+                        }
                     }
             #endif
                 }

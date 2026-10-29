@@ -1524,6 +1524,8 @@ namespace Desert::Editor
                 nrc.TrainingPaths         = stats->TrainingPaths;
                 nrc.SelfQueries           = stats->SelfQueries;
                 nrc.RenderQueries         = stats->RenderQueries;
+                nrc.QueryCapacity         = stats->QueryCapacity;
+                nrc.QueryMemoryBytes      = stats->QueryMemoryBytes;
                 nrc.TrainLoss             = stats->TrainLoss;
                 nrc.FirstTrainLoss        = stats->FirstTrainLoss;
                 nrc.LossHistory           = stats->LossHistory;
