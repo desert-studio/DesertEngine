@@ -99,6 +99,13 @@ namespace Desert::Engine
         /// (SSR trace/resolve, GI resolve, bloom) writes RGBA32F, so this gates them.
         bool SupportsFloatRenderTargets = false;
 
+        // --- Ray tracing hidden by the machine (NO-RT) ------------------------------------------------
+        /// machine.json "HideRayTracing": the backend probed this device as one without ray tracing (Catalog
+        /// RayTracingModes = None), so `rt` reads "hidden" rather than "off". Readers: the start-up log and
+        /// DesertCtl `state device` only; nothing branches on it - every consumer reads the Catalog, as on a card
+        /// without ray tracing.
+        bool RayTracingHidden = false;
+
         // --- Neural-network compute (NN-RUNTIME) ------------------------------------------------------
         /// fp16 / int8 / 16- and 8-bit storage, subgroup size range, push-constant and shared-memory limits,
         /// cooperative-matrix shapes, and the kernel path the NN layer runs (coopmat fp16 / fp16 / fp32), chosen

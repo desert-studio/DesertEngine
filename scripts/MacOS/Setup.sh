@@ -39,7 +39,6 @@ BREW_PACKAGES=(
     vulkan-loader           # libvulkan.dylib
     vulkan-validationlayers # VK_LAYER_KHRONOS_validation (Debug builds)
     shaderc                 # libshaderc_combined.a — runtime GLSL compilation
-    spirv-cross             # SPIR-V reflection/translation
     assimp                  # model importing (Editor, FbxMeshSplitter)
     googletest              # unit tests (optional, --with-tests builds)
     # A BUILD DEPENDENCY, NOT A CONVENIENCE. The test suites compile engine translation units into

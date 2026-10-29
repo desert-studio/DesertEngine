@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <memory>
 
 #include <string>
@@ -48,6 +49,12 @@ namespace Desert::Engine
         // false = the window is created hidden and the application shows it itself (Window::Show). The
         // editor does, from behind its splash; see WindowSpecification::Visible.
         bool Visible = true;
+        // THIS HOST'S machine.json (Common::Settings::MachineSettings). Loaded by the Application BEFORE the
+        // device is created, because the device reads it (HideRayTracing, NO-RT); QualityBoot::Start later starts
+        // the quality from the store already loaded and refuses a different path. The editor's is beside
+        // editor.json (ProjectContext::ConfigDirectory), the game's in the player's per-product directory
+        // (Settings::GameUserDirectory). Empty = an application with no machine store (the struct defaults).
+        std::filesystem::path MachineSettingsFile;
     };
 
     class Application;

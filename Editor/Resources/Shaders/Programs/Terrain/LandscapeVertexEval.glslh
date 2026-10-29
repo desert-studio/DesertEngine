@@ -44,6 +44,7 @@ struct LandscapeMorphedVertex
     int   X1;
     int   Z1;
     float Morph;
+    float Lod;      // the continuous LOD the morph came from (LandscapeDisplacement.glslh fades the relief out by it)
     vec2  Local;    // the sample coordinate within the tile (what the hole test and the weightmap read)
     vec3  WorldPos; // cm
 };
@@ -62,6 +63,7 @@ LandscapeMorphedVertex LandscapeEvaluateVertex( int ix, int iz )
 
     LandscapeMorphedVertex v;
     v.Morph = lod - float( lodLo );
+    v.Lod   = lod;
     v.X0    = LandscapeLodSnap( ix, stride, iquads );
     v.Z0    = LandscapeLodSnap( iz, stride, iquads );
     v.X1    = LandscapeLodSnap( ix, stride * 2, iquads );

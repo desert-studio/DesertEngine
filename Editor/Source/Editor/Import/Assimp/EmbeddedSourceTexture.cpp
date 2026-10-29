@@ -115,7 +115,9 @@ namespace Desert::Editor
             return Common::MakeError<SourceTextureFile>(
                  std::format( "[Import][Tex] '{}': embedded texture '{}': {}", sourcePath.generic_string(),
                               reference, bytes.GetError() ) );
-        const auto written = WriteDerivedTexture( bytes.GetValue(), out, imageType );
+        // An embedded image does not know its slot here: it is created Unspecified (DefaultTextureColorSpace) and
+        // the slot's colour space is not applied to it (ImportManager skips images that already are assets).
+        const auto written = WriteDerivedTexture( bytes.GetValue(), out, imageType, {} );
         if ( !written.IsSuccess() )
             return Common::MakeError<SourceTextureFile>(
                  std::format( "[Import][Tex] '{}': embedded texture '{}': {}", sourcePath.generic_string(),

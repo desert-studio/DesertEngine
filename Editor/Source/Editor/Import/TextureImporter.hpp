@@ -87,7 +87,10 @@ namespace Desert::Editor
             uint32_t               Height = 0;
             std::vector<glm::vec4> Texels; // row-major, Width x Height
         };
-        static Common::ResultStr<std::vector<PlatformMip>> DecodePlatformMips( const std::filesystem::path& asset );
+        // @p maxEdge > 0 decodes only the levels no wider and no taller than it (a reader that needs one small
+        // level does not pay for decoding the top of the chain).
+        static Common::ResultStr<std::vector<PlatformMip>> DecodePlatformMips( const std::filesystem::path& asset,
+                                                                               uint32_t maxEdge = 0 );
 
     private:
         std::unordered_map<std::string, Common::UUID> m_Cache;

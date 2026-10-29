@@ -1,0 +1,27 @@
+# p21: World Normal block after the direction-first cut - is it a normal-map mip streaming in?
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: World Normal"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_settled World Normal at the pose before any cut: uniform, no near-field block
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_normal direction-first cut in World Normal: no near-field block right of the path
+Когда run View "View mode: World Normal"
+Когда run View "View mode: World Normal"
+Тогда-вид 1_normal_wait same pose, steps later, no camera set: does time alone clear the block?
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_normal_dir same pose after setting the same direction again
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_normal_late same pose after setting the same position again
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_dirfirst_fixed direction-first cut in Lit: no pale block right of the path

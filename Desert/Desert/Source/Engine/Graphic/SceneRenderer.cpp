@@ -26,6 +26,8 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include <unordered_set>
 #include <mutex>
@@ -46,6 +48,7 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
@@ -553,7 +556,7 @@ namespace Desert::Graphic
                 if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
-                m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
+                RefuseShadowPrograms( deferred->Refusals() );
                 // The screen-space subsurface scatter (SSS-PROFILE): without it the profile materials shade unsplit.
                 RegisterSystem<System::SubsurfaceRenderer>( "SubsurfaceSystem", this, m_TargetFramebuffer );
                 if ( const auto subsurfaceInit =
@@ -644,6 +647,25 @@ namespace Desert::Graphic
         m_CameraCutPending = true;
         LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
                   m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+    }
+
+    void SceneRenderer::ReleaseWorldResources()
+    {
+        const ActiveViewScope          viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
+        m_OwnSurfaceCache.reset();
+        m_RadianceCache.reset();
+        m_ScreenProbeGather.reset();
+        m_IrradianceFieldGather.reset();
+        m_GlobalDistanceFieldView.reset();
+        m_OwnGlobalDistanceField.reset();
+        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
+            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->ReleaseWorldCaches();
+        ResetTemporalHistory();
+        LOG_INFO( "[SceneRenderer] {}: the old world's view resources released (surface cache, radiance cache, "
+                  "probe gathers, global distance field, terrain materials).",
+                  m_ViewResources.GetName() );
     }
 
     namespace
@@ -954,6 +976,10 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
+        // A shader recompiled since the standing program refusals were made: every refused method is resolved and
+        // asked for again this frame (a fixed program draws, one still broken is refused again without a new
+        // line).
+        RetryRefusedProgramsAfterRecompile();
         // The captures' programs serve every Reflections method that reads the captures: built here, before the
         // resolution, so one that did not build refuses those methods from this frame on (by its name).
         if ( !m_FrameReflectionCaptures->EnsurePipelines() )
@@ -1064,15 +1090,16 @@ namespace Desert::Graphic
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_PathTracingSettings                 = System::PathTracer::Settings{
-                             .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
-                             .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
-                             .MaxPathIntensity =
-                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
-                             .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
-                                  Parameter::PathTracingDenoiser ),
-                             .AntiFirefly = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ) };
+        m_PathTracingSettings                    = System::PathTracer::Settings{
+                                .SamplesPerPixel  = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
+                                .PathsPerFrame    = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
+                                .MaxBounces       = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                                .MaxPathIntensity = quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                                .Denoiser =
+                  quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
+                                .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
+                  quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
@@ -2117,9 +2144,9 @@ namespace Desert::Graphic
                 const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
                      graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
-                // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-                // the glass, which then refracts the water behind it.
-                AddFrameWater( graph, textures );
+                // The water after the copy (the scene without water, which its refraction reads) and before the
+                // glass.
+                AddFrameWater( graph, textures, sceneCopy );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }
@@ -2144,7 +2171,14 @@ namespace Desert::Graphic
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
-        if ( !pathTraced )
+        // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel)
+        // shows the stored surface value: no height fog or cloud layer is composited over it (GRASS-ASSET p5: the
+        // Albedo view read +0.08 fog blue on the far cover). The clouds' sky-occlusion volume is still written.
+        const DeferredDebugMode debugView   = m_DebugView.DeferredDebug;
+        const bool              gbufferView = ( debugView >= DeferredDebugMode::Albedo && debugView <= DeferredDebugMode::AO ) ||
+                                 debugView == DeferredDebugMode::ShadingModel ||
+                                 debugView == DeferredDebugMode::SunShadowReceive;
+        if ( !pathTraced && !gbufferView )
         {
             AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );
@@ -2872,13 +2906,17 @@ namespace Desert::Graphic
 
     namespace
     {
+        // @p retried: the refusals that stood before the last recompile - the same one again is not said again.
         template <typename Method, std::size_t N>
-        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals, const std::span<const Method> methods,
-                            const std::string_view axis, const std::array<std::string_view, N>& names,
-                            const std::string_view program, const std::string_view error )
+        void RefuseMethods( std::vector<MethodRefusal<Method>>&       refusals,
+                            const std::vector<MethodRefusal<Method>>& retried,
+                            const std::span<const Method> methods, const std::string_view axis,
+                            const std::array<std::string_view, N>& names, const std::string_view program,
+                            const std::string_view error )
         {
             for ( const Method method : methods )
-                if ( AddRefusal( refusals, method, program ) )
+                if ( AddRefusal( refusals, method, program, error ) &&
+                     !HoldsRefusal( retried, method, program, error ) )
                     LOG_ERROR( "[SceneRenderer] {} {} refused on this device: its program '{}' did not build: {}",
                                axis, names[static_cast<std::size_t>( method )], program, error );
         }
@@ -2887,15 +2925,74 @@ namespace Desert::Graphic
     void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
                                               const std::string_view program, const std::string_view error )
     {
-        RefuseMethods( m_ProgramRefusals.GlobalIllumination, methods, "GI", Common::Scalability::kGIMethodNames,
-                       program, error );
+        RefuseMethods( m_ProgramRefusals.GlobalIllumination, m_RetriedProgramRefusals.GlobalIllumination, methods,
+                       "GI", Common::Scalability::kGIMethodNames, program, error );
     }
 
     void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
                                               const std::string_view program, const std::string_view error )
     {
-        RefuseMethods( m_ProgramRefusals.Reflections, methods, "Reflections",
+        RefuseMethods( m_ProgramRefusals.Reflections, m_RetriedProgramRefusals.Reflections, methods, "Reflections",
                        Common::Scalability::kReflectionMethodNames, program, error );
+    }
+
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ShadowMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.Shadows, m_RetriedProgramRefusals.Shadows, methods, "Shadows",
+                       Common::Scalability::kShadowMethodNames, program, error );
+    }
+
+    void SceneRenderer::RefuseShadowPrograms( const ProgramRefusals& deferred )
+    {
+        for ( const MethodRefusal<Common::Scalability::ShadowMethod>& refusal : deferred.Shadows )
+            RefuseProgramMethods( std::span<const Common::Scalability::ShadowMethod>( &refusal.Refused, 1 ),
+                                  refusal.Program, refusal.Reason );
+    }
+
+    void SceneRenderer::RefusePathTracer( const std::string_view program, const std::string_view error )
+    {
+        using Common::Scalability::GIMethod;
+        using Common::Scalability::ReflectionMethod;
+        // One integrator for both axes: both are refused, and the refusal is said once, by the path tracer's name.
+        const bool added =
+             AddRefusal( m_ProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error );
+        AddRefusal( m_ProgramRefusals.Reflections, ReflectionMethod::PathTraced, program, error );
+        if ( added &&
+             !HoldsRefusal( m_RetriedProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error ) )
+            LOG_ERROR(
+                 "[SceneRenderer] {}: GI and Reflections PathTraced refused on this device: '{}' could not be "
+                 "brought up: {}",
+                 m_ViewResources.GetName(), program, error );
+    }
+
+    void SceneRenderer::RetryRefusedProgramsAfterRecompile()
+    {
+        const std::uint64_t generation = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
+        if ( generation == m_ProgramRefusalsGeneration )
+            return;
+        m_ProgramRefusalsGeneration = generation;
+        // Only the refusals of the generation just ended are remembered: a method that drew after a fix and breaks
+        // again with the old reason is a new failure, and is said again.
+        m_RetriedProgramRefusals.GlobalIllumination = std::exchange( m_ProgramRefusals.GlobalIllumination, {} );
+        m_RetriedProgramRefusals.Reflections        = std::exchange( m_ProgramRefusals.Reflections, {} );
+        m_RetriedProgramRefusals.Shadows            = std::exchange( m_ProgramRefusals.Shadows, {} );
+        // The deferred composite's refused permutations are acquired and built again now (they are not made
+        // lazily on use): the ones still refused are refused again, said only when the reason changed.
+        const auto deferredSystem = m_RenderSystems.find( "DeferredLightingSystem" );
+        if ( auto* const deferred =
+                  deferredSystem == m_RenderSystems.end()
+                       ? nullptr
+                       : dynamic_cast<System::DeferredLightingRenderer*>( deferredSystem->second.get() ) )
+        {
+            deferred->RetryRefusedPrograms();
+            RefuseShadowPrograms( deferred->Refusals() );
+        }
+        // The renderers latched as failed with those refusals are brought up again on their next use (the GI
+        // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again; the path tracer
+        // is brought up again by EnsurePathTracerResources once PathTraced resolves again).
+        m_SSRResourcesFailed         = false;
+        m_ScreenTraceResourcesFailed = false;
     }
 
     bool SceneRenderer::EnsurePathTracerResources()
@@ -2903,27 +3000,22 @@ namespace Desert::Graphic
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_PathTracerReady )
             return true;
-        if ( m_PathTracerFailed )
-            return false;
 
         Renderer::GetInstance().WaitDeviceIdle();
 
         RegisterSystem<System::PathTracer>( "PathTracerSystem", this, m_TargetFramebuffer );
         const auto& pathTracer = SP_CAST( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        // A refusal holds PathTraced off both axes from the next BeginScene (this frame LowerPathTracingForFrame
+        // renders HardwareTraced) until the shader service recompiles a program
+        // (RetryRefusedProgramsAfterRecompile).
         if ( const Common::BoolResultStr initialized = pathTracer->Initialize(); !initialized )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the path tracer could not be brought up; the view renders "
-                       "HardwareTraced GI and reflections instead: {}",
-                       m_ViewResources.GetName(), initialized.GetError() );
-            m_PathTracerFailed = true;
+            RefusePathTracer( "PathTracer", initialized.GetError() );
             return false;
         }
         if ( const Common::BoolResultStr emissive = m_EmissiveLights.Initialize(); !emissive )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the emissive light list could not be brought up; the view renders "
-                       "HardwareTraced GI and reflections instead: {}",
-                       m_ViewResources.GetName(), emissive.GetError() );
-            m_PathTracerFailed = true;
+            RefusePathTracer( "EmissiveLightList", emissive.GetError() );
             return false;
         }
         m_PathTracerReady = true;
@@ -3386,6 +3478,16 @@ namespace Desert::Graphic
 
         const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
         return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
+    }
+
+    bool SceneRenderer::SkyLightRecapturesFor( const glm::vec3& sunDir ) const
+    {
+        const auto it = m_RenderSystems.find( "SkyboxSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+
+        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        return sky && sky->SkyLightRecapturesFor( sunDir );
     }
 
     float SceneRenderer::CloudVolumeBakeProgress() const
