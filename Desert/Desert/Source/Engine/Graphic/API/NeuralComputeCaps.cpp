@@ -98,6 +98,8 @@ namespace Desert::Engine
 
         std::vector<std::string>              coopMissing = fp16Missing;
         std::optional<CooperativeMatrixShape> tile;
+        if ( !caps.VulkanMemoryModel )
+            coopMissing.emplace_back( "vulkanMemoryModel" );
         if ( !caps.CooperativeMatrix )
             coopMissing.emplace_back( "cooperativeMatrix" );
         else
@@ -141,12 +143,14 @@ namespace Desert::Engine
             line += std::format( " ({})", caps.Reason );
         line += std::format(
              " | shaderFloat16={} shaderInt8={} storageBuffer16BitAccess={} storageBuffer8BitAccess={} "
-             "subgroupSizeControl={} cooperativeMatrix={} cooperativeMatrixCompute={} | subgroupSize={} "
+             "subgroupSizeControl={} cooperativeMatrix={} cooperativeMatrixCompute={} vulkanMemoryModel={} | "
+             "subgroupSize={} "
              "minSubgroupSize={} maxSubgroupSize={} computeRequiredSubgroupSize={} "
              "maxPushConstantsSize={} maxComputeSharedMemorySize={} | coopmat shapes {}:",
              YesNo( caps.ShaderFloat16 ), YesNo( caps.ShaderInt8 ), YesNo( caps.StorageBuffer16BitAccess ),
              YesNo( caps.StorageBuffer8BitAccess ), YesNo( caps.SubgroupSizeControl ),
-             YesNo( caps.CooperativeMatrix ), YesNo( caps.CooperativeMatrixInCompute ), caps.SubgroupSize,
+             YesNo( caps.CooperativeMatrix ), YesNo( caps.CooperativeMatrixInCompute ),
+             YesNo( caps.VulkanMemoryModel ), caps.SubgroupSize,
              caps.MinSubgroupSize, caps.MaxSubgroupSize, YesNo( caps.ComputeSubgroupSizeRequirable ),
              caps.MaxPushConstantsSize, caps.MaxComputeSharedMemorySize, caps.CooperativeMatrixShapes.size() );
         if ( caps.CooperativeMatrixShapes.empty() )

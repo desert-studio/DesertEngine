@@ -76,6 +76,7 @@ namespace Desert::Editor::Control
                 ///< Level As")
         AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
         Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
+        NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every path)
     };
 
     /**
@@ -132,6 +133,7 @@ namespace Desert::Editor::Control
          { "save-as", Op::SaveAs, RequiresReady::Yes },
          { "add-component", Op::AddComponent, RequiresReady::Yes },
          { "advance", Op::Advance, RequiresReady::Yes },
+         { "nn-check", Op::NnCheck, RequiresReady::Yes },
     };
 
     /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
@@ -727,6 +729,7 @@ namespace Desert::Editor::Control
             }
             case Op::Commands:
             case Op::Properties:
+            case Op::NnCheck:
                 break;
         }
 

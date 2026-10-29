@@ -19,7 +19,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !logical )
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS build: no Vulkan device" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
-        if ( !functions.Complete() || input.Segments.empty() )
+        // Reaching here on a device without acceleration structures is a caller's bug (every caller reads the
+        // catalog first: MeshGpuUploader, RayTracingSceneRequired): an error, never a silent null BLAS.
+        if ( !functions.Complete() )
+            return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                 "BLAS build: the device has no acceleration structure functions (ray tracing off or hidden)" );
+        if ( input.Segments.empty() )
             return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
 
         const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, input.Vertices );

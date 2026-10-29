@@ -23,6 +23,14 @@ namespace Desert::Graphic::API::Vulkan
         DeviceCaps                           Caps;
     };
 
+    // What this machine withholds from the engine on top of what the driver offers (machine.json; the host reads
+    // Common::Settings::MachineSettings and passes it here, so this file stays free of the settings store).
+    struct DeviceRestrictions
+    {
+        // HideRayTracing: the device is probed as one without ray tracing (DeviceCaps HideRayTracing).
+        bool HideRayTracing = false;
+    };
+
     // The instance must be created as VulkanContext creates it: apiVersion kMaximumApiVersion (a device's
     // usable version is min(instance apiVersion, device), and routes are planned for min(device, 1.3), so a
     // lower instance turns rows planned as core into extensions enabled without their dependencies) and
@@ -32,5 +40,6 @@ namespace Desert::Graphic::API::Vulkan
     // Probes every device the instance lists, keeps those that pass CheckRequired, and returns the best
     // by type (discrete > integrated > virtual > cpu). When none passes, the error names every device
     // and what each one lacks.
-    [[nodiscard]] Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance& instance );
+    [[nodiscard]] Common::ResultStr<ProbedDevice> SelectDevice( const vkb::Instance&        instance,
+                                                                 const DeviceRestrictions& restrictions );
 } // namespace Desert::Graphic::API::Vulkan

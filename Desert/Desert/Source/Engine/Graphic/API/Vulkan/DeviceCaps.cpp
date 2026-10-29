@@ -117,6 +117,11 @@ namespace Desert::Graphic::API::Vulkan
              // Tensor cores / WMMA / XMX. Never core in 1.3. Its shapes are listed by the probe.
              { C::CooperativeMatrix, "cooperative_matrix", N::Optional, 0,
                VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME },
+             // Every cooperative-matrix SPIR-V module glslang emits is declared under the Vulkan memory model
+             // (Shaders/Programs/Compute/NeuralFusedMlp.shader), so the coopmat path needs it. Optional: only that
+             // path reads it (SelectNeuralKernelPath).
+             { C::VulkanMemoryModel, "vulkanMemoryModel", N::Optional, V12,
+               VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every
@@ -187,6 +192,22 @@ namespace Desert::Graphic::API::Vulkan
         return caps;
     }
 
+    bool IsRayTracingCapability( Capability capability )
+    {
+        return capability == Capability::AccelerationStructure || capability == Capability::RayQuery ||
+               capability == Capability::RayTracingPipeline;
+    }
+
+    void HideRayTracing( DeviceCaps& caps )
+    {
+        for ( std::size_t i = 0; i < kCapabilityCount; ++i )
+        {
+            if ( IsRayTracingCapability( static_cast<Capability>( i ) ) )
+                caps.Rows[i] = CapabilityRow{ .Route = CapabilityRoute::Unreachable, .Present = false };
+        }
+        caps.RayTracingHidden = true;
+    }
+
     bool DependenciesPresent( const DeviceCaps& caps, Capability capability )
     {
         for ( const Capability dependency : SpecOf( capability ).DependsOn )
@@ -249,12 +270,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             const CapabilitySpec& spec = kTable[i];
             const CapabilityRow&  row  = caps.Rows[i];
-            const char*           how  = !row.Present                              ? "no"
-                                         : row.Route == CapabilityRoute::Extension ? "ext"
-                                         : spec.CoreSince == VK_API_VERSION_1_0    ? "1.0"
-                                         : spec.CoreSince == VK_API_VERSION_1_1    ? "core1.1"
-                                         : spec.CoreSince == VK_API_VERSION_1_2    ? "core1.2"
-                                                                                   : "core1.3";
+            const char* how = caps.RayTracingHidden && IsRayTracingCapability( static_cast<Capability>( i ) )
+                                   ? "hidden"
+                              : !row.Present                            ? "no"
+                              : row.Route == CapabilityRoute::Extension ? "ext"
+                              : spec.CoreSince == VK_API_VERSION_1_0    ? "1.0"
+                              : spec.CoreSince == VK_API_VERSION_1_1    ? "core1.1"
+                              : spec.CoreSince == VK_API_VERSION_1_2    ? "core1.2"
+                                                                        : "core1.3";
             const char*           need = spec.Need == CapabilityNeed::Required ? "!" : "";
             line += std::format( " {}{}={}", need, spec.Name, how );
         }
