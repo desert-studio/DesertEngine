@@ -66,8 +66,8 @@
             },
             "Density": 36000.0,
             "PlacementJitter": 1.0,
-            "StartCullDistance": 500,
-            "EndCullDistance": 3000,
+            "StartCullDistance": 2000,
+            "EndCullDistance": 6000,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -137,8 +137,8 @@
             },
             "Density": 800.0,
             "PlacementJitter": 1.0,
-            "StartCullDistance": 1500,
-            "EndCullDistance": 4000,
+            "StartCullDistance": 2000,
+            "EndCullDistance": 6000,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -176,7 +176,7 @@
             "Density": 70.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2700.0,
-            "EndCullDistance": 4500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -214,7 +214,7 @@
             "Density": 50.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2700.0,
-            "EndCullDistance": 4500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -252,7 +252,7 @@
             "Density": 35.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -290,7 +290,7 @@
             "Density": 35.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -328,7 +328,7 @@
             "Density": 50.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -366,7 +366,7 @@
             "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
-            "EndCullDistance": 3500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -404,7 +404,7 @@
             "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
-            "EndCullDistance": 3500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -442,7 +442,7 @@
             "Density": 30.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
-            "EndCullDistance": 3500.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -480,7 +480,7 @@
             "Density": 130.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -518,7 +518,7 @@
             "Density": 100.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -556,7 +556,7 @@
             "Density": 130.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
@@ -594,7 +594,7 @@
             "Density": 100.0,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
-            "EndCullDistance": 4000.0,
+            "EndCullDistance": 8000.0,
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0

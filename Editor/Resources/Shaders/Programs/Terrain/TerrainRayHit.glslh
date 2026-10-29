@@ -11,7 +11,7 @@
 #include <Common/LandscapeSurface.glslh>
 
 // The tile's hit-group row. C++ twin: Graphic/Systems/Scene/Terrain/LandscapeRayTracing.cpp LandscapeRayHitRow
-// (kLandscapeRayHitRowSlots: TerrainInstance's slots, the Tint, the sampling slots, the material's 17 value slots,
+// (kLandscapeRayHitRowSlots: TerrainInstance's slots, the Tint, the sampling slots, the material's 18 value slots,
 // the eight inputs' map slots, the view origin).
 layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer LandscapeRayHitRowRef
 {

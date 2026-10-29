@@ -229,6 +229,10 @@ namespace Desert::Editor
         // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
         // returned by OnAttach.
         Common::BoolResultStr m_QualityStart = Common::MakeSuccess( true );
+        // An unattended run's machine.json, byte for byte, as it was before the quality started (empty path:
+        // an attended run, which saves its changes). OnDetach compares and logs: the run left it untouched.
+        std::filesystem::path m_UnattendedMachineJson;
+        std::string           m_UnattendedMachineBytes;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after

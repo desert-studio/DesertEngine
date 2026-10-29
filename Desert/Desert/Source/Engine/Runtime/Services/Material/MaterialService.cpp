@@ -310,6 +310,17 @@ namespace Desert::Runtime
             Graphic::MaterialPipelineRequests::Get().Request( shaderName );
         if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
             ApplySurfaceAsset( *material, *surface );
+        // A mesh-table cell is precached on the path it IS drawn on (GRASS-SETTLE): the G-buffer cells of the
+        // static and instanced vertex paths, with the material's cull permutation. Only on the base build: a
+        // permutation returned above is a draw-time sibling, and its base was requested when it loaded.
+        if ( Graphic::MeshCellPath( shaderName ) )
+            for ( const auto cellPath : { Graphic::MeshVertexPath::Static, Graphic::MeshVertexPath::Instanced } )
+                if ( const auto gbufferCell =
+                          CellShaderOf( *asset, cellPath, Graphic::MeshPass::GBuffer, displaced ) )
+                    Graphic::MaterialPipelineRequests::Get().RequestCell( { .Shader   = gbufferCell.GetValue(),
+                                                                            .Path     = cellPath,
+                                                                            .Pass     = Graphic::MeshPass::GBuffer,
+                                                                            .TwoSided = material->IsTwoSided() } );
         return material;
     }
 
@@ -728,6 +739,21 @@ namespace Desert::Runtime
         return material && m_BuiltToAsset.count( material ) != 0;
     }
 
+    bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
+    {
+        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
+    }
+
+    uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const
+    {
+        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        if ( it == m_BuiltToAsset.end() )
+            return 0;
+        const auto revision = m_BuildRevisions.find( it->second );
+        return revision != m_BuildRevisions.end() ? revision->second : 0;
+    }
+
     std::vector<Graphic::Material*> MaterialService::GetBuiltVariants( const Assets::AssetHandle& handle ) const
     {
         std::vector<Graphic::Material*> out;
@@ -921,6 +947,9 @@ namespace Desert::Runtime
     {
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
+        // The revisions outlive the clear and move: a material built after it is a new build of its asset.
+        for ( const auto& [handle, variants] : m_Materials )
+            ++m_BuildRevisions[handle];
         m_Materials.clear();
         m_ViewMaterials.clear();
         m_BuiltToAsset.clear();
@@ -966,6 +995,7 @@ namespace Desert::Runtime
                                   Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             m_ViewMaterials.erase( views );
         }
+        ++m_BuildRevisions[handle];
         ++m_InvalidationVersion; // cached instance sets rebuild on their next system tick
     }
 

@@ -1,6 +1,7 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
@@ -372,11 +373,9 @@ namespace Desert::Graphic
             }
             case 5:
             {
-                const auto& jumpFloodSystem =
-                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-                // Tonemap consumes the Jump Flood output (the outlined scene).
-                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this,
-                                                         jumpFloodSystem->GetSystemFramebuffer() );
+                // The tonemap reads the frame's post input, or the outline's transient output when something is
+                // outlined (AddFrameJumpFlood); its own image is sized from the scene target here.
+                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, m_TargetFramebuffer );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -645,6 +644,25 @@ namespace Desert::Graphic
         m_CameraCutPending = true;
         LOG_INFO( "[SceneRenderer] {}: temporal history reset over {} render system(s).",
                   m_ViewResources.GetName(), m_RenderSystemOrder.size() );
+    }
+
+    void SceneRenderer::ReleaseWorldResources()
+    {
+        const ActiveViewScope          viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
+        m_OwnSurfaceCache.reset();
+        m_RadianceCache.reset();
+        m_ScreenProbeGather.reset();
+        m_IrradianceFieldGather.reset();
+        m_GlobalDistanceFieldView.reset();
+        m_OwnGlobalDistanceField.reset();
+        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
+            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->ReleaseWorldCaches();
+        ResetTemporalHistory();
+        LOG_INFO( "[SceneRenderer] {}: the old world's view resources released (surface cache, radiance cache, "
+                  "probe gathers, global distance field, terrain materials).",
+                  m_ViewResources.GetName() );
     }
 
     namespace
@@ -1065,14 +1083,16 @@ namespace Desert::Graphic
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_PathTracingSettings                 = System::PathTracer::Settings{
-                             .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
-                             .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
-                             .MaxPathIntensity =
-                                  quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
-                             .Denoiser = quality.As<Common::Scalability::PathTracingDenoiserMethod>(
-                                  Parameter::PathTracingDenoiser ) };
+        m_PathTracingSettings                    = System::PathTracer::Settings{
+                                .SamplesPerPixel  = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
+                                .PathsPerFrame    = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
+                                .MaxBounces       = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                                .MaxPathIntensity = quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                                .Denoiser =
+                  quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
+                                .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
+                  quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
         m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
@@ -1579,12 +1599,9 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
-            // With the scene's lit-material state (the forward terrain receives the point and spot lights the
-            // meshes do). The shadowed point/spot lights' draws follow UpdateLocalShadows below
-            // (PrepareLocalShadowViews): their views do not exist yet here.
-            const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
-                 ->PrepareFrame( frame, meshes->CaptureFrameState( &frame ) );
+            // The shadowed point/spot lights' draws and the scene's lit-material state follow UpdateLocalShadows
+            // below (PrepareLocalShadowViews, ApplySceneFrame): the lights' views do not exist yet here.
+            UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame( frame );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
         if ( const Common::BoolResultStr physical =
@@ -1639,6 +1656,21 @@ namespace Desert::Graphic
             textures.AddGraphColor( m_GBuffer, ThinGeometryCoverageColor( coverage, 1 ) );
         }
         const auto values = std::make_shared<FrameValues>();
+
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
+        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
+        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles. Before the GPU
+        // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
+        // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
+        // after it has no row in the scene material table and is refused at draw.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
 
         // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
         // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
@@ -1709,18 +1741,6 @@ namespace Desert::Graphic
 
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
-
-        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
-        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
-        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles.
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
-                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
 
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
         // whose TLAS could not be declared still draws; its ray readers see GetFrame().Built == false.
@@ -1898,6 +1918,12 @@ namespace Desert::Graphic
                      ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights() );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
+                // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
+                // lit-material state goes onto its forward program here (the meshes' forward snapshot).
+                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                     ->ApplySceneFrame( localShadowMeshes->CaptureFrameState( &frame ) );
+                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
                 // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
                 // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history
                 // is released once every frame in flight that read it completed, whatever the method is now.
@@ -3043,9 +3069,7 @@ namespace Desert::Graphic
             overdrawFb->Resize( width, height );
 #endif
 
-        // The outline's composite reads the scene target: the scene's extent.
-        UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
-             ->OnResize( width, height );
+        // The outline keeps no image: its seeds and output are the frame's transients at the scene's extent.
     }
 
     namespace
@@ -3061,6 +3085,48 @@ namespace Desert::Graphic
             return mesh.GetGeometry().IsResident();
         }
     } // namespace
+
+    namespace
+    {
+        // TEX-STREAMING: a draw's world bounding sphere (the LOD rule's: box centre, half-diagonal x largest
+        // scale) through @p transform.
+        std::pair<glm::vec3, float> WorldSphere( const Common::Math::AABB& local, const glm::mat4& transform )
+        {
+            const float scale = glm::max(
+                 glm::length( glm::vec3( transform[0] ) ),
+                 glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
+            return { glm::vec3( transform * glm::vec4( 0.5f * ( local.Min + local.Max ), 1.0f ) ),
+                     glm::length( local.Max - local.Min ) * 0.5f * scale };
+        }
+    } // namespace
+
+    float SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
+                                            const std::span<const Material* const> materials,
+                                            const MaterialOverrides*               overrides ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
+            return 0.0f;
+        const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+        if ( Geometry::IsEmpty( local ) )
+            return 0.0f;
+        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        // The largest any instance covers: the nearest instance decides what the shared textures must hold.
+        float pixels = 0.0f;
+        for ( const glm::mat4& transform : transforms )
+        {
+            const auto [center, radius] = WorldSphere( local, transform );
+            pixels                      = std::max(
+                 pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
+        }
+        auto& demand = TextureStreamingDemand::Get();
+        for ( const Material* material : materials )
+            demand.Note( material, pixels );
+        if ( overrides != nullptr )
+            for ( const auto& [slot, asset] : overrides->Textures )
+                demand.NoteAsset( Common::AssetHandle( asset ), pixels );
+        return pixels;
+    }
 
     bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
                                                  float maxDrawDistance ) const
@@ -3103,6 +3169,14 @@ namespace Desert::Graphic
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         if ( !ReadyForDraw( *drawnMesh ) )
             return;
+        {
+            // Main thread only (the submit path): one scratch list of the slots' parents, reused per draw.
+            static std::vector<const Material*> parents;
+            parents.clear();
+            for ( const MaterialInstance* slot : materialSlots->Slots )
+                parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
+            NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), parents );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
                              .MotionPart               = extra.MotionPart,
@@ -3128,6 +3202,24 @@ namespace Desert::Graphic
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {
+        // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
+        // tile's square around its base height, so a camera over the tile asks for everything.
+        if ( const auto* camera = GetMainCamera(); camera != nullptr && GetViewExtent().Height != 0 )
+        {
+            const float     side   = static_cast<float>( tile.QuadsPerTile ) * tile.SpacingCm;
+            const glm::vec3 center = { tile.OriginX + ( static_cast<float>( tile.FirstSampleX ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm,
+                                       tile.BaseY,
+                                       tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm };
+            const float     pixels = TextureStreamingDemand::ScreenPixels(
+                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                 GetViewExtent().Height );
+            for ( const auto& [slot, asset] : overrides.Textures )
+                TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
+        }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
@@ -3154,6 +3246,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( const float pixels =
+                  NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), {}, &overrides );
+             directTexture != nullptr )
+            TextureStreamingDemand::Get().NoteAsset( directTexture->GetOwningAsset(), pixels );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
                                     .Mesh                 = mesh,
@@ -3174,6 +3270,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        {
+            const Material* const drawn[] = { material };
+            NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), drawn );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity      = entity,
                                     .MotionPart  = motionPart,
@@ -3203,6 +3303,14 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetDrawCommandCache();
     }
 
+    uint32_t SceneRenderer::GetStandInDraws() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetStandInDraws();
+    }
+
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
     {
         const auto found = m_RenderSystems.find( "MeshSystem" );
@@ -3220,6 +3328,13 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( transforms )
+        {
+            const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
+                                              displacedMaterial ? displacedMaterial->GetParentMaterial()
+                                                                : nullptr };
+            NoteTextureDemand( *mesh, *transforms, drawn );
+        }
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
         // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the
@@ -3632,9 +3747,11 @@ namespace Desert::Graphic
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
                                                                                    bool hasOpaqueDepth ) const
     {
-        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip. The view's PostProcess Contact
+        // Shadows (m_RenderMethods.ContactShadows) gates the march for every light, as UE's r.ContactShadows does;
+        // each light's ContactShadowLength then says how far it reaches (0 = none).
         return SceneResources::ContactShadowSettings{
-             .Steps                  = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .Steps                  = hasOpaqueDepth && m_RenderMethods.ContactShadows ? m_ContactShadowSteps : 0,
              .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
              .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
              .SunLength              = m_SunContactShadowLength,

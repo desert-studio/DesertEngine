@@ -188,9 +188,9 @@ namespace Desert::Graphic::System
         if ( !SetupDebugLinePass() )
             return Common::MakeError( "Failed to setup debug line pass" );
 
-        // Overdraw is an optional debug view — never fatal if its shaders are missing.
-        if ( !SetupOverdrawPass() )
-            LOG_WARN( "[MeshRenderer] Overdraw debug view unavailable (shaders missing)." );
+        // The overdraw view is NOT set up here: its RGBA32F accumulation target is the view's size and only the
+        // Overdraw debug mode reads it, so it is made the first frame that mode is chosen (EnsureOverdrawPass) -
+        // a game, which never chooses it, pays nothing.
 #endif // DESERT_DEV_INSTRUMENTS
 
         // Shared instanced material for auto-batching (only usable if the instanced pipeline/shader exist).

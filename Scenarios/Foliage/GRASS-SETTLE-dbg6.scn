@@ -1,0 +1,21 @@
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда run View "View mode: Shadow Factor"
+Тогда-вид 0a_sf early
+Когда run View "View mode: Shadow Cascades"
+Тогда-вид 0b_casc early
+Когда run View "View mode: Reflections"
+Тогда-вид 0c_refl early
+Когда run View "View mode: Lit"
+Тогда-вид 1a_lit lit
+Когда run View "View mode: Shadow Factor"
+Тогда-вид 2a_sf late
+Когда run View "View mode: Reflections"
+Тогда-вид 2c_refl late
+Когда run View "View mode: Lit"
+Тогда-вид 2d_lit late

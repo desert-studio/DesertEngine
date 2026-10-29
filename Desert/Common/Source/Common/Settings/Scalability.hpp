@@ -130,8 +130,8 @@ namespace Common::Scalability
         // skinned TLAS geometry. Values: 0/1
         SkinCache,
         // Mesh displacement (Graphic::System::DisplacementCache, CONTRACT-DISPLACE §1f): pixels a diced edge
-        // covers on screen (UE r.Nanite.DicingRate); 0 = runtime displacement off, the surfaces keep their parallax
-        // (the counted Low downgrade, §9.10). 0..8
+        // covers on screen (UE r.Nanite.DicingRate); 0 = runtime displacement off, the surfaces keep their
+        // parallax (the counted Low downgrade, §9.10). 0..8
         DisplacementDicingRate,
         // The displaced geometry pool, MiB: when the requested levels do not fit, levels are lowered from the
         // smallest screen size up and counted (DisplacementStats::LevelsLowered). 64..1024
@@ -145,9 +145,9 @@ namespace Common::Scalability
         // Shadow rays per pixel of "Shadows: Ray Traced Sun" inside the SourceAngle cone (UE
         // r.RayTracing.Shadows.SamplesPerPixel); the denoiser's ShadowVisibility signal takes at most 8. 1..8
         ShadowRayTracedSamplesPerPixel,
-        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample ShadowCascadesTexture
-        // (translucency; volumes when one reads them): drawn only on a frame with such a reader
-        // (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
+        // Under a ray-traced sun, the sun's cascades kept for the blended programs that sample
+        // ShadowCascadesTexture (translucency; volumes when one reads them): drawn only on a frame with such a
+        // reader (MeshRenderer::SunCascadeReadersQueued). Count 1..4 and texel side 256..2048.
         ShadowRayTracedTranslucencyCascades,
         ShadowRayTracedTranslucencyMapSize,
         // THE QUALITY OF EACH IMPLEMENTED METHOD (METHOD-QUALITY; UE sg.ShadowQuality / GlobalIlluminationQuality
@@ -236,7 +236,8 @@ namespace Common::Scalability
         TsrResurrection,               // r.TSR.Resurrection: resurrect disoccluded history from a kept frame. 0/1
         // ---- placeholders (Reader = nullopt) ----
         TextureMipBias,          // Textures: sampler LOD bias, in 1/100 mip
-        TextureStreamingPoolMiB, // Textures: resident texture budget
+        TextureStreamingPoolMiB, // Textures: mip streaming pool budget (r.Streaming.PoolSize) -- NOT a placeholder
+                                 // since TEX-STREAMING: TextureService::UpdateStreaming reads it
         TemporalAAQuality,       // AntiAliasing: TAA/TAAU history quality 0..2 (Low/Medium/High); reader
                                  // arrives with TAA1. Not AntiAliasing.Samples, which is MSAA-only.
         UpscalerSharpness,       // ResolutionScale: percent
@@ -268,10 +269,10 @@ namespace Common::Scalability
         HitLightingAllowed,                     // 0/1: a hardware-traced hit may be lit in place (UE
                                                 // r.Lumen.HardwareRayTracing.HitLighting.Allowed)
         // The path tracer (GIMethod / ReflectionMethod PathTraced, System::PathTracer). UE r.PathTracing.*.
-        PathTracingPathsPerFrame,   // paths traced per pixel per frame, 1..64 (UE traces one)
-        PathTracingMaxBounces,      // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
-        PathTracingSamplesPerPixel, // paths per pixel after which the view stops tracing, 1..65536 (UE
-                                    // r.PathTracing.SamplesPerPixel: the image is converged and kept)
+        PathTracingPathsPerFrame,    // paths traced per pixel per frame, 1..64 (UE traces one)
+        PathTracingMaxBounces,       // bounces after the camera ray's hit, 0..64 (UE r.PathTracing.MaxBounces)
+        PathTracingSamplesPerPixel,  // paths per pixel after which the view stops tracing, 1..65536 (UE
+                                     // r.PathTracing.SamplesPerPixel: the image is converged and kept)
         PathTracingMaxPathIntensity, // the brightest one path's contribution may be, in exposed units (1 ~ the
                                      // image's white), 0 = no clamp, 0..65536 (UE r.PathTracing.MaxPathIntensity /
                                      // PostProcessSettings.PathTracingMaxPathIntensity, default 24)
@@ -280,23 +281,31 @@ namespace Common::Scalability
         // the paths raw with their own guides), Auto (RR where offered, else ReLAX; never left in a resolved
         // quality).
         PathTracingDenoiser,
+        // 0/1: the ReLAX denoiser's anti-firefly (NRD ReLAX enableAntiFirefly, System::PathTracer "Denoise
+        // AntiFirefly"): a lobe's luminance above its 3 x 3 neighbourhood is handed to that neighbourhood before
+        // the a-trous, by at most two deviations of its mean (energy-conserving; the converged image is untouched)
+        PathTracingDenoiserAntiFirefly,
+        // How the path tracer chooses the one light of each vertex (System::PathTracer::LightSampling): 0 = every
+        // light by its estimate at the vertex (UE EstimateLight, O(lights) per vertex), 1 = the light grid (NVIDIA
+        // RTXDI ReGIR: per-cell light reservoirs built each frame, a few resampled at the vertex). Both unbiased.
+        PathTracingLightSampling,
         // GI SoftwareTraced / HardwareTraced screen probe layout, read by SceneRenderer::BeginScene into
         // ScreenProbeGatherInputs: the gather compiles its programs under it (ScreenProbeLayout, the shaders'
         // SP_DOWNSAMPLE_LOG2 / SP_TRACED_TEXELS permutation) and resizes its atlases on a change.
-        ScreenProbeDownsample,   // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
-                                 // r.Lumen.ScreenProbeGather.DownsampleFactor)
-        ScreenProbeTracedTexels, // traced octahedral texels per probe side, 4..16 (UE
-                                 // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
-        IrradianceFieldProbesPerFrame, // ProbeVolume's radiance-cache probes traced per frame (UE
-                                       // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
-                                       // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
-        ReflectionsHitLighting,        // 0/1: HardwareTraced reflections run hit lighting - the ray
-                                       // tracing pipeline with each hit surface's own material (UE
-                                       // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
-        ScreenProbeAdaptiveAllocation, // adaptive screen probes per uniform one, percent (UE
-                                       // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
-        ScreenProbeShortRangeAO,       // 0/1: the screen probe gather's own contact AO + bent normal (UE
-                                       // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
+        ScreenProbeDownsample,            // screen pixels per probe side, 8 / 16 / 32 / 64 (UE
+                                          // r.Lumen.ScreenProbeGather.DownsampleFactor)
+        ScreenProbeTracedTexels,          // traced octahedral texels per probe side, 4..16 (UE
+                                          // r.Lumen.ScreenProbeGather.TracingOctahedronResolution)
+        IrradianceFieldProbesPerFrame,    // ProbeVolume's radiance-cache probes traced per frame (UE
+                                          // r.Lumen.IrradianceFieldGather.NumProbesToTraceBudget), read by
+                                          // RadianceCache::MakeRadianceCacheInputs for GIMethod::ProbeVolume
+        ReflectionsHitLighting,           // 0/1: HardwareTraced reflections run hit lighting - the ray
+                                          // tracing pipeline with each hit surface's own material (UE
+                                          // r.Lumen.Reflections.HardwareRayTracing.LightingMode = hit lighting)
+        ScreenProbeAdaptiveAllocation,    // adaptive screen probes per uniform one, percent (UE
+                                          // r.Lumen.ScreenProbeGather.AdaptiveProbeAllocationFraction)
+        ScreenProbeShortRangeAO,          // 0/1: the screen probe gather's own contact AO + bent normal (UE
+                                          // r.Lumen.ScreenProbeGather.ShortRangeAO); 0 = SSAO occludes it
         ReflectionsTranslucentFrontLayer, // 0/1: the nearest translucent surface of a pixel writes its own
                                           // G-buffer and is reflected by the opaque surfaces' tracer and
                                           // denoiser; glass reads that reflection in place of the sky (UE
@@ -614,6 +623,12 @@ namespace Common::Scalability
         using Saver = Common::BoolResultStr ( * )( const QualitySelection& selection );
         static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved,
                                 Saver save );
+        // An UNATTENDED run (a scenario, a capture: Editor::IsUnattendedSession) changes the quality of THIS
+        // PROCESS only; the Saver is not called. UE: a cvar set by -ExecCmds or an automation test lives in the
+        // process and never reaches GameUserSettings.ini. Without this, one scenario's
+        // "GlobalIllumination.Method Off" became the machine's ceiling for every later run (Overrides cap all
+        // scenes). Called by the host right after Initialize; `why` names the run in the log.
+        static void KeepInSession( std::string_view why );
         // A device loss / new device: same selection, new catalog -> re-resolve, report what changed.
         static void ReplaceCatalog( CapabilityCatalog catalog );
 
@@ -624,6 +639,12 @@ namespace Common::Scalability
             std::vector<Fallback> NewFallbacks; // fallbacks not present in the previous resolution
             bool                  ValuesChanged = false;
             bool                  Saved         = false;
+            bool                  SessionOnly   = false; // KeepInSession: applied, deliberately not saved
+            // The change is where the caller asked: on disk, or (an unattended run) in this process by design.
+            [[nodiscard]] bool Kept() const noexcept
+            {
+                return Saved || SessionOnly;
+            }
             std::string_view      Refused; // non-empty: nothing was applied, and why (logged at ERROR)
         };
         // THE apply point: resolve, log each NEW fallback once, publish ResolvedQuality (Generation + 1 when

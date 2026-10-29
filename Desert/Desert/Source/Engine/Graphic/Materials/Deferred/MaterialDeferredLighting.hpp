@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
+#include <Engine/Graphic/DebugViewState.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 
@@ -59,6 +60,10 @@ namespace Desert::Graphic
         SceneResources::ContactShadowSettings Contact{};
         // The sun's PCSS taps (SceneResources::PackShadowFilter); read by the cascade program only.
         SceneResources::ShadowFilterSettings Filter{};
+        // The view's directional-shadow view mode (UE "Shadow" / CSM visualization in the lighting pass): ShadowFactor
+        // writes the sun's occlusion as grey, Cascades tints the lit colour by the sun's chosen cascade. Rides
+        // ShadowUB DebugParams.z, the slot the forward mesh shaders read it from.
+        ShadowDebugMode Debug = ShadowDebugMode::Off;
     };
 
     // Where the composite's indirect light comes from (DeferredLighting.shader Params.w / ScreenSpaceGi).
@@ -97,7 +102,7 @@ namespace Desert::Graphic
                  SceneResources::PackDirectionalShadows( data, lights );
              },
              shadow.Sun );
-        data.DebugParams = glm::vec4( 0.0f );
+        data.DebugParams = glm::vec4( 0.0f, 0.0f, static_cast<float>( shadow.Debug ), 0.0f );
         SceneResources::PackContactShadow( data, shadow.Contact );
         SceneResources::PackShadowFilter( data, shadow.Filter );
         return data;

@@ -77,16 +77,22 @@ namespace Desert::Graphic::System
 
         // Before the render graph records, inside the view's frame (after SceneViewState::BeginFrame accepted
         // it): resolves every queued terrain's material, packs the rows and uploads them, with @p frame's
-        // matrices — the same view every other pass of the frame draws for — with @p scene's lights, shadow
-        // block and cloud shadow on the forward program (MeshRenderer::CaptureFrameState). The instance rows go
-        // up in PrepareLocalShadowViews, which must follow it: nothing may draw a terrain before both ran.
-        void PrepareFrame( const ViewFrame& frame, const SceneFrameBinding& scene );
+        // matrices — the same view every other pass of the frame draws for. The instance rows go up in
+        // PrepareLocalShadowViews and the scene's blocks in ApplySceneFrame, which must follow it: nothing may
+        // draw a terrain before all three ran.
+        void PrepareFrame( const ViewFrame& frame );
 
         // After PrepareFrame AND MeshRenderer::UpdateLocalShadows (the lights get their views there, later in the
         // frame than PrepareFrame, whose rows the TLAS and the motion rows read first): for each of @p localLights
         // (MeshRenderer::GetLocalShadowCasterLights) the tiles in its reach at the LOD its own position asks for,
         // with their cache key (LocalShadowSignature), then the instance rows of every group are uploaded.
         void PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights );
+
+        // After PrepareLocalShadowViews and SceneRenderer::AssignLocalShadowMaskSlots (every point/spot light has
+        // its final ShadowView / ShadowMaskSlot): @p scene's lights, shadow block and cloud shadow onto the
+        // forward program of every group of the frame (MeshRenderer::CaptureFrameState - the snapshot the meshes'
+        // forward materials take). Forward path only; the deferred composite lights the G-buffer terrain.
+        void ApplySceneFrame( const SceneFrameBinding& scene );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
@@ -141,6 +147,16 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const TerrainFrameMaterial> GetFrameMaterials() const
         {
             return m_FrameMaterials;
+        }
+
+        // THE WORLD WAS TORN DOWN (SceneRenderer::ReleaseWorldResources): the landscape materials and their layer
+        // arrays belong to the old world's landscapes. Kept, a reopen of the same scene rebuilt every array from
+        // its re-read textures while the old ones were still owed deletion (FIELD-MEM p3: 4 x 64.5 MB twice).
+        void ReleaseWorldCaches()
+        {
+            ClearQueue();
+            m_Materials.clear();
+            m_LayerInputs.clear();
         }
 
         void ClearQueue()

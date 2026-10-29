@@ -94,6 +94,10 @@ namespace
         {
             return true;
         }
+        float GetContentScale() const override
+        {
+            return 1.0f;
+        }
         bool HasDrawableArea() const override
         {
             return true;

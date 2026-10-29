@@ -1,0 +1,30 @@
+# LOCAL-SHADOW-COVER: point/spot shadows on the FORWARD path (Render Path Forward: every opaque mesh draws its forward
+# cell, lit by Mesh/ForwardLocalLights.glslh -> Mesh/LocalLightShadow.glslh, the reader the deferred composite uses), and
+# the LANDSCAPE as a local-shadow caster (TerrainRenderer is an IShadowCaster for the local views).
+# LSC_ForwardRoom = LocalShadows_Room with Render Path Forward; LocalShadows_Room itself (Deferred) is the reference.
+# LSC_TerrainLights(_Forward) = G3_TwoTerrains without its Sky entity (no sky light) and the sun at intensity 0, a point light (r 60 m) at the foot of a ridge of
+# TerrainPlain and a 5 m white pillar 29 m behind the ridge: the ridge hides the pillar's foot from the light (the
+# heightfield says the line light->pillar+0.5 m passes 1.9 m under the ridge, light->pillar+5 m passes 2.4 m over it).
+Дано run Scene "Open Scene LocalShadows_Room.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -220,380,260
+Дано --subject viewport set Camera.Direction 0.5,-0.5,-0.7
+Тогда-вид 1a_deferred reference: Deferred room, the ceiling spot's shadow of the small orange cube and the point lights' shadows of the pillar/cube on floor and walls
+Когда run Scene "Open Scene LSC_ForwardRoom.desce"
+Когда --subject viewport set Camera.Position -220,380,260
+Когда --subject viewport set Camera.Direction 0.5,-0.5,-0.7
+Тогда-вид 1_forward Forward path: the same shadows as 1a_deferred (spot shadow of the small cube, point shadows of pillar and cube)
+Когда run Scene "Open Scene LSC_TerrainLights.desce"
+Когда --subject viewport set Camera.Position 14961,600,3700
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Тогда-вид 2_terrain_wide Deferred: the point light lights the ridge's near slope; the pillar's foot lies in the ridge's shadow (dark), its top lit — the landscape casts the point light's shadow
+Когда --subject viewport set Camera.Position 12356,900,3742
+Когда --subject viewport set Camera.Direction 0.69,-0.17,-0.69
+Тогда-вид 2_terrain from behind the point light towards the pillar: the near slopes lit warm, the ground behind the ridge black (ridge shadow), only the pillar top lit
+Когда run Scene "Open Scene LSC_TerrainLightsForward.desce"
+Когда --subject viewport set Camera.Position 14961,600,3700
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Тогда-вид 2b_terrain_forward_wide Forward path: as 2_terrain_wide
+Когда --subject viewport set Camera.Position 12356,900,3742
+Когда --subject viewport set Camera.Direction 0.69,-0.17,-0.69
+Тогда-вид 2b_terrain_forward from behind the point light towards the pillar: the near slopes lit warm, the ground behind the ridge black (ridge shadow), only the pillar top lit — as 2_terrain

@@ -1,0 +1,14 @@
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид t1 lit
+Тогда-вид t2 lit
+Тогда-вид t3 lit
+Тогда-вид t4 lit
+Тогда-вид t5 lit
+Тогда-вид t6 lit
+Тогда-вид t7 lit

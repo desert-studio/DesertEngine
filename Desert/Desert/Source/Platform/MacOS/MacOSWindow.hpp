@@ -40,6 +40,7 @@ namespace Desert::Platform::MacOS
         }
 
         [[nodiscard]] bool HasDrawableArea() const override;
+        [[nodiscard]] float GetContentScale() const override;
 
         [[nodiscard]] Common::BoolResultStr SetWindowMode( WindowMode mode, uint32_t width,
                                                            uint32_t height ) override;

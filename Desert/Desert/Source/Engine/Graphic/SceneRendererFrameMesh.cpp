@@ -480,7 +480,7 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( meshRenderer == nullptr )
+        if ( meshRenderer == nullptr || !meshRenderer->EnsureOverdrawPass() )
             return;
         const auto accum =
              TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );

@@ -474,6 +474,7 @@ namespace Desert::Graphic::System
                     // The forward pipeline was Ready when the prepass admitted the draw; it is not now only if
                     // this pass shades another permutation than the one checked (the trace was refused this
                     // frame).
+                    ++m_StandInDraws; // not the scene's picture yet (GetStandInDraws)
                     if ( slice != GenericSlice::Forward && opaque )
                         continue;
                     if ( choice.Announce )
@@ -813,6 +814,34 @@ namespace Desert::Graphic::System
             else
                 m_MaterialPipelines.OnFailed( name );
         }
+        PrecacheRequestedCells();
+    }
+
+    void MeshRenderer::PrecacheRequestedCells()
+    {
+        for ( auto& cell : MaterialPipelineRequests::Get().CellsSince( m_CellRequestCursor ) )
+            m_PendingCellPrecache.push_back( std::move( cell ) );
+        std::erase_if( m_PendingCellPrecache,
+                       [this]( const MaterialPipelineRequests::CellRequest& cell )
+                       {
+                           GraphicsPipeline* passState = nullptr;
+                           if ( cell.Pass == MeshPass::GBuffer && cell.Path == MeshVertexPath::Static )
+                               passState = m_StaticGBufferPipeline.get();
+                           else if ( cell.Pass == MeshPass::GBuffer && cell.Path == MeshVertexPath::Instanced )
+                               passState = m_InstancedGBufferPipeline.get();
+                           else
+                           {
+                               LOG_ERROR( "[MeshRenderer] cell '{}' ({} x {}) has no pass state to precache on",
+                                          cell.Shader, MeshVertexPathName( cell.Path ),
+                                          MeshPassName( cell.Pass ) );
+                               return true;
+                           }
+                           if ( passState == nullptr )
+                               return false; // the G-buffer pass is set up on a later frame
+                           // A missing cell shader or a refused pipeline is logged by CellPipeline, once per key.
+                           (void)CullPermutation( CellPipeline( passState, cell.Shader ), cell.TwoSided );
+                           return true;
+                       } );
     }
 
     std::shared_ptr<GraphicsPipeline> MeshRenderer::DefaultSurfacePipeline()
@@ -881,6 +910,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
+        m_StandInDraws = 0; // counted again by this frame's ChoosePipelineDraw calls
         m_GenericDraws.Clear();
         if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
              m_SceneRenderer->GetMainCamera() == nullptr )

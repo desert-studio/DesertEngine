@@ -174,6 +174,8 @@ namespace Desert::Graphic::API::Vulkan
         NO_DISCARD Common::BoolResultStr RecordSetData( GpuBatch&                            batch,
                                                         const Core::Formats::ImagePixelData& data ) override;
         NO_DISCARD Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> sources ) override;
+        NO_DISCARD Common::BoolResultStr TakeDeviceImageFrom( Image2D& replacement ) override;
+        NO_DISCARD Common::BoolResultStr StreamOutLevels( uint32_t droppedLevels ) override;
 
         // --- IVulkanImage Interface ---
         [[nodiscard]] const VulkanImageResource& GetResource() const override { return m_Resource; }
@@ -216,7 +218,7 @@ namespace Desert::Graphic::API::Vulkan
         /// Which view and sampler a descriptor written from this image was written against: process-wide
         /// unique, minted whenever CreateResource or RecreateSampler replaces them. A cache keyed on the
         /// image (the editor's UI texture ids) compares it instead of trusting a recyclable VkImageView.
-        [[nodiscard]] uint64_t GetResourceGeneration() const noexcept
+        [[nodiscard]] uint64_t GetResourceGeneration() const noexcept override
         {
             return m_ResourceGeneration;
         }

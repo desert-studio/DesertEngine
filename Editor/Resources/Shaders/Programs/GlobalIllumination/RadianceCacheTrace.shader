@@ -103,7 +103,9 @@ Shader "RadianceCacheTrace"
 
             const uint  res     = radianceCache.shape.z;
             const ivec2 origin  = RadianceCacheProbeAtlasOrigin( radianceCache, probe, radianceCache.shape.w ) + 1;
-            const bool  fresh   = state.frames.y == 0u;
+            // Never traced, or last traced under the directional lights before the last full update (GRASS-SETTLE):
+            // its radiance holds the old sun and is not blended into the new one.
+            const bool  fresh   = state.frames.y == 0u || state.frames.y < LightingFrame;
             const float history = fresh ? 0.0 : ( state.frames.w != state.frames.z ? DirtyHistory : HistoryWeight );
             // The cone of one texel: its solid angle 4 pi / res^2 as a cone's half angle.
             const float cone    = sqrt( 4.0 / float( res * res ) );

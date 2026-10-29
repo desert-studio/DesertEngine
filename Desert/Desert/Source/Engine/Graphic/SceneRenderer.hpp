@@ -336,6 +336,15 @@ namespace Desert::Graphic
         // when its frame count starts, a camera cut or a teleport asks for the same thing.
         void ResetTemporalHistory();
 
+        // THE WORLD THIS VIEW DREW WAS TORN DOWN (UE: the FSceneViewState and the Lumen/distance-field scene data
+        // die with their FScene). Releases everything this view built FROM the old world - its surface cache,
+        // radiance cache, probe gathers, global distance field and the terrain's materials and layer arrays - and
+        // cuts the temporal history. Each is made again on first use by the next world. Called between frames by
+        // the opener, after the world is cleared and before the next one loads
+        // (SceneWorkspace::ReleaseActiveWorld), so the old world's device memory is given back before the new
+        // one's is asked for (FIELD-MEM p3).
+        void ReleaseWorldResources();
+
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
             return m_ViewExtent;
@@ -407,6 +416,9 @@ namespace Desert::Graphic
         /// The mesh passes' cached draw commands (MeshRenderer::GetDrawCommandCache): bins, slots and the CPU
         /// fallbacks per pass. Null before the first GpuScene sync.
         [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const;
+        /// Draws the last frame gave to the default surface while their own pipeline compiled
+        /// (MeshRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
+        [[nodiscard]] uint32_t GetStandInDraws() const;
         /// Triangles the last frame's view pass drew, at the LOD each mesh was drawn with
         /// (MeshRenderer::GetViewTrianglesDrawn).
         [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
@@ -418,6 +430,13 @@ namespace Desert::Graphic
         // and the one this replaces was an unconditional append in the cascade pass.
         // `Mesh*` AND NOT `const Mesh*`, and that removes a const_cast rather than adding a hazard: the
         // only caller holds a non-const mesh, and the queue this reaches needs one too.
+        /// TEX-STREAMING: tells Graphic::TextureStreamingDemand how many screen pixels the nearest of
+        /// @p transforms covers with @p mesh, for every texture @p materials bind and every texture asset
+        /// @p overrides name; answers that size (0 when there is no main camera or the mesh has no bounds).
+        float NoteTextureDemand( const Mesh& mesh, std::span<const glm::mat4> transforms,
+                                 std::span<const Material* const> materials,
+                                 const MaterialOverrides*         overrides = nullptr ) const;
+
         void SubmitInstancedMesh( uint32_t entity, Mesh* mesh, const MaterialInstancePtr& material,
                                   uint64_t                                             hiddenSubmeshes,
                                   const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
@@ -721,6 +740,16 @@ namespace Desert::Graphic
             return FrameSun{ .Direction      = m_AtmosphereLight1->Light.Direction,
                              .ColorIntensity = m_AtmosphereLight1->Light.ColorIntensity };
         }
+        // Both as the world-space GI histories compare them (GlobalIllumination::InvalidatesLightingHistory).
+        [[nodiscard]] GlobalIllumination::DirectionalLighting GetFrameDirectionalLighting() const
+        {
+            const FrameSun sun    = GetFrameSun();
+            const FrameSun light1 = GetFrameLight1();
+            return { .SunDirection         = sun.Direction,
+                     .SunColorIntensity    = sun.ColorIntensity,
+                     .Light1Direction      = light1.Direction,
+                     .Light1ColorIntensity = light1.ColorIntensity };
+        }
 
         /// THE view's contact shadows (Common/ContactShadow.glslh): the march's view values and the sun's length,
         /// packed into ShadowUB for every lit pass (the deferred composite, the forward meshes, the glass).
@@ -735,6 +764,9 @@ namespace Desert::Graphic
         /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
         /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        /// GRASS-SETTLE p14: this view's last frame drew a grass variety that may hold fewer instances than its
+        /// generator keeps (GrassRenderer::InstancesSettling) - the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'

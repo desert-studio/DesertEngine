@@ -48,6 +48,9 @@ namespace Desert::Graphic::System
         std::array<std::shared_ptr<Image2D>, kTerrainLayerMapKinds> Arrays{};
         /// What each array was copied from, slice order: the rebuild key.
         std::array<std::vector<const Image2D*>, kTerrainLayerMapKinds> Sources{};
+        /// Each source's Image2D::GetResourceGeneration when its array was copied: a streamed mip change swaps a
+        /// source's levels inside the same Image2D (TEX-STREAMING), so the pointers alone miss it.
+        std::array<std::vector<uint64_t>, kTerrainLayerMapKinds> Generations{};
         /// Whether each array holds its sources (false: none, or the copy was refused - the kind draws flat).
         std::array<bool, kTerrainLayerMapKinds> Filled{};
         /// The names of the four array properties, from the template.
@@ -89,15 +92,18 @@ namespace Desert::Graphic::System
     {
         /// FarTilingDistance (cm), FarTilingScale, MacroVariationSize (cm), MacroVariationStrength.
         glm::vec4 Tiling{ 0.0f };
+        /// DetailNormalScale (times the input's tile size), DetailNormalStrength, MacroHueSize (cm), MacroHueStrength
+        /// (radians).
+        glm::vec4 Detail{ 0.0f };
         /// Input k's LayerKTint.
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerTint{};
-        /// Input k's (LayerKTileSize cm, LayerKBlend, 0, 0).
+        /// Input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0).
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> LayerParams{};
     };
     static_assert( World::Landscape::kLandscapeMaxWeightLayers == 8u,
                    "Common/LandscapeSurface.glslh LandscapeMaterial declares eight inputs" );
-    static_assert( sizeof( LandscapeMaterialValues ) == 17u * sizeof( glm::vec4 ),
-                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 17 vec4 slots" );
+    static_assert( sizeof( LandscapeMaterialValues ) == 18u * sizeof( glm::vec4 ),
+                   "LandscapeMaterialValues is GLSL LandscapeMaterial's 18 vec4 slots" );
 
     /**
      * @brief A tile's landscape material as the raster drew it this frame, outside the draw

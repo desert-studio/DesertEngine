@@ -197,7 +197,8 @@ namespace Desert::Graphic
         std::vector<SurfaceCache::SceneInstance> instances;
         meshRenderer->GatherSurfaceCacheInstances( instances );
         auto update = cache->UpdateScene( instances, frame.CameraPosition,
-                                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+                                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
+                                          GetFrameDirectionalLighting() );
         if ( !update )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );
@@ -369,7 +370,8 @@ namespace Desert::Graphic
         const auto                     drawn =
              atlasView ? cache->AddAtlasViewPass( graph, import, target )
                                            : cache->AddSceneViewPass( graph, import, target, record.Scene, record.Buffers,
-                                                                               litView, frame.ViewProjection, frame.CameraPosition );
+                                                                               litView, frame.ViewProjection, frame.CameraPosition,
+                                                                               frame.PreExposure );
         if ( !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Surface Cache: {}", drawn.GetError() );
         // The record's graph buffers die with this graph.

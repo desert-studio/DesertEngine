@@ -40,6 +40,7 @@
 #include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/System/SystemRules.hpp>
@@ -536,7 +537,9 @@ namespace Desert::Editor
     }
 
     std::optional<int32_t> ControlService::OnFramePresented( const bool displacementUnsettled,
-                                                             const bool subsurfaceHistoryConverging )
+                                                             const bool subsurfaceHistoryConverging,
+                                                             const bool materialPipelinesCompiling,
+                                                             const bool grassInstancesSettling )
     {
         ++m_FrameIndex;
         // THE ONE ENTRY OF THE CENSUS TAKEN AFTER THE FRAME, NOT BEFORE IT, because only the frame itself decides
@@ -549,6 +552,16 @@ namespace Desert::Editor
         // read a full history window (SSS-PROFILE 3_scale4: a shot right after `SubsurfaceScale 4` saw fresh
         // texels).
         m_FrameQuiescence.Set( Control::PendingWork::SubsurfaceHistory, subsurfaceHistoryConverging );
+        // Also decided by the frame itself (GRASS-SETTLE): a draw whose pipeline was still on a worker was drawn
+        // with the default surface, so the frame is not the scene. UE's automated screenshot calls
+        // FinishAllCompilation first; here the reply/shot waits for a frame with no stand-in (FIELD_Barn
+        // 1_first: a grey-blue foliage patch with a straight edge, its GBuffer_TwoSided cell compiling).
+        m_FrameQuiescence.Set( Control::PendingWork::MaterialPipelines, materialPipelinesCompiling );
+        // And the grass (GRASS-SETTLE p14): after a camera cut its instance buffers are sized by the previous
+        // view's GPU count and the generator drops the rest, so a block of cells drew without its meshes until the
+        // count came back. UE's automated screenshot waits for the async grass builds; here the reply waits for a
+        // frame whose every grass variety read back within capacity (GrassRenderer::InstancesSettling).
+        m_FrameQuiescence.Set( Control::PendingWork::GrassInstances, grassInstancesSettling );
 
         if ( !m_ControlSocket.IsListening() )
             return std::nullopt;
@@ -1214,6 +1227,16 @@ namespace Desert::Editor
                                         : camera->GetDirection();
 
         PlaceEditorCamera( *camera, position, forward );
+        // A PLACED POSE IS A TELEPORT, so it is a camera cut for every view this camera feeds (UE
+        // FEditorViewportClient::SetIsCameraCut -> FSceneView::bCameraCut, as a bookmark jump makes it): the
+        // histories reprojected from the old pose are reset. Without it the temporal history of the pose before
+        // (a far view seconds away) was reprojected into the new one and settled over seconds as a pale block with
+        // a straight edge (GRASS-SETTLE p21). A camera a person flies is never cut.
+        if ( const auto& scene = m_Workspace.ActiveScene() )
+            for ( size_t view = 0; view < scene->GetViewCount(); ++view )
+                if ( scene->GetViewCamera( view ).get() == camera )
+                    if ( auto* renderer = scene->GetViewRenderer( view ) )
+                        renderer->ResetTemporalHistory();
 
         // INPUT IS NOT DISABLED, and the difference from the capture path is deliberate. `--shot` turns it
         // off because nothing may nudge the camera between the placement and the readback, and there is no
@@ -1371,6 +1394,35 @@ namespace Desert::Editor
                       m_Workspace.PrimaryRenderer()->GetDrawBinPhaseCounts() )
                     snapshot.DrawBinViews.push_back(
                          DrawBinViewSnapshot{ .Name = view.Name, .Phase1 = view.Phase1, .Phase2 = view.Phase2 } );
+        }
+
+        {
+            // The NN layer's device facts and kernel path (Engine::DeviceCapabilities::Neural), as chosen at
+            // start-up.
+            const Engine::DeviceCapabilities& capabilities = EngineContext::GetInstance().GetCapabilities();
+            const Engine::NeuralComputeCaps&  neural       = capabilities.Neural;
+            Control::DeviceSnapshot&          device       = snapshot.Device;
+            device.Name                                    = capabilities.Name;
+            device.NnPath                                  = Engine::NeuralKernelPathName( neural.Path );
+            device.NnTile                                  = neural.Path == Engine::NeuralKernelPath::CoopMatFp16
+                                                                  ? Engine::FormatCooperativeMatrixShape( neural.Tile )
+                                                                  : std::string{};
+            device.NnReason                                = neural.Reason;
+            device.NnShaderFloat16                         = neural.ShaderFloat16;
+            device.NnShaderInt8                            = neural.ShaderInt8;
+            device.NnStorageBuffer16BitAccess              = neural.StorageBuffer16BitAccess;
+            device.NnStorageBuffer8BitAccess               = neural.StorageBuffer8BitAccess;
+            device.NnSubgroupSizeControl                   = neural.SubgroupSizeControl;
+            device.NnCooperativeMatrix                     = neural.CooperativeMatrix;
+            device.NnCooperativeMatrixCompute              = neural.CooperativeMatrixInCompute;
+            device.NnComputeRequiredSubgroupSize           = neural.ComputeSubgroupSizeRequirable;
+            device.NnSubgroupSize                          = neural.SubgroupSize;
+            device.NnMinSubgroupSize                       = neural.MinSubgroupSize;
+            device.NnMaxSubgroupSize                       = neural.MaxSubgroupSize;
+            device.NnMaxPushConstantsSize                  = neural.MaxPushConstantsSize;
+            device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
+            for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
+                device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

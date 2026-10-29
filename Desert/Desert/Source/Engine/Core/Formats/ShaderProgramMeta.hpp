@@ -350,6 +350,11 @@ namespace Desert::Core::Formats
         std::string OffsetParam;   // Vec2
         std::string RotationParam; // Float, radians
         std::string ClipParam;     // the Float clip threshold: a texel whose mask is below it is cut
+        // UE bDitherOpacityMask: a Float parameter named kSurfaceMaskDitherParam, when the template declares one.
+        // A material that sets it > 0.5 keeps a pixel with PROBABILITY = mask (a per-pixel dither threshold that
+        // TAA integrates) instead of cutting at ClipParam: a leaf smaller than a texel of the level it samples
+        // keeps its share of the pixel, which no threshold on a mip can do. Empty = the template never dithers.
+        std::string DitherParam;
 
         bool operator==( const SurfaceOpacityMask& ) const = default;
     };

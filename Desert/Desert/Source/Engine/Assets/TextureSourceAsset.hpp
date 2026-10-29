@@ -29,6 +29,7 @@
 #include <Common/Core/UUID.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -48,7 +49,9 @@ namespace Desert::Assets
     //   1  IMPT = SourceFile, SourceHash, Intent
     //   2  + ColorSpace (TEX-SRGB, UE UTexture::SRGB). A version-1 asset is REFUSED by the reader and raised by
     //      SceneMigrator (UpgradeTextureSourceAsset), never read leniently.
-    inline constexpr uint32_t kTextureAssetSubsystemVersion = 2;
+    //   3  + AlphaCoverageThresholds (FOLIAGE-ALPHA-MIPS, UE UTexture::AlphaCoverageThresholds). Versions 1 and 2
+    //      are raised by UpgradeTextureSourceAsset with no channel preserved (the cook they had).
+    inline constexpr uint32_t kTextureAssetSubsystemVersion = 3;
 
     // Import settings: what, besides the source bytes, shapes the platform data. Serialized into IMPT and,
     // separately and in a fixed order, into the DDC key (SerializeTextureSettingsForKey).
@@ -60,6 +63,12 @@ namespace Desert::Assets
         // ORM/masks Linear) or, with no slot, DefaultTextureColorSpace. Drives the mip filter (linear light)
         // and the GPU view format (*_SRGB).
         Core::Formats::TextureColorSpace ColorSpace = Core::Formats::TextureColorSpace::SRGB;
+        // UE UTexture::bPreserveAlphaCoverage + AlphaCoverageThresholds, one field: a channel (R, G, B, A) whose
+        // threshold is > 0 keeps, in every mip, the share of texels at or above it that level 0 has
+        // (Serialization::BuildMipChain). Set at material import on the image a MASKED material clips (threshold =
+        // its OpacityMaskClipValue, channel = its OpacityChannel) so foliage keeps its silhouette with distance;
+        // all 0 = plain filtering. Part of the DDC key.
+        std::array<float, 4>             AlphaCoverageThresholds{ 0.0f, 0.0f, 0.0f, 0.0f };
         bool                             operator==( const TextureImportSettings& ) const = default;
     };
 
@@ -133,8 +142,14 @@ namespace Desert::Assets
     Core::Formats::TextureColorSpace DefaultTextureColorSpace( Core::Formats::TextureIntent intent,
                                                                std::span<const std::byte>   sourceBytes );
 
-    // SceneMigrator's step for a version-1 `.detex` (no ColorSpace): the same asset at the current version with
-    // ColorSpace = DefaultTextureColorSpace. nullopt = already current; an error = not a texture asset or
+    // Writes AlphaCoverageThresholds into the texture asset at @p path (UE: the texture's Details). true = the file
+    // changed, false = it already carried them.
+    Common::ResultStr<bool> SetTextureAlphaCoverage( const std::filesystem::path& path,
+                                                     const std::array<float, 4>&  thresholds );
+
+    // SceneMigrator's step for a version-1 `.detex` (no ColorSpace) or a version-2 one (no AlphaCoverageThresholds):
+    // the same asset at the current version, a version-1 one with ColorSpace = DefaultTextureColorSpace, both with
+    // no channel's coverage preserved. nullopt = already current; an error = not a texture asset or
     // unreadable at either version.
     Common::ResultStr<std::optional<std::vector<std::byte>>>
     UpgradeTextureSourceAsset( std::span<const std::byte> file );

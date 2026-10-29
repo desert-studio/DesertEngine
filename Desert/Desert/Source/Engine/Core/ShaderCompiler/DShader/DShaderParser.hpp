@@ -231,6 +231,10 @@ namespace Desert::Core::Preprocess
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.
     inline constexpr std::string_view kSurfaceMaskClipParam = "OpacityMaskClipValue";
+    // UE's Dither Opacity Mask (bDitherOpacityMask): OPTIONAL. A Masked template that declares a Float of this
+    // name lets each material choose a dithered cut (keep with probability = mask, Mesh/Surface/SurfaceTypes.glslh
+    // DESERT_SURFACE_CLIP) over the threshold; declared as anything but a Float it is refused.
+    inline constexpr std::string_view kSurfaceMaskDitherParam = "DitherOpacityMask";
 
     std::string SurfaceCellName( std::string_view path, std::string_view pass );
     std::string SurfaceVertexInclude( std::string_view path );

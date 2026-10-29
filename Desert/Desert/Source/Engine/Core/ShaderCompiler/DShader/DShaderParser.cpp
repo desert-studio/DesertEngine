@@ -1751,9 +1751,16 @@ namespace Desert::Core::Preprocess
                  mask.ChannelParam.empty()
                       ? std::to_string( mask.Channel )
                       : std::format( "clamp( int( Material.{} ), 0, 3 )", mask.ChannelParam );
-            return std::format( "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
+            // The dither switch is a macro, not a function: DESERT_SURFACE_CLIP reads gl_FragCoord and the view
+            // block at its own (fragment) call site, and a function using either would not compile in a vertex
+            // stage.
+            const std::string dither =
+                 mask.DitherParam.empty()
+                      ? std::string()
+                      : std::format( "#define DESERT_SURFACE_OPACITY_DITHER Material.{}\n", mask.DitherParam );
+            return std::format( "{}float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
                                 "    return SurfaceSampleMaterial( Material.{}, {} )[{}];\n}}\n",
-                                transform, mask.Texture, uv, channel );
+                                dither, transform, mask.Texture, uv, channel );
         }
 
         // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a
@@ -2875,6 +2882,20 @@ namespace Desert::Core::Preprocess
                 {
                     err = { opacityMaskLine, bad };
                     return fail();
+                }
+                const auto dither =
+                     std::find_if( result.Meta.Params.begin(), result.Meta.Params.end(),
+                                   []( const ShaderParam& p ) { return p.Name == kSurfaceMaskDitherParam; } );
+                if ( dither != result.Meta.Params.end() )
+                {
+                    if ( dither->IsTexture || dither->Type != ShaderValueType::Float )
+                    {
+                        err = { opacityMaskLine,
+                                std::format( "'{}' (the dithered opacity mask switch) must be a Float",
+                                             kSurfaceMaskDitherParam ) };
+                        return fail();
+                    }
+                    result.Meta.OpacityMask->DitherParam = std::string( kSurfaceMaskDitherParam );
                 }
             }
             else if ( result.Meta.OpacityMask )

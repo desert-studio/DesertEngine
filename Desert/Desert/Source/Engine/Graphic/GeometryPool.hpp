@@ -14,25 +14,25 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 // THE GEOMETRY POOL (UE: the GPU scene's shared geometry buffers that one bind serves for many meshes; Nanite's
-// streaming pool is the same shape). Every mesh's vertices, optional streams and indices live in ONE device
-// vertex buffer per vertex layout (an arena: Static = Vertex, Skinned = SkinnedVertex), ONE stream buffer per
-// arena laid out in parallel (vertex i of the arena's vertex buffer and stream i of its stream buffer are the
-// same vertex, so one base vertex addresses both) and ONE index buffer shared by every arena. A mesh holds a
-// GeometryPoolAllocation: its base vertex and first index in those buffers. Indices stay mesh-relative (a
-// draw adds the base vertex as its vertexOffset), so the same allocation serves a per-mesh bind (the buffers
-// bound at the mesh's byte offsets, every mesh-relative draw unchanged) and the GPU-driven bins (the buffers
-// bound once at offset 0 for every mesh of the pipeline, the rows carrying FirstIndex/VertexOffset with the
-// pool base, DrawCommandCache).
+// streaming pool is the same shape). Every mesh's vertices, optional streams and indices live in shared device
+// buffers: per vertex layout (an arena: Static = Vertex, Skinned = SkinnedVertex) a list of vertex PAGES, each
+// one vertex buffer and one stream buffer laid out in parallel (vertex i of a page's vertex buffer and stream i
+// of its stream buffer are the same vertex, so one base vertex addresses both), and a list of index pages shared
+// by every arena. A mesh holds a GeometryPoolAllocation: its vertex page and base vertex, its index page and
+// first index. Indices stay mesh-relative (a draw adds the base vertex as its vertexOffset), so the same
+// allocation serves a per-mesh bind (the buffers bound at the mesh's byte offsets, every mesh-relative draw
+// unchanged) and the GPU-driven bins (a page's buffers bound once at offset 0 for every mesh of the pipeline in
+// that page, the rows carrying FirstIndex/VertexOffset with the page base, DrawCommandCache groups by binding).
 //
-// GROWTH: an arena that has no free span large enough grows its buffer (a new, larger device buffer, the old
-// contents copied on the device, the old buffer retired on the frame rule). The VertexBuffer / IndexBuffer
-// OBJECT stays the same across a growth, its VkBuffer and device address change: nothing may cache a device
-// address of a pool buffer across frames (the ray-tracing geometries read it when they build or describe,
-// VulkanRayTracingGeometry::GetMetadataLayout), and a graph import of it re-wraps on the new handle
-// (VulkanRendererAPI::ImportVertexBuffer). UE's GPU-scene buffers grow the same way (resize + copy).
+// GROWTH: an arena with no free span large enough in any page ADDS a page (kPageBytes, or the mesh's own size
+// when it is larger); nothing is copied and no buffer is ever reallocated, so the pool's device memory is the
+// sum of its pages at every moment - never an old and a new buffer at once (a resize-and-copy pool peaks at
+// three times its contents while it doubles; FIELD-MEM: 406 + 728 MB transient on FIELD_Barn). A mesh's
+// buffers and device addresses therefore never change while it is resident.
 //
 // FREE: a released allocation's spans go back to the free list only after every frame that could still read
 // them has retired (kRetireFrames frames of BeginFrame), so an upload into a reused span never overwrites
@@ -55,11 +55,14 @@ namespace Desert::Graphic
     inline constexpr uint32_t kGeometryStreamStride = static_cast<uint32_t>( sizeof( MeshVertexStreams ) );
     inline constexpr uint32_t kGeometryIndexStride  = static_cast<uint32_t>( sizeof( uint32_t ) );
 
-    // Where a mesh's geometry sits in the pool: vertices (and streams) [BaseVertex, +VertexCount) of its arena,
-    // indices [FirstIndex, +IndexCount) of the shared index buffer (IndexCount 0 = a non-indexed mesh).
+    // Where a mesh's geometry sits in the pool: vertices (and streams) [BaseVertex, +VertexCount) of its arena's
+    // page VertexPage, indices [FirstIndex, +IndexCount) of index page IndexPage (IndexCount 0 = a non-indexed
+    // mesh).
     struct GeometryPoolRange
     {
         GeometryArena Arena       = GeometryArena::Static;
+        uint32_t      VertexPage  = 0;
+        uint32_t      IndexPage   = 0;
         uint32_t      BaseVertex  = 0;
         uint32_t      VertexCount = 0;
         uint32_t      FirstIndex  = 0;
@@ -118,7 +121,7 @@ namespace Desert::Graphic
     };
 
     // A MESH'S GPU GEOMETRY: the buffers holding it and where its data begins in each. A pooled mesh's three are
-    // the arena's (Pooled set); a twin built from GPU-written buffers holds its own, or a mix (a morphed twin's
+    // its pages' (Pooled set); a twin built from GPU-written buffers holds its own, or a mix (a morphed twin's
     // own vertices over its base's pooled streams and indices).
     struct MeshGeometry
     {
@@ -148,7 +151,7 @@ namespace Desert::Graphic
             return { Vertices.get(),   VertexByteOffset, Streams.get(),
                      StreamByteOffset, Indices.get(),    IndexByteOffset };
         }
-        // The shared bind (GPU-driven bins): a pooled mesh binds its arena at offset 0 and its draws add
+        // The shared bind (GPU-driven bins): a pooled mesh binds its pages at offset 0 and its draws add
         // SharedBaseVertex / SharedFirstIndex; an unpooled one is its own binding with a zero base.
         [[nodiscard]] MeshGeometryBinding SharedBinding() const
         {
@@ -180,7 +183,7 @@ namespace Desert::Graphic
         std::array<uint64_t, kGeometryArenaCount> VerticesUsed{};
         uint64_t                                  IndexCapacity = 0;
         uint64_t                                  IndicesUsed   = 0;
-        uint32_t                                  Growths       = 0;
+        uint32_t                                  Pages         = 0; // vertex pages of every arena + index pages
     };
 
     class GeometryPool
@@ -200,12 +203,21 @@ namespace Desert::Graphic
         RT_Upload( GeometryArena arena, std::span<const std::byte> vertices,
                    std::span<const MeshVertexStreams> streams, std::span<const uint32_t> indices );
 
-        // The arena's buffers (null before the first upload into it). The objects live as long as the pool.
-        [[nodiscard]] std::shared_ptr<VertexBuffer> GetVertexBuffer( GeometryArena arena ) const;
-        [[nodiscard]] std::shared_ptr<VertexBuffer> GetStreamBuffer( GeometryArena arena ) const;
-        [[nodiscard]] std::shared_ptr<IndexBuffer>  GetIndexBuffer() const;
+        // Scene open (FIELD-MEM): one page per arena (and one index page) sized to the scene's meshes plus an
+        // eighth, so the meshes the scene then streams in add no page of their own (UE: the pool is sized for
+        // the level up front). @p vertices per arena and @p indices are the sums over the scene's mesh closure;
+        // a zero sum adds nothing. Free room the pool already has counts against the sum; a page never passes
+        // 2^32 bytes (a larger sum takes several). Logs one line "[GeometryPool] RT_Reserve ...".
+        [[nodiscard]] Common::BoolResultStr RT_Reserve( std::string_view                                 scene,
+                                                        const std::array<uint64_t, kGeometryArenaCount>& vertices,
+                                                        uint64_t                                         indices );
+        // Scene change: frees every page no allocation holds, live or retiring (the pool's device memory goes
+        // back, as a UE pool budget gives it back; the pool does not only grow). Released spans still waiting
+        // for in-flight frames keep their page; BeginFrame frees it once they retire (the request stays armed
+        // for 3 x kRetireFrames frames, then until no span is retiring). Logs "[GeometryPool] released ..." when a page is freed.
+        void RequestReleaseEmptyPages();
 
-        // A MeshGeometry over an allocation (Pooled set, the arena's buffers, byte offsets of the span).
+        // A MeshGeometry over an allocation (Pooled set, its pages' buffers, byte offsets of the span).
         [[nodiscard]] MeshGeometry Describe( const GeometryPoolAllocation& allocation,
                                              bool                          authoredStreams ) const;
 
@@ -225,7 +237,7 @@ namespace Desert::Graphic
         friend class GeometryPoolAllocation;
         GeometryPool() = default;
 
-        // A first-fit span allocator in elements, with coalescing; grows by doubling.
+        // A first-fit span allocator in elements, with coalescing, over one page.
         struct SpanList
         {
             std::vector<std::pair<uint64_t, uint64_t>> Free; // (first, count), sorted by first
@@ -235,11 +247,28 @@ namespace Desert::Graphic
             void                                       Give( uint64_t first, uint64_t count );
             void                                       Extend( uint64_t newCapacity );
         };
-        struct Arena
+        struct VertexPage
         {
             std::shared_ptr<VertexBuffer> Vertices;
             std::shared_ptr<VertexBuffer> Streams;
             SpanList                      Spans;
+            bool                          Reserved = false; // RT_Reserve's page: kept empty until the next scene change
+        };
+        struct IndexPage
+        {
+            std::shared_ptr<IndexBuffer> Indices;
+            SpanList                     Spans;
+            bool                         Reserved = false;
+        };
+        struct Arena
+        {
+            std::vector<VertexPage> Pages;
+        };
+        // A span taken from a page: the page's index and the span's first element in it.
+        struct PageSpan
+        {
+            uint32_t Page  = 0;
+            uint64_t First = 0;
         };
         struct Retired
         {
@@ -247,10 +276,15 @@ namespace Desert::Graphic
             uint64_t          Frame = 0;
         };
 
+        [[nodiscard]] Common::ResultStr<uint32_t> RT_AddVertexPage( Arena& arena, GeometryArena which,
+                                                                    uint64_t capacity, const char* reason );
+        [[nodiscard]] Common::ResultStr<uint32_t> RT_AddIndexPage( uint64_t capacity, const char* reason );
+        void                                      ReleaseEmptyPages();
         void                                      Release( const GeometryPoolRange& range );
-        [[nodiscard]] Common::ResultStr<uint64_t> RT_TakeVertices( Arena& arena, GeometryArena which,
+        [[nodiscard]] Common::ResultStr<PageSpan> RT_TakeVertices( Arena& arena, GeometryArena which,
                                                                    uint64_t count );
-        [[nodiscard]] Common::ResultStr<uint64_t> RT_TakeIndices( uint64_t count );
+        [[nodiscard]] Common::ResultStr<PageSpan> RT_TakeIndices( uint64_t count );
+        void                                      GiveBack( const GeometryPoolRange& range );
         [[nodiscard]] Common::BoolResultStr       RT_Write( const GeometryPoolRange&           range,
                                                             std::span<const std::byte>         vertices,
                                                             std::span<const MeshVertexStreams> streams,
@@ -258,16 +292,15 @@ namespace Desert::Graphic
 
         mutable std::mutex                     m_Mutex;
         std::array<Arena, kGeometryArenaCount> m_Arenas;
-        std::shared_ptr<IndexBuffer>           m_Indices;
-        SpanList                               m_IndexSpans;
+        std::vector<IndexPage>                 m_IndexPages;
         std::vector<Retired>                   m_Retired;
         uint64_t                               m_Frame         = 0;
         uint32_t                               m_Allocations   = 0;
-        uint32_t                               m_Growths       = 0;
         uint32_t                               m_Binds         = 0;
         uint32_t                               m_MeshBinds     = 0;
         uint32_t                               m_LastBinds     = 0;
         uint32_t                               m_LastMeshBinds = 0;
+        uint64_t                               m_ReleaseEmptyUntil = 0; // 0 = no request armed
         bool m_ShutDown = false;
     };
 } // namespace Desert::Graphic
