@@ -309,9 +309,9 @@ TEST( AssimpLibraryPin, TheLinkedLibraryIsTheVersionThePinnedSubmoduleDeclares )
 {
     const std::filesystem::path recorded = RepositoryRoot() / "build" / "generated" / "assimp" / "VERSION.txt";
     ASSERT_TRUE( std::filesystem::exists( recorded ) )
-         << "build/generated/assimp/VERSION.txt is missing. Assimp.lua writes it while generating "
-            "config.h and revision.h, so its absence means the project was not generated — run "
-            "`CI=true premake5 gmake`. Passing without it would be a version census that read no version.";
+         << "build/generated/assimp/VERSION.txt is missing. cmake/ThirdParty/Assimp.cmake writes it while "
+            "generating config.h and revision.h, so its absence means the tree was not configured — run "
+            "`cmake --preset <host preset>`. Passing without it would be a version census that read no version.";
 
     std::string text = ReadFile( recorded );
     while ( !text.empty() && ( text.back() == '\n' || text.back() == '\r' ) )

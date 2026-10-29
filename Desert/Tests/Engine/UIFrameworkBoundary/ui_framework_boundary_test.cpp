@@ -12,7 +12,7 @@
 //
 // TWO STATEMENTS, BOTH PINNED. "No framework source names an engine header" and "the framework project does not
 // link the engine" are different claims; a static library that links something it never calls still drags it
-// into every consumer, so the premake scripts are read too.
+// into every consumer, so the CMake scripts are read too.
 //
 // Comments are stripped before an include is looked for (a commented-out include is prose); string literals are
 // kept, because the target of `#include "..."` IS a literal.
@@ -38,9 +38,9 @@ namespace
 {
     struct Library
     {
-        const char*              Name;    // the premake project
+        const char*              Name;    // the CMake target
         const char*              Tree;    // its sources, repository-relative
-        const char*              Script;  // its premake script
+        const char*              Script;  // its CMakeLists.txt
         std::vector<std::string> Allowed; // include prefixes it may name, besides the standard library
         std::set<std::string>    Links;   // the projects it may link
     };
@@ -53,12 +53,12 @@ namespace
         static const std::vector<Library> libraries = {
              { "DesertUI",
                "Desert/UI/Source/UI",
-               "Desert/UI/premake5.lua",
+               "Desert/UI/CMakeLists.txt",
                { "UI/", "Render2DCore/", "CoreReflection/" },
                { "Render2DCore", "Common" } },
              { "Render2DCore",
                "Desert/Render2DCore/Source/Render2DCore",
-               "Desert/Render2DCore/premake5.lua",
+               "Desert/Render2DCore/CMakeLists.txt",
                { "Render2DCore/" },
                { "Common" } },
         };
@@ -143,37 +143,67 @@ namespace
         return offenders;
     }
 
-    // Lua with its `--` comments removed (no string in these scripts holds a "--").
-    std::string StripLuaComments( const std::string& text )
+    // CMake with its `#` comments removed (no string in these scripts holds a '#').
+    std::string StripCMakeComments( const std::string& text )
     {
         std::istringstream in( text );
         std::string        line;
         std::string        out;
         while ( std::getline( in, line ) )
-            std::format_to( std::back_inserter( out ), "{}\n", line.substr( 0, line.find( "--" ) ) );
+            std::format_to( std::back_inserter( out ), "{}\n", line.substr( 0, line.find( '#' ) ) );
         return out;
     }
 
-    // Every quoted name inside the `links { ... }` blocks of @p script.
+    // The whitespace-separated words between `open` and the next ')' of @p script.
+    std::vector<std::string> WordsUntilParen( const std::string& script, std::size_t open )
+    {
+        const std::size_t        close = script.find( ')', open );
+        std::istringstream       in( script.substr( open, close == std::string::npos ? std::string::npos : close - open ) );
+        std::vector<std::string> words;
+        for ( std::string word; in >> word; )
+            words.push_back( word );
+        return words;
+    }
+
+    // Every library named by the `target_link_libraries( <Target> PRIVATE|PUBLIC|INTERFACE ... )` calls of
+    // @p script, the target itself and the scope keywords left out.
     std::set<std::string> LinkedProjects( const std::string& script )
     {
-        std::set<std::string> names;
-        for ( std::size_t at = script.find( "links" ); at != std::string::npos;
-              at             = script.find( "links", at + 1 ) )
+        constexpr std::string_view kCall = "target_link_libraries(";
+        std::set<std::string>      names;
+        for ( std::size_t at = script.find( kCall ); at != std::string::npos; at = script.find( kCall, at + 1 ) )
         {
-            const std::size_t open  = script.find( '{', at );
-            const std::size_t close = script.find( '}', open );
-            if ( open == std::string::npos || close == std::string::npos )
-                break;
-            for ( std::size_t q = script.find( '"', open ); q != std::string::npos && q < close;
-                  q             = script.find( '"', q + 1 ) )
-            {
-                const std::size_t end = script.find( '"', q + 1 );
-                names.insert( script.substr( q + 1, end - q - 1 ) );
-                q = end;
-            }
+            const std::vector<std::string> words = WordsUntilParen( script, at + kCall.size() );
+            for ( std::size_t i = 1; i < words.size(); ++i )
+                if ( words[i] != "PRIVATE" && words[i] != "PUBLIC" && words[i] != "INTERFACE" )
+                    names.insert( words[i] );
         }
         return names;
+    }
+
+    // The DEPS of `desert_module( <module> DEPS ... )` in the module table: the words after DEPS up to the
+    // first keyword (UE, FOLDER, REFLECTED -- every keyword is upper case, every module name is not).
+    std::set<std::string> ModuleDeps( const std::string& table, const std::string& module )
+    {
+        const std::string     call = std::format( "desert_module({} ", module );
+        const std::size_t     at   = table.find( call );
+        std::set<std::string> deps;
+        if ( at == std::string::npos )
+            return deps;
+        const std::vector<std::string> words = WordsUntilParen( table, at + call.size() );
+        bool                           inDeps = false;
+        for ( const std::string& word : words )
+        {
+            const bool keyword = std::ranges::none_of( word, []( char c ) { return std::islower( static_cast<unsigned char>( c ) ) != 0; } );
+            if ( keyword )
+            {
+                inDeps = word == "DEPS";
+                continue;
+            }
+            if ( inDeps )
+                deps.insert( word );
+        }
+        return deps;
     }
 
     std::string Join( const std::vector<std::string>& lines )
@@ -201,8 +231,8 @@ TEST( UIFrameworkBoundary, TheLibrariesLinkOnlyWhatTheyAreBuiltOn )
     const fs::path root = Desert::TestSupport::RepositoryRoot();
     for ( const Library& library : Libraries() )
     {
-        const std::string script = StripLuaComments( ReadAll( root / library.Script ) );
-        ASSERT_NE( script.find( std::format( "project \"{}\"", library.Name ) ), std::string::npos )
+        const std::string script = StripCMakeComments( ReadAll( root / library.Script ) );
+        ASSERT_NE( script.find( std::format( "desert_add_library({} ", library.Name ) ), std::string::npos )
              << library.Script << " no longer defines " << library.Name;
         for ( const std::string& linked : LinkedProjects( script ) )
             EXPECT_TRUE( library.Links.contains( linked ) )
@@ -216,8 +246,11 @@ TEST( UIFrameworkBoundary, TheLibrariesLinkOnlyWhatTheyAreBuiltOn )
 
 TEST( UIFrameworkBoundary, TheEngineIsBuiltOnTheFrameworkNotUnderIt )
 {
-    const std::set<std::string> engine = LinkedProjects(
-         StripLuaComments( ReadAll( Desert::TestSupport::RepositoryRoot() / "Desert/Desert/premake5.lua" ) ) );
+    // The engine module's own row of the module table: what the engine library links (DesertModules.cmake
+    // turns each DEPS entry into a link of the module's library).
+    const std::set<std::string> engine = ModuleDeps(
+         StripCMakeComments( ReadAll( Desert::TestSupport::RepositoryRoot() / "cmake/DesertModuleTable.cmake" ) ),
+         "Engine" );
     EXPECT_TRUE( engine.contains( "DesertUI" ) );
     EXPECT_TRUE( engine.contains( "Render2DCore" ) );
 }

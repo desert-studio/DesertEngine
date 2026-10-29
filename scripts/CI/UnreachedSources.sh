@@ -94,7 +94,9 @@ for runner in open(os.environ["RUNNERS"]).read().split():
             compiled |= sources[name]
         else:
             missing.append(name)
-open(os.environ["OUT"], "w").write("".join(p + "\n" for p in sorted(compiled)))
+# newline="\n": on Windows text mode writes CRLF, and a "path<CR>" never equals find's "path" in comm,
+# which is how every source read as unreached (0 of 1029).
+open(os.environ["OUT"], "w", newline="\n").write("".join(p + "\n" for p in sorted(compiled)))
 print(" ".join(missing))
 PY
 )

@@ -1,50 +1,79 @@
 #!/usr/bin/env python3
-"""Approximate MSBuild unity groups with clang -fsyntax-only.
-Usage: UnityClashCheck.py <repo root> <scratch dir> 12 Common Desert EditorCore EditorImport EditorWidgets EditorPanels EditorLevel, after `CI=true premake5 gmake`
-and `CI=true VULKAN_SDK=/opt/homebrew PROGRAMFILES=/tmp premake5 vs2022 --os=windows --unity` in the root.
-Both write into build/Projects/ (BuildScripts/Workspace.lua); every path inside is relative to it.
-Re-derives the opt-out list in BuildScripts/UnityBuild.lua; "0 with errors" is the pass.
-For each project: sources in .vcxproj item order, minus IncludeInUnityFile=false, pch Create, and
-sources the macOS makefile does not compile (Windows-only). Groups of N contiguous sources, at two
-offsets (0 and N/2) so every adjacent pair is covered once more. Prints clash-shaped errors."""
-import re, sys, subprocess, os, concurrent.futures as cf
+"""Approximate the Windows unity batches with clang -fsyntax-only on macOS.
+Usage: UnityClashCheck.py <repo root> <scratch dir> <N> [<Target>...]   (no target: every target CMake builds as unity,
+i.e. Common, the engine module libraries Desert*, and the editor libraries Editor*)
+after `scripts/MacOS/BuildMacOS.sh Debug --unity --gen-only` (preset macos-clang-ninja-unity), which writes the
+CMake unity files and build/cmake/macos-clang-ninja-unity/compile_commands.json.
+N is the batch size (cmake/DesertWorkspace.cmake, UNITY_BUILD_BATCH_SIZE); the opt-out list there decides which
+sources CMake leaves out of the batches, and this script reads the batches CMake wrote, so it never re-derives it.
+For each target: its sources in unity order (the #include lines of CMakeFiles/<Target>.dir/Unity/unity_<i>_cxx.cxx,
+by <i>), regrouped into N contiguous sources at two offsets (0 and N/2), so every adjacent pair is covered once more
+and a Windows-only source shifting the Windows batches by a few does not hide a clash. Each group is compiled with
+the flags of that target's own unity entry in compile_commands.json (Debug). "0 with errors" is the pass.
+Windows-only sources are not in the macOS batches at all; the Windows unity build itself covers them."""
+import re, sys, json, shlex, subprocess, os, concurrent.futures as cf
 ROOT, OUT, N = sys.argv[1], sys.argv[2], int(sys.argv[3])
-projects = sys.argv[4:]
-PROJ_DIR = os.path.join(ROOT, 'build', 'Projects')
-def mkvars(mk):
-    t = open(os.path.join(PROJ_DIR, mk)).read()
-    inc = re.search(r'^INCLUDES \+= (.*)$', t, re.M).group(1)
-    fi = re.search(r'^FORCE_INCLUDE \+=(.*)$', t, re.M).group(1)
-    dbg = t[t.index('ifeq ($(config),debug)'):]
-    de = re.search(r'^DEFINES \+= (.*)$', dbg, re.M).group(1)
-    srcs = set(m.group(1) for m in re.finditer(r'^\$\(OBJDIR\)/\S+\.o: (\S+\.cpp)$', t, re.M))
-    return inc, fi, de, srcs
-jobs = []
-for prj in projects:
-    inc, fi, de, macsrcs = mkvars(prj + '.make')
-    x = open(os.path.join(PROJ_DIR, prj + '.vcxproj')).read()
-    items = re.findall(r'<ClCompile Include="([^"]+\.cpp)"(\s*/>|>(.*?)</ClCompile>)', x, re.S)
-    order, skipped = [], []
-    for path, _, body in items:
-        p = path.replace('\\', '/')
-        if 'IncludeInUnityFile>false' in (body or '') or 'PrecompiledHeader>Create' in (body or ''):
+targets = sys.argv[4:]
+BUILD = os.path.join(ROOT, 'build', 'cmake', 'macos-clang-ninja-unity')
+DB = os.path.join(BUILD, 'compile_commands.json')
+if not os.path.exists(DB):
+    sys.exit(f'{DB} does not exist: run scripts/MacOS/BuildMacOS.sh Debug --unity --gen-only first')
+UNITY = re.compile(r'/CMakeFiles/([^/]+)\.dir/(?:[^/]+/)?Unity/unity_(\d+)_cxx\.cxx$')
+INCLUDE = re.compile(r'^#include "([^"]+\.cpp)"$', re.M)
+LAUNCHERS = {'ccache', 'sccache'}
+
+def syntax_only(command, unity_file):
+    """The unity entry's compile line with the object, the dependency file and the source taken out."""
+    args = shlex.split(command)
+    if os.path.basename(args[0]) in LAUNCHERS:
+        args = args[1:]
+    out, skip = [], 0
+    for a in args:
+        if skip:
+            skip -= 1
             continue
-        (order if p in macsrcs else skipped).append(p)
-    print(f'{prj}: {len(order)} unity sources checked, {len(skipped)} not compiled on macOS: {skipped}')
+        if a in ('-o', '-MF', '-MT', '-MQ'):
+            skip = 1
+            continue
+        if a in ('-c', '-MD', '-MMD', '--') or a == unity_file:
+            continue
+        out.append(a)
+    return out + ['-fsyntax-only', '-ferror-limit=0', '-w']
+
+entries = {}
+for e in json.load(open(DB)):
+    m = UNITY.search(e['file'].replace('\\', '/'))
+    if not m or (targets and m.group(1) not in targets):
+        continue
+    if '/Debug/' not in e.get('output', '/Debug/').replace('\\', '/'):
+        continue
+    entries.setdefault(m.group(1), []).append((int(m.group(2)), e))
+
+jobs = []
+for tgt in (targets or sorted(entries)):
+    units = sorted(entries.get(tgt, []), key=lambda x: x[0])
+    if not units:
+        sys.exit(f'{tgt}: no unity entry in {DB} (not a unity target, or the name is not a CMake target)')
+    order = []
+    for _, e in units:
+        order += INCLUDE.findall(open(e['file']).read())
+    base = syntax_only(units[0][1]['command'], units[0][1]['file'])
+    directory = units[0][1]['directory']
+    print(f'{tgt}: {len(order)} unity sources in {len(units)} CMake batches')
     for off in (0, N // 2):
         groups = [order[:off]] if off else []
         groups += [order[i:i + N] for i in range(off, len(order), N)]
         for gi, g in enumerate(groups):
             if len(g) < 2:
                 continue
-            name = f'{OUT}/{prj}_o{off}_{gi:03d}.cpp'
-            open(name, 'w').write(''.join(f'#include "{os.path.normpath(os.path.join(PROJ_DIR, s))}"\n' for s in g))
-            cmd = (f'cd "{PROJ_DIR}" && clang++ -fsyntax-only -ferror-limit=0 -std=c++20 -arch arm64 -w '
-                   f'{de} {inc} {fi} "{name}"')
-            jobs.append((prj, name, g, cmd))
+            name = f'{OUT}/{tgt}_o{off}_{gi:03d}.cpp'
+            open(name, 'w').write(''.join(f'#include "{s}"\n' for s in g))
+            jobs.append((tgt, name, g, base + [name], directory))
+
 def run(j):
-    r = subprocess.run(j[3], shell=True, capture_output=True, text=True)
+    r = subprocess.run(j[3], cwd=j[4], capture_output=True, text=True)
     return j, r.returncode, r.stderr
+
 res = []
 with cf.ThreadPoolExecutor(3) as ex:
     for j, rc, err in ex.map(run, jobs):

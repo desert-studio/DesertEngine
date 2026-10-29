@@ -36,6 +36,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -67,7 +68,7 @@ namespace
         fs::path prefix = ".";
         for ( int up = 0; up < 6; ++up )
         {
-            if ( std::ifstream( ( prefix / "Desert/Desert/premake5.lua" ).string() ) )
+            if ( std::ifstream( ( prefix / "Desert/Desert/CMakeLists.txt" ).string() ) )
                 return prefix;
             prefix /= "..";
         }
@@ -195,9 +196,9 @@ namespace
         return out;
     }
 
-    // Lua `--` line comments and `--[[ ]]` blocks removed, quoted strings kept: the premake rows below
-    // ARE quoted strings, and this file's own premake script talks about the token it forbids.
-    std::string StripLuaComments( const std::string& src )
+    // CMake `#` line comments and `#[[ ]]` blocks removed, quoted strings kept: a quoted path such as
+    // "ThirdParty/ImGui/" is code, and the build scripts' own comments talk about the token forbidden here.
+    std::string StripCMakeComments( const std::string& src )
     {
         std::string out;
         for ( std::size_t i = 0; i < src.size(); )
@@ -216,13 +217,13 @@ namespace
                     out += src[i++];
                 continue;
             }
-            if ( src.compare( i, 4, "--[[" ) == 0 )
+            if ( src.compare( i, 3, "#[[" ) == 0 )
             {
-                const std::size_t end = src.find( "]]", i + 4 );
+                const std::size_t end = src.find( "]]", i + 3 );
                 i                     = end == std::string::npos ? src.size() : end + 2;
                 continue;
             }
-            if ( src.compare( i, 2, "--" ) == 0 )
+            if ( src[i] == '#' )
             {
                 while ( i < src.size() && src[i] != '\n' )
                     ++i;
@@ -231,6 +232,25 @@ namespace
             out += src[i++];
         }
         return out;
+    }
+
+    bool IsNameChar( char c )
+    {
+        return std::isalnum( static_cast<unsigned char>( c ) ) != 0 || c == '_';
+    }
+
+    // `name` as a whole CMake word: a target in a link list is a bare word, so "ImGuiNodeEditor" (a
+    // different library) and "ImGuizmo" must not count as "ImGui".
+    bool NamesWord( const std::string& text, const std::string& name )
+    {
+        for ( std::size_t at = text.find( name ); at != std::string::npos; at = text.find( name, at + 1 ) )
+        {
+            const bool startOk = at == 0 || !IsNameChar( text[at - 1] );
+            const bool endOk   = at + name.size() >= text.size() || !IsNameChar( text[at + name.size()] );
+            if ( startOk && endOk )
+                return true;
+        }
+        return false;
     }
 } // namespace
 
@@ -326,26 +346,26 @@ TEST( ImGuiBoundary, TheEngineAndRuntimeProjectsDoNotLinkTheToolkitAndTheEditorD
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    // The exact quoted token premake reads. `"ImGuiNodeEditor"` is a different library and a different
-    // string, so matching the quotes is what keeps these rows from confusing the two.
-    const std::string token = "\"ImGui\"";
+    // The target name as a whole word (NamesWord): `ImGuiNodeEditor` is a different library.
+    // cmake/DesertModuleTable.cmake is read with the engine: it holds the libraries each module links.
+    const std::string token = "ImGui";
 
-    for ( const char* script : { "Desert/Desert/premake5.lua", "Runtime/premake5.lua" } )
+    for ( const char* script : { "Desert/Desert/CMakeLists.txt", "cmake/DesertModuleTable.cmake", "Runtime/CMakeLists.txt" } )
     {
-        const std::string text = StripLuaComments( ReadAll( root / script ) );
+        const std::string text = StripCMakeComments( ReadAll( root / script ) );
         ASSERT_FALSE( text.empty() ) << script << " could not be read";
-        EXPECT_EQ( text.find( token ), std::string::npos )
+        EXPECT_FALSE( NamesWord( text, token ) )
              << script
              << " links ImGui. A project that links the toolkit carries it into every consumer of its "
                 "output, however little of it the sources name -- which is exactly how libDesert.a came "
                 "to hold 14 724 ImGui symbols. The Editor is the only project that may link it.";
     }
 
-    const std::string editor = StripLuaComments( ReadAll( root / "Editor/premake5.lua" ) );
+    const std::string editor = StripCMakeComments( ReadAll( root / "Editor/CMakeLists.txt" ) );
     ASSERT_FALSE( editor.empty() );
-    EXPECT_NE( editor.find( token ), std::string::npos )
-         << "Editor/premake5.lua must name ImGui itself. It used to arrive on Windows through "
-            "Desert.vcxproj's transitive project reference; the engine does not link it any more, so an "
+    EXPECT_TRUE( NamesWord( editor, token ) )
+         << "Editor/CMakeLists.txt must link ImGui itself. It used to arrive on Windows through the "
+            "engine's transitive project reference; the engine does not link it any more, so an "
             "Editor that does not name it is a Windows-only link failure no macOS sweep can see.";
 }
 

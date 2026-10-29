@@ -11,10 +11,10 @@
 // Generating the header is now part of the build — the Common project does it before this file can be
 // compiled — so it is on disk by the time this TU is compiled, or the build has already failed. The
 // guard therefore becomes a diagnostic and never a fallback: it produces no code path, it only says
-// what to run. That is `premake5 gmake2` (scripts/Windows/Setup.bat on Windows), because a tree whose
-// makefiles or project files predate the version hook has no hook to fire.
+// what to run. That is the configure step (`cmake --preset <host preset>`, which BuildMacOS.sh and
+// BuildWindows.bat run), because a build tree configured before the version hook has no hook to fire.
 #if !__has_include( "Version.gen.hpp" )
-#error "Version.gen.hpp is missing. The build generates it: re-run premake5, then build again."
+#error "Version.gen.hpp is missing. The build generates it: re-run cmake --preset <host preset>, then build again."
 #endif
 #include "Version.gen.hpp"
 

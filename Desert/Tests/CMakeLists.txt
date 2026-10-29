@@ -204,8 +204,8 @@ foreach(layer IN LISTS _layers)
     set(_sources "")
     foreach(dir IN LISTS _dirs)
         get_filename_component(_suite "${dir}" NAME)
-        if(EXISTS "${dir}/premake5.lua")
-            message(FATAL_ERROR "Desert/Tests/${layer}/${_suite} has its own premake5.lua: a suite is compiled into "
+        if(EXISTS "${dir}/CMakeLists.txt")
+            message(FATAL_ERROR "Desert/Tests/${layer}/${_suite} has its own CMakeLists.txt: a suite is compiled into "
                 "${_runner}. Delete the script, delete the suite's main (set-up it did goes into a SuiteEnvironment, a "
                 "child mode into a ChildEntry: TestSupport/runner.hpp), and move any source or include directory it "
                 "added into Desert/Tests/CMakeLists.txt's _desert_runner_${layer} (BuildScripts/BUILD1-CONTRACT.md §4)")

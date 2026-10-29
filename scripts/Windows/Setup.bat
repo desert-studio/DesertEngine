@@ -5,7 +5,8 @@ REM
 REM   scripts\Windows\Setup.bat [--no-install] [--help]
 REM
 REM Installs every build dependency this repository actually needs, fetches the third-party pieces
-REM that are not submodules, and generates the Visual Studio solution. Safe to re-run.
+REM that are not submodules, and checks the CMake + Ninja the build configures with. Safe to re-run.
+REM It configures nothing itself: scripts\Windows\BuildWindows.bat runs `cmake --preset` on every build.
 REM
 REM WHY THIS SCRIPT IS AS LONG AS ITS macOS TWIN NOW. It used to be 134 lines against Setup.sh's 352,
 REM and the difference was not economy: three things the build cannot start without were simply not
@@ -31,16 +32,11 @@ REM Must equal VULKAN_SDK_VERSION in .github/workflows/ci.yml. Desert/Tests/Tool
 REM asserts the two agree, because a developer building against a different SDK than CI is how a
 REM link error becomes "works on my machine".
 set "VULKAN_SDK_VERSION=1.3.296.0"
-set "PREMAKE_VERSION=5.0.0-beta8"
-
-REM The MSVC toolset the generated solution asks for. premake's vs2022 action emits
-REM PlatformToolset=v143. NOTE that v143 is a TOOLSET NAME, not a directory number: VS 2022 shipped
-REM 14.3x at first and ships 14.4x since 17.10, and both are v143. Checking for "14.3*" rejected a
-REM perfectly good Visual Studio 2022 — see :require_msvc.
-set "PREMAKE_ACTION=vs2022"
+REM The oldest CMake that reads CMakePresets.json version 6 and the root cmake_minimum_required.
+set "CMAKE_MIN_MAJOR=3"
+set "CMAKE_MIN_MINOR=28"
 
 set "NO_INSTALL=0"
-set "PREMAKE_EXTRA="
 REM THE PARENTHESES ARE LOAD-BEARING. cmd splits on `&` at PARSE time, so
 REM `if COND set X & shift & goto L` is read as `(if COND set X) & shift & goto L` — the shift and the
 REM goto run for EVERY argument, whatever the condition. Without them this loop silently swallowed
@@ -49,7 +45,6 @@ REM same "empty successful answer" shape the contract forbids, wearing cmd's syn
 :parse_args
 if "%~1"=="" goto args_done
 if /I "%~1"=="--no-install" (set "NO_INSTALL=1" & shift & goto parse_args)
-if /I "%~1"=="--unity" (set "PREMAKE_EXTRA=--unity" & shift & goto parse_args)
 if /I "%~1"=="--help" goto usage
 if /I "%~1"=="-h" goto usage
 echo [ERROR] unknown argument "%~1"
@@ -135,66 +130,24 @@ REM ---------------------------------------------------------------------------
 call :fetch_vendor_binaries
 
 REM ---------------------------------------------------------------------------
-REM 5. premake5 — fetched, not vendored.
-REM     This step used to run "%ROOT%\vendor\bin\premake5.exe" unconditionally. That file has never
-REM     been in the repository and cannot be: .gitignore excludes *.exe. Every clean checkout failed
-REM     here with cmd's "The system cannot find the path specified" — including CI, on every commit.
+REM 5. CMake 3.28+ and Ninja: the Visual Studio "C++ CMake tools for Windows" component
+REM    (Microsoft.VisualStudio.Component.VC.CMake.Project) ships both, and vcvars64 puts them on PATH.
+REM
+REM NO GenVersion.bat CALL HERE. Setup runs once per machine, so a header it wrote would be frozen from
+REM then on. Generating it is a custom command of the Common target, which runs on every build.
 REM ---------------------------------------------------------------------------
-set "PREMAKE=%ROOT%\vendor\bin\premake5.exe"
-where premake5 >NUL 2>&1
-if not errorlevel 1 (
-    set "PREMAKE=premake5"
-    echo --- premake5 found on PATH
-) else (
-    if exist "%PREMAKE%" (
-        echo --- premake5 present in vendor\bin
-    ) else (
-        echo --- Downloading premake5 %PREMAKE_VERSION%
-        if not exist "%ROOT%\vendor\bin" mkdir "%ROOT%\vendor\bin"
-        powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-            "$ErrorActionPreference = 'Stop';" ^
-            "$url = 'https://github.com/premake/premake-core/releases/download/v%PREMAKE_VERSION%/premake-%PREMAKE_VERSION%-windows.zip';" ^
-            "$zip = Join-Path $env:TEMP 'premake5.zip';" ^
-            "Invoke-WebRequest -Uri $url -OutFile $zip;" ^
-            "Expand-Archive -Path $zip -DestinationPath '%ROOT%\vendor\bin' -Force;" ^
-            "Remove-Item $zip -Force"
-        if errorlevel 1 call :fail "downloading premake5 %PREMAKE_VERSION%"
-    )
-)
+call :require_cmake_ninja
+if errorlevel 1 call :fail "CMake %CMAKE_MIN_MAJOR%.%CMAKE_MIN_MINOR%+ and Ninja (Visual Studio C++ CMake tools)"
 
 REM ---------------------------------------------------------------------------
-REM 6. Project files.
+REM 6. Is everything the configure step reads actually on disk?
 REM
-REM NO GenVersion.bat CALL HERE. Setup runs once per machine, so the header it wrote was frozen from
-REM then on and every msbuild after it — including every CI build — reported that frozen version.
-REM Generating it is now Common.vcxproj's PreBuildEvent, which runs on every build. Calling it here as
-REM well would hide a PreBuildEvent that had stopped firing: a missing header is a compile error, a
-REM stale one is a lie.
-REM ---------------------------------------------------------------------------
-REM THE VERSION IS CHECKED BEFORE ANYTHING IS GENERATED, and this used to be taken on trust. Whichever
-REM premake5 was found — on PATH or already in vendor\bin — was used whatever version it was, and the
-REM versions are not interchangeable: BuildScripts\UnityBuild.lua overrides
-REM premake.vstudio.vc2010.fileConfigFunction, which exists in beta8 and not in beta2, so a stale binary
-REM answers `--unity` with "unable to override 'fileConfigFunction'" and writes no project files at all.
-REM Measured on a machine whose vendor\bin held 5.0.0-beta2. WITHOUT --unity the same binary is worse
-REM than an error: it succeeds, and the solution it writes is one no CI run has ever built.
-call :check_premake_version
-if errorlevel 1 goto :skip_generate
-
-echo --- Generating project files ^(premake5 %PREMAKE_ACTION% %PREMAKE_EXTRA%^)
-"%PREMAKE%" %PREMAKE_ACTION% %PREMAKE_EXTRA%
-if errorlevel 1 call :fail "premake5 %PREMAKE_ACTION%"
-:skip_generate
-
-REM ---------------------------------------------------------------------------
-REM 7. Is everything premake5 and the generated projects read actually on disk?
+REM CMake refuses a missing file it names. Everything else is pulled in by a glob, so when it is
+REM missing the configure still succeeds and emits a target with no source files — the failure only
+REM surfaces later as a link error naming a symbol you can see in the tree. Name them here instead.
+REM Same list as scripts/MacOS/Setup.sh.
 REM
-REM premake5 raises a hard error of its own for a few of these. Everything else is pulled in by a
-REM wildcard, so when it is missing premake5 still succeeds and emits a project with no source files —
-REM the failure only surfaces later as a link error naming a symbol you can see in the tree. Name them
-REM here instead. Same list as scripts/MacOS/Setup.sh, plus the two Windows-only prebuilt binaries.
-REM
-REM One submodule is deliberately absent: Editor/ThirdParty/ImGuiColorTextEdit. No premake file and no
+REM One submodule is deliberately absent: Editor/ThirdParty/ImGuiColorTextEdit. No CMakeLists.txt and no
 REM source refers to it. It is still initialised above and a failure to initialise it is still reported
 REM — but the build does not read it, so its absence must not be reported as a missing build input.
 REM
@@ -232,7 +185,6 @@ for %%P in (
     "Editor\ThirdParty\ImGuizmo\ImGuizmo.cpp"
     "Editor\ThirdParty\assimp\include\assimp\Importer.hpp"
     "Editor\ThirdParty\assimp\code\Common\ImporterRegistry.cpp"
-    "build\Projects\Desert.sln"
 ) do (
     if not exist "%ROOT%\%%~P" (
         set /a MISSCOUNT+=1
@@ -243,13 +195,13 @@ for %%P in (
 if "%MISSCOUNT%"=="0" echo     all required paths present
 
 REM ---------------------------------------------------------------------------
-REM 8. Summary
+REM 7. Summary
 REM ---------------------------------------------------------------------------
 echo.
 if "%FAILCOUNT%"=="0" if "%MISSCOUNT%"=="0" (
     echo === Setup complete ===
-    echo Build with:  scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--with-tests]
-    echo              ^(or open build\Projects\Desert.sln^)
+    echo Build with:  scripts\Windows\BuildWindows.bat [Debug^|Release^|Shipping] [--unity]
+    echo              ^(or open the folder in Visual Studio: it reads CMakePresets.json^)
     endlocal
     exit /b 0
 )
@@ -285,58 +237,58 @@ REM ===========================================================================
 
 :usage
 echo.
-echo   scripts\Windows\Setup.bat [--no-install] [--unity]
+echo   scripts\Windows\Setup.bat [--no-install]
 echo.
 echo   Installs the Windows build dependencies, fetches the non-submodule third-party sources
-echo   and generates build\Projects\Desert.sln. Re-runnable.
+echo   and checks CMake and Ninja. Re-runnable. Build with scripts\Windows\BuildWindows.bat.
 echo.
 echo   --no-install   Report what is missing and do not install anything. Everything that is a
 echo                  clone rather than an installer still runs.
-echo   --unity        Generate Common, Desert and Editor as MSBuild unity builds. For the CI job;
-echo                  a developer build leaves it off ^(see BuildScripts\UnityBuild.lua^).
 echo.
 exit /b 2
 
-REM --- premake version -------------------------------------------------------
-REM Refuses BY NAME and says how to fix it, rather than generating with a premake nobody tested.
-REM `premake5 --version` prints a banner line ending in the version; the last token of the line that
-REM contains "Premake Build Script Generator" is that version. Errorlevel 1 means "do not generate".
-:check_premake_version
-REM THE BANNER IS TOKENISED, NOT ECHOED INSIDE A BLOCK. It reads
-REM     premake5 (Premake Build Script Generator) 5.0.0-beta8
-REM and those parentheses are the same hazard as %ProgramFiles(x86)% at the top of this file: a `)`
-REM inside a parenthesised block closes the block at PARSE time, so `echo %%V | findstr ...` in a for
-REM body is a syntax error that reports the wrong line. findstr does the matching in the pipe instead,
-REM and token 6 is the version — the banner has had this shape since premake4.
-set "PREMAKE_FOUND="
-REM Asked from %%TEMP%%, where no premake5.lua exists: from the repository root `--version` also RUNS every
-REM project script, and their output (2026-10-06: a line ending in 'ThirdParty/:') shifted the tokens so the
-REM version read as 'ThirdParty/:' and Windows CI generated nothing. The question is the binary's version only.
-pushd "%TEMP%"
-for /f "tokens=6" %%V in ('""%PREMAKE%" --version 2^>NUL" ^| findstr /C:"Premake Build Script Generator"') do set "PREMAKE_FOUND=%%V"
-popd
-if not defined PREMAKE_FOUND (
-    call :fail "premake5 did not report a version ('%PREMAKE%' --version); cannot tell whether it is %PREMAKE_VERSION%"
+REM --- CMake + Ninja ---------------------------------------------------------
+REM PATH first (a developer prompt, CI's msvc-dev-cmd), then the copies the Visual Studio C++ CMake tools
+REM component installs under the instance :require_msvc found. The version is READ, never assumed: an
+REM older CMake on PATH fails on CMakePresets.json with a message that does not name the version.
+:require_cmake_ninja
+set "CMAKE_EXE="
+set "NINJA_EXE="
+for /f "usebackq delims=" %%i in (`where cmake 2^>NUL`) do if not defined CMAKE_EXE set "CMAKE_EXE=%%i"
+for /f "usebackq delims=" %%i in (`where ninja 2^>NUL`) do if not defined NINJA_EXE set "NINJA_EXE=%%i"
+set "VS_CMAKE_DIR=!VSINSTALL!\Common7\IDE\CommonExtensions\Microsoft\CMake"
+if defined VSINSTALL if not defined CMAKE_EXE if exist "!VS_CMAKE_DIR!\CMake\bin\cmake.exe" set "CMAKE_EXE=!VS_CMAKE_DIR!\CMake\bin\cmake.exe"
+if defined VSINSTALL if not defined NINJA_EXE if exist "!VS_CMAKE_DIR!\Ninja\ninja.exe" set "NINJA_EXE=!VS_CMAKE_DIR!\Ninja\ninja.exe"
+if not defined CMAKE_EXE goto cmake_missing
+if not defined NINJA_EXE goto cmake_missing
+set "CMAKE_VER="
+for /f "usebackq tokens=3" %%v in (`""!CMAKE_EXE!" --version 2^>NUL ^| findstr /B /C:"cmake version""`) do set "CMAKE_VER=%%v"
+if not defined CMAKE_VER (
+    echo [ERROR] "!CMAKE_EXE!" --version printed no "cmake version" line.
     exit /b 1
 )
-if /I "%PREMAKE_FOUND%"=="%PREMAKE_VERSION%" (
-    echo --- premake5 is %PREMAKE_FOUND%
-    exit /b 0
+set "CM_MAJ="
+set "CM_MIN="
+for /f "tokens=1,2 delims=." %%a in ("!CMAKE_VER!") do (
+    set "CM_MAJ=%%a"
+    set "CM_MIN=%%b"
 )
-echo.
-echo   '%PREMAKE%' is %PREMAKE_FOUND%, and this repository needs %PREMAKE_VERSION%.
-echo.
-echo   The two are not interchangeable: BuildScripts\UnityBuild.lua uses a premake API that
-echo   %PREMAKE_VERSION% has and older builds do not, so --unity fails outright and a plain
-echo   generate writes project files no CI run has built.
-echo.
-echo   To update, delete the old one and let this script fetch the pinned version:
-echo       del "%ROOT%\vendor\bin\premake5.exe"
-echo       scripts\Windows\Setup.bat
-echo   If premake5 is on your PATH instead, install %PREMAKE_VERSION% there or remove it from PATH:
-echo       where premake5
-echo.
-call :fail "premake5 is %PREMAKE_FOUND%, need %PREMAKE_VERSION% (nothing was generated)"
+set "CMAKE_OLD=0"
+if !CM_MAJ! LSS %CMAKE_MIN_MAJOR% set "CMAKE_OLD=1"
+if !CM_MAJ! EQU %CMAKE_MIN_MAJOR% if !CM_MIN! LSS %CMAKE_MIN_MINOR% set "CMAKE_OLD=1"
+if "!CMAKE_OLD!"=="1" (
+    echo [ERROR] "!CMAKE_EXE!" is CMake !CMAKE_VER!; this repository needs %CMAKE_MIN_MAJOR%.%CMAKE_MIN_MINOR% or newer.
+    echo         Update Visual Studio ^(its C++ CMake tools carry a newer CMake^) or put a newer cmake first on PATH.
+    exit /b 1
+)
+echo --- CMake !CMAKE_VER!: "!CMAKE_EXE!"
+echo --- Ninja: "!NINJA_EXE!"
+exit /b 0
+
+:cmake_missing
+echo [ERROR] CMake or Ninja not found ^(cmake: "!CMAKE_EXE!", ninja: "!NINJA_EXE!"^).
+echo         Add the "C++ CMake tools for Windows" component in the Visual Studio Installer:
+echo             Microsoft.VisualStudio.Component.VC.CMake.Project
 exit /b 1
 
 :fail
@@ -346,18 +298,16 @@ echo     [FAILED] %~1 1>&2
 exit /b 0
 
 REM --- MSVC ------------------------------------------------------------------
-REM WHAT WE ACTUALLY NEED IS NOT "VISUAL STUDIO". It is MSBuild, the MSVC v143 toolset and a Windows
-REM SDK. CI gets exactly that from the windows-latest image plus microsoft/setup-msbuild; nothing
+REM WHAT WE ACTUALLY NEED IS NOT "VISUAL STUDIO". It is the MSVC v143 toolset, a Windows SDK and the
+REM C++ CMake tools. CI gets exactly that from the windows-2022 image plus ilammy/msvc-dev-cmd; nothing
 REM there installs an IDE. So the check is for the components, and the offered install is Build Tools
 REM for Visual Studio 2022 — a SEPARATE instance, which is why installing it cannot disturb an
 REM existing Visual Studio.
 REM
-REM WHY v143 SPECIFICALLY, AND WHY 2022 IS THE FLOOR: premake's `vs2022` action writes
-REM PlatformToolset=v143 into every .vcxproj. A newer Visual Studio
-REM (17.14, or an 18.x "2026") satisfies this only if it ALSO carries v143 — its own default toolset
-REM is a different one, and msbuild fails with MSB8020 ("The build tools for v143 cannot be found")
-REM rather than quietly retargeting. Checking the directory is therefore the honest check; checking
-REM the IDE's version number is not, in either direction.
+REM WHY v143 SPECIFICALLY, AND WHY 2022 IS THE FLOOR: v143 is the toolset every Windows build of this
+REM repository has been measured with. A newer Visual Studio (17.14, or an 18.x "2026") carries a
+REM different default toolset, and vcvars64 of that instance compiles with it. Checking the directory
+REM is therefore the honest check; checking the IDE's version number is not, in either direction.
 :require_msvc
 if not exist "%VSWHERE%" goto msvc_missing
 set "VSINSTALL="
@@ -372,23 +322,15 @@ REM a healthy VS 2022 Enterprise into "[ERROR] has no MSVC v143 toolset" and too
 REM
 REM v144 does not exist yet; when it does, the directory alone will stop being enough and this has to
 REM ask vswhere for the component instead. Until then any 14.x under a VS 2022-or-newer install IS the
-REM toolset premake asks for, and the FLOOR is enforced by the VS version above, not by this number.
+REM toolset the build expects, and the FLOOR is enforced by the VS version above, not by this number.
 for /d %%d in ("!VSINSTALL!\VC\Tools\MSVC\14.*") do set "V143=%%~nxd"
 if not defined V143 (
     echo [ERROR] "!VSINSTALL!" has no MSVC v143 toolset ^(no VC\Tools\MSVC\14.* directory^).
-    echo         The generated solution asks for PlatformToolset v143; msbuild fails with MSB8020
-    echo         without it. Add it in the Visual Studio Installer:
+    echo         vcvars64 has no compiler to put on PATH without it. Add it in the Visual Studio Installer:
     echo             Microsoft.VisualStudio.Component.VC.Tools.x86.x64
     exit /b 1
 )
 
-set "MSBUILD="
-for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe 2^>NUL`) do set "MSBUILD=%%i"
-if not defined MSBUILD (
-    echo [ERROR] MSVC v143 is installed but MSBuild.exe was not found in "!VSINSTALL!".
-    echo         Add Microsoft.Component.MSBuild in the Visual Studio Installer.
-    exit /b 1
-)
 echo --- MSVC: v!V143! in "!VSINSTALL!"
 exit /b 0
 
@@ -396,7 +338,7 @@ exit /b 0
 echo --- MSVC v143 toolset: NOT FOUND
 if "%NO_INSTALL%"=="1" (
     echo [ERROR] No Visual Studio 2022+ instance carries the MSVC v143 toolset. Install it with:
-    echo         winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+    echo         winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.CMake.Project --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
     exit /b 1
 )
 where winget >NUL 2>&1
@@ -410,7 +352,7 @@ if errorlevel 1 (
 echo --- Installing Build Tools for Visual Studio 2022 ^(several GB; UAC will prompt^)
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e ^
     --accept-package-agreements --accept-source-agreements ^
-    --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+    --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.VC.CMake.Project --add Microsoft.VisualStudio.Component.VC.Redist.14.Latest --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
 if errorlevel 1 (
     echo [ERROR] winget could not install the Build Tools ^(exit %ERRORLEVEL%^).
     exit /b 1
@@ -472,8 +414,8 @@ if not exist "%VK_ROOT%\Include\vulkan\vulkan.h" (
 )
 
 :vulkan_export
-REM Set it for this process AND for future shells. Desert/Dependencies.lua reads VULKAN_SDK first and
-REM only then guesses at Program Files, so leaving it unset makes premake pick whichever SDK version
+REM Set it for this process AND for future shells. cmake/DesertDependencies.cmake reads VULKAN_SDK first and
+REM only then guesses at Program Files, so leaving it unset makes the configure pick whichever SDK version
 REM sorts highest — a different one from the pin above, silently.
 set "VULKAN_SDK=%VK_ROOT%"
 setx VULKAN_SDK "%VK_ROOT%" >NUL 2>&1

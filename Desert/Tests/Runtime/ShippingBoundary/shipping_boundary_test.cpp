@@ -5,7 +5,7 @@
 // the Optick profiler and the GPU timestamp readout, the draw-call counter, the per-frame memory watch
 // and the per-asset synchronous-load ledger. FOUR OF THOSE FIVE ARRIVED IN ONE WEEK. That is the fact
 // this suite exists for — not the five that are there now, but the sixth, which will be added by
-// somebody who has never read `BuildScripts/Configurations.lua` and has no reason to.
+// somebody who has never read `cmake/DesertWorkspace.cmake` and has no reason to.
 //
 // "We will remember to cut it" is exactly the class of promise this project catches daily. The precedent
 // is `PackagedContentTrees`, written after the packager forgot the fonts and a shipped game contained no
@@ -17,7 +17,7 @@
 // THE SIX RELATIONS, AND WHAT EACH WOULD HAVE CAUGHT:
 //
 //   1. The configuration exists, is declared once, and is what defines the macro. A `Shipping` that the
-//      workspace lists and `Configurations.lua` says nothing about is a configuration in which every
+//      workspace lists and `cmake/DesertWorkspace.cmake` says nothing about is a configuration in which every
 //      instrument is back, silently, because `DESERT_CONFIG_SHIPPING` would simply not be defined.
 //
 //   2. The boundary macro has exactly one definition, and no site spells the configuration directly.
@@ -46,9 +46,9 @@
 //
 // Four further rows sit beside them and are not relations between instruments, so they are not
 // numbered: every project the shipping configuration BUILDS must also select its third-party libraries
-// in it (Editor/premake5.lua did not, and linked nothing at all); the packager's default configuration
+// in it (the editor's build script once did not, and linked nothing at all); the packager's default configuration
 // must be one the workspace declares; BOTH platform
-// build wrappers must accept every configuration it declares (derived from Workspace.lua — Windows
+// build wrappers must accept every configuration it declares (derived from cmake/DesertWorkspace.cmake — Windows
 // refused the word `Shipping` outright on the platform the game ships for); and the test projects must
 // stay OUT of the Shipping configuration — a suite whose subject is the draw-call counter cannot be
 // built in the configuration that removes the draw-call counter, and the cheapest way to make it build
@@ -64,6 +64,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -462,16 +463,16 @@ TEST( ShippingBoundary, TheWorkspaceDeclaresTheConfigurationAndTheConfigurationD
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() ) << "could not locate the repository root from the test's cwd";
 
-    const std::string workspace = Read( root / "BuildScripts/Workspace.lua" );
-    ASSERT_FALSE( workspace.empty() ) << "BuildScripts/Workspace.lua is missing or empty";
-    EXPECT_NE( workspace.find( R"(configurations { "Debug", "Release", "Shipping" })" ), std::string::npos )
+    const std::string workspace = Read( root / "cmake/DesertWorkspace.cmake" );
+    ASSERT_FALSE( workspace.empty() ) << "cmake/DesertWorkspace.cmake is missing or empty";
+    EXPECT_NE( workspace.find( "set(DESERT_CONFIGURATIONS Debug Release Shipping)" ), std::string::npos )
          << "the workspace no longer declares a Shipping configuration; every #if in the tree then takes "
             "its development branch and the player gets every instrument back, silently.";
 
-    const std::string configs = Read( root / "BuildScripts/Configurations.lua" );
-    ASSERT_FALSE( configs.empty() ) << "BuildScripts/Configurations.lua is missing or empty";
-    EXPECT_EQ( CountOf( configs, "filter \"configurations:Shipping\"" ), 1u )
-         << "there must be exactly one Shipping block, and it is the one that defines the macro.";
+    // The configuration's settings live in the same file (the CONFIGURATIONS section).
+    const std::string& configs = workspace;
+    EXPECT_EQ( CountOf( configs, "$<CONFIG:Shipping>:" ), 1u )
+         << "there must be exactly one Shipping-only setting, and it is the one that defines the macro.";
     EXPECT_NE( configs.find( "DESERT_CONFIG_SHIPPING" ), std::string::npos )
          << "the Shipping configuration must define DESERT_CONFIG_SHIPPING, or the boundary is not drawn "
             "at all.";
@@ -780,10 +781,11 @@ TEST( ShippingBoundary, TheBoundaryIsCheckedByCIAndNotOnlyByHand )
 
     // WHERE THE BINARY IS, ASSERTED AS A RELATION AND NOT AS A STRING IN TWO PLACES. The workspace owns
     // the directory; the script defaults to a path inside it. `%{cfg.buildcfg}` is `Shipping` in that
-    // configuration, and `Runtime` is the project name.
-    const std::string workspace = Read( root / "BuildScripts/Workspace.lua" );
+    // configuration, and `Runtime` is the target name.
+    const std::string workspace = Read( root / "cmake/DesertWorkspace.cmake" );
     ASSERT_FALSE( workspace.empty() );
-    EXPECT_NE( workspace.find( "/build/Bin/%{cfg.buildcfg}" ), std::string::npos )
+    EXPECT_NE( workspace.find( "set(CMAKE_RUNTIME_OUTPUT_DIRECTORY \"${DESERT_ROOT}/build/Bin/$<CONFIG>\")" ),
+               std::string::npos )
          << "the workspace's targetdir moved. scripts/CI/ShippingSymbols.sh defaults to "
             "build/Bin/Shipping/Runtime and will answer exit 2 (`the check could not run`) rather than a "
             "false pass — but it will answer it on every push until somebody reads this message.";
@@ -806,11 +808,13 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string tests = Read( root / "Desert/Tests/premake5.lua" );
+    const std::string tests = Read( root / "Desert/Tests/CMakeLists.txt" );
     ASSERT_FALSE( tests.empty() );
-    EXPECT_GE( CountOf( tests, "removeconfigurations { \"Shipping\" }" ), 3u )
-         << "the test projects are back in the Shipping configuration: the per-suite loop, BuildAllTests "
-            "and RunAllTests each need the removal, and the last of those is what writes run_tests.bat. "
+    EXPECT_GE( CountOf( tests, "desert_remove_configuration(${target} Shipping)" ) +
+                    CountOf( tests, "desert_remove_configuration(${t} Shipping)" ),
+               2u )
+         << "the test targets are back in the Shipping configuration: every runner, and BuildAllTests and "
+            "RunAllTests, need the removal, and the last of those is what writes run_tests.bat. "
             "With them back, every suite that tests an instrument has to compile without it.";
 
     const std::string ci = StripYamlComments( Read( root / ".github/workflows/ci.yml" ) );
@@ -845,12 +849,12 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
 
 // ── EVERY PROJECT THAT SHIPS LINKS ITS LIBRARIES IN THE SHIPPING CONFIGURATION ──────────────────────
 //
-// WHAT THIS COST, MEASURED RATHER THAN IMAGINED. The `Shipping` configuration arrived with the
-// `filter "configurations:Release or Shipping"` arm taught to Desert/Desert/premake5.lua,
-// Runtime/premake5.lua and exactly ONE of the 258 test scripts — and not to Editor/premake5.lua,
-// whose arm still read `filter "configurations:Release"`. A premake filter that matches no configuration
+// WHAT THIS COST, MEASURED RATHER THAN IMAGINED. The `Shipping` configuration arrived, under the previous
+// build generator, with the "Release or Shipping" library arm taught to the engine's and the player's build
+// scripts and exactly ONE of the 258 test scripts — and not to the editor's, whose arm still read
+// "Release". A configuration filter that matches no configuration
 // contributes nothing and says nothing, so the Editor project in `Shipping` linked against NO third-party library
-// at all. `make config=shipping` — which is what `scripts/MacOS/BuildMacOS.sh Shipping` runs, and what the
+// at all. The Shipping build — what `scripts/MacOS/BuildMacOS.sh Shipping` runs, and what the
 // packager's own "Runtime binary not found" message sends people to — died on the whole of Vulkan, the
 // whole of shaderc and the whole of spirv-cross.
 //
@@ -859,8 +863,10 @@ TEST( ShippingBoundary, TheTestProjectsAreRemovedFromTheShippingConfiguration )
 // project files it under "a middle link drops a property" — both ends look right, the link in between
 // loses something — and the answer is the same: assert the RELATION.
 //
-// DERIVED, NOT LISTED. Every premake5.lua outside Desert/Tests/ that selects a per-configuration library
-// set must name Shipping on the filter that governs the Release set. The test scripts are excluded from
+// DERIVED, NOT LISTED. In CMake a per-configuration library set is a generator expression on the
+// library line. Every build script outside Desert/Tests/ and ThirdParty/ that selects libraries by
+// configuration must select Debug against the rest (`$<CONFIG:Debug>`), or name Shipping wherever it
+// names Release: `$<CONFIG:Release>` alone is the arm Shipping falls out of. The test scripts are excluded from
 // the scan for the same reason they are excluded from the configuration (see
 // TheTestProjectsAreRemovedFromTheShippingConfiguration): a filter naming a configuration its project
 // does not have is inert, so requiring it there would be noise rather than a check.
@@ -874,7 +880,8 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
 
     for ( const fs::directory_entry& entry : fs::recursive_directory_iterator( root ) )
     {
-        if ( !entry.is_regular_file() || entry.path().filename() != "premake5.lua" )
+        const std::string name = entry.path().filename().string();
+        if ( !entry.is_regular_file() || ( name != "CMakeLists.txt" && entry.path().extension() != ".cmake" ) )
             continue;
 
         const std::string rel = fs::relative( entry.path(), root ).generic_string();
@@ -882,34 +889,28 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
              rel.starts_with( "Desert/Tests/" ) )
             continue;
 
-        const std::string text = Read( entry.path() );
-
-        // EVERY occurrence, not the first — and that distinction is not hypothetical. Editor/premake5.lua
-        // selects a Release library set TWICE: once from its own (currently empty) list and once, the one
-        // that carries Vulkan on macOS, from the engine's. The first draft of this loop stopped at the
-        // first hit, passed on a tree whose Editor still could not link, and had to be caught by building
-        // it. A census that examines one of two identical constructs is a census that reports on half a
-        // file.
-        for ( size_t use = text.find( "Libraries.Release" ); use != std::string::npos;
-              use        = text.find( "Libraries.Release", use + 1 ) )
+        // EVERY line, not the first match — and that distinction is not hypothetical: the editor's build
+        // script once selected a Release library set TWICE, and the first draft of this census stopped at
+        // the first hit, passed on a tree whose Editor still could not link, and had to be caught by
+        // building it. A census that examines one of two identical constructs reports on half a file.
+        std::istringstream lines( Read( entry.path() ) );
+        std::string        line;
+        for ( int lineNo = 1; std::getline( lines, line ); ++lineNo )
         {
-            ++scanned;
-
-            // The filter in force at that line is the nearest one ABOVE it. Both spellings count:
-            // `filter "configurations:..."` and the table form `filter { "system:...", "configurations:..." }`.
-            const size_t governing = text.rfind( "configurations:", use );
-            if ( governing == std::string::npos )
-            {
-                offenders.push_back( rel + " (no configuration filter governs a Release library set)" );
+            const std::string code = line.substr( 0, line.find( '#' ) );
+            const bool        selectsLibraries =
+                 code.find( "$<CONFIG:" ) != std::string::npos &&
+                 ( code.find( ".lib" ) != std::string::npos ||
+                   code.find( "LIBRARIES" ) != std::string::npos || code.find( "target_link_libraries" ) != std::string::npos );
+            if ( !selectsLibraries )
                 continue;
-            }
-            const size_t eol = text.find( '\n', governing );
-            if ( text.substr( governing, eol - governing ).find( "Shipping" ) == std::string::npos )
-                offenders.push_back( rel + "  (the arm at offset " + std::to_string( governing ) + ")" );
+            ++scanned;
+            if ( code.find( "$<CONFIG:Release>" ) != std::string::npos && code.find( "Shipping" ) == std::string::npos )
+                offenders.push_back( std::format( "{}:{}  {}", rel, lineNo, code ) );
         }
     }
 
-    ASSERT_GT( scanned, 0u ) << "this census found no project scripts to read — it is checking nothing";
+    ASSERT_GT( scanned, 0u ) << "this census found no per-configuration library line to read — it is checking nothing";
 
     std::string report;
     for ( const std::string& o : offenders )
@@ -923,7 +924,7 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
 
 // ── BOTH BUILD WRAPPERS ACCEPT EVERY CONFIGURATION THE WORKSPACE DECLARES ───────────────────────────
 //
-// DERIVED FROM Workspace.lua, NOT LISTED HERE. A fourth configuration added tomorrow is covered the day
+// DERIVED FROM cmake/DesertWorkspace.cmake (DESERT_CONFIGURATIONS), NOT LISTED HERE. A fourth configuration added tomorrow is covered the day
 // it exists, which is the shape PackagedContentTrees established and the reason this file prefers it.
 //
 // WHAT IT CAUGHT THE DAY IT WAS WRITTEN. `Shipping` landed with scripts/MacOS/BuildMacOS.sh taught the
@@ -939,27 +940,21 @@ TEST( ShippingBoundary, BothPlatformWrappersAcceptEveryDeclaredConfiguration )
     const fs::path root = RepoRoot();
     ASSERT_FALSE( root.empty() );
 
-    const std::string workspace = Read( root / "BuildScripts/Workspace.lua" );
+    const std::string workspace = Read( root / "cmake/DesertWorkspace.cmake" );
     ASSERT_FALSE( workspace.empty() );
 
-    // The declaration line, not the prose around it: Workspace.lua explains at length what the third
+    // The declaration line, not the prose around it: the workspace explains at length what the third
     // configuration is for and names it repeatedly while doing so.
-    const size_t at = workspace.find( "configurations {" );
-    ASSERT_NE( at, std::string::npos ) << "BuildScripts/Workspace.lua no longer declares configurations";
-    const size_t close = workspace.find( '}', at );
+    constexpr std::string_view kDeclaration = "set(DESERT_CONFIGURATIONS ";
+    const size_t               at           = workspace.find( kDeclaration );
+    ASSERT_NE( at, std::string::npos ) << "cmake/DesertWorkspace.cmake no longer declares DESERT_CONFIGURATIONS";
+    const size_t close = workspace.find( ')', at );
     ASSERT_NE( close, std::string::npos );
 
     std::vector<std::string> declared;
-    for ( size_t i = at; i < close; ++i )
-    {
-        if ( workspace[i] != '"' )
-            continue;
-        const size_t end = workspace.find( '"', i + 1 );
-        if ( end == std::string::npos || end > close )
-            break;
-        declared.push_back( workspace.substr( i + 1, end - i - 1 ) );
-        i = end;
-    }
+    std::istringstream       words( workspace.substr( at + kDeclaration.size(), close - at - kDeclaration.size() ) );
+    for ( std::string word; words >> word; )
+        declared.push_back( word );
     ASSERT_GE( declared.size(), 3u ) << "expected at least Debug, Release and Shipping";
 
     const std::string unix    = Read( root / "scripts/MacOS/BuildMacOS.sh" );
@@ -1014,8 +1009,8 @@ TEST( ShippingBoundary, ThePackagerDefaultsToAConfigurationTheWorkspaceDeclares 
          << "the DEFAULT matters more here than anywhere else in the editor: this is the one button whose "
             "product a stranger runs.";
 
-    const std::string workspace = Read( root / "BuildScripts/Workspace.lua" );
-    EXPECT_NE( workspace.find( R"("Shipping")" ), std::string::npos )
+    const std::string workspace = Read( root / "cmake/DesertWorkspace.cmake" );
+    EXPECT_NE( workspace.find( "set(DESERT_CONFIGURATIONS Debug Release Shipping)" ), std::string::npos )
          << "the packager offers a configuration the workspace does not declare — packaging it can only "
             "ever fail with 'Runtime binary not found'.";
 }

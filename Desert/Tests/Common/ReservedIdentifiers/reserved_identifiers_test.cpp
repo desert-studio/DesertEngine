@@ -702,8 +702,8 @@ TEST( ReservedIdentifiers, EveryPosixOnlyUseSitsInsideAPlatformConditional )
          << Listed( offenders );
 }
 
-// UNITY BUILD: ONE TRANSLATION UNIT, MANY FILES. Windows CI compiles Common, Desert and Editor as MSBuild
-// unity files, 12 sources each (BuildScripts/UnityBuild.lua). Two sources that each define the same
+// UNITY BUILD: ONE TRANSLATION UNIT, MANY FILES. Windows CI compiles Common, the engine module libraries
+// and the editor libraries as CMake unity batches, 12 sources each (cmake/DesertWorkspace.cmake). Two sources that each define the same
 // internal-linkage name — an anonymous-namespace helper or a `static` constant — compile alone and
 // collide the day they land in one group, which depends on nothing but the order of the file list. On
 // 2026-09-26 one such pair (`SubjectTitle`) broke the Windows build while every macOS job was green.
@@ -873,15 +873,19 @@ namespace
         return names;
     }
 
-    // BuildScripts/UnityBuild.lua's opt-out patterns, with the leading `**` dropped: a source matching one
-    // is its own translation unit on Windows too, so it cannot collide.
+    // cmake/DesertWorkspace.cmake's DESERT_UNITY_OPT_OUT entries (path fragments): a source matching one
+    // is its own translation unit in the unity build too, so it cannot collide.
     std::vector<std::string> UnityOptOuts()
     {
         std::vector<std::string> out;
-        const std::string        lua = ReadAll( RepoRoot() / "BuildScripts" / "UnityBuild.lua" );
-        const std::regex         pattern( R"re(pattern\s*=\s*"\*\*([^"]+)")re" );
-        for ( auto it = std::sregex_iterator( lua.begin(), lua.end(), pattern ); it != std::sregex_iterator();
-              ++it )
+        const std::string        cmake = ReadAll( RepoRoot() / "cmake" / "DesertWorkspace.cmake" );
+        const std::size_t        begin = cmake.find( "set(DESERT_UNITY_OPT_OUT" );
+        if ( begin == std::string::npos )
+            return out;
+        const std::size_t end  = cmake.find( "\n)", begin );
+        const std::string list = cmake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+        const std::regex  quoted( R"re("([^"]+)")re" );
+        for ( auto it = std::sregex_iterator( list.begin(), list.end(), quoted ); it != std::sregex_iterator(); ++it )
             out.push_back( ( *it )[1] );
         return out;
     }
@@ -890,9 +894,11 @@ namespace
 TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
 {
     const std::vector<std::string> optOuts = UnityOptOuts();
-    ASSERT_GT( optOuts.size(), 3u ) << "BuildScripts/UnityBuild.lua's opt-out list was not found or not parsed";
+    ASSERT_GT( optOuts.size(), 3u ) << "cmake/DesertWorkspace.cmake's DESERT_UNITY_OPT_OUT was not found or not parsed";
 
-    // Premake project -> the tree its .cpp files come from. Desert/CoreReflection is header-only: it has no
+    // Unity scope -> the tree its .cpp files come from. "Desert" is every engine module library and "Editor"
+    // every editor library: one scope per tree is stricter than CMake's per-target batches, so a name that
+    // moves between two module libraries stays covered. Desert/CoreReflection is header-only: it has no
     // translation unit of its own to collide in.
     const std::pair<const char*, const char*>       kProjects[] = { { "Common", "Desert/Common/Source/" },
                                                                     { "Render2DCore", "Desert/Render2DCore/Source/" },
@@ -944,7 +950,7 @@ TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
 
     EXPECT_TRUE( unregistered.empty() )
          << "The same internal-linkage name is defined in two unity sources of one project. They compile "
-            "alone and collide in the MSBuild unity file the day they are grouped together (Windows only). "
+            "alone and collide in the unity file the day they are grouped together (the CI unity build). "
             "Rename one (prefer a name that says what it does), or — for an intended overload — add a row "
             "to kUnityDuplicateRegister:"
          << Listed( unregistered );

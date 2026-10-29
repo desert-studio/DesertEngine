@@ -1,8 +1,9 @@
 # Desert Engine CI — build every configuration the workspace declares (Debug, Release and Shipping)
 # and run the full test suite. The suite runs in Debug and Release only; `Shipping` has no test
-# projects in it by construction (Desert/Tests/premake5.lua), and what proves IT is a compile on both
+# projects in it by construction (Desert/Tests/CMakeLists.txt), and what proves IT is a compile on both
 # platforms plus a symbol dump of the linked player binary (scripts/CI/ShippingSymbols.sh).
-# Tests are auto-enabled on CI: Desert/premake5.lua checks the CI env var (GitHub always sets it).
+# Every build is CMake: scripts/MacOS/BuildMacOS.sh and scripts/Windows/BuildWindows.bat run
+# `cmake --preset` + `cmake --build --preset` (CMakePresets.json, whose presets configure the tests).
 name: CI
 
 on:
@@ -189,7 +190,7 @@ jobs:
       fail-fast: false # every shard's findings are reported, not only the first red one's
       matrix:
         shard: ${{ fromJSON(needs.tidy-plan.outputs.matrix) }}
-    # Measured on a developer machine: premake + the compile database is 40 s and the analysis itself
+    # Measured on a developer machine: configure + the compile database is 40 s and the analysis itself
     # is ~13 s of CPU per translation unit, so the cost here is set by how many files a push touches,
     # not by the size of the tree. The rest is Homebrew. 45 minutes is roughly three times the
     # observed run and is a ceiling rather than a budget; if it is ever approached, the reason will be
@@ -199,7 +200,7 @@ jobs:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
-          submodules: recursive # premake enumerates ThirdParty; a missing submodule is a missing makefile
+          submodules: recursive # CMake configures ThirdParty; a missing submodule is a configure error
           fetch-depth: 0 # merge-base needs history
           filter: blob:none # ...and not the half-gigabyte of verification screenshots in it
 
@@ -232,9 +233,9 @@ jobs:
         run: brew install llvm@18
 
       # THE DATABASE COMES FROM THE BUILD, BY THE BUILD'S OWN COMMAND. --gen-only stops after
-      # `premake5 gmake2`, which is the same generation step a normal build runs; CheckTidy.sh then
-      # asks those makefiles, in dry run, what they would compile. Nothing here is a second opinion
-      # about the build's flags that could drift from them.
+      # `cmake --preset`, which is the same configure step a normal build runs and which writes
+      # compile_commands.json (CMAKE_EXPORT_COMPILE_COMMANDS); GenCompileCommands.sh keeps one
+      # configuration of it. Nothing here is a second opinion about the build's flags that could drift.
       - name: Generate project files
         run: ./scripts/MacOS/BuildMacOS.sh Debug --gen-only
 
@@ -267,8 +268,9 @@ jobs:
           fi
           [ "$TIDY" = success ] || { echo "::error::a clang-tidy shard ended '$TIDY'"; exit 1; }
 
-  # Dynamic checks: the whole workspace builds with ASan+UBSan (the premake makefiles append
-  # env CXXFLAGS/LDFLAGS) and the full test suite runs under them. Leak detection stays off —
+  # Dynamic checks: the whole workspace builds with ASan+UBSan (CMake takes env CXXFLAGS/OBJCXXFLAGS/
+  # LDFLAGS as the initial flags of a FRESH build tree -- this job's checkout has none) and the full
+  # test suite runs under them. Leak detection stays off —
   # LSan is unsupported on Apple Silicon.
   # ── CI12: BUILD ONCE, TEST IN SHARDS ─────────────────────────────────────────────────────────────
   # Run #900 (36426811427): this job built for 47 min, then ran 354 suites for 41 min and was cancelled
@@ -328,8 +330,8 @@ jobs:
     #
     #   * NO TEST BINARY LINKS libDesert. Three makefiles in the whole workspace name it — Desert,
     #     Editor, Runtime. Every suite LISTS the engine translation units it needs and compiles them
-    #     into itself, deliberately (see Desert/Tests/Engine/AssetHandleStability/premake5.lua, which
-    #     writes down why). 275 of the 314 projects in that run had already linked BEFORE `Linking
+    #     into itself, deliberately (Desert/Tests/CMakeLists.txt, the runner's source list, says
+    #     why). 275 of the 314 projects in that run had already linked BEFORE `Linking
     #     Desert` appeared; they could not have been waiting on it.
     #   * THE Desert PROJECT IS 8.7 OF THE 45.6 MINUTES, from `==== Building Desert ====` to `Linking
     #     Desert` in the same log. The 31 minutes before it are the third-party libraries, Common, the
@@ -493,7 +495,10 @@ jobs:
       - name: Build Debug with sanitizers
         timeout-minutes: 78
         env:
+          # Read by CMake on the FIRST configure of a build tree only; the checkout is fresh, so this is it.
+          # OBJCXXFLAGS too: the Objective-C++ units are their own language to CMake.
           CXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
+          OBJCXXFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
           LDFLAGS: "-fsanitize=address,undefined"
           # THE DEFAULT IS 5 GiB AND IT IS NOT ENOUGH, which is the failure mode that looks exactly
           # like the cache working: ccache evicts least-recently-used entries as it fills, so a
@@ -533,7 +538,7 @@ jobs:
           retention-days: 7
 
       # The expected list is build/TestManifest.txt, the same list the unsharded runner runs from (BUILD1),
-      # minus the suites Desert/Tests/premake5.lua names in `vulkan_device_suites`
+      # minus the suites Desert/Tests/CMakeLists.txt names as needing a Vulkan device
       # (build/TestNeedsVulkanDevice.txt) while the shards run on macos-14, a VM with no Metal device for
       # MoltenVK. The plan names them in a ::notice.
       - name: Plan test shards
@@ -841,8 +846,8 @@ jobs:
           path: ${{ runner.temp }}/ccache
           key: ccache-macos14-${{ matrix.config }}-${{ matrix.leg }}-${{ github.sha }}
 
-      # Not in Shipping: the test projects are removed from that configuration in
-      # Desert/Tests/premake5.lua, so build/Bin/Tests/Shipping is never created and there is nothing to
+      # Not in Shipping: the test runners are excluded from that configuration in
+      # Desert/Tests/CMakeLists.txt, so build/Bin/Tests/Shipping is never created and there is nothing to
       # run. Unguarded, this step goes RED rather than silently green — RunTests.sh exits 1 on a missing
       # test directory, checked in the script and not assumed from it — which is the right direction for
       # the failure to point and still not a verdict worth spending a step on. See the same note on the
@@ -1023,9 +1028,9 @@ jobs:
     name: Windows ${{ matrix.config }} build
     # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it -- was `needs: [ format ]`.
     # PINNED, NOT "latest". On 2026-09-14 `windows-latest` rolled forward to an image carrying Visual
-    # Studio 18 Enterprise, which does NOT ship the MSVC v143 toolset. premake's vs2022 action writes
-    # PlatformToolset=v143 into every .vcxproj, so msbuild on that image fails with MSB8020 -- Setup.bat
-    # now says so by name instead, which is how the five red runs after dff392b5 got diagnosed at all.
+    # Studio 18 Enterprise, which does NOT ship the MSVC v143 toolset the build was measured with
+    # (the five red runs after dff392b5). msvc-dev-cmd takes the image's newest toolset, so the image
+    # is what pins the compiler.
     #
     # The label moving under us is the defect, not the image: a runner that silently changes compiler
     # is a green CI that stopped meaning what it meant. So the image is named, and moving to a newer
@@ -1086,7 +1091,7 @@ jobs:
     steps: &windows-build-steps
       # The job's own clock — see the note on the `sanitizers` job's copy of this step. `shell: bash`
       # because the runner image ships Git Bash and this is one line of POSIX; cmd has no `date +%s`,
-      # and every quoting form that survives cmd here is one nobody can read (Desert/Tests/premake5.lua
+      # and every quoting form that survives cmd here is one nobody can read (cmake/WriteRunTestsBat.cmake
       # carries that scar). Nothing in it shells out, so the single-quote trap does not apply.
       - name: Record job start
         shell: bash
@@ -1145,17 +1150,20 @@ jobs:
           path: C:\VulkanSDK
           key: vulkan-sdk-${{ env.VULKAN_SDK_VERSION }}-debuglibs-loader
 
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      # The x64 MSVC environment (cl, link, the Windows SDK) and the Visual Studio CMake + Ninja, which
+      # BuildWindows.bat finds on PATH and then does not call vcvars64 itself.
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-      # Same script a developer runs: fetches the non-submodule third-party (optick, meshoptimizer),
-      # and generates the VS solution. (It no longer writes Version.gen.hpp — the build does, through
-      # Common.vcxproj's PreBuildEvent.) Running it here means the documented
-      # setup path is itself under test — a broken Setup.bat fails CI instead of the next new machine.
+      # Same script a developer runs: fetches the non-submodule third-party (optick, meshoptimizer) and
+      # checks the toolchain. Running it here means the documented setup path is itself under test — a
+      # broken Setup.bat fails CI instead of the next new machine.
       #
-      # --unity (task CI10): Common, Desert and Editor compile as MSBuild unity files, groups of 12
-      # sources (BuildScripts/UnityBuild.lua; the test suites stay one source per compile so their
-      # shared sources keep hitting ccache). ONLY HERE -- a developer's Setup.bat run leaves it off.
+      # --unity on the build line below (task CI10): preset windows-msvc-ninja-unity, Common, Desert and
+      # Editor as CMake unity batches (cmake/DesertWorkspace.cmake; the test suites stay one source per
+      # compile so their shared sources keep hitting ccache). ONLY HERE -- a developer build leaves it off.
       # BEFORE, the numbers to compare the first unity run against (ccache + MultiToolTask, run
       # 35863890019): Build step Release 74.7 min, Debug 36.0, Shipping 26.2; whole job Release 80.2,
       # Debug 57, Shipping 29. The owner's working figure for the Windows job today: 1.5-2 h.
@@ -1169,14 +1177,9 @@ jobs:
           path: ThirdParty\Streamline\bin\x64
           key: vendor-bin-${{ hashFiles('ThirdParty/Streamline/manifest.json') }}
 
-      - name: Setup dependencies + generate projects
+      - name: Setup dependencies
         shell: cmd
-        # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it: Desert/premake5.lua
-        # generates the Tests group when CI is set (GitHub sets CI=true), so the solution would build the
-        # test runners. Unset for this step only -> no test projects in Desert.sln. Restore = the bare call.
-        run: |
-          set "CI="
-          scripts\Windows\Setup.bat --unity
+        run: scripts\Windows\Setup.bat
 
       # Written by a push to dev only — see "THE CACHE IS WRITTEN BY dev ONLY" on the sanitizers job.
       - name: Save vendor runtime binaries
@@ -1196,14 +1199,12 @@ jobs:
       # no suites, still spends 21 of its 49 build minutes on Desert and 20 on Editor for the same
       # reason. So there are two costs, and the wiring below addresses both:
       #   1. the SAME (source, flags) compiled again by another suite -- 505 of 1940 compiles, 30.8 %
-      #      of compile CPU, measured on macOS by B2 over the same premake scripts;
-      #   2. no parallelism INSIDE a project (no /MP, see BuildScripts/Workspace.lua).
-      # 2 is answered in every generated project now (UseMultiToolTask + EnforceProcessCountAcrossBuilds,
-      # BuildScripts/MSBuildProperties.lua), and that one-source-per-cl.exe is also what ccache needs --
-      # see BuildScripts/MSBuild/Ccache.props for the cache's own properties and Ccache.targets for /Zi -> /Z7.
-      # Both are imported by NAME on the msbuild line below, never as Directory.Build.* from the root,
-      # but at the SAME two points Directory.Build.* would be (CustomBeforeMicrosoftCommonProps /
-      # CustomAfterMicrosoftCommonTargets) -- see the gate after the build step for why that matters.
+      #      of compile CPU, measured on macOS by B2;
+      #   2. no parallelism INSIDE a project (MSBuild without /MP).
+      # Ninja answers 2 by construction: one cl.exe per source, as many as there are cores, across every
+      # target. That one-source-per-compile is also what ccache needs; it runs as the compiler launcher
+      # (BuildWindows.bat --launcher -> DESERT_COMPILER_LAUNCHER -> CMAKE_<LANG>_COMPILER_LAUNCHER), and
+      # with a launcher set cmake/DesertWorkspace.cmake embeds the debug information (/Z7) a cache can share.
       #
       # MEASURED, first green run 35863890019 (9feaa1ee) against the eleven complete Release builds
       # before it (111.5-119.9 min, median 115.8): Build Release 74.7, Debug 36.0 (was 67.6-75.1),
@@ -1217,7 +1218,7 @@ jobs:
       #
       # PINNED BY VERSION AND BY HASH: the binary sits in front of every compile of the three legs, and
       # a release changing under us would change the build without a commit saying so.
-      - name: Install ccache (as cl.exe)
+      - name: Install ccache
         shell: pwsh
         run: |
           $ver = "4.14"
@@ -1228,12 +1229,7 @@ jobs:
           if ($got -ne $sha) { throw "ccache $ver zip hash is $got, expected $sha" }
           Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\ccache-dist"
           $exe = "$env:RUNNER_TEMP\ccache-dist\ccache-$ver-windows-x86_64\ccache.exe"
-          # The masquerade directory: ccache.exe under the name cl.exe, and nothing else in it.
-          $masq = "$env:RUNNER_TEMP\ccache-cl"
-          New-Item -ItemType Directory -Force $masq | Out-Null
-          Copy-Item $exe "$masq\cl.exe"
           @(
-            "DESERT_MSVC_CCACHE=$masq"
             "CCACHE_EXE=$exe"
             "CCACHE_DIR=$env:RUNNER_TEMP\ccache"
             # Per configuration (matrix.ccache_max), sized so dev's whole cache set fits 8.5 of the
@@ -1242,8 +1238,8 @@ jobs:
             "CCACHE_MAXSIZE=${{ matrix.ccache_max }}"
             # The same four entries, with the same census behind them, as scripts/MacOS/BuildMacOS.sh.
             "CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime,include_file_ctime"
-            # premake writes IntDir as $(ProjectDir)build\...\<Project>\ -- absolute and different for
-            # every project -- and ccache hashes an MSVC object's directory by default, which would
+            # Ninja writes each target's objects under its own <Target>.dir -- different for every
+            # target -- and ccache hashes an MSVC object's directory by default, which would
             # make a suite's copy of an engine source miss against the identical compile before it.
             # What that hash guards is the object's own path inside its /Z7 debug records, which
             # nothing here reads; the source path that also lands in the object is still hashed.
@@ -1291,17 +1287,12 @@ jobs:
         timeout-minutes: 130
         shell: cmd
         run: |
+        # TEMP CI-NOTESTS (owner 2026-10-12, renewed 10-15): restore only when the owner lifts it --
+        # --no-tests configures without the suites (DESERT_WITH_TESTS=OFF). Restore = drop the flag.
+        run: |
           "%CCACHE_EXE%" --zero-stats || exit /b 1
-          msbuild build\Projects\Desert.sln -p:Configuration=${{ matrix.config }} -p:Platform=x64 -m -v:minimal ^
-            "-p:CustomBeforeMicrosoftCommonProps=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.props" ^
-            "-p:CustomAfterMicrosoftCommonTargets=%GITHUB_WORKSPACE%\BuildScripts\MSBuild\Ccache.targets"
+          scripts\Windows\BuildWindows.bat ${{ matrix.config }} --unity --no-tests --launcher "%CCACHE_EXE%"
 
-      # THE CACHE MUST SEE ONE SOURCE PER COMPILE, OR THE WIRING IS NOT IN EFFECT. When the imports
-      # moved to /p:ForceImportBeforeCppTargets (6e1a17b1, d7ab8fa8) CLToolPath still applied but
-      # UseMultiToolTask did not: ccache saw 359 calls instead of 2270, 211 of them "multiple source
-      # files", hit once, and Windows Release grew from 78 to 104..146 minutes, a leg slowly
-      # crossing its 150-minute ceiling. Nothing failed by name; it read as a hung runner. A
-      # multi-source call means UseMultiToolTask is off, so it fails the job by name.
       # Right after the build, `always()`: a build cancelled at the ceiling still leaves every object
       # it finished, and that is what lets the next run get past the point this one stopped at. The
       # cache is an optimisation, so a failed save never turns the job red (`continue-on-error`).
@@ -1325,16 +1316,6 @@ jobs:
           name: ccache-debug-${{ github.job }}
           path: ${{ runner.temp }}/ccache-debug-pick/
           retention-days: 7
-
-      - name: ccache saw one source per compile
-        shell: pwsh
-        run: |
-          $stats = & $env:CCACHE_EXE --print-stats
-          $row = $stats | Select-String '^multiple_source_files\s+(\d+)$'
-          if (-not $row) { $stats; throw "ccache --print-stats has no multiple_source_files row; the gate cannot read it" }
-          $n = [int]$row.Matches[0].Groups[1].Value
-          if ($n -ne 0) { throw "ccache saw $n compiles with more than one source: UseMultiToolTask is not in effect, see BuildScripts/MSBuildProperties.lua and BuildScripts/MSBuild/Ccache.props" }
-          "multiple_source_files = 0"
 
       # Every outcome prints: a cache that saw nothing must not look like a build that needed nothing.
       # The disk and the largest archives are here because /Z7 moves debug information INTO the objects
@@ -1392,7 +1373,7 @@ jobs:
       # CrashHandler asserts a symbol for its faulting frame and reads the PDB beside its own executable,
       # so THAT executable's PDB travels; a failing suite elsewhere still prints its gtest assertion, only a
       # native crash loses line numbers. Which executable holds the suite is build/TestManifest.txt's answer
-      # (`<Runner> <Suite>`, written by Desert/Tests/premake5.lua), not a name written here: BUILD1-P1 moved
+      # (`<Runner> <Suite>`, written by Desert/Tests/CMakeLists.txt), not a name written here: BUILD1-P1 moved
       # the suite from its own CrashHandler.exe into its layer's runner, and a hard-coded CrashHandler.pdb
       # kept "travelling" while no such file existed — eight CrashHandler failures on the shard.
       - name: Name the PDB that travels
@@ -1596,18 +1577,18 @@ jobs:
         run: |
           [ -f "$SCENE" ] || { echo "$SCENE does not exist on this runner; refusing to photograph another scene"; exit 1; }
 
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-      - name: Setup dependencies + generate projects
+      - name: Setup dependencies
         shell: cmd
-        run: |
-          set "CI="
-          scripts\Windows\Setup.bat
+        run: scripts\Windows\Setup.bat
 
       - name: Build the Debug editor
         shell: cmd
-        run: msbuild build\Projects\Editor.vcxproj -p:Configuration=Debug -p:Platform=x64 -m -v:minimal
+        run: scripts\Windows\BuildWindows.bat Debug --no-tests --project Editor
 
       - name: Photograph the scene headless
         shell: bash
@@ -1693,7 +1674,7 @@ jobs:
           path: build
 
       # NOT IN SHIPPING, AND NOT BECAUSE IT WOULD BE SLOW — BECAUSE THERE IS NOTHING TO RUN. The test
-      # projects are removed from the Shipping configuration in Desert/Tests/premake5.lua: a suite whose
+      # runners are excluded from the Shipping configuration in Desert/Tests/CMakeLists.txt: a suite whose
       # subject is the draw-call counter cannot be built in the one configuration that removes the
       # draw-call counter. run_tests.bat is written by RunAllTests's postbuild, which goes with them, so
       # a Shipping build produces no runner at all. So Shipping has `shards: 0` and no test job: a test

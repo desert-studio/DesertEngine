@@ -118,8 +118,8 @@ namespace
 
     constexpr const char* kStaleHint =
          "\nThe compiled-in version header disagrees with git. Either the build did not regenerate "
-         "Version.gen.hpp (the Common project generates it — re-run premake5 if these makefiles or "
-         "project files predate that hook), or this binary was built before the commit you are now "
+         "Version.gen.hpp (the Common target generates it — re-run `cmake --preset <host preset>` if this "
+         "build tree was configured before that hook), or this binary was built before the commit you are now "
          "sitting on and simply needs rebuilding.";
 } // namespace
 

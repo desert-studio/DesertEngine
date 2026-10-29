@@ -1,6 +1,6 @@
-# DesertEngine -- CMake entry point. Mirrors premake5.lua target for target: the same target names, the same
-# output directory (build/Bin/<Config>), the same flags. premake stays the build of record until the switch
-# (card CMAKE); cmake/*.cmake carry the shared settings premake kept in BuildScripts/*.lua.
+# DesertEngine -- CMake entry point: every target, one output directory (build/Bin/<Config>), the shared
+# settings in cmake/*.cmake. The build of record on both platforms (scripts/Windows/BuildWindows.bat,
+# scripts/MacOS/BuildMacOS.sh).
 #
 #   cmake --preset windows-msvc-ninja        (from an x64 developer prompt: vcvars64)
 #   cmake --build --preset windows-msvc-ninja-debug
@@ -25,10 +25,9 @@ if(APPLE)
     enable_language(OBJCXX)
 endif()
 
-option(DESERT_WITH_TESTS "Generate the test suites (premake --with-tests; on by default under CI)" OFF)
-if(DEFINED ENV{CI} AND NOT "$ENV{CI}" STREQUAL "")
-    set(DESERT_WITH_TESTS ON)
-endif()
+# The presets turn it ON (CMakePresets.json `base`); the build scripts pass it on every configure, so a
+# -DDESERT_WITH_TESTS=OFF run (CI's no-tests legs) is honoured and never sticks to the next configure.
+option(DESERT_WITH_TESTS "Configure the test suites" OFF)
 
 include(cmake/DesertWorkspace.cmake)
 include(cmake/DesertDependencies.cmake)
@@ -39,7 +38,7 @@ include(cmake/DesertEditorLibs.cmake)
 
 add_subdirectory(ThirdParty)
 
-# Tools that need nothing of the engine (premake5.lua's first Tools group).
+# Tools that need nothing of the engine.
 add_subdirectory(Tools/DesertHeaderTool)
 add_subdirectory(Tools/FbxMeshSplitter)
 add_subdirectory(Tools/DShaderTool)
@@ -56,7 +55,7 @@ add_subdirectory(Tools/UIMockup)
 
 add_subdirectory(Desert)
 
-# Tools that compile or link engine code (premake5.lua's second Tools group).
+# Tools that compile or link engine code.
 add_subdirectory(Tools/CloudVolumeBaker)
 add_subdirectory(Tools/CloudLayoutBaker)
 add_subdirectory(Tools/LatticePeak)

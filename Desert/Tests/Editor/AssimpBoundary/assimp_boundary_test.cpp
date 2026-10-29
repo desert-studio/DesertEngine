@@ -158,7 +158,7 @@ TEST( AssimpBoundary, NeitherTheEngineNorTheRuntimeReachesForAssimp )
     // The other half of the same statement: the build files for those two projects must not name the
     // library either. An `#include` is how it arrives by accident; a `links` entry is how it arrives on
     // purpose, and this suite has to refuse both.
-    for ( const char* project : { "Desert/Desert/premake5.lua", "Runtime/premake5.lua" } )
+    for ( const char* project : { "Desert/Desert/CMakeLists.txt", "cmake/DesertModuleTable.cmake", "Runtime/CMakeLists.txt" } )
     {
         const std::string text = ReadFile( root / project );
         if ( text.empty() )
@@ -169,10 +169,12 @@ TEST( AssimpBoundary, NeitherTheEngineNorTheRuntimeReachesForAssimp )
              << project << " names the Assimp project in its build file.";
         EXPECT_EQ( text.find( "assimp" ), std::string::npos ) << project << " names assimp.";
     }
-    EXPECT_TRUE( std::filesystem::exists( root / "Desert/Desert/premake5.lua" ) )
-         << "Desert/Desert/premake5.lua has moved; the check above silently covered nothing.";
-    EXPECT_TRUE( std::filesystem::exists( root / "Runtime/premake5.lua" ) )
-         << "Runtime/premake5.lua has moved; the check above silently covered nothing.";
+    EXPECT_TRUE( std::filesystem::exists( root / "Desert/Desert/CMakeLists.txt" ) )
+         << "Desert/Desert/CMakeLists.txt has moved; the check above silently covered nothing.";
+    EXPECT_TRUE( std::filesystem::exists( root / "cmake/DesertModuleTable.cmake" ) )
+         << "cmake/DesertModuleTable.cmake has moved; the check above silently covered nothing.";
+    EXPECT_TRUE( std::filesystem::exists( root / "Runtime/CMakeLists.txt" ) )
+         << "Runtime/CMakeLists.txt has moved; the check above silently covered nothing.";
     EXPECT_TRUE( std::filesystem::exists( root / "Runtime/Source" ) )
          << "Runtime/Source has moved; the include census above walked nothing.";
 }
@@ -213,14 +215,14 @@ TEST( AssimpBoundary, NoBuildFileCarriesAToolsetNameInsideALibraryName )
     const auto root = RepositoryRoot();
 
     std::vector<std::filesystem::path> buildFiles;
-    for ( const char* dir : { "BuildScripts", "Tools", "Editor", "Desert", "scripts" } )
+    for ( const char* dir : { "cmake", "Tools", "Editor", "Desert", "scripts" } )
     {
-        for ( const auto& file : FilesUnder( root / dir, { ".lua", ".bat", ".sh", ".ps1" } ) )
+        for ( const auto& file : FilesUnder( root / dir, { ".txt", ".cmake", ".bat", ".sh", ".ps1" } ) )
         {
             buildFiles.push_back( file );
         }
     }
-    for ( const char* file : { "premake5.lua", "build/Projects/Makefile" } )
+    for ( const char* file : { "CMakeLists.txt", "CMakePresets.json" } )
     {
         if ( std::filesystem::exists( root / file ) )
         {

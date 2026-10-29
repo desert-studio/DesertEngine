@@ -1,11 +1,11 @@
 // THE TEST TREE IS LAID OUT FOR ONE RUNNER PER LAYER (BUILD1 P1, BuildScripts/BUILD1-CONTRACT.md §4).
 //
-// Every suite of a layer is compiled into ONE executable (`<Layer>Tests`, Desert/Tests/premake5.lua) and
+// Every suite of a layer is compiled into ONE executable (`<Layer>Tests`, Desert/Tests/CMakeLists.txt) and
 // chosen at run time with `--desert-suite=<Suite>`. That only stays correct while the tree keeps four
 // properties nothing else checks:
 //
-//   1. A suite has no premake5.lua and no `main`: it is compiled into its layer's runner. (Generation
-//      refuses a suite premake5.lua too; this says the same where a test run reads it.) Set-up a main
+//   1. A suite has no CMakeLists.txt and no `main`: it is compiled into its layer's runner. (Configure
+//      refuses a suite CMakeLists.txt too; this says the same where a test run reads it.) Set-up a main
 //      used to do is a SuiteEnvironment, a child mode a ChildEntry (TestSupport/runner.hpp).
 //   2. No `main` under Desert/Tests other than TestSupport/RunnerMain.cpp.
 //   3. No gtest test-suite name in two suite directories of one runner: gtest aborts the whole runner
@@ -14,10 +14,10 @@
 //      .cpp: two suites' `struct Carrier` in one binary is an ODR violation the linker resolves silently
 //      (one suite runs against the other's inline members). JsonDocument and JsonFacade both had one.
 //
-// HOW TO CONVERT A SUITE (what the messages below point at): delete its premake5.lua and its `int main`
+// HOW TO CONVERT A SUITE (what the messages below point at): delete its CMakeLists.txt and its `int main`
 // (what the main set up goes into a SuiteEnvironment, a self-launch mode into a ChildEntry);
-// move what the script added (include dir, library, tool source) into the runner's entry in kRunners,
-// Desert/Tests/premake5.lua; put file-local types into `namespace { }`; give its tests a test-suite name
+// move what the script added (include dir, library, tool source) into the runner's function,
+// `_desert_runner_<Layer>` in Desert/Tests/CMakeLists.txt; put file-local types into `namespace { }`; give its tests a test-suite name
 // no other suite of the layer uses. BuildScripts/BUILD1-CONTRACT.md, "Adding a suite".
 
 #include <gtest/gtest.h>
@@ -41,8 +41,8 @@ namespace
     namespace fs = std::filesystem;
 
     constexpr const char* kHowToConvert =
-         "convert it: delete its premake5.lua and its `int main`, move what the script "
-         "added into kRunners in Desert/Tests/premake5.lua (BuildScripts/"
+         "convert it: delete its CMakeLists.txt and its `int main`, move what the script "
+         "added into _desert_runner_<Layer> in Desert/Tests/CMakeLists.txt (BuildScripts/"
          "BUILD1-CONTRACT.md, \"Adding a suite\")";
 
     // The checkout the build baked in (scratch_dir.hpp), not one searched for from the working directory.
@@ -218,7 +218,7 @@ namespace
         std::string           layer;
         std::string           name;
         fs::path              dir;
-        bool                  ownProject = false; // has its own premake5.lua (refused: rule 1)
+        bool                  ownProject = false; // has its own CMakeLists.txt (refused: rule 1)
         std::vector<fs::path> sources{};          // *.cpp directly in the suite directory
     };
 
@@ -235,7 +235,7 @@ namespace
                 if ( !entry.is_directory() )
                     continue;
                 Suite suite{ layer, entry.path().filename().string(), entry.path() };
-                suite.ownProject = fs::exists( entry.path() / "premake5.lua" );
+                suite.ownProject = fs::exists( entry.path() / "CMakeLists.txt" );
                 for ( const auto& file : fs::directory_iterator( entry.path() ) )
                 {
                     if ( file.is_regular_file() && file.path().extension() == ".cpp" )
@@ -330,7 +330,7 @@ namespace
                  std::any_of( suite.sources.begin(), suite.sources.end(),
                               []( const fs::path& file ) { return DefinesMain( ReadFile( file ) ); } );
             EXPECT_FALSE( suite.ownProject )
-                 << Relative( suite.dir, root ) << " has its own premake5.lua: " << kHowToConvert;
+                 << Relative( suite.dir, root ) << " has its own CMakeLists.txt: " << kHowToConvert;
             ++runnerSuites;
             EXPECT_FALSE( hasMain ) << Relative( suite.dir, root ) << " is built into its layer's runner, whose "
                                     << "only main is TestSupport/RunnerMain.cpp: " << kHowToConvert;
@@ -410,34 +410,35 @@ namespace
     //
     // The Engine runner links Desert and nothing above it: a suite that needs an editor source (a command, a
     // panel's model) is an Editor suite, one that needs a tool's source (the migrator's lifts) is a Tools suite,
-    // and those runners compile the source once. A file of Editor/ or Tools/ in the Engine runner's `files`
-    // makes the engine's tests depend on the layers built on top of it.
-    std::vector<std::string> RunnerFiles( const std::string& premake, const std::string& layer )
+    // and those runners compile the source once. A file of Editor/ or Tools/ in the Engine runner's
+    // `target_sources` makes the engine's tests depend on the layers built on top of it.
+    std::vector<std::string> RunnerFiles( const std::string& cmake, const std::string& layer )
     {
-        const std::string opener = std::format( "    {} = function(deps)", layer );
-        const size_t      begin  = premake.find( opener );
+        const std::string opener = std::format( "function(_desert_runner_{} target)", layer );
+        const size_t      begin  = cmake.find( opener );
         EXPECT_NE( begin, std::string::npos )
-             << "kRunners has no entry '" << layer << "' in Desert/Tests/premake5.lua";
+             << "Desert/Tests/CMakeLists.txt has no runner function '_desert_runner_" << layer << "'";
         if ( begin == std::string::npos )
             return {};
-        const size_t      end = premake.find( "\n    end,", begin );
+        const size_t      end = cmake.find( "endfunction()", begin );
         const std::string body =
-             premake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+             cmake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
 
-        // Lua comments out (`--` to the end of the line), so a comment naming a path is not a compiled file.
+        // CMake comments out (`#` to the end of the line), so a comment naming a path is not a compiled file.
         std::string        code;
         std::istringstream lines( body );
         for ( std::string line; std::getline( lines, line ); )
-            std::format_to( std::back_inserter( code ), "{}\n", line.substr( 0, line.find( "--" ) ) );
+            std::format_to( std::back_inserter( code ), "{}\n", line.substr( 0, line.find( '#' ) ) );
 
         std::vector<std::string> files;
         static const std::regex  kQuoted( R"re("([^"]*)")re" );
-        for ( size_t at = code.find( "files {" ); at != std::string::npos; at = code.find( "files {", at + 1 ) )
+        constexpr std::string_view kCall = "target_sources(";
+        for ( size_t at = code.find( kCall ); at != std::string::npos; at = code.find( kCall, at + 1 ) )
         {
-            // The list closes at the first `}` outside a string: the paths themselves hold `%{...}`.
-            size_t close  = at + 7;
+            // The call closes at the first `)` outside a string: the paths themselves hold `${...}`.
+            size_t close  = at + kCall.size();
             bool   quoted = false;
-            for ( ; close < code.size() && ( quoted || code[close] != '}' ); ++close )
+            for ( ; close < code.size() && ( quoted || code[close] != ')' ); ++close )
                 quoted = code[close] == '"' ? !quoted : quoted;
             const std::string list = code.substr( at, close - at );
             for ( auto it = std::sregex_iterator( list.begin(), list.end(), kQuoted );
@@ -447,25 +448,21 @@ namespace
         return files;
     }
 
-    // The test sources a suite adopts from outside Desert/Tests (`kAdoptedSources`, BLD-DEVTESTS): they are
+    // The test sources a suite adopts from outside Desert/Tests (`_adopted_suites`, BLD-DEVTESTS): they are
     // compiled wherever that suite is, so an adopted file of an Engine suite is in the Engine runner although
-    // the runner's own entry does not name it. Rows read `<Suite> = { "<path>", ... },` inside the table.
-    std::vector<std::string> AdoptedFiles( const std::string& premake, const std::string& layer )
+    // the runner's own function does not name it. Rows read `set(_adopted_<Suite> "<path>" ...)`.
+    std::vector<std::string> AdoptedFiles( const std::string& cmake, const std::string& layer )
     {
-        const size_t begin = premake.find( "local kAdoptedSources = {" );
-        EXPECT_NE( begin, std::string::npos ) << "Desert/Tests/premake5.lua has no kAdoptedSources table";
-        if ( begin == std::string::npos )
-            return {};
-        const size_t       end = premake.find( "\n}", begin );
-        std::istringstream rows(
-             premake.substr( begin, end == std::string::npos ? std::string::npos : end - begin ) );
-        static const std::regex  kRow( R"re(^\s*([A-Za-z0-9_]+)\s*=\s*\{(.*)\})re" );
+        EXPECT_NE( cmake.find( "set(_adopted_suites " ), std::string::npos )
+             << "Desert/Tests/CMakeLists.txt has no _adopted_suites list";
+        std::istringstream       rows( cmake );
+        static const std::regex  kRow( R"re(^\s*set\(_adopted_([A-Za-z0-9]+)\s+(.*)\))re" );
         static const std::regex  kQuoted( R"re("([^"]*)")re" );
         std::vector<std::string> files;
         for ( std::string row; std::getline( rows, row ); )
         {
             std::smatch       match;
-            const std::string code = row.substr( 0, row.find( "--" ) );
+            const std::string code = row.substr( 0, row.find( '#' ) );
             if ( !std::regex_search( code, match, kRow ) ||
                  !std::filesystem::is_directory( RepoRoot() / "Desert" / "Tests" / layer / match[1].str() ) )
                 continue;
@@ -479,22 +476,22 @@ namespace
 
     TEST( TestRunnerLayout, EngineTestsCompilesNothingOfEditorOrTools )
     {
-        const std::string premake = ReadFile( RepoRoot() / "Desert" / "Tests" / "premake5.lua" );
-        ASSERT_NE( premake.find( "    Engine = function(deps)" ), std::string::npos )
-             << "kRunners has no Engine entry: the reader is stale";
-        // The entry may name no file of its own (its one adopted source moved to kAdoptedSources).
-        std::vector<std::string>       files   = RunnerFiles( premake, "Engine" );
-        const std::vector<std::string> adopted = AdoptedFiles( premake, "Engine" );
+        const std::string cmake = ReadFile( RepoRoot() / "Desert" / "Tests" / "CMakeLists.txt" );
+        ASSERT_NE( cmake.find( "function(_desert_runner_Engine target)" ), std::string::npos )
+             << "Desert/Tests/CMakeLists.txt has no Engine runner function: the reader is stale";
+        // The function may name no file of its own (its one adopted source moved to _adopted_suites).
+        std::vector<std::string>       files   = RunnerFiles( cmake, "Engine" );
+        const std::vector<std::string> adopted = AdoptedFiles( cmake, "Engine" );
         files.insert( files.end(), adopted.begin(), adopted.end() );
         for ( const std::string& file : files )
         {
-            const bool editor = file.find( "_MAIN_SCRIPT_DIR}/Editor/" ) != std::string::npos;
-            const bool tools  = file.find( "_MAIN_SCRIPT_DIR}/Tools/" ) != std::string::npos;
+            const bool editor = file.find( "${DESERT_ROOT}/Editor/" ) != std::string::npos;
+            const bool tools  = file.find( "${DESERT_ROOT}/Tools/" ) != std::string::npos;
             EXPECT_FALSE( editor || tools )
                  << file << " is compiled into EngineTests: move the suite that needs it to Desert/Tests/"
                  << ( editor ? "Editor" : "Tools" ) << "/<Suite> (its runner already compiles "
-                 << ( editor ? "editor" : "tool" ) << " sources) and drop the file from the Engine entry of "
-                 << "kRunners";
+                 << ( editor ? "editor" : "tool" ) << " sources) and drop the file from "
+                 << "_desert_runner_Engine";
         }
     }
 } // namespace

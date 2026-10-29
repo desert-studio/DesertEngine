@@ -6,8 +6,8 @@
 # There is deliberately no `set -e`. The steps below are independent of one
 # another, and this script used to abort on the first one that failed. A single
 # unhappy submodule therefore took the optick / meshoptimizer fetches
-# down with it, and the only symptom anybody ever saw was premake5 refusing to
-# run — which reads as "the worktree is broken", not as "setup stopped halfway".
+# down with it, and the only symptom anybody ever saw was the build generator refusing
+# to run — which reads as "the worktree is broken", not as "setup stopped halfway".
 # Every step now reports its own failure by name, the run continues, and the
 # summary at the end lists everything that broke plus everything still missing.
 set -uo pipefail
@@ -33,8 +33,8 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 BREW_PACKAGES=(
-    premake                 # project generator (premake5)
-    cmake                   # used by some third-party builds
+    cmake                   # the build (CMakePresets.json, 3.28+)
+    ninja                   # the generator the presets name (Ninja Multi-Config)
     vulkan-headers          # <vulkan/vulkan.h>
     vulkan-loader           # libvulkan.dylib
     vulkan-validationlayers # VK_LAYER_KHRONOS_validation (Debug builds)
@@ -288,18 +288,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 5. Final check: is everything premake5 and the generated makefiles read
+# 5. Final check: is everything the CMake configure reads
 #    actually on disk? A setup that finishes silently incomplete is the reason
 #    this was mis-diagnosed as a broken worktree over and over.
 # ---------------------------------------------------------------------------
 echo "--- Verifying the paths the build reads"
 
-# premake5 raises a hard error of its own for the first three. Everything after
-# them is pulled in by a wildcard, so when it is missing premake5 still succeeds
-# and emits a project with no source files — the failure only surfaces later as
-# "No rule to make target ...". Name them here instead.
+# CMake raises a hard error of its own for the first three. Everything after
+# them is pulled in by a glob, so when it is missing the configure still succeeds
+# and emits a target with no source files — the failure only surfaces later as a
+# link error. Name them here instead.
 #
-# One submodule is deliberately absent from this list because no premake file
+# One submodule is deliberately absent from this list because no CMakeLists.txt
 # and no source in the tree refers to it: Editor/ThirdParty/ImGuiColorTextEdit.
 # It is still initialised above, and a failure to initialise it is still
 # reported — but the build does not need it, so its absence must not be
@@ -381,10 +381,10 @@ fi
 
 echo ""
 if [ ${#MISSING_PATHS[@]} -eq 0 ]; then
-    echo "Every path the build reads is nevertheless present, so premake5 gmake"
+    echo "Every path the build reads is nevertheless present, so cmake --preset"
     echo "should succeed. Fix the failed steps above before relying on this tree."
 else
-    echo "premake5 will not produce a working build until the missing paths above"
+    echo "cmake --preset will not produce a working build until the missing paths above"
     echo "are resolved."
 fi
 echo "Re-running this script is safe: it retries every step that failed."

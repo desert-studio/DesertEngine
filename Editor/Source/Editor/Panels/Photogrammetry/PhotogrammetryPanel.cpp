@@ -979,7 +979,7 @@ namespace Desert::Editor
                 ImGui::TextColored( kColWarn,
                                     ICON_MDI_ALERT " dlib not built in — the overlay is a placeholder." );
                 ImGui::TextDisabled( "Clone https://github.com/davisking/dlib into ThirdParty/dlib and rebuild "
-                                     "(premake auto-enables it)." );
+                                     "(the configure step enables it when the directory exists)." );
             }
             else
             {
