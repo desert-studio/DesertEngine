@@ -26,7 +26,10 @@
 
 #include <Engine/Desert.hpp>
 
+#include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
+
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -104,7 +107,13 @@ namespace Desert::Editor
         // Runs one request against the live editor. Never throws, always answers.
         [[nodiscard]] Control::Response ExecuteControlRequest( const Control::Request& request );
         // nn-check: the NN layer's fused MLP on the GPU against its CPU reference (see the definition).
-        [[nodiscard]] Control::Response RunNnCheck( int64_t id );
+        // nn-check: records every path's run into this frame's graph and holds the reply (nullopt) until that
+        // frame completes on the GPU; a refusal is the reply returned now.
+        [[nodiscard]] std::optional<Control::Response> SubmitNnCheck( int64_t id );
+        // Top of ServiceChannel: sends the held nn-check reply once its frame completed. True while one is held
+        // (the channel reads nothing else meanwhile, so the ordering guarantee holds).
+        bool                            ServiceNnCheck();
+        [[nodiscard]] Control::Response CompleteNnCheck();
         // The palette's dictionary, built from the CommandRegistry the palette reads (one list, two readers).
         [[nodiscard]] std::vector<PaletteCommand> BuildDictionary() const;
         // The `set` for the channel's second subject — the editor's own view. See
@@ -143,6 +152,16 @@ namespace Desert::Editor
         // request parked without its reply would have to be re-run to produce one.
         std::optional<Control::Request>  m_ControlInFlight;
         std::optional<Control::Response> m_ControlPendingReply;
+
+        struct PendingNnCheck
+        {
+            int64_t                                                       Id = 0;
+            std::string                                                   Forced;
+            std::vector<std::unique_ptr<Engine::Neural::FusedMlpCheckRun>> Runs;
+            std::vector<std::pair<std::string, std::string>>              Refused; ///< path, why not run
+        };
+        std::unique_ptr<Engine::Neural::FusedMlpCompute> m_NnCompute; ///< the NN pipelines, kept across checks
+        std::optional<PendingNnCheck>                    m_NnCheck;
 
         // WHICH CONNECTION asked for it. Not "was somebody connected": the editor notices a disconnect and
         // accepts the next client in the SAME service call, so a request parked across that gap would have

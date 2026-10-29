@@ -304,6 +304,10 @@ namespace Desert::Editor
         if ( !m_ControlSocket.IsListening() )
             return;
 
+        // A held nn-check reply goes out the frame its graph completed in; until then nothing else is read.
+        if ( ServiceNnCheck() )
+            return;
+
         // A request whose reply has not gone out yet holds the channel. Reading a second one here would
         // hand the ordering guarantee to whoever wrote the client: two commands in flight cannot both be
         // "the command the next settled frame proves".
@@ -385,6 +389,15 @@ namespace Desert::Editor
     // Two execution sites for one thing is the shape this codebase spends its days removing.
     void ControlService::RunControlRequest( const Control::Request& request )
     {
+        // nn-check is answered when the frame its graph was recorded into has completed on the GPU, not by a
+        // presented frame: its reply is held by ServiceNnCheck, a refusal goes out now.
+        if ( request.Operation == Control::Op::NnCheck )
+        {
+            if ( const std::optional<Control::Response> refused = SubmitNnCheck( request.Id ) )
+                m_ControlSocket.SendResponseLine( Control::FormatResponse( *refused ) );
+            return;
+        }
+
         Control::Response response = ExecuteControlRequest( request );
 
         // READS ANSWER NOW; ANYTHING THAT CAN CHANGE THE PICTURE WAITS FOR ONE.
@@ -664,15 +677,16 @@ namespace Desert::Editor
         return std::nullopt;
     }
 
-    // nn-check (NN-RUNTIME step 3): the fused MLP on the GPU against its CPU reference, on the seeded nn-check
-    // problem. machine.json ForcedNeuralKernelPath set = that one path (refused, naming what the device lacks, when
-    // it cannot run); absent = every path, a path the device cannot run reported with why and not run. The reply
-    // is a success only when every path that ran is within its tolerance; otherwise a refusal quoting the numbers.
-    Control::Response ControlService::RunNnCheck( const int64_t id )
+    // nn-check (NN-RUNTIME step 4): the fused MLP's training step as render-graph passes against its CPU
+    // reference, on the seeded nn-check problem. machine.json ForcedNeuralKernelPath set = that one path (refused,
+    // naming what the device lacks, when it cannot run); absent = every path, a path the device cannot run reported
+    // with why and not run. Every run is recorded into THIS frame's graph; the reply waits until that frame has
+    // completed on the GPU (ServiceNnCheck), then is a success only when every path that ran is within its tolerance.
+    std::optional<Control::Response> ControlService::SubmitNnCheck( const int64_t id )
     {
-        namespace Neural                    = Engine::Neural;
+        namespace Neural = Engine::Neural;
         using Engine::NeuralKernelPath;
-        const Engine::NeuralComputeCaps& caps = EngineContext::GetInstance().GetCapabilities().Neural;
+        const Engine::NeuralComputeCaps&      caps   = EngineContext::GetInstance().GetCapabilities().Neural;
         const std::optional<NeuralKernelPath> forced = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath;
 
         std::vector<NeuralKernelPath> paths;
@@ -685,29 +699,68 @@ namespace Desert::Editor
         else
             paths = { NeuralKernelPath::Fp32, NeuralKernelPath::Fp16, NeuralKernelPath::CoopMatFp16 };
 
-        Neural::FusedMlpCompute  compute( caps );
-        Common::Json::Value::Array runs;
-        std::string              summary;
-        bool                     pass = true;
-        uint32_t                 ran  = 0;
+        if ( !m_NnCompute )
+            m_NnCompute = std::make_unique<Neural::FusedMlpCompute>( caps );
+
+        PendingNnCheck pending;
+        pending.Id     = id;
+        pending.Forced = forced ? Engine::NeuralKernelPathName( *forced ) : "auto";
         for ( const NeuralKernelPath path : paths )
         {
-            const char*          name = Engine::NeuralKernelPathName( path );
-            Common::Json::Object run;
-            run["path"] = Control::StateDetail::Str( name );
+            const char* name = Engine::NeuralKernelPathName( path );
             if ( const auto runnable = Neural::ResolveNeuralKernelPath( caps, path ); !runnable )
             {
-                run["refused"] = Control::StateDetail::Str( runnable.GetError() );
                 LOG_INFO( "[nn_check] path={} not run: {}", name, runnable.GetError() );
-                runs.push_back( Common::Json::Value( run ) );
+                pending.Refused.emplace_back( name, runnable.GetError() );
                 continue;
             }
-            const auto checked = Neural::CheckFusedMlpPath( compute, caps, path );
+            auto submitted = Neural::FusedMlpCheckRun::Submit( *m_NnCompute, caps, path );
+            if ( !submitted )
+                return Control::Response::Failure( id, std::format( "nn-check {}: {}", name, submitted.GetError() ) );
+            pending.Runs.push_back( std::move( submitted.GetValue() ) );
+        }
+        if ( pending.Runs.empty() )
+            return Control::Response::Failure( id, "nn-check ran no path: the device can run none of them" );
+        m_NnCheck = std::move( pending );
+        return std::nullopt;
+    }
+
+    bool ControlService::ServiceNnCheck()
+    {
+        if ( !m_NnCheck )
+            return false;
+        // The channel is held (nothing else is read) until the frame that recorded the runs has completed.
+        for ( const auto& run : m_NnCheck->Runs )
+            if ( !run->IsComplete() )
+                return true;
+        m_ControlSocket.SendResponseLine( Control::FormatResponse( CompleteNnCheck() ) );
+        m_NnCheck.reset();
+        return true;
+    }
+
+    Control::Response ControlService::CompleteNnCheck()
+    {
+        namespace Neural = Engine::Neural;
+        const int64_t              id = m_NnCheck->Id;
+        Common::Json::Value::Array runs;
+        for ( const auto& [name, reason] : m_NnCheck->Refused )
+        {
+            Common::Json::Object run;
+            run["path"]    = Control::StateDetail::Str( name );
+            run["refused"] = Control::StateDetail::Str( reason );
+            runs.push_back( Common::Json::Value( run ) );
+        }
+
+        std::string summary;
+        bool        pass = true;
+        for ( const auto& pendingRun : m_NnCheck->Runs )
+        {
+            const char* name    = Engine::NeuralKernelPathName( pendingRun->GetPath() );
+            const auto  checked = pendingRun->Complete();
             if ( !checked )
                 return Control::Response::Failure( id, std::format( "nn-check {}: {}", name, checked.GetError() ) );
             const Neural::FusedMlpPathCheck& check = checked.GetValue();
-            ++ran;
-            pass = pass && check.Pass;
+            pass                                   = pass && check.Pass;
 
             const auto errorJson = []( const Neural::FusedMlpError& error )
             {
@@ -717,6 +770,8 @@ namespace Desert::Editor
                 object["rel"]    = Control::StateDetail::Num( error.Rel );
                 return Common::Json::Value( object );
             };
+            Common::Json::Object run;
+            run["path"]       = Control::StateDetail::Str( name );
             run["tile"]       = Control::StateDetail::Str( check.Tile );
             run["output"]     = errorJson( check.Output );
             run["weightGrad"] = errorJson( check.WeightGrad );
@@ -725,35 +780,27 @@ namespace Desert::Editor
             run["pass"]       = Common::Json::Value( check.Pass );
             runs.push_back( Common::Json::Value( run ) );
 
-            const char* tileLabel = "";
-            if ( !check.Tile.empty() )
-                tileLabel = " tile=";
-            const char* verdict = check.Pass ? "PASS" : "FAIL";
+            const char* tileLabel = check.Tile.empty() ? "" : " tile=";
+            const char* verdict   = check.Pass ? "PASS" : "FAIL";
             const std::string line = std::format(
                  "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} | maskFlips={} | "
                  "tolerance={:.0e} {}",
-                 name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel,
-                 check.WeightGrad.MaxAbs, check.WeightGrad.Rel, check.MaskFlips, check.Tolerance,
-                 verdict );
-            LOG_INFO( "[nn_check] {}", line );
+                 name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel, check.WeightGrad.MaxAbs,
+                 check.WeightGrad.Rel, check.MaskFlips, check.Tolerance, verdict );
+            LOG_INFO( "[nn_check4] {}", line );
             if ( !summary.empty() )
                 summary += "; ";
             summary += line;
         }
-        if ( ran == 0 )
-            return Control::Response::Failure( id, "nn-check ran no path: the device can run none of them" );
         if ( !pass )
             return Control::Response::Failure( id, std::format( "nn-check out of tolerance: {}", summary ) );
 
         const Neural::FusedMlpShape& shape = Neural::kFusedMlpCheckShape;
         Common::Json::Object         payload;
-        std::string forcedName = "auto";
-        if ( forced )
-            forcedName = Engine::NeuralKernelPathName( *forced );
-        payload["forced"] = Control::StateDetail::Str( forcedName );
-        payload["shape"]  = Control::StateDetail::Str(
-             std::format( "{} -> {} x {} -> {}", shape.InputDims, shape.HiddenLayers, Neural::kFusedMlpWidth,
-                          shape.OutputDims ) );
+        payload["forced"] = Control::StateDetail::Str( m_NnCheck->Forced );
+        payload["shape"]  = Control::StateDetail::Str( std::format( "{} -> {} x {} -> {}", shape.InputDims,
+                                                                    shape.HiddenLayers, Neural::kFusedMlpWidth,
+                                                                    shape.OutputDims ) );
         payload["batch"]  = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
         payload["runs"]   = Common::Json::Value( runs );
         payload["pass"]   = Common::Json::Value( pass );
@@ -1105,7 +1152,9 @@ namespace Desert::Editor
             }
 
             case Control::Op::NnCheck:
-                return RunNnCheck( request.Id );
+                return Control::Response::Failure(
+                     request.Id, "nn-check reached ExecuteControlRequest; it is submitted by RunControlRequest "
+                                 "(SubmitNnCheck) and answered by ServiceNnCheck: a control-channel defect" );
 
             case Control::Op::State:
             {

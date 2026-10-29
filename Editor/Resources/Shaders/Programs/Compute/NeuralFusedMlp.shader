@@ -64,14 +64,24 @@ Shader "NeuralFusedMlp"
             uint MatrixCount; // hidden layers + 1
         } Push;
 
-        // fp32 in, as the caller holds them; the fp16 paths convert on load.
+        // fp32 in, as the caller holds them; the fp16 paths convert on load. Each kernel declares only the buffers
+        // it touches, with the access it makes (reflection lists every declared buffer, and the render-graph pass
+        // binds exactly these: FusedMlpCompute::AddTrainingPasses).
+        #if NN_KERNEL == 0
         ReadBuffer(0) NnWeights { float Weights[]; };       // [MatrixCount][64 out][64 in]
         ReadBuffer(1) NnInput { float Input[]; };           // [Batch][64]
-        ReadBuffer(2) NnOutputGrad { float OutputGrad[]; }; // [Batch][64] dL/dy
         Buffer(3) NnOutput { float Output[]; };             // [Batch][64]
         Buffer(4) NnActivations { nn_t Activations[]; };    // [MatrixCount][Batch][64] h_l, the input of matrix l
+        #elif NN_KERNEL == 1
+        ReadBuffer(0) NnWeights { float Weights[]; };       // [MatrixCount][64 out][64 in]
+        ReadBuffer(2) NnOutputGrad { float OutputGrad[]; }; // [Batch][64] dL/dy
+        ReadBuffer(4) NnActivations { nn_t Activations[]; };
         Buffer(5) NnGrads { nn_t Grads[]; };                // [MatrixCount][Batch][64] g_l
+        #else
+        ReadBuffer(4) NnActivations { nn_t Activations[]; };
+        ReadBuffer(5) NnGrads { nn_t Grads[]; };
         Buffer(6) NnWeightGrad { float WeightGrad[]; };     // [MatrixCount][64][64]
+        #endif
 
         uint RowIndex( uint layer, uint row )
         {
