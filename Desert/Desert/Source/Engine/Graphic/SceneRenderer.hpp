@@ -1488,18 +1488,20 @@ namespace Desert::Graphic
         RenderMethods           m_RenderMethods;
         // The methods the view's renderers could not build a program for on this device, an input of every
         // ResolveRenderMethods: Shadows from the DeferredLightingRenderer's initialisation, GI and Reflections
-        // from their renderers' programs as each is first built (RefuseProgramMethods). The GI and Reflections
-        // refusals stand until the shader service recompiles a program (RetryRefusedProgramsAfterRecompile): the
-        // same bytes fail the same way, new bytes are tried again on the next frame.
+        // from their renderers' programs as each is first built (RefuseProgramMethods), PathTraced on both from the
+        // path tracer's bring-up (RefusePathTracer). Every refusal stands until the shader service recompiles a
+        // program (RetryRefusedProgramsAfterRecompile): the same bytes fail the same way, new bytes are tried again
+        // on the next frame.
         ProgramRefusals m_ProgramRefusals;
-        // The GI and Reflections refusals that stood when the shader service last recompiled, and the
+        // The refusals that stood when the shader service last recompiled, and the
         // ShaderService::RecompileGeneration they were dropped at. A method refused again for the same program
         // and the same reason (another shader was recompiled, not this one) is NOT said again.
         ProgramRefusals m_RetriedProgramRefusals;
         std::uint64_t   m_ProgramRefusalsGeneration = 0;
-        // At BeginScene, before the resolution: when the shader service has recompiled since the standing GI and
-        // Reflections refusals were made, they are moved to m_RetriedProgramRefusals and the renderers' latched
-        // failures cleared, so each refused method is resolved again and its programs asked for again.
+        // At BeginScene, before the resolution: when the shader service has recompiled since the standing refusals
+        // were made, they are moved to m_RetriedProgramRefusals, the renderers' latched failures cleared and the
+        // deferred composite's refused permutations built again, so each refused method is resolved again and its
+        // programs asked for again.
         void RetryRefusedProgramsAfterRecompile();
         // A program only @p methods need did not build (@p program: its name, static storage; @p error: why). Each
         // method not yet refused is added to m_ProgramRefusals with one ERROR line naming it and the program (none
@@ -1507,6 +1509,14 @@ namespace Desert::Graphic
         // (MethodLimit::Program), the rest of the frame is untouched.
         void RefuseProgramMethods( std::span<const Common::Scalability::GIMethod> methods,
                                    std::string_view program, std::string_view error );
+        void RefuseProgramMethods( std::span<const Common::Scalability::ShadowMethod> methods,
+                                   std::string_view program, std::string_view error );
+        // The DeferredLightingRenderer's refused Shadows programs (its Refusals) through RefuseProgramMethods.
+        void RefuseShadowPrograms( const ProgramRefusals& deferred );
+        // The path tracer (@p program: "PathTracer" or "EmissiveLightList", static storage) could not be brought
+        // up: GI and Reflections PathTraced are refused together with one ERROR line (none when it is the same
+        // refusal retried after a recompile); EnsurePathTracerResources is asked again once a recompile retries it.
+        void RefusePathTracer( std::string_view program, std::string_view error );
         void RefuseProgramMethods( std::span<const Common::Scalability::ReflectionMethod> methods,
                                    std::string_view program, std::string_view error );
         // The Reflections methods each reflection program serves. The screen trace (SSR's programs, the HZB, the
@@ -1582,8 +1592,7 @@ namespace Desert::Graphic
         // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces / MaxPathIntensity (Scalability), taken each
         // BeginScene.
         System::PathTracer::Settings m_PathTracingSettings;
-        bool                         m_PathTracerReady  = false;
-        bool                         m_PathTracerFailed = false;
+        bool                         m_PathTracerReady = false;
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): this
         // view's request to its scene's pool (DistanceFieldSceneData::BeginViewFrame) - a scene budget, counted
         // once in the scene's ledger rows, not per view.

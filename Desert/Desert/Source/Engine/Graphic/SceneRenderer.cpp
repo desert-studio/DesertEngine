@@ -558,7 +558,7 @@ namespace Desert::Graphic
                 if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
-                m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
+                RefuseShadowPrograms( deferred->Refusals() );
                 // The screen-space subsurface scatter (SSS-PROFILE): without it the profile materials shade unsplit.
                 RegisterSystem<System::SubsurfaceRenderer>( "SubsurfaceSystem", this, m_TargetFramebuffer );
                 if ( const auto subsurfaceInit =
@@ -2909,6 +2909,34 @@ namespace Desert::Graphic
                        Common::Scalability::kReflectionMethodNames, program, error );
     }
 
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ShadowMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.Shadows, m_RetriedProgramRefusals.Shadows, methods, "Shadows",
+                       Common::Scalability::kShadowMethodNames, program, error );
+    }
+
+    void SceneRenderer::RefuseShadowPrograms( const ProgramRefusals& deferred )
+    {
+        for ( const MethodRefusal<Common::Scalability::ShadowMethod>& refusal : deferred.Shadows )
+            RefuseProgramMethods( std::span<const Common::Scalability::ShadowMethod>( &refusal.Refused, 1 ),
+                                  refusal.Program, refusal.Reason );
+    }
+
+    void SceneRenderer::RefusePathTracer( const std::string_view program, const std::string_view error )
+    {
+        using Common::Scalability::GIMethod;
+        using Common::Scalability::ReflectionMethod;
+        // One integrator for both axes: both are refused, and the refusal is said once, by the path tracer's name.
+        const bool added = AddRefusal( m_ProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error );
+        AddRefusal( m_ProgramRefusals.Reflections, ReflectionMethod::PathTraced, program, error );
+        if ( added &&
+             !HoldsRefusal( m_RetriedProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error ) )
+            LOG_ERROR( "[SceneRenderer] {}: GI and Reflections PathTraced refused on this device: '{}' could not be "
+                       "brought up: {}",
+                       m_ViewResources.GetName(), program, error );
+    }
+
     void SceneRenderer::RetryRefusedProgramsAfterRecompile()
     {
         const std::uint64_t generation = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
@@ -2919,8 +2947,21 @@ namespace Desert::Graphic
         // again with the old reason is a new failure, and is said again.
         m_RetriedProgramRefusals.GlobalIllumination = std::exchange( m_ProgramRefusals.GlobalIllumination, {} );
         m_RetriedProgramRefusals.Reflections        = std::exchange( m_ProgramRefusals.Reflections, {} );
+        m_RetriedProgramRefusals.Shadows            = std::exchange( m_ProgramRefusals.Shadows, {} );
+        // The deferred composite's refused permutations are acquired and built again now (they are not made
+        // lazily on use): the ones still refused are refused again, said only when the reason changed.
+        const auto deferredSystem = m_RenderSystems.find( "DeferredLightingSystem" );
+        if ( auto* const deferred = deferredSystem == m_RenderSystems.end()
+                                         ? nullptr
+                                         : dynamic_cast<System::DeferredLightingRenderer*>(
+                                                deferredSystem->second.get() ) )
+        {
+            deferred->RetryRefusedPrograms();
+            RefuseShadowPrograms( deferred->Refusals() );
+        }
         // The renderers latched as failed with those refusals are brought up again on their next use (the GI
-        // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again).
+        // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again; the path tracer
+        // is brought up again by EnsurePathTracerResources once PathTraced resolves again).
         m_SSRResourcesFailed         = false;
         m_ScreenTraceResourcesFailed = false;
     }
@@ -2930,27 +2971,21 @@ namespace Desert::Graphic
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_PathTracerReady )
             return true;
-        if ( m_PathTracerFailed )
-            return false;
 
         Renderer::GetInstance().WaitDeviceIdle();
 
         RegisterSystem<System::PathTracer>( "PathTracerSystem", this, m_TargetFramebuffer );
         const auto& pathTracer = SP_CAST( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        // A refusal holds PathTraced off both axes from the next BeginScene (this frame LowerPathTracingForFrame
+        // renders HardwareTraced) until the shader service recompiles a program (RetryRefusedProgramsAfterRecompile).
         if ( const Common::BoolResultStr initialized = pathTracer->Initialize(); !initialized )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the path tracer could not be brought up; the view renders "
-                       "HardwareTraced GI and reflections instead: {}",
-                       m_ViewResources.GetName(), initialized.GetError() );
-            m_PathTracerFailed = true;
+            RefusePathTracer( "PathTracer", initialized.GetError() );
             return false;
         }
         if ( const Common::BoolResultStr emissive = m_EmissiveLights.Initialize(); !emissive )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the emissive light list could not be brought up; the view renders "
-                       "HardwareTraced GI and reflections instead: {}",
-                       m_ViewResources.GetName(), emissive.GetError() );
-            m_PathTracerFailed = true;
+            RefusePathTracer( "EmissiveLightList", emissive.GetError() );
             return false;
         }
         m_PathTracerReady = true;
