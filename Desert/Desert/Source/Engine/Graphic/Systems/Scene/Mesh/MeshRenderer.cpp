@@ -1091,8 +1091,10 @@ namespace Desert::Graphic::System
              pass != GpuDriven::MeshPass::ShadowCascade && pass != GpuDriven::MeshPass::VirtualShadow )
             return nullptr;
         const std::shared_ptr<Shader>& shader = group.GetSpecification().Shader;
-        if ( !shader || !IsBinnedCell( shader->GetName() ) ||
-             MeshCellPath( shader->GetName() ) != MeshVertexPath::Static )
+        if ( !shader || !IsBinnedCell( shader->GetName() ) )
+            return nullptr;
+        // Static and Instanced (an ISM's group: its clusters are its instances', UE Nanite ISM).
+        if ( const auto path = MeshCellPath( shader->GetName() ); !path || !HasVirtualGeometryPermutation( *path ) )
             return nullptr;
         // A template without the permutation is a fallback (DeclaresVirtualGeometryTwin), not an error here.
         if ( !DeclaresVirtualGeometryTwin( shader->GetName() ) )

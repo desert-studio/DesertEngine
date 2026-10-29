@@ -177,6 +177,10 @@ Shader "ClusterCut"
         {
             mat4  World;
             float WorldScale;
+            // The primitive's wind pad (GpuScenePrimitive.LocalBoundsCenter.w, InstanceCull's WindExpandedBounds):
+            // a swaying ISM's vertices move horizontally by up to it (Mesh/Surface/Vertex_Instanced.glslh), so every
+            // node / cluster box grows by it (UE: Nanite's max world position offset displacement). 0 = still.
+            float WindPad;
             vec3  Origin;
             float LodScale;
             float Tau;
@@ -232,6 +236,8 @@ Shader "ClusterCut"
             vec3 boxMin;
             vec3 boxMax;
             VgWorldBox( center, extent, f.World, boxMin, boxMax );
+            boxMin -= vec3( f.WindPad, 0.0, f.WindPad );
+            boxMax += vec3( f.WindPad, 0.0, f.WindPad );
             if ( !GpuCull_FrustumIntersects( view, boxMin, boxMax ) )
                 return false;
             // A VSM level: only over a page drawn this frame (the rest of the level keeps its cached depth).
@@ -336,6 +342,11 @@ Shader "ClusterCut"
             if ( instance.Primitive < Params.z )
             {
                 const GpuPrimitivePassDraws pd = PrimitiveDraws[instance.Primitive];
+                // The pass draws NO submesh of the primitive: every one is a BinFallback there (counted in the
+                // table's Fallbacks; e.g. a swaying ISM in a shadow pass, MovableCaster) and the pass's CPU path
+                // draws it - not this cut's, not a missing slot.
+                if ( pd.SubmeshCount == 0u )
+                    return false;
                 if ( dag.Submesh < pd.SubmeshCount )
                     slot = pd.FirstDrawSlot + dag.Submesh;
             }
@@ -353,6 +364,7 @@ Shader "ClusterCut"
             f.World = GpuScene_UnpackAffine( primitive.LocalToWorld ) * GpuScene_InstanceToPrimitive( instance ) *
                       SubmeshTransforms[DrawSlots[slot].SubmeshTransform];
             f.WorldScale   = VgMaxScale( f.World );
+            f.WindPad      = primitive.LocalBoundsCenter.w;
             f.Origin       = view.LodOrigin.xyz;
             f.LodScale     = ViewLods[localView].x;
             f.Tau          = ViewLods[localView].y;

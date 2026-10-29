@@ -3121,32 +3121,35 @@ namespace Desert::Core::Preprocess
                             result.Passes.push_back( std::move( cell ) );
                         }
                 }
-            // THE VIRTUAL GEOMETRY PERMUTATION (kSurfaceVirtualGeometryCellSuffix): the Static path's binned cells
-            // and its VirtualShadowDepth cell (kSurfaceVirtualGeometryCellPasses) again, after every binned cell (the earlier cells' order is unchanged).
+            // THE VIRTUAL GEOMETRY PERMUTATION (kSurfaceVirtualGeometryCellSuffix): the binned cells of every
+            // kSurfaceVirtualGeometryPaths path (Static, Instanced) and its VirtualShadowDepth cell
+            // (kSurfaceVirtualGeometryCellPasses) again, after every binned cell (the earlier cells' order is
+            // unchanged).
             if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
                 for ( const bool parallax : { false, true } )
                 {
                     if ( parallax && !result.Meta.Height )
                         continue;
-                    for ( const std::string_view pass : kSurfaceVirtualGeometryCellPasses )
-                    {
-                        DShaderPass cell;
-                        cell.Name = SurfaceCellName( kSurfaceVirtualGeometryPath, pass ) +
-                                    ( parallax ? std::string( kSurfaceParallaxCellSuffix ) : std::string() ) +
-                                    std::string( kSurfaceBinnedCellSuffix ) +
-                                    std::string( kSurfaceVirtualGeometryCellSuffix );
-                        cell.State = cellState;
-                        for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                            cell.Stages.emplace(
-                                 stage, AssembleSurfaceCellStage(
-                                             stage, kSurfaceVirtualGeometryPath, pass, *surfaceBlock, includeBlock,
-                                             autoDecls, result.Surface.Blend, shadingModelDefine,
-                                             result.Surface.ResponsiveAA, opacityMaskFunction, parallax,
-                                             heightFunctions, respondsToWeather, true, true ) );
-                        result.Meta.PassNames.push_back( cell.Name );
-                        result.Surface.Cells.push_back( cell.Name );
-                        result.Passes.push_back( std::move( cell ) );
-                    }
+                    for ( const std::string_view path : kSurfaceVirtualGeometryPaths )
+                        for ( const std::string_view pass : kSurfaceVirtualGeometryCellPasses )
+                        {
+                            DShaderPass cell;
+                            cell.Name = SurfaceCellName( path, pass ) +
+                                        ( parallax ? std::string( kSurfaceParallaxCellSuffix ) : std::string() ) +
+                                        std::string( kSurfaceBinnedCellSuffix ) +
+                                        std::string( kSurfaceVirtualGeometryCellSuffix );
+                            cell.State = cellState;
+                            for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                                cell.Stages.emplace(
+                                     stage, AssembleSurfaceCellStage(
+                                                 stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
+                                                 result.Surface.Blend, shadingModelDefine,
+                                                 result.Surface.ResponsiveAA, opacityMaskFunction, parallax,
+                                                 heightFunctions, respondsToWeather, true, true ) );
+                            result.Meta.PassNames.push_back( cell.Name );
+                            result.Surface.Cells.push_back( cell.Name );
+                            result.Passes.push_back( std::move( cell ) );
+                        }
                 }
         }
 

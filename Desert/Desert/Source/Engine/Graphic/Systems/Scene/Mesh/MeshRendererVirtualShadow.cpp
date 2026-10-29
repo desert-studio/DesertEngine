@@ -467,9 +467,9 @@ namespace Desert::Graphic::System
                 drawn[group] = 1u;
                 continue;
             }
-            // Only a Static cell's group can hold clusters (the VG permutation is the Static path's).
+            // Only a group of a path with the VG permutation (Static, Instanced) can hold clusters.
             const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
-            if ( MeshCellPath( cell ) != MeshVertexPath::Static )
+            if ( const auto path = MeshCellPath( cell ); !path || !HasVirtualGeometryPermutation( *path ) )
                 continue;
             // The template has no `.VirtualGeometry` permutation: the fallback (UE: no Nanite path -> the fallback
             // mesh), a known state - its submeshes are counted below, nothing is logged.

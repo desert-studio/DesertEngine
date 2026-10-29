@@ -625,7 +625,7 @@ namespace Desert::Graphic::System
         // VSM clipmap level in one pass, the view per cluster). @p issue: one cut of all the levels (cut view =
         // level, GpuVisibleCluster::View) binned into the groups of the VSM's own table (MeshPass::VirtualShadow),
         // drawn by ONE "VSM: Raster VirtualGeometry" after the levels' CPU casters, each group with its
-        // `.VirtualGeometry` twin (IndirectGroup::VirtualGeometryPipeline: `<T>/Static.VirtualShadowDepth
+        // `.VirtualGeometry` twin (IndirectGroup::VirtualGeometryPipeline: `<T>/<Static|Instanced>.VirtualShadowDepth
         // [.Parallax].Binned.VirtualGeometry` on the VSM caster state), whose vertex stage takes the level's matrix
         // and fragment stage the level's page table from the cluster's view. The carriers are made by
         // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
@@ -744,6 +744,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const GpuInstancedRenderData> GetGpuInstancedQueue() const
         {
             return m_GpuInstancedQueue;
+        }
+        // Each queued field's GpuScene primitive (GpuSceneRecordRows::FieldPrimitives as the draw-command feed saw
+        // them), index for index with GetInstancedQueue(); shorter when the feed has not run this frame.
+        [[nodiscard]] std::span<const GpuDriven::PrimitiveIndex> GetFieldPrimitives() const
+        {
+            return m_FieldPrimitives;
         }
         // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstGpuInstance).
         [[nodiscard]] std::span<const uint32_t> GetInstancedGpuInstances() const
@@ -2044,7 +2050,7 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* BinnedCellPipeline( const std::string& cellShader, const GraphicsPipeline* passState,
                                                     bool twoSided );
         // DrawCommandCache's GroupPipelineResolver: @p group's PSO with the `.VirtualGeometry` permutation of its
-        // Static `.Binned` cell (GBuffer / Forward / ShadowCascade / VirtualShadow), null when the template declares
+        // Static / Instanced `.Binned` cell (GBuffer / Forward / ShadowCascade / VirtualShadow), null when it declares
         // none (DeclaresVirtualGeometryTwin: another path, a translucent template) or no pipeline could be made.
         const GraphicsPipeline* ResolveVirtualGeometryPipeline( GpuDriven::MeshPass pass, const GraphicsPipeline& group );
         // THE ONE RULE "this binned cell's template has a `.VirtualGeometry` twin": the twin cell

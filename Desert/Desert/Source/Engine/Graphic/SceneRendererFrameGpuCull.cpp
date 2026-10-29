@@ -64,8 +64,8 @@ namespace Desert::Graphic
             uint32_t                                 VisibleCapacity = 0;
         };
 
-        // From the static queue: per primitive row, the DAG rows of every submesh one of its queue entries shows
-        // (one entry per material slot: their union), appended for EVERY cull view of the draw bins (the main view
+        // From the static queue and the ISM queue: per primitive row, the DAG rows of every submesh one of its queue
+        // entries shows (one entry per material slot: their union), appended for EVERY cull view of the draw bins (the main view
         // and the drawn shadow cascades), cull view v as cut view v. Capacity = instances x DAGs, the rows of EACH
         // cut view's region (InstanceCulling compacts the append per cut view); VisibleCapacity = instances x the DAGs' ClusterCount, the bound of ONE view's cut (AddFrameVirtualGeometry
         // cuts each view in its own dispatch; a cut never draws more clusters than its DAG holds), saturated to
@@ -78,25 +78,37 @@ namespace Desert::Graphic
             using Result = VirtualGeometryCandidateTables;
             const VirtualGeometry::VirtualMeshTable& table = VirtualGeometry::VirtualMeshTable::Get();
             std::map<uint32_t, std::vector<VirtualGeometry::VirtualMeshDagSpan>> byPrimitive;
-            for ( const auto& rd : meshes.GetStaticQueue() )
+            const auto addSpans = [&]( const uint32_t primitive, const StaticMesh* mesh, const uint64_t hidden )
             {
-                if ( rd.Mesh == nullptr || rd.GpuPrimitive >= primitiveRows )
-                    continue;
-                const auto* registration = rd.Mesh->GetVirtualMesh();
+                if ( mesh == nullptr || primitive >= primitiveRows )
+                    return;
+                const auto* registration = mesh->GetVirtualMesh();
                 if ( registration == nullptr || !*registration )
-                    continue;
-                const size_t submeshes = rd.Mesh->GetSubmeshes().size();
+                    return;
+                const size_t submeshes = mesh->GetSubmeshes().size();
                 for ( const VirtualGeometry::VirtualMeshDagSpan& span : table.DescribeUploaded( registration->Index() ) )
                 {
                     if ( span.Submesh >= submeshes ||
-                         ( span.Submesh < 64u && ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u ) )
+                         ( span.Submesh < 64u && ( ( hidden >> span.Submesh ) & 1u ) != 0u ) )
                         continue;
-                    auto& spans = byPrimitive[rd.GpuPrimitive];
+                    auto& spans = byPrimitive[primitive];
                     if ( std::ranges::none_of( spans, [&span]( const VirtualGeometry::VirtualMeshDagSpan& known )
                                                { return known.Dag == span.Dag; } ) )
                         spans.push_back( span );
                 }
-            }
+            };
+            for ( const auto& rd : meshes.GetStaticQueue() )
+                addSpans( rd.GpuPrimitive, rd.Mesh, rd.HiddenSubmeshes );
+            // THE ISM / FOLIAGE FIELDS (VIRT-GEOM step 23; UE: Nanite instanced static meshes): a field is one
+            // primitive whose GpuScene instances are its instances, so each instance becomes one candidate per DAG
+            // root (InstanceCull's append) and the cut places its clusters through the instance's transform. Only a
+            // StaticMesh has DAG rows (a primitive / Foliage-built DynamicMesh has none).
+            const auto fields     = meshes.GetInstancedQueue();
+            const auto fieldPrims = meshes.GetFieldPrimitives();
+            for ( size_t f = 0; f < fields.size() && f < fieldPrims.size(); ++f )
+                if ( fields[f].Transforms && !fields[f].Transforms->empty() )
+                    addSpans( fieldPrims[f], dynamic_cast<const StaticMesh*>( fields[f].Mesh ),
+                              fields[f].HiddenSubmeshes );
             Result out;
             if ( byPrimitive.empty() )
                 return Common::MakeSuccess( std::move( out ) );

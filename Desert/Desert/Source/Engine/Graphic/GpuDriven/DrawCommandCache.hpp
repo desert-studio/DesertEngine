@@ -90,7 +90,7 @@ namespace Desert::Graphic::GpuDriven
         MeshGeometryBinding     Binding;            // the vertex / stream / index buffers the group binds
         // The group's VIRTUAL-GEOMETRY TWIN: Pipeline's pass state with the `.VirtualGeometry` permutation of its
         // cell (MeshVertexPath VirtualGeometryCellOf), what the VG raster draws the clusters binned into this group
-        // with (VirtualGeometry::RasterBins). Null: the cell has none (a non-Static path, a template without the
+        // with (VirtualGeometry::RasterBins). Null: the cell has none (a skinned / grass / particle path, a template without the
         // permutation) or it is still compiling (GroupPipelineResolver).
         const GraphicsPipeline* VirtualGeometryPipeline = nullptr;
         uint32_t                FirstBin = 0;

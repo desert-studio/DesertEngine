@@ -109,17 +109,23 @@ namespace Desert::Core::Preprocess
                                                                                   "ShadowDepth",
                                                                                   "VirtualShadowDepth" };
     // THE VIRTUAL GEOMETRY PERMUTATION (VIRT-GEOM step 11; UE: the Nanite raster's vertex factory): every binned
-    // cell of the Static path (`.Parallax` too) once more, named `<Cell>[.Parallax].Binned.VirtualGeometry`, after
-    // the binned cells, with kSurfaceBinnedDefine AND kSurfaceVirtualGeometryDefine: the vertex stage draws one
-    // visible cluster per instance, fetching its triangles' vertices through the cluster's DAG
-    // (Mesh/Surface/Vertex_Static.glslh), everything else the binned cell's. Drawn by the VG raster's material
-    // groups only (MeshRenderer, VirtualGeometryRenderer::AddRasterBinning).
+    // cell of a kSurfaceVirtualGeometryPaths path (`.Parallax` too) once more, named
+    // `<Path>.<Pass>[.Parallax].Binned.VirtualGeometry`, after the binned cells, with kSurfaceBinnedDefine AND
+    // kSurfaceVirtualGeometryDefine: the vertex stage draws one visible cluster per instance, fetching its triangles'
+    // vertices through the cluster's DAG (Mesh/Surface/Vertex_Static.glslh, Vertex_Instanced.glslh), everything else
+    // the binned cell's. Drawn by the VG raster's material groups only (MeshRenderer,
+    // VirtualGeometryRenderer::AddRasterBinning).
     inline constexpr std::string_view kSurfaceVirtualGeometryCellSuffix = ".VirtualGeometry";
     inline constexpr std::string_view kSurfaceVirtualGeometryDefine     = "DESERT_SURFACE_VIRTUAL_GEOMETRY";
-    inline constexpr std::string_view kSurfaceVirtualGeometryPath       = "Static";
+    // The paths a `.VirtualGeometry` cell exists for (VIRT-GEOM step 23; UE: Nanite draws static meshes AND
+    // instanced static meshes - one instance is one cut candidate per DAG root): Static, and Instanced, whose
+    // cluster's GpuScene instance row carries the instance's transform (Common/GpuScene.glslh DesertResolveVgDraw:
+    // Primitive.LocalToWorld x Instance.InstanceToPrimitive x the submesh's) and whose primitive row carries the
+    // field's wind. Skinned has none: a skinned mesh is drawn by the binned path (the import gate refuses it).
+    inline constexpr std::array<std::string_view, 2> kSurfaceVirtualGeometryPaths = { "Static", "Instanced" };
     // The passes a `.VirtualGeometry` cell exists for: every binned one (VIRT-GEOM step 17: the virtual shadow map
     // rasters the clusters of every level in one pass, "VSM: Raster VirtualGeometry", with
-    // "<T>/Static.VirtualShadowDepth[.Parallax].Binned.VirtualGeometry" - the twin of its own table's group).
+    // "<T>/<Path>.VirtualShadowDepth[.Parallax].Binned.VirtualGeometry" - the twin of its own table's group).
     inline constexpr std::array<std::string_view, 4> kSurfaceVirtualGeometryCellPasses = kSurfaceBinnedCellPasses;
     // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless
     // the stage defined it first (a binned cell: the vertex stage's resolved row, SurfaceTypes.glslh
