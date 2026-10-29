@@ -151,9 +151,14 @@ namespace Desert::Graphic::API::Vulkan
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
             // WHICH driver answered (core 1.2): on macOS the ICD is the pinned MoltenVK built by
             // scripts/MacOS/BuildMoltenVK.sh, and this line is how a run proves it was not Homebrew's.
-            VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+            // The device's cross-API identity (core 1.1) rides the same query: DeviceCapabilities::DeviceUuid.
+            VkPhysicalDeviceIDProperties     ids{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES };
+            VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES, &ids };
             VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
             vkGetPhysicalDeviceProperties2( m_PhysicalDevice, &props2 );
+            std::copy_n( ids.deviceUUID, VK_UUID_SIZE, m_Capabilities.DeviceUuid.begin() );
+            std::copy_n( ids.deviceLUID, VK_LUID_SIZE, m_Capabilities.DeviceLuid.begin() );
+            m_Capabilities.DeviceLuidValid = ids.deviceLUIDValid == VK_TRUE;
             LOG_INFO( "[Vulkan] Driver: {} ({}), conformance {}.{}.{}.{}", driver.driverName, driver.driverInfo,
                       driver.conformanceVersion.major, driver.conformanceVersion.minor,
                       driver.conformanceVersion.subminor, driver.conformanceVersion.patch );

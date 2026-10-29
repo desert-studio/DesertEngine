@@ -320,10 +320,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
                "contribution)",
                24, Vis::Advanced },
-             { P::PathTracingDenoiser, G::PathTracing, "PathTracing.Denoiser", 0, 3, CL::PathTracingDenoisers,
+             { P::PathTracingDenoiser, G::PathTracing, "PathTracing.Denoiser", 0, 4, CL::PathTracingDenoisers,
                "SceneRenderer::BeginScene -> System::PathTracer::KeepsDenoisingUpscaler / AddPasses (what "
-               "denoises "
-               "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)",
+               "denoises the path-traced view: none, the engine's ReLAX, DLSS Ray Reconstruction, or ReLAX "
+               "until converged and then Intel Open Image Denoise once)",
                Of( PathTracingDenoiserMethod::Auto ), Vis::Basic },
              { P::PathTracingDenoiserAntiFirefly, G::PathTracing, "PathTracing.Denoiser.AntiFirefly", 0, 1,
                CL::None,

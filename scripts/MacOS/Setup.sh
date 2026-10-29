@@ -289,6 +289,16 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 4b. Vendor runtime binaries, DOWNLOADED and SHA-256-checked, never committed:
+#     the manifests whose Platform is macos (ThirdParty/OIDN/manifest.macos.json:
+#     Intel Open Image Denoise, PathTracing.Denoiser OIDN). Idempotent.
+# ---------------------------------------------------------------------------
+echo "--- Vendor runtime binaries"
+if ! python3 "$ROOT/scripts/Windows/FetchVendorBinaries.py"; then
+    fail "python3 scripts/Windows/FetchVendorBinaries.py (OIDN runtime)"
+fi
+
+# ---------------------------------------------------------------------------
 # 5. Final check: is everything premake5 and the generated makefiles read
 #    actually on disk? A setup that finishes silently incomplete is the reason
 #    this was mis-diagnosed as a broken worktree over and over.

@@ -86,6 +86,8 @@ project "Runtime"
 
     -- The DLSS runtime next to the game's executable (Desert/Dependencies.lua).
     DesertCopyStreamlineRuntime()
+    -- The OIDN runtime (PathTracing.Denoiser OIDN), Desert/Dependencies.lua.
+    DesertCopyOidnRuntime()
 
     filter "system:macosx"
         defines { "DESERT_PLATFORM_MACOS" }

@@ -1,0 +1,30 @@
+{
+    "Name": "Intel Open Image Denoise (macOS arm64)",
+    "Version": "2.5.1",
+    "Url": "https://github.com/RenderKit/oidn/releases/download/v2.5.1/oidn-2.5.1.arm64.macos.tar.gz",
+    "ArchiveSha256": "98e0aca8e7ab69e9f4f0191582a500fd8b0d9085d68662f18ab6469e934a6efd",
+    "Platform": "macos",
+    "Destination": "bin/macos-arm64/lib",
+    "Files": [
+        {
+            "Archive": "oidn-2.5.1.arm64.macos/lib/libOpenImageDenoise.2.dylib",
+            "Sha256": "c735579f570f32659f2626cb7165bb0d81a3d1284f93e1eb6d4037971d05789e"
+        },
+        {
+            "Archive": "oidn-2.5.1.arm64.macos/lib/libOpenImageDenoise_core.2.5.1.dylib",
+            "Sha256": "9089529de33c3d5e0fd070e5aa0659e5b672b2d510e2944943f83c7bb9343537"
+        },
+        {
+            "Archive": "oidn-2.5.1.arm64.macos/lib/libOpenImageDenoise_device_cpu.2.5.1.dylib",
+            "Sha256": "68b9900563aa68d89e55a16d2a1dc22e41a8f6efa20c9aae7ac21008650db23b"
+        },
+        {
+            "Archive": "oidn-2.5.1.arm64.macos/lib/libOpenImageDenoise_device_metal.2.5.1.dylib",
+            "Sha256": "d99601ff78c96a7eb6ca93bb2dc7ecf1aa1599a645fcbb4376ac2380069eb811"
+        },
+        {
+            "Archive": "oidn-2.5.1.arm64.macos/lib/libtbb.12.dylib",
+            "Sha256": "1fbe446c604e4b390d1dcdee0ba8b6b78358bf3cad9357a86dc3ffa01c923e3c"
+        }
+    ]
+}
