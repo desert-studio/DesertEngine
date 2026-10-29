@@ -99,5 +99,11 @@
             "Path": "assets:Environments/Shore/Textures/coast_sand_rocks_02/coast_sand_rocks_02_disp_2k.detex"
         }
     ],
-    "CloudAssets": []
+    "CloudAssets": [
+        {
+            "Name": "Layer0Layer",
+            "Guid": "c730e67be3da4598b852ba1021a94692",
+            "Path": "assets:Landscape/Layers/Shore/ShoreSand.delayerinfo"
+        }
+    ]
 }

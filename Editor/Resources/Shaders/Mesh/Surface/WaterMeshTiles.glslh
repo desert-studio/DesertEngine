@@ -27,7 +27,7 @@ struct WaterWaveRow
 // the foam), the tiles follow.
 layout( std430, binding = 24 ) readonly buffer WaterTiles
 {
-    vec4         WaterWaveHeader; // x = wave count, y = significant wave height Hs (cm), zw = WaveOrigin (X, Z)
+    vec4         WaterWaveHeader; // x = wave count, y unused, zw = WaveOrigin (X, Z)
     WaterWaveRow WaterWaveRows[WATER_MAX_WAVES];
     WaterTileRow WaterTileRows[];
 };

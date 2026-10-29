@@ -76,13 +76,21 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
 }
 
 // THE FOAM A WATER PARTICLE CARRIES (Tessendorf 2001 sec. 4.4; the accumulate-and-decay of AAA ocean foam buffers,
-// e.g. Atlas/Sea of Thieves): foam forms while the surface over the particle is folded (Jacobian below the
-// threshold) and fades e-fold per `decay` seconds after. Gerstner IS a Lagrangian description (the plane point
-// labels one particle for all time), so the particle's past is the same sum at earlier times - no history buffer, no
-// advection error: foam(t) = max over ages a of formed(t - a) * exp(-a / decay). The ages are dense near now, where
-// a crest passes in a fraction of a period, and sparse where the foam has faded; their offset turns every frame
-// (`jitter`) so the temporal filter integrates between them.
-float WaterWhitecapAmount( vec2 label, float time, float jitter, SingleLayerWaterOutput w )
+// e.g. Atlas/Sea of Thieves): foam forms on a particle while the wave over it breaks and fades e-fold per `decay`
+// seconds after. Gerstner IS a Lagrangian description (the plane point labels one particle for all time), so the
+// particle's past is the same sum at earlier times - no history buffer, no advection error:
+// foam(t) = max over ages a of formed(t - a) * exp(-a / decay). The ages are dense near now, where a crest passes in
+// a fraction of a period, and sparse where the foam has faded; their offset turns every frame (`jitter`) so the
+// temporal filter integrates between them. A wave breaks two ways, both judged at each age:
+//   - WHITECAP, deep water: the crest steepens until the surface over the particle is squeezed toward folding - the
+//     Jacobian of the horizontal map below the material's threshold. The wave set cannot fold the mesh itself
+//     (WaterWavesService refuses a steepness sum past 1), so a calm set never reaches the threshold and a steep one
+//     reaches it only where its crests line up.
+//   - SURF, the shallows: the passing crest outgrows the depth - local wave height 2 eta over the still depth d past
+//     the breaker index (McCowan 1894: H / d = 0.78; the material states it, beaches range 0.6-1.2). Between crests
+//     the particle carries only what the last breaker left, so the surf is bands behind each bore, not a sheet.
+// `depth` <= 0: nothing behind the water (open sea), no bottom for a wave to break on.
+float WaterFoamAmount( vec2 label, float time, float jitter, float depth, SingleLayerWaterOutput w )
 {
     const int   kAges = 12;
     const float decay = max( w.FoamDecaySeconds, 0.05 );
@@ -90,28 +98,19 @@ float WaterWhitecapAmount( vec2 label, float time, float jitter, SingleLayerWate
     float       foam  = 0.0;
     for ( int k = 0; k < kAges; ++k )
     {
-        const float x      = ( float( k ) + jitter ) / float( kAges );
-        const float age    = span * x * x;
-        const float J      = WaterWavesJacobian( label, time - age );
-        const float formed = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
-        foam               = max( foam, formed * exp( -age / decay ) );
+        const float x        = ( float( k ) + jitter ) / float( kAges );
+        const float age      = span * x * x;
+        const float J        = WaterWavesJacobian( label, time - age );
+        const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
+        float       surf     = 0.0;
+        if ( depth > 0.0 )
+        {
+            const float eta = WaterWavesDisplacement( label, time - age ).y;
+            surf = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, 2.0 * eta / max( depth, 1.0 ) );
+        }
+        foam = max( foam, max( whitecap, surf ) * exp( -age / decay ) );
     }
     return foam;
-}
-
-// THE SURF: a wave breaks on the shallows once its height outgrows the depth, H / d >= the breaker index (McCowan
-// 1894: 0.78 for a solitary wave; the material states it, beaches range 0.6-1.2). H is the body's significant wave
-// height, d the still water's depth over the bottom seen behind this point. From the breaker line to the swash the
-// water is broken; the passing crest (eta, the particle's height above still water) carries the brightest bore.
-float WaterSurfAmount( float stillY, float bottomY, float eta, float waveHeight, SingleLayerWaterOutput w )
-{
-    if ( waveHeight <= 0.0 )
-        return 0.0;
-    const float depth    = stillY - bottomY;
-    const float gamma    = waveHeight / max( depth, 1.0 );
-    const float breaking = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, gamma );
-    const float crest    = clamp( 0.5 + eta / waveHeight, 0.0, 1.0 );
-    return breaking * mix( 0.55, 1.0, crest );
 }
 
 void main()
@@ -197,11 +196,8 @@ void main()
     // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky.
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
-    const float whitecap  = WaterWhitecapAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, w );
-    const float surf      = baseDev > 0.0 ? WaterSurfAmount( i.VertexColor.g, baseBack.y, i.VertexColor.r,
-                                                             WaterWaveHeader.y, w )
-                                          : 0.0; // nothing behind: open sea, no bottom for a wave to break on
-    const float amount    = clamp( max( whitecap, surf ), 0.0, 1.0 );
+    const float depth     = baseDev > 0.0 ? i.VertexColor.g - baseBack.y : 0.0;
+    const float amount    = clamp( WaterFoamAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, depth, w ), 0.0, 1.0 );
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
     const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );

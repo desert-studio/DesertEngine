@@ -59,7 +59,7 @@ namespace Desert::Graphic::System
         constexpr uint32_t kMaxWaves = 32;
         struct WaterWavesBlock
         {
-            glm::vec4                           Header{ 0.0f }; // x = count, y = Hs (cm), zw = WaveOrigin
+            glm::vec4                           Header{ 0.0f }; // x = count, y unused, zw = WaveOrigin
             std::array<WaterWaveRow, kMaxWaves> Rows{};
         };
         static_assert( sizeof( WaterWavesBlock ) == ( 1 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
@@ -220,17 +220,13 @@ namespace Desert::Graphic::System
                                                      "first {} (WATER_MAX_WAVES)",
                                                      set.size(), kMaxWaves ) );
                 const size_t count = std::min<size_t>( set.size(), kMaxWaves );
-                float        sumA2 = 0.0f;
                 for ( size_t k = 0; k < count; ++k )
                 {
                     const Water::GerstnerWave& wave = set[k];
                     waves.Rows[k].Wave              = glm::vec4( wave.Direction, wave.WaveLength, wave.Amplitude );
                     waves.Rows[k].Form              = glm::vec4( wave.Steepness, 0.0f, 0.0f, 0.0f );
-                    sumA2 += wave.Amplitude * wave.Amplitude;
                 }
                 waves.Header.x = static_cast<float>( count );
-                // The significant wave height Hs = 4 sigma, sigma^2 = sum(A^2) / 2 for a sum of sinusoids.
-                waves.Header.y = 4.0f * std::sqrt( 0.5f * sumA2 );
                 verticalExtent = std::max( verticalExtent, Water::MaxWaveHeight( set ) );
             }
         }
