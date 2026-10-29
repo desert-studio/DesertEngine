@@ -70,7 +70,6 @@ project "WorldCook"
         "Optick",
         "MeshOptimizer",
         "Voro",
-        "MikkTSpace",
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "OpenEXRCore",

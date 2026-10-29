@@ -94,7 +94,6 @@ project "GamePackager"
         "Optick",
         "MeshOptimizer",
         "Voro",
-        "MikkTSpace",
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "OpenEXRCore", -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)

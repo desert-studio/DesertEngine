@@ -425,3 +425,10 @@ function(desert_platform_defines target)
         target_compile_definitions(${target} PRIVATE DESERT_PLATFORM_LINUX)
     endif()
 endfunction()
+
+# premake `removeconfigurations { "<Config>" }`: the target is absent from that configuration's build. Ninja
+# Multi-Config (the presets' generator) honours a per-configuration EXCLUDE_FROM_ALL; the target stays declared,
+# so a build that names it explicitly still builds it, which premake's missing project could not.
+function(desert_remove_configuration target config)
+    set_property(TARGET ${target} PROPERTY EXCLUDE_FROM_ALL "$<CONFIG:${config}>")
+endfunction()
