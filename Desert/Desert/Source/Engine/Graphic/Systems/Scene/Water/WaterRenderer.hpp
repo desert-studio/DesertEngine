@@ -29,6 +29,10 @@ namespace Desert::Graphic::System
         std::vector<Water::WaterQuadTreeBody> Bodies;
         // Each body's water material (ECS::WaterBodyData::WaterMaterial), in Bodies' order.
         std::vector<Assets::AssetHandle> BodyMaterials;
+        // Each body's wave set (ECS::WaterBodyData::WaterWaves; Null = a flat body) and its WaveOrigin (the
+        // entity's X, Z), in Bodies' order.
+        std::vector<Assets::AssetHandle> BodyWaves;
+        std::vector<glm::vec2>           BodyWaveOrigins;
     };
 
     // THE WATER SURFACE RENDERER (WATER-W6; UE FWaterMeshSceneProxy + its water vertex factory). Each frame it

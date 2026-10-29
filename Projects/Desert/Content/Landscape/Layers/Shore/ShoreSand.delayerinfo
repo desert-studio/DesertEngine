@@ -1,0 +1,18 @@
+{
+    "Header": {
+        "Kind": "LandscapeLayerInfo",
+        "Guid": "c730e67be3da4598b852ba1021a94692",
+        "Versions": {
+            "LLYI": 4
+        },
+        "Dependencies": []
+    },
+    "LayerName": "ShoreSand",
+    "Hardness": 0.5,
+    "NoWeightBlend": false,
+    "LayerUsageDebugColor": [
+        0.62,
+        0.55,
+        0.42
+    ]
+}

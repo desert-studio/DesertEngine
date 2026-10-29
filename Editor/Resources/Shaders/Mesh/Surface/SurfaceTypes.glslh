@@ -197,6 +197,15 @@ struct SingleLayerWaterOutput
     float PhaseG;                 // Henyey-Greenstein anisotropy of the in-scatter
     vec3  ColorScaleBehindWater;  // tints the scene seen through the water before the absorption
     float RefractionOffset;       // cm the scene behind shifts per unit of the normal's horizontal tilt
+    // THE FOAM (UE's water material Foam inputs): where it forms is physics (Pass_SingleLayerWater.glslh: the waves'
+    // Jacobian at the crests, the breaker depth at the shore); what it looks like and its thresholds are the
+    // material's.
+    vec3  FoamAlbedo;             // the foam's diffuse colour (its texture times its tint)
+    float FoamCoverage;           // 0..1 the foam texture's structure at this point: where a forming sheet shows
+    float FoamJacobianThreshold;  // whitecaps form where the surface's Jacobian falls below this (1 = still)
+    float FoamJacobianSoftness;   // the Jacobian range over which the whitecap fades in
+    float FoamDecaySeconds;       // e-folding time of foam left behind on the water particle that broke
+    float FoamBreakerIndex;       // gamma = H / d at which a wave breaks on the shallows (McCowan 0.78)
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.

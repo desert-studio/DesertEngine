@@ -9,39 +9,41 @@
             "UNIT": 1,
             "WPAR": 1
         },
-        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "615ae6cde51242b39947fd6224df80b6", "8254b0475d555accf00b0c7a929c73e4", "d97a0cb255554c92a315a3330db71f5f", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
+        "Dependencies": [
+            "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
+            "95cdc28154e34f40b1ff8399d707b5b8",
+            "c730e67be3da4598b852ba1021a94692",
+            "cc91578c315f46bdacd58fde6183a144",
+            "f19593762f19be4d47cadcb269c4e878",
+            "f6f923426f71eb4a270b1db46ebceeff"
+        ]
     },
     "SceneName": "Water_Ocean",
     "Entities": [
         {
-            "id": 4200000000000000013,
-            "siblingIndex": 14,
-            "Tag": "Seabed",
-            "Translation": [0.0, -190.0, -1500.0],
-            "Rotation": [-0.11200000345706940, 0.0, 0.0],
-            "Scale": [15.0, 1.0, 15.0],
-            "StaticMesh": {
-                "MeshHandle": {
-                    "Guid": "8254b0475d555accf00b0c7a929c73e4",
-                    "Path": "assets:Meshes/Displace/DisplaceSlab.stmesh"
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "615ae6cde51242b39947fd6224df80b6",
-                        "Path": "assets:Environments/Shore/Materials/M_Shore_CoastSandRocks.demat"
-                    }
-                ]
-            }
-        },
-        {
             "id": 371561652986549398,
             "siblingIndex": 13,
             "Tag": "Water Zone",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
             "WaterZone": {
-                "ZoneExtent": [4096000.0, 4096000.0],
+                "ZoneExtent": [
+                    4096000.0,
+                    4096000.0
+                ],
                 "TileSize": 2400.0,
                 "TessellationFactor": 6,
                 "LODScale": 1.0
@@ -51,19 +53,34 @@
             "id": 2646278175089776126,
             "siblingIndex": 12,
             "Tag": "Ocean",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
             "WaterBody": {
                 "WaterWaves": {
-                    "Guid": "d97a0cb255554c92a315a3330db71f5f",
-                    "Path": "assets:Water/Waves/OpenOcean.dwaves"
+                    "Guid": "cc91578c315f46bdacd58fde6183a144",
+                    "Path": "assets:Water/Waves/ShoreSwell.dwaves"
                 },
                 "WaterMaterial": {
                     "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
                     "Path": "assets:Water/Materials/M_Water_Ocean.demat"
                 },
-                "OceanExtents": [4096000.0, 4096000.0],
+                "OceanExtents": [
+                    4096000.0,
+                    4096000.0
+                ],
                 "TargetWaveMaskDepth": 2048.0
             }
         },
@@ -71,22 +88,58 @@
             "id": 3541476290102148810,
             "siblingIndex": 1,
             "Tag": "Sky",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
                 "HorizonFalloff": 0.8500000238418579,
-                "ZenithColor": [0.05000000074505806, 0.18000000715255737, 0.5799999833106995],
-                "HorizonColor": [0.46000000834465027, 0.6200000047683716, 0.8999999761581421],
-                "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
-                "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
+                "ZenithColor": [
+                    0.05000000074505806,
+                    0.18000000715255737,
+                    0.5799999833106995
+                ],
+                "HorizonColor": [
+                    0.46000000834465027,
+                    0.6200000047683716,
+                    0.8999999761581421
+                ],
+                "GroundColor": [
+                    0.1599999964237213,
+                    0.1899999976158142,
+                    0.23999999463558197
+                ],
+                "NightColor": [
+                    0.009999999776482582,
+                    0.019999999552965164,
+                    0.05000000074505806
+                ],
                 "SunIntensity": 22.0,
-                "SunColor": [1.0, 0.9599999785423279, 0.8799999952316284],
+                "SunColor": [
+                    1.0,
+                    0.9599999785423279,
+                    0.8799999952316284
+                ],
                 "SunAngularDiameter": 2.2918310165405273,
                 "SunGlow": 1.0,
-                "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
+                "SunsetColor": [
+                    1.0,
+                    0.41999998688697815,
+                    0.18000000715255737
+                ],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
                 "AutoRebakeEnvironment": true,
@@ -97,23 +150,51 @@
                 "Model": 1,
                 "AtmosphereHeight": 60.0,
                 "MultiScatteringFactor": 1.0,
-                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
+                "GroundAlbedo": [
+                    0.4019779860973358,
+                    0.4019779860973358,
+                    0.4019779860973358
+                ],
                 "RayleighScatteringScale": 0.03310000151395798,
-                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
+                "RayleighScattering": [
+                    0.17528699338436127,
+                    0.4096069931983948,
+                    1.0
+                ],
                 "RayleighExponentialDistribution": 8.0,
                 "MieScatteringScale": 0.003996000159531832,
-                "MieScattering": [1.0, 1.0, 1.0],
+                "MieScattering": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
                 "MieAbsorptionScale": 0.0004440000047907233,
-                "MieAbsorption": [1.0, 1.0, 1.0],
+                "MieAbsorption": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
                 "MieAnisotropy": 0.800000011920929,
                 "MieExponentialDistribution": 1.2000000476837158,
                 "OtherAbsorptionScale": 0.0018810000037774444,
-                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
+                "OtherAbsorption": [
+                    0.3455609977245331,
+                    1.0,
+                    0.04518900066614151
+                ],
                 "AbsorptionTipAltitude": 25.0,
                 "AbsorptionTipValue": 1.0,
                 "AbsorptionTentWidth": 15.0,
-                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
-                "SkyAndAerialPerspectiveLuminanceFactor": [22.0, 21.119998931884766, 19.360000610351562],
+                "SkyLuminanceFactor": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
+                "SkyAndAerialPerspectiveLuminanceFactor": [
+                    22.0,
+                    21.119998931884766,
+                    19.360000610351562
+                ],
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
@@ -125,7 +206,11 @@
                 },
                 "Intensity": 1.0,
                 "Rotation": 0.0,
-                "Tint": [1.0, 1.0, 1.0]
+                "Tint": [
+                    1.0,
+                    1.0,
+                    1.0
+                ]
             },
             "TimeOfDay": {
                 "DriveSunFromTimeOfDay": false,
@@ -145,21 +230,45 @@
             "id": 3651295826201078030,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [-2.75921368598938, -0.15013019740581512, 0.7412042617797852],
-            "Scale": [1.0, 1.0, 1.0],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                -2.75921368598938,
+                -0.15013019740581512,
+                0.7412042617797852
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
             "DirectionLight": {
-                "Color": [1.0, 1.0, 1.0],
+                "Color": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
                 "Intensity": 1.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
-                "AtmosphereSunDiskColorScale": [22.0, 21.119998931884766, 19.360000610351562],
+                "AtmosphereSunDiskColorScale": [
+                    22.0,
+                    21.119998931884766,
+                    19.360000610351562
+                ],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
-                "BloomTint": [1.0, 1.0, 1.0],
+                "BloomTint": [
+                    1.0,
+                    1.0,
+                    1.0
+                ],
                 "CastShadows": true,
                 "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
@@ -176,9 +285,21 @@
             "id": 4200000000000000010,
             "siblingIndex": 4,
             "Tag": "Sphere_20m",
-            "Translation": [-600.0, 200.0, -2000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [4.0, 4.0, 4.0],
+            "Translation": [
+                -600.0,
+                200.0,
+                -2000.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                4.0,
+                4.0,
+                4.0
+            ],
             "StaticMesh": {
                 "Primitive": "Sphere",
                 "MeshHandle": {
@@ -197,9 +318,21 @@
             "id": 4200000000000000011,
             "siblingIndex": 5,
             "Tag": "Cube_60m",
-            "Translation": [600.0, 200.0, -6000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [4.0, 4.0, 4.0],
+            "Translation": [
+                600.0,
+                200.0,
+                -6000.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                4.0,
+                4.0,
+                4.0
+            ],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -218,9 +351,21 @@
             "id": 4200000000000000012,
             "siblingIndex": 6,
             "Tag": "Sphere_150m",
-            "Translation": [-600.0, 200.0, -15000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [4.0, 4.0, 4.0],
+            "Translation": [
+                -600.0,
+                200.0,
+                -15000.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                4.0,
+                4.0,
+                4.0
+            ],
             "StaticMesh": {
                 "Primitive": "Sphere",
                 "MeshHandle": {
@@ -239,12 +384,28 @@
             "id": 7480392879292652412,
             "siblingIndex": 11,
             "Tag": "PostProcessVolume",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [500.0, 500.0, 500.0],
+                "Extent": [
+                    500.0,
+                    500.0,
+                    500.0
+                ],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -290,14 +451,26 @@
                     "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [1.0, 1.0, 1.0],
+                    "LensFlareTint": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
-                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
+                    "LensFlareGhostTintInner": [
+                        1.0,
+                        0.8600000143051147,
+                        0.6200000047683716
+                    ],
+                    "LensFlareGhostTintOuter": [
+                        0.44999998807907104,
+                        0.6800000071525574,
+                        1.0
+                    ],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
@@ -311,14 +484,177 @@
             "id": 10144312751783984541,
             "siblingIndex": 10,
             "Tag": "Camera",
-            "Translation": [0.0, 200.0, 1500.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
+            "Translation": [
+                0.0,
+                200.0,
+                1500.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
             "Camera": {
                 "AutoActivateForPlayer": true,
                 "FOV": 45.0,
                 "Near": 10.0,
                 "Far": 5000000.0
+            }
+        },
+        {
+            "id": 4200000000000000100,
+            "siblingIndex": 14,
+            "Tag": "Shore",
+            "Translation": [
+                -6375.0,
+                0.0,
+                -11000.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Landscape": {
+                "QuadsPerTile": 255,
+                "SpacingCm": 25.0,
+                "ZScale": 4.0,
+                "EditLayers": [
+                    {
+                        "Guid": "4200000000000000199",
+                        "Name": "Base",
+                        "Visible": true,
+                        "Locked": false,
+                        "HeightAlpha": 1.0,
+                        "WeightAlpha": 1.0
+                    }
+                ],
+                "Layers": [
+                    {
+                        "Guid": "c730e67be3da4598b852ba1021a94692",
+                        "Path": "assets:Landscape/Layers/Shore/ShoreSand.delayerinfo"
+                    }
+                ]
+            },
+            "LandscapeMaterial": {
+                "Material": {
+                    "Guid": "95cdc28154e34f40b1ff8399d707b5b8",
+                    "Path": "assets:Environments/Shore/Materials/M_Shore_Landscape.demat"
+                }
+            }
+        },
+        {
+            "id": 4200000000000000101,
+            "siblingIndex": 15,
+            "Tag": "Shore Tile 0_0",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000101.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000102,
+            "siblingIndex": 16,
+            "Tag": "Shore Tile 1_0",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000102.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000103,
+            "siblingIndex": 17,
+            "Tag": "Shore Tile 0_1",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 0,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000103.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000104,
+            "siblingIndex": 18,
+            "Tag": "Shore Tile 1_1",
+            "Translation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Scale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000104.dlht"
             }
         }
     ],

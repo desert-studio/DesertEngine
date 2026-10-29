@@ -9,6 +9,9 @@
 //     sample lands in front of the surface;
 //   - Beer-Lambert transmittance over the view ray's length through the water (the opaque depth is the bottom: UE's
 //     SceneDepthWithoutSingleLayerWater) plus the single-scattered sun (Henyey-Greenstein) and sky;
+//   - the FOAM, where the waves make it: whitecaps where the surface's Jacobian folds (the crest breaking in deep
+//     water), surf where the wave height outgrows the depth (H / d past the breaker index); the foam stays on the
+//     water particle that broke and decays (WaterFoamAmount). Its look and thresholds are the material's;
 //   - the interface through the SHADING MODEL (ShadingModels/SingleLayerWater.shadingmodel): the sun's specular and
 //     the environment's reflection, the volume weighted by what the split-sum Fresnel lets through.
 #include <Common/Velocity.glslh>
@@ -54,6 +57,8 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture;
 // After the lighting half of Mesh/AmbientIBL.glslh: this header includes the generated models, whose own
 // include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
 #include <Common/ThinGeometryCoverage.glslh>
+// The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
+#include <Mesh/Surface/WaterMeshTiles.glslh>
 
 const float kWaterPi = 3.14159265;
 
@@ -68,6 +73,45 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
 {
     const float g2 = g * g;
     return ( 1.0 - g2 ) / ( 4.0 * kWaterPi * pow( max( 1.0 + g2 - 2.0 * g * cosTheta, 1e-4 ), 1.5 ) );
+}
+
+// THE FOAM A WATER PARTICLE CARRIES (Tessendorf 2001 sec. 4.4; the accumulate-and-decay of AAA ocean foam buffers,
+// e.g. Atlas/Sea of Thieves): foam forms while the surface over the particle is folded (Jacobian below the
+// threshold) and fades e-fold per `decay` seconds after. Gerstner IS a Lagrangian description (the plane point
+// labels one particle for all time), so the particle's past is the same sum at earlier times - no history buffer, no
+// advection error: foam(t) = max over ages a of formed(t - a) * exp(-a / decay). The ages are dense near now, where
+// a crest passes in a fraction of a period, and sparse where the foam has faded; their offset turns every frame
+// (`jitter`) so the temporal filter integrates between them.
+float WaterWhitecapAmount( vec2 label, float time, float jitter, SingleLayerWaterOutput w )
+{
+    const int   kAges = 12;
+    const float decay = max( w.FoamDecaySeconds, 0.05 );
+    const float span  = 2.5 * decay; // e^-2.5: what is older is under a tenth
+    float       foam  = 0.0;
+    for ( int k = 0; k < kAges; ++k )
+    {
+        const float x      = ( float( k ) + jitter ) / float( kAges );
+        const float age    = span * x * x;
+        const float J      = WaterWavesJacobian( label, time - age );
+        const float formed = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
+        foam               = max( foam, formed * exp( -age / decay ) );
+    }
+    return foam;
+}
+
+// THE SURF: a wave breaks on the shallows once its height outgrows the depth, H / d >= the breaker index (McCowan
+// 1894: 0.78 for a solitary wave; the material states it, beaches range 0.6-1.2). H is the body's significant wave
+// height, d the still water's depth over the bottom seen behind this point. From the breaker line to the swash the
+// water is broken; the passing crest (eta, the particle's height above still water) carries the brightest bore.
+float WaterSurfAmount( float stillY, float bottomY, float eta, float waveHeight, SingleLayerWaterOutput w )
+{
+    if ( waveHeight <= 0.0 )
+        return 0.0;
+    const float depth    = stillY - bottomY;
+    const float gamma    = waveHeight / max( depth, 1.0 );
+    const float breaking = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, gamma );
+    const float crest    = clamp( 0.5 + eta / waveHeight, 0.0, 1.0 );
+    return breaking * mix( 0.55, 1.0, crest );
 }
 
 void main()
@@ -147,7 +191,22 @@ void main()
     const vec3 F0      = DesertSpecularF0( S );
     const vec3 through = vec3( 1.0 ) - ( F0 * A.SpecularBRDF.x + A.SpecularBRDF.y );
 
-    oColor                = vec4( volume * through + ( direct + reflected ) * exposure, 1.0 );
+    const vec3 water = volume * through + ( direct + reflected ) * exposure;
+
+    // --- The foam: where the waves make it (physics, above), how it looks (the material). A thin sheet shows only
+    // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky.
+    const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
+                                   fract( i.Time * 7.31 ) );
+    const float whitecap  = WaterWhitecapAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, w );
+    const float surf      = baseDev > 0.0 ? WaterSurfAmount( i.VertexColor.g, baseBack.y, i.VertexColor.r,
+                                                             WaterWaveHeader.y, w )
+                                          : 0.0; // nothing behind: open sea, no bottom for a wave to break on
+    const float amount    = clamp( max( whitecap, surf ), 0.0, 1.0 );
+    const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
+    const vec3  foamN     = normalize( i.Normal );
+    const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );
+
+    oColor                = vec4( mix( water, foamLit * exposure, foam ), 1.0 );
     oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
     oThinGeometryCoverage = kThinGeometryCoverageSurface;
 }

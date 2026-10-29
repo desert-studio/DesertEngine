@@ -1,0 +1,26 @@
+{
+    "Header": {
+        "Kind": "WaterWaves",
+        "Guid": "07d47b430fcb4f73ad47488a19c6b5b8",
+        "Versions": {
+            "WAVS": 1
+        },
+        "Dependencies": []
+    },
+    "Generator": {
+        "NumWaves": 16,
+        "Seed": 0,
+        "Randomness": 0.0,
+        "MinWavelength": 150.0,
+        "MaxWavelength": 1500.0,
+        "WavelengthFalloff": 2.0,
+        "MinAmplitude": 0.3,
+        "MaxAmplitude": 4.0,
+        "AmplitudeFalloff": 2.0,
+        "WindAngleDeg": 90.0,
+        "DirectionAngularSpreadDeg": 120.0,
+        "SmallWaveSteepness": 0.05,
+        "LargeWaveSteepness": 0.02,
+        "SteepnessFalloff": 1.0
+    }
+}
