@@ -2073,6 +2073,8 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceGrassBladePath ) );
+        includes.push_back( SurfaceVertexInclude( kSurfaceWaterMeshPath ) );
+        includes.emplace_back( kSurfaceSingleLayerWaterPassInclude );
         return includes;
     }
 
@@ -2385,12 +2387,15 @@ namespace Desert::Core::Preprocess
                     result.Surface.UsedWithParticleRibbons = true;
                 else if ( Lower( stated ) == "grassblades" )
                     result.Surface.UsedWithGrassBlades = true;
+                else if ( Lower( stated ) == "watermesh" )
+                    result.Surface.UsedWithWaterMesh = true;
                 else
                 {
                     // The author's spelling, not the folded one the comparison used.
                     err = { line,
-                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades)",
-                                         stated ) };
+                            std::format(
+                                 "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades, WaterMesh)",
+                                 stated ) };
                     return fail();
                 }
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -2944,6 +2949,19 @@ namespace Desert::Core::Preprocess
             result.Surface.ShadingModel          = model->Manifest.Guid;
             const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
             result.Meta.Blend = result.Surface.Blend;
+            if ( result.Surface.UsedWithWaterMesh != ( model->Manifest.Name == kSingleLayerWaterShadingModel ) )
+            {
+                err = {
+                     surfaceSettingLine != 0 ? surfaceSettingLine : 1,
+                     result.Surface.UsedWithWaterMesh
+                          ? std::format( "Usage WaterMesh draws the single layer water pass, which only "
+                                         "ShadingModel {} shades (this template's is {})",
+                                         kSingleLayerWaterShadingModel, model->Manifest.Name )
+                          : std::format( "ShadingModel {} is drawn by the water mesh's single layer water pass: "
+                                         "declare Usage WaterMesh",
+                                         kSingleLayerWaterShadingModel ) };
+                return fail();
+            }
             if ( result.Surface.ResponsiveAA && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
             {
                 err = { responsiveLine,
@@ -3028,9 +3046,16 @@ namespace Desert::Core::Preprocess
                 cellOverride.Cull = StateCull::None;
             const ShaderRenderState cellState = MergeState( defaultPass.State, cellOverride );
 
+            // A SingleLayerWater template (`Usage WaterMesh`) is drawn by its own pass alone, as UE renders
+            // MSM_SingleLayerWater in the single layer water pass and never through the base pass, the deferred
+            // lighting, the shadow depths or a ray tracing hit group: no mesh, front layer, hit or parallax cell.
+            const bool meshCells = !result.Surface.UsedWithWaterMesh;
+
             for ( const std::string_view path : kSurfaceVertexPaths )
                 for ( const std::string_view pass : kSurfaceCellPasses )
                 {
+                    if ( !meshCells )
+                        break;
                     if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
                         continue;
                     DShaderPass cell;
@@ -3049,7 +3074,7 @@ namespace Desert::Core::Preprocess
 
             // THE TRANSLUCENT FRONT LAYER CELL (kSurfaceFrontLayerPass): a Translucent template's surface into the
             // front layer's G-buffer, after its Forward cells (their order is unchanged).
-            if ( result.Surface.Blend == SurfaceBlendMode::Translucent )
+            if ( meshCells && result.Surface.Blend == SurfaceBlendMode::Translucent )
             {
                 DShaderPass cell;
                 cell.Name  = SurfaceCellName( kSurfaceFrontLayerPath, kSurfaceFrontLayerPass );
@@ -3075,7 +3100,7 @@ namespace Desert::Core::Preprocess
             // only the path tracer's rays meet them (UE: the path tracer's translucent hit shaders). Additive has
             // no transmission to give and no cell. A template that binds a texture outside its row has nothing to
             // put in a shader record: no cell, and the reason is kept for the pipeline that asks for it.
-            if ( result.Surface.Blend != SurfaceBlendMode::Additive )
+            if ( meshCells && result.Surface.Blend != SurfaceBlendMode::Additive )
             {
                 if ( !result.Layout.Textures.empty() )
                     result.Surface.RayHitRefusal = std::format(
@@ -3163,10 +3188,27 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
+            // `Usage WaterMesh`: the single layer water cell, after the blade cells.
+            if ( result.Surface.UsedWithWaterMesh )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
+
             // `Height <Texture2D> ... Scale(<Float>)`: every mesh cell again as its `.Parallax` permutation, after every other cell
             // (the base cells' order is unchanged). The ray tracing hit and the sprite have no screen derivatives
             // to size a march with (or no depth to offset) and stay single.
-            if ( result.Meta.Height )
+            if ( meshCells && result.Meta.Height )
                 for ( const std::string_view path : kSurfaceVertexPaths )
                     for ( const std::string_view pass : kSurfaceCellPasses )
                     {
@@ -3318,13 +3360,18 @@ namespace Desert::Core::Preprocess
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
         if ( !result.Surface.Cells.empty() )
         {
-            const DShaderPass* defaultCell = result.FindPass( std::string( kSurfaceDefaultCell ) );
+            // A SingleLayerWater template has no mesh cells (`meshCells` above): its one drawn cell is its default.
+            const std::string defaultCellName =
+                 result.Surface.UsedWithWaterMesh
+                      ? SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass )
+                      : std::string( kSurfaceDefaultCell );
+            const DShaderPass* defaultCell = result.FindPass( defaultCellName );
             if ( defaultCell == nullptr )
                 return Common::MakeFormattedError<DShaderParseResult>(
-                     "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
+                     "DShader '{}': surface template has no default cell '{}'", result.Name, defaultCellName );
             result.Meta.State           = defaultCell->State;
             result.Stages               = defaultCell->Stages;
-            result.Meta.DefaultPassName = std::string( kSurfaceDefaultCell );
+            result.Meta.DefaultPassName = defaultCellName;
         }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.

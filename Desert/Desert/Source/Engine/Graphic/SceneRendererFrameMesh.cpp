@@ -460,22 +460,31 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
-    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
-        if ( water == nullptr || !water->HasDraws() )
+        if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the fog and the particles after it see the surface.
+        // depth, so the glass, the fog and the particles after it see the surface. It samples the opaque scene's
+        // copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image
+        // from the scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( meshRenderer == nullptr )
+            return;
+        const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return water->RenderManual( context ); },
-             [water]( RDG::PassBuilder& pass ) { water->DeclareDraws( pass ); } );
+             { return water->RenderManual( context ); }, [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, view, frame ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

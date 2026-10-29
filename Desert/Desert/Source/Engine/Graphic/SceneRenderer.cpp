@@ -2158,9 +2158,9 @@ namespace Desert::Graphic
                 const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
                      graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
-                // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-                // the glass, which then refracts the water behind it.
-                AddFrameWater( graph, textures );
+                // The water after the copy (the scene without water, which its refraction reads) and before the
+                // glass.
+                AddFrameWater( graph, textures, sceneCopy );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
         }

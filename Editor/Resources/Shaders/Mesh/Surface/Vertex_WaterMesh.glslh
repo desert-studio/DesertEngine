@@ -1,0 +1,83 @@
+// Surface cell vertex path: THE WATER MESH (UE FWaterMeshVertexFactory, Plugins/Experimental/Water/Shaders/Private/
+// WaterMeshVertexFactory.ush) - the `WaterMesh.SingleLayerWater` cell of a `Usage WaterMesh` template
+// (DShaderParser kSurfaceWaterMeshPath). Every tile the water quadtree selected (Engine/Water/WaterQuadTree.hpp) is a
+// row of WaterTiles; Graphic::System::WaterRenderer draws one vertexless instanced draw per grid density, its first
+// row in the push block's PrimitiveIndex (the water has no GpuScene primitive: the slot is the draw's instance data
+// offset, UE's InstanceDataOffset). The stage decodes its quad from gl_VertexIndex and morphs toward the next LOD by
+// distance, so a LOD boundary never opens a crack.
+#include <Common/CameraUB.glslh>
+#include <Common/Velocity.glslh>
+#include <Common/MaterialTransport.glslh>
+#include <Mesh/Surface/WaterMeshTiles.glslh>
+
+DESERT_SURFACE_VARYINGS( out )
+
+// UE MorphTranslatedWorldPosition (WaterMeshVertexFactory.ush:252-275), in the tile's own frame: @p local is the vertex
+// relative to the tile's lower corner, the frame UE measures the morph in. Every other vertex slides toward its
+// neighbour by the LOD factor, so at factor 1 the grid IS the next LOD's (two quads per quad).
+vec2 WaterMorphLocal( vec2 local, WaterTileRow t, vec3 observer, float lodLevel, float quadSize,
+                      float heightLodFactor, out float lodFactor )
+{
+    const vec2  world = t.Zone.xy + t.Tile.xy + local;
+    const float dist  = distance( world, observer.xz );
+    lodFactor         = clamp( dist / ( t.Zone.z * exp2( lodLevel ) ) - 1.0, 0.0, 1.0 );
+    lodFactor         = clamp( heightLodFactor + lodFactor, 0.0, 1.0 );
+
+    const float grid4  = 4.0 * quadSize;
+    const vec2  offset = fract( local / grid4 ) - vec2( 0.5 );
+    const float kMinRadius = 0.26;
+    if ( abs( offset.x ) < kMinRadius )
+        local.x += offset.x * lodFactor * grid4;
+    if ( abs( offset.y ) < kMinRadius )
+        local.y += offset.y * lodFactor * grid4;
+    return local;
+}
+
+void main()
+{
+    const WaterTileRow t = WaterTileRows[int( m_PushConstants.PrimitiveIndex ) + gl_InstanceIndex];
+    // The LOD rings are centred on the view the quadtree was traversed from (WaterRenderer::PrepareFrame).
+    const vec3 observer = cameraUB.CameraPos.xyz;
+
+    // Two triangles per quad, quads row by row.
+    const ivec2 kCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 1, 0 ), ivec2( 0, 1 ), ivec2( 1, 0 ), ivec2( 1, 1 ),
+                                      ivec2( 0, 1 ) );
+    const int   quads    = int( t.Zone.w + 0.5 );
+    const int   quad     = gl_VertexIndex / 6;
+    const ivec2 q        = ivec2( quad % quads, quad / quads ) + kCorner[gl_VertexIndex % 6];
+    const float quadSize = t.Tile.w / float( quads );
+    vec2        local    = vec2( q ) * quadSize;
+
+    if ( t.Lod.y > 0.5 )
+    {
+        // The lowest LOD also carries the camera height's global morph (t.Lod.w).
+        float lodFactor = 0.0;
+        local = WaterMorphLocal( local, t, observer, t.Lod.x, quadSize, t.Lod.w, lodFactor );
+        // Fully morphed: morph again as a vertex of the next LOD - a tile reaches into the next ring because the
+        // observer moves, so it must be able to span three LODs (no height factor on the second).
+        if ( lodFactor >= 1.0 && t.Lod.z > 0.5 )
+            local = WaterMorphLocal( local, t, observer, t.Lod.x + 1.0, quadSize * 2.0, 0.0, lodFactor );
+    }
+
+    // Zone-relative first (exact multiples of the quad size), then the zone's origin: two tiles sharing an edge add
+    // the same two numbers, so the edge is at the same bits in both.
+    const vec2 zoneLocal = t.Tile.xy + local;
+    const vec4 worldPos  = vec4( t.Zone.x + zoneLocal.x, t.Tile.z, t.Zone.y + zoneLocal.y, 1.0 );
+
+    // The still surface: Y up; tangent along +X, bitangent along -Z (right-handed with the normal, the UV's v
+    // running with -Z), so a tangent-space ripple map reads as it does on a plane mesh.
+    const vec3 N = vec3( 0.0, 1.0, 0.0 );
+    const vec3 T = vec3( 1.0, 0.0, 0.0 );
+    const vec3 B = vec3( 0.0, 0.0, -1.0 );
+    v_Surface.WorldPosition = worldPos.xyz;
+    v_Surface.Normal        = N;
+    v_Surface.UV0           = vec2( worldPos.x, -worldPos.z ) * 0.01; // metres across the water
+    v_Surface.UV1           = v_Surface.UV0;
+    v_Surface.VertexColor   = vec4( 1.0 );
+    v_Surface.TBN           = mat3( T, B, N );
+    // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the surface does not move.
+    v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
+    v_Surface.PrevClip    = cameraUB.PrevViewProjection * worldPos;
+    v_Surface.ObjectMoved = 0.0;
+    gl_Position           = cameraUB.JitteredViewProjection * worldPos;
+}
