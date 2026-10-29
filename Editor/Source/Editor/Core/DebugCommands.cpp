@@ -4,6 +4,7 @@
 
 #include <Common/Core/CrashHandler.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 
 #include <memory>
@@ -50,13 +51,43 @@ namespace Desert::Editor
                } } );
     }
 
-    void AppendParticleDebuggerCommand( std::vector<PaletteCommand>& commands )
+    void AppendParticleDebuggerCommand( std::vector<PaletteCommand>&                  commands,
+                                        const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
         // Through PanelRequests, the one "show that panel" wire (it also brings a docked tab forward); the name is
         // ParticleDebuggerPanel's IPanel name.
         commands.push_back( { "Debug", "Particle Debugger", []
                               {
                                   Core::PanelRequests::Open( "Particle Debugger" );
+                                  return PaletteCommandDone();
+                              } } );
+        if ( !scene )
+            return;
+        // The same VFXWorld calls as the panel's controls (ParticleDebuggerPanel.cpp, Freeze / Step): one pause.
+        const auto freeze = [scene]( const bool frozen )
+        {
+            VFX::VFXDebugSettings settings = scene->GetVFXWorld().GetDebugSettings();
+            settings.Frozen                = frozen;
+            scene->GetVFXWorld().SetDebugSettings( settings );
+            return PaletteCommandDone();
+        };
+        commands.push_back( { "Debug", "Particles: Freeze", [freeze] { return freeze( true ); } } );
+        commands.push_back( { "Debug", "Particles: Unfreeze", [freeze] { return freeze( false ); } } );
+        // UE's Niagara "Reset" (the debugger's restart of every system): the effects start again from age zero, so
+        // a frozen shot after Restart + Step x N is the same moment however long the editor ran before it.
+        commands.push_back( { "Debug", "Particles: Restart", [scene]
+                              {
+                                  scene->GetVFXWorld().Reset();
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Debug", "Particles: Step", [scene]() -> Common::BoolResultStr
+                              {
+                                  VFX::VFXWorld& world = scene->GetVFXWorld();
+                                  if ( !world.GetDebugSettings().Frozen )
+                                      return Common::MakeError<bool>(
+                                           "the effects are not frozen; Step advances a frozen world by one "
+                                           "fixed step (run Particles: Freeze first)" );
+                                  world.StepFrozen();
                                   return PaletteCommandDone();
                               } } );
     }

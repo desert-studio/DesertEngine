@@ -20,11 +20,12 @@
 
 struct ParticleDrawLayout
 {
-    uvec4 Range;      // x = the range's particle count (the column stride), y = its pool base, z = 1 local space
+    uvec4 Range;      // x = the range's particle count (the column stride), y = its pool base, z = 1 local space,
+                      // w = the Sprite row's alignment (0 Unaligned, 1 VelocityAligned)
     uvec4 Columns0;   // first float column of x = Position, y = SpriteSize, z = Color, w = SpriteRotation
     uvec4 Columns1;   // first float column of x = Age, y = Lifetime, z = RibbonWidth, w = RibbonLinkOrder
     mat4  LocalToWorld; // the entity's full transform (cm): a Local emitter's Position is in its frame
-    uvec4 Columns2;   // x = the Ribbon row's RibbonIdBinding (an Int column), y = Scale, z = MeshOrientation; w unused
+    uvec4 Columns2;   // x = the Ribbon row's RibbonIdBinding (an Int column), y = Scale, z = MeshOrientation, w = Velocity
     vec4  Ribbon;     // the emitter's Ribbon row: x = Width (cm), y = UV mode (0 Stretch, 1 TileByDistance),
                       // z = UVTileDistance (cm); zero when the emitter has no Ribbon row
 };

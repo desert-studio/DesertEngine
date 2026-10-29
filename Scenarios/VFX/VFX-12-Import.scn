@@ -1,0 +1,12 @@
+# VFX-12 authoring record: the impact's two sprite textures enter the project THROUGH THE EDITOR, as a file
+# dropped from the desktop onto the Content Browser (UE: drag an image into the Content Browser = import into the
+# open folder). Source: Kenney Particle Pack 1.1 (CC0, License next to the textures), assembled into 2x2 SubUV
+# flipbook sheets: T_ImpactFlash = star_09, star_06, star_07, star_08 (a burst of rays that thins out over the
+# particle's life); T_ImpactSpark = trace_01..04 (a straight streak breaking into a smoky trail). The import
+# cooks a .detex beside each PNG with its own GUID; M_ImpactFlash / M_ImpactSpark reference those.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
+Дано run Panel "Open Assets"
+Дано run "Content Browser" "Go to Folder VFX/Demo/Textures"
+Когда input drop Assets 120,120 /Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine-scratch/VFX-12/cc0/T_ImpactFlash.png /Users/daniilsavcenko/Desktop/Programming/C++/DesertEngine-scratch/VFX-12/cc0/T_ImpactSpark.png
+Когда state
+Тогда 0_imported the Content Browser shows T_ImpactFlash and T_ImpactSpark in VFX/Demo/Textures, each with a texture thumbnail of its 2x2 sheet

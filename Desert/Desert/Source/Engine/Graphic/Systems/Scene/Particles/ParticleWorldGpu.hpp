@@ -157,14 +157,16 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleAttrNone = 0xFFFFFFFFu;
     struct ParticleDrawLayoutGpu
     {
-        glm::uvec4 Range      = glm::uvec4( 0u ); // x = range count (column stride), y = pool base, z = 1 local
+        // x = range count (column stride), y = pool base, z = 1 local, w = the emitter's Sprite row alignment
+        // (0 Unaligned, 1 VelocityAligned; Vertex_ParticleSprite.glslh)
+        glm::uvec4 Range      = glm::uvec4( 0u );
         glm::uvec4 Columns0   = glm::uvec4( kParticleAttrNone ); // Position, SpriteSize, Color, SpriteRotation
         glm::uvec4 Columns1   = glm::uvec4( kParticleAttrNone ); // Age, Lifetime, RibbonWidth, RibbonLinkOrder
         // The entity's full transform (cm): a Local emitter's particles are drawn through it (UE: a local-space
         // emitter's LocalToWorld in the sprite / mesh vertex factory).
         glm::mat4 LocalToWorld = glm::mat4( 1.0f );
         // x = the Ribbon row's RibbonIdBinding attribute (an Int; none = one ribbon), y = Scale, z =
-        // MeshOrientation.
+        // MeshOrientation, w = Velocity (a VelocityAligned sprite's axis).
         glm::uvec4 Columns2 = glm::uvec4( kParticleAttrNone );
         // The emitter's Ribbon row (Vertex_ParticleRibbon.glslh): x = Width (cm), y = UV mode (0 Stretch,
         // 1 TileByDistance), z = UVTileDistance (cm); zero without a Ribbon row.
