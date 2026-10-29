@@ -149,7 +149,8 @@ Shader "TerrainGBuffer"
         {
             vec3           transmission;
             float          cover;
-            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover );
+            float          opacity;
+            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
 
             // Ground is a dielectric; roughness and occlusion are the landscape material's layers'. Where the grass
             // field's far cover lies over it (GRASS-FIELD) the pixel shades as the blades do - TwoSidedFoliage, its
@@ -161,7 +162,7 @@ Shader "TerrainGBuffer"
             const vec3 sss   = sqrt( clamp( transmission, 0.0, 1.0 ) );
             oGBufferShadingWord = cover > 0.0
                                        ? DesertPackShadingWord( SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE, 0.0, 0.5,
-                                                                DesertPayload( sss.r, sss.g, sss.b, cover ) )
+                                                                DesertPayload( sss.r, sss.g, sss.b, opacity ) )
                                        : DesertPackShadingWord( SHADING_MODEL_INDEX_DEFAULT_LIT, 0.0, 0.5,
                                                                 DesertPayload( 0.0, 0.0, 0.0, 0.0 ) );
             oGBufferEmissive = vec4( 0.0, 0.0, 0.0, s.AO ); // no emission; material AO from the layers' ARM maps

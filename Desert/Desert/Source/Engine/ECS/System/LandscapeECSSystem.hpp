@@ -122,11 +122,12 @@ namespace Desert::ECS
             std::vector<Graphic::System::GrassSectionDraw> Sections;
             // The look the variety leaves to the far cover, from its section materials (GRASS-ASSET p2): the
             // albedo map's cooked mean over the drawn texels (Assets::LoadGrassCoverLook) times the material's
-            // tints, its subsurface colour and roughness; nullopt when no section has an albedo map.
+            // tints, its subsurface colour and opacity (UE's Opacity pin, the subsurface density) and roughness;
+            // nullopt when no section has an albedo map.
             struct CoverLook
             {
                 glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
-                float     Roughness = 0.0f;
+                float     Roughness = 0.0f, Opacity = 0.0f;
             };
             std::optional<CoverLook> Cover;
         };
