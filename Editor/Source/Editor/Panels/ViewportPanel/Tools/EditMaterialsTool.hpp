@@ -4,7 +4,7 @@
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 
 #include <memory>
 #include <optional>

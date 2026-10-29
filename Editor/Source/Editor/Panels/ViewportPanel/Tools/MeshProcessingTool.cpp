@@ -13,14 +13,13 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
-#include <Engine/Geometry/MeshCore/MeshBoundaryLoops.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/MeshDeformOperations.hpp>
 #include <Engine/Geometry/MeshHoleFillOperation.hpp>
 #include <Engine/Geometry/MeshJacketOperation.hpp>
 #include <Engine/Geometry/MeshProjectOperation.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
 #include <Engine/Geometry/MeshVoxelOperations.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 
 #include <ImGui/imgui.h>
 #include <ImGuizmo.h>
@@ -329,9 +328,7 @@ namespace Desert::Editor::Tools
         if ( ms.ActiveTool == MS::Tool::HoleFill )
         {
             // UE UHoleFillTool::Setup: the holes are the input's boundary loops, none selected.
-            const Geometry::MeshBoundaryLoops loops( m_Session->Input.get() );
-            for ( const Geometry::EdgeLoop& loop : loops.m_Loops )
-                m_Session->Holes.push_back( loop.Vertices );
+            m_Session->Holes = Geometry::HoleBoundaryLoops( *m_Session->Input );
             ms.HoleFillLoopCount = static_cast<int32_t>( m_Session->Holes.size() );
             ms.HoleFillSelected.clear();
         }

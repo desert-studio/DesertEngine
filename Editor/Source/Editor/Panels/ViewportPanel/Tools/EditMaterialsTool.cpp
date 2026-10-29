@@ -14,7 +14,6 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>

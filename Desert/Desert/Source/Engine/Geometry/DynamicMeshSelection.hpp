@@ -11,11 +11,15 @@
 // GeometrySelectionUtil.
 
 #include "Engine/Geometry/ElementSelection.hpp"
-// The complete types, not forward declarations: this adapter is the editor's door to the two MeshCore types a
-// selection is made of (MeshElementSelection holds the mesh and owns the topology), and the MeshCore include
-// gate (scripts/CI/MeshCoreIncludes.sh) lets only the Geometry adapters include MeshCore/ from outside it.
+// The complete types, not forward declarations: this adapter is the editor's door to the MeshCore types its
+// modeling tools work on - the mesh and topology a selection is made of (MeshElementSelection holds the mesh and
+// owns the topology), the attribute set the material / UV / tangent tools read and write per element, and the
+// AABB tree the brush tools (Paint Groups) ray-pick through. The MeshCore include gate
+// (scripts/CI/MeshCoreIncludes.sh) lets only the Geometry adapters include MeshCore/ from outside it.
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp"
+#include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/GroupTopology.hpp"
+#include "Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp"
 
 #include <cstdint>
 #include <vector>
