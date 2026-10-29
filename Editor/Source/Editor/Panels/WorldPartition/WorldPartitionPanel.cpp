@@ -12,10 +12,17 @@
 #include "EditorLoadedRegions.hpp"
 
 #include "../../Core/CommandHistory.hpp"
+#include <Editor/Core/Commands/WorldPartitionEditCommand.hpp>
 #include <Editor/Panels/ViewportPanel/Tools/FoliagePaintTool.hpp>
 
+#include <algorithm>
 #include <ranges>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Core/HLODMeshBuilder.hpp>
+#include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Core/Serialize/WorldCells.hpp>
+#include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/Serialize/EditorRegions.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
@@ -26,7 +33,9 @@
 #include <ImGui/imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <cstdio>
 #include <format>
 #include <numbers>
 #include <span>
@@ -94,52 +103,6 @@ namespace Desert::Editor
         // Below this the legend (five rows in Play) covers the cells; a smaller window scrolls instead.
         constexpr float kMinMapPixels = 240.0f;
 
-        // One history entry for "the world's partition changed": the block before and the block after.
-        //
-        // WEAK, not shared. A history entry that owned the scene would keep a closed world alive for as
-        // long as the undo stack remembered it; ICommand's contract is that an entry whose target is
-        // gone returns false and is discarded, and a weak pointer is how that is DETECTED rather than
-        // assumed. The scene is addressed as a whole object because the partition is a property of the
-        // world itself and has no id of its own.
-        class ConvertToWorldPartitionCommand final : public ICommand
-        {
-        public:
-            ConvertToWorldPartitionCommand( std::weak_ptr<::Desert::Core::Scene>                    scene,
-                                            std::optional<::Desert::Core::WorldPartitionSerialized> before,
-                                            ::Desert::Core::WorldPartitionSerialized                after )
-                 : m_Scene( std::move( scene ) ), m_Before( std::move( before ) ), m_After( std::move( after ) )
-            {
-            }
-
-            [[nodiscard]] std::string GetLabel() const override
-            {
-                return "Convert to World Partition";
-            }
-
-            bool Undo() override
-            {
-                return Apply( m_Before );
-            }
-
-            bool Redo() override
-            {
-                return Apply( m_After );
-            }
-
-        private:
-            bool Apply( const std::optional<::Desert::Core::WorldPartitionSerialized>& partition )
-            {
-                const std::shared_ptr<::Desert::Core::Scene> scene = m_Scene.lock();
-                if ( !scene )
-                    return false;
-                scene->SetWorldPartition( partition );
-                return true;
-            }
-
-            std::weak_ptr<::Desert::Core::Scene>                    m_Scene;
-            std::optional<::Desert::Core::WorldPartitionSerialized> m_Before;
-            ::Desert::Core::WorldPartitionSerialized                m_After;
-        };
     } // namespace
 
     WorldPartitionPanel::WorldPartitionPanel( std::shared_ptr<::Desert::Core::Scene> scene,
@@ -288,6 +251,7 @@ namespace Desert::Editor
         {
             m_FocusPending = true;
             m_Follow       = false;
+            m_FollowZoomed = false;
         }
 
         const WorldPartitionPlan*                       plan      = nullptr;
@@ -340,6 +304,13 @@ namespace Desert::Editor
                 ImGui::TextWrapped( "%s", m_RegionStatus.c_str() );
         }
 
+        // ── HLOD per grid (Edit, a partitioned world) ──
+        if ( !playing && m_Scene && m_Scene->GetWorldPartition().has_value() )
+        {
+            DrawRuntimeGrids();
+            DrawGridHLODLayers();
+        }
+
         if ( plan == nullptr || partition->Grids.empty() )
         {
             ImGui::TextDisabled( "%s",
@@ -347,16 +318,192 @@ namespace Desert::Editor
             return;
         }
 
+        // ── the grid shown (UE's runtime hash grid picker): every grid of the partition reachable ──
+        if ( m_Grid >= partition->Grids.size() )
+        {
+            m_Grid         = 0;
+            m_FocusPending = true;
+        }
+        ImGui::SetNextItemWidth( 140.0f );
+        if ( ImGui::BeginCombo( "Grid", partition->Grids[m_Grid].Name.c_str() ) )
+        {
+            for ( std::size_t g = 0; g < partition->Grids.size(); ++g )
+            {
+                ImGui::PushID( static_cast<int>( g ) );
+                const bool picked = g == m_Grid;
+                if ( ImGui::Selectable( partition->Grids[g].Name.c_str(), picked ) && !picked )
+                {
+                    m_Grid         = g;
+                    m_FocusPending = true;
+                    m_Fitted       = false;
+                }
+                if ( picked )
+                    ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        const ::Desert::Core::WorldPartitionGridSerialized& shown = partition->Grids[m_Grid];
+        // A plan without per-grid levels (none planned yet) shows the world's level count.
+        const int gridLevels =
+             m_Grid < plan->GridLevelCount.size() ? plan->GridLevelCount[m_Grid] : plan->LevelCount;
+        const std::size_t gridCells = static_cast<std::size_t>(
+             std::ranges::count( plan->Cells, m_Grid, &::Desert::Core::Rules::PlannedCell::Grid ) );
+        const int maxLevel = std::max( gridLevels - 1, 0 );
+        m_Level            = std::min( m_Level, maxLevel );
         ImGui::SameLine();
         ImGui::SetNextItemWidth( 120.0f );
-        const int maxLevel = std::max( plan->LevelCount - 1, 0 );
         ImGui::SliderInt( "Level", &m_Level, -1, maxLevel, m_Level < 0 ? "all" : "L%d" );
         ImGui::SameLine();
-        ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", plan->Cells.size(),
-                             plan->AlwaysLoaded.size(), plan->LevelCount,
-                             static_cast<double>( partition->Grids[0].CellSize ) / 100.0 );
+        ImGui::TextDisabled( "%zu cells, %zu always-loaded, %d level(s), cell %.0f m", gridCells,
+                             plan->AlwaysLoaded.size(), gridLevels,
+                             static_cast<double>( shown.CellSize ) / 100.0 );
 
         DrawMap( *plan, *partition, residency, streamer );
+    }
+
+    // UE FRuntimePartitionDesc::HLODSetups, shown where UE shows them - beside the runtime grid they belong to:
+    // one row per grid, the layer its cells' HLOD is built with picked from the world's HLODLayers, or "None"
+    // (the grid's far cells draw nothing). Every pick is one history entry holding the whole block before and
+    // after, the same entry the conversion pushes, so an undo is a plain swap of the block.
+    void WorldPartitionPanel::DrawGridHLODLayers()
+    {
+        const ::Desert::Core::WorldPartitionSerialized& current = *m_Scene->GetWorldPartition();
+        if ( current.Grids.empty() || !ImGui::CollapsingHeader( "HLOD per grid" ) )
+            return;
+        static const std::vector<::Desert::Core::HLODLayerSerialized> kNoLayers;
+        const std::vector<::Desert::Core::HLODLayerSerialized>& layers = current.HLODLayers.value_or( kNoLayers );
+        if ( layers.empty() )
+            ImGui::TextDisabled(
+                 "This world states no HLOD layer; a grid can only name one of the world's layers." );
+
+        for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+        {
+            const ::Desert::Core::WorldPartitionGridSerialized& grid    = current.Grids[g];
+            const std::string                                   preview = grid.HLODLayer.value_or( "None" );
+            ImGui::PushID( static_cast<int>( g ) );
+            ImGui::SetNextItemWidth( 200.0f );
+            if ( ImGui::BeginCombo( std::format( "{} (cell {:.0f} m)", grid.Name, grid.CellSize / 100.0f ).c_str(),
+                                    preview.c_str() ) )
+            {
+                std::optional<std::optional<std::string>> picked;
+                if ( ImGui::Selectable( "None", !grid.HLODLayer.has_value() ) && grid.HLODLayer.has_value() )
+                    picked = std::optional<std::string>();
+                for ( const ::Desert::Core::HLODLayerSerialized& layer : layers )
+                    if ( ImGui::Selectable( layer.Name.c_str(), grid.HLODLayer == layer.Name ) &&
+                         grid.HLODLayer != layer.Name )
+                        picked = std::optional<std::string>( layer.Name );
+                ImGui::EndCombo();
+                if ( picked )
+                {
+                    ::Desert::Core::WorldPartitionSerialized after                 = current;
+                    after.Grids[g].HLODLayer                                       = *picked;
+                    std::optional<::Desert::Core::WorldPartitionSerialized> before = current;
+                    const std::string label = std::format( "Set HLOD layer of grid {}", grid.Name );
+                    m_Scene->SetWorldPartition( after );
+                    CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
+                         label, m_Scene, std::move( before ), std::move( after ) ) );
+                    ImGui::PopID();
+                    return; // `current` and `grid` referred to the block just replaced
+                }
+            }
+            ImGui::PopID();
+        }
+    }
+
+    // UE World Settings -> Runtime Partitions -> Grids (FSpatialHashRuntimeGrid): the world's grids as a table,
+    // added, removed and edited here. Every commit (Enter in a cell, a button) is ONE history entry through
+    // EditWorldPartition, which refuses what the planner would refuse. Sizes are world units (centimetres).
+    void WorldPartitionPanel::DrawRuntimeGrids()
+    {
+        if ( !ImGui::CollapsingHeader( "Runtime grids" ) )
+            return;
+        const ::Desert::Core::WorldPartitionSerialized          current = *m_Scene->GetWorldPartition();
+        std::optional<::Desert::Core::WorldPartitionSerialized> after;
+        std::string                                             label;
+        if ( ImGui::BeginTable( "##runtimegrids", 5,
+                                ImGuiTableFlags_Borders | ImGuiTableFlags_SizingStretchProp ) )
+        {
+            ImGui::TableSetupColumn( "Name" );
+            ImGui::TableSetupColumn( "Cell size (cm)" );
+            ImGui::TableSetupColumn( "Loading range (cm)" );
+            ImGui::TableSetupColumn( "Priority" );
+            ImGui::TableSetupColumn( "" );
+            ImGui::TableHeadersRow();
+            constexpr ImGuiInputTextFlags kCommit = ImGuiInputTextFlags_EnterReturnsTrue;
+            for ( std::size_t g = 0; g < current.Grids.size(); ++g )
+            {
+                const ::Desert::Core::WorldPartitionGridSerialized& grid = current.Grids[g];
+                ImGui::PushID( static_cast<int>( g ) );
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                char name[128];
+                std::snprintf( name, sizeof( name ), "%s", grid.Name.c_str() );
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputText( "##name", name, sizeof( name ), kCommit ) && grid.Name != name )
+                {
+                    after                = current;
+                    after->Grids[g].Name = name;
+                    label                = std::format( "Rename grid {} to {}", grid.Name, name );
+                }
+                ImGui::TableNextColumn();
+                float cell = grid.CellSize;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputFloat( "##cell", &cell, 0.0f, 0.0f, "%.0f", kCommit ) && cell != grid.CellSize )
+                {
+                    after                    = current;
+                    after->Grids[g].CellSize = cell;
+                    label                    = std::format( "Set cell size of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                float range = grid.LoadingRange;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputFloat( "##range", &range, 0.0f, 0.0f, "%.0f", kCommit ) &&
+                     range != grid.LoadingRange )
+                {
+                    after                        = current;
+                    after->Grids[g].LoadingRange = range;
+                    label                        = std::format( "Set loading range of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                int priority = grid.Priority;
+                ImGui::SetNextItemWidth( -FLT_MIN );
+                if ( ImGui::InputInt( "##priority", &priority, 0, 0, kCommit ) && priority != grid.Priority )
+                {
+                    after                    = current;
+                    after->Grids[g].Priority = priority;
+                    label                    = std::format( "Set priority of grid {}", grid.Name );
+                }
+                ImGui::TableNextColumn();
+                if ( ImGui::SmallButton( "Remove" ) )
+                {
+                    after = current;
+                    after->Grids.erase( after->Grids.begin() + static_cast<std::ptrdiff_t>( g ) );
+                    label = std::format( "Remove grid {}", grid.Name );
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        if ( ImGui::Button( "Add grid" ) )
+        {
+            after = current;
+            // UE's new grid: the main grid's defaults (128 m cell, 256 m range), a name no grid states.
+            ::Desert::Core::WorldPartitionGridSerialized grid;
+            std::size_t                                  n = after->Grids.size() + 1;
+            do
+                grid.Name = std::format( "Grid{}", n++ );
+            while ( ::Desert::Core::Rules::GridIndexOf( *after, grid.Name ).has_value() );
+            label = std::format( "Add grid {}", grid.Name );
+            after->Grids.push_back( std::move( grid ) );
+        }
+        if ( after )
+        {
+            const auto edited = EditWorldPartition( m_Scene, std::move( label ), std::move( *after ) );
+            m_GridEditStatus  = edited ? std::string() : edited.GetError();
+        }
+        if ( !m_GridEditStatus.empty() )
+            ImGui::TextWrapped( "%s", m_GridEditStatus.c_str() );
     }
 
     Common::BoolResultStr WorldPartitionPanel::LoadSelectedRegion()
@@ -400,6 +547,195 @@ namespace Desert::Editor
         return BOOLSUCCESS;
     }
 
+    Common::BoolResultStr WorldPartitionPanel::BuildHLODs()
+    {
+        namespace WC = ::Desert::Core::WorldCells;
+        if ( m_Bake )
+            return Common::MakeError( "Build HLODs: a build is already running (its landscape bake)." );
+        if ( !m_Scene )
+            return Common::MakeError( "Build HLODs: there is no active scene." );
+        const auto& baseline = m_Scene->Packages()->BaselinePath();
+        if ( !baseline )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' is not saved; save it first (the HLODs are built from its files)" );
+        if ( m_Scene->Packages()->HasUnsavedChanges(
+                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
+                                      "files)" );
+        const std::filesystem::path& path = *baseline;
+        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
+        // a cook of the same files computes.
+        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        if ( !text )
+            return Common::MakeError( "Build HLODs: " + text.GetError() );
+        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
+        if ( !scene )
+            return Common::MakeError( "Build HLODs: " + scene.GetError() );
+        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
+        if ( !descriptors )
+            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
+        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
+        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
+        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
+        // Phase 1: the landscape HLODs' areas, from the same request the build makes for each.
+        std::vector<LandscapeHLODBakeTile>                 areas;
+        decltype( builders.Landscape )                     collect;
+        if ( builders.Landscape )
+            collect = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+            {
+                auto area = ::Desert::Core::LandscapeHLODTileAreaOf( request );
+                if ( !area )
+                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>( area.GetError() );
+                auto mesh = builders.Landscape( request );
+                if ( !mesh )
+                    return mesh;
+                const bool known = std::any_of( areas.begin(), areas.end(),
+                                                [&]( const auto& seen ) {
+                                                    return static_cast<uint64_t>( seen.Area.Tile ) ==
+                                                           static_cast<uint64_t>( area.GetValue().Tile );
+                                                } );
+                if ( known )
+                    return mesh;
+                // The bake states the normal map in the tangent frame of this very mesh.
+                if ( !mesh.GetValue().EditMesh )
+                    return Common::MakeError<::Desert::Assets::StaticMeshComponentSer>(
+                         std::format( "the landscape HLOD of tile {} carries no mesh",
+                                      static_cast<uint64_t>( area.GetValue().Tile ) ) );
+                areas.push_back( LandscapeHLODBakeTile{ area.GetValue(), *mesh.GetValue().EditMesh } );
+                return mesh;
+            };
+        if ( auto probe = WC::BuildWorldHLODs(
+                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders.Mesh, collect,
+                  // The probe only gathers the landscape tiles to bake: its files are dropped.
+                  []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
+             !probe )
+            return Common::MakeError( "Build HLODs: " + probe.GetError() );
+        if ( areas.empty() )
+            return FinishBuildHLODs( {} );
+        LOG_INFO( "[Build HLODs] '{0}': baking the BaseColor of {1} landscape tile(s)", m_Scene->GetSceneName(),
+                  areas.size() );
+        ::Desert::Core::LoadableScene saved = std::move( scene.GetValue() );
+        m_Bake = std::make_unique<LandscapeHLODBake>( path, std::move( saved ), std::move( areas ), m_Assets );
+        return BOOLSUCCESS;
+    }
+
+    void WorldPartitionPanel::TickBuild()
+    {
+        if ( !m_Bake || !m_Bake->Tick() )
+            return;
+        const std::unique_ptr<LandscapeHLODBake> bake = std::move( m_Bake );
+        if ( bake->Error() )
+        {
+            LOG_ERROR( "[Build HLODs] the landscape bake was refused: {0}", *bake->Error() );
+            return;
+        }
+        if ( auto done = FinishBuildHLODs( bake->Baked() ); !done )
+            LOG_ERROR( "[Build HLODs] {0}", done.GetError() );
+    }
+
+    Common::BoolResultStr WorldPartitionPanel::FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked )
+    {
+        namespace WC = ::Desert::Core::WorldCells;
+        if ( !m_Scene )
+            return Common::MakeError( "Build HLODs: there is no active scene." );
+        const auto& baseline = m_Scene->Packages()->BaselinePath();
+        if ( !baseline )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' is not saved; save it first (the HLODs are built from its files)" );
+        if ( m_Scene->Packages()->HasUnsavedChanges(
+                  ::Desert::Core::SceneSerializer( m_Scene.get(), m_Assets ).LiveEntities() ) )
+            return Common::MakeError( "Build HLODs: '" + m_Scene->GetSceneName() +
+                                      "' has unsaved changes; save the scene first (the HLODs are built from its "
+                                      "files)" );
+        const std::filesystem::path& path = *baseline;
+        // The saved world, read exactly as WorldCook reads it, so the checksums the build stores are the ones
+        // a cook of the same files computes.
+        auto text = ::Desert::Core::ExternalEntities::ReadSceneFileText( path );
+        if ( !text )
+            return Common::MakeError( "Build HLODs: " + text.GetError() );
+        auto scene = ::Desert::Core::ParseLoadableScene( path.string(), text.GetValue() );
+        if ( !scene )
+            return Common::MakeError( "Build HLODs: " + scene.GetError() );
+        auto descriptors = ::Desert::Core::DescriptorIndex::Refresh( path );
+        if ( !descriptors )
+            return Common::MakeError( "Build HLODs: " + descriptors.GetError() );
+        const auto      planned = ::Desert::Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
+        const std::span registries( &::Desert::Assets::ContentRegistry::Get(), 1 );
+        const ::Desert::Core::HLODBuilders builders = ::Desert::Core::MakeHLODBuilders( registries );
+        // Each landscape HLOD bound to the material its tile's bake wrote (UE ULandscapeHLODBuilder). The slot
+        // does not enter HLODBuildChecksum (it hashes the member records), so binding changes no staleness.
+        decltype( builders.Landscape ) landscape;
+        if ( builders.Landscape )
+            landscape = [&]( const auto& request ) -> Common::ResultStr<::Desert::Assets::StaticMeshComponentSer>
+            {
+                auto mesh = builders.Landscape( request );
+                if ( !mesh )
+                    return mesh;
+                const auto& id = request.Records[request.Tile].id;
+                for ( const LandscapeHLODBaked& tile : baked )
+                    if ( id && static_cast<uint64_t>( tile.Tile ) == static_cast<uint64_t>( *id ) )
+                    {
+                        ::Desert::Assets::StaticMeshComponentSer block = mesh.GetValue();
+                        block.MaterialSlots = std::vector<::Desert::Assets::AssetGuidRef>{
+                             ::Desert::Assets::AssetGuidRef{ tile.MaterialGuid, tile.MaterialPath } };
+                        return Common::MakeSuccess( std::move( block ) );
+                    }
+                return mesh;
+            };
+        // Each cell's file is written the moment it is built and freed with it (UE builds and saves its HLOD
+        // actors cell by cell), so the world's HLODs are never in memory at once.
+        const std::filesystem::path dir    = WC::BuiltHLODDirectory( path );
+        const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( path );
+        std::size_t                 bytes  = 0;
+        std::size_t                 files  = 0;
+        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
+                                          builders.Mesh, landscape,
+                                          [&]( WC::CookedFile file ) -> Common::BoolResultStr
+                                          {
+                                              bytes += file.Bytes.size();
+                                              ++files;
+                                              LOG_INFO( "[Build HLODs] {0}: {1} bytes",
+                                                        ( dir / file.Name ).string(), file.Bytes.size() );
+                                              return writer( std::move( file ) );
+                                          } );
+        if ( !built )
+            return Common::MakeError( "Build HLODs: " + built.GetError() );
+        if ( auto written = WC::WriteBuiltHLODIndex( path, built.GetValue() ); !written )
+            return Common::MakeError( written.GetError() );
+        // Read back what was written and check it against the world it was built from.
+        auto stored = WC::ReadBuiltHLODs( path );
+        if ( !stored )
+            return Common::MakeError( "Build HLODs: " + stored.GetError() );
+        std::size_t records = 0;
+        for ( const WC::BuiltHLODCell& cell : stored.GetValue().Index.Cells )
+        {
+            auto cellRecords = WC::StoredCellRecords( stored.GetValue(), cell );
+            if ( !cellRecords )
+                return Common::MakeError( "Build HLODs: read back: " + cellRecords.GetError() );
+            records += cellRecords.GetValue().size();
+        }
+        // Against the world the build cut: prefab instances expanded as the cook expands them (WP21).
+        auto cut = WC::ExpandWorldForCook( scene.GetValue().Scene, planned, WC::PrefabFileReader() );
+        if ( !cut )
+            return Common::MakeError( "Build HLODs: read back: " + cut.GetError() );
+        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
+                                         cut.GetValue().Descriptors, registries );
+        if ( !stale )
+            return Common::MakeError( "Build HLODs: read back: " + stale.GetError() );
+        for ( const std::string& unit : stale.GetValue() )
+            LOG_ERROR( "[Build HLODs] {0}: the HLOD read back is stale", unit );
+        LOG_INFO(
+             "[Build HLODs] '{0}': {1} cell(s), {2} file(s), {3} bytes, {4} HLOD record(s) in {5}; read back: "
+             "{6} stale cell(s)",
+             m_Scene->GetSceneName(), stored.GetValue().Index.Cells.size(), files, bytes, records, dir.string(),
+             stale.GetValue().size() );
+        if ( !stale.GetValue().empty() )
+            return Common::MakeError(
+                 std::format( "Build HLODs: {} cell(s) read back stale", stale.GetValue().size() ) );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr WorldPartitionPanel::ConvertSceneToWorldPartition()
     {
         if ( !m_Scene )
@@ -415,8 +751,8 @@ namespace Desert::Editor
         m_Scene->SetWorldPartition( after );
         // The entry, not a dirty flag: the editor reads CommandHistory's revision to decide whether the
         // scene has unsaved changes, so pushing IS marking it dirty (EditorLayer.cpp, s_SavedRevision).
-        CommandHistory::Get().PushCommand(
-             std::make_unique<ConvertToWorldPartitionCommand>( m_Scene, std::move( before ), after ) );
+        CommandHistory::Get().PushCommand( std::make_unique<WorldPartitionEditCommand>(
+             "Convert to World Partition", m_Scene, std::move( before ), after ) );
         // FO-6: the world's foliage filed by the new grid, one field per type per cell (UE converts a level's
         // InstancedFoliageActor into partitioned ones the same way). Its own undo step, after the conversion's.
         if ( auto filed = Tools::FoliagePaintTool::RepartitionFoliage( *m_Scene ); !filed )
@@ -438,7 +774,9 @@ namespace Desert::Editor
         avail.x             = std::max( avail.x, kMinMapPixels );
         avail.y             = std::max( avail.y, kMinMapPixels );
         const glm::dvec2 size( avail.x, avail.y );
-        const float      cellSize = partition.Grids[0].CellSize;
+        // Only the picked grid is drawn (OnUIRender keeps m_Grid inside partition.Grids).
+        const ::Desert::Core::WorldPartitionGridSerialized& grid     = partition.Grids[m_Grid];
+        const float                                         cellSize = grid.CellSize;
 
         ImGui::InvisibleButton( "##wpmap", avail,
                                 ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
@@ -466,6 +804,14 @@ namespace Desert::Editor
              sources.empty() ? std::nullopt : std::optional<glm::vec3>( sources.front().Position );
 
         // ── view: focus, follow, wheel, drag ──
+        // Follow centres the source; its scale is UE's PlayerExtent until a wheel sets one (m_FollowZoomed).
+        const auto FollowView = [&]( glm::dvec2 mapSize, const glm::vec3& source )
+        {
+            Map::View followed = Map::Follow( mapSize, { source.x, source.z } );
+            if ( m_FollowZoomed )
+                followed.Scale = m_View.Scale;
+            return followed;
+        };
         // The map grows with the window: a resize refits a view nobody has zoomed or dragged since the last
         // fit. The scale stays uniform, so a cell stays square at every size.
         if ( size != m_MapSize )
@@ -479,17 +825,17 @@ namespace Desert::Editor
             m_FocusPending = false;
             m_Fitted       = true;
             if ( streamer != nullptr && m_Follow && sourcePos )
-                m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
-            else if ( const auto bounds = Map::PlanBounds( plan ) )
+                m_View = FollowView( size, *sourcePos );
+            else if ( const auto bounds = Map::PlanBounds( plan, m_Grid ) )
                 Map::Focus( m_View, size, *bounds );
         }
         if ( streamer != nullptr && m_Follow && sourcePos )
-            m_View = Map::Follow( size, { sourcePos->x, sourcePos->z } );
+            m_View = FollowView( size, *sourcePos );
         if ( hovered && io.MouseWheel != 0.0f )
         {
             Map::Zoom( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y }, io.MouseWheel );
-            m_Follow = false;
-            m_Fitted = false;
+            m_FollowZoomed = m_Follow;
+            m_Fitted       = false;
         }
         if ( ImGui::IsItemActive() && ( ImGui::IsMouseDragging( ImGuiMouseButton_Right ) ||
                                         ImGui::IsMouseDragging( ImGuiMouseButton_Middle ) ) )
@@ -514,7 +860,7 @@ namespace Desert::Editor
                 const float threshold = io.MouseDragThreshold;
                 if ( io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < threshold * threshold )
                 {
-                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level ) )
+                    if ( const auto index = Map::CellAt( plan, *m_DragFrom, m_Level, m_Grid ) )
                         m_Selection = plan.Cells[*index].Square;
                     else
                         m_Selection.reset();
@@ -552,7 +898,7 @@ namespace Desert::Editor
         }
 
         // ── cells, coarse levels first ──
-        for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level ) )
+        for ( const std::size_t index : Map::VisibleCells( plan, m_View, size, m_Level, m_Grid ) )
         {
             const auto&          cell  = plan.Cells[index];
             const Map::CellState state = Map::StateOf( plan, residency, index, m_EditCells );
@@ -587,14 +933,32 @@ namespace Desert::Editor
         for ( const ::Desert::Core::Rules::StreamingSource& source : sources )
         {
             const ImVec2 at     = ToScreen( m_View, size, origin, { source.Position.x, source.Position.z } );
-            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, partition.Grids[0] );
+            const double loadCm = ::Desert::Core::Rules::SourceRadius( source, grid );
             const float  margin = streamer != nullptr ? streamer->Settings().UnloadMargin
                                                       : ::Desert::Core::Rules::ResidencySettings{}.UnloadMargin;
-            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, partition.Grids[0] ) )
+            for ( const auto& sector : ::Desert::Core::Rules::SourceSectors( source, grid ) )
             {
                 PaintSector( list, m_View, size, origin, sector, 1.0, 1.0, IM_COL32( 255, 255, 255, 200 ), false );
                 PaintSector( list, m_View, size, origin, sector, 1.0 + margin, 1.0 + margin,
                              IM_COL32( 255, 255, 255, 120 ), true );
+                // THE LOOK-AHEAD: the same shape where the source will be, joined by its path; the query wants
+                // every cell the shape passes over between the two.
+                if ( sector.Sweep != glm::dvec2( 0.0 ) )
+                {
+                    auto ahead   = sector;
+                    ahead.Centre = sector.Centre + sector.Sweep;
+                    ahead.Sweep  = glm::dvec2( 0.0 );
+                    PaintSector( list, m_View, size, origin, ahead, 1.0, 1.0, IM_COL32( 120, 200, 255, 200 ),
+                                 false );
+                    // The tip's unload band: StepResidency widens the sweep by the same margin as the radius.
+                    auto keptAhead   = ahead;
+                    keptAhead.Centre = sector.Centre + sector.Sweep * ( 1.0 + margin );
+                    PaintSector( list, m_View, size, origin, keptAhead, 1.0 + margin, 1.0 + margin,
+                                 IM_COL32( 120, 200, 255, 120 ), true );
+                    list.AddLine( ToScreen( m_View, size, origin, sector.Centre ),
+                                  ToScreen( m_View, size, origin, ahead.Centre ), IM_COL32( 120, 200, 255, 200 ),
+                                  2.0f );
+                }
             }
             // Where the source faces (UE's view direction): the camera's in Edit, the entity's forward in Play.
             if ( source.Facing )
@@ -612,7 +976,8 @@ namespace Desert::Editor
 
         // ── legend: every state, every cell at the shown level (on screen or not) ──
         {
-            const std::vector<Map::LegendRow> legend = Map::Legend( plan, residency, m_Level, m_EditCells );
+            const std::vector<Map::LegendRow> legend =
+                 Map::Legend( plan, residency, m_Level, m_EditCells, m_Grid );
             const float                       h      = ImGui::GetTextLineHeight();
             ImVec2                            row( origin.x + 8.0f, corner.y - 8.0f );
             for ( const Map::LegendRow& entry : std::views::reverse( legend ) )
@@ -630,7 +995,7 @@ namespace Desert::Editor
         {
             const glm::dvec2 world =
                  Map::ScreenToWorld( m_View, size, { io.MousePos.x - origin.x, io.MousePos.y - origin.y } );
-            if ( const auto index = Map::CellAt( plan, world, m_Level ) )
+            if ( const auto index = Map::CellAt( plan, world, m_Level, m_Grid ) )
             {
                 const auto& cell = plan.Cells[*index];
                 ImGui::BeginTooltip();

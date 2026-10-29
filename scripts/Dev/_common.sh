@@ -42,9 +42,9 @@ dev_help() {
 # from one without, so the next plain call regenerates and DevTests leaves the workspace again.
 dev_regen_makefiles() {
     local logdir="$1"; shift
-    local sums; sums="$(git -C "$DEV_ROOT" ls-files '*.cpp' '*.mm' '*.c' 'premake5.lua' '*/premake5.lua' | md5) $*"
+    local sums; sums="$(git -C "$DEV_ROOT" ls-files '*.cpp' '*.mm' '*.c' 'premake5.lua' '*/premake5.lua' 'BuildScripts/*.lua' | md5) $*"
     [ "$sums" = "$(cat "$DEV_ROOT/build/DevLogs/.sources.md5" 2>/dev/null)" ] && \
-        [ -z "$(find "$DEV_ROOT" -maxdepth 4 -name premake5.lua -newer "$DEV_PROJECTS/Common.make" 2>/dev/null | head -1)" ] && return 0
+        [ -z "$(find "$DEV_ROOT" -maxdepth 4 \( -name premake5.lua -o -path '*/BuildScripts/*.lua' \) -newer "$DEV_PROJECTS/Common.make" 2>/dev/null | head -1)" ] && return 0
     (cd "$DEV_ROOT" && CI=true premake5 gmake "$@") >"$logdir/premake.log" 2>&1 ||
         { echo "premake5 gmake $* FAILED; log $logdir/premake.log"; tail -3 "$logdir/premake.log"; return 1; }
     mkdir -p "$DEV_ROOT/build/DevLogs" && echo "$sums" >"$DEV_ROOT/build/DevLogs/.sources.md5"

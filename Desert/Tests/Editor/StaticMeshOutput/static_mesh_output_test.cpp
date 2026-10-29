@@ -1,7 +1,7 @@
 // A modeling result written as a .stmesh (M7): the registry row the write leaves (with its box), and the name
 // that is never overwritten. The mesh <-> file round trip itself is the DynamicMeshAsset suite's.
 
-#include <Editor/Import/StaticMeshOutput.hpp>
+#include <Editor/Core/StaticMeshOutput.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>

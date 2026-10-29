@@ -10,10 +10,10 @@ Shader "ReflectionCaptureDownsample"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(2) sampler u_LinearClampSampler;
-        Uniform(0) textureCube u_Source; // the source mip only (a single-mip view)
-        #define u_Source samplerCube(u_Source, u_LinearClampSampler)
-        layout(binding = 1, rgba16f) writeonly uniform imageCube u_Output;
+        Uniform(2) sampler LinearClampSampler;
+        Uniform(0) textureCube SourceCubeTexture; // the source mip only (a single-mip view)
+        #define SourceCubeTexture samplerCube(SourceCubeTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) writeonly uniform imageCube DestinationCubeTexture;
 
         vec3 CubeDirection(vec2 texel, uint face, vec2 size)
         {
@@ -32,7 +32,7 @@ Shader "ReflectionCaptureDownsample"
         LocalSize(8, 8, 1);
         void main()
         {
-        	const ivec2 size = imageSize(u_Output);
+        	const ivec2 size = imageSize(DestinationCubeTexture);
         	if (gl_GlobalInvocationID.x >= uint(size.x) || gl_GlobalInvocationID.y >= uint(size.y))
         		return;
         	const vec2 base = vec2(gl_GlobalInvocationID.xy);
@@ -40,9 +40,9 @@ Shader "ReflectionCaptureDownsample"
         	vec3 sum = vec3(0.0);
         	for (int j = 0; j < 2; ++j)
         		for (int i = 0; i < 2; ++i)
-        			sum += textureLod(u_Source, CubeDirection(base + vec2(0.25 + 0.5 * i, 0.25 + 0.5 * j), face,
+        			sum += textureLod(SourceCubeTexture, CubeDirection(base + vec2(0.25 + 0.5 * i, 0.25 + 0.5 * j), face,
         			                                          vec2(size)), 0.0).rgb;
-        	imageStore(u_Output, ivec3(gl_GlobalInvocationID), vec4(sum * 0.25, 1.0));
+        	imageStore(DestinationCubeTexture, ivec3(gl_GlobalInvocationID), vec4(sum * 0.25, 1.0));
         }
     }
 }

@@ -3,15 +3,9 @@
         "Kind": "Material",
         "Guid": "a2057248f4f9e4544442314944bed9a5",
         "Versions": {
-            "MATL": 5
+            "MATL": 7
         },
-        "Dependencies": [
-            "acb8d06bbe1a49dc95c2f5ebdddb4c33",
-            "3a095ba775b2514f436cd1a3d2f90da6",
-            "715ef520776d1a58717372b34860c936",
-            "2cd226114244fe3cfe184f3317d19f11",
-            "dda51576c72a4ff915792081011485bc"
-        ]
+        "Dependencies": ["acb8d06bbe1a49dc95c2f5ebdddb4c33", "3a095ba775b2514f436cd1a3d2f90da6", "715ef520776d1a58717372b34860c936", "2cd226114244fe3cfe184f3317d19f11", "dda51576c72a4ff915792081011485bc"]
     },
     "Shader": {
         "Guid": "acb8d06bbe1a49dc95c2f5ebdddb4c33",
@@ -20,95 +14,59 @@
     "Params": [
         {
             "Name": "AlbedoColor",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Value": [1.0, 1.0, 1.0, 1.0]
         },
         {
             "Name": "MetallicFactor",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "RoughnessFactor",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "NormalScale",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "EmissiveColor",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 1.0]
         },
         {
             "Name": "OpacityMaskClipValue",
-            "Value": [
-                0.2,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.20000000298023224, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DitherOpacityMask",
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "OpacityChannel",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "SubsurfaceColor",
-            "Value": [
-                0.45,
-                0.55,
-                0.15,
-                1.0
-            ]
+            "Value": [0.44999998807907104, 0.550000011920929, 0.15000000596046448, 1.0]
         }
     ],
     "Textures": [
         {
-            "Name": "u_AlbedoTexture",
+            "Name": "AlbedoTexture",
             "Guid": "3a095ba775b2514f436cd1a3d2f90da6",
             "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_leaves_diff_2k.detex"
         },
         {
-            "Name": "u_ORMTexture",
+            "Name": "OrmTexture",
             "Guid": "715ef520776d1a58717372b34860c936",
             "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_leaves_arm_2k_ORMTexture.detex"
         },
         {
-            "Name": "u_NormalTexture",
+            "Name": "NormalTexture",
             "Guid": "2cd226114244fe3cfe184f3317d19f11",
             "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_leaves_nor_gl_2k.detex"
         },
         {
-            "Name": "u_OpacityTexture",
+            "Name": "OpacityTexture",
             "Guid": "dda51576c72a4ff915792081011485bc",
             "Path": "assets:Textures/FieldBarn/island_tree_01_leaves_alpha_2k.detex"
         }

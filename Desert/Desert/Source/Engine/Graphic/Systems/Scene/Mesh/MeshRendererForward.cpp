@@ -11,6 +11,22 @@
 
 #include <format>
 #include <iterator>
+#include <set>
+
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshForwardShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerReflectionTexture );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
 
 namespace Desert::Graphic::System
 {
@@ -56,7 +72,12 @@ namespace Desert::Graphic::System
             material.ApplyDefaults();
             for ( const auto& [name, value] : g.Overrides.Params )
                 material.SetParamRaw( name, value );
+            ApplyGenericTextures( material, g, shaderName, logRefused );
+        }
 
+        void ApplyGenericTextures( DataDrivenMaterial& material, const MeshRenderer::GenericMeshRenderData& g,
+                                   const std::string_view shaderName, const bool logRefused )
+        {
             // Texture overrides: resolve asset handle -> runtime Image2D and bind by sampler name.
             // Unset samplers keep the backend fallback texture, so this is purely additive. Bound on
             // the material and not per draw, because the key above guarantees every draw sharing
@@ -83,6 +104,64 @@ namespace Desert::Graphic::System
                 LogRefusedTextureOverride( shaderName, g.DirectTextureSampler );
         }
     } // namespace MeshRendererDetail
+
+    void MeshRenderer::RegisterGenericRows( GpuDriven::GpuSceneRegistry& registry )
+    {
+        m_GenericStandInRow.reset();
+        if ( m_GenericQueue.empty() )
+            return;
+        // The stand-in's row: the default surface material is created with its pipeline (DefaultSurfacePipeline).
+        if ( DefaultSurfacePipeline() && m_DefaultSurfaceMaterial )
+            m_GenericStandInRow = RegisterMaterialRow( registry, m_DefaultSurfaceMaterial.get(), nullptr, true );
+
+        auto* const shaders = Runtime::ResourceRegistry::GetShaderService();
+        for ( auto& g : m_GenericQueue )
+        {
+            g.MaterialRow.reset();
+            if ( g.Mesh == nullptr )
+                continue;
+            if ( g.SlotMaterial != nullptr )
+            {
+                // A per-slot draw's material IS the asset: its values were applied when it loaded, and its row is
+                // the asset's (the key the static queue and the card capture name for it too). Its program
+                // variants (MaterialService::GetVariant) are built from the same asset and read the same row.
+                if ( const auto* const slot = dynamic_cast<const DataDrivenMaterial*>( g.SlotMaterial ) )
+                    g.MaterialRow = RegisterMaterialRow( registry, slot, nullptr, true );
+                continue;
+            }
+            // A Shader Override draw owns no material: several entities share one per (template x texture set),
+            // so each record's values are its own row — the template's defaults, its Overrides.Params and the
+            // texture slots of its texture overrides — keyed by its entity part. That is what keeps three spheres
+            // differing only in a graph parameter three colours (MAT_ProbeSharedBlock.desce).
+            const auto shader = shaders->GetByName( g.ShaderName );
+            if ( !shader || !shader->IsCompiled() ||
+                 !Core::Formats::DrawnByMeshPath( shader->GetProgramMeta().Domain ) )
+                continue; // ShaderService named the compile error; BuildGenericDraws names the refused domain
+            auto& shared = m_GenericMaterials[g.ShaderName + GenericTextureKey( g )];
+            if ( !shared )
+                shared = std::make_unique<DataDrivenMaterial>( shader );
+            // The draw-time slices name a refused texture; this row build does not repeat it.
+            ApplyGenericOverrides( *shared, g, g.ShaderName, false );
+            const GpuDriven::MaterialRowKey key{ .Material = shared.get(),
+                                                 .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
+                                                          static_cast<uint64_t>( g.MotionPart ) };
+            const auto [it, inserted] = m_FrameMaterialRows.try_emplace( key, 0u );
+            if ( inserted )
+                it->second = registry.SyncMaterialRow( key, shared->GetParamRow() );
+            else
+            {
+                // Two records of one entity part through one (template x texture set): one row, so their values
+                // must agree; the second one's would silently take the first one's colours.
+                static std::unordered_set<std::string> s_Shared;
+                if ( s_Shared.insert( g.ShaderName ).second )
+                    LOG_ERROR( "[MeshRenderer] entity {} part {} submits two '{}' Shader Override draws with one "
+                               "texture set; they share one row of the scene material table (the first one's "
+                               "values).",
+                               g.Entity, g.MotionPart, g.ShaderName );
+            }
+            g.MaterialRow = it->second;
+        }
+    }
 
     void MeshRenderer::BuildGenericDraws( MeshDrawList& list, const GenericSlice slice )
     {
@@ -111,22 +190,18 @@ namespace Desert::Graphic::System
         // Reused across frames like every other accumulator in this file — this runs once per frame per
         // submesh group, and two fresh vectors a frame is the allocation churn the optimization workflow
         // says not to write.
-        auto& draws          = m_ScratchGenericDraws;
-        auto& rowsByMaterial = m_ScratchGenericRows;
+        auto& draws     = m_ScratchGenericDraws;
+        auto& recorders = m_ScratchGenericRecorders;
         draws.clear();
-        rowsByMaterial.clear();
-
-        const auto rowsFor = [&rowsByMaterial]( DataDrivenMaterial* mat ) -> MaterialRows&
-        {
-            for ( auto& [m, r] : rowsByMaterial )
-                if ( m == mat )
-                    return r;
-            rowsByMaterial.emplace_back( mat, MaterialRows{} );
-            return rowsByMaterial.back().second;
-        };
+        recorders.clear();
 
         for ( const auto& g : m_GenericQueue )
         {
+            // Its row in the scene material table (SyncGpuScene resolved it from the same record); none means
+            // SyncGpuScene could not shade it (no compiled program, a refused domain) and said so.
+            if ( !g.MaterialRow )
+                continue;
+
             // CULLED ON THE AUTHORED BOX, and that is only sound because no vertex stage of this queue
             // moves a vertex off it. (The instanced stages do since FO-7 - foliage wind - and the ISM loops
             // cull on the wind-widened box for exactly this reason: CollectIsmInstances.) A data-driven material
@@ -281,19 +356,30 @@ namespace Desert::Graphic::System
                     // Ready); until then the prepass counted its compiling pipelines and nothing of it is drawn.
                     if ( opaque && !OpaqueGenericAdmitted( g ) )
                         continue;
-                    if ( slice == GenericSlice::DeferredForwardRayTracedSun &&
-                         ReadsSunShadowScreenMask( *shader, opaque ) )
-                        permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
+                    permutation = ForwardShadowMaskVariant(
+                        *shader, slice == GenericSlice::DeferredForwardRayTracedSun, m_GenericLocalShadowMasks );
                     break;
             }
             const std::shared_ptr<Shader> templateShader = shader;
             const bool                    ownProgram     = programName != shaderName || !permutation.IsDefault();
             if ( ownProgram )
             {
-                shader = permutation.IsDefault() ? shaders->GetByName( programName )
-                                                 : shaders->AcquireVariant( programName, permutation );
+                if ( permutation.IsDefault() )
+                    shader = shaders->GetByName( programName );
+                else
+                {
+                    auto acquired = shaders->AcquireVariant( programName, permutation );
+                    if ( !acquired )
+                    {
+                        if ( shaders->ClaimRefusalReport( programName, permutation ) )
+                            LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", programName,
+                                       acquired.GetError() );
+                        continue;
+                    }
+                    shader = acquired.ExtractValue();
+                }
                 if ( !shader || !shader->IsCompiled() )
-                    continue; // ShaderService named the program and its compile error once
+                    continue; // a registered program that failed its compile was named at registration
             }
             // The pipeline tracker's and the shared material's name of this program: the permutation is part of
             // it.
@@ -374,7 +460,8 @@ namespace Desert::Graphic::System
                 if ( slice == GenericSlice::DeferredDepthNormal )
                 {
                     if ( !choice.UseOwnPipeline ||
-                         !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun ) )
+                         !GenericForwardPipelineReady( templateShader, shaderName, m_GenericPrepassRayTracedSun,
+                                                       m_GenericPrepassLocalShadowMasks ) )
                         continue;
                     m_GenericPrepassed.insert( &g );
                 }
@@ -387,6 +474,7 @@ namespace Desert::Graphic::System
                     // The forward pipeline was Ready when the prepass admitted the draw; it is not now only if
                     // this pass shades another permutation than the one checked (the trace was refused this
                     // frame).
+                    ++m_StandInDraws; // not the scene's picture yet (GetStandInDraws)
                     if ( slice != GenericSlice::Forward && opaque )
                         continue;
                     if ( choice.Announce )
@@ -403,49 +491,38 @@ namespace Desert::Graphic::System
                 }
             }
 
-            // ── This draw's ROW ─────────────────────────────────────────────────────────────────────
+            // ── This draw's ROW: the scene material table's ─────────────────────────────────────────
             //
-            // A shader-override draw does not own its material: several entities share one within a
-            // frame, so each restates its own values. A per-slot draw is the opposite — the material IS
-            // the asset, its values were applied when the asset loaded, and restating them here would
-            // overwrite them with schema defaults.
-            //
-            // Either way the values end up as a row rather than in the material's own block, which is
-            // the whole change: the block WAS the parameters, so the last draw to write it decided the
-            // colours of every draw recorded before it, and three spheres differing only in a graph
-            // parameter rendered as one (MAT_ProbeSharedBlock.desce).
-            if ( g.SlotMaterial == nullptr && !standIn )
+            // SyncGpuScene put it there (one row per shader-override record, keyed by its entity part; a
+            // per-slot draw's row is its asset's, the stand-in's the default surface's). The recording material
+            // only carries the descriptors: a shader-override material takes the record's textures (a
+            // TextureBinding template's are descriptors of its set, which is why it is keyed by texture set).
+            std::optional<uint32_t> row = g.MaterialRow;
+            if ( standIn )
+                row = m_GenericStandInRow;
+            else if ( g.SlotMaterial == nullptr )
                 // The depth-normal program declares only what it reads: a texture it lacks is no refusal.
-                ApplyGenericOverrides( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal );
+                ApplyGenericTextures( *material, g, shaderName, slice != GenericSlice::DeferredDepthNormal );
+            if ( !row )
+                continue; // the stand-in's row: SyncGpuScene registers it whenever the generic queue is not empty
 
-            auto&       rows = rowsFor( material );
-            GenericDraw draw;
-            draw.Data     = &g;
-            draw.Material = material;
-            draw.Pipeline = pipeline;
-            draw.Row      = rows.Count;
-            ++rows.Count;
-            rows.Bytes.insert( rows.Bytes.end(), material->GetParamRow().begin(), material->GetParamRow().end() );
-            draws.push_back( draw );
+            if ( std::find( recorders.begin(), recorders.end(), material ) == recorders.end() )
+                recorders.push_back( material );
+            draws.push_back( { .Data = &g, .Material = material, .Pipeline = pipeline, .Row = *row } );
         }
 
         if ( draws.empty() )
             return;
 
-        // ── Upload every row BEFORE recording any draw ──────────────────────────────────────────────
+        // ── Lend the table to every recording material BEFORE recording any draw ────────────────────
         //
-        // At final size, and once, for the same reason DrawStaticMeshes does it: growing a storage
-        // buffer reallocates the VkBuffer, and a draw recorded against the old one would read freed
-        // memory. The scene snapshot goes on per MATERIAL rather than per draw — it depends only on
-        // scene-global state, and a shader that declares only CameraUB still receives only CameraUB.
-        for ( auto& [material, rows] : rowsByMaterial )
+        // The scene snapshot goes on per MATERIAL rather than per draw — it depends only on scene-global
+        // state, and a shader that declares only CameraUB still receives only CameraUB.
+        for ( DataDrivenMaterial* const material : recorders )
         {
             frameState.ApplyTo( material );
-            if ( rows.Bytes.empty() )
-                continue; // a shader with no parameters declares no Materials block to fill
-            if ( auto* sb = material->Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName ) )
-                sb->SetRawData( rows.Bytes.data(),
-                                static_cast<uint32_t>( rows.Bytes.size() * sizeof( glm::vec4 ) ) );
+            if ( !LendMaterialTable( *material ) ) // said by name; its draws are not recorded
+                std::erase_if( draws, [material]( const GenericDraw& d ) { return d.Material == material; } );
         }
 
         // ── Record, IN QUEUE ORDER ──────────────────────────────────────────────────────────────────
@@ -492,7 +569,7 @@ namespace Desert::Graphic::System
                         .Material          = d.Material->GetMaterialExecutor(),
                         .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
                         .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.MotionRow]
+                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.GpuPrimitive]
                         {
                             material->SetPrimitiveIndex( motionRow );
                             material->SetMaterialIndex( row );
@@ -527,12 +604,130 @@ namespace Desert::Graphic::System
         }
     }
 
-    bool MeshRenderer::ReadsSunShadowScreenMask( const Shader& shader, const bool opaque )
+    Core::ShaderVariant MeshRenderer::ForwardShadowMaskVariant( const Shader& shader, const bool rayTracedSun,
+                                                                const bool localShadowMasks )
     {
-        return opaque && shader.SamplesTexture( kSceneViewShadowCascadesName );
+        const auto&         state  = shader.GetProgramMeta().State;
+        const bool          opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
+        Core::ShaderVariant permutation;
+        if ( !opaque )
+            return permutation;
+        if ( rayTracedSun && shader.SamplesTexture( kSceneViewShadowCascadesName ) )
+            permutation.Defines.emplace_back( kSunShadowScreenMaskDefine );
+        if ( localShadowMasks && shader.SamplesTexture( kSceneViewLocalShadowAtlasName ) )
+            permutation.Defines.emplace_back( kLocalShadowScreenMaskDefine );
+        permutation.ShippedByCook = !permutation.IsDefault();
+        return permutation;
+    }
+
+    namespace
+    {
+        // Every ForwardShadowMaskVariant the renderer can select for @p program (sun only, local only, both),
+        // defaults omitted, each distinct permutation of @p programName once.
+        void AppendForwardShadowMaskVariants( const Shader& program, const std::string& programName,
+                                              std::set<std::pair<std::string, uint64_t>>& listed,
+                                              std::vector<Core::CookedProgramVariant>&     variants )
+        {
+            constexpr std::pair<bool, bool> kSelectable[] = { { true, false }, { false, true }, { true, true } };
+            for ( const auto& [rayTracedSun, localShadowMasks] : kSelectable )
+            {
+                Core::ShaderVariant permutation =
+                    MeshRenderer::ForwardShadowMaskVariant( program, rayTracedSun, localShadowMasks );
+                if ( permutation.IsDefault() || !listed.emplace( programName, permutation.Hash() ).second )
+                    continue;
+                variants.push_back( { programName, std::move( permutation ) } );
+            }
+        }
+    } // namespace
+
+    std::vector<Core::CookedProgramVariant>
+    MeshRenderer::MaterialProgramVariants( const Runtime::MaterialService& materials,
+                                           const Runtime::ShaderService&   shaders,
+                                           std::span<const ::Common::AssetHandle> handles )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        std::set<std::pair<std::string, uint64_t>> listed; // materials sharing a template share its cell
+        for ( const ::Common::AssetHandle& handle : handles )
+        {
+            // The cell MaterialService::GetVariant builds the forward sibling in (CreateSurfaceMaterial's rule).
+            const auto cell = materials.CellShaderNameOf( handle, MeshVertexPath::Static, MeshPass::Forward );
+            if ( !cell )
+                continue;
+            const auto program = shaders.GetByName( cell.GetValue() );
+            if ( program == nullptr )
+                continue; // CellShaderNameOf resolves registered cells only
+            AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants );
+        }
+        return variants;
+    }
+
+    std::vector<Core::CookedProgramVariant>
+    MeshRenderer::OverrideProgramVariants( const Runtime::ShaderService& shaders,
+                                           std::span<const std::string>  shaderNames )
+    {
+        const auto isRegistered = [&shaders]( std::string_view name )
+        { return shaders.GetByName( std::string( name ) ) != nullptr; };
+        std::vector<Core::CookedProgramVariant>    variants;
+        std::set<std::pair<std::string, uint64_t>> listed; // an override named twice is listed once
+        for ( const std::string& shaderName : shaderNames )
+        {
+            // BuildGenericDraws' surfaceOverride: drawn in the G-buffer through its cell, never forward.
+            if ( TemplateCellShader( shaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered ) )
+                continue;
+            const auto program = shaders.GetByName( shaderName );
+            if ( program == nullptr )
+                continue; // the scene load names an override no loaded shader has
+            AppendForwardShadowMaskVariants( *program, shaderName, listed, variants );
+        }
+        return variants;
     }
 
     bool MeshRenderer::SunCascadeReadersQueued() const
+    {
+        return QueuedForwardDrawSamples( kSceneViewShadowCascadesName, /*blendedOnly*/ true ) ||
+               QueuedStaticTranslucentSamples( kSceneViewShadowCascadesName );
+    }
+
+    bool MeshRenderer::LocalShadowMapReadersQueued() const
+    {
+        return QueuedForwardDrawSamples( kSceneViewLocalShadowAtlasName, /*blendedOnly*/ true ) ||
+               QueuedStaticTranslucentSamples( kSceneViewLocalShadowAtlasName );
+    }
+
+    bool MeshRenderer::QueuedStaticTranslucentSamples( const std::string_view textureName ) const
+    {
+        // The static queue's translucent sections (RenderGlassManual's cells, TranslucentDrawFor) and their front
+        // layer cells (BuildFrontLayerDraws, FrontLayerDrawFor): the same visibility, the same binding answer.
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( camera == nullptr )
+            return false;
+        const Core::Frustum frustum = camera->GetFrustum();
+        auto* const         shaders = Runtime::ResourceRegistry::GetShaderService();
+        const auto          samples = [&]( const std::string& shaderName )
+        {
+            const auto shader = shaders->GetByName( shaderName );
+            return shader && shader->IsCompiled() && shader->SamplesTexture( textureName );
+        };
+        for ( const auto& data : m_StaticQueue )
+        {
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+                continue;
+            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+            if ( surfaceInst == nullptr || mat == nullptr || !IsTranslucent( mat ) )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                continue;
+            if ( samples( mat->GetShaderName() ) )
+                return true;
+            if ( mat->GetSchema().Blend == Core::Formats::SurfaceBlendMode::Translucent )
+                if ( const std::optional<std::string> cell = FrontLayerShaderFor( mat->GetShaderName() );
+                     cell && samples( *cell ) )
+                    return true;
+        }
+        return false;
+    }
+
+    bool MeshRenderer::QueuedForwardDrawSamples( const std::string_view textureName, const bool blendedOnly ) const
     {
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( camera == nullptr )
@@ -557,25 +752,33 @@ namespace Desert::Graphic::System
                 continue;
             const auto& state  = shader->GetProgramMeta().State;
             const bool  opaque = !state.Blend.value_or( false ) && state.DepthWrite.value_or( true );
-            if ( !opaque && shader->SamplesTexture( kSceneViewShadowCascadesName ) )
+            if ( ( !blendedOnly || !opaque ) && shader->SamplesTexture( textureName ) )
                 return true;
         }
         return false;
     }
 
     bool MeshRenderer::GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                    const std::string& shaderName, const bool rayTracedSun )
+                                                    const std::string& shaderName, const bool rayTracedSun,
+                                                    const bool localShadowMasks )
     {
         std::shared_ptr<Shader> program    = shader;
         std::string             programKey = shaderName;
-        if ( rayTracedSun && ReadsSunShadowScreenMask( *shader, /*opaque*/ true ) )
+        const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks );
+        if ( !permutation.IsDefault() )
         {
-            Core::ShaderVariant permutation;
-            permutation.Defines = { std::string( kSunShadowScreenMaskDefine ) };
-            program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
-            if ( !program || !program->IsCompiled() )
-                return false; // ShaderService named the program and its compile error once
-            std::format_to( std::back_inserter( programKey ), "|{}", kSunShadowScreenMaskDefine );
+            Runtime::ShaderService* shaders  = Runtime::ResourceRegistry::GetShaderService();
+            auto                    acquired = shaders->AcquireVariant( shaderName, permutation );
+            if ( !acquired )
+            {
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[MeshRenderer] generic forward pipeline of '{}' not ready: {}", shaderName,
+                               acquired.GetError() );
+                return false;
+            }
+            program = acquired.ExtractValue();
+            for ( const auto& define : permutation.Defines )
+                std::format_to( std::back_inserter( programKey ), "|{}", define );
         }
         // The spec "Deferred: Generic" builds for this program (BuildGenericDraws): the same cache entry.
         GraphicsPipelineSpecification spec = GenericPipelineSpec( program );
@@ -618,6 +821,34 @@ namespace Desert::Graphic::System
             else
                 m_MaterialPipelines.OnFailed( name );
         }
+        PrecacheRequestedCells();
+    }
+
+    void MeshRenderer::PrecacheRequestedCells()
+    {
+        for ( auto& cell : MaterialPipelineRequests::Get().CellsSince( m_CellRequestCursor ) )
+            m_PendingCellPrecache.push_back( std::move( cell ) );
+        std::erase_if( m_PendingCellPrecache,
+                       [this]( const MaterialPipelineRequests::CellRequest& cell )
+                       {
+                           GraphicsPipeline* passState = nullptr;
+                           if ( cell.Pass == MeshPass::GBuffer && cell.Path == MeshVertexPath::Static )
+                               passState = m_StaticGBufferPipeline.get();
+                           else if ( cell.Pass == MeshPass::GBuffer && cell.Path == MeshVertexPath::Instanced )
+                               passState = m_InstancedGBufferPipeline.get();
+                           else
+                           {
+                               LOG_ERROR( "[MeshRenderer] cell '{}' ({} x {}) has no pass state to precache on",
+                                          cell.Shader, MeshVertexPathName( cell.Path ),
+                                          MeshPassName( cell.Pass ) );
+                               return true;
+                           }
+                           if ( passState == nullptr )
+                               return false; // the G-buffer pass is set up on a later frame
+                           // A missing cell shader or a refused pipeline is logged by CellPipeline, once per key.
+                           (void)CullPermutation( CellPipeline( passState, cell.Shader ), cell.TwoSided );
+                           return true;
+                       } );
     }
 
     std::shared_ptr<GraphicsPipeline> MeshRenderer::DefaultSurfacePipeline()
@@ -672,7 +903,7 @@ namespace Desert::Graphic::System
         }
         GraphicsPipelineSpecification spec = pipeline->GetSpecification();
         spec.CullMode                      = CullMode::None;
-        spec.DebugName += "_TwoSided";
+        spec.DebugName                     = std::format( "{}_TwoSided", spec.DebugName );
         const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
         if ( !built )
         {
@@ -686,6 +917,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::DeclareGenericDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
+        m_StandInDraws = 0; // counted again by this frame's ChoosePipelineDraw calls
         m_GenericDraws.Clear();
         if ( m_SceneRenderer == nullptr || !m_SceneRenderer->GetTargetFramebuffer() ||
              m_SceneRenderer->GetMainCamera() == nullptr )
@@ -699,6 +931,8 @@ namespace Desert::Graphic::System
         // shadow mask exactly when the frame resolved to a ray-traced sun (SceneRenderer::AddFrameGeneric: the
         // mask, or System.White when its trace could not be declared), and the opaque programs read it in place of
         // the cascades - the same decision the depth/normal prepass was declared with.
+        // Likewise the local shadow masks, in place of the atlas (AddFrameGeneric: valid exactly when traced).
+        m_GenericLocalShadowMasks = view.LocalShadowMasks.IsValid();
         BuildGenericDraws( m_GenericDraws, view.SunShadowMask.IsValid() ? GenericSlice::DeferredForwardRayTracedSun
                                                                         : GenericSlice::DeferredForward );
         m_GenericDraws.Declare( pass, view );
@@ -735,10 +969,10 @@ namespace Desert::Graphic::System
             TranslucentDraw*            State;
             uint32_t                    Row;
         };
-        std::vector<Draw>                                            draws;
-        std::vector<TranslucentSortItem>                             sortKeys;
-        std::unordered_map<TranslucentDraw*, std::vector<glm::vec4>> rows;
-        TranslucentDraw* const                                       standInState = TranslucentStandIn();
+        std::vector<Draw>                    draws;
+        std::vector<TranslucentSortItem>     sortKeys;
+        std::unordered_set<TranslucentDraw*> cells; // each lent the scene material table once
+        TranslucentDraw* const               standInState = TranslucentStandIn();
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
@@ -763,7 +997,9 @@ namespace Desert::Graphic::System
             // AL1-12 INSIDE THE GRAPH (RDG-PSO): a translucent cell still in the driver is drawn by the default
             // surface with the translucent draw state (its own row, its own material) — recording the cell would
             // fail this node and drop the frame graph.
-            Core::Formats::MaterialParamRow row = EffectiveRow( mat, surfaceInst );
+            // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row); a stand-in
+            // names the default surface's.
+            std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
             switch ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
                                          standInState != nullptr ? standInState->Pipeline.get() : nullptr ) )
             {
@@ -771,12 +1007,17 @@ namespace Desert::Graphic::System
                     break;
                 case MaterialPipelineTracker::CellDraw::DefaultSurface:
                     state = standInState;
-                    row   = EffectiveRow( state->Material.get(), state->Instance.get() );
+                    row   = m_StandInMaterialRows[0];
                     break;
                 case MaterialPipelineTracker::CellDraw::Nothing:
                     continue; // before the reveal, said once by ChoosePipelineDraw
             }
-            draws.push_back( { &data, state, AppendRow( rows[state], row ) } );
+            if ( !row )
+            {
+                continue;
+            }
+            cells.insert( state );
+            draws.push_back( { &data, state, *row } );
             const Common::Math::AABB world = Geometry::TransformBounds( data.Transform, localBounds );
             sortKeys.push_back( { .WorldBoundsCenter = ( world.Min + world.Max ) * 0.5f,
                                   .Priority          = data.TranslucencySortPriority } );
@@ -791,11 +1032,12 @@ namespace Desert::Graphic::System
         // --- Per translucent cell, once per frame and BEFORE the blocks are declared, so each cell's route fill
         // is what its draws will read: its rows and the scene snapshot ---
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
-        for ( auto& [state, cellRows] : rows )
+        for ( TranslucentDraw* const state : cells )
         {
-            if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
+            // A refusal was said by name; the cell's draws read a table that is not there, so none is recorded.
+            if ( !LendMaterialTable( *state->Material ) )
             {
-                sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
+                return;
             }
             frameState.ApplyTo( state->Instance.get() );
         }
@@ -811,13 +1053,13 @@ namespace Desert::Graphic::System
             m_GlassDraws.Add( { .Pipeline = draw.State->Pipeline.get(),
                                 .Mesh     = obj->Mesh,
                                 // View pass: World / PrevWorld come from the object's motion row
-                                // (Common/ObjectMotion.glslh); the push carries the submesh transform RELATIVE
+                                // (Common/Velocity.glslh); the push carries the submesh transform RELATIVE
                                 // to it (identity here, RenderMesh multiplies the submesh's in).
                                 .Transform         = glm::mat4( 1.0f ),
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                 .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
+                                .BindState = [material, instance, motionRow = obj->GpuPrimitive, row = draw.Row]
                                 {
                                     material->SetPushMatrix( glm::mat4( 1.0f ) );
                                     material->SetPrimitiveIndex( motionRow );
@@ -826,7 +1068,7 @@ namespace Desert::Graphic::System
                                 } } );
         }
 
-        // A cell's block also carries the scene snapshot the cells sample for refraction (u_SceneColor), this
+        // A cell's block also carries the scene snapshot the cells sample for refraction (SceneColorTexture), this
         // frame's graph transient, with the sampler the material route sampled the copy with (linear, REPEAT) -
         // bound only where the cell's layout HAS the slot, as the scene/view inputs are (UE's pass parameters: a
         // shader receives what it declares). The default-surface stand-in (RDG-PSO) samples no scene copy, and
@@ -835,18 +1077,21 @@ namespace Desert::Graphic::System
              pass, view,
              [sceneCopy, frontLayer]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
              {
-                 if ( SceneViewDetail::LayoutSamples( layout, "u_SceneColor" ) )
-                     block.Texture( "u_SceneColor", sceneCopy, RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() );
+                 if ( SceneViewDetail::LayoutSamples( layout, "SceneColorTexture" ) )
+                     block.Texture( MeshForwardShaderParameters::SceneColorTexture, sceneCopy,
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Sampler( MeshForwardShaderParameters::LinearRepeatSampler,
+                                    RDG::SamplerDesc::LinearRepeat() );
                  // The front layer's reflection where this fragment is the front layer
                  // (Pass_Forward_Translucent.glslh), fetched by texel through the state its declaration names.
-                 if ( SceneViewDetail::LayoutSamples( layout, "u_FrontLayerReflection" ) )
-                     block.Texture( "u_FrontLayerReflection", frontLayer.Reflection, RDG::Access::SampledGraphics,
+                 if ( SceneViewDetail::LayoutSamples( layout, "FrontLayerReflectionTexture" ) )
+                     block.Texture( MeshForwardShaderParameters::FrontLayerReflectionTexture,
+                                    frontLayer.Reflection, RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
-                          .Texture( "u_FrontLayerDepth", frontLayer.Depth, RDG::Access::SampledGraphics,
-                                    RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                          .Texture( MeshForwardShaderParameters::FrontLayerDepthTexture, frontLayer.Depth,
+                                    RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                          .Sampler( MeshForwardShaderParameters::LinearClampSampler,
+                                    RDG::SamplerDesc::LinearClamp() );
              } );
     }
 
@@ -867,8 +1112,8 @@ namespace Desert::Graphic::System
             TranslucentDraw*            State;
             uint32_t                    Row;
         };
-        std::vector<Draw>                                            draws;
-        std::unordered_map<TranslucentDraw*, std::vector<glm::vec4>> rows;
+        std::vector<Draw>                    draws;
+        std::unordered_set<TranslucentDraw*> cells; // each lent the scene material table once
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
@@ -889,7 +1134,12 @@ namespace Desert::Graphic::System
             if ( ChoosePipelineDraw( state->Pipeline.get(), state->Pipeline->GetSpecification().DebugName,
                                      nullptr ) != MaterialPipelineTracker::CellDraw::Own )
                 continue;
-            draws.push_back( { &data, state, AppendRow( rows[state], EffectiveRow( mat, surfaceInst ) ) } );
+            // Its row is the scene material table's (SyncGpuScene: a static draw's receiving row).
+            const std::optional<uint32_t> row = FindMaterialRow( mat, surfaceInst );
+            if ( !row )
+                continue;
+            cells.insert( state );
+            draws.push_back( { &data, state, *row } );
         }
         if ( draws.empty() )
             return false;
@@ -897,10 +1147,10 @@ namespace Desert::Graphic::System
         // Per front layer cell, once per frame and before its block is declared: its rows and the scene snapshot
         // (the objects' motion rows its vertex stage and velocity read).
         const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
-        for ( auto& [state, cellRows] : rows )
+        for ( TranslucentDraw* const state : cells )
         {
-            if ( auto* sb = state->Material->Get<StorageBufferProperty>( "Materials" ) )
-                sb->SetRawData( cellRows.data(), static_cast<uint32_t>( cellRows.size() * sizeof( glm::vec4 ) ) );
+            if ( !LendMaterialTable( *state->Material ) )
+                return false;
             frameState.ApplyTo( state->Instance.get() );
         }
         for ( const Draw& draw : draws )
@@ -914,7 +1164,7 @@ namespace Desert::Graphic::System
                                      .Material          = material->GetMaterialExecutor(),
                                      .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                      .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                     .BindState = [material, instance, motionRow = obj->MotionRow, row = draw.Row]
+                                     .BindState = [material, instance, motionRow = obj->GpuPrimitive, row = draw.Row]
                                      {
                                          material->SetPushMatrix( glm::mat4( 1.0f ) );
                                          material->SetPrimitiveIndex( motionRow );
@@ -1033,14 +1283,16 @@ namespace Desert::Graphic::System
         // line, in the render path most of this repository's scenes state. The G-buffer pass has its own
         // instanced cell now, so the gate asks whether THIS pass has one instead of asking which pass it
         // is.
-        auto* instancedPipeline =
-             m_DeferredGeometry ? m_InstancedGBufferPipeline.get() : m_StaticInstancedPipeline.get();
+        // Forward: the Wireframe view's twin when it is on, exactly as the per-object statics below — one path,
+        // the pass state is the only difference (WIREFRAME-ISM: a `!WireframeView()` here dropped every ISM).
+        auto* instancedPipeline = m_DeferredGeometry ? m_InstancedGBufferPipeline.get()
+                                                     : WireframePipelineOr( m_StaticInstancedPipeline.get() );
         auto* instancedMaterial =
              m_DeferredGeometry ? m_InstancedGBufferMaterial.get() : m_StaticInstancedMaterial.get();
         auto* instancedInstance =
              m_DeferredGeometry ? m_InstancedGBufferInstance.get() : m_StaticInstancedInstance.get();
-        const bool instancingOn = instancedPipeline != nullptr && instancedMaterial != nullptr &&
-                                  instancedInstance != nullptr && !WireframeView();
+        const bool instancingOn =
+             instancedPipeline != nullptr && instancedMaterial != nullptr && instancedInstance != nullptr;
         const MeshPass instancedPass = m_DeferredGeometry ? MeshPass::GBuffer : MeshPass::Forward;
 
         // ONE ACCUMULATOR PER RECORDING MATERIAL, and that is Г28's change. There used to be a single
@@ -1063,7 +1315,6 @@ namespace Desert::Graphic::System
             set.Mat                = recorder;
             set.Inst               = inst;
             set.Transforms.clear();
-            set.Materials.clear();
             set.Draws.clear();
             return set;
         };
@@ -1227,8 +1478,8 @@ namespace Desert::Graphic::System
                 return byMesh.back().second;
             };
 
-            // The effective material is built ONCE per object here and reused for the glass split,
-            // the batch entry and the per-object SSBO (it used to be rebuilt up to three times).
+            // Each object's row is the scene material table's (SyncGpuScene); here only its instance and whether
+            // it overrides anything (an overriding object leaves the batch).
             // Translucency split: a material whose template is BlendMode Translucent is skipped by every
             // opaque pass (forward + deferred G-buffer) and drawn ONLY by RenderGlassManual (a dedicated material
             // per translucent cell), which composites forward over the scene with blending.
@@ -1241,7 +1492,6 @@ namespace Desert::Graphic::System
                 od.Inst = mat == standInKey
                                ? standIn->Instance.get()
                                : SectionSurface( obj->MaterialSlots.get(), obj->SectionSlot ).Instance;
-                od.Row  = EffectiveRow( mat, od.Inst );
                 if ( od.Inst != nullptr )
                     for ( const auto& [pname, prop] : od.Inst->GetPropertySet().GetProperties() )
                         if ( prop.bIsOverridden )
@@ -1317,8 +1567,11 @@ namespace Desert::Graphic::System
                         d.InstanceCount = count;
                         d.FirstInstance = firstInstance;
                         // No batchable object carries overrides (filtered above), so every instance of
-                        // the batch genuinely shares the parent material's effective values.
-                        d.MaterialIndex = AppendRow( groupSet->Materials, batchable[0].Row );
+                        // the batch genuinely shares the parent material's effective values: the first one's
+                        // table row (a batch carries receivers only, so the row is the receiving one), or the
+                        // default surface's for a stand-in group.
+                        d.MaterialIndex =
+                             mat == standInKey ? m_StandInMaterialRows[0] : batchable[0].Obj->MaterialRow;
                         d.HiddenSubmeshMask = hidden;
                         d.LodLevel      = level;
                         groupSet->Draws.push_back( d );
@@ -1397,24 +1650,12 @@ namespace Desert::Graphic::System
             }
 
             // ---- Classic per-object path (singletons / wireframe) ----
-            // Fill this material's per-object storage buffer (one GpuMaterial per drawn object).
-            auto& gpuMaterials = m_ScratchGpuMaterials;
-            gpuMaterials.clear();
-            gpuMaterials.reserve( singles.size() );
-            for ( const auto& od : singles )
-            {
-                Core::Formats::MaterialParamRow row = od.Row;
-                // The per-mesh Receive Shadows toggle zeroes the material's ReceiveSunShadows (either one
-                // opts out); the batched path only ever carries receivers, so its rows keep the material's.
-                if ( !od.Obj->ReceiveShadows )
-                    Core::Formats::SetMaterialParam( mat->GetSchema(), row, "ReceiveSunShadows",
-                                                     glm::vec4( 0.0f ) );
-                AppendRow( gpuMaterials, row );
-            }
-
-            if ( auto* sb = drawMat->Get<StorageBufferProperty>( "Materials" ) )
-                sb->SetRawData( gpuMaterials.data(),
-                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
+            // The material is read through the scene material table (GpuScene::AddMaterialRow): each object's row
+            // was registered by SyncGpuScene, stable for as long as its instance is drawn and re-uploaded only when
+            // a value changes, so the drawn material's Materials block is lent the table and each draw names its
+            // row. No per-frame per-group refill: one source of the values, the row the cached draws name too.
+            if ( !LendMaterialTable( *drawMat ) )
+                continue;
 
             // SHARED per-frame scene data (camera / lights / shadow / env) is written ONCE per material
             // group, NOT per mesh: these Update* all write the drawn material's buffers (shared by every
@@ -1434,6 +1675,9 @@ namespace Desert::Graphic::System
             {
                 const auto*       obj  = singles[i].Obj;
                 MaterialInstance* inst = singles[i].Inst;
+                // A stand-in draw shows the default surface, so it names the stand-in's row (SyncGpuScene).
+                const uint32_t materialRow = mat == standInKey ? m_StandInMaterialRows[obj->ReceiveShadows ? 0 : 1]
+                                                               : obj->MaterialRow;
 
                 // Per-object work, written right before the draw is recorded: transform (push constant) +
                 // material index + descriptor bind. The INSTANCE still comes from the forward slot, and that is
@@ -1460,13 +1704,13 @@ namespace Desert::Graphic::System
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj->HiddenSubmeshes,
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState = [drawMat, inst, motionRow = obj->MotionRow, i,
+                            .BindState = [drawMat, inst, motionRow = obj->GpuPrimitive, materialRow,
                                           flags = PrimitiveFlagsOf( obj->CastContactShadow )]
                             {
                                 DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
                                 drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 drawMat->SetPrimitiveIndex( motionRow );
-                                drawMat->SetMaterialIndex( i );
+                                drawMat->SetMaterialIndex( materialRow );
                                 drawMat->SetPrimitiveFlags( flags );
                                 drawMat->Bind( inst );
                             } } );
@@ -1488,11 +1732,11 @@ namespace Desert::Graphic::System
                 s_WarnedNoInstancedCell = true;
                 LOG_ERROR( "[MeshRenderer] {} Instanced Static Mesh entit(ies) are NOT drawn in the {} "
                            "pass: it has no usable instanced cell (pipeline {}, material {}, instance {}"
-                           "{}). An ISM is one entity holding N transforms and has no per-object path to "
+                           "). An ISM is one entity holding N transforms and has no per-object path to "
                            "fall back to, so nothing of it reaches the frame.",
                            m_InstancedQueue.size(), m_DeferredGeometry ? "G-buffer" : "forward",
                            instancedPipeline ? "ok" : "MISSING", instancedMaterial ? "ok" : "MISSING",
-                           instancedInstance ? "ok" : "MISSING", WireframeView() ? ", wireframe view on" : "" );
+                           instancedInstance ? "ok" : "MISSING" );
             }
         }
 
@@ -1547,16 +1791,19 @@ namespace Desert::Graphic::System
 
                 // ONE material row for the whole ISM, named by every one of its per-level draws: the
                 // level splits the geometry, not the material.
-                const auto materialIndex = AppendRow(
-                     ismSet->Materials, ismStandsIn ? EffectiveRow( instancedMaterial, instancedInstance )
-                                                    : EffectiveRow( mat, ism.Material.get() ) );
+                // A stand-in ISM shows the default surface's defaults (the instanced spare's row).
+                const std::optional<uint32_t> materialIndex =
+                     ismStandsIn ? std::optional<uint32_t>( m_StandInMaterialRows[0] )
+                                 : FindMaterialRow( mat, ism.Material.get() );
+                if ( !materialIndex )
+                    continue;
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
                     InstancedDraw d;
                     d.Mesh          = ism.Mesh;
                     d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
-                    d.MaterialIndex = materialIndex;
+                    d.MaterialIndex = *materialIndex;
                     d.HiddenSubmeshMask = ism.HiddenSubmeshes;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
@@ -1593,14 +1840,16 @@ namespace Desert::Graphic::System
                 // is per SET and no longer per pass, and that is not a weakening: a set's buffers are
                 // only ever written here, once, and the draws that read them are recorded immediately
                 // after, before any other set touches its own.
-                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+                if ( auto* sb =
+                          set.Mat->Get<StorageBufferProperty>( MeshForwardShaderParameters::InstanceTransforms ) )
                     sb->SetRawData( set.Transforms.data(),
                                     static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
-                if ( auto* sb = set.Mat->Get<StorageBufferProperty>( "Materials" ) )
-                    sb->SetRawData( set.Materials.data(),
-                                    static_cast<uint32_t>( set.Materials.size() * sizeof( glm::vec4 ) ) );
+                // The draws' rows are the scene material table's (SyncGpuScene).
+                if ( !LendMaterialTable( *set.Mat ) )
+                    continue;
 
-                frameState.ApplyTo( set.Inst );
+                // The recorder, not the instance's parent: they differ on the G-buffer pass (skinned path).
+                frameState.ApplyTo( static_cast<Material*>( set.Mat ) );
                 set.Mat->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced VS
 
                 for ( const auto& d : set.Draws )
@@ -1733,10 +1982,8 @@ namespace Desert::Graphic::System
                 groups.emplace_back( standIn->Material.get(), std::move( standingIn ) );
         }
 
-        auto& gpuMaterials = m_ScratchGpuMaterials;
-
-        // The view pass skins from the view's ObjectBones (both frames' palettes, named by the object's motion
-        // row — MeshRenderer::BuildObjectMotions); the group uploads only its material rows.
+        // The view pass skins from the scene's ObjectBones (both frames' palettes, named by the object's GpuScene
+        // row — MeshRenderer::SyncGpuScene); the group uploads only its material rows.
         for ( auto& [mat, objects] : groups )
         {
             if ( objects.empty() )
@@ -1746,23 +1993,25 @@ namespace Desert::Graphic::System
             const bool standsIn = standIn != nullptr && mat == standIn->Material.get();
             const auto instOf   = [&]( const SectionRef& obj ) -> MaterialInstance*
             { return standsIn ? standIn->Instance.get() : obj.Section->Instance; };
-            gpuMaterials.clear();
-            gpuMaterials.reserve( objects.size() );
-            for ( const auto& obj : objects )
-                AppendRow( gpuMaterials, EffectiveRow( mat, instOf( obj ) ) );
+            // Each section's row is the scene material table's, keyed by its (surface x Skinned) material and
+            // instance (SyncGpuScene); the recorder (on the G-buffer pass the sibling cell of the same template)
+            // reads the same layout. A stand-in names the default surface's row.
+            if ( !LendMaterialTable( *mat ) )
+                continue;
 
-            // At FINAL size before any draw is recorded, so the descriptor points at the buffer the draws will
-            // actually read (a later grow reallocates it).
-            if ( auto* sb = mat->Get<StorageBufferProperty>( "Materials" ) )
-                sb->SetRawData( gpuMaterials.data(),
-                                static_cast<uint32_t>( gpuMaterials.size() * sizeof( glm::vec4 ) ) );
+            // Shared per-frame scene state once per group, into the RECORDER (as the static path does): on the
+            // G-buffer pass `mat` is the (Skinned x GBuffer) sibling, not the instance's parent, and a recorder
+            // that never had ObjectMotions/ObjectBones lent fails the pass's setup validation ("filled by
+            // neither the pass nor the material"), which faults the whole G-buffer node - no mesh is drawn.
+            frameState.ApplyTo( static_cast<Material*>( mat ) );
 
-            // Shared per-frame scene state once per group, as the static path does.
-            frameState.ApplyTo( instOf( objects[0] ) );
-
-            for ( uint32_t i = 0; i < static_cast<uint32_t>( objects.size() ); ++i )
+            for ( const SectionRef& obj : objects )
             {
-                const SectionRef&       obj = objects[i];
+                const std::optional<uint32_t> materialRow =
+                     standsIn ? std::optional<uint32_t>( m_StandInMaterialRows[0] )
+                              : FindMaterialRow( obj.Section->Material, obj.Section->Instance );
+                if ( !materialRow )
+                    continue;
                 const GraphicsPipeline* twin =
                      CullPermutation( CellPipeline( pipeline, *mat ),
                                       instOf( obj ) != nullptr ? instOf( obj )->IsTwoSided() : mat->IsTwoSided() );
@@ -1771,11 +2020,12 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material          = mat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj.Section->HiddenSubmeshes,
-                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj.Obj->MotionRow, i]
+                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj.Obj->GpuPrimitive,
+                                          row = *materialRow]
                             {
                                 mat->SetPushMatrix( glm::mat4( 1.0f ) );
                                 mat->SetPrimitiveIndex( motionRow );
-                                mat->SetMaterialIndex( i );
+                                mat->SetMaterialIndex( row );
                                 mat->Bind( inst );
                             } } );
             }
@@ -1848,6 +2098,21 @@ namespace Desert::Graphic::System
                 m_StaticInstancedPipeline = instanced.GetValue();
             else
                 LOG_ERROR( "[MeshRenderer] instanced static drawing is off: {}", instanced.GetError() );
+
+#if DESERT_DEV_INSTRUMENTS
+            // Its Wireframe-view twin, as StaticMeshWireframe is the per-object pipeline's: an Instanced Static
+            // Mesh has no per-object path, so without it the Wireframe view had no way to draw one at all.
+            if ( m_StaticInstancedPipeline )
+            {
+                ispec.DebugName   = "StaticMeshInstancedWireframe";
+                ispec.PolygonMode = PrimitivePolygonMode::Wireframe;
+                if ( const auto wireframe = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
+                    m_StaticInstancedWireframePipeline = wireframe.GetValue();
+                else
+                    LOG_ERROR( "[MeshRenderer] the wireframe view draws no instanced meshes: {}",
+                               wireframe.GetError() );
+            }
+#endif // DESERT_DEV_INSTRUMENTS
         }
 
         return true;

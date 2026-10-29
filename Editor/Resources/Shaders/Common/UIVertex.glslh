@@ -18,7 +18,7 @@
 // WHAT A UI MATERIAL'S FRAGMENT STAGE MAY READ, and it is the complete list:
 //   In(0) vec2 v_TexCoord  — 0..1 across the element's own rect (0,0 = its top-left corner)
 //   In(1) vec4 v_Color     — the element's authored Color * Opacity, already tinted by the canvas
-//   u_Material.<Name>      — this material's own parameters, when it declares `Properties Binding(1)`
+//   Material.<Name>      — this material's own parameters, when it declares `Properties Binding(1)`
 //   its own samplers       — when it declares `TextureBinding(n)`
 // There is no camera, no world position, no normal and no scene colour: the UI path binds none of them,
 // which is exactly why Core::Formats::DrawnByUIPath exists and why a Surface material in a UI slot is
@@ -28,9 +28,8 @@
 
 #include <Common/MaterialTransport.glslh>
 
-In(0) vec2 a_Position; // pixel coordinates, top-left origin (Render2D::Vertex2D)
-In(1) vec2 a_TexCoord;
-In(2) vec4 a_Color;
+// Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
+#include <Common/UIVertexInputs.glslh>
 
 Out(0) vec2 v_TexCoord;
 Out(1) vec4 v_Color;

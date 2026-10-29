@@ -6,29 +6,46 @@ Shader "BloomDownsample"
         // Progressive bloom downsample (Call of Duty: Advanced Warfare / Jimenez 2014). Each dispatch reads one
         // source mip and writes the next-smaller mip with a 13-tap filter. On the very first pass (scene HDR ->
         // bloom mip 0) a per-group Karis average is used to suppress fireflies, and the bright-pass threshold is
-        // folded in here (so no separate bright-pass is needed). u_Source is bound as a single-mip view of the
+        // folded in here (so no separate bright-pass is needed). SourceMipTexture is bound as a single-mip view of the
         // source mip, so the whole bloom mip-chain can live in one image while each mip keeps its own layout.
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass and numbered by the program build (SharedSamplerBinding.hpp); a same-name
         // macro after each texture keeps the sampled form.
-        Uniform sampler u_LinearClampSampler;
-        Uniform sampler u_PointClampSampler;
-        Uniform(0) texture2D u_Source;
-        #define u_Source sampler2D(u_Source, u_LinearClampSampler)
-        layout(binding = 1, rgba16f) writeonly uniform image2D u_Output;
+        Uniform sampler LinearClampSampler;
+        Uniform sampler PointClampSampler;
+        Uniform(0) texture2D SourceMipTexture;
+        #define SourceMipTexture sampler2D(SourceMipTexture, LinearClampSampler)
+        layout(binding = 1, rgba16f) writeonly uniform image2D DestinationMipTexture;
         // This frame's adapted luminance (AEAverage's 1x1), or white when auto-exposure is off (then unread).
-        Uniform(2) texture2D u_AdaptedLuminance;
-        #define u_AdaptedLuminance sampler2D(u_AdaptedLuminance, u_PointClampSampler)
+        Uniform(2) texture2D AdaptedLuminanceTexture;
+        #define AdaptedLuminanceTexture sampler2D(AdaptedLuminanceTexture, PointClampSampler)
+        // Local exposure (UE r.Bloom.ApplyLocalExposure, PostProcessBloomSetup.usf): the bilateral grid and the
+        // blurred log luminance LocalExposureRenderer built this frame, read on the first pass only so the bloom
+        // carries the same per-pixel exposure the composite gives the scene term. System.Black3D / System.Black
+        // with LocalExposureSlice.w = 0 when the passes did not run (then unread).
+        Uniform(3) texture3D LumBilateralGrid;
+        #define LumBilateralGrid sampler3D(LumBilateralGrid, LinearClampSampler)
+        Uniform(4) texture2D BlurredLogLuminance;
+        #define BlurredLogLuminance sampler2D(BlurredLogLuminance, LinearClampSampler)
 
         PushConstant PushConstants
         {
-            vec2  u_SrcTexelSize; // 1 / size(source mip)
-            int   u_FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
-            float u_Threshold;    // bright-pass cutoff (first pass only), raw luminance unless u_AutoExposure
-            float u_ExposureKey;  // auto-exposure key — the composite's u_ExposureKey
-            int   u_AutoExposure; // 1 => u_Threshold is after exposure: divide by key / adapted luminance
+            vec2  SourceTexelSize; // 1 / size(source mip)
+            int   FirstPass;    // 1 => scene -> mip0 (Karis average + threshold)
+            float Threshold;    // bright-pass cutoff (first pass only), raw luminance unless AutoExposure,
+                                  // x ViewFrame::PreExposure (BloomRenderer: the scene is stored pre-exposed)
+            float ExposureKey;  // auto-exposure key — the composite's ExposureKey
+            int   AutoExposure; // 1 => Threshold is after exposure: divide by key / adapted luminance
+            float Exposure;     // manual exposure (the composite's Exposure) when AutoExposure is 0
+            float InversePreExposure;     // 1 / ViewFrame::PreExposure
+            vec4  LocalExposureContrast;  // the composite's four local-exposure vectors (TonemapRenderer::FillMaterial)
+            vec4  LocalExposureThreshold;
+            vec4  LocalExposureUV;
+            vec4  LocalExposureSlice;     // w: 1 = apply, 0 = not produced this frame
         };
+
+        #include <Common/LocalExposure.glslh>
 
         LocalSize(16, 16, 1);
 
@@ -37,21 +54,48 @@ Shader "BloomDownsample"
             return dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
         }
 
+        // @p c scaled by its local exposure at @p tapUV (unchanged when @p apply is false).
+        vec3 LocallyExposed( vec3 c, vec2 tapUV, bool apply, float logExposure )
+        {
+            if ( !apply )
+                return c;
+            float logLum  = log2( max( LocalExposureLuminance( c ) * InversePreExposure, 1.0e-10 ) );
+            vec2  cell    = textureLod( LumBilateralGrid, vec3( tapUV * LocalExposureUV.xy,
+                                        LocalExposureGridW( logLum, LocalExposureSlice.y, LocalExposureSlice.z ) ), 0.0 ).xy;
+            float blurred = textureLod( BlurredLogLuminance, tapUV * LocalExposureUV.zw, 0.0 ).r;
+            float base    = LocalExposureBaseLogLuminance( cell, blurred, LocalExposureContrast.w, logExposure );
+            return c * exp2( LocalExposureLogExposure( logLum + logExposure, base, LocalExposureSlice.x,
+                                                       LocalExposureContrast, LocalExposureThreshold ) );
+        }
+
         void main()
         {
-            ivec2 dstSize  = imageSize( u_Output );
+            ivec2 dstSize  = imageSize( DestinationMipTexture );
             ivec2 dstCoord = ivec2( gl_GlobalInvocationID.xy );
             if ( dstCoord.x >= dstSize.x || dstCoord.y >= dstSize.y )
                 return;
 
             vec2  uv = ( vec2( dstCoord ) + 0.5 ) / vec2( dstSize );
-            // u_Source is a view of the ONE source mip the graph node declared (in the layout its access
+            // SourceMipTexture is a view of the ONE source mip the graph node declared (in the layout its access
             // put it in), so its only level is lod 0.
-            vec2  t  = u_SrcTexelSize;
+            vec2  t  = SourceTexelSize;
 
-            // The pass binds u_Source with a clamp-to-edge sampler (SamplerDesc::LinearClamp), so taps that
+            // Local exposure of the first pass, per tap (the taps straddle the awning edges a single centre lookup
+            // would halo across). Same law and inputs as SceneComposite's scene term.
+            const bool  applyLE     = FirstPass == 1 && LocalExposureSlice.w > 0.5;
+            float       logExposure = 0.0;
+            if ( applyLE )
+            {
+                float exposure = Exposure;
+                if ( AutoExposure == 1 )
+                    exposure = ExposureKey / max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).r, 1e-4 );
+                logExposure = log2( max( exposure, 1.0e-10 ) );
+            }
+
+            // The pass binds SourceMipTexture with a clamp-to-edge sampler (SamplerDesc::LinearClamp), so taps that
             // fall outside [0,1] read the edge texel and a bright object never wraps to the opposite edge.
-        #define TAP( off ) textureLod( u_Source, uv + t * ( off ), 0.0 ).rgb
+        #define TAP( off ) LocallyExposed( textureLod( SourceMipTexture, uv + t * ( off ), 0.0 ).rgb, uv + t * ( off ), \
+                                           applyLE, logExposure )
 
             // 13 taps around uv (in source texels).
             vec3 a = TAP( vec2( -2, -2 ) );
@@ -70,7 +114,7 @@ Shader "BloomDownsample"
         #undef TAP
 
             vec3 color;
-            if ( u_FirstPass == 1 )
+            if ( FirstPass == 1 )
             {
                 // Five 4-tap boxes, each weighted by a Karis average (1 / (1 + luma)) to kill fireflies before
                 // they smear across the whole bloom.
@@ -91,10 +135,10 @@ Shader "BloomDownsample"
                 // (SceneRenderer divides it by the manual scale on the CPU): the exposure lives on the GPU here,
                 // so it is divided here, by the composite's own key / adapted luminance. Without this a
                 // physical scene (a 100 000 lux sun, ~10^4 cd/m^2 everywhere) was bloom from edge to edge.
-                float threshold = u_Threshold;
-                if ( u_AutoExposure == 1 )
-                    threshold *= max( textureLod( u_AdaptedLuminance, vec2( 0.5 ), 0.0 ).r, 1e-4 ) /
-                                 max( u_ExposureKey, 1e-4 );
+                float threshold = Threshold;
+                if ( AutoExposure == 1 )
+                    threshold *= max( textureLod( AdaptedLuminanceTexture, vec2( 0.5 ), 0.0 ).r, 1e-4 ) /
+                                 max( ExposureKey, 1e-4 );
                 float brightness   = max( color.r, max( color.g, color.b ) );
                 float contribution = max( brightness - threshold, 0.0 ) / max( brightness, 1e-4 );
                 color *= contribution;
@@ -107,7 +151,7 @@ Shader "BloomDownsample"
                 color += ( j + k + m + n ) * 0.125;
             }
 
-            imageStore( u_Output, dstCoord, vec4( color, 1.0 ) );
+            imageStore( DestinationMipTexture, dstCoord, vec4( color, 1.0 ) );
         }
     }
 }

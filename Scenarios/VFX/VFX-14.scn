@@ -1,0 +1,17 @@
+# VFX-14 Sequencer VFX track (UE Niagara system track + life-cycle section, DesiredAge): a Campfire entity in the Starter scene, a level sequence open in the Sequencer; a VFX track with a section 1.0-3.0 s; scrubbing seeks the effect's own age by replaying its fixed steps from its seed, so a re-scrub is the same picture; Undo removes the track and the effect runs free again
+Дано run Scene "Open Scene Starter.desce"
+Дано run Open "Sequences/VFX14.dseq"
+Дано run Document "VFX14: Add Actor Campfire"
+Когда set Transport.Time 1.0
+Когда run Document "VFX14: Add VFX Track Campfire"
+Когда set VFX.Campfire.SectionEnd 3.0
+Когда set Transport.Time 0.5
+Тогда 0_before at 0.5 s no fire on the Campfire (the section has not started), VFX track with one section 1.00 - 3.00 s in the Sequencer
+Когда set Transport.Time 2.0
+Тогда 1_mid at 2.0 s the campfire burns, the effect 1 s old
+Когда set Transport.Time 1.5
+Когда set Transport.Time 2.0
+Тогда 2_rescrub after 1.5 and back to 2.0 the picture is identical to 1_mid
+Когда run Action Undo
+Когда run Action Undo
+Тогда 3_undo two Undos (the section end edit, then the track) - the VFX track is gone from the Sequencer, the Campfire runs free again

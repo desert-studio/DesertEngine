@@ -1,0 +1,16 @@
+# SHADOW-CINE-ABORT: Shadows Cinematic with another group at High must not abort the editor
+# No scene in Projects/Desert holds a reflection capture; LocalShadows_Room has two shadow-casting point lights,
+# which is what the crash needs: the shadow re-budget of a quality change ran AFTER the local lights' views were
+# planned in the same frame and destroyed the plan under it (SceneRenderer::OnUpdate).
+Дано run Scene "Open Scene LocalShadows_Room.desce"
+# Lit, not a persisted Wireframe: a debug view forces the forward path, where the ray-traced sun lowers to
+# CascadedMaps and the deferred frame that crashed is never rendered.
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Shadows High"
+Дано run Quality "Quality: GlobalIllumination Epic"
+Дано run Quality "Quality: Reflections High"
+Когда run Quality "Quality: Shadows Cinematic"
+Тогда 0_cine_refl_high комната нарисована с тенями точечных источников, редактор жив (Shadows Cinematic, Reflections High)
+Когда run Quality "Quality: GlobalIllumination High"
+Тогда 1_cine_gi_high то же: кадр есть, падения нет (Shadows Cinematic, GI High)
+Дано run Quality "Quality: Shadows High"

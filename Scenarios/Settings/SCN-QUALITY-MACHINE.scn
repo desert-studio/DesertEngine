@@ -1,0 +1,6 @@
+# SCN-QUALITY-MACHINE: a scenario's quality change lives in the editor process only; ~/.desertengine/machine.json is byte-identical after the run (UE: -ExecCmds / automation cvars never reach GameUserSettings.ini).
+# The editor records machine.json's bytes at boot (unattended run) and compares them in OnDetach.
+Дано run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method Off"
+Когда state
+Тогда 1_off GI выключен: в editor.log «[Scalability] quality applied for this session only … machine.json untouched» и метод GI Off; после выхода в editor.log «[Machine] unattended run: … machine.json is byte-identical to its state at start»

@@ -762,7 +762,7 @@ TEST( AuthoringContextCensus, OnlyTheThreeOwningSurfacesWriteTheContext )
          // no panel is — which is what made `ControlDrag` observable from the control channel for the
          // first time, synthetic input being closed on this machine. The palette's Entity / Control Rig
          // provider (EDL-2b) is where that owner and context live now.
-         "Editor/Source/Editor/Core/Selection/EntityCommands.cpp",
+         "Editor/Source/Editor/LevelEditor/EntityCommands.cpp",
     };
 
     std::set<std::string> writers;

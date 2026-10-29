@@ -57,13 +57,16 @@ namespace Desert::Graphic
         target.DistanceFieldShadows     = volume.DistanceFieldShadows;
         target.Tonemapper          = volume.Tonemapper;
         target.AutoExposure        = volume.AutoExposure;
+        target.LocalExposureMethod = volume.LocalExposureMethod;
         target.EnableBloom         = volume.EnableBloom;
         target.EnableLensFlare     = volume.EnableLensFlare;
         target.LensFlareGhostCount = volume.LensFlareGhostCount;
+        target.SubsurfaceScattering = volume.SubsurfaceScattering;
 
         target.GIIntensity       = Lerp( target.GIIntensity, volume.GIIntensity, weight );
         target.SSRIntensity      = Lerp( target.SSRIntensity, volume.SSRIntensity, weight );
         target.SSRMaxDistance    = Lerp( target.SSRMaxDistance, volume.SSRMaxDistance, weight );
+        target.SubsurfaceScale   = Lerp( target.SubsurfaceScale, volume.SubsurfaceScale, weight );
         target.ManualExposureEV100 = Lerp( target.ManualExposureEV100, volume.ManualExposureEV100, weight );
         target.WhitePoint        = Lerp( target.WhitePoint, volume.WhitePoint, weight );
         target.AutoExposureKey   = Lerp( target.AutoExposureKey, volume.AutoExposureKey, weight );
@@ -71,6 +74,16 @@ namespace Desert::Graphic
         // EV100 blends linearly (UE), i.e. the luminance clamps blend geometrically.
         target.AutoExposureMinEV100 = Lerp( target.AutoExposureMinEV100, volume.AutoExposureMinEV100, weight );
         target.AutoExposureMaxEV100 = Lerp( target.AutoExposureMaxEV100, volume.AutoExposureMaxEV100, weight );
+        target.LocalExposureHighlightContrastScale = Lerp( target.LocalExposureHighlightContrastScale, volume.LocalExposureHighlightContrastScale, weight );
+        target.LocalExposureShadowContrastScale = Lerp( target.LocalExposureShadowContrastScale, volume.LocalExposureShadowContrastScale, weight );
+        target.LocalExposureDetailStrength = Lerp( target.LocalExposureDetailStrength, volume.LocalExposureDetailStrength, weight );
+        target.LocalExposureBlurredLuminanceBlend = Lerp( target.LocalExposureBlurredLuminanceBlend, volume.LocalExposureBlurredLuminanceBlend, weight );
+        target.LocalExposureBlurredLuminanceKernelSizePercent = Lerp( target.LocalExposureBlurredLuminanceKernelSizePercent, volume.LocalExposureBlurredLuminanceKernelSizePercent, weight );
+        target.LocalExposureMiddleGreyBias = Lerp( target.LocalExposureMiddleGreyBias, volume.LocalExposureMiddleGreyBias, weight );
+        target.LocalExposureHighlightThreshold = Lerp( target.LocalExposureHighlightThreshold, volume.LocalExposureHighlightThreshold, weight );
+        target.LocalExposureShadowThreshold = Lerp( target.LocalExposureShadowThreshold, volume.LocalExposureShadowThreshold, weight );
+        target.LocalExposureHighlightThresholdStrength = Lerp( target.LocalExposureHighlightThresholdStrength, volume.LocalExposureHighlightThresholdStrength, weight );
+        target.LocalExposureShadowThresholdStrength = Lerp( target.LocalExposureShadowThresholdStrength, volume.LocalExposureShadowThresholdStrength, weight );
         target.BloomThreshold    = Lerp( target.BloomThreshold, volume.BloomThreshold, weight );
         target.BloomIntensity    = Lerp( target.BloomIntensity, volume.BloomIntensity, weight );
         target.LensDispersion    = Lerp( target.LensDispersion, volume.LensDispersion, weight );

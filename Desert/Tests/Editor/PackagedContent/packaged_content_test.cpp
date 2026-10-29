@@ -25,11 +25,11 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShadingModelManifest.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderPreprocess/ShaderPreprocessor.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderSpirvCache.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
-#include <Engine/Text/FontBaker.hpp>
-#include <Engine/Text/FontCache.hpp>
-#include <Engine/Vector/IconBake.hpp>
+#include <TextCore/Text/FontBaker.hpp>
+#include <TextCore/Text/FontCache.hpp>
+#include <TextCore/Vector/IconBake.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/Serialization/TextureBinary.hpp>
@@ -821,7 +821,7 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
                                "    Domain Surface\n"
                                "    Vertex\n"
                                "    {\n"
-                               "        In(0) vec3 a_Position;\n"
+                               "        #include <Mesh/MeshVertexInputs.glslh>\n"
                                "        void main() { gl_Position = vec4( a_Position, 1.0 ); }\n"
                                "    }\n"
                                "    Fragment\n"
@@ -900,7 +900,7 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
                "    Domain Surface\n"
                "    Vertex\n"
                "    {\n"
-               "        In(0) vec3 a_Position;\n"
+               "        #include <Mesh/MeshVertexInputs.glslh>\n"
                "        void main() { gl_Position = vec4( a_Position, 1.0 ); }\n"
                "    }\n"
                "    Fragment\n"

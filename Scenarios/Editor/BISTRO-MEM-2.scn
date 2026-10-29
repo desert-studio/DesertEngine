@@ -1,0 +1,8 @@
+# BISTRO-MEM-2: B16_Bistro_Street in Lit (bistro-sun content: 100 000 lux, EV100 14-15) fits the run_capped 6144 MB cap.
+# FOLIAGE-PROOF-BISTRO was killed at 6386 MB right after the camera step; the log carries the memory census by subsystem
+# ([Memory], [Resources], [VulkanAllocator] census) and run_capped prints the peak RSS.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Тогда-вид 1_lit улица в Lit, плющ и кусты видны; редактор не убит лимитом памяти, пик < 5500 МБ; в логе «[Memory] census at footprint peak» строка «render graph transient heaps (RDG)» < 500 МБ, «not in any ledger» < 100 МБ

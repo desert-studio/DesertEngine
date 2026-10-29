@@ -52,6 +52,11 @@ namespace Desert::Graphic::API::Vulkan
         // DLSS Ray Reconstruction (Streamline sl.dlss_d): its own plugin, NGX feature and device requirements, so
         // its own answer; offered only beside DlssAvailable.
         bool DlssRayReconstructionAvailable = false;
+        // The runtime offered the feature to an earlier probe of this device and has refused it since (at device
+        // creation, or an evaluation that faulted): CapabilityCatalog::RefusedAtRuntime. Never beside its
+        // *Available.
+        bool DlssRefused                  = false;
+        bool DlssRayReconstructionRefused = false;
         bool FsrAvailable     = false;
         bool XessAvailable    = false;
         bool MetalFxAvailable = false;
@@ -62,9 +67,9 @@ namespace Desert::Graphic::API::Vulkan
 
     // PURE. The rules (each list's comment in CapabilityCatalog.hpp says who reads it):
     //   MSAACounts        = counts in Color & Depth, ascending from 1.
-    //   AntiAliasing      = None, FXAA, SMAA, TAA always; MSAA iff a count > 1; FSRNative iff FSR; DLAA iff DLSS.
-    //   Upscalers         = None, TAAU, TSR always; then DLSS (NVIDIA only), FSR, XeSS, MetalFX (Portability only)
-    //                       each iff available — best first: DLSS, XeSS, MetalFX, FSR, TSR, TAAU, None.
+    //   AntiAliasing      = None, FXAA, SMAA, TAA, TSR always; MSAA iff a count > 1; FSR, DLSS (NVIDIA only),
+    //                       DLSSRayReconstruction (with DLSS), XeSS, MetalFX (Portability only) each iff
+    //                       available; in enum order.
     //   RayTracingModes   = None; RayQuery iff RayQuery+AccelerationStructure present; RayTracingPipeline iff
     //                       present and not Portability.
     //   FragmentStores    = FragmentStoresAndAtomics present.
@@ -88,9 +93,8 @@ namespace Desert::Graphic::API::Vulkan
     //     (sdk/src/backends/vk/CMakeShadersFSR3Upscaler.txt);
     //   * Capability::StorageImageWriteWithoutFormat absent: the upscaled-output binding is a storage image
     //     written without a format.
-    // ProbeCatalog logs the error once; the catalog then never offers Upscaler::FSR / AntiAliasingMethod::
-    // FSRNative, so Scalability Resolve walks a saved FSR down to the level's engine temporal upscaler (TAAU or
-    // TSR) / TAA (rule 4) with that reason.
+    // ProbeCatalog logs the error once; the catalog then never offers AntiAliasingMethod::FSR, so Scalability
+    // Resolve walks a saved FSR down to TSR (rule 4) with that reason.
     [[nodiscard]] Common::BoolResultStr FsrDeviceSupport( const DeviceCaps& caps, bool built );
 
     // The probe's driver half: fills CatalogProbe from the physical device and (when non-null) the surface.

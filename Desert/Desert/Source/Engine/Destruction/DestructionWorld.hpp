@@ -31,7 +31,7 @@
 
 #include <Engine/Destruction/DestructionField.hpp>
 #include <Engine/Destruction/FractureFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

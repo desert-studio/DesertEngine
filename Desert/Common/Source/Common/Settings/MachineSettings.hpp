@@ -11,8 +11,15 @@
 // The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
 #include <Common/Json/Json.hpp>
 #include <Common/Settings/DisplaySettings.hpp>
+#include <Common/Settings/NeuralKernelPath.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
+
+#include <rflcpp/rfl/Object.hpp>
+#include <rflcpp/rfl/internal/has_reflector.hpp>
+
+#include <format>
+#include <stdexcept>
 
 #include <optional>
 
@@ -113,6 +120,21 @@ namespace Common::Settings
         // and every entry under it is rebuildable, so pointing it at an empty directory costs time only.
         std::string DerivedDataCachePath;
 
+        // RUN AS A CARD WITHOUT RAY TRACING (NO-RT, owner 10-28). True = the device probe plans the ray tracing
+        // rows unreachable (DeviceCaps HideRayTracing): VK_KHR_acceleration_structure / ray_query /
+        // ray_tracing_pipeline are not enabled, the catalog offers RayTracingMode None only, and every method is
+        // lowered by the same ResolveRenderMethods a non-RT card goes through — no per-pass flag exists. Read
+        // once, when the Vulkan device is created (VulkanLogicalDevice::Create); a change takes effect on the next
+        // start.
+        bool HideRayTracing = false;
+
+        // THE NN LAYER'S KERNEL PATH, FORCED on this machine (NN-RUNTIME step 2; UE keeps such a switch as a
+        // console variable). Absent = the path the device selects (NeuralComputeCaps::Path). A forced path the
+        // device cannot run is refused by the NN layer naming what is missing, never replaced by another
+        // (Neural::ResolveNeuralKernelPath). Written by the palette's "Neural: Kernel path ..." commands, so one
+        // GPU runs all three paths (DesertCtl nn-check).
+        std::optional<NeuralKernelPath> ForcedNeuralKernelPath;
+
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN -------------------------------------------
         // NOT A SETTING AND NOT A KEY OF ITS OWN. Json::CarriedKeys is spread flat at this struct's own
         // level on write and captures every top-level key the fields above did not claim on read, so the
@@ -151,6 +173,12 @@ namespace Common::Settings
         // with no path is not a store, and guessing one would be the silent fallback §1.4 forbids.
         static bool Save();
 
+        // AN UNATTENDED RUN (a scenario, a capture: Editor::IsUnattendedSession) changes machine settings for THIS
+        // PROCESS only: from here on Save() keeps the values in Get() and writes nothing, for every writer
+        // (quality, display, the forced NN kernel path). UE: a cvar set by -ExecCmds or an automation run never
+        // reaches GameUserSettings.ini. Called once by QualityBoot::Start; `why` names the run in the log.
+        static void KeepInSession( std::string_view why );
+
         // Every level High, no override: the selection of a machine that never chose anything and has no valid
         // benchmark recommendation.
         [[nodiscard]] static Scalability::QualitySelection HighSelection();
@@ -177,6 +205,11 @@ namespace Common::Settings
         // The Quality.Levels groups whose element the last Load() refused (not a level name), each reported by
         // an ERROR naming the group. Empty after a clean Load, without one, or when Quality was refused whole.
         [[nodiscard]] static const LevelGroups& UnreadLevels();
+
+        // True when the last Load() read Quality.Levels in a form this build migrates (the former positional
+        // list, or a group the file does not name): the host writes the selection it starts on back at once
+        // (QualityBoot), so the file holds every group by name from the first session of this build on.
+        [[nodiscard]] static bool LevelsMigrated();
     };
     DESERT_JSON_STRUCT( MachineSettings, "MachineSettings", 1 )
 
@@ -195,3 +228,46 @@ namespace Common::Settings
     // `.deproj` and lands in a path.
     std::filesystem::path GameUserDirectory( const std::string& product );
 } // namespace Common::Settings
+
+// THE JSON FORM OF A LEVEL PER GROUP: an object keyed by Scalability::GroupKey, in Group order. Strict on read —
+// an unknown group name or a missing group refuses the value naming it; machine.json's loader (ScreenLevels)
+// handles both before this runs (unknown = ERROR and dropped, missing = WARN and the group's start level).
+template <>
+struct rfl::Reflector<Common::Scalability::GroupLevels>
+{
+    using ReflType = rfl::Object<Common::Scalability::Level>;
+
+    static Common::Scalability::GroupLevels to( const ReflType& object )
+    {
+        namespace SC = Common::Scalability;
+        SC::GroupLevels              levels;
+        std::bitset<SC::kGroupCount> seen;
+        for ( const auto& [name, level] : object )
+        {
+            std::size_t g = 0;
+            while ( g < SC::kGroupCount && SC::GroupKey( static_cast<SC::Group>( g ) ) != name )
+                ++g;
+            if ( g == SC::kGroupCount )
+                throw std::runtime_error( std::format( "'{}' is not a quality group", name ) );
+            if ( seen.test( g ) )
+                throw std::runtime_error( std::format( "the {} group is given twice", name ) );
+            seen.set( g );
+            levels[g] = level;
+        }
+        for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            if ( !seen.test( g ) )
+                throw std::runtime_error(
+                     std::format( "the {} group has no level", SC::GroupKey( static_cast<SC::Group>( g ) ) ) );
+        return levels;
+    }
+
+    static ReflType from( const Common::Scalability::GroupLevels& levels )
+    {
+        namespace SC = Common::Scalability;
+        ReflType object;
+        for ( std::size_t g = 0; g < SC::kGroupCount; ++g )
+            object.insert(
+                 std::make_pair( std::string( SC::GroupKey( static_cast<SC::Group>( g ) ) ), levels[g] ) );
+        return object;
+    }
+};

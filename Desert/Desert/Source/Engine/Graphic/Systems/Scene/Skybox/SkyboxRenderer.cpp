@@ -19,6 +19,27 @@
 #include <cmath>
 #include <format>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SkyboxLutReadShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, TransmittanceLutTexture );
+        DESERT_SHADER_PARAMETER( Sampler, GlobalFilterSampler );
+        DESERT_SHADER_PARAMETER( Texture, MultiScatterLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SkyViewLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, AerialPerspectiveLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, DistantSkyLightTexture );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SkyboxLutWriteShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, TransmittanceLutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, MultiScatterLutTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -168,6 +189,12 @@ namespace Desert::Graphic::System
             m_DistantLightPipeline      = makeCompute( "SkyDistantLight" );
         }
 
+        // The procedural sky is optional (no shader, no pipeline): only a built one has parameters to check.
+        if ( m_ProceduralPipeline )
+            if ( const auto valid = m_ProceduralLayout.Validate( m_ProceduralPipeline->GetSpecification().Shader,
+                                                                 SkyboxProceduralShaderParameters::kAll );
+                 !valid )
+                return valid;
         return BOOLSUCCESS;
     }
 
@@ -267,18 +294,23 @@ namespace Desert::Graphic::System
         if ( m_SkyViewLut )
             return true;
 
-        const Core::Formats::Image2DSpecification skyViewSpec{
-             .Tag        = "SkyViewLut",
-             .Width      = kSkyViewLutWidth,
-             .Height     = kSkyViewLutHeight,
-             .Format     = Core::Formats::ImageFormat::RGBA16F,
-             .Mips       = 1u,
-             .Usage      = Core::Formats::Image2DUsage::Image2D,
-             .Properties = Core::Formats::Storage | Core::Formats::Sample,
+        // Atmosphere light 1's LUT has the same texel layout, parameterised around that light.
+        const auto skyViewSpec = []( const char* tag )
+        {
+            return Core::Formats::Image2DSpecification{
+                 .Tag        = tag,
+                 .Width      = kSkyViewLutWidth,
+                 .Height     = kSkyViewLutHeight,
+                 .Format     = Core::Formats::ImageFormat::RGBA16F,
+                 .Mips       = 1u,
+                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Properties = Core::Formats::Storage | Core::Formats::Sample,
+            };
         };
-        m_SkyViewLut = Image2D::Create( skyViewSpec );
+        m_SkyViewLut  = Image2D::Create( skyViewSpec( "SkyViewLut" ) );
+        m_SkyViewLut1 = Image2D::Create( skyViewSpec( "SkyViewLut1" ) );
 
-        if ( !m_SkyViewLut )
+        if ( !m_SkyViewLut || !m_SkyViewLut1 )
         {
             LOG_ERROR( "[SkyAtmosphere] The Sky-View LUT ({}x{} RGBA16F) could not be created; the "
                        "physical sky will not render for this view.",
@@ -295,11 +327,12 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    Common::BoolResultStr SkyboxRenderer::DispatchSkyViewLut( const RDG::PassContext& context )
+    Common::BoolResultStr SkyboxRenderer::DispatchSkyViewLut( const RDG::PassContext& context, const int lightIndex )
     {
         auto& renderer = Renderer::GetInstance();
 
-        const SkyViewLutPush push{ .CameraPosWorld = glm::vec4( m_ActiveCamera->GetPosition(), 0.0f ) };
+        const SkyViewLutPush push{ .CameraPosWorld =
+                                        glm::vec4( m_ActiveCamera->GetPosition(), static_cast<float>( lightIndex ) ) };
 
         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
         bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
@@ -447,11 +480,11 @@ namespace Desert::Graphic::System
         { return DeclareLutBlock( declared, pipeline, layout, pushBytes ); };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
-            block.Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           "Sky.TransmittanceLut" )
-                 .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-                 .Texture( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
-                           "Sky.MultiScatterLut" );
+            block.Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+                 .Sampler( SkyboxLutReadShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+                 .Texture( SkyboxLutReadShaderParameters::MultiScatterLutTexture, m_MultiScatterLut,
+                           RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
             return block;
         };
 
@@ -462,8 +495,8 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration transmittance;
             transmittance.Name = "Sky: TransmittanceLut";
             declareBlock( transmittance.Access, m_TransmittanceLutPipeline.get(), m_TransmittanceLutLayout, 0 )
-                 .Storage( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::StorageWrite,
-                           "Sky.TransmittanceLut" );
+                 .Storage( SkyboxLutWriteShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::StorageWrite, "Sky.TransmittanceLut" );
             transmittance.Record = [this]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
             {
@@ -475,11 +508,11 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration multiScatter;
             multiScatter.Name = "Sky: MultiScatterLut";
             declareBlock( multiScatter.Access, m_MultiScatterLutPipeline.get(), m_MultiScatterLutLayout, 0 )
-                 .Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           "Sky.TransmittanceLut" )
-                 .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-                 .Storage( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::StorageWrite,
-                           "Sky.MultiScatterLut" );
+                 .Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+                 .Sampler( SkyboxLutReadShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+                 .Storage( SkyboxLutWriteShaderParameters::MultiScatterLutTexture, m_MultiScatterLut,
+                           RDG::Access::StorageWrite, "Sky.MultiScatterLut" );
             multiScatter.Record = [this]( RDG::PassContext& context,
                                           const FrameGraphRefs& ) -> Common::BoolResultStr
             { return DispatchMultiScatterLut( context ); };
@@ -503,7 +536,8 @@ namespace Desert::Graphic::System
             ComputeNodeDeclaration distant;
             distant.Name = "Sky: DistantSkyLight";
             sampledLuts( declareBlock( distant.Access, m_DistantLightPipeline.get(), m_DistantLightLayout, 0 ) )
-                 .Storage( "u_DistantSkyLight", m_DistantLight, RDG::Access::StorageWrite, "Sky.DistantLight" );
+                 .Storage( SkyboxLutReadShaderParameters::DistantSkyLightTexture, m_DistantLight,
+                           RDG::Access::StorageWrite, "Sky.DistantLight" );
             distant.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: DistantSkyLight" );
@@ -540,7 +574,8 @@ namespace Desert::Graphic::System
         // The per-view LUTs, the Sky-View LUT and the aerial-perspective volume, both following the camera. They
         // sample the cached pair DeclareAtmosphereCachedLutNodes added at the head of this graph.
         std::vector<ComputeNodeDeclaration> nodes;
-        m_SkyViewLutFillPending = false;
+        m_SkyViewLutFillPending  = false;
+        m_SkyViewLut1FillPending = false;
         if ( !m_UseProceduralSky || m_Sky.Model != ECS::SkyModel::PhysicalAtmosphere )
             return nodes;
         if ( !m_SkyParams || !m_TransmittanceLut || !m_MultiScatterLut || !m_LutsValid )
@@ -551,11 +586,11 @@ namespace Desert::Graphic::System
         { return DeclareLutBlock( declared, pipeline, layout, pushBytes ); };
         const auto sampledLuts = [this]( RenderPassDeclaration::BlockDeclaration block )
         {
-            block.Texture( "u_TransmittanceLut", m_TransmittanceLut, RDG::Access::SampledCompute,
-                           "Sky.TransmittanceLut" )
-                 .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-                 .Texture( "u_MultiScatterLut", m_MultiScatterLut, RDG::Access::SampledCompute,
-                           "Sky.MultiScatterLut" );
+            block.Texture( SkyboxLutReadShaderParameters::TransmittanceLutTexture, m_TransmittanceLut,
+                           RDG::Access::SampledCompute, "Sky.TransmittanceLut" )
+                 .Sampler( SkyboxLutReadShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+                 .Texture( SkyboxLutReadShaderParameters::MultiScatterLutTexture, m_MultiScatterLut,
+                           RDG::Access::SampledCompute, "Sky.MultiScatterLut" );
             return block;
         };
 
@@ -565,15 +600,34 @@ namespace Desert::Graphic::System
             skyView.Name = "Sky: SkyViewLut";
             sampledLuts( declareBlock( skyView.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
                                        static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) )
-                 .Storage( "u_SkyViewLut", m_SkyViewLut, RDG::Access::StorageWrite, "Sky.SkyViewLut" );
+                 .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut,
+                           RDG::Access::StorageWrite, "Sky.SkyViewLut" );
             skyView.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: SkyViewLut" );
-                return DispatchSkyViewLut( context );
+                return DispatchSkyViewLut( context, 0 );
             };
             nodes.push_back( std::move( skyView ) );
             // BUILD TIME: the fill counts once SettleAtmosphereLutNodes hears the graph accepted the node.
             m_SkyViewLutFillPending = true;
+
+            // Atmosphere light 1 (the moon): its own fill, only while the scene has one.
+            if ( m_Light1.Present )
+            {
+                ComputeNodeDeclaration skyView1;
+                skyView1.Name = "Sky: SkyViewLut1";
+                sampledLuts( declareBlock( skyView1.Access, m_SkyViewLutPipeline.get(), m_SkyViewLutLayout,
+                                           static_cast<uint32_t>( sizeof( SkyViewLutPush ) ) ) )
+                     .Storage( SkyboxLutReadShaderParameters::SkyViewLutTexture, m_SkyViewLut1,
+                               RDG::Access::StorageWrite, "Sky.SkyViewLut1" );
+                skyView1.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+                {
+                    DESERT_PROFILE_PASS( "Sky: SkyViewLut1" );
+                    return DispatchSkyViewLut( context, 1 );
+                };
+                nodes.push_back( std::move( skyView1 ) );
+                m_SkyViewLut1FillPending = true;
+            }
         }
 
         if ( m_AerialPerspectivePipeline && m_ActiveCamera && EnsureAerialPerspectiveResources() )
@@ -583,8 +637,8 @@ namespace Desert::Graphic::System
             aerial.Name = "Sky: AerialPerspectiveLut";
             sampledLuts( declareBlock( aerial.Access, m_AerialPerspectivePipeline.get(), m_AerialPerspectiveLayout,
                                        static_cast<uint32_t>( sizeof( SkyAerialPerspectivePush ) ) ) )
-                 .Storage( "u_AerialPerspectiveLut", m_AerialPerspectiveLut, RDG::Access::StorageWrite,
-                           "Sky.AerialPerspectiveLut" );
+                 .Storage( SkyboxLutReadShaderParameters::AerialPerspectiveLutTexture, m_AerialPerspectiveLut,
+                           RDG::Access::StorageWrite, "Sky.AerialPerspectiveLut" );
             aerial.Record = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS( "Sky: AerialPerspectiveLut" );
@@ -605,6 +659,8 @@ namespace Desert::Graphic::System
         // A refused sky-view node wrote nothing; a LUT an earlier accepted frame filled keeps that content.
         if ( std::exchange( m_SkyViewLutFillPending, false ) && accepted )
             m_SkyViewLutFilled = true;
+        if ( std::exchange( m_SkyViewLut1FillPending, false ) && accepted )
+            m_SkyViewLut1Filled = true;
     }
 
     void SkyboxRenderer::PrepareCamera( Core::Camera* camera )
@@ -631,10 +687,12 @@ namespace Desert::Graphic::System
     }
 
     void SkyboxRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                           const SkySettings& sky, const SunLightFx& fx )
+                                           const SkySettings& sky, const SunLightFx& fx,
+                                           const AtmosphereLight1& light1 )
     {
         m_UseProceduralSky = enabled;
         m_SunDir           = glm::normalize( sunDir );
+        m_Light1           = light1;
         m_Sky              = sky;
         m_BakeRequested    = m_BakeRequested || bakeNow;
 
@@ -662,6 +720,11 @@ namespace Desert::Graphic::System
             // marching it would be the same quantity computed twice.
             m_Atmosphere.SunTransmittanceAtGround =
                  SunLightFactorAtGround( m_Sky, m_Atmosphere.SunDirection, fx.AffectedByAtmosphereTransmittance );
+            // Atmosphere light 1 by the same rule through its own direction (1 when there is none: nothing reads it).
+            m_Atmosphere.Light1TransmittanceAtGround =
+                 m_Light1.Present
+                      ? SunLightFactorAtGround( m_Sky, m_Light1.TowardLight, m_Light1.AffectedByAtmosphereTransmittance )
+                      : glm::vec3( 1.0f );
 
             // The same product SceneRenderer::OnUpdate forms for the light's own colour, published once
             // so the fog's directional lobe reads the sun on the ground instead of re-deriving it from a
@@ -690,32 +753,32 @@ namespace Desert::Graphic::System
         {
             m_Atmosphere = AtmosphereEnv{};
         }
-
-        UploadSkyParams();
+        // NOT uploaded here (SKY-BACKDROP): this runs from the frame's command replay, which Scene executes
+        // BETWEEN the view's BeginScene and OnUpdate — outside any ActiveViewScope. The non-persistent block
+        // then went to the frame context's copy while the pass bound the view's, so the sky drew the block of
+        // the one upload that happened inside a scope (the first exposure change) and never moved again: the
+        // sun froze at its load-time elevation and a second scene drew the first one's palette. The block is
+        // the view's frame state (UE: the sky's view uniform buffer) and is written by UploadFrameSkyParams,
+        // which SceneRenderer::OnUpdate calls inside its scope every frame.
     }
 
     void SkyboxRenderer::SetSkyLuminanceCeiling( float ceiling )
     {
-        if ( ceiling == m_SunInputs.LuminanceCeiling )
-            return;
+        // State only; the block carrying it is written once per frame by UploadFrameSkyParams.
         m_SunInputs.LuminanceCeiling = ceiling;
-        UploadSkyParams();
     }
 
-    void SkyboxRenderer::UploadSkyParams()
+    void SkyboxRenderer::UploadFrameSkyParams()
     {
         if ( !m_SkyParams || !m_UseProceduralSky )
             return;
 
-        const SkyGpuPayload payload  = PackSky( m_SunDir, m_Sky, m_SunInputs );
+        const SkyGpuPayload payload  = PackSky( m_SunDir, m_Sky, m_SunInputs, m_Light1 );
         const auto          uploaded = m_SkyParams->SetData( &payload, kSkyPayloadBytes );
         if ( !uploaded.IsSuccess() )
-            // REPORTED, NOT RETURNED, AND THE REASON IS THE CALL GRAPH. This is called from the settings
-            // path — the sky block is re-packed whenever a knob moves — and from the frame path, and
-            // neither has anywhere to put a refusal: the caller changed a value, it did not ask for a
-            // frame. The consequence is bounded and self-correcting, which is what makes the log the
-            // right answer here rather than a shrug: the buffer keeps the previous block, the sky draws
-            // one frame behind, and the very next UploadSkyParams overwrites it.
+            // REPORTED, NOT RETURNED: SceneRenderer::OnUpdate has nowhere to put a refusal of one block.
+            // The consequence is bounded and self-correcting: the buffer keeps the previous block, the sky
+            // draws one frame behind, and the next frame's UploadFrameSkyParams overwrites it.
             LOG_ERROR( "[Skybox] the sky block was not uploaded; the sky keeps the previous parameters "
                        "until the next update: {}",
                        uploaded.GetError() );
@@ -775,7 +838,7 @@ namespace Desert::Graphic::System
 
         // THE SKY'S OWN INPUTS, as the bake will read them. Formed from the same PackSky the parameter
         // buffer is filled from, so the number cannot describe a sky the dispatch will not see.
-        const uint64_t skyFingerprint = SkyBakeFingerprint( PackSky( m_SunDir, m_Sky, m_SunInputs ),
+        const uint64_t skyFingerprint = SkyBakeFingerprint( PackSky( m_SunDir, m_Sky, m_SunInputs, m_Light1 ),
                                                             static_cast<uint32_t>( m_Sky.EnvironmentResolution ) );
 
         const SkyLightStamps& captured = skyLight->GetCaptured();
@@ -949,7 +1012,29 @@ namespace Desert::Graphic::System
     void SkyboxRenderer::AddSkyCapturePasses( RDG::Builder& graph, FrameTextures& textures )
     {
         const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
-        if ( !m_UseProceduralSky || !skyLight || !skyLight->IsCapturing() )
+        if ( !m_UseProceduralSky || !skyLight )
+            return;
+
+        // WHAT THE CAPTURED SKY LIGHT DELIVERS, against the sun, once per capture: the horizontal illuminance of
+        // the sky (the irradiance cube at the zenith) and of the sun on the ground (its illuminance through the
+        // atmosphere times the cosine of its zenith angle). A clear sky under a high sun gives roughly 10-20 % of
+        // the sun's -- the ratio a shadow on open ground reads at, since that shadow is lit by the sky alone.
+        if ( const std::optional<glm::vec3> sky = skyLight->ReadBackZenithIlluminance( this ) )
+        {
+            const auto luminance = []( const glm::vec3& c )
+            { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; };
+            const float skyLux = luminance( *sky );
+            const float sunLux =
+                 luminance( m_Atmosphere.SunIlluminanceOnGround ) * glm::max( m_Atmosphere.SunDirection.y, 0.0f );
+            LOG_INFO( "[SkyAtmosphere] Sky light illuminance on a horizontal surface: sky {:.0f} lx (rgb {:.0f}, "
+                      "{:.0f}, {:.0f}), sun {:.0f} lx at elevation {:.1f} deg; shade/sun {:.1f} %, sky/(sun+sky) "
+                      "{:.1f} %.",
+                      skyLux, sky->r, sky->g, sky->b, sunLux,
+                      glm::degrees( std::asin( glm::clamp( m_Atmosphere.SunDirection.y, -1.0f, 1.0f ) ) ),
+                      sunLux > 0.0f ? 100.0f * skyLux / sunLux : 0.0f,
+                      skyLux + sunLux > 0.0f ? 100.0f * skyLux / ( skyLux + sunLux ) : 0.0f );
+        }
+        if ( !skyLight->IsCapturing() )
             return;
 
         // The physical march reads the cached pair this frame's graph has written (or an earlier one has, when
@@ -1005,13 +1090,18 @@ namespace Desert::Graphic::System
             declared
                  .Bindings( m_ProceduralLayout.Get( m_ProceduralPipeline->GetSpecification().Shader ),
                             executor->GetRouteFill() )
-                 .Texture( "u_TransmittanceLut",
+                 .Texture( SkyboxProceduralShaderParameters::TransmittanceLutTexture,
                            refs.Transients.SkyTransmittanceLut.IsValid() ? refs.Transients.SkyTransmittanceLut
                                                                          : white,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_SkyViewLut",
+                 .Sampler( SkyboxProceduralShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SkyboxProceduralShaderParameters::SkyViewLutTexture,
                            refs.Transients.SkyViewLut.IsValid() ? refs.Transients.SkyViewLut : white,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 // Black, not white, when absent: the shader reads it only with a light 1 present, and a light 1
+                 // whose LUT is not filled yet must add nothing for that frame rather than a white dome.
+                 .Texture( SkyboxProceduralShaderParameters::SkyViewLut1Texture,
+                           refs.Transients.SkyViewLut1.IsValid() ? refs.Transients.SkyViewLut1 : refs.System.Black,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
             m_SkyDraw = { .Pipeline = m_ProceduralPipeline.get(), .Executor = executor };
             return;

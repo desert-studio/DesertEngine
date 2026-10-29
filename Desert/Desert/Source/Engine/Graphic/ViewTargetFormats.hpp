@@ -23,6 +23,9 @@ namespace Desert::Graphic::ViewTargetFormats
 
     // SceneRenderer::EnsureRendererResources.
     inline constexpr ImageFormat kSceneColor      = ImageFormat::RGBA16F;
+    // SSS-PROFILE (CONTRACT §9 Q3): the composite's demodulated diffuse of the scattered texels and the Burley
+    // pass's result - RGBA16F, not R11G11B10F (skin gradients band in a 6-bit mantissa; a = the profile row + 1).
+    inline constexpr ImageFormat kSubsurfaceDiffuse = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSceneDepth      = ImageFormat::DEPTH32F;
     inline constexpr ImageFormat kSceneColorCopy  = kSceneColor; // snapshot of the scene target, same texel
     inline constexpr ImageFormat kGBufferA        = ImageFormat::RGBA8F;  // albedo.rgb + metallic
@@ -58,8 +61,11 @@ namespace Desert::Graphic::ViewTargetFormats
     // Seeds are PIXEL COORDINATES (JFA_Init.shader: o_Seed = vec4(pixelCoord, ...)): half floats stop being
     // exact integers above 2048 px, so 16F would misplace the outline on a wide window. Keep 32F.
     inline constexpr ImageFormat kJFASeed        = ImageFormat::RGBA32F;
-    inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA8F;
-    inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA8F;
+    // Half float (HDR-OUTPUT): on an HDR output the tonemap writes display values above 1.0 (extended sRGB
+    // encoding, up to the display's headroom), and FXAA runs after it on the same values. On SDR the values stay
+    // in [0,1] and are quantised to 8 bits where they always were: at the back buffer.
+    inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA16F;
+    inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSMAAEdges      = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kSMAABlend      = ImageFormat::RGBA8F;
     inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;
@@ -76,10 +82,13 @@ namespace Desert::Graphic::ViewTargetFormats
     // (Common/PathTracingSky.glslh).
     inline constexpr ImageFormat kPathTracingAccumulation = ImageFormat::RGBA32F;
     inline constexpr ImageFormat kPathTracingSkyRadiance  = ImageFormat::RGBA32F;
+    // The path tracer's spatial denoiser (PathTracerDenoise.shader): demodulated radiance (rgb, radiance / an
+    // albedo floored at 0.01, so past a half float's 65504 on a bright emitter) and its variance (a).
+    inline constexpr ImageFormat kPathTracingDenoise = ImageFormat::RGBA32F;
 
     // Screen-space reflections.
     inline constexpr ImageFormat kSSRTrace  = ImageFormat::RGBA16F;
-    // The trace texel's ray (SSR.shader u_TraceRay): xyz = the WORLD point it hit (centimetres: half floats step
+    // The trace texel's ray (SSR.shader TraceRayTexture): xyz = the WORLD point it hit (centimetres: half floats step
     // by 4 cm at 50 m, too coarse to re-aim a mirror's ray from a neighbour), w = log2 of its pdf.
     inline constexpr ImageFormat kSSRTraceRay = ImageFormat::RGBA32F;
     // One texel per SSR tile, 0 or 1 (SSRRenderer). RGBA8 because ImageFormat has no single-channel 8-bit

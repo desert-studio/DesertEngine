@@ -39,6 +39,9 @@ namespace Desert::ECS
 
             // A hidden body is no water, as a hidden mesh is no geometry.
             std::vector<Water::WaterQuadTreeBody> bodies;
+            std::vector<Assets::AssetHandle>      materials; // each body's WaterMaterial, in bodies' order
+            std::vector<Assets::AssetHandle>      waves;     // each body's WaterWaves, in bodies' order
+            std::vector<glm::vec2>                origins;   // each body's WaveOrigin (its X, Z)
             const auto                            view = registry.view<WaterBodyComponent, TransformComponent>();
             for ( const entt::entity entity : view )
             {
@@ -49,6 +52,9 @@ namespace Desert::ECS
                 const glm::vec2  centre( location.x, location.z );
                 bodies.push_back(
                      { .FootprintMin = centre - half, .FootprintMax = centre + half, .SurfaceY = location.y } );
+                materials.push_back( view.get<WaterBodyComponent>( entity ).Data.WaterMaterial );
+                waves.push_back( view.get<WaterBodyComponent>( entity ).Data.WaterWaves );
+                origins.push_back( centre );
             }
             if ( bodies.empty() )
                 return;
@@ -67,6 +73,9 @@ namespace Desert::ECS
                 draw.Zone.TessellationFactor = data.TessellationFactor;
                 draw.Zone.LODScale           = data.LODScale;
                 draw.Bodies                  = bodies;
+                draw.BodyMaterials           = materials;
+                draw.BodyWaves               = waves;
+                draw.BodyWaveOrigins         = origins;
                 renderCommandBuffer.Emplace<Graphic::Render::WaterZoneCommand>( std::move( draw ) );
             }
         }

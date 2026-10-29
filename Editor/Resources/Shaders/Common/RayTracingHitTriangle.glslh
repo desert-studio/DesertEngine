@@ -44,11 +44,11 @@ DesertRayHitTriangle DesertRayHitFetch()
     t.P0 = DesertRayHitVertexVec3( corner.x, 0u );
     t.P1 = DesertRayHitVertexVec3( corner.y, 0u );
     t.P2 = DesertRayHitVertexVec3( corner.z, 0u );
-    if ( u_RayHitRecord.UvOffset != kDesertRayHitNoOffset )
+    if ( RayHitRecord.UvOffset != kDesertRayHitNoOffset )
     {
-        t.UV0 = DesertRayHitVertexVec2( corner.x, u_RayHitRecord.UvOffset );
-        t.UV1 = DesertRayHitVertexVec2( corner.y, u_RayHitRecord.UvOffset );
-        t.UV2 = DesertRayHitVertexVec2( corner.z, u_RayHitRecord.UvOffset );
+        t.UV0 = DesertRayHitVertexVec2( corner.x, RayHitRecord.UvOffset );
+        t.UV1 = DesertRayHitVertexVec2( corner.y, RayHitRecord.UvOffset );
+        t.UV2 = DesertRayHitVertexVec2( corner.z, RayHitRecord.UvOffset );
     }
     else
     {
@@ -57,10 +57,10 @@ DesertRayHitTriangle DesertRayHitFetch()
         t.UV2 = vec2( 0.0 );
     }
     t.UV = t.UV0 * weights.x + t.UV1 * weights.y + t.UV2 * weights.z;
-    if ( u_RayHitRecord.NormalOffset != kDesertRayHitNoOffset )
-        t.Normal = DesertRayHitVertexVec3( corner.x, u_RayHitRecord.NormalOffset ) * weights.x +
-                   DesertRayHitVertexVec3( corner.y, u_RayHitRecord.NormalOffset ) * weights.y +
-                   DesertRayHitVertexVec3( corner.z, u_RayHitRecord.NormalOffset ) * weights.z;
+    if ( RayHitRecord.NormalOffset != kDesertRayHitNoOffset )
+        t.Normal = DesertRayHitVertexVec3( corner.x, RayHitRecord.NormalOffset ) * weights.x +
+                   DesertRayHitVertexVec3( corner.y, RayHitRecord.NormalOffset ) * weights.y +
+                   DesertRayHitVertexVec3( corner.z, RayHitRecord.NormalOffset ) * weights.z;
     else
         t.Normal = cross( t.P1 - t.P0, t.P2 - t.P0 );
     return t;

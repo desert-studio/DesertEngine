@@ -15,7 +15,7 @@
 #include <Editor/Core/AssetReferences.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Import/ImportedMeshAsset.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailKey.hpp>
 #include <Editor/Import/CookPaths.hpp>
 #include <Editor/Import/MeshDnD.hpp>
@@ -223,12 +223,12 @@ namespace Desert::Editor
                 const Assets::AssetHandle normal    = resolveTex( mat.Normal );
                 const Assets::AssetHandle opacity   = resolveTex( mat.Opacity );
 
-                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from u_ORMTexture
+                // ONE ORM SLOT (MAT1a): the lit templates read occlusion, roughness and metal from OrmTexture
                 // (.r / .g / .b). A collection names the three as separate images, so they are packed into one
                 // derived texture beside them — the importer's own packer, so the name, the GUID (kept by path)
                 // and the "unchanged inputs are not rewritten" rule are the ones a mesh import gets.
                 ImportedTextureSlot orm{
-                     .Slot = "u_ORMTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
+                     .Slot = "OrmTexture", .Parts = {}, .Sampler = std::nullopt, .TemplateChannels = "rgb" };
                 for ( const auto& [source, channel] :
                       { std::pair{ &mat.AO, "r" }, std::pair{ &mat.Roughness, "g" },
                         std::pair{ &mat.Metallic, "b" } } )
@@ -308,11 +308,11 @@ namespace Desert::Editor
                              "[Collections] texture {} for slot '{}' states no header GUID; the slot stays empty",
                              static_cast<uint64_t>( handle ), sampler );
                 };
-                stateTexture( "u_AlbedoTexture", albedo );
-                stateTexture( "u_NormalTexture", normal );
-                stateTexture( "u_ORMTexture", ormTexture );
+                stateTexture( "AlbedoTexture", albedo );
+                stateTexture( "NormalTexture", normal );
+                stateTexture( "OrmTexture", ormTexture );
                 if ( cutsOut )
-                    stateTexture( "u_OpacityTexture", maskIsAlbedo ? albedo : opacity );
+                    stateTexture( "OpacityTexture", maskIsAlbedo ? albedo : opacity );
                 data.Header = header;
                 data        = Assets::StampMaterialHeader( std::move( data ) );
                 auto text   = Assets::WriteMaterialJson( data );
@@ -682,7 +682,7 @@ namespace Desert::Editor
         // Rendered preview already on disk, and still a picture OF this mesh? Show it. The freshness half
         // is not decoration: asking only whether the file exists is what let a mesh edited after its
         // capture keep showing the old shape, and — because ThumbnailService used to ask the same
-        // impoverished question — never get a new one (Editor/Widgets/ThumbnailFreshness.hpp).
+        // impoverished question — never get a new one (Editor/Core/ThumbnailFreshness.hpp).
         if ( m_UIHelper && m_Thumbs &&
              ThumbnailService::JudgeMeshPicture( cookedStr ) == ThumbnailFreshness::Verdict::Show )
         {

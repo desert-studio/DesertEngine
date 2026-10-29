@@ -20,8 +20,11 @@ namespace Desert::Graphic::RayTracing
                                                                      const RayTracingSubmeshMasks& masks )
     {
         RayTracingMeshInput input;
-        input.Vertices = mesh.GetVertexBuffer();
-        input.Indices  = mesh.GetIndexBuffer();
+        const MeshGeometry& geometry = mesh.GetGeometry();
+        input.Vertices         = geometry.Vertices;
+        input.Indices          = geometry.Indices;
+        input.VertexByteOffset = geometry.VertexByteOffset;
+        input.IndexByteOffset  = geometry.IndexByteOffset;
         if ( !mesh.IsSkinned() )
             input.Segments = DescribeStaticMeshGeometry( mesh.GetSubmeshes(), masks );
         return input;
@@ -34,8 +37,11 @@ namespace Desert::Graphic::RayTracing
                                                                        const RayTracingSubmeshMasks& masks )
     {
         RayTracingMeshInput input;
-        input.Vertices    = mesh.GetVertexBuffer();
-        input.Indices     = mesh.GetIndexBuffer();
+        const MeshGeometry& geometry = mesh.GetGeometry();
+        input.Vertices         = geometry.Vertices;
+        input.Indices          = geometry.Indices;
+        input.VertexByteOffset = geometry.VertexByteOffset;
+        input.IndexByteOffset  = geometry.IndexByteOffset;
         input.VertexCount = mesh.GetVertexCount();
         input.Segments    = DescribeDeformedMeshGeometry( mesh.GetSubmeshes(), masks );
         return input;

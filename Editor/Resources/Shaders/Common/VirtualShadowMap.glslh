@@ -10,7 +10,7 @@
 // light space; a page is addressed TOROIDALLY (world page coordinate & 127), so a cached page keeps its slot while
 // the window pans and only the pages that scroll in are new (their tag differs: "VSM: Invalidate").
 //
-// Page table entry (u_Entries, VsmPageEntry): the physical page it maps, its flags and the world page it holds.
+// Page table entry (Entries, VsmPageEntry): the physical page it maps, its flags and the world page it holds.
 // Physical pool: one R32_UINT texture of 128 x 128 pages, kVsmPoolPagesPerRow pages per row, each texel the bits
 // of (1 - light NDC depth) written with an atomic max by the casters ("VSM: Raster"), cleared to 0 = no occluder.
 

@@ -3,8 +3,9 @@
         "Kind": "Scene",
         "Guid": "61dd81434856d2beae1e32fff4b9a93d",
         "Versions": {
-            "SCNE": 64,
-            "UNIT": 1
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["443da08f9e394860b5c2bd3bb619e9cd", "cd8a5d3c174d4407b58719eaf92b7348", "e06572ed86a043209146d11062e05b5c"]
     },
@@ -129,9 +130,9 @@
                 "PlaybackSpeed": 1.0
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
@@ -149,9 +150,9 @@
                 "PlaybackSpeed": 1.0
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "TwoBoneIK": {
@@ -175,9 +176,9 @@
                 "PlaybackSpeed": 1.0
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "TwoBoneIK": {
@@ -201,9 +202,9 @@
                 "PlaybackSpeed": 1.0
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             },
             "TwoBoneIK": {
@@ -227,9 +228,9 @@
                 "PlaybackSpeed": 1.0
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/IKProbe.skmesh",
                 "MeshGuid": "cd8a5d3c174d4407b58719eaf92b7348",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
@@ -241,7 +242,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -254,7 +255,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -267,7 +268,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -280,7 +281,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -293,7 +294,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [8.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -337,7 +338,6 @@
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "ManualExposureEV100": 0.5260688662528992,
-                    "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
@@ -387,6 +387,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

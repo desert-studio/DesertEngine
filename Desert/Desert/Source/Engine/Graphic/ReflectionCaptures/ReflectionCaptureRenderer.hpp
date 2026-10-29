@@ -3,7 +3,9 @@
 #include <Engine/Assets/FrameRetireQueue.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Graphic/DistanceField/GlobalDistanceField.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
+#include <Engine/Graphic/GlobalIllumination/SurfaceCacheRenderer.hpp>
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -200,10 +202,14 @@ namespace Desert::Graphic
         /// never interleave (Core::Scene's view loop). @p record replays the scene's recorded draws into a face
         /// renderer. @p environment is the scene's sky light as the reading view holds it: lent to the face view
         /// (it lights the face), and a new bake recaptures everything.
+        /// @p skyRecapturesForSun: the sky light is being, or will be, captured again for this frame's sun
+        /// (SceneRenderer::SkyLightRecapturesFor). The sun alone then relights nothing: the new bake does, so
+        /// one round renders the new sun under the sky captured for it. Without a sky that follows the sun
+        /// (none, Auto Rebake off, an HDR cube) the sun's own threshold relights.
         void RenderCaptureViews( const Core::Scene& scene, const std::function<void( SceneRenderer& )>& record,
                                  Common::Timestep timestep, Common::Timestep realTimestep,
                                  const ShaderProtocols::DirectionLight& dirLights,
-                                 const std::optional<Environment>&      environment );
+                                 const std::optional<Environment>& environment, bool skyRecapturesForSun );
 
         /// In a view's graph, before any lit node: the scene's array and capture list published to @p textures
         /// (SceneViewInputs). @p readsCaptures false (ViewProfile::ReflectionCaptures), or the programs did not
@@ -293,6 +299,10 @@ namespace Desert::Graphic
         // The lighting the captures were last triggered under: the exact part (the sky bake, the local lights)
         // and the suns, compared by ReflectionCaptureSunChanged.
         uint64_t                                            m_LightingSignature = 0;
+        // Its two parts, kept apart so a relight names which one moved: the sky bake's EnvironmentIdentity and
+        // the visible point and spot lights (LightingSignature with no sky).
+        uint64_t                                            m_LightingEnvironment  = 0;
+        uint64_t                                            m_LocalLightsSignature = 0;
         std::vector<ShaderProtocols::DirectionLightPayload> m_ReferenceSuns;
         uint32_t                                            m_LastCaptured = 0; // the round-robin's last capture
 
@@ -306,6 +316,7 @@ namespace Desert::Graphic
         static constexpr uint32_t       kNoCapture = 0xFFFFFFFFu;
         uint32_t                        m_Pending  = kNoCapture;
         ShaderProtocols::DirectionLight m_PendingSuns;
+        bool m_SunHeldForSky = false; // a sun change waits for the sky captured for it (said once)
         bool                            m_PendingRelit = false; // relit while rendered: still stale once written
         std::array<uint32_t, 6>         m_FaceRenders{};
         std::array<uint32_t, 6>         m_FaceHeld{};
@@ -322,6 +333,10 @@ namespace Desert::Graphic
         // and whether every capture was once written and faded in.
         uint64_t m_DrivenFrame   = ~0ull;
         bool     m_FirstFillDone = false;
+        // Captures written since the scene's set was gathered, and why each stayed stale: the log names the round
+        // that keeps the six face views alive (a relit or streamed write is rendered again).
+        uint64_t m_Writes     = 0;
+        bool     m_StaleRelit = false; // the pending capture was relit while rendered
         // THE RECAPTURE BLEND: the array's last cube (index m_Captures.size()) is the staging cube a recapture is
         // written into; m_BlendCube's live cube is moved toward it one step per frame (kNoCapture: no blend).
         uint32_t m_BlendCube = kNoCapture;
@@ -332,6 +347,21 @@ namespace Desert::Graphic
         // their passes: a view's pipelines are destroyed with it, at once (VulkanPipeline::Release), and the frame
         // that rendered the last face is still on the GPU when the next one releases them.
         Assets::FrameRetireQueue<std::unique_ptr<FaceView>> m_RetiringFaces;
+        // THE FACES' ONE GLOBAL DISTANCE FIELD: the six face views stand at one capture point, so they read one
+        // field, lent to each before its frame (SceneRenderer::ShareGlobalDistanceField) - the first face of a
+        // capture composites the window, the other five find nothing dirty. Made with the faces (uninitialised
+        // until a face reads it), released with them and parked like them: its pipelines and per-frame buffers
+        // outlive the frames in flight that recorded its passes.
+        std::unique_ptr<DistanceField::GlobalDistanceField>                           m_FaceField;
+        Assets::FrameRetireQueue<std::unique_ptr<DistanceField::GlobalDistanceField>> m_RetiringFields;
+        // THE FACES' ONE SURFACE CACHE (UE: one Lumen scene per FScene, a view owns no cards): the Lumen scene of
+        // the capture point's cards, lent to each face before its frame (SceneRenderer::ShareSurfaceCache) - one
+        // face renders per engine frame, so the cache is updated once per frame and the cards one face captured
+        // serve the next. Made with the faces (uninitialised until a face brings it up), released with them and
+        // parked like them: its atlases, capture framebuffer and pipelines outlive the frames in flight that
+        // recorded its passes.
+        std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>                           m_FaceSurfaceCache;
+        Assets::FrameRetireQueue<std::unique_ptr<SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
 
         ResourceOwnerInstance m_Scene; // see the constructor
 

@@ -15,8 +15,13 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
+#include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+
+#include <format>
 #include <Engine/Graphic/DeviceLost.hpp>
 
 #include <ImGui/backends/imgui_impl_glfw.h>
@@ -24,8 +29,21 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <utility>
+
 namespace
 {
+    // HDR-OUTPUT: the UI composite the interface is drawn into (VulkanImGuiLayer.hpp, EnsureDisplayEncode).
+    constexpr VkFormat                               kUICompositeVkFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    constexpr Desert::Core::Formats::ImageFormat     kUICompositeFormat   = Desert::Core::Formats::ImageFormat::RGBA16F;
+
+    // The slot names the display encode binds (SwapchainBlit / DisplayEncodeScRGB share them).
+    struct DisplayEncodeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FinalColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+
     template <typename Callback>
     Callback CurrentGlfwCallback( GLFWwindow* window, Callback ( *install )( GLFWwindow*, Callback ) )
     {
@@ -62,6 +80,10 @@ namespace
                         key( window, step.Code, glfwGetKeyScancode( step.Code ),
                              step.Action == InputAction::KeyDown ? GLFW_PRESS : GLFW_RELEASE, step.Mods );
                     break;
+                case InputAction::Scroll:
+                    if ( const auto scroll = CurrentGlfwCallback( window, &glfwSetScrollCallback ) )
+                        scroll( window, 0.0, static_cast<double>( step.Code ) );
+                    break;
                 case InputAction::Drop:
                     if ( const auto drop = CurrentGlfwCallback( window, &glfwSetDropCallback ) )
                     {
@@ -74,6 +96,27 @@ namespace
                     break;
             }
         }
+    }
+
+    /// Presses/releases ImGui's modifier keys so the held set is @p wanted. Straight into io and not through
+    /// the GLFW key callback: the backend's callbacks re-read the modifiers from the PHYSICAL keyboard
+    /// (glfwGetKey), so a synthetic Shift sent there is overwritten by "not held" on the same event.
+    void HoldDragModifiers( ImGuiIO& io, const int32_t wanted )
+    {
+        namespace Ctl       = ::Desert::Editor::Control;
+        static int32_t held = 0;
+        if ( held == wanted )
+            return;
+        constexpr std::pair<int32_t, ImGuiKey> kKeys[] = {
+             { Ctl::kModShift, ImGuiKey_ModShift },
+             { Ctl::kModControl, ImGuiKey_ModCtrl },
+             { Ctl::kModAlt, ImGuiKey_ModAlt },
+             { Ctl::kModSuper, ImGuiKey_ModSuper },
+        };
+        for ( const auto& [bit, key] : kKeys )
+            if ( ( held & bit ) != ( wanted & bit ) )
+                io.AddKeyEvent( key, ( wanted & bit ) != 0 );
+        held = wanted;
     }
 } // namespace
 
@@ -173,7 +216,7 @@ namespace Desert::Graphic::API::Vulkan
         // The pipeline is built against the render graph's canonical pass for the back buffer's format: the
         // interface is drawn inside a graph node (End), and render-pass compatibility is formats and samples only.
         const Common::ResultStr<VkRenderPass> imguiPass =
-             CreateRdgRenderPass( device, RdgCompatibleRenderPassKey( { swapchain->GetColorFormat() },
+             CreateRdgRenderPass( device, RdgCompatibleRenderPassKey( { kUICompositeVkFormat },
                                                                       VK_FORMAT_UNDEFINED, false, 1 ) );
         if ( !imguiPass )
             return Common::MakeFormattedError<bool>( "the ImGui render pass: {}", imguiPass.GetError() );
@@ -248,7 +291,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( auto frame = ::Desert::Editor::Control::InputInjection::NextFrame() )
             PlayThroughGlfw( *frame );
         // A control-channel drag: after the backend's own cursor event, so it is this frame's last word.
-        if ( const auto step = ::Desert::Editor::Control::PointerInjection::NextStep() )
+        const auto step = ::Desert::Editor::Control::PointerInjection::NextStep();
+        // Before the pointer events, so the press is seen with them held; released the frame the drag ends.
+        HoldDragModifiers( ::ImGui::GetIO(), step ? step->Mods : 0 );
+        if ( step )
         {
             ImGuiIO& io = ::ImGui::GetIO();
             if ( ( io.BackendFlags & ImGuiBackendFlags_HasMouseHoveredViewport ) != 0 )
@@ -266,6 +312,43 @@ namespace Desert::Graphic::API::Vulkan
             }
         }
         ::ImGui::NewFrame();
+    }
+
+    Common::BoolResultStr VulkanImGui::EnsureDisplayEncode()
+    {
+        auto window    = EngineContext::GetInstance().GetWindow();
+        auto swapchain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+        const std::shared_ptr<Graphic::Framebuffer> framebuffer = swapchain->GetCompositeFramebuffer();
+        const Common::Scalability::DisplayOutput     output      = Graphic::CurrentDisplayOutput().Output;
+        if ( m_EncodePipeline && framebuffer == m_EncodeFramebuffer && output == m_EncodeOutput )
+            return BOOLSUCCESS;
+
+        auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
+        if ( !shaderService )
+            return Common::MakeError( "no shader service" );
+        const char* shaderName =
+             output == Common::Scalability::DisplayOutput::scRGB_Linear ? "DisplayEncodeScRGB" : "SwapchainBlit";
+        auto shader = shaderService->GetByName( shaderName );
+        if ( !shader )
+            return Common::MakeError( std::format( "missing shader '{}'", shaderName ) );
+
+        Graphic::GraphicsPipelineSpecification spec;
+        spec.DebugName         = std::format( "DisplayEncode:{}", shaderName );
+        spec.Shader            = shader;
+        spec.Framebuffer       = framebuffer;
+        spec.DepthTestEnabled  = false;
+        spec.DepthWriteEnabled = false;
+        spec.CullMode          = Graphic::CullMode::None;
+        const auto pipeline    = Graphic::GraphicsPipeline::Create( spec );
+        if ( !pipeline )
+            return Common::MakeError( pipeline.GetError() );
+        m_EncodePipeline    = pipeline.GetValue();
+        m_EncodeExecutor    = Graphic::MaterialExecutor::Create( shaderName, shader );
+        m_EncodeFramebuffer = framebuffer;
+        m_EncodeOutput      = output;
+        LOG_INFO( "[Display] editor UI composite -> back buffer through {} ({})", shaderName,
+                  Common::Scalability::DisplayOutputName( output ) );
+        return BOOLSUCCESS;
     }
 
     void VulkanImGui::End()
@@ -308,17 +391,47 @@ namespace Desert::Graphic::API::Vulkan
         const Graphic::RDG::TextureRef target   = graph.RegisterExternal( backBuffer, "BackBuffer" );
         // The acquired image has no picture of its own: without its writer the frame has none (cleared to black).
         graph.SetFaultPolicy( target, Graphic::RDG::ExternalFaultPolicy::FrameFatal );
-        ImDrawData*                    drawData = ::ImGui::GetDrawData();
+        if ( const auto encode = EnsureDisplayEncode(); !encode )
+        {
+            LOG_ERROR( "[VulkanImGui] the display encode: {}", encode.GetError() );
+            return;
+        }
+        Graphic::RDG::TextureDesc compositeDesc;
+        compositeDesc.Size.Width  = backBuffer.Desc.Size.Width;
+        compositeDesc.Size.Height = backBuffer.Desc.Size.Height;
+        compositeDesc.Size.Depth  = 1;
+        compositeDesc.Format      = kUICompositeFormat;
+        const Graphic::RDG::TextureRef composite = graph.CreateTexture( compositeDesc, "EditorUIComposite" );
+        ImDrawData*                    drawData  = ::ImGui::GetDrawData();
         graph.AddPass(
              "EditorImGui", Graphic::RDG::PassFlags::Raster, [&]( Graphic::RDG::PassBuilder& pass )
-             { pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); },
+             { pass.ColorTarget( 0, composite, Graphic::RDG::LoadOp::ClearColor( 0.1f, 0.1f, 0.1f, 1.0f ) ); },
              [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  const auto commandBuffer = VulkanRdgBackend::CommandBufferOf( context );
                  if ( !commandBuffer )
                      return Common::MakeError( commandBuffer.GetError() );
                  ImGui_ImplVulkan_RenderDrawData( drawData, commandBuffer.GetValue() );
+                 // The backend bound its own vertex / index buffers: the renderer's bind-skip key is stale.
+                 Graphic::Renderer::InvalidateGeometryBinding();
                  return BOOLSUCCESS;
+             } );
+        graph.AddPass(
+             "DisplayEncode", Graphic::RDG::PassFlags::Raster,
+             [&]( Graphic::RDG::PassBuilder& pass )
+             {
+                 pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::DontCare() );
+                 pass.Bindings( m_EncodeLayout.Get( m_EncodePipeline->GetSpecification().Shader ),
+                                m_EncodeExecutor->GetRouteFill() )
+                      .Texture( DisplayEncodeShaderParameters::FinalColorTexture, composite,
+                                Graphic::RDG::Access::SampledGraphics, Graphic::RDG::SubresourceRange::All() )
+                      .Sampler( DisplayEncodeShaderParameters::LinearClampSampler,
+                                Graphic::RDG::SamplerDesc::LinearClamp() );
+             },
+             [&]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 const Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 return renderer.DrawFullscreen( bindings, *m_EncodePipeline, m_EncodeExecutor.get() );
              } );
         graph.Extract( target, backBuffer, Graphic::RDG::Access::Present );
         // Its faults are logged by the graph backend, its own failures by ExecuteGraph; a FrameFault presents

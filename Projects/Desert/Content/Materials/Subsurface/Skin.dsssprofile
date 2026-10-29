@@ -1,0 +1,25 @@
+{
+    "Header": {
+        "Kind": "SubsurfaceProfile",
+        "Guid": "4a7d2e90c1b84f3e9d6a05b8e2f71c34",
+        "Versions": {
+            "SSSP": 1
+        },
+        "Dependencies": []
+    },
+    "SurfaceAlbedo": [0.90604, 0.33526, 0.27184],
+    "MeanFreePathColor": [0.212037, 0.182126, 0.173584],
+    "MeanFreePathDistance": 0.1,
+    "Tint": [1.0, 1.0, 1.0],
+    "BoundaryColorBleed": [1.0, 1.0, 1.0],
+    "Implementation": "AdaptiveFilteredImportanceSampling",
+    "ExtinctionScale": 1.0,
+    "NormalScale": 0.08,
+    "DistanceScale": 1.0,
+    "ScatteringDistribution": 0.93,
+    "IOR": 1.55,
+    "TransmissionTintColor": [1.0, 1.0, 1.0],
+    "Roughness0": 0.75,
+    "Roughness1": 1.3,
+    "LobeMix": 0.85
+}

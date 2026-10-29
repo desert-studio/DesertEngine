@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/API/NeuralComputeCaps.hpp>
 
 #include <vulkan/vulkan_core.h>
 
@@ -34,6 +35,7 @@ namespace Desert::Graphic::API::Vulkan
         Swapchain,
         WideLines,
         FillModeNonSolid,
+        MultiDrawIndirect,
         SamplerAnisotropy,
         TextureCompressionBC,
         StorageImageWriteWithoutFormat,
@@ -52,6 +54,17 @@ namespace Desert::Graphic::API::Vulkan
         AccelerationStructure,
         RayQuery,
         RayTracingPipeline,
+        // The NN layer's kernel paths (NN-RUNTIME, Engine/Graphic/API/NeuralComputeCaps.hpp): optional for good,
+        // SelectNeuralKernelPath branches on them (coopmat fp16 / fp16 / fp32).
+        StorageBuffer16BitAccess,
+        ShaderFloat16,
+        ShaderInt8,
+        StorageBuffer8BitAccess,
+        SubgroupSizeControl,
+        CooperativeMatrix,
+        // glslang declares every cooperative-matrix module under the Vulkan memory model (OpMemoryModel Vulkan,
+        // capability VulkanMemoryModel), so the coopmat kernels need the feature enabled (NN-RUNTIME step 2).
+        VulkanMemoryModel,
 
         Count
     };
@@ -166,6 +179,14 @@ namespace Desert::Graphic::API::Vulkan
         std::array<CapabilityRow, kCapabilityCount> Rows{};
         DescriptorIndexingLimits                    DescriptorIndexing{};
         PerStageDescriptorLimits                    PerStage{};
+        // The NN layer's features (from the rows above), limits and cooperative-matrix shapes, with the kernel
+        // path selected from them. Filled by the probe after every row is settled.
+        ::Desert::Engine::NeuralComputeCaps Neural{};
+        // machine.json HideRayTracing (NO-RT): the ray tracing rows were planned Unreachable before the probe, so
+        // this device was asked, enabled and recorded exactly as a device without ray tracing. Read only by the
+        // start-up line and DesertCtl `state device` (to say WHY rt is off); nothing branches on it — every
+        // consumer branches on Has() and the catalog's RayTracingModes, as it would on a card without RT.
+        bool RayTracingHidden = false;
 
         [[nodiscard]] bool Has( Capability capability ) const
         {
@@ -182,6 +203,16 @@ namespace Desert::Graphic::API::Vulkan
     [[nodiscard]] DeviceCaps PlanRoutes( std::string deviceName, std::string driver, uint32_t deviceApiVersion,
                                          const std::function<bool( std::string_view )>& hasExtension );
 
+    // The rows a device without ray tracing lacks: acceleration_structure, ray_query, ray_tracing_pipeline.
+    // (deferred_host_operations is not among them: it is a general host-threading extension that cards without
+    // ray tracing carry too, and nothing but the acceleration-structure row depends on it.)
+    [[nodiscard]] bool IsRayTracingCapability( Capability capability );
+
+    // Step 1b, pure (machine.json HideRayTracing): every IsRayTracingCapability row planned Unreachable and
+    // RayTracingHidden set, so the probe neither asks the driver for them nor enables their extensions — the
+    // VkDevice, the catalog (RayTracingModes = None) and every Has() are those of a card without ray tracing.
+    void HideRayTracing( DeviceCaps& caps );
+
     // Step 2 happens in DeviceCapsProbe.cpp; between probes it asks this: are the rows this one needs
     // already present? (Rows are probed in table order and every dependency precedes its dependant.)
     [[nodiscard]] bool DependenciesPresent( const DeviceCaps& caps, Capability capability );
@@ -191,7 +222,8 @@ namespace Desert::Graphic::API::Vulkan
     // present, any update-after-bind limit below what the bindless table starts with (need and limits named).
     [[nodiscard]] Common::BoolResultStr CheckRequired( const DeviceCaps& caps );
 
-    // The start-up log line: device | driver | version | every row as name=core/ext/no.
+    // The start-up log line: device | driver | version | every row as name=core/ext/no (=hidden for a ray tracing
+    // row under HideRayTracing).
     [[nodiscard]] std::string FormatCapsTable( const DeviceCaps& caps );
 
     // The start-up log line beside it: the per-stage descriptor limits and the update-after-bind ones the

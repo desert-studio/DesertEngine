@@ -9,23 +9,23 @@ Shader "JFA_Step"
 
         // Shared sampler states (UE's shared samplers): each input below is a separate texture read through one.
 
-        Uniform(0, 1) sampler u_PointClampSampler;
+        Uniform(0, 1) sampler PointClampSampler;
 
-        Uniform(0, 0) texture2D u_InputTexture;
+        Uniform(0, 0) texture2D SeedMapTexture;
 
-        #define u_InputTexture sampler2D(u_InputTexture, u_PointClampSampler)
+        #define SeedMapTexture sampler2D(SeedMapTexture, PointClampSampler)
 
         PushConstant PushConstants
         {
-            int u_StepLength;
+            int StepLength;
         };
 
         void main()
         {
-            ivec2 texSize = textureSize(u_InputTexture, 0);
+            ivec2 texSize = textureSize(SeedMapTexture, 0);
             vec2 pixelCoord = v_TexCoord * vec2(texSize);
 
-            vec4 bestSeed = texture(u_InputTexture, v_TexCoord);
+            vec4 bestSeed = texture(SeedMapTexture, v_TexCoord);
             float bestDist = 1e20;
 
             if (bestSeed.x >= 0.0)
@@ -40,8 +40,8 @@ Shader "JFA_Step"
                     if (x == 0 && y == 0)
                         continue;
 
-                    vec2 offset = vec2(float(x), float(y)) * float(u_StepLength) / vec2(texSize);
-                    vec4 neighborSeed = texture(u_InputTexture, v_TexCoord + offset);
+                    vec2 offset = vec2(float(x), float(y)) * float(StepLength) / vec2(texSize);
+                    vec4 neighborSeed = texture(SeedMapTexture, v_TexCoord + offset);
 
                     if (neighborSeed.x >= 0.0)
                     {

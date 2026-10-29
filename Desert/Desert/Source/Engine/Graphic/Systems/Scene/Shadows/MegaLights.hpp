@@ -52,6 +52,28 @@
 // denoiser's. Shaders (Editor/Resources/Shaders): Common/MegaLights.glslh, Programs/Shadows/MegaLights*.shader.
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MegaLightsShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( UniformBuffer, MegaLightsViewUB );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
+        DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingGeometryRecords );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingMaterialRecords );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutReservoirsTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutSurfaceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutDiffuseTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutSpecularTexture );
+        DESERT_SHADER_PARAMETER( Texture, HistoryReservoirsTexture );
+        DESERT_SHADER_PARAMETER( Texture, HistorySurfaceTexture );
+        DESERT_SHADER_PARAMETER( Texture, ReservoirsTexture );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+    };
+
     inline constexpr std::string_view kMegaLightsDiffuseName  = "MegaLights.Diffuse";
     inline constexpr std::string_view kMegaLightsSpecularName = "MegaLights.Specular";
     // The most reservoirs a pixel keeps: the shaders' MEGALIGHTS_MAX_SAMPLES (Scalability 1..4).
@@ -211,55 +233,59 @@ namespace Desert::Graphic::System
 
             const auto common = [&]( RDG::BindingBlockBuilder& block, const bool shading )
             {
-                block.Uniform( "MegaLightsViewUB", view )
-                     .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                     .Texture( "u_GBufferDepth", in.Depth, RDG::Access::SampledCompute,
-                               RDG::SubresourceRange::All() )
-                     .Texture( "u_GBufferNormal", in.GBufferB, RDG::Access::SampledCompute,
-                               RDG::SubresourceRange::All() )
-                     .Storage( ShaderProtocols::PointLight::Name, in.Lights.Point, RDG::Access::StorageRead )
-                     .Storage( ShaderProtocols::SpotLight::Name, in.Lights.Spot, RDG::Access::StorageRead );
+                block.Uniform( MegaLightsShaderParameters::MegaLightsViewUB, view )
+                     .Sampler( MegaLightsShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                     .Texture( MegaLightsShaderParameters::GBufferDepthTexture, in.Depth,
+                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Texture( MegaLightsShaderParameters::GBufferNormalTexture, in.GBufferB,
+                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Storage( ShaderProtocols::PointLight::Parameter, in.Lights.Point, RDG::Access::StorageRead )
+                     .Storage( ShaderProtocols::SpotLight::Parameter, in.Lights.Spot, RDG::Access::StorageRead );
                 if ( shading )
-                    block.Texture( "u_GBufferA", in.GBufferA, RDG::Access::SampledCompute,
-                                   RDG::SubresourceRange::All() )
-                         .Texture( "u_GBufferShadingWord", in.ShadingWord, RDG::Access::SampledCompute,
-                                   RDG::SubresourceRange::All() );
+                    block.Texture( MegaLightsShaderParameters::GBufferATexture, in.GBufferA,
+                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                         .Texture( MegaLightsShaderParameters::GBufferShadingWordTexture, in.ShadingWord,
+                                   RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
             };
             const auto tracing = [&]( RDG::BindingBlockBuilder& block )
             {
-                block.AccelerationStructure( "u_SceneTLAS", in.Tlas )
-                     .Storage( "RayTracingGeometryRecords", in.Metadata.Geometry, RDG::Access::StorageRead )
-                     .Storage( "RayTracingMaterialRecords", in.Metadata.Materials, RDG::Access::StorageRead );
+                block.AccelerationStructure( MegaLightsShaderParameters::SceneTlas, in.Tlas )
+                     .Storage( MegaLightsShaderParameters::RayTracingGeometryRecords, in.Metadata.Geometry,
+                               RDG::Access::StorageRead )
+                     .Storage( MegaLightsShaderParameters::RayTracingMaterialRecords, in.Metadata.Materials,
+                               RDG::Access::StorageRead );
             };
             const auto read =
-                 [&]( RDG::BindingBlockBuilder& block, std::string_view name, RDG::TextureRef texture )
+                 [&]( RDG::BindingBlockBuilder& block, RDG::TextureParameter name, RDG::TextureRef texture )
             { block.Texture( name, texture, RDG::Access::SampledCompute, RDG::SubresourceRange::All() ); };
 
             AddStage( graph, kGenerate, sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          block.Storage( kLightGridParamsBlockName, in.Lights.GridParams,
-                                         RDG::Access::StorageRead )
-                               .Storage( kLightGridCellsBlockName, in.Lights.GridCells, RDG::Access::StorageRead )
-                               .Storage( "u_OutReservoirs", generated, RDG::Access::StorageWrite );
+                          block.Storage( kLightGridParamsBlock, in.Lights.GridParams, RDG::Access::StorageRead )
+                               .Storage( kLightGridCellsBlock, in.Lights.GridCells, RDG::Access::StorageRead )
+                               .Storage( MegaLightsShaderParameters::OutReservoirsTexture, generated,
+                                         RDG::Access::StorageWrite );
                       } );
             AddStage( graph, kTemporal, sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, "u_Reservoirs", generated );
-                          read( block, "u_HistoryReservoirs", history[0] );
-                          read( block, "u_HistorySurface", history[1] );
-                          read( block, "u_Velocity", in.Velocity );
-                          block.Storage( "u_OutReservoirs", temporal, RDG::Access::StorageWrite );
+                          read( block, MegaLightsShaderParameters::ReservoirsTexture, generated );
+                          read( block, MegaLightsShaderParameters::HistoryReservoirsTexture, history[0] );
+                          read( block, MegaLightsShaderParameters::HistorySurfaceTexture, history[1] );
+                          read( block, MegaLightsShaderParameters::VelocityTexture, in.Velocity );
+                          block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, temporal,
+                                         RDG::Access::StorageWrite );
                       } );
             AddStage( graph, kSpatial, sampleWidth, sampleHeight,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, "u_Reservoirs", temporal );
-                          block.Storage( "u_OutReservoirs", spatial, RDG::Access::StorageWrite );
+                          read( block, MegaLightsShaderParameters::ReservoirsTexture, temporal );
+                          block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, spatial,
+                                         RDG::Access::StorageWrite );
                       } );
             HistorySlot* stamped = &next;
             AddStage(
@@ -268,18 +294,22 @@ namespace Desert::Graphic::System
                  {
                      common( block, true );
                      tracing( block );
-                     read( block, "u_Reservoirs", spatial );
-                     block.Storage( "u_OutReservoirs", written[0], RDG::Access::StorageWrite )
-                          .Storage( "u_OutSurface", written[1], RDG::Access::StorageWrite );
+                     read( block, MegaLightsShaderParameters::ReservoirsTexture, spatial );
+                     block.Storage( MegaLightsShaderParameters::OutReservoirsTexture, written[0],
+                                    RDG::Access::StorageWrite )
+                          .Storage( MegaLightsShaderParameters::OutSurfaceTexture, written[1],
+                                    RDG::Access::StorageWrite );
                  },
                  [stamped, index = frame.FrameIndex]() { stamped->Stamp.Stamp( index ); } );
             AddStage( graph, kShade, width, height,
                       [&]( RDG::BindingBlockBuilder& block )
                       {
                           common( block, true );
-                          read( block, "u_Reservoirs", written[0] );
-                          block.Storage( "u_OutDiffuse", diffuse, RDG::Access::StorageWrite )
-                               .Storage( "u_OutSpecular", specular, RDG::Access::StorageWrite );
+                          read( block, MegaLightsShaderParameters::ReservoirsTexture, written[0] );
+                          block.Storage( MegaLightsShaderParameters::OutDiffuseTexture, diffuse,
+                                         RDG::Access::StorageWrite )
+                               .Storage( MegaLightsShaderParameters::OutSpecularTexture, specular,
+                                         RDG::Access::StorageWrite );
                       } );
 
             const DenoiserSceneTextures scene{ .GBufferNormal = in.GBufferB,

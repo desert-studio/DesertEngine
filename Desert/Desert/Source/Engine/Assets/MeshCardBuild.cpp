@@ -216,11 +216,29 @@ namespace Desert::Assets
             int        CellZ   = 0;
         };
 
+        // A surfel found by the lattice, before its visibility: its span's samples are kept (SurfelPoint) so the
+        // hemisphere rays are cast once, on the lattice the budget chose.
+        struct SurfelPoint
+        {
+            glm::vec3 Position{ 0.0f };
+            glm::vec3 Normal{ 0.0f };
+        };
+        struct SurfelCandidate
+        {
+            Surfel   Lattice;
+            uint32_t PointOffset = 0;
+            uint32_t PointCount  = 0;
+        };
+        struct DirectionCandidates
+        {
+            std::vector<SurfelCandidate> Candidates;
+            std::vector<SurfelPoint>     Points;
+        };
+
         // UE ComputeSurfelVisibility: rays over the hemisphere of the span's samples (cycled); a surfel whose rays
         // mostly hit back faces is inside the geometry and dropped.
-        bool SurfelVisibility( const BuildMesh& mesh, const std::vector<SurfelSample>& samples,
-                               const size_t offset, const size_t count, const std::vector<glm::dvec3>& hemisphere,
-                               float& visibility )
+        bool SurfelVisibility( const BuildMesh& mesh, const std::vector<SurfelPoint>& samples, const size_t offset,
+                               const size_t count, const std::vector<glm::dvec3>& hemisphere, float& visibility )
         {
             size_t       sampleIndex = 0;
             int          hits = 0, backHits = 0;
@@ -228,8 +246,8 @@ namespace Desert::Assets
             const double kSurfaceRayBias = 0.1;
             for ( const glm::dvec3& local : hemisphere )
             {
-                const SurfelSample& s    = samples[offset + sampleIndex];
-                const glm::dvec3    dir  = FrisvadTransform( s.Normal, local );
+                const SurfelPoint&  s    = samples[offset + sampleIndex];
+                const glm::dvec3    dir  = FrisvadTransform( glm::dvec3( s.Normal ), local );
                 const double        o[3] = { s.Position.x, s.Position.y, s.Position.z };
                 const double        d[3] = { dir.x, dir.y, dir.z };
                 const auto hit = mesh.Bvh.ClosestHit( o, d, kSurfaceRayBias, std::numeric_limits<double>::max() );
@@ -248,11 +266,14 @@ namespace Desert::Assets
             return !( hits > 0.8 * n && backHits > 0.2 * n );
         }
 
-        // UE GenerateSurfelsForDirection.
-        void GenerateSurfels( const BuildMesh& mesh, const DirectionBasis& basis,
-                              const std::vector<glm::dvec3>& hemisphere, const float normalThreshold,
-                              const MeshDistanceFieldCancel& cancel, std::vector<Surfel>& out )
+        // UE GenerateSurfelsForDirection, the lattice half: the candidates and their span samples, no visibility
+        // rays (ComputeSurfelsVisibility casts them once the lattice is chosen).
+        void GenerateSurfelCandidates( const BuildMesh& mesh, const DirectionBasis& basis,
+                                       const float normalThreshold, const MeshDistanceFieldCancel& cancel,
+                                       DirectionCandidates& out )
         {
+            out.Candidates.clear();
+            out.Points.clear();
             constexpr uint32_t kSamples          = 32;
             constexpr uint32_t kMinSurfelSamples = 1;
             const glm::dvec3   rayDir            = basis.RayDirection;
@@ -358,18 +379,17 @@ namespace Desert::Assets
                             }
                             if ( spanSize >= kMinSurfelSamples )
                             {
-                                float      visibility = 0.0f;
-                                const bool valid = SurfelVisibility( mesh, samples, cellOffs + spanBegin, spanSize,
-                                                                     hemisphere, visibility );
-                                const float coverage =
+                                SurfelCandidate& candidate = out.Candidates.emplace_back();
+                                candidate.Lattice.Coord    = glm::ivec3( cx, cy, z );
+                                candidate.Lattice.MinRayZ  = samples[cellOffs + spanBegin].MinRayZ;
+                                candidate.Lattice.Coverage =
                                      static_cast<float>( spanSize ) / static_cast<float>( kSamples );
-                                if ( valid )
+                                candidate.PointOffset = static_cast<uint32_t>( out.Points.size() );
+                                candidate.PointCount  = spanSize;
+                                for ( uint32_t i = 0; i < spanSize; ++i )
                                 {
-                                    Surfel& surfel          = out.emplace_back();
-                                    surfel.Coord            = glm::ivec3( cx, cy, z );
-                                    surfel.MinRayZ          = samples[cellOffs + spanBegin].MinRayZ;
-                                    surfel.Coverage         = coverage;
-                                    surfel.WeightedCoverage = coverage * ( visibility + 1.0f );
+                                    const SurfelSample& s = samples[cellOffs + spanBegin + i];
+                                    out.Points.push_back( { glm::vec3( s.Position ), glm::vec3( s.Normal ) } );
                                 }
                             }
                             spanBegin += spanSize;
@@ -377,6 +397,28 @@ namespace Desert::Assets
                     }
                 }
             }
+        }
+
+        // UE GenerateSurfelsForDirection, the visibility half: 32 hemisphere rays per candidate, cast once.
+        bool ComputeSurfelsVisibility( const BuildMesh& mesh, const DirectionCandidates& in,
+                                       const std::vector<glm::dvec3>& hemisphere,
+                                       const MeshDistanceFieldCancel& cancel, std::vector<Surfel>& out )
+        {
+            out.clear();
+            for ( size_t i = 0; i < in.Candidates.size(); ++i )
+            {
+                if ( ( i & 255u ) == 0 && cancel.IsCancelled() )
+                    return false;
+                const SurfelCandidate& candidate  = in.Candidates[i];
+                float                  visibility = 0.0f;
+                if ( SurfelVisibility( mesh, in.Points, candidate.PointOffset, candidate.PointCount, hemisphere,
+                                       visibility ) )
+                {
+                    Surfel& surfel          = out.emplace_back( candidate.Lattice );
+                    surfel.WeightedCoverage = surfel.Coverage * ( visibility + 1.0f );
+                }
+            }
+            return true;
         }
 
         void BuildCluster( const int nearPlane, const std::vector<Surfel>& surfels,
@@ -544,41 +586,36 @@ namespace Desert::Assets
         out.BoundsMin              = glm::vec3( boundsMin );
         out.BoundsMax              = glm::vec3( boundsMax );
 
-        // UE InitSurfelScene: halve the lattice while the surfels exceed the budget. NOT UE: the cap and the
-        // budget grow with the mesh (MeshCardsBuildSettings::MaxVoxelsLarge) - UE's fixed 64 makes a 64 m mesh's
-        // voxel 1 m, and its 15-voxel cluster floor 15 m2 of surface.
-        const std::vector<glm::dvec3>                    hemisphere = HemisphereDirections( 32 );
-        ClusteringParams                                 params;
+        // UE InitSurfelScene: UE's fixed cap (MaxVoxels, the voxel from the bounds), halved while the surfels
+        // exceed UE's budget. UE re-casts every surfel's visibility rays on each halving; here the budget counts
+        // the lattice's candidates (no visibility rays - never fewer than the surfels UE counts, so a lattice is
+        // never kept over budget) and the hemisphere rays are cast once, on the chosen lattice.
+        const std::vector<glm::dvec3> hemisphere      = HemisphereDirections( 32 );
+        const float                   normalThreshold = std::clamp( settings.NormalThreshold, 0.0f, 1.0f );
+        ClusteringParams              params;
+        std::array<DirectionCandidates, kCardDirections> candidates;
         std::array<std::vector<Surfel>, kCardDirections> surfels;
-        const double                                     longest =
-             std::max( { boundsMax.x - boundsMin.x, boundsMax.y - boundsMin.y, boundsMax.z - boundsMin.z } );
-        const uint32_t floorCap = std::max( 1u, settings.MaxVoxels );
-        // A mostly two-sided mesh keeps UE's cap and budget: dense foliage is what the budget is for, and its
-        // surfels cost a hemisphere of rays each.
-        const uint32_t cap       = out.MostlyTwoSided
-                                        ? floorCap
-                                        : std::clamp( static_cast<uint32_t>( std::ceil(
-                                                     longest / std::max( settings.TargetVoxelSize, 0.01f ) ) ),
-                                                      floorCap, std::max( floorCap, settings.MaxVoxelsLarge ) );
-        const double   growth    = static_cast<double>( cap ) / floorCap;
-        const size_t   budget    = static_cast<size_t>( settings.TargetSurfels * growth * growth );
-        uint32_t       maxVoxels = cap;
+        uint32_t                                         maxVoxels = std::max( 1u, settings.MaxVoxels );
         for ( ;; )
         {
             InitClusteringParams( params, boundsMin, boundsMax, maxVoxels, settings );
             size_t total = 0;
             for ( uint32_t d = 0; d < kCardDirections; ++d )
             {
-                surfels[d].clear();
-                GenerateSurfels( mesh, params.Basis[d], hemisphere,
-                                 std::clamp( settings.NormalThreshold, 0.0f, 1.0f ), cancel, surfels[d] );
+                GenerateSurfelCandidates( mesh, params.Basis[d], normalThreshold, cancel, candidates[d] );
                 if ( cancel.IsCancelled() )
                     return cancelled();
-                total += surfels[d].size();
+                total += candidates[d].Candidates.size();
             }
-            maxVoxels /= 2;
-            if ( total <= budget || maxVoxels <= 1 )
+            if ( total <= settings.TargetSurfels || maxVoxels <= 2 )
                 break;
+            maxVoxels /= 2;
+        }
+        for ( uint32_t d = 0; d < kCardDirections; ++d )
+        {
+            if ( !ComputeSurfelsVisibility( mesh, candidates[d], hemisphere, cancel, surfels[d] ) )
+                return cancelled();
+            candidates[d] = {};
         }
 
         // UE BuildSurfelClusters.

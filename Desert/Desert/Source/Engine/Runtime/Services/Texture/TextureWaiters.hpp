@@ -6,6 +6,7 @@
 #include <Engine/Assets/Common.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <unordered_map>
 #include <vector>
 
@@ -19,7 +20,18 @@ namespace Desert::Runtime
         {
             auto& waiting = m_Waiting[texture];
             if ( std::find( waiting.begin(), waiting.end(), material ) == waiting.end() )
+            {
                 waiting.push_back( material );
+                ++m_Pending[material];
+            }
+        }
+
+        /// @p material bound a default for at least one texture that has not settled yet. A renderer skips
+        /// such a section (UE: a primitive whose material still compiles is not drawn) instead of showing the
+        /// schema default for the frames the texture is in flight.
+        bool IsWaiting( const Assets::AssetHandle& material ) const
+        {
+            return m_Pending.contains( material );
         }
 
         /// @p texture settled (Ready or Failed): every material that waited on it is handed to
@@ -34,15 +46,23 @@ namespace Desert::Runtime
             const auto waiting = std::move( it->second );
             m_Waiting.erase( it );
             for ( const auto& material : waiting )
+            {
+                if ( const auto pending = m_Pending.find( material );
+                     pending != m_Pending.end() && --pending->second == 0 )
+                    m_Pending.erase( pending );
                 invalidate( material );
+            }
         }
 
         void Clear()
         {
             m_Waiting.clear();
+            m_Pending.clear();
         }
 
     private:
         std::unordered_map<Assets::AssetHandle, std::vector<Assets::AssetHandle>> m_Waiting;
+        // Material -> how many unsettled textures it waits on: IsWaiting without a walk over m_Waiting.
+        std::unordered_map<Assets::AssetHandle, uint32_t> m_Pending;
     };
 } // namespace Desert::Runtime

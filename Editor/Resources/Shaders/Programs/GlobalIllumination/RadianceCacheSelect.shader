@@ -35,9 +35,9 @@ Shader "RadianceCacheSelect"
             }
             barrier();
             const uint probe = gl_GlobalInvocationID.x;
-            if ( probe >= u_MaxProbes )
+            if ( probe >= MaxProbes )
                 return;
-            if ( radianceCacheProbes[probe].frames.x != u_FrameIndex )
+            if ( radianceCacheProbes[probe].frames.x != FrameIndex )
                 return;
             const uint bucket = radianceCacheProbes[probe].priority.x;
             bool       traced = bucket > s_Threshold;

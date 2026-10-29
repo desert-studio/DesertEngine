@@ -1,3 +1,4 @@
+#include "VFXOverviewOverlay.hpp"
 #include <Editor/Core/Control/PointerDrag.hpp>
 #include <array>
 #include "ViewportPanel.hpp"
@@ -15,7 +16,7 @@
 #include <Editor/Core/Commands/SceneCommands.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Core/Selection/ModelingState.hpp>
-#include <Editor/Core/Selection/FoliagePaint.hpp>
+#include <Editor/Panels/Foliage/FoliagePaint.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ThemeManager.hpp>
 #include <Editor/Core/ToastManager.hpp>
@@ -63,6 +64,7 @@
 // ImGuiContext::WindowsFocusOrder — the editor's one record of where the user has been. See
 // ActiveViewportRule.hpp for why the order is read rather than a focus flag stored.
 #include <imgui_internal.h>
+#include "Tools/ViewportPress.hpp"
 #include <glm/gtx/matrix_decompose.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -211,6 +213,32 @@ namespace Desert::Editor
         return viewport->StrokeFoliageAtCentre();
     }
 
+    std::optional<uint64_t> ViewportPanel::ActiveViewportTrianglesDrawn()
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport || !viewport->m_Scene )
+            return std::nullopt;
+        auto* renderer =
+             viewport->m_ViewRenderer ? viewport->m_ViewRenderer : viewport->m_Scene->GetSceneRenderer();
+        if ( !renderer )
+            return std::nullopt;
+        return renderer->GetViewTrianglesDrawn();
+    }
+
+    Common::BoolResultStr ViewportPanel::PreviewLODInActiveViewport( const uint32_t entity, const int level )
+    {
+        auto* viewport = ActiveViewport();
+        if ( !viewport || !viewport->m_Scene )
+            return Common::MakeError( "LOD preview: no viewport is open" );
+        // The primary viewport has no view renderer of its own: it is the scene's (view 0).
+        auto* renderer =
+             viewport->m_ViewRenderer ? viewport->m_ViewRenderer : viewport->m_Scene->GetSceneRenderer();
+        if ( !renderer )
+            return Common::MakeError( "LOD preview: the active viewport has no renderer yet" );
+        renderer->SetLODPreview( entity, level );
+        return BOOLSUCCESS;
+    }
+
     Common::BoolResultStr ViewportPanel::PlaceShapeInActiveViewport()
     {
         auto* viewport = ActiveViewport();
@@ -338,6 +366,14 @@ namespace Desert::Editor
         if ( viewport == nullptr )
             return Common::MakeFormattedError<bool>( "'{}': no viewport is live to drop it into", path );
         return viewport->DropMeshAsset( path, target );
+    }
+
+    bool ViewportPanel::AnyMeshDropLoading()
+    {
+        for ( const ViewportPanel* viewport : s_Live )
+            if ( viewport->m_AsyncLoader && viewport->m_AsyncLoader->IsBusy() )
+                return true;
+        return false;
     }
 
     Common::BoolResultStr ViewportPanel::DropPrefabIntoActiveViewport( const std::string&              path,
@@ -1225,8 +1261,7 @@ namespace Desert::Editor
                         {
                             if ( c > 0 )
                                 ImGui::SameLine();
-                            const std::string lbl =
-                                 std::string( rl[r] ) + cl[c] + "##a" + std::to_string( r * 4 + c );
+                            const std::string lbl = std::format( "{}{}##a{}", rl[r], cl[c], r * 4 + c );
                             if ( ImGui::Button( lbl.c_str(), ImVec2( 40.0f, 28.0f ) ) )
                             {
                                 ApplyAnchorPreset( reg, selUI, viewRect, modes[c], modes[r] );
@@ -1319,8 +1354,10 @@ namespace Desert::Editor
                 VM_SurfaceCacheAtlas,
                 VM_SurfaceCacheScene,
                 VM_SurfaceCacheSceneLit,
+                VM_Reflections,
                 VM_ShadowCascades,
                 VM_ShadowFactor,
+                VM_LocalExposure,
                 VM_Count
             };
             const char* kViewModes[] = { ICON_MDI_LIGHTBULB_ON "  Lit",
@@ -1343,8 +1380,10 @@ namespace Desert::Editor
                                          ICON_MDI_TEXTURE "  Surface Cache Atlas",
                                          ICON_MDI_CUBE_OUTLINE "  Lumen Scene (Cards)",
                                          ICON_MDI_LIGHTBULB_ON "  Lumen Scene (Lit)",
+                                         ICON_MDI_CIRCLE_HALF_FULL "  Reflections",
                                          ICON_MDI_LAYERS "  Shadow Cascades",
-                                         ICON_MDI_BRIGHTNESS_6 "  Shadow Factor" };
+                                         ICON_MDI_BRIGHTNESS_6 "  Shadow Factor",
+                                         ICON_MDI_BRIGHTNESS_6 "  Local Exposure" };
             static_assert( IM_ARRAYSIZE( kViewModes ) == VM_Count,
                            "every view mode needs a label - a short array silently truncates the combo" );
 
@@ -1392,6 +1431,10 @@ namespace Desert::Editor
                 vm = VM_SurfaceCacheScene;
             else if ( view.DeferredDebug == Graphic::DeferredDebugMode::SurfaceCacheSceneLit )
                 vm = VM_SurfaceCacheSceneLit;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::Reflections )
+                vm = VM_Reflections;
+            else if ( view.DeferredDebug == Graphic::DeferredDebugMode::LocalExposure )
+                vm = VM_LocalExposure;
             else if ( view.ShowNormals )
                 vm = VM_Normals;
 
@@ -1440,6 +1483,7 @@ namespace Desert::Editor
                 viewChanged |= ImGui::Checkbox( "Card Placement", &view.ShowCardPlacement );
                 viewChanged |= ImGui::Checkbox( "Wireframe", &view.WireframeMode );
                 viewChanged |= ImGui::Checkbox( "Disable Pass Culling", &view.DisablePassCulling );
+                viewChanged |= ImGui::Checkbox( "Validate GPU Culling", &view.ValidateGpuCulling );
                 if ( ImGui::IsItemHovered() )
                     ImGui::SetTooltip( "Run every render-graph pass, even those whose output nothing reads.\n"
                                        "A picture that changes names a pass the graph cannot see." );
@@ -1535,7 +1579,7 @@ namespace Desert::Editor
                         break;
                     case VM_Lighting:
                         // No DeferredDebug partner, unlike Normals below: the deferred path zeroes
-                        // u_DebugParams, so SceneRenderer forces the FORWARD path while this is on — the
+                        // DebugParams, so SceneRenderer forces the FORWARD path while this is on — the
                         // same treatment Wireframe gets, for the same reason.
                         view.LightingDebug = true;
                         break;
@@ -1591,11 +1635,17 @@ namespace Desert::Editor
                     case VM_SurfaceCacheSceneLit:
                         view.DeferredDebug = Graphic::DeferredDebugMode::SurfaceCacheSceneLit;
                         break;
+                    case VM_Reflections:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::Reflections;
+                        break;
                     case VM_ShadowCascades:
                         view.ShadowDebug = Graphic::ShadowDebugMode::Cascades;
                         break;
                     case VM_ShadowFactor:
                         view.ShadowDebug = Graphic::ShadowDebugMode::ShadowFactor;
+                        break;
+                    case VM_LocalExposure:
+                        view.DeferredDebug = Graphic::DeferredDebugMode::LocalExposure;
                         break;
                     default:
                         break; // VM_Lit
@@ -1804,12 +1854,15 @@ namespace Desert::Editor
         }
 
         // Render scene
-        m_UIHelper->Image( m_Scene->GetFinalImage( ViewIndex() ),
-                           { m_ViewportData.Size.x, m_ViewportData.Size.y } );
-        Control::PointerInjection::PublishTarget( Control::Subject::Viewport,
-                                                  { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y,
-                                                    ImGui::GetItemRectSize().x, ImGui::GetItemRectSize().y,
-                                                    ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount() } );
+        const auto finalImage = m_Scene->GetFinalImage( ViewIndex() );
+        m_UIHelper->Image( finalImage, { m_ViewportData.Size.x, m_ViewportData.Size.y } );
+        // The image's own pixel size travels with the rect: shot-viewport writes this image, so a drag aimed
+        // in its pixels maps back through it, not through the display's framebuffer scale.
+        Control::PointerInjection::PublishTarget(
+             Control::Subject::Viewport,
+             { ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y, ImGui::GetItemRectSize().x,
+               ImGui::GetItemRectSize().y, ImGui::GetWindowViewport()->ID, ImGui::GetFrameCount(),
+               finalImage ? finalImage->GetWidth() : 0u, finalImage ? finalImage->GetHeight() : 0u } );
 
         // UI Preview vs Design. Preview: publish the viewport pointer/keyboard so the EditorUIPass drives the
         // canvas with real input (buttons interactive) and SKIP the authoring overlays/handles. Design: the
@@ -1952,9 +2005,13 @@ namespace Desert::Editor
             if ( auto ref = m_Scene->FindEntityByID( *sel ) )
                 selectedIsUI = m_Scene->GetRegistry().has<ECS::UILayoutComponent>( ref->get().GetHandle() );
 
-        // Handle gizmos (Select mode only — Foliage/Modeling use LMB for their own tools, not gizmo/pick).
+        // Handle gizmos (Select mode — Foliage/Landscape use LMB for their own tools, not gizmo/pick). Modeling
+        // mode with NO tool active keeps the object gizmo, as UE's Modeling Mode does (the level editor's
+        // transform gizmo stays on the selected actor until a tool starts and takes the viewport's input).
         m_Gizmo.ResetHovered();
-        if ( !foliageMode && !modelingMode && !landscapeMode )
+        const bool modelingIdle =
+             modelingMode && Core::ModelingState::Get().ActiveTool == Core::ModelingState::Tool::None;
+        if ( !foliageMode && ( !modelingMode || modelingIdle ) && !landscapeMode )
         {
             if ( Core::ActiveAuthoringContext().ShowsBones() )
             {
@@ -1975,8 +2032,8 @@ namespace Desert::Editor
         {
             m_FoliageTool.DrawPanel( *m_Scene, m_AssetManager, m_ViewportData.ViewportPos, m_UIHelper.get() );
             // A stroke starts on a press over the viewport and runs until release (one undo step); leaving the
-            // viewport mid-drag does not split it.
-            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !ImGui::IsAnyItemActive() &&
+            // viewport mid-drag does not split it (WidgetClaimsMouse: the window's own press is not a widget's).
+            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !Tools::WidgetClaimsMouse() &&
                                   ( m_ViewportData.IsHovered || m_FoliageTool.IsStroking() );
             if ( const auto camera = ViewCamera() )
             {
@@ -1994,12 +2051,41 @@ namespace Desert::Editor
                     Core::FoliagePaint::HoverPoint() =
                          m_Scene->Raycast( ray, hover ) ? std::optional<glm::vec3>( hover.Point ) : std::nullopt;
                 }
+                if ( pressing )
+                {
+                    const auto target = Control::PointerInjection::FreshTarget( Control::Subject::Viewport,
+                                                                                ImGui::GetFrameCount() );
+                    LOG_DEBUG( "[Foliage] stroke tick: cursor ({:.1f}, {:.1f}) of viewport {:.0f}x{:.0f} points, "
+                               "image {}x{} px; ray origin ({:.1f}, {:.1f}, {:.1f}) dir ({:.3f}, {:.3f}, {:.3f})",
+                               mx, my, m_ViewportData.Size.x, m_ViewportData.Size.y,
+                               target ? target->ImageWidth : 0u, target ? target->ImageHeight : 0u, ray.Origin.x,
+                               ray.Origin.y, ray.Origin.z, ray.Direction.x, ray.Direction.y, ray.Direction.z );
+                }
                 m_FoliageTool.Update( *m_Scene, m_AssetManager, ray, pressing, ImGui::GetIO().KeyShift );
                 const glm::mat4 viewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix();
                 Tools::FoliagePaintTool::DrawSelection( *m_Scene, viewProjection, m_ViewportData.ViewportPos,
                                                         m_ViewportData.Size );
                 Tools::FoliagePaintTool::DrawFootprint( *m_Scene, m_AssetManager, viewProjection,
                                                         m_ViewportData.ViewportPos, m_ViewportData.Size );
+            }
+        }
+
+        // --- VFX Paint mode (VFX-15): LMB paints the selected VFX entity's point set, one stroke one undo ---
+        if ( Core::ViewportMode::Get() == Core::EditorMode::VFXPaint )
+        {
+            m_VFXPaintTool.DrawPanel( *m_Scene, m_ViewportData.ViewportPos );
+            const bool pressing = ImGui::IsMouseDown( ImGuiMouseButton_Left ) && !Tools::WidgetClaimsMouse() &&
+                                  ( m_ViewportData.IsHovered || m_VFXPaintTool.IsStroking() );
+            if ( const auto camera = ViewCamera() )
+            {
+                auto [mx, my]  = GetMouseViewportSpace();
+                const auto ray = Common::Math::Ray::FromScreenPosition(
+                     { mx, my }, camera->GetProjectionMatrix(), camera->GetViewMatrix(), camera->GetPosition(),
+                     static_cast<uint32_t>( m_ViewportData.Size.x ),
+                     static_cast<uint32_t>( m_ViewportData.Size.y ) );
+                m_VFXPaintTool.Update( *m_Scene, ray, pressing );
+                Tools::VFXPaintTool::DrawPoints( *m_Scene, camera->GetProjectionMatrix() * camera->GetViewMatrix(),
+                                                 m_ViewportData.ViewportPos, m_ViewportData.Size );
             }
         }
 
@@ -2045,13 +2131,61 @@ namespace Desert::Editor
                      static_cast<uint32_t>( m_ViewportData.Size.x ),
                      static_cast<uint32_t>( m_ViewportData.Size.y ) );
                 const glm::mat4 viewProj = camera->GetProjectionMatrix() * camera->GetViewMatrix();
-                // Before CubeGrid: while a UV tool is active its Accept / Cancel requests are the UV tool's.
-                m_UVTool.Update( *m_Scene );
+                // Before CubeGrid: while a UV or Deform tool is active its Accept / Cancel requests are its own.
+                m_UVTool.Update( *m_Scene, glm::dvec3( camera->GetPosition() ) );
+                // UV Project's volume: UE's transform gizmo on the projection (UUVProjectionTool TransformProxy).
+                if ( auto volume = m_UVTool.ProjectionGizmo( *m_Scene ) )
+                {
+                    if ( m_Gizmo.RenderFrame( "UVProjectVolume", *volume, ViewCamera(), m_ViewportData.ViewportPos,
+                                              m_ViewportData.Size,
+                                              Tools::GizmoController::kFrameTranslateRotateScale ) )
+                        m_UVTool.ApplyProjectionGizmo( *m_Scene, *volume );
+                }
+                m_MeshProcessingTool.Update( *m_Scene );
+                m_EditMaterialsTool.Update( *m_Scene, m_AssetManager );
+                m_PaintGroupsTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                          m_ViewportData.IsHovered );
+                // Warp's frame: UE's transform gizmo on the deformer (UMeshSpaceDeformerTool TransformProxy).
+                // Its Upper / Lower bounds: UE's interval gizmo on the frame's axis; Bend draws the bent axis.
+                if ( m_MeshProcessingTool.HasWarpSession() )
+                {
+                    auto& ms = Core::ModelingState::Get();
+                    const bool intervalOwns = m_Gizmo.IntervalOwnsInput();
+                    if ( intervalOwns )
+                        ImGuizmo::Enable( false );
+                    m_Gizmo.RenderFrame( "WarpFrame", ms.WarpGizmo, ViewCamera(), m_ViewportData.ViewportPos,
+                                         m_ViewportData.Size, Tools::GizmoController::kFrameTranslateRotate );
+                    if ( intervalOwns )
+                        ImGuizmo::Enable( true );
+                    Tools::MeshProcessingTool::DrawWarpVisualization( ms, viewProj, m_ViewportData.ViewportPos,
+                                                              m_ViewportData.Size );
+                    m_Gizmo.RenderInterval( ms.WarpGizmo, ms.DeformWarp.LowerBound, ms.DeformWarp.UpperBound,
+                                            ViewCamera(), m_ViewportData.ViewportPos, m_ViewportData.Size );
+                }
+                // Lattice: its control points and the gizmo on the selected ones (UE ULatticeControlPointsMechanic).
+                if ( m_MeshProcessingTool.HasLatticeSession() )
+                    m_MeshProcessingTool.DrawLatticeControls( *m_Scene, m_Gizmo, ViewCamera(), viewProj,
+                                                      m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                                      m_ViewportData.IsHovered );
+                // Hole Fill: the holes, the selected ones highlighted; a click on one toggles it (UE UHoleFillTool).
+                if ( m_MeshProcessingTool.HasHoleFillSession() )
+                    m_MeshProcessingTool.DrawHoleFillControls( *m_Scene, viewProj, m_ViewportData.ViewportPos,
+                                                               m_ViewportData.Size, m_ViewportData.IsHovered );
+                // Weld Edges: the preview's open edges left (UE UWeldMeshEdgesTool's boundary line set).
+                if ( m_MeshProcessingTool.HasWeldEdgesSession() )
+                    m_MeshProcessingTool.DrawWeldEdgesOpenEdges( *m_Scene, viewProj, m_ViewportData.ViewportPos,
+                                                                 m_ViewportData.Size );
+                // Tangents: the previewed frames as lines (UE UMeshTangentsTool PreviewGeometry line sets).
+                if ( m_MeshProcessingTool.HasTangentsSession() )
+                    m_MeshProcessingTool.DrawTangentsVisualization( *m_Scene, Core::ModelingState::Get(), viewProj,
+                                                                    m_ViewportData.ViewportPos, m_ViewportData.Size );
                 m_CubeGridTool.Update( *m_Scene, Core::ModelingState::Get().CubeGridAimCentre ? centreRay : ray,
                                        viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
                 m_PolyEditTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
                                        m_ViewportData.IsHovered );
+                m_SculptTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos, m_ViewportData.Size,
+                                     m_ViewportData.IsHovered );
                 m_ElementSelectTool.Update( *m_Scene, ray, viewProj, m_ViewportData.ViewportPos,
                                             m_ViewportData.Size, m_ViewportData.IsHovered );
                 m_CreateShapeTool.Update( *m_Scene, ray, centreRay, m_ViewportData.ViewportPos,
@@ -2064,8 +2198,8 @@ namespace Desert::Editor
         }
 
         // Editor gizmos (light/camera icons + frustums) are authoring aids — hide them in Play/Paused so the
-        // running game view is clean.
-        if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit )
+        // running game view is clean. Simulate In Editor keeps them: it is the editor's view of a running world.
+        if ( m_Scene->GetState() == ::Desert::Core::Scene::SceneState::Edit || m_Scene->IsSimulating() )
             m_LightGizmoRenderer->Render( ViewCamera(), m_ViewportData.Size.x, m_ViewportData.Size.y,
                                           m_ViewportData.ViewportPos.x, m_ViewportData.ViewportPos.y,
                                           m_AuthoringOwner, m_Authoring );
@@ -2117,6 +2251,10 @@ namespace Desert::Editor
                 DrawRenderMethodsOverlay( renderer->GetRenderMethods(), viewportMin, viewportMax );
                 DrawRayTracingSceneOverlay( renderer->GetRayTracingScene().GetStats(),
                                             renderer->TakeLedgerMemory(), viewportMin, viewportMax );
+                // VFX-16: the effects world's overview (Particle Debugger -> Viewport overview).
+                if ( m_Scene->GetVFXWorld().GetDebugSettings().Overview )
+                    DrawVFXOverviewOverlay( m_Scene->GetVFXWorld().GetDebugStats(),
+                                            renderer->ParticleViewEmitterCulls(), viewportMin, viewportMax );
             }
 
         // Perf HUD (View -> Perf HUD): FPS + frame graph + top CPU scopes, useful in Play too.
@@ -2550,6 +2688,9 @@ namespace Desert::Editor
                 return m_CubeGridTool.Cursor();
             case T::PolyEdit:
                 return m_PolyEditTool.Cursor();
+            case T::EditMaterials: // picks triangles with the element selection
+            case T::Sculpt:
+                return m_SculptTool.Cursor();
             case T::ElementSelect:
                 return m_ElementSelectTool.Cursor();
             case T::CreateShape:
@@ -2558,7 +2699,25 @@ namespace Desert::Editor
             case T::UVProject:
             case T::UVUnwrap:
             case T::UVLayout:
-                return Tools::ToolCursor::None; // the UV tools take no click
+            case T::UVTransform:
+            case T::Smooth:
+            case T::Offset:
+            case T::Warp:
+            case T::Lattice:
+            case T::Normals:
+            case T::HoleFill: // picks a hole by its drawn edge, no cursor of its own
+            case T::Remesh:
+            case T::Simplify:
+            case T::Jacket:
+            case T::Project:
+            case T::WeldEdges:
+            case T::Tangents:
+            case T::VoxWrap:
+            case T::VoxBoolean:
+            case T::VoxMorph:
+            case T::VoxBlend:
+            case T::PaintGroups:                // draws its own brush ring (PaintGroupsTool)
+                return Tools::ToolCursor::None; // the UV and Deform tools take no click
         }
         return Tools::ToolCursor::None;
     }
@@ -2728,8 +2887,24 @@ namespace Desert::Editor
         const bool   overImage = mp.x >= vp.ViewportPos.x && mp.y >= vp.ViewportPos.y &&
                                  mp.x < vp.ViewportPos.x + vp.Size.x && mp.y < vp.ViewportPos.y + vp.Size.y;
 
+        // Lattice owns the scene's left clicks (UE: the tool's click behaviour selects control points, an empty
+        // click clears them); the entity selection stays, or the session would end.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasLatticeSession() && overImage )
+            return false;
+        // Hole Fill owns the scene's left clicks likewise (a click toggles a hole; the entity selection stays).
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_MeshProcessingTool.HasHoleFillSession() && overImage )
+            return false;
+        // Paint PolyGroups owns a left click on the mesh it paints, likewise.
+        if ( e.GetMouseButton() == Common::MouseButton::Left && m_PaintGroupsTool.OwnsClick() && overImage )
+            return false;
+
+        // Modeling mode with NO tool active picks entities like Select mode: UE's Modeling Mode keeps the level
+        // editor's click-to-select until a tool starts and takes the viewport's clicks.
+        const bool modelingIdlePick = Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
+                                      Core::ModelingState::Get().ActiveTool == Core::ModelingState::Tool::None;
         if ( e.GetMouseButton() == Common::MouseButton::Left && !m_UIPreview &&
-             Core::ViewportMode::Get() == Core::EditorMode::Select && m_ViewportData.IsHovered && overImage )
+             ( Core::ViewportMode::Get() == Core::EditorMode::Select || modelingIdlePick ) &&
+             m_ViewportData.IsHovered && overImage )
         {
             // In-scene UI: the 2D canvas overlays the 3D scene, so a click on a UI element selects it and
             // skips the 3D raycast (unless a 3D gizmo handle is being grabbed). Edit anchors/colour in Details.

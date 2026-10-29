@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -81,6 +82,9 @@ namespace Desert::Graphic::GlobalIllumination
         std::vector<glm::vec3> MarkPoints;
         glm::vec3              CameraPosition{ 0.0f };
         glm::uvec2             Extent{ 0u };
+        // The directional lights of the frame (the same values GIFrame carries): a significant change from the
+        // lighting the probes were last fully traced under makes this frame a full update (AddUpdatePasses).
+        DirectionalLighting Lighting;
     };
 
     // What a reader of this frame's cache binds (Common/RadianceCache.glslh, the read section).
@@ -89,12 +93,12 @@ namespace Desert::Graphic::GlobalIllumination
         RDG::BufferRef  Params;      // "RadianceCacheParamsUB"
         RDG::BufferRef  Indirection; // "RadianceCacheIndirectionUB"
         RDG::BufferRef  Probes;      // "RadianceCacheProbesUB"
-        RDG::TextureRef Irradiance;  // "u_RadianceCacheIrradiance"
-        RDG::TextureRef Depth;       // "u_RadianceCacheDepth"
+        RDG::TextureRef Irradiance;  // "RadianceCacheIrradianceTexture"
+        RDG::TextureRef Depth;       // "RadianceCacheDepthTexture"
         // The traced radiance probes, octahedral with borders (UE RadianceProbeAtlasTexture): the far field of
         // a screen probe ray that leaves the cache's minimum trace distance without a hit
         // (RadianceCacheRadianceAt).
-        RDG::TextureRef Radiance; // "u_RadianceCacheRadianceAtlas"
+        RDG::TextureRef Radiance; // "RadianceCacheRadianceAtlasTexture"
     };
 
     class WorldRadianceCache
@@ -112,11 +116,16 @@ namespace Desert::Graphic::GlobalIllumination
         // Public so the view asks for it before the update and refuses the GI methods of that tracer by name
         // when it does not build (SceneRenderer::AddFrameTracedGI); AddUpdatePasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
+        // Every variant EnsureTraceProgram can acquire: Trace under each tracer permutation (TracerProgramVariants),
+        // cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
 
         using ImportImage = std::function<RDG::TextureRef( const std::shared_ptr<Image>&, std::string_view )>;
 
         // The update of one frame, its six passes added to @p graph. The cache is (re)built when @p shape differs
-        // from the last frame's (a quality change): every probe is traced again.
+        // from the last frame's (a quality change): every probe is traced again. A significant change of the
+        // directional lights (InvalidatesLightingHistory) makes the frame a FULL UPDATE (UE
+        // r.Lumen.RadianceCache.ForceFullUpdate): every used probe is traced in it, its history dropped.
         [[nodiscard]] Common::ResultStr<RadianceCacheFrame>
         AddUpdatePasses( RDG::Builder& graph, const ImportImage& import,
                          const RadianceCache::RadianceCacheInputs& shape,
@@ -158,5 +167,8 @@ namespace Desert::Graphic::GlobalIllumination
         bool                               m_HasShape   = false;
         bool                               m_Reset      = true;
         uint32_t                           m_FrameIndex = 0;
+        // The directional lighting of the last full update (empty until the first update after a reset).
+        std::optional<DirectionalLighting> m_LitBy;
+        uint32_t                           m_LightingFrame = 0; // FrameIndex of the last full update (0 = none)
     };
 } // namespace Desert::Graphic::GlobalIllumination

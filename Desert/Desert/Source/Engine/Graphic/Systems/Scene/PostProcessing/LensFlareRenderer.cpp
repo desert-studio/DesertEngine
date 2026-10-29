@@ -48,6 +48,12 @@ namespace Desert::Graphic::System
     {
         if ( !CreatePipelines() )
             return Common::MakeError( "LensFlareRenderer: failed to create compute pipelines" );
+        if ( const auto valid = m_BrightPassLayout.Validate( m_BrightPassPipeline->GetSpecification().Shader, LensFlareBrightPassShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_FeaturesLayout.Validate( m_FeaturesPipeline->GetSpecification().Shader, LensFlareFeaturesShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -119,15 +125,15 @@ namespace Desert::Graphic::System
                                     Renderer::GetPipelineRouteFill( *m_BrightPassPipeline ) );
         if ( mip == 0 )
         {
-            block.Texture( "u_Source", sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+            block.Texture( LensFlareBrightPassShaderParameters::SourceMipTexture, sceneColor, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( LensFlareBrightPassShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         }
         else
         {
-            block.Texture( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+            block.Texture( LensFlareBrightPassShaderParameters::SourceMipTexture, source, RDG::Access::SampledCompute, RDG::SubresourceRange::Mip( mip - 1 ) )
+                 .Sampler( LensFlareBrightPassShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
         }
-        block.Storage( "u_Output", source, RDG::Access::StorageWrite, mip )
+        block.Storage( LensFlareBrightPassShaderParameters::BrightPassTexture, source, RDG::Access::StorageWrite, mip )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( BrightPassPush ) ) );
     }
 
@@ -154,9 +160,9 @@ namespace Desert::Graphic::System
             return; // RecordFeatures refuses by name
         pass.Bindings( m_FeaturesLayout.Get( m_FeaturesPipeline->GetSpecification().Shader ),
                        Renderer::GetPipelineRouteFill( *m_FeaturesPipeline ) )
-             .Texture( "u_FlareSource", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-             .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-             .Storage( "u_Flare", flare, RDG::Access::StorageWrite, 0 )
+             .Texture( LensFlareFeaturesShaderParameters::FlareSourceTexture, source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( LensFlareFeaturesShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Storage( LensFlareFeaturesShaderParameters::FlareTexture, flare, RDG::Access::StorageWrite, 0 )
              .PushConstantBytes( static_cast<uint32_t>( sizeof( FeaturesPush ) ) );
     }
 

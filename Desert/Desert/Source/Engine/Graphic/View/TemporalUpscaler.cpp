@@ -19,6 +19,17 @@
 #include <format>
 #include <mutex>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TemporalUpscalerSupersampleResolveShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SourceColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, DestinationColorTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -83,54 +94,34 @@ namespace Desert::Graphic
 
     VendorMethodFallback
     ReplaceUnavailableVendorMethods( const Common::Scalability::PathAntiAliasing&               antiAliasing,
-                                     const Common::Scalability::Upscaler                        upscaler,
                                      const std::function<std::string( TemporalMethod method )>& unavailable )
     {
         using Common::Scalability::AntiAliasingMethod;
-        using Common::Scalability::Upscaler;
-        VendorMethodFallback fallback{ .AntiAliasing = antiAliasing, .Upscaler = upscaler, .Why = {} };
-        const auto           replace =
-             [&]( const TemporalMethod method, const AntiAliasingMethod nativeAA, const Upscaler vendorUpscaler )
+        VendorMethodFallback fallback{ .AntiAliasing = antiAliasing, .Why = {} };
+        const auto           append = [&]( const std::string& why )
+        { fallback.Why = fallback.Why.empty() ? why : std::format( "{}; {}", fallback.Why, why ); };
+        // Ray Reconstruction first, onto DLSS Super Resolution (the same network without the denoiser), which the
+        // DLSS rule below then checks like any DLSS request.
+        if ( fallback.AntiAliasing.Method == AntiAliasingMethod::DLSSRayReconstruction )
+            if ( const std::string why = unavailable( TemporalMethod::DLSSRR ); !why.empty() )
+            {
+                fallback.AntiAliasing.Method = AntiAliasingMethod::DLSS;
+                append( std::format( "{}; DLSS Super Resolution instead", why ) );
+            }
+        // A vendor network the view cannot run becomes the engine's best temporal method, TSR (Scalability
+        // Resolve's rule 4 for a method the catalog does not offer).
+        const auto replace = [&]( const TemporalMethod method, const AntiAliasingMethod vendor )
         {
-            if ( antiAliasing.Method != nativeAA && upscaler != vendorUpscaler )
+            if ( fallback.AntiAliasing.Method != vendor )
                 return;
             const std::string why = unavailable( method );
             if ( why.empty() )
                 return;
-            if ( antiAliasing.Method == nativeAA )
-                fallback.AntiAliasing.Method = AntiAliasingMethod::TAA;
-            if ( upscaler == vendorUpscaler )
-                fallback.Upscaler = Upscaler::None;
-            fallback.Why = why;
+            fallback.AntiAliasing.Method = AntiAliasingMethod::TSR;
+            append( std::format( "{}; TSR instead", why ) );
         };
-        // Ray Reconstruction first, onto DLSS Super Resolution (the same network without the denoiser), which the
-        // DLSS rule below then checks like any DLSS request.
-        if ( upscaler == Upscaler::DLSSRayReconstruction )
-            if ( const std::string why = unavailable( TemporalMethod::DLSSRR ); !why.empty() )
-            {
-                // The upscaler here is the vendor override UpscalerForScale reads: DLSS below 100 %, and at 100 %
-                // (under DLAA) it resolves to None, where DLAA is plain DLSS.
-                fallback.Upscaler = Upscaler::DLSS;
-                fallback.Why = std::format( "{}; DLSS Super Resolution instead", why );
-            }
-        const std::string rrWhy = fallback.Why;
-        const Upscaler    asked = fallback.Upscaler;
-        const auto        replaceDlss = [&]()
-        {
-            const bool native = fallback.AntiAliasing.Method == AntiAliasingMethod::DLAA;
-            if ( !native && asked != Upscaler::DLSS )
-                return;
-            const std::string why = unavailable( TemporalMethod::DLSS );
-            if ( why.empty() )
-                return;
-            if ( native )
-                fallback.AntiAliasing.Method = AntiAliasingMethod::TAA;
-            if ( asked == Upscaler::DLSS )
-                fallback.Upscaler = Upscaler::None;
-            fallback.Why = rrWhy.empty() ? why : std::format( "{}; {}", rrWhy, why );
-        };
-        replaceDlss();
-        replace( TemporalMethod::FSR, AntiAliasingMethod::FSRNative, Upscaler::FSR );
+        replace( TemporalMethod::DLSS, AntiAliasingMethod::DLSS );
+        replace( TemporalMethod::FSR, AntiAliasingMethod::FSR );
         return fallback;
     }
 
@@ -190,9 +181,9 @@ namespace Desert::Graphic
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
                   .ShaderName        = kResolveShaderName,
-                  .Slots             = { { "u_Source", Kind::Texture },
-                                         { "u_PointClampSampler", Kind::Sampler },
-                                         { "u_Destination", Kind::StorageTexture } },
+                  .Slots             = { { "SourceColorTexture", Kind::Texture },
+                                         { "PointClampSampler", Kind::Sampler },
+                                         { "DestinationColorTexture", Kind::StorageTexture } },
                   .PushConstantBytes = static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) } );
         return layout;
     }
@@ -267,9 +258,12 @@ namespace Desert::Graphic
                  {
                      // texelFetch only: the Catmull-Rom weights are the filter, the sampler filters nothing.
                      pass.Bindings( SupersampleResolveLayout(), RDG::OtherRouteFill{} )
-                          .Texture( "u_Source", source, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                          .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                          .Storage( "u_Destination", destination, RDG::Access::StorageWrite, 0 )
+                          .Texture( TemporalUpscalerSupersampleResolveShaderParameters::SourceColorTexture, source,
+                                    RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                          .Sampler( TemporalUpscalerSupersampleResolveShaderParameters::PointClampSampler,
+                                    RDG::SamplerDesc::PointClamp() )
+                          .Storage( TemporalUpscalerSupersampleResolveShaderParameters::DestinationColorTexture,
+                                    destination, RDG::Access::StorageWrite, 0 )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( SupersampleResolvePush ) ) );
                  },
                  [holder, push]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -299,26 +293,24 @@ namespace Desert::Graphic
         return set == ViewTargetSet::Render ? split.Render : split.Output;
     }
 
-    Common::ResultStr<ViewResolution> ResolveViewResolution(
-         const ViewExtent output, const int settingPercent, const std::optional<int> viewportOverridePercent,
-         const Common::Scalability::PathAntiAliasing& antiAliasing, const Common::Scalability::Upscaler upscaler,
-         const Common::Scalability::EngineTemporalUpscaler                engineTemporal,
-         const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
+    Common::ResultStr<ViewResolution>
+    ResolveViewResolution( const ViewExtent output, const int settingPercent,
+                           const std::optional<int>                     viewportOverridePercent,
+                           const Common::Scalability::PathAntiAliasing& antiAliasing,
+                           const std::function<const ITemporalUpscaler*( TemporalMethod )>& upscalerFor )
     {
         const int requested = viewportOverridePercent.value_or( settingPercent );
-        // The upscaler of THIS view's percent, by Resolve's own rule (Scalability UpscalerForScale): the setting's
-        // resolved upscaler is for the setting's percent, and a viewport override may sit on the other side of
-        // 100 % (or under another AA method's side: below 100 % without temporal AA it is Spatial).
-        const auto upscalerAt = [&]( const int percent ) {
-            return Common::Scalability::UpscalerForScale( antiAliasing.Method, percent, upscaler, engineTemporal );
-        };
+        // The reconstruction pass of THIS view's percent, by Resolve's own rule (Scalability UpscalerForScale): a
+        // viewport override may sit on the other side of 100 % (below 100 % without temporal AA it is Spatial).
+        const auto upscalerAt = [&]( const int percent )
+        { return Common::Scalability::UpscalerForScale( antiAliasing.Method, percent ); };
         const auto choose = [&]( const int percent ) -> Common::ResultStr<ViewResolution>
         {
             const auto split = MakeResolutionSplit( output, percent );
             if ( !split )
                 return Common::MakeFormattedError<ViewResolution>( "{}", split.GetError() );
             const Common::Scalability::Upscaler upscalerOfView = upscalerAt( percent );
-            const auto method = SelectTemporalMethod( antiAliasing, split.GetValue(), upscalerOfView );
+            const auto                          method = SelectTemporalMethod( antiAliasing, split.GetValue() );
             if ( !method )
                 return Common::MakeFormattedError<ViewResolution>( "{}", method.GetError() );
             return Common::MakeSuccess( ViewResolution{

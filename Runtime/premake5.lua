@@ -20,11 +20,7 @@ project "Runtime"
         DesertPlatform.BuiltToolPath("DesertHeaderTool")
             .. ' --templates "' .. _MAIN_SCRIPT_DIR .. '/Tools/DesertHeaderTool/Templates"'
             .. ' --check "' .. _MAIN_SCRIPT_DIR .. '/Runtime/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Common/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Desert/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/UI/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/Render2DCore/Source"'
-            .. ' --context "' .. _MAIN_SCRIPT_DIR .. '/Desert/CoreReflection/Source"'
+            .. DesertModuleLibs.HeaderToolRoots("context")
     }
 
     files {
@@ -32,14 +28,9 @@ project "Runtime"
         "Source/**.hpp",
     }
 
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
-        "%{_MAIN_SCRIPT_DIR}/Desert/Desert/Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/UI/Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/Render2DCore/Source/",
-        "%{_MAIN_SCRIPT_DIR}/Desert/CoreReflection/Source/",
         "%{_MAIN_SCRIPT_DIR}/Runtime/Source/",
-
-        "%{_MAIN_SCRIPT_DIR}/Desert/Common/Source/",
     }
     externalincludedirs {
 
@@ -63,6 +54,8 @@ project "Runtime"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
+        "Embree",
         "Dav1d", -- Engine/Media (BuildScripts/ThirdParty/Dav1d.lua, Opus.lua)
         "Opus",
     }

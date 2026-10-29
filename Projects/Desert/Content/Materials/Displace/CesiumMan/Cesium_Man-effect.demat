@@ -1,0 +1,23 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "a146336457b1527def13c09783dfc696",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "dff8ebdfbe563112e0c24475898f8b18"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "dff8ebdfbe563112e0c24475898f8b18",
+            "Path": "assets:Meshes/Displace/CesiumMan_0.detex"
+        }
+    ],
+    "CloudAssets": []
+}

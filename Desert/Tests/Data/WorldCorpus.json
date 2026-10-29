@@ -2,51 +2,51 @@
     "Props": [
         {
             "Theme": "Skinned lit",
-            "Mesh": "Resources/Assets/Meshes/Skinned/SkinProbe.skmesh",
+            "Mesh": "assets:Meshes/Skinned/SkinProbe.skmesh",
             "Skinned": true,
-            "Material": "Materials/base_basic_pbr/model.demat",
+            "Material": "assets:Materials/base_basic_pbr/model.demat",
             "ScalePercent": 100
         },
         {
             "Theme": "Skinned lit",
-            "Mesh": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+            "Mesh": "assets:Meshes/Skinned/TwoBoneProbe.skmesh",
             "Skinned": true,
-            "Material": "Materials/base_basic_pbr/model.demat",
+            "Material": "assets:Materials/base_basic_pbr/model.demat",
             "ScalePercent": 100
         },
         {
             "Theme": "Skinned shaded",
-            "Mesh": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+            "Mesh": "assets:Meshes/Skinned/TwoBoneProbe.skmesh",
             "Skinned": true,
-            "Material": "Materials/base_basic_shaded/model.demat",
+            "Material": "assets:Materials/base_basic_shaded/model.demat",
             "ScalePercent": 100
         },
         {
             "Theme": "Skinned shaded",
-            "Mesh": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+            "Mesh": "assets:Meshes/Skinned/IKProbe.skmesh",
             "Skinned": true,
-            "Material": "Materials/base_basic_shaded/model.demat",
+            "Material": "assets:Materials/base_basic_shaded/model.demat",
             "ScalePercent": 100
         },
         {
             "Theme": "Witness",
-            "Mesh": "Resources/Assets/Meshes/Skinned/IKProbe.skmesh",
+            "Mesh": "assets:Meshes/Skinned/IKProbe.skmesh",
             "Skinned": true,
-            "Material": "Materials/M_NormalWitness.demat",
+            "Material": "assets:Materials/M_NormalWitness.demat",
             "ScalePercent": 100
         },
         {
             "Theme": "Witness",
-            "Mesh": "Resources/Assets/Meshes/StaticProbe.stmesh",
+            "Mesh": "assets:Meshes/StaticProbe.stmesh",
             "Skinned": false,
-            "Material": "Materials/MP_Unlit.demat",
+            "Material": "assets:Materials/MP_Unlit.demat",
             "ScalePercent": 100
         },
         {
             "Theme": "Checker",
-            "Mesh": "Resources/Assets/Meshes/StaticProbe.stmesh",
+            "Mesh": "assets:Meshes/StaticProbe.stmesh",
             "Skinned": false,
-            "Material": "Materials/M_CheckerFloor.demat",
+            "Material": "assets:Materials/M_CheckerFloor.demat",
             "ScalePercent": 100
         }
     ]

@@ -5,6 +5,7 @@
 #include <Engine/Graphic/RDG/RDGSystemTextures.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Shader.hpp>
+#include <Engine/Graphic/View/PathTracedGuides.hpp>
 
 #include <glm/glm.hpp>
 
@@ -27,9 +28,9 @@ namespace Desert::Graphic
     // JFA ping-pong, SSR trace/tiles, cloud trace/guide, the exposure histogram) stays a local of that
     // AddFrame*. A history (read in a LATER frame) is never here: it is an external the renderer owns.
     // The struct is rebuilt with every graph and dies with it.
-    // The most shadow cascades a lit pass samples (the layers of u_ShadowCascades); SceneResources::kMaxCascades
-    // is asserted equal where both are visible (MeshRendererInternal.hpp).
-    inline constexpr uint32_t kSceneViewShadowCascades = 4;
+    // The most shadow cascades a lit pass samples (the layers of ShadowCascadesTexture: every shadowed directional
+    // light's); SceneResources::kMaxCascadeViews is asserted equal where both are visible (MeshRendererInternal.hpp).
+    inline constexpr uint32_t kSceneViewShadowCascades = 8;
 
     // The view's dynamic lights as buffers of THIS frame's graph (SceneRenderer::AddFrameLightGrid, before any lit
     // node): the point and spot rows, the local shadow views their ShadowView indices name, and the view's light
@@ -67,10 +68,18 @@ namespace Desert::Graphic
         RDG::TextureRef Bloom;          // BloomRenderer chain (mip 0 read)   -> Tonemap
         RDG::TextureRef LightShafts;    // LightShaftRenderer result          -> Tonemap
         RDG::TextureRef LensFlare;      // LensFlareRenderer result           -> Tonemap
+        // LocalExposureRenderer: the bilateral grid (3D) and the blurred 1/32 log luminance -> Bloom mip 0, Tonemap
+        RDG::TextureRef LocalExposureGrid;
+        RDG::TextureRef BlurredLogLuminance;
+        // LocalExposureRenderer, Fusion: level 0 of the blended pyramid (fused display value, R32F) -> Tonemap
+        RDG::TextureRef ExposureFusion;
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
         // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
         // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
         RDG::TextureRef ReflectionRay;
+        // The path tracer's own surface guides of this frame's raw paths, set only when it handed them to the
+        // upscaler that denoises (System::PathTracer::AddPasses)              -> TemporalUpscalerInputs
+        PathTracedGuides PathGuides;
         RDG::TextureRef SceneColorCopy; // scene snapshot                     -> glass refraction
         // The opaque scene's device depth (the G-buffer depth, reversed-Z), set by the deferred composite; invalid
         // on the forward path, which has no depth before its meshes draw   -> contact shadows of the forward
@@ -124,6 +133,8 @@ namespace Desert::Graphic
         // nodes use), set only when SkyboxRenderer::SkyPassSamplesLuts; invalid otherwise   -> SkyboxPass
         RDG::TextureRef SkyTransmittanceLut;
         RDG::TextureRef SkyViewLut;
+        // Atmosphere light 1's (the moon's) Sky-View LUT, set only when SkyboxRenderer::SkyPassSamplesLight1Lut.
+        RDG::TextureRef SkyViewLut1;
         // The view's lights and light grid (ViewLightBuffers); invalid refs until AddFrameLightGrid ran.
         ViewLightBuffers Lights;
         // The MegaLights translucency volume (MegaLightsVolumeRefs); invalid refs until AddFrameMegaLightsVolume.
@@ -176,7 +187,7 @@ namespace Desert::Graphic
         RDG::SystemTextures System;
     };
 
-    // What a cloud-shadow receiver samples as u_CloudShadowMap this frame: the cloud layer's map, or
+    // What a cloud-shadow receiver samples as CloudShadowMapTexture this frame: the cloud layer's map, or
     // System.White (the sun is not occluded) when the frame has none. The ONE choice every receiver pass
     // (deferred composite, forward meshes, glass, terrain) declares and binds.
     [[nodiscard]] inline RDG::TextureRef CloudShadowMapOrWhite( const FrameGraphRefs& refs )
@@ -213,10 +224,18 @@ namespace Desert::Graphic
         // point and spot lights of its froxel. Bound where the layout has the two storage blocks.
         RDG::BufferRef LightGridParams;
         RDG::BufferRef LightGridCells;
+        // The table of the local shadow atlas's views (ViewLightBuffers::ShadowViews) each point/spot row's
+        // shadowView names: read with the atlas wherever a lit pass shades the grid's lights
+        // (Mesh/LocalLightShadow.glslh).
+        RDG::BufferRef LocalShadowViews;
         // "Shadows: Ray Traced Sun": the render-resolution screen shadow mask the trace wrote (R = sun visibility,
         // SceneRenderer::AddFrameRayTracedSunShadow), read by a forward draw's DESERT_SUN_SHADOW_SCREEN_MASK
         // permutation in place of the cascades. Invalid when the sun is not ray traced (nothing then reads it).
         RDG::TextureRef SunShadowMask;
+        // "Shadows: Ray Traced Local": the view's local-light masks (SceneRenderer::AddFrameRayTracedLocalShadows, one
+        // layer per ShadowMaskSlot), read by an OPAQUE forward draw's DESERT_LOCAL_SHADOW_SCREEN_MASK permutation in
+        // place of the atlas. Invalid when the local shadows are not ray traced (the permutation is then not chosen).
+        RDG::TextureRef LocalShadowMasks;
         // The view's world radiance cache (FrameTransients::RadianceCache*, the neutral one where the view traces
         // no GI): the forward passes read their diffuse estimator from it, as the deferred composite's final
         // gather does, so a capture measured by the cache is normalised by the cache on a forward pixel too.
@@ -242,7 +261,7 @@ namespace Desert::Graphic
             add( ShadowCascades );
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
-                    SceneDepth, SceneShadingWord, SunShadowMask, RadianceCacheIrradiance, RadianceCacheDepth,
+                    SceneDepth, SceneShadingWord, SunShadowMask, LocalShadowMasks, RadianceCacheIrradiance, RadianceCacheDepth,
                     RainOcclusionMap } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
@@ -253,45 +272,85 @@ namespace Desert::Graphic
 
     // The shader names the inputs are bound under (Mesh/CascadedShadow.glslh, Mesh/AmbientIBL.glslh, the cloud
     // shadow receiver). Every one is a separate texture read through a shared sampler state of the pass (the slot
-    // names in SceneViewDetail::BindWhere); the cascades are one `texture2DArray u_ShadowCascades`, layer c =
+    // names in SceneViewDetail::BindWhere); the cascades are one `texture2DArray ShadowCascadesTexture`, layer c =
     // cascade c.
-    inline constexpr std::string_view kSceneViewShadowCascadesName   = "u_ShadowCascades";
-    inline constexpr std::string_view kSceneViewEnvIrradianceName  = "u_EnvIrradianceTex";
-    inline constexpr std::string_view kSceneViewEnvSpecularName    = "u_EnvSpecularTex";
-    inline constexpr std::string_view kSceneViewBrdfLutName        = "u_BRDFLUTTexture";
-    inline constexpr std::string_view kSceneViewCloudShadowMapName   = "u_CloudShadowMap";
-    inline constexpr std::string_view kSceneViewReflectionCubesName = "u_ReflectionCaptureCubes";
+    inline constexpr std::string_view kSceneViewShadowCascadesName   = "ShadowCascadesTexture";
+    inline constexpr std::string_view kSceneViewEnvIrradianceName  = "EnvironmentIrradianceTexture";
+    inline constexpr std::string_view kSceneViewEnvSpecularName    = "EnvironmentSpecularTexture";
+    inline constexpr std::string_view kSceneViewBrdfLutName        = "BrdfLutTexture";
+    inline constexpr std::string_view kSceneViewCloudShadowMapName   = "CloudShadowMapTexture";
+    inline constexpr std::string_view kSceneViewReflectionCubesName = "ReflectionCaptureCubesTexture";
     inline constexpr std::string_view kSceneViewReflectionListName  = "ReflectionCapturesUB";
-    inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "u_LocalShadowAtlas";
-    inline constexpr std::string_view kSceneViewSceneDepthName       = "u_SceneDepth";
-    inline constexpr std::string_view kSceneViewSceneShadingWordName = "u_SceneShadingWord";
+    inline constexpr std::string_view kSceneViewLocalShadowAtlasName = "LocalShadowAtlasTexture";
+    inline constexpr std::string_view kSceneViewSceneDepthName       = "SceneDepthTexture";
+    inline constexpr std::string_view kSceneViewSceneShadingWordName = "SceneShadingWordTexture";
     // DeferredLighting.shader and Mesh/Surface/Pass_Forward.glslh's DESERT_SUN_SHADOW_SCREEN_MASK branch.
-    inline constexpr std::string_view kSceneViewSunShadowMaskName = "u_ScreenShadowMask";
-    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "u_RainOcclusionMap";
+    inline constexpr std::string_view kSceneViewSunShadowMaskName = "ScreenShadowMaskTexture";
+    // DeferredLighting.shader and Mesh/ForwardLocalLights.glslh's DESERT_LOCAL_SHADOW_SCREEN_MASK branch.
+    inline constexpr std::string_view kSceneViewLocalShadowMasksName = "LocalShadowMasksTexture";
+    inline constexpr std::string_view kSceneViewRainOcclusionMapName = "RainOcclusionMapTexture";
     // Its own shared sampler state (SharedSamplerBinding.hpp): the G-buffer cells declare none of the others.
-    inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "u_RainOcclusionSampler";
+    inline constexpr std::string_view kSceneViewRainOcclusionSamplerName = "RainOcclusionSampler";
     // The permutation define of every program that reads kSceneViewSunShadowMaskName in place of the cascades
     // (DeferredLighting.shader, Mesh/Surface/Pass_Forward.glslh): one name for every renderer that acquires it.
     inline constexpr std::string_view kSunShadowScreenMaskDefine = "DESERT_SUN_SHADOW_SCREEN_MASK";
+    // The deferred composite's ray-traced local lights (Shadows HardwareTraced): each light with a ShadowMaskSlot
+    // reads its layer of LocalShadowMasksTexture (System::RayTracedLocalShadowRenderer) in place of its shadow map.
+    inline constexpr std::string_view kLocalShadowScreenMaskDefine = "DESERT_LOCAL_SHADOW_SCREEN_MASK";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
-    // u_MegaLightsDiffuse / u_MegaLightsSpecular (System::MegaLightsRenderer) in place of the light-grid loop.
+    // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";
     // The radiance cache's read (Common/RadianceCache.glslh; the names every reader of the cache binds).
     inline constexpr std::string_view kSceneViewRadianceCacheParamsName      = "RadianceCacheParamsUB";
     inline constexpr std::string_view kSceneViewRadianceCacheIndirectionName = "RadianceCacheIndirectionUB";
     inline constexpr std::string_view kSceneViewRadianceCacheProbesName      = "RadianceCacheProbesUB";
-    inline constexpr std::string_view kSceneViewRadianceCacheIrradianceName  = "u_RadianceCacheIrradiance";
-    inline constexpr std::string_view kSceneViewRadianceCacheDepthName       = "u_RadianceCacheDepth";
+    inline constexpr std::string_view kSceneViewRadianceCacheIrradianceName  = "RadianceCacheIrradianceTexture";
+    inline constexpr std::string_view kSceneViewRadianceCacheDepthName       = "RadianceCacheDepthTexture";
     // The light grid's two blocks (Mesh/LightGrid.glslh): the build shader, the composite, the forward cells.
     inline constexpr std::string_view kLightGridParamsBlockName = "LightGridParamsUB";
     inline constexpr std::string_view kLightGridCellsBlockName  = "LightGridCellsUB";
+    // The local shadow atlas's view table (Mesh/LocalLightShadowView.glslh): the composite, the forward cells.
+    inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
     // A READER of the world layout's cells (Mesh/LightGrid.glslh, LIGHT_GRID_WORLD_CELLS); the build shader writes
     // either layout through kLightGridCellsBlockName.
     inline constexpr std::string_view kLightGridWorldCellsBlockName = "LightGridWorldCellsUB";
     // The MegaLights translucency volume's names (Common/MegaLightsVolume.glslh): its block and its three volumes.
     inline constexpr std::string_view                kMegaLightsVolumeBlockName = "MegaLightsVolumeUB";
     inline constexpr std::array<std::string_view, 3> kMegaLightsVolumeNames     = {
-         "u_MegaLightsVolumeR", "u_MegaLightsVolumeG", "u_MegaLightsVolumeB" };
+         "MegaLightsVolumeRTexture", "MegaLightsVolumeGTexture", "MegaLightsVolumeBTexture" };
+    // The same names as the parameters a block binds them through (RDGShaderParameters.hpp): the string spelling
+    // above stays the one source, these are its binding form.
+    inline constexpr RDG::TextureParameter       kSceneViewShadowCascadesTexture{ kSceneViewShadowCascadesName };
+    inline constexpr RDG::TextureParameter       kSceneViewEnvIrradiance{ kSceneViewEnvIrradianceName };
+    inline constexpr RDG::TextureParameter       kSceneViewEnvSpecular{ kSceneViewEnvSpecularName };
+    inline constexpr RDG::TextureParameter       kSceneViewBrdfLut{ kSceneViewBrdfLutName };
+    inline constexpr RDG::TextureParameter       kSceneViewCloudShadowMap{ kSceneViewCloudShadowMapName };
+    inline constexpr RDG::TextureParameter       kSceneViewReflectionCubes{ kSceneViewReflectionCubesName };
+    inline constexpr RDG::StorageBufferParameter kSceneViewReflectionList{ kSceneViewReflectionListName };
+    inline constexpr RDG::TextureParameter       kSceneViewLocalShadowAtlas{ kSceneViewLocalShadowAtlasName };
+    inline constexpr RDG::TextureParameter       kSceneViewSceneDepth{ kSceneViewSceneDepthName };
+    inline constexpr RDG::TextureParameter       kSceneViewSceneShadingWord{ kSceneViewSceneShadingWordName };
+    inline constexpr RDG::TextureParameter       kSceneViewSunShadowMask{ kSceneViewSunShadowMaskName };
+    inline constexpr RDG::TextureParameter       kSceneViewLocalShadowMasks{ kSceneViewLocalShadowMasksName };
+    inline constexpr RDG::StorageBufferParameter kLightGridParamsBlock{ kLightGridParamsBlockName };
+    inline constexpr RDG::StorageBufferParameter kLightGridCellsBlock{ kLightGridCellsBlockName };
+    inline constexpr RDG::StorageBufferParameter kLocalShadowViewsBlock{ kLocalShadowViewsBlockName };
+    inline constexpr RDG::StorageBufferParameter kLightGridWorldCellsBlock{ kLightGridWorldCellsBlockName };
+    inline constexpr RDG::TextureParameter       kSceneViewRainOcclusionMap{ kSceneViewRainOcclusionMapName };
+    inline constexpr RDG::SamplerParameter kSceneViewRainOcclusionSampler{ kSceneViewRainOcclusionSamplerName };
+    inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheParams{
+         kSceneViewRadianceCacheParamsName };
+    inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheIndirection{
+         kSceneViewRadianceCacheIndirectionName };
+    inline constexpr RDG::StorageBufferParameter kSceneViewRadianceCacheProbes{
+         kSceneViewRadianceCacheProbesName };
+    inline constexpr RDG::TextureParameter kSceneViewRadianceCacheIrradiance{
+         kSceneViewRadianceCacheIrradianceName };
+    inline constexpr RDG::TextureParameter       kSceneViewRadianceCacheDepth{ kSceneViewRadianceCacheDepthName };
+    inline constexpr RDG::StorageBufferParameter kMegaLightsVolumeBlock{ kMegaLightsVolumeBlockName };
+    inline constexpr std::array<RDG::TextureParameter, 3> kMegaLightsVolumeTextures{
+         RDG::TextureParameter( kMegaLightsVolumeNames[0] ), RDG::TextureParameter( kMegaLightsVolumeNames[1] ),
+         RDG::TextureParameter( kMegaLightsVolumeNames[2] ) };
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -310,6 +369,7 @@ namespace Desert::Graphic
         inputs.RainOcclusionMap       = t.RainOcclusionMap.IsValid() ? t.RainOcclusionMap : refs.System.White;
         inputs.LightGridParams        = t.Lights.GridParams;
         inputs.LightGridCells         = t.Lights.GridCells;
+        inputs.LocalShadowViews       = t.Lights.ShadowViews;
         inputs.RadianceCacheParams      = t.RadianceCacheParams;
         inputs.RadianceCacheIndirection = t.RadianceCacheIndirection;
         inputs.RadianceCacheProbes      = t.RadianceCacheProbes;
@@ -350,46 +410,47 @@ namespace Desert::Graphic
         template <typename Block, typename Samples>
         void BindWhere( Block& block, const SceneViewInputs& inputs, const Samples& samples )
         {
-            const auto bind = [&]( std::string_view name, RDG::TextureRef texture, std::string_view samplerSlot,
-                                   RDG::SamplerDesc sampler )
+            const auto bind = [&]( RDG::TextureParameter name, RDG::TextureRef texture,
+                                   RDG::SamplerParameter samplerSlot, RDG::SamplerDesc sampler )
             {
-                if ( !samples( name ) )
+                if ( !samples( name.Name ) )
                     return;
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( samplerSlot, sampler );
             };
-            constexpr std::string_view kRepeat = "u_LinearRepeatSampler";
-            constexpr std::string_view kClamp  = "u_LinearClampSampler";
-            constexpr std::string_view kPoint  = "u_PointClampSampler";
+            constexpr RDG::SamplerParameter kRepeat{ "LinearRepeatSampler" };
+            constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
+            constexpr RDG::SamplerParameter kPoint{ "PointClampSampler" };
             if ( inputs.ShadowCascades.IsValid() )
-                bind( kSceneViewShadowCascadesName, inputs.ShadowCascades, kRepeat,
+                bind( kSceneViewShadowCascadesTexture, inputs.ShadowCascades, kRepeat,
                       RDG::SamplerDesc::LinearRepeat() );
-            bind( kSceneViewEnvIrradianceName, inputs.EnvIrradiance, kClamp, RDG::SamplerDesc::LinearClamp() );
-            bind( kSceneViewEnvSpecularName, inputs.EnvSpecular, kClamp, RDG::SamplerDesc::LinearClamp() );
-            bind( kSceneViewBrdfLutName, inputs.BrdfLut, kClamp, RDG::SamplerDesc::LinearClamp() );
-            bind( kSceneViewCloudShadowMapName, inputs.CloudShadowMap, kRepeat, RDG::SamplerDesc::LinearRepeat() );
+            bind( kSceneViewEnvIrradiance, inputs.EnvIrradiance, kClamp, RDG::SamplerDesc::LinearClamp() );
+            bind( kSceneViewEnvSpecular, inputs.EnvSpecular, kClamp, RDG::SamplerDesc::LinearClamp() );
+            bind( kSceneViewBrdfLut, inputs.BrdfLut, kClamp, RDG::SamplerDesc::LinearClamp() );
+            bind( kSceneViewCloudShadowMap, inputs.CloudShadowMap, kRepeat, RDG::SamplerDesc::LinearRepeat() );
             if ( inputs.ReflectionCaptureCubes.IsValid() )
-                bind( kSceneViewReflectionCubesName, inputs.ReflectionCaptureCubes, kClamp,
+                bind( kSceneViewReflectionCubes, inputs.ReflectionCaptureCubes, kClamp,
                       RDG::SamplerDesc::LinearClamp() );
             // Read with texelFetch (Mesh/LocalLightShadow.glslh filters by hand inside each tile).
-            bind( kSceneViewLocalShadowAtlasName, inputs.LocalShadowAtlas, kPoint,
-                  RDG::SamplerDesc::PointClamp() );
+            bind( kSceneViewLocalShadowAtlas, inputs.LocalShadowAtlas, kPoint, RDG::SamplerDesc::PointClamp() );
             // Marched texel by texel (Common/ContactShadow.glslh): nearest, clamped at the screen's edge.
-            bind( kSceneViewSceneDepthName, inputs.SceneDepth, kPoint, RDG::SamplerDesc::PointClamp() );
+            bind( kSceneViewSceneDepth, inputs.SceneDepth, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the fragment (the mask is the render resolution the forward draws raster
             // at).
             if ( inputs.SunShadowMask.IsValid() )
-                bind( kSceneViewSunShadowMaskName, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
+                bind( kSceneViewSunShadowMask, inputs.SunShadowMask, kPoint, RDG::SamplerDesc::PointClamp() );
+            // Read with texelFetch at the fragment, layer = the light's ShadowMaskSlot.
+            if ( inputs.LocalShadowMasks.IsValid() )
+                bind( kSceneViewLocalShadowMasks, inputs.LocalShadowMasks, kPoint, RDG::SamplerDesc::PointClamp() );
             // Read with texelFetch at the hit texel (an integer format is never filtered).
-            bind( kSceneViewSceneShadingWordName, inputs.SceneShadingWord, kPoint,
-                  RDG::SamplerDesc::PointClamp() );
+            bind( kSceneViewSceneShadingWord, inputs.SceneShadingWord, kPoint, RDG::SamplerDesc::PointClamp() );
             // Trilinear between froxel centres, clamped at the frustum's edges (Common/MegaLightsVolume.glslh).
-            for ( std::size_t channel = 0; channel < kMegaLightsVolumeNames.size(); ++channel )
-                bind( kMegaLightsVolumeNames[channel], inputs.MegaLightsVolume.Lighting[channel], kClamp,
+            for ( std::size_t channel = 0; channel < kMegaLightsVolumeTextures.size(); ++channel )
+                bind( kMegaLightsVolumeTextures[channel], inputs.MegaLightsVolume.Lighting[channel], kClamp,
                       RDG::SamplerDesc::LinearClamp() );
             // Gathered 2x2 and compared by hand (SurfaceWeather.glslh RainOcclusion): nearest, clamped.
             if ( inputs.RainOcclusionMap.IsValid() )
-                bind( kSceneViewRainOcclusionMapName, inputs.RainOcclusionMap, kSceneViewRainOcclusionSamplerName,
+                bind( kSceneViewRainOcclusionMap, inputs.RainOcclusionMap, kSceneViewRainOcclusionSampler,
                       RDG::SamplerDesc::PointClamp() );
         }
     } // namespace SceneViewDetail
@@ -410,7 +471,7 @@ namespace Desert::Graphic
     // SETUP: declares on @p block (RenderPassDeclaration::BlockDeclaration or RDG::BindingBlockBuilder) every
     // input
     // @p layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one - the
-    // block would fault the pass in ValidatePassBindings ("'u_ShadowCascades' is not a resource of shader ...").
+    // block would fault the pass in ValidatePassBindings ("'ShadowCascadesTexture' is not a resource of shader ...").
     // A block entry IS the read: the node does not also declare inputs.Refs().
     template <typename Block>
     void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
@@ -424,30 +485,31 @@ namespace Desert::Graphic
                               return slot.Name == kSceneViewReflectionListName &&
                                      slot.Kind == RDG::ShaderResourceKind::StorageBuffer;
                           } ) )
-            block.Storage( kSceneViewReflectionListName, inputs.ReflectionCaptures, RDG::Access::StorageRead );
-        // The light grid, where the shader reads it. A frame graph without the grid (no AddFrameLightGrid) hands
-        // invalid refs, and a shader that reads the grid then faults its pass by name rather than reading nothing.
-        // The MegaLights volume's block likewise (invalid before AddFrameMegaLightsVolume: a reader faults by
-        // name).
+            block.Storage( kSceneViewReflectionList, inputs.ReflectionCaptures, RDG::Access::StorageRead );
+        // The light grid and the local shadow views its lights name, where the shader reads them. A frame graph
+        // without them (no AddFrameLightGrid) hands invalid refs, and a shader that reads them then faults its
+        // pass by name rather than reading nothing. The MegaLights volume's block likewise (invalid before
+        // AddFrameMegaLightsVolume: a reader faults by name).
         for ( const auto& [name, buffer] :
-              { std::pair{ kLightGridParamsBlockName, inputs.LightGridParams },
-                std::pair{ kLightGridCellsBlockName, inputs.LightGridCells },
-                std::pair{ kMegaLightsVolumeBlockName, inputs.MegaLightsVolume.Params } } )
-            if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
+              { std::pair{ kLightGridParamsBlock, inputs.LightGridParams },
+                std::pair{ kLightGridCellsBlock, inputs.LightGridCells },
+                std::pair{ kLocalShadowViewsBlock, inputs.LocalShadowViews },
+                std::pair{ kMegaLightsVolumeBlock, inputs.MegaLightsVolume.Params } } )
+            if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );
         // The radiance cache, where the shader reads it (the forward passes' estimator). Bound here and not in
         // BindWhere: the surface cache's lighting passes bind their own cache under the same names.
         for ( const auto& [name, buffer] :
-              { std::pair{ kSceneViewRadianceCacheParamsName, inputs.RadianceCacheParams },
-                std::pair{ kSceneViewRadianceCacheIndirectionName, inputs.RadianceCacheIndirection },
-                std::pair{ kSceneViewRadianceCacheProbesName, inputs.RadianceCacheProbes } } )
-            if ( SceneViewDetail::LayoutReadsBuffer( layout, name ) )
+              { std::pair{ kSceneViewRadianceCacheParams, inputs.RadianceCacheParams },
+                std::pair{ kSceneViewRadianceCacheIndirection, inputs.RadianceCacheIndirection },
+                std::pair{ kSceneViewRadianceCacheProbes, inputs.RadianceCacheProbes } } )
+            if ( SceneViewDetail::LayoutReadsBuffer( layout, name.Name ) )
                 block.Storage( name, buffer, RDG::Access::StorageRead );
         for ( const auto& [name, texture] :
-              { std::pair{ kSceneViewRadianceCacheIrradianceName, inputs.RadianceCacheIrradiance },
-                std::pair{ kSceneViewRadianceCacheDepthName, inputs.RadianceCacheDepth } } )
-            if ( SceneViewDetail::LayoutSamples( layout, name ) )
+              { std::pair{ kSceneViewRadianceCacheIrradiance, inputs.RadianceCacheIrradiance },
+                std::pair{ kSceneViewRadianceCacheDepth, inputs.RadianceCacheDepth } } )
+            if ( SceneViewDetail::LayoutSamples( layout, name.Name ) )
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                     .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() );
+                     .Sampler( RDG::SamplerParameter( "LinearClampSampler" ), RDG::SamplerDesc::LinearClamp() );
     }
 } // namespace Desert::Graphic

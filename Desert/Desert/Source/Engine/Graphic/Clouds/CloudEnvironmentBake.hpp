@@ -59,14 +59,14 @@ namespace Desert::Graphic
     // The world weather map — the march's remap of the baked profile (CloudGpuPayload::Weather), applied
     // to the panorama exactly as to the screen.
     inline constexpr uint32_t kSkyBakeCloudFarWeatherBinding = 14;
-    // The painted layout's two textures (u_CloudLayoutPattern / u_CloudLayoutMask,
+    // The painted layout's two textures (CloudLayoutPatternTexture / CloudLayoutMaskTexture,
     // VolumetricCloudRenderer::SampledVolumes).
     inline constexpr uint32_t kSkyBakeCloudLayoutPatternBinding = 15;
     inline constexpr uint32_t kSkyBakeCloudLayoutMaskBinding    = 16;
     // The bake's two shared sampler states (ComputePipeline::SetSampler), the states the screen passes read the
-    // same images through: u_LinearRepeatSampler for the cloud volumes and maps (CloudRaymarch), and
-    // u_GlobalFilterSampler for the sky's LUTs and the distant sky light (the image's own Global-policy state).
-    // The authored medium's textures read through its generated u_CloudMediumSampler, bound right after them.
+    // same images through: LinearRepeatSampler for the cloud volumes and maps (CloudRaymarch), and
+    // GlobalFilterSampler for the sky's LUTs and the distant sky light (the image's own Global-policy state).
+    // The authored medium's textures read through its generated CloudMediumSampler, bound right after them.
     inline constexpr uint32_t kSkyBakeLinearRepeatSamplerBinding = 17;
     inline constexpr uint32_t kSkyBakeGlobalFilterSamplerBinding = 18;
 

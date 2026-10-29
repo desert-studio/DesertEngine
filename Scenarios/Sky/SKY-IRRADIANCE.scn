@@ -1,0 +1,21 @@
+# SKY-IRRADIANCE: the sky light captured from the physical atmosphere delivers a clear sky's illuminance to a
+# horizontal surface -- roughly 10-20 % of a high 100 000 lux sun's (UE: SkyLight capturing SkyAtmosphere) --
+# and the log says it: "[SkyAtmosphere] Sky light illuminance on a horizontal surface: sky X lx ..., sun Y lx at
+# elevation Z deg; shade/sun ..., sky/(sun+sky) ..." once per capture (SkyCaptureIrradianceReadback, read back
+# FramesInFlight frames after the capture completes).
+# One scene: opening a second scene over edits stops at the unsaved-changes popup, and Starter's sky is the
+# artistic gradient (Model 0), not the atmosphere. B16 carries the physical atmosphere and the 100 000 lux sun.
+# Bistro (BistroFoliageProj main): Sun 3651295826201078030, PostProcessVolume 6039035132485441499.
+# Manual EV100 14 for 2, the content's own tonemapper (ACES) and local exposure.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.AutoExposure false
+Дано set 6039035132485441499 PostProcessVolumeData.Settings.ManualExposureEV100 14
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,-0.4,-0.7
+Тогда-вид 2_bistro_tables Бистро у столов при EV14: булыжник и стулья под столами различимы, не чёрные
+Когда run Entity "Sun"
+Когда --subject selection set SunElevation 60
+Когда --subject viewport set Camera.Position -440,300,-230
+Когда --subject viewport set Camera.Direction -0.6,-0.4,-0.7
+Тогда-вид 1_open_ground солнце 60 deg: тень на открытой мостовой читается; в логе sky/(sun+sky) 10-20 %

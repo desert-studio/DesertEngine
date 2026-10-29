@@ -45,9 +45,7 @@ namespace Desert::Graphic::Render2D
         // batcher's own geometry, so a second spelling of it here would be a second thing to keep level.
         VertexBufferLayout UILayout()
         {
-            return VertexBufferLayout( { VertexBufferElement( ShaderDataType::Float2, "a_Position" ),
-                                         VertexBufferElement( ShaderDataType::Float2, "a_TexCoord" ),
-                                         VertexBufferElement( ShaderDataType::Float4, "a_Color" ) } );
+            return VertexBufferLayout::FromVertexInputs( ShaderProtocols::kUIVertexInputs );
         }
 
         Image2D* ResolveTextureImage( uint64_t textureHandle )
@@ -333,7 +331,9 @@ namespace Desert::Graphic::Render2D
         const std::shared_ptr<Shader>& shader   = entry.Pipeline->GetSpecification().Shader;
         if ( !shader )
             return "the pipeline has no shader";
-        auto*       rowBuffer = material.Get<StorageBufferProperty>( Core::Formats::kMaterialRowBlockName );
+        // Find: a UI template with no parameters declares no row block, and RowFault reads that absence as a
+        // complete draw (nothing to fill).
+        auto*       rowBuffer = material.Find<StorageBufferProperty>( kMaterialRowBlock );
         const auto& row       = material.GetParamRow();
         std::string fault =
              UIMaterialFallback::RowFault( rowBuffer != nullptr, RowFields( shader->GetProgramMeta() ),

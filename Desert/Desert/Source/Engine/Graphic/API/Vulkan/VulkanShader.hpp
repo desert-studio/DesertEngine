@@ -124,6 +124,10 @@ namespace Desert::Graphic::API::Vulkan
         {
             return m_DeviceRefusal;
         }
+        [[nodiscard]] std::string_view GetCompileError() const override
+        {
+            return m_CompileError;
+        }
         /**
          * The layout for @p set, as a STRONG reference.
          *
@@ -168,6 +172,13 @@ namespace Desert::Graphic::API::Vulkan
             return m_ReflectionData.VertexInputLocations;
         }
 
+        // The vertex stage's inputs by name and type (ShaderReflection::ReflectVertexInputs).
+        [[nodiscard]] const std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>&
+        GetVertexInputs() const
+        {
+            return m_ReflectionData.VertexInputs;
+        }
+
         // The colour locations the fragment stage writes (ShaderReflection::ReflectFragmentOutputLocations).
         [[nodiscard]] const std::vector<uint32_t>& GetFragmentOutputLocations() const
         {
@@ -181,8 +192,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // RETURNS THE MEMBER, and the member exists because of what `return {};` did here. That built a
         // temporary, bound the returned reference to it, and destroyed it before the caller could look —
-        // every read of this getter was a read of freed memory. ShaderLibraryPanel does that read on
-        // every frame a shader node is expanded, then iterates the "vector" it got back.
+        // every read of this getter was a read of freed memory.
         virtual const ShaderVariant& GetVariant() const override
         {
             return m_Variant;
@@ -212,6 +222,8 @@ namespace Desert::Graphic::API::Vulkan
         std::string                                  m_PassName; // empty = default program
         // Set by BuildFromSpirv when a stage needs a capability this device lacks (GetDeviceRefusal).
         std::string m_DeviceRefusal;
+        // The last Reload's failure, or empty after one that succeeded (GetCompileError).
+        std::string m_CompileError;
 
         // STORED **AND** HONOURED, which is the half its predecessor never had: this reaches
         // CompileProgram below, and through it the includer and the SPIR-V cache key. A variant that

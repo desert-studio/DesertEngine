@@ -48,13 +48,15 @@ Shader "RadianceCacheAllocate"
             return HashMix( HashMix( HashMix( hash, floatBitsToUint( v.x ) ), floatBitsToUint( v.y ) ), floatBitsToUint( v.z ) );
         }
 
-        // Everything that lights the probe's cell directly: the sun, and each light the world grid lists there
+        // Everything that lights the probe's cell directly: the sun, atmosphere light 1, and each light the world grid lists there
         // with what it emits and where.
         uint LightHash( vec3 centre )
         {
             uint hash = 2166136261u;
             hash      = HashVec3( hash, giFrame.sunTravel.xyz * giFrame.sunTravel.w );
             hash      = HashVec3( hash, giFrame.sunRadiance.rgb * giFrame.sunTravel.w );
+            hash      = HashVec3( hash, giFrame.light1Travel.xyz * giFrame.light1Travel.w );
+            hash      = HashVec3( hash, giFrame.light1Radiance.rgb * ( 1.0 + giFrame.light1Radiance.w ) * giFrame.light1Travel.w );
             const LightGridWorldRange range = LightGridWorldLightsAt( lightGrid, centre );
             for ( uint k = 0u; k < range.count; ++k )
             {
@@ -82,10 +84,10 @@ Shader "RadianceCacheAllocate"
             const uvec3 id    = gl_GlobalInvocationID;
             const uint  grid  = radianceCache.shape.y;
             const uint  width = grid * radianceCache.shape.x;
-            if ( id.x >= width || id.y >= grid || id.z >= grid || u_Reset != 0u )
+            if ( id.x >= width || id.y >= grid || id.z >= grid || Reset != 0u )
                 return;
             const uint entry = id.x + width * ( id.y + grid * id.z );
-            if ( radianceCacheLastUsed[entry] != u_FrameIndex )
+            if ( radianceCacheLastUsed[entry] != FrameIndex )
                 return;
             const uint  clipmap = id.x / grid;
             const ivec3 world   = RadianceCacheWorldCellOfEntry( radianceCache, ivec3( id.x % grid, id.y, id.z ), clipmap );
@@ -116,8 +118,8 @@ Shader "RadianceCacheAllocate"
             else if ( hash != frames.z )
                 bucket = RC_PRIORITY_LIGHTS_CHANGED;
             else
-                bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( u_FrameIndex - frames.y, 1u ) ) ) * 3.0 ) );
-            radianceCacheProbes[probe].frames   = uvec4( u_FrameIndex, frames.y, frames.z, hash );
+                bucket = min( RC_PRIORITY_LIGHTS_CHANGED - 1u, uint( log2( float( max( FrameIndex - frames.y, 1u ) ) ) * 3.0 ) );
+            radianceCacheProbes[probe].frames   = uvec4( FrameIndex, frames.y, frames.z, hash );
             radianceCacheProbes[probe].priority = uvec4( bucket, 0u, 0u, 0u );
             atomicAdd( radianceCacheSchedule[bucket], 1u );
         }

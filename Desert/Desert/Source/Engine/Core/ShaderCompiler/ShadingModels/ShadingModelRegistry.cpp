@@ -320,12 +320,14 @@ namespace Desert::Core::ShadingModels
                             "#define Evaluate {}_Evaluate\n"
                             "#define EvaluateSpecular {}_EvaluateSpecular\n"
                             "#define EvaluateAmbient {}_EvaluateAmbient\n"
+                            "#define EvaluateAmbientSpecular {}_EvaluateAmbientSpecular\n"
                             "{}\n"
                             "#undef Evaluate\n"
                             "#undef EvaluateSpecular\n"
-                            "#undef EvaluateAmbient\n",
+                            "#undef EvaluateAmbient\n"
+                            "#undef EvaluateAmbientSpecular\n",
                             RootRelativeName( e.Manifest ), e.Manifest.Guid.ToString(), e.Index, e.Manifest.Name,
-                            e.Manifest.Name, e.Manifest.Name, e.Manifest.Body );
+                            e.Manifest.Name, e.Manifest.Name, e.Manifest.Name, e.Manifest.Body );
 
         const auto dispatch =
              [&]( const std::string_view signature, const std::string_view suffix, const std::string_view args )
@@ -345,6 +347,30 @@ namespace Desert::Core::ShadingModels
         dispatch( "vec3 DesertEvaluateShadingModelAmbient( int index, DesertAmbient A, DesertSurface S, "
                   "DesertPayload P )",
                   "EvaluateAmbient", "A, S, P" );
+
+        // SSS-PROFILE: the screen-space scattered models (the manifests' SubsurfaceProfile lines), their profile row,
+        // and the specular half of their ambient (the diffuse half = EvaluateAmbient - this, as the direct split).
+        out += "\n// The model's diffuse is scattered in screen space by its subsurface profile (UE MSM_SubsurfaceProfile).\n"
+               "bool DesertShadingModelScattersInScreenSpace( int index )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SubsurfaceProfilePin.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return true;\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ) );
+        out += "    return false;\n}\n";
+        out += "\n// The texel's row in the subsurface profile atlas; 255 = none (UE SSS_PROFILE_ID_INVALID).\n"
+               "uint DesertSubsurfaceProfileIndex( int index, DesertPayload P )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SubsurfaceProfilePin.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return uint( round( P.{} * 255.0 ) );\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ), e.Manifest.SubsurfaceProfilePin );
+        out += "    return 255u;\n}\n";
+        out += "\nvec3 DesertEvaluateShadingModelAmbientSpecular( int index, DesertAmbient A, DesertSurface S, "
+               "DesertPayload P )\n{\n";
+        for ( const ShadingModelEntry& e : m_Entries )
+            if ( !e.Manifest.SubsurfaceProfilePin.empty() )
+                std::format_to( emit, "    if ( index == {} )\n        return {}_EvaluateAmbientSpecular( A, S, P );\n",
+                                ShadingModelIndexDefine( e.Manifest.Name ), e.Manifest.Name );
+        out += "    return vec3( 0.0 );\n}\n";
 
         // UE IsSubsurfaceModel + GBuffer.CustomData.a: the model's subsurface opacity from its payload, from the
         // manifests' SubsurfaceOpacity lines; -1 = not a subsurface model (Common/ContactShadow.glslh).

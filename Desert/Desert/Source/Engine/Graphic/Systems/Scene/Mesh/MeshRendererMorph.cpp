@@ -22,6 +22,18 @@
 #include <span>
 #include <vector>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshMorphShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphBaseVertices );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphDeltas );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphWeights );
+        DESERT_SHADER_PARAMETER( StorageBuffer, MorphOutput );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -62,8 +74,10 @@ namespace Desert::Graphic::System
             return base;
 
         MorphTwin& twin = m_MorphTwins[data.Entity];
-        // The base's vertex buffer is the twin's identity: held by the twin, it cannot be reused by another mesh.
-        if ( !twin.Twin || twin.BaseVertices != base->GetVertexBuffer() )
+        // The base's content revision and geometry span are the twin's identity (the pool's buffers are shared
+        // by every mesh, so the buffer alone says nothing).
+        if ( !twin.Twin || twin.BaseRevision != base->GetRenderRevision() ||
+             twin.BaseGeometry.MeshBinding() != base->GetGeometry().MeshBinding() )
         {
             const auto bytes = static_cast<uint32_t>( base->GetVertexCount() * sizeof( SkinnedVertex ) );
             std::shared_ptr<VertexBuffer> vertices = VertexBuffer::Create( bytes, BufferUsage::GpuWritten );
@@ -77,7 +91,8 @@ namespace Desert::Graphic::System
             }
             twin              = MorphTwin{};
             twin.Base         = base;
-            twin.BaseVertices = base->GetVertexBuffer();
+            twin.BaseRevision = base->GetRenderRevision();
+            twin.BaseGeometry = base->GetGeometry();
             twin.Vertices     = vertices;
             twin.Twin         = SkinnedMesh::MakeMorphedTwin( *base, std::move( vertices ) );
         }
@@ -155,7 +170,7 @@ namespace Desert::Graphic::System
                 for ( MorphTwin* twin : pending )
                 {
                     const SkinnedMesh& base = *twin->Twin;
-                    if ( const auto in = Renderer::ImportVertexBuffer( twin->BaseVertices, twin->BaseImport );
+                    if ( const auto in = Renderer::ImportMeshVertices( twin->BaseGeometry, twin->BaseImport );
                          !in )
                     {
                         unmorph( *twin, in.GetError() );
@@ -187,10 +202,14 @@ namespace Desert::Graphic::System
                          [&]( RDG::PassBuilder& pass )
                          {
                              pass.Bindings( layout, fill )
-                                  .Storage( "MorphBaseVertices", baseRef, RDG::Access::StorageRead )
-                                  .Storage( "MorphDeltas", deltasRef, RDG::Access::StorageRead )
-                                  .Storage( "MorphWeights", weightsRef, RDG::Access::StorageRead )
-                                  .Storage( "MorphOutput", outRef, RDG::Access::StorageWrite );
+                                  .Storage( MeshMorphShaderParameters::MorphBaseVertices, baseRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( MeshMorphShaderParameters::MorphDeltas, deltasRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( MeshMorphShaderParameters::MorphWeights, weightsRef,
+                                            RDG::Access::StorageRead )
+                                  .Storage( MeshMorphShaderParameters::MorphOutput, outRef,
+                                            RDG::Access::StorageWrite );
                          },
                          [pipeline, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
                          {

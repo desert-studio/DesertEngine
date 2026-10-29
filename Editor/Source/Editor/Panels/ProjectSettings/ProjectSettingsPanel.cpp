@@ -4,7 +4,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -223,6 +223,50 @@ namespace Desert::Editor
         if ( ImGui::Checkbox( "##TsrThinGeometryDetection", &m_EditRendering.TsrThinGeometryDetection ) )
             CommitRendering();
         Utils::ImGuiUtilities::EndPropertyRow();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Game Viewport High DPI",
+             "UE r.SecondaryScreenPercentage.GameViewport: off -- the packaged game renders at the window's logical "
+             "resolution (display pixels / DPI scale) and upscales at present; on -- at the display's native pixels "
+             "(a Retina window costs four times the targets and histories)." );
+        if ( ImGui::Checkbox( "##GameViewportHighDPI", &m_EditRendering.GameViewportHighDPI ) )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
+
+        // UE Project Settings > Engine > Texture Encoding. Each effort is part of the texture DDC key, so a change
+        // re-derives the textures built at it (the editor at the next miss, the cook at the next TextureCook).
+        auto& encoding = m_EditRendering.TextureEncoding;
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Texture Fast Encode Effort",
+             "BC7 search effort (0..1) of a fast encode: what the editor builds on a DDC miss while you wait." );
+        ImGui::SliderFloat( "##TextureFastEffort", &encoding.FastEffort, 0.0f, 1.0f, "%.2f" );
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
+        Utils::ImGuiUtilities::BeginPropertyRow(
+             "Texture Final Encode Effort",
+             "BC7 search effort (0..1) of a final encode: what TextureCook and the packager build, what ships." );
+        ImGui::SliderFloat( "##TextureFinalEffort", &encoding.FinalEffort, 0.0f, 1.0f, "%.2f" );
+        if ( ImGui::IsItemDeactivatedAfterEdit() )
+            CommitRendering();
+        Utils::ImGuiUtilities::EndPropertyRow();
+        const char* speeds[] = { "Final", "Final If Available", "Fast" };
+        const auto  speedRow = [&]( const char* label, const char* tip, const char* id,
+                                   ::Desert::Project::TextureEncodeSpeed& speed )
+        {
+            Utils::ImGuiUtilities::BeginPropertyRow( label, tip );
+            int at = static_cast<int>( speed );
+            if ( ImGui::Combo( id, &at, speeds, IM_ARRAYSIZE( speeds ) ) )
+            {
+                speed = static_cast<::Desert::Project::TextureEncodeSpeed>( at );
+                CommitRendering();
+            }
+            Utils::ImGuiUtilities::EndPropertyRow();
+        };
+        speedRow( "Texture Editor Uses",
+                  "Final If Available: a final entry a cook stored is used as it is; a miss is built fast.",
+                  "##TextureEditorUses", encoding.EditorUses );
+        speedRow( "Texture Cook Uses", "What TextureCook and the packager build.", "##TextureCookUses",
+                  encoding.CookUses );
     }
 
     void ProjectSettingsPanel::CommitRendering()

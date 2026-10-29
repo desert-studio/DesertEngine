@@ -11,7 +11,7 @@
 #include "Editor/Core/OpenDocuments.hpp"
 #include "Editor/Core/PreviewViewpoints.hpp"
 #include "Editor/Core/UnsavedClose.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include <cstdint>
 #include <filesystem>
 #include <functional>

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Editor/Core/DragPayloads.hpp>
-#include <Editor/Panels/FileExplorer/FileType.hpp>
+#include <Editor/Core/FileType.hpp>
 
 #include <algorithm>
 #include <array>

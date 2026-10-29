@@ -3,10 +3,10 @@ Shader "SSDReconstructReflections"
 {
     // The screen-space denoiser's RECONSTRUCTION of the reflections signal (UE ScreenSpaceDenoiser, reflections:
     // SSDSpatialAccumulation.usf STAGE_RECONSTRUCTION), at full resolution from SSR's trace (full or half
-    // resolution: Reflections.DownsampleFactor, u_Params.z).
+    // resolution: Reflections.DownsampleFactor, Params.z).
     // Each of the 5x5 trace texels around the pixel is one sample of THIS pixel's lobe - the RATIO ESTIMATOR
     // (Stachowiak 2015, "Stochastic Screen-Space Reflections"; UE SSRT): the texel lends its HIT POINT and the
-    // log2 pdf it drew its ray with (u_TraceRay); the direction is re-aimed from THIS pixel at that point, and the
+    // log2 pdf it drew its ray with (TraceRayTexture); the direction is re-aimed from THIS pixel at that point, and the
     // sample weighs this pixel's BRDF * cos over the neighbour's pdf (Fresnel excluded: the lighting's split sum
     // multiplies it). A mirror's BRDF is ~0 away from its own direction, so it borrows nothing and stays sharp.
     // Each sample is further weighed by
@@ -20,38 +20,38 @@ Shader "SSDReconstructReflections"
     //    upsample), yet wide enough that every texel of the set counts (a narrow one leaves one or two samples: grain).
     //    5x5 texels = UE's reconstruction footprint of 8-16 samples over the lobe; the BRDF keeps a mirror sharp.
     // rgb = sum(w * a * k * L) / sum(w * a * k) (k = Karis' inverse luminance), a = sum(w * a) / sum(w); written
-    // premultiplied to u_Signal.
-    // Tiles the trace marked as reflecting nothing (u_TileMask) write 0 and stop.
+    // premultiplied to ReconstructedSignalTexture.
+    // Tiles the trace marked as reflecting nothing (TileMaskTexture) write 0 and stop.
 
     Compute
     {
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound once by the pass by name and numbered by the program build (SharedSamplerBinding.hpp).
-        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through u_PointClampSampler.
-        Uniform sampler u_PointClampSampler;
+        // Declared before Common/ScreenSpaceDenoise.glslh, whose SSDLoadSceneInfo reads the G-buffer through PointClampSampler.
+        Uniform sampler PointClampSampler;
         #include <Common/ScreenSpaceDenoise.glslh>
 
-        Uniform(1) texture2D u_GBufferNormal;   // rgb = world normal, a = roughness
-        Uniform(2) texture2D u_GBufferDepth;    // device depth (nearest)
-        Uniform(3) texture2D u_Trace;           // 1 / u_Params.z resolution: rgb = hit radiance, a = coverage (SSR.shader)
-        #define u_Trace sampler2D(u_Trace, u_PointClampSampler)
-        Uniform(4) texture2D u_TraceRay;        // u_Trace's resolution: xyz = hit point, w = log2 pdf (SSR.shader)
-        #define u_TraceRay sampler2D(u_TraceRay, u_PointClampSampler)
-        Uniform(5) texture2D u_TileMask;        // one texel per SSR tile, 1 = something in it reflects
-        #define u_TileMask sampler2D(u_TileMask, u_PointClampSampler)
-        layout(binding = 6, rgba16f) writeonly uniform image2D u_Signal;     // premultiplied (rgb * a, a)
+        Uniform(1) texture2D GBufferNormalTexture;   // rgb = world normal, a = roughness
+        Uniform(2) texture2D GBufferDepthTexture;    // device depth (nearest)
+        Uniform(3) texture2D SsrTraceTexture;           // 1 / Params.z resolution: rgb = hit radiance, a = coverage (SSR.shader)
+        #define SsrTraceTexture sampler2D(SsrTraceTexture, PointClampSampler)
+        Uniform(4) texture2D TraceRayTexture;        // SsrTraceTexture's resolution: xyz = hit point, w = log2 pdf (SSR.shader)
+        #define TraceRayTexture sampler2D(TraceRayTexture, PointClampSampler)
+        Uniform(5) texture2D TileMaskTexture;        // one texel per SSR tile, 1 = something in it reflects
+        #define TileMaskTexture sampler2D(TileMaskTexture, PointClampSampler)
+        layout(binding = 6, rgba16f) writeonly uniform image2D ReconstructedSignalTexture;     // premultiplied (rgb * a, a)
 
         // ScreenSpaceDenoiser::ViewUniforms (std140).
         Uniform(0) DenoiserViewUB
         {
-        	mat4 u_ViewProjection;
-        	mat4 u_PrevViewProjection;
-        	mat4 u_InvJitteredViewProjection;
+        	mat4 ViewProjection;
+        	mat4 PreviousViewProjection;
+        	mat4 InverseJitteredViewProjection;
         };
 
         PushConstant PushConstants
         {
-        	vec4 u_Params; // x = the trace's frame seed (its 2x2 block rotation), y = kernel radius in trace texels
+        	vec4 Params; // x = the trace's frame seed (its 2x2 block rotation), y = kernel radius in trace texels
         	               // (Scalability Reflections.DenoiserRadius: 2 = 5x5), z = the trace's downsample factor
         	               // (Scalability Reflections.DownsampleFactor: 1 or 2), w unused
         };
@@ -72,40 +72,40 @@ Shader "SSDReconstructReflections"
 
         void main()
         {
-        	const ivec2 viewSize = textureSize(sampler2D(u_GBufferNormal, u_PointClampSampler), 0);
+        	const ivec2 viewSize = textureSize(sampler2D(GBufferNormalTexture, PointClampSampler), 0);
         	const ivec2 pixel    = ivec2(gl_GlobalInvocationID.xy);
         	if (pixel.x >= viewSize.x || pixel.y >= viewSize.y)
         		return;
-        	const ivec2 grid  = textureSize(u_TileMask, 0);
+        	const ivec2 grid  = textureSize(TileMaskTexture, 0);
         	const ivec2 tile  = min(ivec2(floor((vec2(pixel) + 0.5) * vec2(grid) / vec2(viewSize))), grid - 1);
-        	const vec4  gb    = texelFetch(sampler2D(u_GBufferNormal, u_PointClampSampler), pixel, 0);
-        	if (texelFetch(u_TileMask, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
+        	const vec4  gb    = texelFetch(sampler2D(GBufferNormalTexture, PointClampSampler), pixel, 0);
+        	if (texelFetch(TileMaskTexture, tile, 0).r < 0.5 || !SSDPixelHasSignal(kSSDSignalReflections, gb))
         	{
-        		imageStore(u_Signal, pixel, vec4(0.0));
+        		imageStore(ReconstructedSignalTexture, pixel, vec4(0.0));
         		return;
         	}
         	const vec2         size  = vec2(viewSize);
         	const vec2         uv    = (vec2(pixel) + 0.5) / size;
-        	const SSDSceneInfo ref   = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth, u_InvJitteredViewProjection,
+        	const SSDSceneInfo ref   = SSDLoadSceneInfo(GBufferNormalTexture, GBufferDepthTexture, InverseJitteredViewProjection,
         	                                            pixel, size);
-        	const vec3         V     = SSDViewVector(uv, ref.Position, u_InvJitteredViewProjection);
+        	const vec3         V     = SSDViewVector(uv, ref.Position, InverseJitteredViewProjection);
         	const vec3         N     = ref.Normal;
         	const float        alpha = max(ref.Roughness * ref.Roughness, 0.001);
         	const float        a2    = alpha * alpha;
         	const float        nDotV = max(dot(N, V), 1e-4);
         	const float        g1V   = SmithG1(nDotV, a2);
         	const vec4         lobe  = SSDRoughnessLobe(ref.Roughness, N, V);
-        	const int   factor      = int(u_Params.z + 0.5);
+        	const int   factor      = int(Params.z + 0.5);
         	// A neighbour texel's source pixel is up to ~3 trace texels away; the plane tolerates that many pixel radii.
-        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(u_GBufferDepth, u_PointClampSampler), pixel, 0).r, ref.Position,
-        	                                              1.0 / size, u_InvJitteredViewProjection);
+        	const float pixelRadius = SSDPixelWorldRadius(uv, texelFetch(sampler2D(GBufferDepthTexture, PointClampSampler), pixel, 0).r, ref.Position,
+        	                                              1.0 / size, InverseJitteredViewProjection);
         	const float maxPlaneDistance = max(pixelRadius * kPlaneReachTexels * float(factor), 1e-3);
         	const float sigma            = kSpatialSigmaTexels * float(factor);
 
-        	const ivec2 traceSize = textureSize(u_Trace, 0);
+        	const ivec2 traceSize = textureSize(SsrTraceTexture, 0);
         	const ivec2 centre    = clamp(pixel / factor, ivec2(0), traceSize - 1);
-        	const int   frame     = int(u_Params.x);
-        	const int   radius    = int(u_Params.y + 0.5);
+        	const int   frame     = int(Params.x);
+        	const int   radius    = int(Params.y + 0.5);
         	const ivec2 rotation  = factor == 2 ? ivec2(frame & 1, (frame >> 1) & 1) : ivec2(0);
         	vec3  radiance    = vec3(0.0);
         	float hitWeight   = 0.0;
@@ -115,15 +115,15 @@ Shader "SSDReconstructReflections"
         		for (int x = -radius; x <= radius; ++x)
         		{
         			const ivec2 t   = clamp(centre + ivec2(x, y), ivec2(0), traceSize - 1);
-        			const vec4  ray = texelFetch(u_TraceRay, t, 0);
+        			const vec4  ray = texelFetch(TraceRayTexture, t, 0);
         			if (ray.w <= -125.0)
         				continue; // the texel drew no ray (it cannot reflect, or its trace was lost)
         			// The surface the texel traced from (Common/SSRTrace.glslh SSRTraceSourcePixel).
         			const ivec2        src   = min(t * factor + rotation, viewSize - 1);
-        			const SSDSceneInfo other = SSDLoadSceneInfo(u_GBufferNormal, u_GBufferDepth,
-        			                                            u_InvJitteredViewProjection, src, size);
+        			const SSDSceneInfo other = SSDLoadSceneInfo(GBufferNormalTexture, GBufferDepthTexture,
+        			                                            InverseJitteredViewProjection, src, size);
         			const vec3  otherV    = SSDViewVector((vec2(src) + 0.5) / size, other.Position,
-        			                                      u_InvJitteredViewProjection);
+        			                                      InverseJitteredViewProjection);
         			const float bilateral = SSDPlaneWeight(ref, other.Position, maxPlaneDistance) *
         			                        SSDLobeSimilarity(lobe, SSDRoughnessLobe(other.Roughness, other.Normal,
         			                                                                 otherV));
@@ -146,7 +146,7 @@ Shader "SSDReconstructReflections"
         			const float D     = a2 / (kSSDPi * d * d);
         			// BRDF * cos without Fresnel: D * G1(V) * G1(L) / (4 N.V), over the drawing texel's pdf.
         			const float w = D * g1V * SmithG1(nDotL, a2) / (4.0 * nDotV) * exp2(-ray.w) * bilateral * spatial;
-        			const vec4  trace = texelFetch(u_Trace, t, 0);
+        			const vec4  trace = texelFetch(SsrTraceTexture, t, 0);
         			const float k     = SSDKarisWeight(trace.rgb);
         			weightSum   += w;
         			coverage    += w * trace.a;
@@ -159,7 +159,7 @@ Shader "SSDReconstructReflections"
         		const float a = coverage / weightSum;
         		signal        = vec4(radiance / hitWeight * a, a);
         	}
-        	imageStore(u_Signal, pixel, signal);
+        	imageStore(ReconstructedSignalTexture, pixel, signal);
         }
     }
 }

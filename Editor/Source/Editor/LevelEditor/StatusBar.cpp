@@ -14,6 +14,8 @@
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/Panels/Logs/LogsPanel.hpp"
 #include "Editor/Panels/LuaConsole/LuaConsolePanel.hpp"
+#include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
+#include "Editor/Widgets/MeshLODRows.hpp"
 #include <Common/Core/Version.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -26,6 +28,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <format>
+#include <optional>
 #include <string>
 
 namespace Desert::Editor
@@ -133,9 +137,31 @@ namespace Desert::Editor
         else if ( const auto sel = Core::SelectionManager::GetSelected() )
         {
             std::string selName = "Entity";
+            // THE LEVEL THE SELECTED MESH IS DRAWN AT, beside its name and always on screen. The same answer
+            // the Details "Level of Detail" table marks (MeshLODRows::DrawingLevel — the renderer's own
+            // SelectLOD with the active camera), but that section is collapsed by default and sits below the
+            // material slots, so a reader looking at the viewport could not see which level is up.
+            std::optional<std::size_t> drawnLevel;
             if ( auto e = m_Workspace.ActiveScene()->FindEntityByID( *sel ) )
-                selName = e->get().GetComponent<ECS::TagComponent>().Tag;
-            ImGui::TextDisabled( ICON_MDI_CURSOR_DEFAULT_OUTLINE " %s", selName.c_str() );
+            {
+                const ECS::Entity& entity = e->get();
+                selName                   = entity.GetComponent<ECS::TagComponent>().Tag;
+                if ( entity.HasComponent<ECS::StaticMeshComponent>() )
+                {
+                    const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
+                    if ( const ::Desert::Mesh* mesh = ResolveDrawnMesh( entity );
+                         mesh != nullptr && MeshLODRows::LevelCount( *mesh ) > 1 )
+                        drawnLevel = MeshLODRows::DrawingLevel( m_Workspace.ActiveScene().get(), entity, *mesh,
+                                                                smc.ForcedLOD, smc.LODBias );
+                }
+            }
+            if ( drawnLevel )
+                ImGui::TextDisabled( "%s", std::format( ICON_MDI_CURSOR_DEFAULT_OUTLINE " {}  " ICON_MDI_LAYERS_TRIPLE
+                                                        " LOD {}",
+                                                        selName, *drawnLevel )
+                                                .c_str() );
+            else
+                ImGui::TextDisabled( ICON_MDI_CURSOR_DEFAULT_OUTLINE " %s", selName.c_str() );
         }
         else
         {
@@ -154,6 +180,16 @@ namespace Desert::Editor
             ImGui::TextDisabled( ICON_MDI_TRIANGLE_OUTLINE " %s tris", FormatThousands( tris ).c_str() );
             if ( ImGui::IsItemHovered() )
                 ImGui::SetTooltip( "Triangles in the VISIBLE meshes of this scene (LOD 0)." );
+        }
+        // What the active view actually DREW last frame, at the level each mesh was drawn with (Auto, or a
+        // forced / previewed LOD): UE's stat "Triangles drawn" beside the scene's content count.
+        if ( const std::optional<uint64_t> drawn = ViewportPanel::ActiveViewportTrianglesDrawn() )
+        {
+            ImGui::SameLine( 0.0f, 8.0f );
+            ImGui::TextDisabled( "(%s drawn)", FormatThousands( *drawn ).c_str() );
+            if ( ImGui::IsItemHovered() )
+                ImGui::SetTooltip( "Triangles the active viewport drew last frame, at the LOD each mesh was "
+                                   "drawn with (view pass; shadows and GPU-instanced foliage not counted)." );
         }
 
         // HOW MANY DOCUMENTS, AND HOW MUCH OF THE VIEW BUDGET IS GONE. A count of documents is not the number

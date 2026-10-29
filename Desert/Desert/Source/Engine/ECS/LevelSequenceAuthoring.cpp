@@ -595,6 +595,42 @@ namespace Desert::ECS
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AddVFXTrack( T::Sequence& sequence, const T::BindingGuid& binding,
+                                       const Animation::FrameNumber start, const Animation::FrameNumber end )
+    {
+        const T::Binding* bound = T::FindBinding( sequence, binding );
+        if ( bound == nullptr || bound->Kind != T::BindingKind::Entity )
+            return Common::MakeError( "VFX track: the binding is not an actor (Entity) binding" );
+        if ( HasVFXTrack( sequence, binding ) )
+            return Common::MakeFormattedError<bool>( "VFX track: '{}' already has one", bound->Label );
+        if ( !( start < end ) )
+            return Common::MakeFormattedError<bool>( "VFX track: the section [{}, {}] is empty", start.Value,
+                                                     end.Value );
+
+        T::Sequence edited = sequence;
+        T::Track    created;
+        created.Binding  = binding;
+        created.Property = kLevelSequenceVFXProperty;
+        created.Kind     = T::TrackKind::VFX;
+        T::Section section;
+        section.Start   = start;
+        section.End     = end;
+        section.Content = T::VFXSectionContent{};
+        created.Sections.push_back( std::move( section ) );
+        edited.Tracks.push_back( std::move( created ) );
+
+        if ( const auto valid = T::Validate( edited ); !valid )
+            return Common::MakeFormattedError<bool>( "VFX track: {}", valid.GetError() );
+        edited.Revision = sequence.Revision + 1;
+        sequence        = std::move( edited );
+        return Common::MakeSuccess( true );
+    }
+
+    bool HasVFXTrack( const T::Sequence& sequence, const T::BindingGuid& binding )
+    {
+        return T::FindTrack( sequence, binding, kLevelSequenceVFXProperty ) != nullptr;
+    }
+
     bool HasVisibilityTrack( const T::Sequence& sequence, const T::BindingGuid& binding )
     {
         return VisibilityTrack( sequence, binding ) != nullptr;
@@ -1302,8 +1338,21 @@ namespace Desert::ECS
                     saved.Loop        = animation->Loop;
                     saved.Playing     = animation->Playing;
                 }
+                if ( const auto* vfx = registry.try_get<VFXComponent>( entity ) )
+                {
+                    saved.HadVFX = true;
+                    saved.Drive  = vfx->SequencerDrive;
+                }
                 m_Saved.push_back( saved );
             }
+
+        // An effect's drive starts every scrub from the scene's own (UE: a track's pre-animated state): a VFX
+        // track the author removed (or undid) drives nothing this step, so its effect is free again, not
+        // frozen at the last age the track gave it.
+        for ( const Saved& saved : m_Saved )
+            if ( saved.HadVFX && registry.valid( saved.Entity ) )
+                if ( auto* vfx = registry.try_get<VFXComponent>( saved.Entity ) )
+                    vfx->SequencerDrive = saved.Drive;
 
         LevelSequencePlayback playback( sequence );
         playback.Asset = asset;
@@ -1339,6 +1388,10 @@ namespace Desert::ECS
                 animation->Playing = saved.Playing;
             }
         }
+        for ( const Saved& saved : m_Saved )
+            if ( saved.HadVFX && registry.valid( saved.Entity ) )
+                if ( auto* vfx = registry.try_get<VFXComponent>( saved.Entity ) )
+                    vfx->SequencerDrive = saved.Drive;
         m_Saved.clear();
         for ( const SavedMaterialParameter& saved : m_SavedMaterials )
             if ( registry.valid( saved.Entity ) && m_Materials )

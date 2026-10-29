@@ -1,6 +1,7 @@
 #include "NodeActors.hpp"
 
 #include <Engine/ECS/Components.hpp>
+#include <Engine/ECS/System/SystemRules.hpp>
 
 #include <glm/gtx/quaternion.hpp>
 
@@ -41,10 +42,11 @@ namespace Desert::Editor
             auto&             transform = child.GetComponent<ECS::TransformComponent>();
             if ( light.Type == "Directional" )
             {
-                auto& data            = child.AddComponent<ECS::DirectionLightComponent>().Data;
-                data.Color            = color;
-                data.Intensity        = light.Intensity;
-                transform.Translation = direction;
+                auto& data     = child.AddComponent<ECS::DirectionLightComponent>().Data;
+                data.Color     = color;
+                data.Intensity = light.Intensity;
+                // Aimed by Rotation (forward -Z), as UE; `direction` is in the root's frame, as a spot's is.
+                transform.Rotation = glm::eulerAngles( ECS::Rules::RotationForTravel( direction ) );
             }
             else if ( light.Type == "Spot" )
             {

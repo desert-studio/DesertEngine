@@ -22,6 +22,10 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_VECTOR_SQUARE, "PolyEdit", false };
             case T::ElementSelect:
                 return { ICON_MDI_VECTOR_SELECTION, "Select Elements", false };
+            // Every Sculpt stroke is its own undo step (UE's sculpt tool is the same), so nothing is pending.
+            case T::Sculpt:
+                return { ICON_MDI_BRUSH, Core::ModelingState::Get().SculptDynamic ? "Dynamic Sculpt" : "Sculpt",
+                         false };
             // UE's Add Primitive tools have no Cancel either: each click has already placed its shape.
             case T::CreateShape:
                 return { ICON_MDI_PLUS_BOX_OUTLINE, "Create Shape", false };
@@ -34,6 +38,58 @@ namespace Desert::Editor::Tools
                 return { ICON_MDI_CONTENT_CUT, "UV Unwrap", true };
             case T::UVLayout:
                 return { ICON_MDI_VIEW_GRID_OUTLINE, "UV Layout", true };
+            case T::UVTransform:
+                return { ICON_MDI_CURSOR_MOVE, "UV Transform", true };
+            // UE's Deform tools preview until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::Smooth:
+                return { ICON_MDI_BLUR, "Smooth", true };
+            case T::Offset:
+                return { ICON_MDI_ARROW_EXPAND_ALL, "Offset", true };
+            case T::Warp:
+                return { ICON_MDI_ROTATE_ORBIT, "Warp", true };
+            case T::Lattice:
+                return { ICON_MDI_GRID, "Lattice", true };
+            // UE's Normals tool previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::Normals:
+                return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Normals", true };
+            case T::Tangents:
+                return { ICON_MDI_ARROW_TOP_RIGHT_THICK, "Tangents", true };
+            // UE's Voxel Solidify (VoxWrap) previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::VoxWrap:
+                return { ICON_MDI_CUBE_OUTLINE, "VoxWrap", true };
+            // UE's Voxel Boolean previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxBoolean:
+                return { ICON_MDI_CUBE_OUTLINE, "VoxBoolean", true };
+            // UE's Voxel Morphology previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxMorph:
+                return { ICON_MDI_CUBE_SEND, "VoxMorph", true };
+            // UE's Voxel Blend previews until Accept, which creates the result entity (MeshProcessingTool).
+            case T::VoxBlend:
+                return { ICON_MDI_VECTOR_UNION, "VoxBlend", true };
+            // UE's Edit Materials previews until Accept; Cancel puts mesh and slots back (EditMaterialsTool).
+            case T::EditMaterials:
+                return { ICON_MDI_BRUSH, "Edit Materials", true };
+            // UE's group paint keeps its strokes until Accept; Cancel drops them (PaintGroupsTool).
+            case T::PaintGroups:
+                return { ICON_MDI_BRUSH, "Paint PolyGroups", true };
+            // UE's Hole Fill previews until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::HoleFill:
+                return { ICON_MDI_VECTOR_SQUARE_CLOSE, "Hole Fill", true };
+            // UE's Remesh previews the remeshed mesh until Accept; Cancel puts it back (MeshProcessingTool).
+            case T::Remesh:
+                return { ICON_MDI_VECTOR_TRIANGLE, "Remesh", true };
+            // UE's Simplify previews the reduced mesh until Accept; Cancel puts it back (MeshProcessingTool).
+            case T::Simplify:
+                return { ICON_MDI_TRIANGLE_OUTLINE, "Simplify", true };
+            // UE's Jacket previews the removal until Accept; Cancel puts the mesh back (MeshProcessingTool).
+            case T::Jacket:
+                return { ICON_MDI_LAYERS_MINUS, "Jacket", true };
+            // UE's Project previews the remeshed, projected source until Accept; Cancel puts it back.
+            case T::Project:
+                return { ICON_MDI_VECTOR_COMBINE, "Project", true };
+            // UE's Weld Edges previews the merge (the open edges left in red) until Accept; Cancel undoes it.
+            case T::WeldEdges:
+                return { ICON_MDI_VECTOR_LINK, "Weld Edges", true };
         }
         return {};
     }

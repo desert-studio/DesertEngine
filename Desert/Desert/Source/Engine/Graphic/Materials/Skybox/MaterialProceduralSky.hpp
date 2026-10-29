@@ -12,6 +12,12 @@
 
 namespace Desert::Graphic
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MaterialProceduralSkyShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, SkyBuffer );
+    };
+
     // The engine-generated sky (no HDR asset): the "ProceduralSky" shader evaluates the shared atmosphere
     // model from the view ray and the sun direction. This material feeds only the shared CameraUB (for the
     // view-ray reconstruction) and rebinds the sky parameter SSBO.
@@ -35,7 +41,7 @@ namespace Desert::Graphic
             if ( view != nullptr )
                 SceneCameraBind( this, *view );
 
-            if ( auto* sb = Get<StorageBufferProperty>( "SkyBuffer" ) )
+            if ( auto* sb = Get<StorageBufferProperty>( MaterialProceduralSkyShaderParameters::SkyBuffer ) )
                 sb->SetBuffer( skyParams );
         }
     };

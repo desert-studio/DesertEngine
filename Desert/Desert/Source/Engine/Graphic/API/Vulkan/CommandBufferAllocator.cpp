@@ -2,9 +2,12 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <format>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -126,8 +129,19 @@ namespace Desert::Graphic::API::Vulkan
         return AllocateOneShot( m_TransferOpsFamily, begin );
     }
 
-    Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer commandBuffer,
-                                                                      VkQueue         queue )
+    const char* CommandBufferAllocator::WaitSiteName( const std::source_location& where )
+    {
+        std::string_view file = where.file_name();
+        if ( const size_t slash = file.find_last_of( "/\\" ); slash != std::string_view::npos )
+            file.remove_prefix( slash + 1 );
+        std::string            name = std::format( "FlushOneShot wait: {}:{}", file, where.line() );
+        const std::scoped_lock pools( m_PoolMutex );
+        return m_WaitSites.insert( std::move( name ) ).first->c_str();
+    }
+
+    Common::ResultStr<VkResult> CommandBufferAllocator::FlushOneShot( VkCommandBuffer             commandBuffer,
+                                                                      VkQueue                     queue,
+                                                                      const std::source_location& where )
     {
         OneShotPool* pool = nullptr;
         {
@@ -191,32 +205,51 @@ namespace Desert::Graphic::API::Vulkan
                                           .pCommandBuffers      = &commandBuffer,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores    = nullptr };
+        // ORDERING ACROSS QUEUES. An image's first upload is submitted to the graphics queue and not waited
+        // for (RT_SubmitGraphicThenRelease); a later submit to the SAME queue is ordered after it by
+        // submission order, but a one-off on the compute or transfer queue is not, and may read the image
+        // before its copy lands. UE orders such a reader behind the upload's sync point; the one-off path
+        // here waits on the host anyway, so it waits the uploads still in flight first. Same VkQueue (one
+        // family, as on MoltenVK): submission order already covers it.
+        if ( queue != m_GraphicsQueue )
+            WaitInFlightUploads();
         if ( const VkResult submitted = m_Device->SubmitToQueue( queue, 1, &submitInfo, fence );
              submitted != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( submitted ) ), fence );
 
-        VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, 1, &fence, VK_TRUE, UINT64_MAX ) );
+        {
+            // The x column of these rows is the number of one-off CPU waits a frame (all of them, and this
+            // call site's); a frame's budget is zero.
+            DESERT_PROFILE_SCOPE( "Vulkan: FlushOneShot fence wait" );
+#if DESERT_DEV_INSTRUMENTS
+            const char* const site = WaitSiteName( where );
+            DESERT_PROFILE_SCOPE_DYNAMIC( site );
+#else
+            (void)where;
+#endif
+            VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, 1, &fence, VK_TRUE, UINT64_MAX ) );
+        }
         vkDestroyFence( m_LogicalDevice, fence, nullptr );
         ReleaseOneShot( *pool, commandBuffer );
         return Common::MakeSuccess( VK_SUCCESS );
     }
 
     Common::ResultStr<VkResult>
-    CommandBufferAllocator::RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_FlushCommandBufferCompute( VkCommandBuffer commandBuffer, std::source_location where )
     {
-        return FlushOneShot( commandBuffer, m_ComputeQueue );
+        return FlushOneShot( commandBuffer, m_ComputeQueue, where );
     }
 
     Common::ResultStr<VkResult>
-    CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_FlushCommandBufferGraphic( VkCommandBuffer commandBuffer, std::source_location where )
     {
-        return FlushOneShot( commandBuffer, m_GraphicsQueue );
+        return FlushOneShot( commandBuffer, m_GraphicsQueue, where );
     }
 
     Common::ResultStr<VkResult>
-    CommandBufferAllocator::RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer )
+    CommandBufferAllocator::RT_FlushCommandBufferTransferOps( VkCommandBuffer commandBuffer, std::source_location where )
     {
-        return FlushOneShot( commandBuffer, m_TransferOpsQueue );
+        return FlushOneShot( commandBuffer, m_TransferOpsQueue, where );
     }
 
     Common::ResultStr<CommandBufferAllocator::Submitted>
@@ -289,6 +322,78 @@ namespace Desert::Graphic::API::Vulkan
         ReleaseOneShot( *submitted.Pool, submitted.Buffer );
     }
 
+    Common::BoolResultStr CommandBufferAllocator::RT_SubmitGraphicThenRelease( VkCommandBuffer       commandBuffer,
+                                                                               std::function<void()> afterGpu )
+    {
+        (void)CollectFinished();
+        auto submitted = RT_SubmitCommandBufferGraphic( commandBuffer );
+        if ( !submitted.IsSuccess() )
+        {
+            if ( afterGpu )
+                afterGpu();
+            return Common::MakeError<bool>( submitted.GetError() );
+        }
+        const std::scoped_lock inFlight( m_InFlightMutex );
+        m_InFlight.push_back( InFlight{ submitted.GetValue(), std::move( afterGpu ) } );
+        return BOOLSUCCESS;
+    }
+
+    std::size_t CommandBufferAllocator::CollectFinished()
+    {
+        // Taken out under the lock, released outside it: a release may free a buffer into its pool
+        // (m_PoolMutex) or destroy a staging copy, and neither belongs under m_InFlightMutex.
+        std::vector<InFlight> finished;
+        {
+            const std::scoped_lock inFlight( m_InFlightMutex );
+            for ( auto it = m_InFlight.begin(); it != m_InFlight.end(); )
+            {
+                if ( IsComplete( it->Upload ) )
+                {
+                    finished.push_back( std::move( *it ) );
+                    it = m_InFlight.erase( it );
+                }
+                else
+                    ++it;
+            }
+        }
+        for ( InFlight& done : finished )
+        {
+            RT_ReleaseSubmitted( done.Upload );
+            if ( done.AfterGpu )
+                done.AfterGpu();
+        }
+        return finished.size();
+    }
+
+    void CommandBufferAllocator::WaitInFlightUploads()
+    {
+        // Waited UNDER the lock: CollectFinished destroys a fence once it has taken it out of m_InFlight,
+        // so a copied handle could be destroyed mid-wait. The fences stay owned by m_InFlight.
+        const std::scoped_lock inFlight( m_InFlightMutex );
+        std::vector<VkFence>   fences;
+        fences.reserve( m_InFlight.size() );
+        for ( const InFlight& upload : m_InFlight )
+            fences.push_back( upload.Upload.Fence );
+        if ( !fences.empty() )
+            VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, static_cast<uint32_t>( fences.size() ),
+                                              fences.data(), VK_TRUE, UINT64_MAX ) );
+    }
+
+    void CommandBufferAllocator::WaitAndReleaseInFlight()
+    {
+        std::vector<InFlight> all;
+        {
+            const std::scoped_lock inFlight( m_InFlightMutex );
+            all.swap( m_InFlight );
+        }
+        for ( InFlight& upload : all )
+        {
+            RT_ReleaseSubmitted( upload.Upload ); // waits for its fence
+            if ( upload.AfterGpu )
+                upload.AfterGpu();
+        }
+    }
+
     std::size_t CommandBufferAllocator::OutstandingOneShotCount() const
     {
         const std::scoped_lock pools( m_PoolMutex );
@@ -299,6 +404,10 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_LogicalDevice == VK_NULL_HANDLE )
             return;
+
+        // Before the pools go: the in-flight buffers are freed into them, and their staging copies released
+        // while the VMA allocator still exists (VulkanContext::Shutdown destroys it after this call).
+        WaitAndReleaseInFlight();
 
         const std::scoped_lock pools( m_PoolMutex );
 

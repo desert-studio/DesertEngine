@@ -1,0 +1,70 @@
+# M26 Bake Ambient Occlusion + Curvature (UE Bake Mesh Attribute Maps): the same pair as M26.scn - a dense Lat Long
+# sphere with an 8 cm plateau whose rim is a sloped ramp (eight 1 cm Offsets, a grow between), a Lat Long 32x32
+# low at the same place. Bake low <- high with Normal + Ambient Occlusion + Curvature; the low then moves aside.
+# AO: white where the hemisphere is open, dark in the crease at the plateau foot. Curvature: grey = the low's own
+# curvature, light at the convex top rim, dark at the concave foot.
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Position 0,250,-400
+Дано --subject viewport set Camera.Direction 0,-0.5,0.866
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 128
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 128
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,60,0
+Дано --subject viewport set Camera.Position 0,110,-170
+Дано --subject viewport set Camera.Direction 0,0,1
+Когда run Modeling "Select Elements tool"
+Когда run Modeling "Mesh selection mode: Triangle"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда --subject modeling set Element.Distance 1
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Accept: write the edit into the static mesh asset"
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 32
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 32
+Дано --subject viewport set Camera.Position 0,250,-400
+Дано --subject viewport set Camera.Direction 0,-0.5,0.866
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,60,0
+Когда run Entity "Add to selection Sphere"
+Когда --subject modeling set Bake.ProjectionDistance 12
+Когда --subject modeling set Bake.AmbientOcclusion 1
+Когда --subject modeling set Bake.Curvature 1
+Когда run Modeling "Bake Normal Map"
+Когда run Entity Sphere2
+Когда --subject selection set Translation 130,60,0
+Когда --subject viewport set Camera.Position 65,125,-230
+Когда --subject viewport set Camera.Direction 0,-0.1,1
+Тогда-вид 3_pair_ao low (RIGHT, Sphere2 at x=130, baked Normal + ORM) shows the plateau with a dark band at its foot (occlusion), the high on the left
+Когда run Panel "Open Logs"
+Тогда 3_pair_window the same with the bake lines in the log (Normal, AO and Curvature assets named)
+Когда run Open "Textures/Baked/Sphere2_AO.detex"
+Тогда 1_ao_png the AO map: near-white, a dark ring band at the plateau foot (the crease between the ramp and the sphere)
+Когда run Open "Textures/Baked/Sphere2_Curvature.detex"
+Тогда 2_curv_png the Curvature map: neutral grey, a light ring at the plateau top rim (convex) and a dark ring at its foot (concave)

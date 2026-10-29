@@ -45,6 +45,12 @@ namespace Desert::Graphic::System
         if ( !m_ParamsBuffer )
             return Common::MakeError( "HeightFogRenderer: could not create the fog parameter buffer" );
 
+        if ( const auto valid = m_FogLayout.Validate( m_FogPipeline->GetShader(), HeightFogFogShaderParameters::kAll );
+             !valid )
+            return valid;
+        if ( const auto valid = m_ApplyLayout.Validate( m_ApplyPipeline->GetShader(), HeightFogApplyShaderParameters::kAll );
+             !valid )
+            return valid;
         return BOOLSUCCESS;
     }
 
@@ -178,6 +184,9 @@ namespace Desert::Graphic::System
         push.AerialPerspective =
              glm::vec4( atmosphere.AerialPerspectiveDepthKm, atmosphere.AerialPerspectiveViewDistanceScale,
                         apActive ? 1.0f : 0.0f, fogActive ? 1.0f : 0.0f );
+        // The scale the scene colour is stored at this frame: the inscattering is written multiplied by it.
+        const ViewFrame* viewFrame = m_SceneRenderer->GetViewFrame();
+        push.Exposure              = glm::vec4( viewFrame ? viewFrame->PreExposure : 1.0f, 0.0f, 0.0f, 0.0f );
 
         // One Compute node: it samples the scene depth, the aerial-perspective volume and the distant sky light,
         // and writes the fog image the apply (HeightFogApply, a Transparency raster node) samples.
@@ -219,13 +228,13 @@ namespace Desert::Graphic::System
         auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
-        block.Storage( "u_FogApply", fogImage, RDG::Access::StorageWrite )
-             .Texture( "u_SceneDepth", depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
-             .Sampler( "u_GlobalFilterSampler", GlobalTextureFilterSampler() )
-             .Texture( "u_AerialPerspective", aerialPerspective, RDG::Access::SampledCompute,
+        block.Storage( HeightFogFogShaderParameters::FogApplyTexture, fogImage, RDG::Access::StorageWrite )
+             .Texture( HeightFogFogShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute, "SceneDepth.Compute" )
+             .Sampler( HeightFogFogShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+             .Texture( HeightFogFogShaderParameters::AerialPerspectiveTexture, aerialPerspective, RDG::Access::SampledCompute,
                        apActive ? "Sky.AerialPerspectiveLut" : "HeightFog.AerialPerspectiveFallback" )
-             .Sampler( "u_LinearRepeatSampler", VolumeSampler() )
-             .Texture( "u_DistantSkyLight", distantSkyLight, RDG::Access::SampledCompute,
+             .Sampler( HeightFogFogShaderParameters::LinearRepeatSampler, VolumeSampler() )
+             .Texture( HeightFogFogShaderParameters::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" );
         fog.Record = [this, push, fogWidth, fogHeight]( RDG::PassContext& context,
                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
@@ -238,7 +247,7 @@ namespace Desert::Graphic::System
         };
         nodes.push_back( std::move( fog ) );
 
-        transients.HeightFog = fogImage; // -> HeightFogApply (u_FogApply)
+        transients.HeightFog = fogImage; // -> HeightFogApply (FogApplyTexture)
         return nodes;
     }
 
@@ -274,9 +283,9 @@ namespace Desert::Graphic::System
                 return;
             }
             declared.Bindings( m_ApplyLayout.Get( m_ApplyPipeline->GetShader() ), RDG::OtherRouteFill{} )
-                 .Texture( "u_FogApply", refs.Transients.HeightFog, RDG::Access::SampledGraphics,
+                 .Texture( HeightFogApplyShaderParameters::FogApplyTexture, refs.Transients.HeightFog, RDG::Access::SampledGraphics,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+                 .Sampler( HeightFogApplyShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         };
 
         return config;

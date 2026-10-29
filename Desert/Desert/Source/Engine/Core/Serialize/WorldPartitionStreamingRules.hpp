@@ -35,6 +35,20 @@
 // part of the square inside the slice is within the radius of the slice's apex — exact, the square is
 // clipped by the slice's half-planes (UE's FSphericalSector::IntersectsBox is a conservative reject).
 //
+// ── THE LOOK-AHEAD ────────────────────────────────────────────────────────────────────────────────
+//
+// A fast source outruns its circle: a plane at 500 km/h crosses a 2 km cell in fifteen seconds, and a cell
+// first wanted at the edge of the range may still be on its way when the plane is over it. So a source
+// with a LookAheadTime is SWEPT: every shape of it reaches, besides where it is, everywhere it will be over
+// the next LookAheadTime seconds at its present Velocity (on the ground, capped at MaxLookAhead cm) — the
+// Minkowski sum of the shape and that segment. Exact, not a chain of circles: a cell is wanted when the
+// square swept BACK along the segment (a convex hexagon) comes within the shape, which is the same test a
+// shape already makes against a square. The cells along the path are wanted ahead of time; the order is
+// still measured from where the source IS (a cell reached only through the sweep keeps its plain distance
+// to the source), so the ground underneath loads first and the road ahead next. UE's World Partition has
+// no look-ahead of its own (its velocity only sorts: bUseVelocityContributionToCellsSorting, below); a game
+// adds a second, predicted source by hand — here it is one authored number on the source.
+//
 // ── THE ORDER ─────────────────────────────────────────────────────────────────────────────────────
 //
 // Always-loaded composites come first and always, sources or not: they are the part of the world that
@@ -56,10 +70,10 @@
 // ── THE COST ──────────────────────────────────────────────────────────────────────────────────────
 //
 // The world's cells are not walked. For each source and each level, the cells whose squares can touch
-// the source's circle are enumerated (the circle's bounding box in cell coordinates) and looked up in
-// the plan by binary search — `WorldPartitionPlan::Cells` is sorted by (level, X, Z), which is the
-// index. A level whose enumeration would be larger than the cells it actually holds (a huge RangeScale,
-// or a level with a handful of cells) is scanned instead, so the cost is the smaller of the two, and
+// the source's circle are enumerated (the bounding box, in cell coordinates, of the circle swept along its
+// look-ahead) and looked up in the plan by binary search — `WorldPartitionPlan::Cells` is sorted by (level, X, Z),
+// which is the index. A level whose enumeration would be larger than the cells it actually holds (a huge
+// RangeScale, or a level with a handful of cells) is scanned instead, so the cost is the smaller of the two, and
 // `CellsExamined` states it.
 
 #include <Common/Core/ResultStr.hpp>
@@ -129,9 +143,26 @@ namespace Desert::Core::Rules
         // bUseVelocityContributionToCellsSorting). It never changes WHICH cells are wanted.
         glm::vec3 Velocity{ 0.0f };
         bool      UseVelocityForSorting = false;
+        // THE LOOK-AHEAD: seconds of travel at Velocity every shape is swept along (0 = none), and the longest
+        // such sweep, cm — a teleport or a one-frame spike of speed must not reach across the world.
+        float LookAheadTime = 0.0f;
+        float MaxLookAhead  = 0.0f;
         // Empty = one circle of SourceRadius at Position (UE: no shapes, a sphere of the grid's range).
         std::vector<StreamingSourceShape> Shapes;
+        // The grids this source streams, by WorldPartitionGridSerialized::Name (UE's
+        // FWorldPartitionStreamingSource::TargetGrids); empty = every grid. A grid not named here is not
+        // queried for this source at all - see TargetsGrid. A name no grid of the world carries targets nothing;
+        // the streamer names it (WorldStreamer::Tick), it is never matched by a guess.
+        std::vector<std::string> TargetGrids;
     };
+
+    // Whether @p source streams @p grid: it names no grid (all of them), or names this one.
+    [[nodiscard]] inline bool TargetsGrid( const StreamingSource&              source,
+                                           const WorldPartitionGridSerialized& grid )
+    {
+        return source.TargetGrids.empty() || std::find( source.TargetGrids.begin(), source.TargetGrids.end(),
+                                                        grid.Name ) != source.TargetGrids.end();
+    }
 
     // The radius a source with no Shapes loads within on @p grid, cm.
     [[nodiscard]] inline double SourceRadius( const StreamingSource&              source,
@@ -151,6 +182,9 @@ namespace Desert::Core::Rules
         // The heading THE ORDER weighs cells by: Axis turned toward the velocity when the source asks, or
         // zero when the source has neither a facing nor a velocity that counts.
         glm::dvec2 Heading{ 0.0 };
+        // THE LOOK-AHEAD: where the shape will have moved to, cm (X, Z); the shape reaches along the whole
+        // segment from Centre to Centre + Sweep. Zero for a source that does not look ahead.
+        glm::dvec2 Sweep{ 0.0 };
 
         [[nodiscard]] bool IsCircle() const
         {
@@ -181,10 +215,15 @@ namespace Desert::Core::Rules
 
     // Every shape of @p source on @p grid as the query tests it (UE's FStreamingSourceShapeHelper::
     // ForEachShape, projected to 2D): one circle when it states none. A shape with no radius or no angle
-    // reaches nothing and is left out, as UE leaves out an invalid FSphericalSector.
+    // reaches nothing and is left out, as UE leaves out an invalid FSphericalSector. A grid the source does not
+    // target (TargetsGrid) has no sector at all, so every reader of the shapes - the query, the assessment, the
+    // map - honours the targeting the same way (UE FWorldPartitionStreamingSource::TargetGrids in
+    // UWorldPartitionRuntimeHash::ForEachStreamingCellsSources).
     [[nodiscard]] inline std::vector<SourceSector> SourceSectors( const StreamingSource&              source,
                                                                   const WorldPartitionGridSerialized& grid )
     {
+        if ( !TargetsGrid( source, grid ) )
+            return {};
         const glm::dvec2 position = Detail::Ground( source.Position );
         glm::dvec2       forward =
              source.Facing ? Detail::UnitOrZero( Detail::Ground( *source.Facing ) ) : glm::dvec2( 0.0 );
@@ -196,6 +235,11 @@ namespace Desert::Core::Rules
              source.UseVelocityForSorting ? Detail::Ground( source.Velocity ) : glm::dvec2( 0.0 );
         const auto heading = [&]( const glm::dvec2& axis )
         { return Detail::UnitOrZero( ( faces ? axis : glm::dvec2( 0.0 ) ) + velocity ); };
+        glm::dvec2   sweep       = Detail::Ground( source.Velocity ) * static_cast<double>( source.LookAheadTime );
+        const double sweepLength = std::sqrt( sweep.x * sweep.x + sweep.y * sweep.y );
+        if ( sweepLength > static_cast<double>( source.MaxLookAhead ) )
+            sweep = sweepLength > 0.0 ? sweep * ( static_cast<double>( source.MaxLookAhead ) / sweepLength )
+                                      : glm::dvec2( 0.0 );
 
         std::vector<SourceSector> sectors;
         if ( source.Shapes.empty() )
@@ -205,6 +249,7 @@ namespace Desert::Core::Rules
             circle.Radius  = SourceRadius( source, grid );
             circle.Axis    = forward;
             circle.Heading = heading( forward );
+            circle.Sweep   = sweep;
             sectors.push_back( circle );
             return sectors;
         }
@@ -225,6 +270,7 @@ namespace Desert::Core::Rules
                             forward * static_cast<double>( shape.Location.z );
             sector.Axis    = Detail::TurnAboutUp( forward, static_cast<double>( shape.Yaw ) );
             sector.Heading = heading( sector.Axis );
+            sector.Sweep   = sweep;
             sectors.push_back( sector );
         }
         return sectors;
@@ -252,15 +298,14 @@ namespace Desert::Core::Rules
         std::size_t CellsExamined = 0;
     };
 
-    // Distance on the ground from (x, z) to the square of @p cell at a level whose cells are
-    // @p levelCellSize wide. Zero inside the square and on its edge.
-    [[nodiscard]] inline double DistanceToCellSquare( double x, double z, const CellCoord& cell,
-                                                      double levelCellSize )
+    // Distance on the ground from (x, z) to a cell's streaming bounds (PlannedCell::Bounds: its square
+    // grown by what its level's footprints may reach past it). Zero inside and on the edge.
+    [[nodiscard]] inline double DistanceToCellSquare( double x, double z, const CellBounds& bounds )
     {
-        const double lowX  = static_cast<double>( cell.X ) * levelCellSize;
-        const double lowZ  = static_cast<double>( cell.Z ) * levelCellSize;
-        const double highX = lowX + levelCellSize;
-        const double highZ = lowZ + levelCellSize;
+        const double lowX  = static_cast<double>( bounds.MinX );
+        const double lowZ  = static_cast<double>( bounds.MinZ );
+        const double highX = static_cast<double>( bounds.MaxX );
+        const double highZ = static_cast<double>( bounds.MaxZ );
         const double dx    = std::max( { lowX - x, 0.0, x - highX } );
         const double dz    = std::max( { lowZ - z, 0.0, z - highZ } );
         return std::sqrt( dx * dx + dz * dz );
@@ -296,6 +341,15 @@ namespace Desert::Core::Rules
             span.First = std::clamp( std::ceil( ( centre - radius ) / levelCellSize ) - 1.0, kLowest, kHighest );
             span.Last  = std::clamp( std::floor( ( centre + radius ) / levelCellSize ), kLowest, kHighest );
             return span;
+        }
+
+        // The cells whose squares can touch a circle of @p radius swept from @p centre to @p centre + @p sweep.
+        [[nodiscard]] inline AxisSpan CellsAlongSwept( double centre, double sweep, double radius,
+                                                       double levelCellSize )
+        {
+            const AxisSpan from = CellsAlong( centre, radius, levelCellSize );
+            const AxisSpan to   = CellsAlong( centre + sweep, radius, levelCellSize );
+            return AxisSpan{ std::min( from.First, to.First ), std::max( from.Last, to.Last ) };
         }
     } // namespace Detail
 
@@ -367,51 +421,107 @@ namespace Desert::Core::Rules
         }
     } // namespace Detail
 
-    // Distance on the ground from @p sector's centre to the part of @p cell's square (a level whose cells are
-    // @p levelCellSize wide) that lies inside the sector's slice: zero when the centre is in that part, +∞
-    // when the slice misses the square. For a circle, DistanceToCellSquare. A cell is in the sector when this
-    // is at most its radius.
-    [[nodiscard]] inline double DistanceToCellInSector( const SourceSector& sector, const CellCoord& cell,
-                                                        double levelCellSize )
+    namespace Detail
+    {
+        // The ground rectangle of a cell's streaming @p bounds, counter-clockwise.
+        [[nodiscard]] inline std::vector<glm::dvec2> CellSquare( const CellBounds& bounds )
+        {
+            const double lowX  = static_cast<double>( bounds.MinX );
+            const double lowZ  = static_cast<double>( bounds.MinZ );
+            const double highX = static_cast<double>( bounds.MaxX );
+            const double highZ = static_cast<double>( bounds.MaxZ );
+            return { { lowX, lowZ }, { highX, lowZ }, { highX, highZ }, { lowX, highZ } };
+        }
+
+        // THE LOOK-AHEAD's region: @p square swept from where it is to @p square − @p sweep, i.e. the convex
+        // hull of the two (Andrew's monotone chain over the eight corners), counter-clockwise.
+        [[nodiscard]] inline std::vector<glm::dvec2> SweptBack( const std::vector<glm::dvec2>& square,
+                                                                const glm::dvec2&              sweep )
+        {
+            std::vector<glm::dvec2> points = square;
+            for ( const glm::dvec2& corner : square )
+                points.push_back( corner - sweep );
+            std::sort( points.begin(), points.end(), []( const glm::dvec2& a, const glm::dvec2& b )
+                       { return a.x != b.x ? a.x < b.x : a.y < b.y; } );
+            const auto cross = []( const glm::dvec2& o, const glm::dvec2& a, const glm::dvec2& b )
+            { return ( a.x - o.x ) * ( b.y - o.y ) - ( a.y - o.y ) * ( b.x - o.x ); };
+            std::vector<glm::dvec2> hull( points.size() * 2 );
+            std::size_t             k = 0;
+            for ( const glm::dvec2& p : points )
+            {
+                while ( k >= 2 && cross( hull[k - 2], hull[k - 1], p ) <= 0.0 )
+                    --k;
+                hull[k++] = p;
+            }
+            const std::size_t lower = k + 1;
+            for ( std::size_t i = points.size() - 1; i-- > 0; )
+            {
+                while ( k >= lower && cross( hull[k - 2], hull[k - 1], points[i] ) <= 0.0 )
+                    --k;
+                hull[k++] = points[i];
+            }
+            hull.resize( k - 1 );
+            return hull;
+        }
+
+        // Distance from @p sector's centre to the part of the convex @p region inside its slice; +∞ when the
+        // slice misses it.
+        [[nodiscard]] inline double DistanceToRegionInSector( const SourceSector&            sector,
+                                                              const std::vector<glm::dvec2>& region )
+        {
+            if ( sector.IsCircle() )
+                return DistanceToConvexPolygon( sector.Centre, region );
+            const double half = sector.Angle * 0.5;
+            if ( half <= 90.0 )
+            {
+                // A convex slice: the region clipped by both of its sides.
+                const auto [a, b] = WedgeNormals( sector.Axis, half );
+                return DistanceToConvexPolygon(
+                     sector.Centre,
+                     ClipToHalfPlane( ClipToHalfPlane( region, sector.Centre, a ), sector.Centre, b ) );
+            }
+            // A reflex slice is everything but the convex wedge behind it, i.e. the union of the two half-planes
+            // outside that wedge's sides: the nearer of the region's two parts.
+            const auto [a, b] = WedgeNormals( -sector.Axis, 180.0 - half );
+            return std::min(
+                 DistanceToConvexPolygon( sector.Centre, ClipToHalfPlane( region, sector.Centre, -a ) ),
+                 DistanceToConvexPolygon( sector.Centre, ClipToHalfPlane( region, sector.Centre, -b ) ) );
+        }
+    } // namespace Detail
+
+    // Distance on the ground from @p sector's centre to the part of a cell's streaming @p bounds that lies
+    // inside the sector's slice: zero when the centre is in that part, +∞ when the slice misses the bounds.
+    // For a circle, DistanceToCellSquare. Where the shape IS: its Sweep is not used (DistanceToCellAlongSweep is).
+    [[nodiscard]] inline double DistanceToCellInSector( const SourceSector& sector, const CellBounds& bounds )
     {
         if ( sector.IsCircle() )
-            return DistanceToCellSquare( sector.Centre.x, sector.Centre.y, cell, levelCellSize );
-        const double                  lowX = static_cast<double>( cell.X ) * levelCellSize;
-        const double                  lowZ = static_cast<double>( cell.Z ) * levelCellSize;
-        const std::vector<glm::dvec2> square{ { lowX, lowZ },
-                                              { lowX + levelCellSize, lowZ },
-                                              { lowX + levelCellSize, lowZ + levelCellSize },
-                                              { lowX, lowZ + levelCellSize } };
-        const double                  half = sector.Angle * 0.5;
-        if ( half <= 90.0 )
-        {
-            // A convex slice: the square clipped by both of its sides.
-            const auto [a, b] = Detail::WedgeNormals( sector.Axis, half );
-            return Detail::DistanceToConvexPolygon(
-                 sector.Centre, Detail::ClipToHalfPlane( Detail::ClipToHalfPlane( square, sector.Centre, a ),
-                                                         sector.Centre, b ) );
-        }
-        // A reflex slice is everything but the convex wedge behind it, i.e. the union of the two half-planes
-        // outside that wedge's sides: the nearer of the square's two parts.
-        const auto [a, b] = Detail::WedgeNormals( -sector.Axis, 180.0 - half );
-        return std::min( Detail::DistanceToConvexPolygon( sector.Centre,
-                                                          Detail::ClipToHalfPlane( square, sector.Centre, -a ) ),
-                         Detail::DistanceToConvexPolygon( sector.Centre,
-                                                          Detail::ClipToHalfPlane( square, sector.Centre, -b ) ) );
+            return DistanceToCellSquare( sector.Centre.x, sector.Centre.y, bounds );
+        return Detail::DistanceToRegionInSector( sector, Detail::CellSquare( bounds ) );
+    }
+
+    // THE LOOK-AHEAD's test: the least distance, over every place along the shape's Sweep, from the shape's
+    // centre to the part of a cell's streaming @p bounds inside its slice — the distance from the centre to the
+    // bounds swept back along the segment, clipped by the slice. A cell is wanted when this is at most the
+    // radius. Equal to DistanceToCellInSector for a shape that does not look ahead.
+    [[nodiscard]] inline double DistanceToCellAlongSweep( const SourceSector& sector, const CellBounds& bounds )
+    {
+        if ( sector.Sweep == glm::dvec2( 0.0 ) )
+            return DistanceToCellInSector( sector, bounds );
+        return Detail::DistanceToRegionInSector( sector,
+                                                 Detail::SweptBack( Detail::CellSquare( bounds ), sector.Sweep ) );
     }
 
     // THE ORDER's weight of a cell for one shape: (cos·0.5 + 0.5) of the angle between the shape's heading
     // and the direction from the cell's nearest point to the shape's centre — 0 straight ahead, 1 straight
     // behind (UE's SourceCosAngleRatio); 1 with no heading, so the key is the plain distance; 0 inside.
-    [[nodiscard]] inline double HeadingWeight( const SourceSector& sector, const CellCoord& cell,
-                                               double levelCellSize )
+    [[nodiscard]] inline double HeadingWeight( const SourceSector& sector, const CellBounds& bounds )
     {
         if ( sector.Heading == glm::dvec2( 0.0 ) )
             return 1.0;
-        const double     lowX = static_cast<double>( cell.X ) * levelCellSize;
-        const double     lowZ = static_cast<double>( cell.Z ) * levelCellSize;
-        const glm::dvec2 closest( std::clamp( sector.Centre.x, lowX, lowX + levelCellSize ),
-                                  std::clamp( sector.Centre.y, lowZ, lowZ + levelCellSize ) );
+        const glm::dvec2 closest(
+             std::clamp( sector.Centre.x, static_cast<double>( bounds.MinX ), static_cast<double>( bounds.MaxX ) ),
+             std::clamp( sector.Centre.y, static_cast<double>( bounds.MinZ ),
+                         static_cast<double>( bounds.MaxZ ) ) );
         const glm::dvec2 toSource = Detail::UnitOrZero( sector.Centre - closest );
         if ( toSource == glm::dvec2( 0.0 ) )
             return 0.0;
@@ -453,14 +563,16 @@ namespace Desert::Core::Rules
             if ( !std::isfinite( source.AngleScale ) || source.AngleScale < 0.0f ||
                  ( source.Facing.has_value() &&
                    ( !std::isfinite( source.Facing->x ) || !std::isfinite( source.Facing->z ) ) ) ||
-                 !std::isfinite( source.Velocity.x ) || !std::isfinite( source.Velocity.z ) )
+                 !std::isfinite( source.Velocity.x ) || !std::isfinite( source.Velocity.z ) ||
+                 !std::isfinite( source.LookAheadTime ) || source.LookAheadTime < 0.0f ||
+                 !std::isfinite( source.MaxLookAhead ) || source.MaxLookAhead < 0.0f )
             {
                 return Common::MakeError<StreamingWish>( std::format(
-                     "QueryStreamingCells: streaming source {} has AngleScale {}, a facing that is {} and "
-                     "velocity "
-                     "({}, {}); a scale must be finite and non-negative, a facing and a velocity finite",
+                     "QueryStreamingCells: streaming source {} has AngleScale {}, a facing that is {}, velocity "
+                     "({}, {}), LookAheadTime {} s and MaxLookAhead {} cm; a scale, a look-ahead time and its "
+                     "cap must be finite and non-negative, a facing and a velocity finite",
                      index, source.AngleScale, source.Facing ? "stated" : "absent", source.Velocity.x,
-                     source.Velocity.z ) );
+                     source.Velocity.z, source.LookAheadTime, source.MaxLookAhead ) );
             }
             for ( std::size_t shapeIndex = 0; shapeIndex < source.Shapes.size(); ++shapeIndex )
             {
@@ -538,6 +650,18 @@ namespace Desert::Core::Rules
                                        []( const PlannedCell& cell, int key ) { return cell.Level < key; } );
                 levelBegin[static_cast<std::size_t>( level )] = static_cast<std::size_t>( first - plan.Cells.begin() );
             }
+            // How far a cell of each level reaches past its square (PlannedCell::Bounds): the enumeration
+            // below widens the circle by it, so a cell whose square is out of range but whose bounds are not
+            // is still considered.
+            std::vector<double> levelReach( static_cast<std::size_t>( lastLevel ) + 1, 0.0 );
+            for ( auto cell = gridFirst; cell != gridLast; ++cell )
+            {
+                double& reachOf = levelReach[static_cast<std::size_t>( cell->Level )];
+                reachOf = std::max( { reachOf, static_cast<double>( cell->Square.MinX ) - cell->Bounds.MinX,
+                                      static_cast<double>( cell->Square.MinZ ) - cell->Bounds.MinZ,
+                                      static_cast<double>( cell->Bounds.MaxX ) - cell->Square.MaxX,
+                                      static_cast<double>( cell->Bounds.MaxZ ) - cell->Square.MaxZ } );
+            }
 
             for ( std::size_t sourceIndex = 0; sourceIndex < sources.size(); ++sourceIndex )
             {
@@ -559,18 +683,30 @@ namespace Desert::Core::Rules
                         const auto consider = [&]( std::size_t cellIndex )
                         {
                             ++wish.CellsExamined;
-                            const CellCoord& coord    = plan.Cells[cellIndex].Cell;
-                            const double     distance = DistanceToCellInSector( sector, coord, size );
-                            if ( distance <= radius )
+                            const CellBounds& bounds  = plan.Cells[cellIndex].Bounds;
+                            const double      here    = DistanceToCellInSector( sector, bounds );
+                            const double      reached = sector.Sweep == glm::dvec2( 0.0 )
+                                                             ? here
+                                                             : DistanceToCellAlongSweep( sector, bounds );
+                            if ( reached <= radius )
                             {
+                                // THE LOOK-AHEAD: a cell reached only along the sweep is ordered by its plain
+                                // distance to where the source is.
+                                const double distance =
+                                     here <= radius
+                                          ? here
+                                          : DistanceToCellSquare( sector.Centre.x, sector.Centre.y, bounds );
                                 hits.push_back( WantedCell{ cellIndex, distance, sourceIndex, priority,
-                                                            distance * HeadingWeight( sector, coord, size ),
-                                                        grid.Priority } );
+                                                            distance * HeadingWeight( sector, bounds ),
+                                                            grid.Priority } );
                             }
                         };
 
-                        const Detail::AxisSpan alongX = Detail::CellsAlong( x, radius, size );
-                        const Detail::AxisSpan alongZ = Detail::CellsAlong( z, radius, size );
+                        const double           reach  = levelReach[static_cast<std::size_t>( level )];
+                        const Detail::AxisSpan alongX =
+                             Detail::CellsAlongSwept( x, sector.Sweep.x, radius + reach, size );
+                        const Detail::AxisSpan alongZ =
+                             Detail::CellsAlongSwept( z, sector.Sweep.y, radius + reach, size );
                         const double           enumerated =
                              ( alongX.Last - alongX.First + 1.0 ) * ( alongZ.Last - alongZ.First + 1.0 );
                         if ( enumerated > static_cast<double>( end - begin ) )

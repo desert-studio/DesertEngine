@@ -11,14 +11,14 @@ Shader "MegaLightsShadeSamples"
 
     Compute
     {
-        Uniform sampler u_PointClampSampler;
+        Uniform sampler PointClampSampler;
         #define MEGALIGHTS_SHADING
         #include <Common/MegaLights.glslh>
 
-        Uniform(10) texture2D u_Reservoirs; // "MegaLights: Trace Samples", sample-pixel sized
-        #define u_Reservoirs sampler2D(u_Reservoirs, u_PointClampSampler)
-        layout(binding = 15, rgba16f) writeonly uniform image2D u_OutDiffuse;  // rgb = demodulated diffuse, a = 1
-        layout(binding = 18, rgba16f) writeonly uniform image2D u_OutSpecular; // rgb = demodulated specular, a = 1
+        Uniform(10) texture2D ReservoirsTexture; // "MegaLights: Trace Samples", sample-pixel sized
+        #define ReservoirsTexture sampler2D(ReservoirsTexture, PointClampSampler)
+        layout(binding = 15, rgba16f) writeonly uniform image2D OutDiffuseTexture;  // rgb = demodulated diffuse, a = 1
+        layout(binding = 18, rgba16f) writeonly uniform image2D OutSpecularTexture; // rgb = demodulated specular, a = 1
 
         LocalSize(8, 8, 1);
 
@@ -31,8 +31,8 @@ Shader "MegaLightsShadeSamples"
         	const MegaLightsPixel p = MegaLightsLoadPixel(pixel);
         	if (!p.Valid)
         	{
-        		imageStore(u_OutDiffuse, pixel, vec4(0.0));
-        		imageStore(u_OutSpecular, pixel, vec4(0.0));
+        		imageStore(OutDiffuseTexture, pixel, vec4(0.0));
+        		imageStore(OutSpecularTexture, pixel, vec4(0.0));
         		return;
         	}
         	const uint  samples     = MegaLightsSamplesPerPixel();
@@ -42,7 +42,7 @@ Shader "MegaLightsShadeSamples"
         	for (uint k = 0u; k < samples; ++k)
         	{
         		const MegaLightsReservoir r =
-        		     MegaLightsUnpackReservoir(texelFetch(u_Reservoirs, MegaLightsReservoirTexel(samplePixel, k), 0));
+        		     MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(samplePixel, k), 0));
         		if (r.Light < 0 || r.Light >= MegaLightsLightCount() || r.W <= 0.0)
         			continue;
         		vec3 d;
@@ -52,8 +52,8 @@ Shader "MegaLightsShadeSamples"
         		specular += s * r.W;
         	}
         	const float scale = 1.0 / float(samples);
-        	imageStore(u_OutDiffuse, pixel, vec4(diffuse * scale / p.DiffuseReflectance, 1.0));
-        	imageStore(u_OutSpecular, pixel, vec4(specular * scale / p.SpecularReflectance, 1.0));
+        	imageStore(OutDiffuseTexture, pixel, vec4(diffuse * scale / p.DiffuseReflectance, 1.0));
+        	imageStore(OutSpecularTexture, pixel, vec4(specular * scale / p.SpecularReflectance, 1.0));
         }
     }
 }

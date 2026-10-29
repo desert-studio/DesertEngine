@@ -13,45 +13,45 @@ Shader "VirtualShadowMapGather"
 
         ReadBuffer(0) VsmPageTable
         {
-            VsmPageEntry u_Entries[];
+            VsmPageEntry Entries[];
         };
         ReadBuffer(1) VsmPhysicalOwners
         {
-            uint u_Owners[];
+            uint Owners[];
         };
         Buffer(2) VsmAllocator
         {
-            uint  u_EmptyCount;
-            uint  u_CachedCount;
-            uint  u_AllocCursor;
-            uint  u_DirtyCount;
-            uint  u_Overflow;
-            uint  u_Reserved0;
-            uint  u_Reserved1;
-            uint  u_Reserved2;
-            uvec4 u_ClearArgs; // VkDispatchIndirectCommand of "VSM: Clear Pages"
+            uint  EmptyCount;
+            uint  CachedCount;
+            uint  AllocationCursor;
+            uint  DirtyCount;
+            uint  Overflow;
+            uint  Reserved0;
+            uint  Reserved1;
+            uint  Reserved2;
+            uvec4 ClearArgs; // VkDispatchIndirectCommand of "VSM: Clear Pages"
         };
         Buffer(3) VsmLists
         {
-            uint u_Lists[]; // [0, n) empty, [n, 2n) cached, [2n, 3n) dirty entries; n = physical page count
+            uint Lists[]; // [0, n) empty, [n, 2n) cached, [2n, 3n) dirty entries; n = physical page count
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Pool; // x = physical page count
+            uvec4 Pool; // x = physical page count
         };
 
         void main()
         {
             const uint page  = gl_GlobalInvocationID.x;
-            const uint count = u_Pool.x;
+            const uint count = Pool.x;
             if ( page >= count )
                 return;
-            const uint owner = u_Owners[page];
+            const uint owner = Owners[page];
             if ( owner == VSM_INVALID )
-                u_Lists[atomicAdd( u_EmptyCount, 1u )] = page;
-            else if ( ( u_Entries[owner].Flags & VSM_FLAG_REQUESTED ) == 0u )
-                u_Lists[count + atomicAdd( u_CachedCount, 1u )] = page;
+                Lists[atomicAdd( EmptyCount, 1u )] = page;
+            else if ( ( Entries[owner].Flags & VSM_FLAG_REQUESTED ) == 0u )
+                Lists[count + atomicAdd( CachedCount, 1u )] = page;
         }
     }
 }

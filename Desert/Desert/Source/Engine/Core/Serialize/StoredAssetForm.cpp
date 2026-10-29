@@ -12,17 +12,16 @@ namespace Desert::Core::Serialize
         if ( type == "TextureAsset" || type == "FontAsset" || type == "VideoAsset" || type == "IconAsset" )
             return StoredAssetForm::StableKey;
 
-        // Relative to the assets root: content that ships WITH the project. The material branch was
-        // the first to be fixed this way — it wrote the filepath verbatim, which put 22 distinct
-        // `/Users/<somebody>/.../Materials/*.demat` into 42 of the 51 scenes in this repository — and
-        // the sculpted body, the rig, the graph and the theme each copied the reasoning.
+        // Content that ships WITH the project: the tagged key too. These wrote the path relative to the assets
+        // root until PATH1 restated the corpus (`Materials/M.demat` -> `assets:Materials/M.demat`) and deleted
+        // the reader that joined a bare spelling to ASSETS_PATH (ComponentRegistry FileForStoredReference).
         if ( type == "MaterialAsset" || type == "CloudModellingVolumeAsset" || type == "ControlRigAsset" ||
              type == "AnimGraphAsset" || type == "UIThemeAsset" || type == "RetargetAsset" ||
              type == "PrefabAsset" || type == "FoliageTypeAsset" || type == "FractureAsset" ||
              type == "WaterWavesAsset" || type == "InputMappingContextAsset" || type == "PhysicsAsset" ||
              type == "SoundAsset" || type == "VFXSystemAsset" || type == "WorldParametersAsset" ||
              type == "WeatherPresetAsset" )
-            return StoredAssetForm::AssetsRelative;
+            return StoredAssetForm::StableKey;
 
         // Meshes (static/skinned both resolved handle->path through the MeshAsset base): the tagged stable
         // key, as a texture's (BISTRO-OPEN). The machine path they used to store put a developer's home
@@ -45,18 +44,6 @@ namespace Desert::Core::Serialize
         {
             case StoredAssetForm::StableKey:
                 return key;
-
-            case StoredAssetForm::AssetsRelative:
-            {
-                // The assets tag read out of AssetHandle's own root table rather than spelled again —
-                // there is exactly one spelling of "assets" in this repository and it is that table's.
-                const std::string prefix = std::string( Common::AssetHandle::AssetsTag() ) + ':';
-                if ( key.starts_with( prefix ) )
-                    return key.substr( prefix.size() );
-                // Under another root, or under none: the key expands to the path it names and that is
-                // what goes in the file, which is what the branches this replaces did.
-                return Common::AssetHandle::PathForStableKey( key ).string();
-            }
 
             case StoredAssetForm::ProjectKey:
                 return Common::AssetHandle::IsProjectRelativeKey( key ) ? key : std::string();

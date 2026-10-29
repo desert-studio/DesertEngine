@@ -93,6 +93,15 @@ namespace Desert::Graphic::System
      * because the editor builds a SceneRenderer for every asset thumbnail and every mesh preview, and
      * none of them has a sky.
      */
+    // The Composite shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct VolumetricCloudCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, CloudScatterTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, CloudGuideTexture );
+        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( CloudGuideTexture ) };
+    };
+
     class VolumetricCloudRenderer final : public RenderSystem
     {
     public:
@@ -154,6 +163,16 @@ namespace Desert::Graphic::System
         // draws nothing) and drops the sky-occlusion volume rather than claim a resolve that never ran.
         void SettleFrameNodes( bool accepted );
 
+        // THE SKY-LIGHT OCCLUSION VOLUME ALONE, for a frame that draws no screen clouds (a path-traced frame,
+        // SceneRenderer::AddFramePathTracing): the volume is an input of the cloud's own lighting - the sky
+        // capture (BakeProceduralSky) marches the layer through it - not a part of the screen march, so a view
+        // that skips the march still decides and writes it, and the capture of that view does not wait on it
+        // forever (BuildEnvironmentBake: InputsPending while undecided). The node is the one DeclareFrameNodes
+        // declares (SkyOcclusionNode). SettleSkyOcclusionNodes( false ) drops the volume when the graph refused
+        // the node.
+        std::vector<ComputeNodeDeclaration> DeclareSkyOcclusionNodes();
+        void                                SettleSkyOcclusionNodes( bool accepted );
+
         // The reconstruction pair the composite samples this frame (graph refs of the transient pair the resolve
         // writes), after SettleFrameNodes. Both invalid when the frame has none (clouds off, or the nodes were
         // refused): the composite then draws nothing.
@@ -177,6 +196,9 @@ namespace Desert::Graphic::System
         // occlusion, march).
         RenderPassDeclaration::BlockDeclaration
         SampledVolumes( RenderPassDeclaration::BlockDeclaration block ) const;
+        // The sky-occlusion volume's dispatch over m_ParamsBuffer / m_AuthoredBuffer as this frame uploaded them
+        // (DeclareFrameNodes, DeclareSkyOcclusionNodes), writing m_SkyOcclusionVolume (EnsureSkyOcclusionVolume).
+        ComputeNodeDeclaration SkyOcclusionNode();
 
         /**
          * @brief Stage SM — the cloud shadow map. Must be called outside any render pass, and EARLY:
@@ -379,7 +401,7 @@ namespace Desert::Graphic::System
         /// Build the world weather map for m_ModellingParams if its seed or shortest wave moved; false when
         /// the device refused the image.
         bool EnsureFarWeatherMap();
-        /// The painted layout as the march's two textures (u_CloudLayoutPattern / u_CloudLayoutMask), re-uploaded
+        /// The painted layout as the march's two textures (CloudLayoutPatternTexture / CloudLayoutMaskTexture), re-uploaded
         /// only when the painting's content hash moves; neutral 1x1 stand-ins when nothing is painted.
         bool EnsureLayoutTextures();
 

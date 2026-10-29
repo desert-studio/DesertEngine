@@ -15,6 +15,35 @@ namespace Desert::Graphic::System
     // into its own framebuffer (GetSystemFramebuffer()). Runs only when this machine's post AA is SMAA
     // (Common::Settings::MachineSettings::AA; it was SceneSettings::AA until К3). Uses the
     // precomputed AreaTex/SearchTex LUTs loaded from Resources/Textures/SMAA.
+    // The Edges shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct SMAAEdgesShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, ColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        static constexpr std::array kAll{ RDG::Erase( ColorTexture ), RDG::Erase( LinearClampSampler ) };
+    };
+
+    // The Weights shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct SMAAWeightsShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, EdgesTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, AreaTexture );
+        DESERT_SHADER_PARAMETER( Texture, SearchTexture );
+        static constexpr std::array kAll{ RDG::Erase( EdgesTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( AreaTexture ), RDG::Erase( SearchTexture ) };
+    };
+
+    // The Blend shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct SMAABlendShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, ColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, BlendTexture );
+        DESERT_SHADER_PARAMETER( Texture, EdgesTexture );
+        DESERT_SHADER_PARAMETER( Texture, AreaTexture );
+        static constexpr std::array kAll{ RDG::Erase( ColorTexture ), RDG::Erase( LinearClampSampler ), RDG::Erase( BlendTexture ), RDG::Erase( EdgesTexture ), RDG::Erase( AreaTexture ) };
+    };
+
     class SMAARenderer final : public RenderSystem
     {
     public:

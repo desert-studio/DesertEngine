@@ -2,6 +2,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 
+#include <charconv>
 #include <cstdint>
 #include <deque>
 #include <optional>
@@ -20,6 +21,7 @@ namespace Desert::Editor::Control
         KeyDown,
         KeyUp,
         Drop,
+        Scroll,
     };
 
     struct InputStep
@@ -75,6 +77,9 @@ namespace Desert::Editor::Control
         return lower;
     }
 
+    /// "shift+ctrl" -> kModShift | kModControl: the modifiers a pointer drag holds. Empty = none.
+    [[nodiscard]] inline Common::ResultStr<int32_t> ParseInputModifiers( std::string_view text );
+
     [[nodiscard]] inline Common::ResultStr<InputChord> ParseInputChord( std::string_view text )
     {
         InputChord  chord;
@@ -118,6 +123,30 @@ namespace Desert::Editor::Control
         return Common::MakeSuccess( std::move( chord ) );
     }
 
+    [[nodiscard]] inline Common::ResultStr<int32_t> ParseInputModifiers( std::string_view text )
+    {
+        int32_t     mods  = 0;
+        std::size_t start = 0;
+        while ( start < text.size() )
+        {
+            const std::size_t plus = text.find( '+', start );
+            const std::string part = LowerInputName(
+                 text.substr( start, plus == std::string_view::npos ? std::string_view::npos : plus - start ) );
+            const InputKeyName* modifier = nullptr;
+            for ( const InputKeyName& candidate : kInputModifiers )
+                if ( candidate.Name == part )
+                    modifier = &candidate;
+            if ( modifier == nullptr )
+                return Common::MakeFormattedError<int32_t>(
+                     "'{}' in '{}' is not a modifier: shift, ctrl, alt, super (cmd).", part, text );
+            mods |= modifier->ModBit;
+            if ( plus == std::string_view::npos )
+                break;
+            start = plus + 1;
+        }
+        return Common::MakeSuccess( mods );
+    }
+
     [[nodiscard]] inline InputStep MakeInputStep( InputAction action, float x, float y, int32_t code = 0,
                                                   int32_t mods = 0 )
     {
@@ -153,6 +182,18 @@ namespace Desert::Editor::Control
             drop.Paths     = paths;
             return Common::MakeSuccess( Frames{ { cursor }, { cursor, drop } } );
         }
+        // scroll = the mouse wheel over the point, `key` = signed notches (negative scrolls the content up, as a
+        // wheel turned towards the user): the wheel event a mouse sends, so the hovered window scrolls as it would.
+        if ( kind == "scroll" )
+        {
+            int32_t notches = 0;
+            const auto [end, error] = std::from_chars( key.data(), key.data() + key.size(), notches );
+            if ( error != std::errc() || end != key.data() + key.size() || notches == 0 )
+                return Common::MakeFormattedError<Frames>(
+                     "'scroll' needs a non-zero whole number of wheel notches, not '{}'.", key );
+            return Common::MakeSuccess(
+                 Frames{ { cursor }, { cursor, MakeInputStep( InputAction::Scroll, x, y, notches ) } } );
+        }
         // key = press and release (a tap); keydown = press and HOLD until a keyup of the same chord — the same
         // key events a keyboard sends, so they reach whatever holds keyboard focus (the played viewport's
         // player, a text field) by the same route.
@@ -182,7 +223,7 @@ namespace Desert::Editor::Control
             return Common::MakeSuccess( Frames{ std::move( down ), std::move( up ) } );
         }
         return Common::MakeFormattedError<Frames>(
-             "'{}' is not an input kind: move, click, press, release, key, keydown, keyup, drop.", kind );
+             "'{}' is not an input kind: move, click, press, release, scroll, key, keydown, keyup, drop.", kind );
     }
 
     class InputInjection

@@ -1,0 +1,11 @@
+# SLICE-02 asset authoring (run once; its output is committed): Wall.dfrac's interior material (UE Fracture Mode's
+# Internal Material) — the broken faces (material ID 1) draw with Starter_Prop instead of the default surface.
+# The Fracture tool writes the .dfrac itself (FractureTool::SetInteriorMaterial -> FractureAsset::FileStep).
+Дано run Scene "Open Scene SLICE-02.desce"
+Дано run View "View mode: Lit"
+Когда run Fracture "Fracture mode"
+Когда run Fracture "Target: Fractures/Wall.dfrac"
+Когда run Fracture "Interior material: Starter_Prop (assets:Materials/Starter_Prop.demat)"
+Когда --subject viewport set Camera.Position -450,150,-150
+Когда --subject viewport set Camera.Direction 0,-0.1,1
+Тогда-вид 0_interior the fractured wall in Fracture mode, its pieces outlined

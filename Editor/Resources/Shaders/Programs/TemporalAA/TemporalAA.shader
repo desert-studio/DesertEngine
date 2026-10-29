@@ -25,7 +25,7 @@ Shader "TemporalAA"
         //      (1/40 px), at least the anti-flicker minimum, and toward UE's responsive 1/4 by the responsive-AA
         //      mask (translucency that writes no velocity of its own: glass, particles); in a tonemapped weight
         //      space so a bright sample cannot dominate the average (UE HdrWeight).
-        // Writes the same value to u_HistoryOut (next frame's history) and u_Output (the post chain's input; the
+        // Writes the same value to HistoryOutTexture (next frame's history) and ResolvedColorTexture (the post chain's input; the
         // overlays draw into that one, never into the history).
         //
         // TAA_QUALITY is a shader variant, set by the C++ for every pipeline (TemporalAA::PipelineFor):
@@ -44,34 +44,38 @@ Shader "TemporalAA"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(9) sampler u_LinearClampSampler;
-        Uniform(10) sampler u_PointClampSampler;
-        Uniform(0) texture2D u_SceneColor; // linear HDR, RenderExtent, jittered (texel fetches only)
-        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
-        Uniform(1) texture2D u_SceneDepth; // reversed-Z device depth, RenderExtent
-        #define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
-        Uniform(2) texture2D u_Velocity;   // NDC current - previous, RenderExtent
-        #define u_Velocity sampler2D(u_Velocity, u_PointClampSampler)
-        Uniform(3) texture2D u_Exposure;   // 1x1 previous adapted luminance (AutoExposure)
-        #define u_Exposure sampler2D(u_Exposure, u_PointClampSampler)
-        Uniform(4) texture2D u_History;    // previous resolve, this pass's extent
-        #define u_History sampler2D(u_History, u_LinearClampSampler)
-        layout(binding = 5, rgba16f) restrict writeonly uniform image2D u_HistoryOut;
-        layout(binding = 6, rgba16f) restrict writeonly uniform image2D u_Output;
+        Uniform(9) sampler LinearClampSampler;
+        Uniform(10) sampler PointClampSampler;
+        Uniform(0) texture2D SceneColorTexture; // linear HDR, RenderExtent, jittered (texel fetches only)
+        #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
+        Uniform(1) texture2D SceneDepthTexture; // reversed-Z device depth, RenderExtent
+        #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
+        Uniform(2) texture2D VelocityTexture;   // NDC current - previous, RenderExtent
+        #define VelocityTexture sampler2D(VelocityTexture, PointClampSampler)
+        Uniform(3) texture2D ExposureTexture;   // 1x1 previous adapted luminance (AutoExposure)
+        #define ExposureTexture sampler2D(ExposureTexture, PointClampSampler)
+        Uniform(4) texture2D PreviousResolvedColorTexture;    // previous resolve, this pass's extent
+        #define PreviousResolvedColorTexture sampler2D(PreviousResolvedColorTexture, LinearClampSampler)
+        layout(binding = 5, rgba16f) restrict writeonly uniform image2D HistoryOutTexture;
+        layout(binding = 6, rgba16f) restrict writeonly uniform image2D ResolvedColorTexture;
 
         // The C++ side is Graphic::TemporalAAParams (View/TemporalAA.hpp), offsets pinned by static_asserts.
         layout(std430, binding = 7) readonly buffer TemporalAABuffer
         {
-            mat4  u_InvViewProjection;  // this frame, unjittered
-            mat4  u_PrevViewProjection; // previous frame, unjittered
-            vec2  u_RenderSize;
-            vec2  u_OutputSize;
-            vec2  u_JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
-            float u_HistoryValid;
-            float u_Pad;
+            mat4  InverseViewProjection;  // this frame, unjittered
+            mat4  PreviousViewProjection; // previous frame, unjittered
+            vec2  RenderSize;
+            vec2  OutputSize;
+            vec2  JitterUv;           // this frame's jitter in uv (JitterNdc * (0.5, -0.5))
+            float HistoryValid;
+            float HistoryPreExposureCorrection; // PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection)
+            float PreExposure;                  // the scene colour arrives x this (ViewFrame::PreExposure)
+            float Pad0;
+            float Pad1;
+            float Pad2;
         };
-        Uniform(8) texture2D u_ResponsiveAA; // R8 coverage of responsive translucency, RenderExtent
-        #define u_ResponsiveAA sampler2D(u_ResponsiveAA, u_PointClampSampler)
+        Uniform(8) texture2D ResponsiveAaTexture; // R8 coverage of responsive translucency, RenderExtent
+        #define ResponsiveAaTexture sampler2D(ResponsiveAaTexture, PointClampSampler)
 
 
         const float kCurrentWeight       = 0.04;  // UE r.TemporalAA.CurrentFrameWeight
@@ -111,33 +115,23 @@ Shader "TemporalAA"
         }
 
         // Whether render pixel p shows an object that moves on its own (UE: the velocity texture's "dynamic"
-        // encoding, written only by objects with their own motion). Our geometry writes velocity for every
-        // surface, the camera's motion included, so the object's own motion is the written velocity minus the
-        // camera's reprojection of the same depth (both unjittered: the surface at p's centre sits at
-        // uv - jitter). Measured in OUTPUT pixels (the real on-screen motion), dynamic above a tenth of a pixel
-        // plus the RGBA16F rounding of the written velocity (2^-11 relative per component). The sky (depth 0) never
-        // moves on its own.
-        const float kDynamicPixels = 0.1;
-
+        // encoding, written only by primitives that moved, TemporalAA.usf AA_DYNAMIC_ANTIGHOST). Our geometry writes
+        // velocity for every surface (motion blur and the reprojection want the foliage wind's motion too), so the
+        // object's own motion is not the velocity but its OBJECT-MOTION FLAG, the velocity's w (Common/Velocity.glslh
+        // DesertVelocity; each vertex stage sets v_Surface.ObjectMoved: Vertex_Static the transform changed,
+        // Vertex_Instanced the instance moved, Vertex_Skinned the skeleton, particles always, the wind and the grass
+        // blades never). A crown swaying in the wind is therefore not dynamic, so the static pixels around its leaves
+        // keep their history (FOLIAGE-WIND-POP: the leaf edge flickered as the anti-ghost dropped it every frame). The
+        // sky (cleared to 0) never moves on its own.
         bool IsDynamicPixel(ivec2 p)
         {
-            p                   = clamp(p, ivec2(0), ivec2(u_RenderSize) - 1);
-            const float depth   = texelFetch(u_SceneDepth, p, 0).r;
-            if (depth <= 0.0)
-                return false;
-            const vec2  written = texelFetch(u_Velocity, p, 0).xy;
-            const vec2  ndc     = ScreenUVToNdc((vec2(p) + 0.5) / u_RenderSize - u_JitterUv);
-            const vec4  world   = u_InvViewProjection * vec4(ndc, depth, 1.0);
-            const vec4  prev    = u_PrevViewProjection * world;
-            const vec2  camera  = ndc - prev.xy / prev.w;
-            const vec2  own     = (written - camera) * 0.5 * u_OutputSize;
-            const float limit   = kDynamicPixels + length(written * 0.5 * u_OutputSize) * (1.0 / 1024.0);
-            return dot(own, own) > limit * limit;
+            p = clamp(p, ivec2(0), ivec2(RenderSize) - 1);
+            return texelFetch(VelocityTexture, p, 0).w > 0.5;
         }
 
         vec3 FetchRender(ivec2 p)
         {
-            return texelFetch(u_SceneColor, clamp(p, ivec2(0), ivec2(u_RenderSize) - 1), 0).rgb;
+            return texelFetch(SceneColorTexture, clamp(p, ivec2(0), ivec2(RenderSize) - 1), 0).rgb;
         }
 
         // 5-tap Catmull-Rom (the 4x4 kernel folded onto bilinear taps, corners dropped). TAA_QUALITY 2, and every
@@ -145,7 +139,7 @@ Shader "TemporalAA"
         // upscaled history every frame it moves).
         vec3 SampleHistoryCatmullRom(vec2 uv)
         {
-            const vec2 size     = vec2(textureSize(u_History, 0));
+            const vec2 size     = vec2(textureSize(PreviousResolvedColorTexture, 0));
             const vec2 position = uv * size;
             const vec2 texPos1  = floor(position - 0.5) + 0.5;
             const vec2 f        = position - texPos1;
@@ -158,11 +152,11 @@ Shader "TemporalAA"
             const vec2 tex3     = (texPos1 + 2.0) / size;
             const vec2 tex12    = (texPos1 + w2 / w12) / size;
 
-            vec3 sum = textureLod(u_History, vec2(tex12.x, tex0.y), 0.0).rgb * (w12.x * w0.y);
-            sum += textureLod(u_History, vec2(tex0.x, tex12.y), 0.0).rgb * (w0.x * w12.y);
-            sum += textureLod(u_History, tex12, 0.0).rgb * (w12.x * w12.y);
-            sum += textureLod(u_History, vec2(tex3.x, tex12.y), 0.0).rgb * (w3.x * w12.y);
-            sum += textureLod(u_History, vec2(tex12.x, tex3.y), 0.0).rgb * (w12.x * w3.y);
+            vec3 sum = textureLod(PreviousResolvedColorTexture, vec2(tex12.x, tex0.y), 0.0).rgb * (w12.x * w0.y);
+            sum += textureLod(PreviousResolvedColorTexture, vec2(tex0.x, tex12.y), 0.0).rgb * (w0.x * w12.y);
+            sum += textureLod(PreviousResolvedColorTexture, tex12, 0.0).rgb * (w12.x * w12.y);
+            sum += textureLod(PreviousResolvedColorTexture, vec2(tex3.x, tex12.y), 0.0).rgb * (w3.x * w12.y);
+            sum += textureLod(PreviousResolvedColorTexture, vec2(tex12.x, tex3.y), 0.0).rgb * (w12.x * w3.y);
             const float weight = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
             return max(sum / weight, vec3(0.0));
         }
@@ -172,7 +166,7 @@ Shader "TemporalAA"
         #if TAA_QUALITY >= 2
             return SampleHistoryCatmullRom(uv);
         #else
-            return upsample ? SampleHistoryCatmullRom(uv) : textureLod(u_History, uv, 0.0).rgb;
+            return upsample ? SampleHistoryCatmullRom(uv) : textureLod(PreviousResolvedColorTexture, uv, 0.0).rgb;
         #endif
         }
 
@@ -189,18 +183,18 @@ Shader "TemporalAA"
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_OutputSize))))
+            if (any(greaterThanEqual(pixel, ivec2(OutputSize))))
                 return;
 
-            const vec2  uv          = (vec2(pixel) + 0.5) / u_OutputSize;
-            const ivec2 renderLimit = ivec2(u_RenderSize) - 1;
+            const vec2  uv          = (vec2(pixel) + 0.5) / OutputSize;
+            const ivec2 renderLimit = ivec2(RenderSize) - 1;
 
             // 1. The output pixel's centre in the jittered render image: the scene at output uv sits at
             // uv + jitter there. K is the render pixel holding it, dKO the offset from K's centre (UE PPCo / PPCk).
-            const vec2  ppco        = uv * u_RenderSize + u_JitterUv * u_RenderSize;
+            const vec2  ppco        = uv * RenderSize + JitterUv * RenderSize;
             const ivec2 renderPixel = clamp(ivec2(floor(ppco)), ivec2(0), renderLimit);
             const vec2  dKO         = ppco - (vec2(renderPixel) + 0.5);
-            const float upscale     = u_OutputSize.x / u_RenderSize.x; // 1 for TAA, 2 for TAAU at 50 %
+            const float upscale     = OutputSize.x / RenderSize.x; // 1 for TAA, 2 for TAAU at 50 %
             const bool  upsample    = upscale > 1.001;
 
             // 2. Velocity of the closest surface of the 3x3 (reversed-Z: the largest depth is the closest).
@@ -211,7 +205,7 @@ Shader "TemporalAA"
                 for (int x = -1; x <= 1; ++x)
                 {
                     const ivec2 p = clamp(renderPixel + ivec2(x, y), ivec2(0), renderLimit);
-                    const float d = texelFetch(u_SceneDepth, p, 0).r;
+                    const float d = texelFetch(SceneDepthTexture, p, 0).r;
                     if (d > closestDepth)
                     {
                         closestDepth = d;
@@ -219,24 +213,24 @@ Shader "TemporalAA"
                     }
                 }
             }
-            vec2 velocity = texelFetch(u_Velocity, closestPixel, 0).xy;
+            vec2 velocity = texelFetch(VelocityTexture, closestPixel, 0).xy;
 
             // The sky: nothing wrote velocity; reproject the view direction (a point at infinity, w = 0 kept
             // homogeneous, so the far plane needs no finite distance).
             if (velocity == vec2(0.0) && closestDepth <= 0.0)
             {
                 const vec2 ndc      = ScreenUVToNdc(uv);
-                const vec4 world    = u_InvViewProjection * vec4(ndc, 0.0, 1.0);
-                const vec4 prevClip = u_PrevViewProjection * world;
+                const vec4 world    = InverseViewProjection * vec4(ndc, 0.0, 1.0);
+                const vec4 prevClip = PreviousViewProjection * world;
                 if (abs(prevClip.w) > 1e-6)
                     velocity = ndc - prevClip.xy / prevClip.w;
             }
             // The motion in OUTPUT pixels (NDC spans two uv units).
-            const float velocityPixels = length(velocity * 0.5 * u_OutputSize);
+            const float velocityPixels = length(velocity * 0.5 * OutputSize);
 
             const vec2 historyUv     = uv - velocity * vec2(0.5, -0.5);
             const bool onScreen      = all(greaterThanEqual(historyUv, vec2(0.0))) && all(lessThanEqual(historyUv, vec2(1.0)));
-            bool ignoreHistory = u_HistoryValid < 0.5 || !onScreen;
+            bool ignoreHistory = HistoryValid < 0.5 || !onScreen;
 
             // Dynamic anti-ghosting (UE AA_DYNAMIC_ANTIGHOST, TemporalAA.usf :2175-2190, :2336-2337; High). The
             // history's alpha says whether a MOVING object covered that pixel when it was resolved. A pixel whose
@@ -248,15 +242,22 @@ Shader "TemporalAA"
             const bool dynamicAny = dynamicK || IsDynamicPixel(renderPixel + ivec2(0, -1)) ||
                                     IsDynamicPixel(renderPixel + ivec2(-1, 0)) ||
                                     IsDynamicPixel(renderPixel + ivec2(1, 0)) || IsDynamicPixel(renderPixel + ivec2(0, 1));
-            if (!ignoreHistory && !dynamicAny && textureLod(u_History, historyUv, 0.0).a > 0.0)
+            // The flag of the ONE history texel the reprojection lands in, never a bilinear blend of four: a blend
+            // is above 0 wherever ANY of four texels was dynamic, which dropped the history of every static pixel
+            // bordering a swaying leaf or blade every frame -- that edge then showed the jittered, aliased current
+            // frame alone and blinked (FOLIAGE-WIND-POP: half the frame-to-frame flicker of a windy field).
+            const ivec2 historyTexel = clamp(ivec2(historyUv * vec2(textureSize(PreviousResolvedColorTexture, 0))),
+                                             ivec2(0), textureSize(PreviousResolvedColorTexture, 0) - 1);
+            if (!ignoreHistory && !dynamicAny && texelFetch(PreviousResolvedColorTexture, historyTexel, 0).a > 0.5)
                 ignoreHistory = true;
             const float historyFlag = dynamicK ? 1.0 : 0.0;
         #else
             const float historyFlag = 0.0;
         #endif
 
-            const float adaptedLum = texelFetch(u_Exposure, ivec2(0), 0).r;
-            const float exposure   = 1.0 / max(adaptedLum, 1e-4);
+            const float adaptedLum = texelFetch(ExposureTexture, ivec2(0), 0).r;
+            // The scene colour is already x PreExposure: divide it out of the weight's exposure.
+            const float exposure   = 1.0 / (max(adaptedLum, 1e-4) * PreExposure);
 
             // 3. The filtered current frame and the neighbourhood statistics of K's 3x3. The filter scale (UE
             // InvFilterScaleFactor, TemporalAA.usf :2203-2220): 1, 0 without history (as wide as the kernel goes),
@@ -326,7 +327,7 @@ Shader "TemporalAA"
             vec3 result = filtered;
             if (!ignoreHistory)
             {
-                vec3 history = SampleHistory(historyUv, upsample);
+                vec3 history = SampleHistory(historyUv, upsample) * HistoryPreExposureCorrection;
                 if (any(isnan(history)) || any(isinf(history)))
                     history = filtered;
                 const float lumaHistory = Luma(history);
@@ -352,7 +353,7 @@ Shader "TemporalAA"
                 blend       = mix(blend, kMovingCurrentWeight, clamp(velocityPixels / kMovingPixels, 0.0, 1.0));
                 // UE: "Make sure to have at least some small contribution" (from the pre-clip history luma).
                 blend = max(blend, clamp(0.01 * lumaHistory / max(abs(Luma(filtered) - lumaHistory), 1e-6), 0.0, 1.0));
-                const float responsive = texelFetch(u_ResponsiveAA, renderPixel, 0).r;
+                const float responsive = texelFetch(ResponsiveAaTexture, renderPixel, 0).r;
                 blend                  = mix(blend, kResponsiveWeight, clamp(responsive, 0.0, 1.0));
 
                 // Feedback in the weighted space (UE WeightedLerpFactors).
@@ -361,8 +362,8 @@ Shader "TemporalAA"
                 result = (filtered * wCurrent + history * wHistory) / max(wCurrent + wHistory, 1e-6);
             }
 
-            imageStore(u_HistoryOut, pixel, vec4(result, historyFlag));
-            imageStore(u_Output, pixel, vec4(result, 1.0));
+            imageStore(HistoryOutTexture, pixel, vec4(result, historyFlag));
+            imageStore(ResolvedColorTexture, pixel, vec4(result, 1.0));
         }
     }
 }

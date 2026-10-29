@@ -98,6 +98,14 @@ namespace Desert::Graphic
         {
             return {};
         }
+        // Why the program has no compiled stages, or empty: the last build's failure as the build reported it
+        // (a preprocess, compile, binding, reflection or set-layout refusal, naming the program). Kept on the
+        // object because the constructor cannot return it, and a shader whose first build failed is still
+        // registered and handed out by name: whoever registers it says WHY it will not draw (ShaderService).
+        [[nodiscard]] virtual std::string_view GetCompileError() const
+        {
+            return {};
+        }
 
         // Inline ON PURPOSE: ShaderCompiler (a device-free TU that offline cooks and tests link)
         // needs only this name mapping — defined in Shader.cpp it dragged Shader::Create and with it

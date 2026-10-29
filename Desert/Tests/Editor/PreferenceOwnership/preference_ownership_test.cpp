@@ -58,7 +58,7 @@
 
 // §8 opens a real project: which project a pin belongs to, and what it is relative to, are both answers
 // this gives — so a test of the pinning helpers that mocked it would be testing nothing they do.
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 // glm::vec3 <-> JSON reflector (OutlineColor). Must be visible before rfl::json, exactly as it must be
 // in EditorPreferences.cpp — without it the whole struct is "Unsupported type" at the first vec3.

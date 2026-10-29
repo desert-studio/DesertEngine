@@ -1,0 +1,7 @@
+# MIGRATE-SUBSYS: World Partition is versioned under its own header tag (WPAR v1, UE FCustomVersion) - the scene
+# schema stays v70 and SceneMigrator runs World Partition steps by the WPAR number.
+# Дано: the corpus at v70.  Когда: scripts/Dev/migrate.sh --write <corpus>, then --check <corpus>.
+# [migrate] is checked outside the editor: every .desce/.deprefab states "WPAR": 1 and --check reports nothing to do.
+Дано state
+Когда run View "View mode: Lit"
+Тогда 0_starter Starter в Lit, без падения и без диалога ошибки; в editor.log нет отказа SceneSerializer (сцена со штампом WPAR 1 открылась)

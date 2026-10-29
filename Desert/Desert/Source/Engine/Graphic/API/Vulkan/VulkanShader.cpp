@@ -63,7 +63,7 @@ namespace Desert::Graphic::API::Vulkan
         m_ShaderPath = asset->GetMetadata().Filepath;
         m_ShaderName = m_ShaderPath.stem().string();
         if ( !m_PassName.empty() )
-            m_ShaderName += "/" + m_PassName;
+            m_ShaderName = std::format( "{}/{}", m_ShaderName, m_PassName );
 
         Reload();
     }
@@ -88,11 +88,26 @@ namespace Desert::Graphic::API::Vulkan
         auto built = Core::BuildShaderMap(
              { asset->GetShaderContent(), m_ShaderPath, m_PassName, m_Variant, m_ShaderName } );
         if ( !built.IsSuccess() )
+        {
+            m_CompileError = built.GetError();
             return Common::MakeError( built.GetError() );
+        }
+        // A program the build answered with no stage at all is not "compiled with nothing to do": nothing would
+        // ever draw or dispatch through it. Refused by name here, so the reason is not an empty stage list.
+        if ( built.GetValue().Stages.empty() )
+        {
+            m_CompileError = std::format( "Shader '{}': the build produced no stage", m_ShaderName );
+            return Common::MakeError( m_CompileError );
+        }
         m_ProgramMeta = built.GetValue().Meta;
         auto rebuilt  = BuildFromSpirv( built.GetValue().Stages );
         if ( rebuilt )
+        {
+            m_CompileError.clear();
             BumpCodeGeneration(); // the pipelines built from the previous modules are now behind
+        }
+        else
+            m_CompileError = rebuilt.GetError();
         return rebuilt;
     }
 
@@ -256,7 +271,10 @@ namespace Desert::Graphic::API::Vulkan
         // Shared memory above the device's maxComputeSharedMemorySize is not an error the driver must report
         // (Vulkan guarantees only 16 KiB); the program is refused here, by name and with both numbers, so its
         // owner refuses itself instead of dispatching something undefined.
-        if ( stage == Core::Formats::ShaderStage::Compute )
+        // Only over a stage ReflectStage took: a module SPIRV-Cross refused to parse is refused already, and
+        // parsing it again here would throw the same exception past every handler (ReflectStage's
+        // function-try-block).
+        if ( stage == Core::Formats::ShaderStage::Compute && diagnostics.empty() )
         {
             const uint64_t shared  = ShaderReflection::ReflectWorkgroupMemoryBytes( spirv );
             const uint32_t allowed = EngineContext::GetInstance().GetCapabilities().MaxComputeSharedMemorySize;

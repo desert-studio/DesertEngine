@@ -3,8 +3,8 @@
 #include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
 
 #include <Engine/Runtime/Services/ServiceScanRoots.hpp>
-#include <Engine/Vector/IconBake.hpp>
-#include <Engine/Vector/VectorImage.hpp>
+#include <TextCore/Vector/IconBake.hpp>
+#include <TextCore/Vector/VectorImage.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/AssetPathIndex.hpp>

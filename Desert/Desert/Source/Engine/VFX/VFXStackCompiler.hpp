@@ -30,7 +30,33 @@ namespace Desert::VFX
 {
     using Assets::Serialization::VFXValueType;
 
-    /// One `Attribute <Name> <type>` or `Input <Name> <type>` line of a module.
+    /// The four stack groups of an emitter, in the stack's order (UE ENiagaraScriptUsage: EmitterSpawnScript,
+    /// EmitterUpdateScript, ParticleSpawnScript, ParticleUpdateScript). The two Emitter groups are CPU
+    /// administration (EmitterSpawn runs once when the emitter instance starts, EmitterUpdate every step), the
+    /// other two the GPU program.
+    enum class VFXStage : uint8_t
+    {
+        EmitterSpawn,
+        EmitterUpdate,
+        ParticleSpawn,
+        ParticleUpdate,
+    };
+
+    /// The stack keys of the stages, indexed by VFXStage ("EmitterSpawn", "EmitterUpdate", "ParticleSpawn",
+    /// "ParticleUpdate"); a `.dfxmod`'s `Usage` line spells them so.
+    [[nodiscard]] std::string_view StageName( VFXStage stage );
+
+    /// One stage's bit in a module's Usage mask (UE UNiagaraScript::ModuleUsageBitmask).
+    [[nodiscard]] constexpr uint8_t UsageBit( VFXStage stage ) { return static_cast<uint8_t>( 1u << static_cast<unsigned>( stage ) ); }
+
+    /// The Usage bits of the two CPU (Emitter) groups.
+    inline constexpr uint8_t kVFXCpuUsage = UsageBit( VFXStage::EmitterSpawn ) | UsageBit( VFXStage::EmitterUpdate );
+    /// The Usage bits of the two GPU (Particle) groups.
+    inline constexpr uint8_t kVFXParticleUsage = UsageBit( VFXStage::ParticleSpawn ) | UsageBit( VFXStage::ParticleUpdate );
+
+    class VFXModuleResolver; // VFXModuleFormat.hpp
+
+    /// One `Attribute <Name> <type>` line of a module.
     struct VFXModuleDecl
     {
         std::string  Name;
@@ -39,24 +65,43 @@ namespace Desert::VFX
         [[nodiscard]] bool operator==( const VFXModuleDecl& ) const = default;
     };
 
+    /// One `Input <Name> <type> = <default>` line of a module: the value a newly added stack row starts from (UE: the
+    /// module script's input default), one number per component of Type (an int / bool is one number, 0 or 1 for
+    /// bool).
+    struct VFXModuleInputDecl
+    {
+        std::string  Name;
+        VFXValueType Type    = VFXValueType::Float;
+        glm::vec4    Default = glm::vec4( 0.0f );
+        /// The input has no Value default: a new row binds it to what the user picks (UE: Spawn From Data
+        /// Channel's Channel, an asset reference that starts unset). Default is then unread.
+        bool BindingRequired = false;
+
+        [[nodiscard]] bool operator==( const VFXModuleInputDecl& ) const = default;
+    };
+
     /**
-     * @brief One stack module, read from its `.shader` (`Domain Particle`, a `Particle { }` block).
+     * @brief One stack module's block, read from its `.dfxmod` (VFXModuleFormat.hpp).
      *
-     * The block opens with declaration lines — `Attribute <Name> <float|vec2|vec3|vec4|int|bool>` (a particle
-     * attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type>` (a value the stack row
-     * supplies, read as `i.<Name>`) — and the rest is GLSL defining
+     * The block opens with declaration lines — exactly one `Usage <Stage>...` (the groups the module may sit in:
+     * ParticleSpawn and/or ParticleUpdate — UE's Module Usage), `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`
+     * (a particle attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type> = <default>` (a value
+     * the stack row supplies, read as `i.<Name>`) — and the rest is GLSL defining
      * `void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )`.
      */
     struct VFXParticleModule
     {
-        std::vector<VFXModuleDecl> Attributes;
-        std::vector<VFXModuleDecl> Inputs; ///< in declaration order (the slot order)
-        std::string                Body;   ///< the GLSL after the declarations
+        uint8_t                         Usage = 0; ///< UsageBit of every stage it may sit in
+        std::vector<VFXModuleDecl>      Attributes;
+        std::vector<VFXModuleInputDecl> Inputs; ///< in declaration order (the slot order)
+        std::string                     Body;   ///< the GLSL after the declarations
+
+        [[nodiscard]] bool operator==( const VFXParticleModule& ) const = default;
     };
 
-    /// Parses one module's whole `.shader` text. @p where names it in every error.
-    Common::ResultStr<VFXParticleModule> ParseParticleModule( const std::string& shaderText,
-                                                              std::string_view   where );
+    /// The inside of a `.dfxmod` module block (VFXModuleFormat.hpp): the `Usage` line, the `Attribute` / `Input`
+    /// declaration lines, then the GLSL. A module whose Usage has no particle stage declares inputs and no GLSL.
+    Common::ResultStr<VFXParticleModule> ParseModuleBlock( const std::string& source, std::string_view where );
 
     /// The GLSL spelling of a value type ("float", "vec3", "int", "bool"...).
     [[nodiscard]] std::string_view GlslTypeName( VFXValueType type );
@@ -115,6 +160,8 @@ namespace Desert::VFX
             RandomMax, ///< the input's Random.Max
             User,      ///< the system's UserParams row named User
             Curve,     ///< the input's LUT in the system's curve atlas: CurveParamRow (VFXCurveLUT.hpp)
+            PointSet,  ///< the placement's point set named User: (first, count) in the emitter's point-set buffer
+                       ///< (VFX-15)
         };
 
         Kind          SlotKind = Kind::Value;
@@ -136,20 +183,33 @@ namespace Desert::VFX
         std::vector<VFXParamSlot> Slots; ///< the parameter buffer, row by row
     };
 
-    /// Where the engine module library lives: ShaderDir()/VFX/Modules; `engine:<Name>` is `<Name>.shader` there.
-    [[nodiscard]] std::filesystem::path EngineModuleDir();
+    /// What the stack editor needs of any module, CPU or GPU (UE: the module script's usage + input defaults), read
+    /// from its `.dfxmod`.
+    struct VFXModuleDescription
+    {
+        Assets::AssetGuidRef            Module; ///< {Guid, Path} a new stack row states
+        std::string                     Name;   ///< the module's DisplayName
+        uint8_t                         Usage = 0;
+        std::vector<VFXModuleInputDecl> Inputs;
+    };
 
+    /// Describes the module @p module names through @p modules. An unknown / unparsable module is an error, not an
+    /// empty description.
+    Common::ResultStr<VFXModuleDescription> DescribeModule( const Assets::AssetGuidRef& module,
+                                                            const VFXModuleResolver&    modules );
     /**
      * @brief Compiles emitter @p emitterIndex of @p system.
      *
-     * `engine:<Name>` modules are read from @p engineModuleDir (a missing file is an error naming its path),
-     * `local:<Id>` from the system's LocalModules. A disabled module contributes nothing. An input the module
+     * Every row's module is the `.dfxmod` @p modules resolves its GUID to (the engine answers from the
+     * ContentRegistry, Assets::RegistryVFXModuleResolver), and it must state the row's group as a Stage. A
+     * module that also states EmitterUpdate gives its GLSL no inputs: the row's inputs are its CPU half's. A
+     * disabled module contributes nothing. An input the module
      * does not declare, a declared input the row leaves out, a type that disagrees, an attribute declared with
      * two types are errors naming the emitter, group, module and input.
      */
     Common::ResultStr<VFXCompiledEmitter> CompileEmitterStack( const Assets::Serialization::VFXSystemData& system,
                                                                std::size_t                  emitterIndex,
-                                                               const std::filesystem::path& engineModuleDir );
+                                                               const VFXModuleResolver&     modules );
 
     struct VFXCurveAtlas;
 

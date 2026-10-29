@@ -1,5 +1,5 @@
 #include <Engine/Core/Formats/SdfAtlasEncoding.hpp>
-#include <Engine/Vector/VectorImage.hpp>
+#include <TextCore/Vector/VectorImage.hpp>
 
 #include <gtest/gtest.h>
 

@@ -18,6 +18,7 @@
 #include <array>
 #include <cinttypes>
 #include <cstdio>
+#include <format>
 
 namespace Desert::Editor
 {
@@ -59,10 +60,9 @@ namespace Desert::Editor
             char buf[128];
             std::snprintf( buf, sizeof( buf ), "x %.1f  y %.1f  w %.1f  h %.1f", r.Box.x, r.Box.y, r.Box.z,
                            r.Box.w );
-            std::string text = buf;
             if ( r.PlaneCount > 0 )
-                text += "  + " + std::to_string( r.PlaneCount ) + " oblique edge(s)";
-            return text;
+                return std::format( "{}  + {} oblique edge(s)", static_cast<const char*>( buf ), r.PlaneCount );
+            return buf;
         }
 
         std::string Vec2Text( const glm::vec2& v )
@@ -353,7 +353,7 @@ namespace Desert::Editor
                     LabelledValue( "Offset min / max", Vec2Text( L.OffsetMin ) + "   " + Vec2Text( L.OffsetMax ) );
                     LabelledValue( "Pivot", Vec2Text( L.Pivot ) );
                     LabelledValue( "Rotation / scale",
-                                   std::to_string( L.Rotation ) + " deg   " + Vec2Text( L.Scale ) );
+                                   std::format( "{:f} deg   {}", L.Rotation, Vec2Text( L.Scale ) ) );
                 }
                 ImGui::EndTable();
             }

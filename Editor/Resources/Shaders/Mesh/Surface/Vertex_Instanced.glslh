@@ -1,25 +1,17 @@
 // Surface cell vertex path: instanced static mesh, one transform per instance in InstanceTransforms (binding 17),
 // bent by the foliage wind the push block carries — the vertex stage of Programs/Surface/StaticMeshLit_Instanced.shader,
 // StaticMeshGBuffer_Instanced.shader and Programs/Shadow/Shadow_Instanced.shader (which share one push block).
-layout( location = 0 ) in vec3 a_Position;
-layout( location = 1 ) in vec3 a_Normal;
-layout( location = 2 ) in vec3 a_Tangent;
-layout( location = 3 ) in vec3 a_Bitangent;
-layout( location = 4 ) in vec2 a_TextureCoord;
-// Binding 1, the optional streams (MeshVertexLayout.hpp): a mesh without them binds the shared
-// white / (0,0) buffer at the same stride.
-// Declared only where the stages talk: an opaque depth cell reads the position alone, binds exactly where
-// Programs/Shadow/Shadow*.shader bind, and leaves the pipeline's locations 7/8 unconsumed (legal Vulkan).
-#ifdef DESERT_SURFACE_HAS_VARYINGS
-layout( location = 7 ) in vec4 a_Color;
-layout( location = 8 ) in vec2 a_TexCoord1;
-#endif
+// The vertex inputs — binding 0 (position, normal, tangent, bitangent, UV0) and the optional streams at binding 1
+// (vertex colour, UV1; a mesh without them binds the shared white / (0,0) buffer at the same stride) — and
+// DesertMeshTextureUV, GENERATED from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp). The full
+// set in every pass: an input a depth cell does not read costs nothing, a subset would be a second list.
+#include <Mesh/MeshVertexInputs.glslh>
 
 #include <Common/CameraUB.glslh>
 #ifdef DESERT_SURFACE_CASTER_PASS
 #include <Common/ShadowCasterBias.glslh>
 #endif
-#include <Common/ObjectMotion.glslh>
+#include <Common/Velocity.glslh>
 
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
@@ -30,11 +22,11 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 // The virtual shadow map draws only the instances "VSM: Cull Casters" kept for this level: gl_InstanceIndex is a slot of
 // the draw's compacted list (the records' first instance is the draw's remap base), the slot holds the instance to fetch
 // (UE: the per-page draw's instance id list).
-layout( std430, binding = 44 ) restrict readonly buffer VsmInstanceRemap
+layout( std430, binding = 49 ) restrict readonly buffer VsmInstanceRemap
 {
-    uint u_InstanceRemap[];
+    uint InstanceRemap[];
 };
-#define DESERT_INSTANCE_INDEX u_InstanceRemap[gl_InstanceIndex]
+#define DESERT_INSTANCE_INDEX InstanceRemap[gl_InstanceIndex]
 #else
 #define DESERT_INSTANCE_INDEX gl_InstanceIndex
 #endif
@@ -58,22 +50,30 @@ void main()
     const vec3 N             = normalize( normalMatrix * a_Normal );
     v_Surface.WorldPosition  = worldPosition;
     v_Surface.Normal         = N;
-    v_Surface.UV0            = vec2( a_TextureCoord.x, 1.0 - a_TextureCoord.y );
-    v_Surface.UV1            = vec2( a_TexCoord1.x, 1.0 - a_TexCoord1.y );
+    v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
+    v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
-    // An instanced batch is world-static by construction (moving an instance rebuilds the batch), so its previous
-    // world is its world; only the wind moves it, evaluated again at the view's previous time (WindB.z,
-    // Graphic::InstanceWindPush). No motion row is read.
-    const vec3 prevWorldPosition = InstancedWorldPosition(
-         model, a_Position, m_PushConstants.WindA, vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+    // The instance's previous world: transforms[i + offset], the offset in WindB.w's bits
+    // (Graphic::InstanceWindPush, GpuInstancedRenderData::PrevInstanceOffset). A producer whose instances move
+    // (particle Mesh rows: ParticleMeshInstances writes last frame's transforms after this frame's, UE
+    // NiagaraMeshVertexFactory's PrevPosition) states it; a batch that is world-static by construction (moving an
+    // instance rebuilds it; grass) pushes 0 = its own transform. The wind is evaluated again at the view's previous
+    // time (WindB.z). No motion row is read.
+    const mat4 prevModel         = transforms[DESERT_INSTANCE_INDEX + floatBitsToUint( m_PushConstants.WindB.w )];
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, m_PushConstants.WindA,
+                                                           vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
+    // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the INSTANCE moved (a producer whose
+    // instances move states their previous transforms); the wind bends the vertices of a still instance and leaves it 0.
+    v_Surface.ObjectMoved = prevModel != model ? 1.0 : 0.0;
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
     v_Surface.Clip     = vec4( 0.0, 0.0, 0.0, 1.0 ); // light view: no velocity
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved = 0.0;
 #endif
     // Raster with the JITTERED matrix (CameraUB.glslh: raster geometry = JitteredViewProjection); Clip/PrevClip above stay
     // unjittered for velocity. An unjittered gl_Position leaves TAA/TAAU nothing to accumulate.

@@ -284,7 +284,7 @@ TEST( RegionOperation, FillHoleClosesACubeWithItsTopFaceDeleted )
                                          glm::dvec3( 0, 0, 1 ), 1.0f );
     DynamicMeshAttributeSet* attributes = mesh.Attributes();
     MeshTangentsd            tangents( &mesh );
-    tangents.ComputeSeparatePerTriangleTangents( attributes->PrimaryNormals(), attributes->PrimaryUV() );
+    ASSERT_TRUE( tangents.ComputeMikkTTangents( attributes->PrimaryNormals(), attributes->PrimaryUV() ) );
     ASSERT_TRUE( tangents.CopyToOverlays( mesh ) );
 
     auto render = ToRenderMesh( mesh );

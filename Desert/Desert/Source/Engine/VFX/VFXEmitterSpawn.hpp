@@ -12,11 +12,14 @@
 // (Amount = floor(LoopDuration * Rate), :887); our simulation is stateful, so the rate goes through the per-step
 // SpawnAccumulator instead (the fraction carries to the next step) — over N steps the same floor(N * dt * Rate).
 //
-// Engine CPU modules (EmitterUpdate group):
-//   engine:SpawnRate   Input SpawnRate float  — particles per second while a loop is active
-//   engine:SpawnBurst  Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
+// Engine CPU modules, each a `.dfxmod` of the engine module library that a row names by GUID (its `Usage` states
+// the Emitter groups: all three run in EmitterUpdate, as UE's SpawnRate and SpawnBurst_Instantaneous do; the
+// EmitterSpawn group takes none of them - a one-shot is a burst with Loop Once); a row whose module has no
+// behaviour here is refused naming its GUID and path:
+//   SpawnRate          Input SpawnRate float  — particles per second while a loop is active
+//   SpawnBurst         Input SpawnCount int, Input SpawnTime float — SpawnCount particles once per loop, at
 //                      SpawnTime seconds into it (0 <= SpawnTime < LoopDuration)
-//   engine:SpawnFromChannel (VFX-10, UE "Spawn From Data Channel"; VFX/VFXDataChannel.hpp)
+//   SpawnFromChannel   (VFX-10, UE "Spawn From Data Channel"; VFX/VFXDataChannel.hpp)
 //                      Channel           Binding DataChannel.<channel>
 //                      ParticlesPerEntry Int >= 1, MaxEntriesPerFrame Int >= 1, MaxDistance Float cm >= 0
 //                      (optional) Position / Direction Vec3 Binding DataChannel.<channel>.<field> (optional)
@@ -28,19 +31,73 @@
 #include <Engine/Assets/Serialization/VFXSystem.hpp>
 #include <Engine/VFX/VFXClock.hpp>
 #include <Engine/VFX/VFXDataChannel.hpp>
+#include <Engine/VFX/VFXModuleFormat.hpp>
+#include <Engine/VFX/VFXStackCompiler.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string_view>
 #include <vector>
 
 namespace Desert::VFX
 {
-    inline constexpr std::string_view kVFXSpawnRateModule  = "engine:SpawnRate";
-    inline constexpr std::string_view kVFXSpawnBurstModule = "engine:SpawnBurst";
-    inline constexpr std::string_view kVFXSpawnFromChannelModule = "engine:SpawnFromChannel";
+    /// An engine module whose EmitterUpdate stage is C++ below: the GUID its `.dfxmod` header states (the file
+    /// in the engine module library, Editor/Resources/Engine/VFX/Modules) and that file's stable key. A stack
+    /// row reaches the behaviour through the GUID alone; the key is what a row the engine writes states as Path.
+    struct VFXEngineCpuModule
+    {
+        Common::Content::AssetGuid Guid;
+        std::string_view           Name;
+        std::string_view           Path;
+    };
+
+    inline constexpr VFXEngineCpuModule kVFXSpawnRateModule{ { 0x10e483e233d54710ull, 0x8e31d1855328a54bull },
+                                                             "SpawnRate",
+                                                             "engine:Engine/VFX/Modules/SpawnRate.dfxmod" };
+    inline constexpr VFXEngineCpuModule kVFXSpawnBurstModule{ { 0x02637a2ef2774901ull, 0xa0a88452af542abdull },
+                                                              "SpawnBurst",
+                                                              "engine:Engine/VFX/Modules/SpawnBurst.dfxmod" };
+    inline constexpr VFXEngineCpuModule kVFXSpawnFromChannelModule{
+         { 0xc3e1a7d94b2f4e6aull, 0x8d05f1b97a6e2c48ull },
+         "SpawnFromChannel",
+         "engine:Engine/VFX/Modules/SpawnFromChannel.dfxmod" };
+
+    /// The stack row reference to @p module ({Guid, Path}).
+    [[nodiscard]] Assets::AssetGuidRef ModuleRef( const VFXEngineCpuModule& module );
+
+    /// Whether the engine has C++ for the EmitterUpdate stage of the module of @p guid (one of the three above).
+    [[nodiscard]] bool HasCpuBehaviour( const Common::Content::AssetGuid& guid );
+
+    /// Whether @p use names @p module (by GUID; the Path is not compared).
+    [[nodiscard]] bool UsesModule( const Assets::Serialization::VFXModuleUse& use, const VFXEngineCpuModule& module );
+
+    /// One input the C++ behaviour of a CPU module reads: its name and type, and nothing else. The default a new
+    /// stack row starts from is the module's `.dfxmod` alone (its `Input <Name> <type> = <default>` line) - one
+    /// source of truth; the C++ states only what it reads, and CheckCpuModuleContract holds the two together.
+    struct VFXCpuModuleInput
+    {
+        std::string_view                    Name;
+        Assets::Serialization::VFXValueType Type = Assets::Serialization::VFXValueType::Float;
+    };
+
+    /// The inputs every row of CPU module @p module gives, in the `.dfxmod`'s declaration order; empty for any
+    /// other module. SpawnFromChannel also reads optional bindings that no `.dfxmod` line declares (see above).
+    [[nodiscard]] std::span<const VFXCpuModuleInput> CpuModuleInputs( const Common::Content::AssetGuid& module );
+
+    /// The Emitter groups the C++ behaviour of CPU module @p module can run in (UsageBit of EmitterSpawn /
+    /// EmitterUpdate); 0 for any other module.
+    [[nodiscard]] uint8_t CpuModuleUsage( const Common::Content::AssetGuid& module );
+
+    /// Whether the `.dfxmod` @p module, one with an Emitter (CPU) Usage, is one the engine C++ can run: a
+    /// behaviour is registered under its GUID, its Usage names only groups that behaviour runs in, and its
+    /// `Input` lines are exactly CpuModuleInputs (names, types, order). The refusal names the module and the
+    /// first disagreement. Checked where a module is described for a new stack row (DescribeModule) and in the
+    /// module editor, so a row built from the file's defaults is one CompileSpawnPlan reads.
+    [[nodiscard]] Common::BoolResultStr CheckCpuModuleContract( const VFXModuleDefinition& module );
 
     /// UE FNiagaraStatelessSpawnInfo, Type Burst.
     struct VFXSpawnBurst
@@ -56,18 +113,20 @@ namespace Desert::VFX
     {
         Assets::Serialization::VFXEmitterLifecycle Lifecycle;
         double                                     Rate = 0.0; ///< the sum of every SpawnRate module, per second
-        std::vector<VFXSpawnBurst>                 Bursts;
+        std::vector<VFXSpawnBurst>                 Bursts;     ///< once in every loop
         /// engine:SpawnFromChannel, at most one per emitter: its spawns join the first fixed step of each tick.
         std::optional<VFXChannelSpawnModule> Channel;
 
         [[nodiscard]] bool operator==( const VFXSpawnPlan& ) const = default;
     };
 
-    /// Reads emitter @p emitterIndex's lifecycle and EmitterUpdate group. A module other than the two above, a
-    /// local module in the group, an input the module does not take or leaves out, a source it cannot read and a
-    /// burst outside its loop are errors naming the emitter, module and input.
+    /// Reads emitter @p emitterIndex's lifecycle and its EmitterUpdate group (an enabled EmitterSpawn row is an
+    /// error: no CPU module runs there). A module the group's usage does not take, a local module in the group, an
+    /// input the module does not take or leaves out, a source it cannot read and a burst outside its loop are
+    /// errors naming the emitter, module and input.
     Common::ResultStr<VFXSpawnPlan> CompileSpawnPlan( const Assets::Serialization::VFXSystemData& system,
-                                                      std::size_t                                 emitterIndex );
+                                                      std::size_t                                 emitterIndex,
+         const std::vector<ECS::VFXUserOverride>& overrides = {} );
 
     /// One emitter instance's spawn state: the time it has been running and the rate's carried fraction. Reset
     /// by assigning a fresh value.
@@ -75,8 +134,15 @@ namespace Desert::VFX
     {
         double           Age = 0.0; ///< seconds since the instance (re)started, including the lifecycle Delay
         SpawnAccumulator RateCarry;
+        /// The bursts' scaled counts carried between firings (error diffusion, starting at one half): a burst of
+        /// Count x scale births round(Count x scale) on its first firing and the exact Count x scale on average
+        /// over the loops, so a scaled single-particle burst (Count 1 at 75 %) still fires instead of truncating
+        /// to nothing every loop.
+        double BurstCarry = 0.5;
 
         /// The births of the next fixed step of @p stepSeconds: the step covers [Age, Age + stepSeconds).
-        [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds );
+        /// @p spawnCountScale (0..1, the Effects level's Effects.SpawnCountScalePercent) scales the rate and every
+        /// burst's count, as UE's Engine.Emitter.SpawnCountScale does in SpawnRate / SpawnBurst_Instantaneous.
+        [[nodiscard]] std::uint32_t Step( const VFXSpawnPlan& plan, double stepSeconds, double spawnCountScale );
     };
 } // namespace Desert::VFX

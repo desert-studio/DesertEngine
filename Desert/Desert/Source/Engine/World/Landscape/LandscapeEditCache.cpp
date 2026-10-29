@@ -20,13 +20,12 @@ namespace Desert::World::Landscape
 
         std::string TileName( int32_t tileX, int32_t tileZ )
         {
-            return "(" + std::to_string( tileX ) + ", " + std::to_string( tileZ ) + ")";
+            return std::format( "({}, {})", tileX, tileZ );
         }
 
         std::string RectName( int32_t x1, int32_t z1, int32_t x2, int32_t z2 )
         {
-            return "[" + std::to_string( x1 ) + ".." + std::to_string( x2 ) + "] x [" + std::to_string( z1 ) +
-                   ".." + std::to_string( z2 ) + "]";
+            return std::format( "[{}..{}] x [{}..{}]", x1, x2, z1, z2 );
         }
 
         LandscapeRect Union( const LandscapeRect& a, const LandscapeRect& b )
@@ -107,8 +106,8 @@ namespace Desert::World::Landscape
             {
                 const int32_t gx = x1 + static_cast<int32_t>( i % static_cast<size_t>( width ) );
                 const int32_t gz = z1 + static_cast<int32_t>( i / static_cast<size_t>( width ) );
-                return Common::MakeError( "landscape edit cache: sample (" + std::to_string( gx ) + ", " +
-                                          std::to_string( gz ) + ") is stored by no loaded tile" );
+                return Common::MakeError(
+                     std::format( "landscape edit cache: sample ({}, {}) is stored by no loaded tile", gx, gz ) );
             }
         return Common::MakeSuccess( true );
     }
@@ -218,11 +217,10 @@ namespace Desert::World::Landscape
         }
         for ( size_t i = 0; i < count; ++i )
             if ( !written[i] )
-                return Common::MakeError(
-                     "landscape edit cache: refusing to write " + RectName( x1, z1, x2, z2 ) + ": sample (" +
-                     std::to_string( x1 + static_cast<int32_t>( i % static_cast<size_t>( width ) ) ) + ", " +
-                     std::to_string( z1 + static_cast<int32_t>( i / static_cast<size_t>( width ) ) ) +
-                     ") is stored by no tile" );
+                return Common::MakeError( std::format(
+                     "landscape edit cache: refusing to write {}: sample ({}, {}) is stored by no tile",
+                     RectName( x1, z1, x2, z2 ), x1 + static_cast<int32_t>( i % static_cast<size_t>( width ) ),
+                     z1 + static_cast<int32_t>( i / static_cast<size_t>( width ) ) ) );
 
         for ( int32_t z = z1; z <= z2; ++z )
             std::copy_n( values.begin() + static_cast<std::ptrdiff_t>( ( z - z1 ) * width ), width,

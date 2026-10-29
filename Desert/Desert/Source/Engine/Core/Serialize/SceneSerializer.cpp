@@ -1,4 +1,5 @@
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
+#include <Common/Core/AssetHandle.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Common/Core/Constants.hpp>
@@ -32,6 +33,7 @@
 #include <map>
 #include <optional>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace Desert::Core
@@ -41,7 +43,14 @@ namespace Desert::Core
         // The entity's place among its siblings as the scene holds it: its position in the parent's
         // Children, or - for a root - the running count of roots saved so far. The scene's root order IS
         // its entity order, so the count is that order restated.
-        uint32_t SiblingIndexOf( const ECS::Entity& entity, uint32_t& nextRootIndex )
+        //
+        // EXCEPT IN AN EXTERNAL-ENTITIES SCENE (one with a WorldPartition block): there a root states no
+        // index at all. Its roots are whatever cells are streamed in, appended in load order, so a running
+        // count would say 0 with the cells unloaded and 28 with Load All - the same untouched entity would
+        // differ from its file depending on what is loaded. UE persists no order for OFPA top-level actors
+        // either; children keep theirs (their parent's Children is a real, saved order).
+        std::optional<uint32_t> SiblingIndexOf( const ECS::Entity& entity, uint32_t& nextRootIndex,
+                                                bool externalEntities )
         {
             if ( entity.HasComponent<ECS::RelationshipComponent>() )
             {
@@ -54,6 +63,8 @@ namespace Desert::Core
                     return static_cast<uint32_t>( found - siblings.begin() );
                 }
             }
+            if ( externalEntities )
+                return std::nullopt;
             return nextRootIndex++;
         }
 
@@ -72,6 +83,23 @@ namespace Desert::Core
             for ( const auto& serializer : Serialize::ComponentRegistry::Get().All() )
                 names->insert( serializer.Key );
             return [names]( const std::string& key ) { return names->count( key ) != 0; };
+        }
+
+        // "Is this key, inside component block `component`, one that block's writer states whenever it has a
+        // value?" - the block's own DeclaredMembers (its serialized struct's member list), so a member the
+        // writer now omits at its default replaces the old file's value instead of being carried back.
+        Common::Json::MemberKeyIsOurs ComponentBlockKeyIsOurs()
+        {
+            auto names = std::make_shared<std::unordered_map<std::string, std::unordered_set<std::string>>>();
+            for ( const auto& serializer : Serialize::ComponentRegistry::Get().All() )
+                if ( !serializer.DeclaredMembers.empty() )
+                    ( *names )[serializer.Key].insert( serializer.DeclaredMembers.begin(),
+                                                       serializer.DeclaredMembers.end() );
+            return [names]( const std::string& component, const std::string& key )
+            {
+                const auto found = names->find( component );
+                return found != names->end() && found->second.count( key ) != 0;
+            };
         }
 
         Serialize::KeyIsOurs NamesIn( const std::vector<std::string>& names )
@@ -182,7 +210,20 @@ namespace Desert::Core
                      !written )
                     return Common::MakeFormattedError( "tile ({}, {}): {}", tile.TileX, tile.TileZ,
                                                        written.GetError() );
-                tile.HeightFile = file.generic_string();
+                // The save relocated the tile's file (a Save As, or a scene whose tiles lived elsewhere): the
+                // entity's record now differs from its file, so it is marked like any other edit — otherwise a
+                // partitioned world skips (and a Debug save refuses) the entity this save itself changed.
+                //
+                // Stored as a CONTENT KEY ("assets:<dir>/<scene>_Landscape/<id>.dlht", UE's /Game/... package
+                // path), not as the editor's project-relative folder: a package mounts the assets root under its
+                // own name, so only the key resolves there (AssetHandle::PathForStableKey on the read side).
+                if ( std::string spelled =
+                          Common::AssetHandle::StableKeyForPath( Common::Constants::Path::FullPath( file ) );
+                     spelled != tile.HeightFile )
+                {
+                    tile.HeightFile = std::move( spelled );
+                    scene.MarkModified( entity.GetComponent<ECS::UUIDComponent>().UUID );
+                }
             }
             return BOOLSUCCESS;
         }
@@ -231,7 +272,8 @@ namespace Desert::Core
     {
         std::vector<LiveEntity> live;
         live.reserve( m_Scene->GetAllEntities().size() );
-        uint32_t nextRootIndex = 0;
+        uint32_t   nextRootIndex    = 0;
+        const bool externalEntities = m_Scene->GetWorldPartition().has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
             LiveEntity row;
@@ -244,7 +286,7 @@ namespace Desert::Core
                     row.Parent = IdOf( *entity.GetRegistry(), parent );
             }
             // The same count SerializeToDocument keeps: every root of the scene in its order, records or not.
-            row.SiblingIndex = SiblingIndexOf( entity, nextRootIndex );
+            row.SiblingIndex = SiblingIndexOf( entity, nextRootIndex, externalEntities );
             live.push_back( row );
         }
         return live;
@@ -298,7 +340,8 @@ namespace Desert::Core
             return false;
         };
 
-        uint32_t nextRootIndex = 0;
+        uint32_t   nextRootIndex    = 0;
+        const bool externalEntities = scene.WorldPartition.has_value();
         for ( const auto& entity : m_Scene->GetAllEntities() )
         {
             if ( isPrefabChild( const_cast<ECS::Entity&>(entity) ) )
@@ -306,7 +349,7 @@ namespace Desert::Core
                 continue;
             }
             // Counted before the filter: a root's sibling index is its place among ALL roots.
-            const uint32_t siblingIndex = SiblingIndexOf( entity, nextRootIndex );
+            const std::optional<uint32_t> siblingIndex = SiblingIndexOf( entity, nextRootIndex, externalEntities );
             if ( only != nullptr &&
                  !only->contains( static_cast<uint64_t>( IdOf( *entity.GetRegistry(), entity.GetHandle() ) ) ) )
             {
@@ -378,12 +421,8 @@ namespace Desert::Core
         // Records sorted by id (scene v25): the file order is then a function of the SET of entities, not
         // of the order they were created or last reparented in, so adding one entity changes only its own
         // lines and the siblingIndex of its later siblings - never the position of every record after it.
-        std::stable_sort( scene.Entities.begin(), scene.Entities.end(),
-                          []( const Assets::EntityData& a, const Assets::EntityData& b )
-                          {
-                              return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
-                                     static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
-                          } );
+        // The one rule the migrator's canonical pass runs too.
+        Assets::SortSceneRecordsById( scene.Entities );
 
         // Scene-wide settings via the generic reflection serializer (no hand-written mirror struct).
         //
@@ -420,7 +459,8 @@ namespace Desert::Core
         //
         // A scene that was never loaded from a file has an empty document and the merge is the
         // identity, so File → New costs nothing.
-        return ComposeSceneDocument( scene, m_Scene->GetLoadedDocument(), EntityRecordKeyIsOurs() );
+        return ComposeSceneDocument( scene, m_Scene->GetLoadedDocument(), EntityRecordKeyIsOurs(),
+                                     ComponentBlockKeyIsOurs() );
     }
 
     std::string SceneSerializer::SerializeToJson() const

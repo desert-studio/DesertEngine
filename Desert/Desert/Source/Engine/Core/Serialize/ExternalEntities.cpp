@@ -1,5 +1,6 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 
+#include <format>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 
 #include <Common/Core/Core.hpp>
@@ -12,6 +13,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <system_error>
 #include <unordered_set>
@@ -152,6 +154,37 @@ namespace Desert::Core::ExternalEntities
         {
             return std::format( "[SceneSerializer] {}", reason );
         }
+
+        // Where a composed record and its file first part, named for the person reading the refusal: the
+        // 1-based line and both texts (clipped), or the length gap when one is a prefix of the other.
+        std::string FirstDifference( std::string_view composed, std::string_view onDisk )
+        {
+            constexpr std::size_t kClip = 240;
+            const auto            clip  = []( std::string_view line ) {
+                return line.size() <= kClip ? std::string( line )
+                                                        : std::format( "{}...", line.substr( 0, kClip ) );
+            };
+            std::size_t lineNumber = 1;
+            std::size_t a          = 0;
+            std::size_t b          = 0;
+            while ( a < composed.size() || b < onDisk.size() )
+            {
+                const std::size_t aEnd =
+                     a < composed.size() ? std::min( composed.find( '\n', a ), composed.size() ) : a;
+                const std::size_t bEnd = b < onDisk.size() ? std::min( onDisk.find( '\n', b ), onDisk.size() ) : b;
+                const auto aLine       = a < composed.size() ? composed.substr( a, aEnd - a ) : std::string_view();
+                const auto bLine       = b < onDisk.size() ? onDisk.substr( b, bEnd - b ) : std::string_view();
+                if ( aLine != bLine || ( a >= composed.size() ) != ( b >= onDisk.size() ) )
+                    return std::format( "first difference at line {}: composed `{}`, file `{}`", lineNumber,
+                                        a < composed.size() ? clip( aLine ) : std::string( "<end>" ),
+                                        b < onDisk.size() ? clip( bLine ) : std::string( "<end>" ) );
+                a = aEnd + 1;
+                b = bEnd + 1;
+                ++lineNumber;
+            }
+            return std::format( "texts equal by line but differ in bytes (composed {} B, file {} B)",
+                                composed.size(), onDisk.size() );
+        }
     } // namespace
 
     std::filesystem::path DirectoryOf( const std::filesystem::path& scenePath )
@@ -162,7 +195,7 @@ namespace Desert::Core::ExternalEntities
     std::filesystem::path FileOf( const std::filesystem::path& scenePath, Common::UUID id )
     {
         return DirectoryOf( scenePath ) / fmt::format( "{:02x}", Bits( id ) & 0xFFu ) /
-               ( std::to_string( Bits( id ) ) + std::string( kExtension ) );
+               ( std::format( "{}{}", Bits( id ), kExtension ) );
     }
 
     bool IsHeader( const Common::Json::TextDocument& document )
@@ -238,7 +271,7 @@ namespace Desert::Core::ExternalEntities
                      "'{}': entity {}: its file states {} - a file is the record it is named for. Nothing was "
                      "loaded.",
                      source, Bits( id ),
-                     stated ? "id " + std::to_string( Bits( stated.GetValue() ) ) : stated.GetError() ) );
+                     stated ? std::format( "id {}", Bits( stated.GetValue() ) ) : stated.GetError() ) );
             records.push_back( record.ExtractValue() );
         }
 
@@ -429,10 +462,10 @@ namespace Desert::Core::ExternalEntities
             const auto tag = record.AsDocument<RecordTag>();
             return Common::MakeFormattedError(
                  "entity '{}' ({}) differs from its file {} but nothing marked it modified - an edit that "
-                 "bypassed "
-                 "Scene::MarkModified and the command history would be lost by this save",
+                 "bypassed Scene::MarkModified and the command history would be lost by this save ({})",
                  tag && tag.GetValue().Tag ? *tag.GetValue().Tag : std::string( "Entity" ), Bits( id ),
-                 onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ) );
+                 onDisk ? file.string() : fmt::format( "{} (unreadable: {})", file.string(), onDisk.GetError() ),
+                 onDisk ? FirstDifference( text.GetValue(), onDisk.GetValue() ) : std::string( "no file text" ) );
         }
         for ( const Common::UUID id : clean )
             if ( !seen.contains( Bits( id ) ) )

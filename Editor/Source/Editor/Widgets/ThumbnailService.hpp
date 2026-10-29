@@ -2,7 +2,7 @@
 
 #include <Editor/Widgets/AssetThumbnailRenderer.hpp>
 #include <Editor/Widgets/ThumbnailEncode.hpp>
-#include <Editor/Widgets/ThumbnailFreshness.hpp>
+#include <Editor/Core/ThumbnailFreshness.hpp>
 #include <Editor/Widgets/ThumbnailPreview.hpp>
 #include <Editor/Widgets/ThumbnailWanted.hpp>
 
@@ -52,7 +52,7 @@ namespace Desert::Editor
      *
      * Requests are deduplicated across panels and across frames:
      *   - a PNG on disk that is still a picture OF its asset is never re-rendered (that is the persistent
-     *     cache). "Still a picture of it" is Editor/Widgets/ThumbnailFreshness.hpp, the SAME rule every
+     *     cache). "Still a picture of it" is Editor/Core/ThumbnailFreshness.hpp, the SAME rule every
      *     panel uses to decide whether to draw the file — not "the file exists", which is what this gate
      *     used to ask. The two questions differ for exactly the assets that need re-rendering, and while
      *     they differed those assets were neither drawn nor queued, permanently;

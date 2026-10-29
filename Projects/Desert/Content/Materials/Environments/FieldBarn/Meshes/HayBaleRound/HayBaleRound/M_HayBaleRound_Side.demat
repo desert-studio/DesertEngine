@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "bcefb1f6ec554658d7558d8bdf5155c5",
         "Versions": {
-            "MATL": 5
+            "MATL": 7
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "b3dee7dc87409f31417c67821cb1332a", "92ccda6af6127d3ac32bd6e3a5383427", "186302e7c170f6c90550c22c534e2ef8"]
     },
@@ -39,17 +39,17 @@
     ],
     "Textures": [
         {
-            "Name": "u_AlbedoTexture",
+            "Name": "AlbedoTexture",
             "Guid": "b3dee7dc87409f31417c67821cb1332a",
             "Path": "assets:Environments/FieldBarn/Textures/riet_01/riet_01_Diffuse_2k.detex"
         },
         {
-            "Name": "u_ORMTexture",
+            "Name": "OrmTexture",
             "Guid": "92ccda6af6127d3ac32bd6e3a5383427",
             "Path": "assets:Environments/FieldBarn/Textures/riet_01/riet_01_arm_2k.detex"
         },
         {
-            "Name": "u_NormalTexture",
+            "Name": "NormalTexture",
             "Guid": "186302e7c170f6c90550c22c534e2ef8",
             "Path": "assets:Environments/FieldBarn/Textures/riet_01/riet_01_nor_gl_2k.detex"
         }

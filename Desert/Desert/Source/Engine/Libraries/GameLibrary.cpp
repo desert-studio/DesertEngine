@@ -1,12 +1,12 @@
 #include <Engine/Libraries/GameLibrary.hpp>
 
 #include <Common/Core/Logger.hpp>
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Core/LevelTravel.hpp>
 #include <Engine/Core/TimerManager.hpp>
 #include <Engine/Core/WorldContext.hpp>
-#include <Engine/Project/GameSettings.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/GameSettings.hpp>
+#include <Projects/ProjectContext.hpp>
 
 namespace Desert::Libraries
 {

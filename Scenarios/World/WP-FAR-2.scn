@@ -1,0 +1,20 @@
+# WP-FAR-2 (5b1f134b6): LOD by projected screen size including FOV (LODSelection.hpp BoundsScreenRadiusSquared
+# reads Projection[0][0]/[1][1]; MeshRenderer and the Details panel's "Drawing LOD N" (MeshLODRows.cpp
+# DrawingLevel) call the same SelectLOD with the active camera's position + projection).
+# WP_Protocol has no imported mesh (its buildings/bushes are primitives with no LOD chain), so the scenario drops
+# one: island_tree_02.gltf (~4 m wide, 3.4 m tall; the static-mesh import builds its LOD chain, MeshLOD.cpp
+# BuildLODIndexBuffer) at the surface the view centre meets. The ground there is BELOW zero (y ~ -250 cm), so the
+# camera stands 15 m up and looks down ~20 deg: the centre ray meets the ground ~52 m ahead (measured: the drop lands
+# at 990,-253,82). The drop selects it; the status bar shows "island_tree_02  LOD N" beside the selection (the same
+# MeshLODRows::DrawingLevel the Details LOD table marks). Unsaved edit of WP_Protocol: never saved.
+# Expected (auto screen sizes 1, 0.2, 0.08, 0.032 ...): radius ~3 m at 60 m -> FOV 90 diameter ~0.05 (LOD 2),
+# FOV 20 (focal 5.67) ~0.28 (LOD 0).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.FOV 90
+Дано --subject viewport set Camera.Position 1000,1500,5000
+Дано --subject viewport set Camera.Direction 0,-0.37,-1
+Дано run Assets "Drop into the viewport: Environments/FieldBarn/Meshes/island_tree_02/island_tree_02.gltf"
+Тогда far2_fov90 FOV 90: дерево island_tree_02 мелко в центре вьюпорта (~52 м), выделено; в строке состояния «island_tree_02  LOD N», N > 0 (снято: LOD 1)
+Когда --subject viewport set Camera.FOV 20
+Тогда far2_fov20 FOV 20, та же точка и направление: то же дерево крупно в центре; в строке состояния «island_tree_02  LOD 0» (ближний уровень)

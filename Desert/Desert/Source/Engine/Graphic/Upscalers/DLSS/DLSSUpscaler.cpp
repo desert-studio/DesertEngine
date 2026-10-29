@@ -31,8 +31,45 @@ namespace Desert::Graphic
     {
         constexpr const char* kGuidesShaderName = "DLSSRRGuides";
         constexpr const char* kGuidesPassName   = "DLSS-RR: Guides";
-        constexpr uint32_t    kGuidesGroupSize  = 8; // DLSSRRGuides.shader LocalSize
-        // DLSSRRGuides.shader's push block: u_InvJitteredViewProjection, u_CameraPos, u_Params.
+        constexpr uint32_t    kGuidesGroupSize  = 8; // DLSSRRGuides.shader / DLSSRRPathGuides.shader LocalSize
+        constexpr const char* kPathGuidesShaderName = "DLSSRRPathGuides";
+        constexpr const char* kPathGuidesPassName   = "DLSS-RR: Path Guides";
+        // DLSSRRPathGuides.shader's push block.
+        struct PathGuidesPush
+        {
+            glm::vec4 Params; // xy render extent
+        };
+
+        const std::shared_ptr<const RDG::ShaderBindingLayout>& PathGuidesLayout()
+        {
+            using Kind = RDG::ShaderResourceKind;
+            static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
+                 std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
+                      .ShaderName = kPathGuidesShaderName,
+                      .Slots      = { { "GuideAlbedoTexture", Kind::StorageTexture },
+                                      { "GuideNormalTexture", Kind::StorageTexture },
+                                      { "GuideSpecularTexture", Kind::StorageTexture },
+                                      { "GuideHitTexture", Kind::StorageTexture },
+                                      { "DiffuseAlbedoTexture", Kind::StorageTexture },
+                                      { "SpecularAlbedoTexture", Kind::StorageTexture },
+                                      { "NormalRoughnessTexture", Kind::StorageTexture },
+                                      { "SpecularHitDistanceTexture", Kind::StorageTexture } },
+                      .PushConstantBytes = static_cast<uint32_t>( sizeof( PathGuidesPush ) ) } );
+            return layout;
+        }
+        // The slot names DLSSRRPathGuides.shader binds, spelled once (RDGShaderParameters.hpp).
+        struct DLSSRRPathGuidesShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, GuideHitTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, DiffuseAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, SpecularAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, NormalRoughnessTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, SpecularHitDistanceTexture );
+        };
+        // DLSSRRGuides.shader's push block: InverseJitteredViewProjection, CameraPosition, Params.
         struct GuidesPush
         {
             glm::mat4 InvJitteredViewProjection;
@@ -46,16 +83,17 @@ namespace Desert::Graphic
             static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
                  std::make_shared<const RDG::ShaderBindingLayout>( RDG::ShaderBindingLayout{
                       .ShaderName = kGuidesShaderName,
-                      .Slots      = { { "u_GBufferAlbedo", Kind::Texture },
-                                      { "u_GBufferNormal", Kind::Texture },
-                                      { "u_GBufferDepth", Kind::Texture },
-                                      { "u_BRDFLUTTexture", Kind::Texture },
-                                      { "u_ReflectionRay", Kind::Texture },
-                                      { "u_PointClampSampler", Kind::Sampler },
-                                      { "u_LinearClampSampler", Kind::Sampler },
-                                      { "u_DiffuseAlbedo", Kind::StorageTexture },
-                                      { "u_SpecularAlbedo", Kind::StorageTexture },
-                                      { "u_SpecularHitDistance", Kind::StorageTexture } } } );
+                      .Slots      = { { "GBufferAlbedoTexture", Kind::Texture },
+                                      { "GBufferNormalTexture", Kind::Texture },
+                                      { "GBufferDepthTexture", Kind::Texture },
+                                      { "BrdfLutTexture", Kind::Texture },
+                                      { "ReflectionRayTexture", Kind::Texture },
+                                      { "PointClampSampler", Kind::Sampler },
+                                      { "LinearClampSampler", Kind::Sampler },
+                                      { "DiffuseAlbedoTexture", Kind::StorageTexture },
+                                      { "SpecularAlbedoTexture", Kind::StorageTexture },
+                                      { "SpecularHitDistanceTexture", Kind::StorageTexture } },
+                      .PushConstantBytes = static_cast<uint32_t>( sizeof( GuidesPush ) ) } );
             return layout;
         }
         // What the post chain reads after the temporal resolve (TemporalAA's output is the same).
@@ -113,9 +151,9 @@ namespace Desert::Graphic
                 case Streamline::DlssMode::UltraQuality:
                     return Parameter::DlssRRPresetUltraQuality;
                 case Streamline::DlssMode::DLAA:
-                    return Parameter::DlssRRPresetDLAA;
+                    return Parameter::DlssRRPresetNative;
             }
-            return Parameter::DlssRRPresetDLAA;
+            return Parameter::DlssRRPresetNative;
         }
 
         // The Scalability row that holds @p mode's preset.
@@ -135,9 +173,9 @@ namespace Desert::Graphic
                 case Streamline::DlssMode::UltraQuality:
                     return Parameter::DlssPresetUltraQuality;
                 case Streamline::DlssMode::DLAA:
-                    return Parameter::DlssPresetDLAA;
+                    return Parameter::DlssPresetNative;
             }
-            return Parameter::DlssPresetDLAA;
+            return Parameter::DlssPresetNative;
         }
 
         // One view's DLSS feature: its Streamline viewport and the options it was last given. Released with the
@@ -203,10 +241,30 @@ namespace Desert::Graphic
             std::optional<Streamline::DlssOptions> m_Options;
             ResourceOwnership                      m_Memory; // the feature's VRAM as Streamline estimates it
         };
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct DLSSRRGuidesShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, GBufferAlbedoTexture );
+            DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+            DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+            DESERT_SHADER_PARAMETER( Texture, BrdfLutTexture );
+            DESERT_SHADER_PARAMETER( Texture, ReflectionRayTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, DiffuseAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, SpecularAlbedoTexture );
+            DESERT_SHADER_PARAMETER( StorageTexture, SpecularHitDistanceTexture );
+        };
+
     } // namespace
 
     struct DLSSUpscaler::GuidesPipeline
     {
+        GuidesPipeline( const char* shaderName, const char* passName ) : ShaderName( shaderName ), PassName( passName )
+        {
+        }
+        const char* const                ShaderName;
+        const char* const                PassName;
         std::mutex                       Mutex;
         std::shared_ptr<ComputePipeline> Pipeline;
 
@@ -216,18 +274,18 @@ namespace Desert::Graphic
             if ( Pipeline )
                 return Pipeline;
             Runtime::ShaderService*       service = Runtime::ResourceRegistry::GetShaderService();
-            const std::shared_ptr<Shader> shader  = service ? service->GetByName( kGuidesShaderName ) : nullptr;
+            const std::shared_ptr<Shader> shader  = service ? service->GetByName( ShaderName ) : nullptr;
             if ( !shader )
             {
                 error = std::format( "{}: the shader '{}' is not registered - expected "
-                                     "Editor/Resources/Shaders/Programs/TemporalAA/DLSSRRGuides.shader",
-                                     kGuidesPassName, kGuidesShaderName );
+                                     "Editor/Resources/Shaders/Programs/TemporalAA/{}.shader",
+                                     PassName, ShaderName, ShaderName );
                 return nullptr;
             }
-            const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = kGuidesShaderName } );
+            const auto built = ComputePipeline::Create( { .Shader = shader, .DebugName = ShaderName } );
             if ( !built )
             {
-                error = std::format( "{}: {}", kGuidesPassName, built.GetError() );
+                error = std::format( "{}: {}", PassName, built.GetError() );
                 return nullptr;
             }
             Pipeline = built.GetValue();
@@ -236,7 +294,9 @@ namespace Desert::Graphic
     };
 
     DLSSUpscaler::DLSSUpscaler( const Streamline::DlssFeature feature )
-        : m_Feature( feature ), m_GuidesPipeline( std::make_unique<GuidesPipeline>() )
+        : m_Feature( feature ),
+          m_GuidesPipeline( std::make_unique<GuidesPipeline>( kGuidesShaderName, kGuidesPassName ) ),
+          m_PathGuidesPipeline( std::make_unique<GuidesPipeline>( kPathGuidesShaderName, kPathGuidesPassName ) )
     {
     }
     DLSSUpscaler::~DLSSUpscaler() = default;
@@ -320,6 +380,9 @@ namespace Desert::Graphic
     Common::ResultStr<DLSSUpscaler::Guides> DLSSUpscaler::AddGuidesPass( RDG::Builder& graph, const ViewFrame& frame,
                                                                          const TemporalUpscalerInputs& inputs ) const
     {
+        // A path-traced view's colour was made by its paths: their own guides demodulate it, not the G-buffer's.
+        if ( inputs.PathGuides.IsValid() )
+            return AddPathGuidesPass( graph, frame, inputs.PathGuides );
         const auto missing = [&]( const char* what ) -> Common::ResultStr<Guides>
         {
             return Common::MakeFormattedError<Guides>(
@@ -343,10 +406,12 @@ namespace Desert::Graphic
         albedoDesc.Format = Core::Formats::ImageFormat::RGBA16F;
         RDG::TextureDesc distanceDesc = albedoDesc;
         distanceDesc.Format           = Core::Formats::ImageFormat::R32F;
+        const bool   traced = inputs.ReflectionRay.IsValid();
         const Guides guides{ .DiffuseAlbedo       = graph.CreateTexture( albedoDesc, "DLSS-RR.DiffuseAlbedo" ),
                              .SpecularAlbedo      = graph.CreateTexture( albedoDesc, "DLSS-RR.SpecularAlbedo" ),
-                             .SpecularHitDistance = graph.CreateTexture( distanceDesc, "DLSS-RR.SpecularHitDistance" ) };
-        const bool            traced = inputs.ReflectionRay.IsValid();
+                             .SpecularHitDistance = graph.CreateTexture( distanceDesc, "DLSS-RR.SpecularHitDistance" ),
+                             .NormalRoughness     = inputs.GBufferNormal,
+                             .HitDistanceTraced   = traced };
         const RDG::TextureRef ray    = traced ? inputs.ReflectionRay : inputs.Black;
         const GuidesPush      push{ .InvJitteredViewProjection = frame.InvJitteredViewProjection,
                                     .CameraPos                 = glm::vec4( frame.CameraPosition, 1.0f ),
@@ -358,21 +423,78 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( GuidesLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "u_GBufferAlbedo", inputs.GBufferAlbedo, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_GBufferNormal", inputs.GBufferNormal, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_GBufferDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_BRDFLUTTexture", inputs.BrdfLut, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_ReflectionRay", ray, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Storage( "u_DiffuseAlbedo", guides.DiffuseAlbedo, RDG::Access::StorageWrite, 0 )
-                      .Storage( "u_SpecularAlbedo", guides.SpecularAlbedo, RDG::Access::StorageWrite, 0 )
-                      .Storage( "u_SpecularHitDistance", guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )
+                      .Texture( DLSSRRGuidesShaderParameters::GBufferAlbedoTexture, inputs.GBufferAlbedo,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::GBufferNormalTexture, inputs.GBufferNormal,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::GBufferDepthTexture, inputs.SceneDepth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::BrdfLutTexture, inputs.BrdfLut,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( DLSSRRGuidesShaderParameters::ReflectionRayTexture, ray,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( DLSSRRGuidesShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Sampler( DLSSRRGuidesShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                      .Storage( DLSSRRGuidesShaderParameters::DiffuseAlbedoTexture, guides.DiffuseAlbedo,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( DLSSRRGuidesShaderParameters::SpecularAlbedoTexture, guides.SpecularAlbedo,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( DLSSRRGuidesShaderParameters::SpecularHitDistanceTexture,
+                                guides.SpecularHitDistance, RDG::Access::StorageWrite, 0 )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( GuidesPush ) ) );
+             },
+             [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 std::string                            error;
+                 const std::shared_ptr<ComputePipeline> pipeline = holder->Get( error );
+                 if ( !pipeline )
+                     return Common::MakeError( error );
+                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
+                 return Renderer::GetInstance().DispatchCompute( bindings, *pipeline,
+                                                                 ( width + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
+                                                                 ( height + kGuidesGroupSize - 1 ) / kGuidesGroupSize,
+                                                                 1 );
+             } );
+        return Common::MakeSuccess( guides );
+    }
+
+    Common::ResultStr<DLSSUpscaler::Guides> DLSSUpscaler::AddPathGuidesPass( RDG::Builder&           graph,
+                                                                             const ViewFrame&        frame,
+                                                                             const PathTracedGuides& sums ) const
+    {
+        const uint32_t   width  = frame.Split.Render.Width;
+        const uint32_t   height = frame.Split.Render.Height;
+        RDG::TextureDesc albedoDesc;
+        albedoDesc.Size   = RDG::Extent3D{ width, height, 1 };
+        albedoDesc.Format = Core::Formats::ImageFormat::RGBA16F;
+        RDG::TextureDesc distanceDesc = albedoDesc;
+        distanceDesc.Format           = Core::Formats::ImageFormat::R32F;
+        // Every path traced a first bounce, so the hit distance is always this frame's.
+        const Guides guides{ .DiffuseAlbedo       = graph.CreateTexture( albedoDesc, "DLSS-RR.DiffuseAlbedo" ),
+                             .SpecularAlbedo      = graph.CreateTexture( albedoDesc, "DLSS-RR.SpecularAlbedo" ),
+                             .SpecularHitDistance = graph.CreateTexture( distanceDesc, "DLSS-RR.SpecularHitDistance" ),
+                             .NormalRoughness     = graph.CreateTexture( albedoDesc, "DLSS-RR.NormalRoughness" ),
+                             .HitDistanceTraced   = true };
+        const PathGuidesPush push{ .Params = glm::vec4( static_cast<float>( width ), static_cast<float>( height ),
+                                                        0.0f, 0.0f ) };
+        GuidesPipeline*      holder = m_PathGuidesPipeline.get();
+        using P                     = DLSSRRPathGuidesShaderParameters;
+        graph.AddPass(
+             kPathGuidesPassName, RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( PathGuidesLayout(), RDG::OtherRouteFill{} )
+                      .Storage( P::GuideAlbedoTexture, sums.Albedo, RDG::Access::StorageRead, 0 )
+                      .Storage( P::GuideNormalTexture, sums.Normal, RDG::Access::StorageRead, 0 )
+                      .Storage( P::GuideSpecularTexture, sums.Specular, RDG::Access::StorageRead, 0 )
+                      .Storage( P::GuideHitTexture, sums.Hit, RDG::Access::StorageRead, 0 )
+                      .Storage( P::DiffuseAlbedoTexture, guides.DiffuseAlbedo, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::SpecularAlbedoTexture, guides.SpecularAlbedo, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::NormalRoughnessTexture, guides.NormalRoughness, RDG::Access::StorageWrite, 0 )
+                      .Storage( P::SpecularHitDistanceTexture, guides.SpecularHitDistance, RDG::Access::StorageWrite,
+                                0 )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( PathGuidesPush ) ) );
              },
              [holder, push, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -505,14 +627,15 @@ namespace Desert::Graphic
         evaluation.VerticalFov       = 2.0f * std::atan( 1.0f / std::abs( frame.Projection[1][1] ) );
         evaluation.AspectRatio       = static_cast<float>( frame.Split.Output.Width ) /
                                  static_cast<float>( std::max( frame.Split.Output.Height, 1u ) );
-        evaluation.Reset = !frame.HistoryValid();
+        evaluation.Reset       = !frame.HistoryValid();
+        evaluation.PreExposure = frame.PreExposure;
 
         const RDG::TextureRef color       = inputs.SceneColor;
         const RDG::TextureRef depth       = inputs.SceneDepth;
         const RDG::TextureRef velocity    = inputs.Velocity;
         const RDG::TextureRef exposureRef = exposure.GetValue();
-        const RDG::TextureRef normal      = rr ? inputs.GBufferNormal : RDG::TextureRef{};
-        const bool            traced      = rr && inputs.ReflectionRay.IsValid();
+        const RDG::TextureRef normal      = rr ? guides.NormalRoughness : RDG::TextureRef{};
+        const bool            traced      = rr && guides.HitDistanceTraced;
         graph.AddPass(
              DebugName().data(), RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )

@@ -5,9 +5,7 @@
         "Versions": {
             "FOLT": 8
         },
-        "Dependencies": [
-            "3a128cc7205aa269d0fbaca6e09d04a0"
-        ]
+        "Dependencies": ["3a128cc7205aa269d0fbaca6e09d04a0"]
     },
     "Kind": "Mesh",
     "Prefab": {
@@ -41,7 +39,7 @@
         "Max": 0.0
     },
     "Wind": {
-        "Strength": 0.2,
+        "Strength": 20.0,
         "Speed": 0.6,
         "Height": 150.0
     },

@@ -64,6 +64,16 @@ namespace Desert::Graphic
         SurfaceCacheAtlas    = 15,
         SurfaceCacheScene    = 16,
         SurfaceCacheSceneLit = 17,
+        // The traced reflections alone (UE ShowFlag.Reflections / r.Lumen.Visualize reflections): what the traced
+        // path of the reflection trace wrote into the composite's reflection input (DeferredLighting.shader
+        // REFLECTION_INPUT_TRACED) - its hits' radiance by their coverage, over black: no environment for a miss,
+        // no rough specular of the GI, no direct or diffuse light. Proves the tracer: an object behind the camera
+        // shows in a mirror under SoftwareTraced / HardwareTraced. Deferred only; under any other reflection
+        // method the frame is black and the renderer refuses by name - never the screen trace in its place.
+        Reflections = 18,
+        // UE's Local Exposure visualisation (PostProcessVisualizeLocalExposure.cpp): the tonemap draws each pixel's
+        // local exposure (green = lifted, red = pulled down, grey = 1) over the scene's luminance. Post only.
+        LocalExposure = 19,
     };
 
     // WHAT A VIEW IS SHOWING ON TOP OF THE WORLD — and the whole point of this struct is that it is NOT a
@@ -163,6 +173,13 @@ namespace Desert::Graphic
         // with this on names a pass whose effect the graph cannot see - it needs a declaration or NeverCull.
         // Costs GPU time only, never the picture of a correct graph.
         bool DisablePassCulling = false;
+
+        // GPU-DRIVEN CULL validation (GpuDriven::InstanceCullValidation): the frame also runs the GPU instance cull
+        // for the main view, the sun's cascades and the VSM levels, reads its per (view, instance) words back and
+        // logs, per view, how many disagree with the CPU rules (frustum, ISM distance, VSM page mask, LOD). Draws
+        // nothing and changes no picture; costs the cull passes and a readback. Set from a scenario through the
+        // viewport subject's 'Debug.ValidateGpuCulling'.
+        bool ValidateGpuCulling = false;
 
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
         // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent

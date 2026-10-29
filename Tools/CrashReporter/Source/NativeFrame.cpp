@@ -16,6 +16,7 @@
 #include <dwmapi.h>
 
 #include <cstdio>
+#include <format>
 
 namespace
 {
@@ -157,7 +158,9 @@ namespace CrashReporter::NativeFrame
             return "glfwGetWin32Window returned no HWND; the title bar stays inert\n";
         }
 
-        std::string problems;
+        std::string styleProblem;
+        std::string procedureProblem;
+        std::string cornerProblem;
 
         // GLFW creates an undecorated window as WS_POPUP, which has no sizing frame and no maximise
         // box - so no edge resize and no Aero snap however we answer WM_NCHITTEST. Putting the frame
@@ -170,8 +173,10 @@ namespace CrashReporter::NativeFrame
                                        WS_SYSMENU ) == 0 &&
              ::GetLastError() != 0 )
         {
-            problems += "SetWindowLongPtrW(GWL_STYLE) failed with Win32 error " +
-                        std::to_string( ::GetLastError() ) + "; the window cannot be resized\n";
+            styleProblem =
+                 std::format( "SetWindowLongPtrW(GWL_STYLE) failed with Win32 error {}; the window cannot "
+                              "be resized\n",
+                              ::GetLastError() );
         }
 
         gFrame.window = handle;
@@ -181,8 +186,10 @@ namespace CrashReporter::NativeFrame
         if ( gFrame.previous == nullptr )
         {
             gFrame.window = nullptr;
-            problems += "SetWindowLongPtrW(GWLP_WNDPROC) failed with Win32 error " +
-                        std::to_string( ::GetLastError() ) + "; the title bar cannot drag or resize\n";
+            procedureProblem =
+                 std::format( "SetWindowLongPtrW(GWLP_WNDPROC) failed with Win32 error {}; the title bar "
+                              "cannot drag or resize\n",
+                              ::GetLastError() );
         }
 
         // SWP_FRAMECHANGED is what makes the style change take effect; without it the first
@@ -198,14 +205,12 @@ namespace CrashReporter::NativeFrame
         // code is expected; anything else is reported.
         if ( FAILED( result ) && result != E_INVALIDARG )
         {
-            char text[96] = {};
-            std::snprintf( text, sizeof( text ),
-                           "DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE) failed, HRESULT 0x%08lX\n",
-                           static_cast<unsigned long>( result ) );
-            problems += text;
+            cornerProblem =
+                 std::format( "DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE) failed, HRESULT 0x{:08X}\n",
+                              static_cast<unsigned long>( result ) );
         }
 
-        return problems;
+        return std::format( "{}{}{}", styleProblem, procedureProblem, cornerProblem );
     }
 
     void SetLayout( const CaptionLayout& inLayout )

@@ -74,8 +74,8 @@ namespace
         { "Checkbox", "\"Hit Unrelated Geometry\"", Reach::Palette, { "\"Hit Unrelated Geometry\"" } },
         { "Checkbox", "\"Generate Collision\"", Reach::Palette, { "\"Generate Collision\"" } },
         { "DragFloat", "\"Current Block Size\"", Reach::Set, { "CubeGrid.CurrentBlockSize" } },
-        { "SmallButton", "\"/2##bs\"", Reach::Palette, { "\"Block Size /2\"" } },
-        { "SmallButton", "\"x2##bs\"", Reach::Palette, { "\"Block Size x2\"" } },
+        { "SmallButton", "\"/2##bs\"", Reach::Palette, { "\"Grid Power -1\"" } },
+        { "SmallButton", "\"x2##bs\"", Reach::Palette, { "\"Grid Power +1\"" } },
         { "SliderInt", "\"Blocks / Step\"", Reach::Set, { "CubeGrid.BlocksPerStep" } },
         // Two panel buttons read "Clear": CubeGrid's and the element selection's.
         { "Button", "\"Clear\"", Reach::Palette, { "{ \"Clear\", &MS::ReqClear }", "SelectionOp::Clear" } },
@@ -141,12 +141,6 @@ namespace
         { "Combo", "\"##ElementSubdivideNormals\"", Reach::Palette, { "\"Subdivide normals: \"" } },
         { "Checkbox", "\"New PolyGroups\"", Reach::Palette, { "\"Subdivide: New PolyGroups\"" } },
         { "Button", "Core::ToString( MO::Subdivide )", Reach::Palette, { "Core::MeshOperation::Subdivide" } },
-        { "Combo", "\"##ElementSimplifyTarget\"", Reach::Palette, { "\"Simplify target: \"" } },
-        { "SliderFloat", "\"##ElementSimplifyPercentage\"", Reach::Set, { "Element.SimplifyPercentage" } },
-        { "DragInt", "\"##ElementSimplifyVertexCount\"", Reach::Set, { "Element.SimplifyVertexCount" } },
-        { "Checkbox", "\"Preserve Sharp Edges\"", Reach::Palette, { "\"Simplify: Preserve Sharp Edges\"" } },
-        { "Checkbox", "\"Preserve PolyGroups\"", Reach::Palette, { "\"Simplify: Preserve PolyGroups\"" } },
-        { "Button", "Core::ToString( MO::Simplify )", Reach::Palette, { "Core::MeshOperation::Simplify" } },
         { "Combo", "\"##ElementMirrorAxis\"", Reach::Palette, { "\"Mirror axis: \"" } },
         { "Checkbox", "\"World\"", Reach::Palette, { "\"Mirror: World\"" } },
         { "Checkbox", "\"Keep -\"", Reach::Palette, { "\"Mirror: Keep -\"" } },
@@ -193,7 +187,7 @@ namespace
         { "Combo", "\"##CollisionShape\"", Reach::Palette, { "\"Mesh To Collision \"" } },
         { "Button", "\"Mesh To Collision\"", Reach::Palette, { "Editor::ModelingPanel::MeshToCollision" } },
         // UVs
-        { "Button", "uvToolLabel", Reach::Palette, { "\"UV tool: \"", "\"AutoUV\"", "\"Project\"", "\"Unwrap\"", "\"Layout\"" } },
+        { "Button", "uvToolLabel", Reach::Palette, { "\"UV tool: \"", "\"AutoUV\"", "\"Project\"", "\"Unwrap\"", "\"Layout\"", "\"Transform\"" } },
         { "DragFloat", "\"##AutoUVDeviation\"", Reach::Set, { "AutoUV.MaxNormalDeviation" } },
         { "Checkbox", "\"Respect PolyGroups##AutoUV\"", Reach::Palette, { "\"AutoUV: Respect PolyGroups\"" } },
         { "Checkbox", "\"Auto Align##AutoUV\"", Reach::Palette, { "\"AutoUV: Auto Align\"" } },
@@ -224,6 +218,14 @@ namespace
         { "DragFloat", "\"##UVLayoutScale\"", Reach::Set, { "UVLayout.Scale" } },
         { "DragFloat", "\"##UVLayoutTranslateU\"", Reach::Set, { "UVLayout.TranslateU" } },
         { "DragFloat", "\"##UVLayoutTranslateV\"", Reach::Set, { "UVLayout.TranslateV" } },
+        { "DragFloat", "\"##UVTransformScaleU\"", Reach::Set, { "UVTransform.ScaleU" } },
+        { "DragFloat", "\"##UVTransformScaleV\"", Reach::Set, { "UVTransform.ScaleV" } },
+        { "DragFloat", "\"##UVTransformRotation\"", Reach::Set, { "UVTransform.Rotation" } },
+        { "DragFloat", "\"##UVTransformTranslateU\"", Reach::Set, { "UVTransform.TranslateU" } },
+        { "DragFloat", "\"##UVTransformTranslateV\"", Reach::Set, { "UVTransform.TranslateV" } },
+        { "Combo", "\"##UVTransformPivot\"", Reach::Palette, { "\"UV Transform pivot: \"" } },
+        { "DragFloat", "\"##UVTransformPivotU\"", Reach::Set, { "UVTransform.ManualPivotU" } },
+        { "DragFloat", "\"##UVTransformPivotV\"", Reach::Set, { "UVTransform.ManualPivotV" } },
     };
     // clang-format on
 
@@ -416,21 +418,26 @@ TEST( ModelingPaletteCensus, ASetWritesTheWidgetsFieldAndRefusesWhatTheWidgetCan
     EXPECT_FLOAT_EQ( state.ElementPlaneCutOffset, 12.5f ) << "a refused write changed nothing";
 }
 
-// Grid Power and the block-size steps are one function each for the slider, the buttons, the shortcuts and the
-// palette; they must invert each other.
-TEST( ModelingPaletteCensus, GridPowerRoundTripsThroughTheBlockSize )
+// Grid Power is UE FCubeGrid's: cell = base * 2^power (3.125 cm * 2^5 = 100 cm), power up = bigger cell, and a
+// typed block size re-derives the base while the power stays - one function each for the slider, buttons,
+// shortcuts, palette.
+TEST( ModelingPaletteCensus, GridPowerIsTheUeCubeGridPower )
 {
     ModelingState state;
+    EXPECT_EQ( state.GridPower, 5 );
+    EXPECT_FLOAT_EQ( state.CellSize(), 100.0f );
     for ( int power = 0; power <= ModelingState::MaxGridPower; ++power )
     {
         state.SetGridPower( power );
-        EXPECT_EQ( state.GridPower(), power );
+        EXPECT_EQ( state.GridPower, power );
+        EXPECT_FLOAT_EQ( state.CellSize(), 3.125f * static_cast<float>( 1 << power ) );
     }
-    state.SetGridPower( 2 );
-    EXPECT_FLOAT_EQ( state.CellSize, 25.0f );
-    state.DoubleBlockSize();
-    EXPECT_EQ( state.GridPower(), 1 );
-    state.CellSize = ModelingState::MinCellSize;
-    state.HalveBlockSize();
-    EXPECT_FLOAT_EQ( state.CellSize, ModelingState::MinCellSize );
+    state.SetGridPower( 5 );
+    state.GridPowerUp();
+    EXPECT_FLOAT_EQ( state.CellSize(), 200.0f );
+    state.SetCurrentBlockSize( 150.0f );
+    EXPECT_EQ( state.GridPower, 6 );
+    EXPECT_FLOAT_EQ( state.CellSize(), 150.0f );
+    state.GridPowerDown();
+    EXPECT_FLOAT_EQ( state.CellSize(), 75.0f );
 }

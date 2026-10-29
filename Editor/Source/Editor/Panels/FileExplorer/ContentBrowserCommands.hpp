@@ -27,6 +27,7 @@ namespace Desert::Editor
         CaptureThumbnail,
         EditThumbnail,
         CreatePhysicsAsset,
+        DeleteToTrash,
         ClearSelection,
     };
 
@@ -44,7 +45,7 @@ namespace Desert::Editor
     }
 
     // Indexed by ContentBrowserCommand; kContentBrowserCommandOrder is the same order, checked below.
-    inline constexpr std::array<UICommandInfo, 9> kContentBrowserCommandInfos{ {
+    inline constexpr std::array<UICommandInfo, 10> kContentBrowserCommandInfos{ {
          { kContentBrowserContext, "Open", "" },
          { kContentBrowserContext, "Show in Explorer", "" },
          { kContentBrowserContext, "Open Containing Folder", "" },
@@ -53,10 +54,11 @@ namespace Desert::Editor
          { kContentBrowserContext, "Capture Thumbnail (from viewport)", "" },
          { kContentBrowserContext, "Edit Thumbnail", "drag / wheel, Esc" },
          { kContentBrowserContext, "Create Physics Asset", "" },
+         { kContentBrowserContext, "Delete (to the Trash)", "" },
          { kContentBrowserContext, "Clear Selection", "" },
     } };
 
-    inline constexpr std::array<ContentBrowserCommand, 9> kContentBrowserCommandOrder{
+    inline constexpr std::array<ContentBrowserCommand, 10> kContentBrowserCommandOrder{
          ContentBrowserCommand::Open,
          ContentBrowserCommand::ShowInExplorer,
          ContentBrowserCommand::OpenContainingFolder,
@@ -65,6 +67,7 @@ namespace Desert::Editor
          ContentBrowserCommand::CaptureThumbnail,
          ContentBrowserCommand::EditThumbnail,
          ContentBrowserCommand::CreatePhysicsAsset,
+         ContentBrowserCommand::DeleteToTrash,
          ContentBrowserCommand::ClearSelection,
     };
 

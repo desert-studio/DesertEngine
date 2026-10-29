@@ -59,6 +59,14 @@ namespace Desert::Editor
                                                                 "Partition window does not exist" );
                                   return WorldPartition()->ConvertSceneToWorldPartition();
                               } } );
+        // UE's Build > Build HLODs: builds every cell's HLOD of the saved world and writes them beside it.
+        commands.push_back( { "Scene", std::string( ::Desert::Core::Rules::kBuildHLODsLabel ), [this]
+                              {
+                                  if ( WorldPartition() == nullptr )
+                                      return Common::MakeError( "Build HLODs: the World Partition window does "
+                                                                "not exist" );
+                                  return WorldPartition()->BuildHLODs();
+                              } } );
 
         // The World Partition window's region buttons (UE's "Load Region from Selection" / "Unload All" /
         // "Load All" in the World Partition editor), offered unconditionally for the same reason as Convert.
@@ -184,8 +192,26 @@ namespace Desert::Editor
                        if ( Explorer() == nullptr )
                            return Common::MakeError( "New VFX Data Channel: the Assets window does not exist" );
                        return Explorer()->CreateNewVFXDataChannel();
+                   },
+                   [this]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError( "New VFX Module: the Assets window does not exist" );
+                       return Explorer()->CreateNewVFXModule();
                    } ) )
             commands.push_back( std::move( command ) );
+        // One entry per engine VFX system template — the template list is the folder's, so a new template file
+        // is a new entry with no code.
+        for ( const std::filesystem::path& templateFile : NewAssetMenu::VFXSystemTemplates() )
+            commands.push_back(
+                 { "Assets", std::format( "{}: {}", kNewVFXSystemFromTemplateLabel, templateFile.stem().string() ),
+                   [this, templateFile]
+                   {
+                       if ( Explorer() == nullptr )
+                           return Common::MakeError(
+                                "New VFX System from Template: the Assets window does not exist" );
+                       return Explorer()->CreateVFXSystemFromTemplate( templateFile );
+                   } } );
     }
 
     void AssetCommands::AppendImportCommands( std::vector<PaletteCommand>& commands )
@@ -279,6 +305,12 @@ namespace Desert::Editor
         for ( const bool on : { true, false } )
             commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
+        for ( const auto mode : { Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
+                                  Assets::MeshDisplacementMode::Baked } )
+            commands.push_back(
+                 { "Assets",
+                   std::format( "Import Options: Displacement {}", Assets::MeshDisplacementModeName( mode ) ),
+                   [mode] { return ImportOptions::SetShownDisplacement( mode ); } } );
         // UE's Content Browser > Asset Actions > Reimport (and the Import Settings fields Reimport imports with):
         // over the assets SELECTED IN THE CONTENT BROWSER, the RMB item's and the Import Settings button's own
         // ImportOptions bodies. Without a selected asset each is unavailable and says why; an asset with no import
@@ -321,13 +353,15 @@ namespace Desert::Editor
         {
             for ( const std::string& folder : Explorer()->ContentFolders() )
                 commands.push_back( { std::string( Editor::kContentBrowserContext ),
-                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel, folder ),
+                                      Editor::ContentBrowserPathLabel( Editor::kGoToFolderLabel,
+                                                                       Explorer()->ContentLabelPath( folder ) ),
                                       std::bind_front( &FileExplorerPanel::GoToFolder,
                                                        std::to_address( Explorer() ), folder ) } );
             for ( const std::string& file : Explorer()->ContentFiles() )
                 commands.push_back(
                      { std::string( Editor::kContentBrowserContext ),
-                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel, file ),
+                       Editor::ContentBrowserPathLabel( Editor::kSyncToAssetLabel,
+                                                        Explorer()->ContentLabelPath( file ) ),
                        std::bind_front( &FileExplorerPanel::SyncToAsset, std::to_address( Explorer() ), file ) } );
         }
         for ( const float scale : { 0.01f, 0.1f, 1.0f, 10.0f, 100.0f } )

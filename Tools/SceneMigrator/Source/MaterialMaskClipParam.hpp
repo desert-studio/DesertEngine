@@ -14,7 +14,7 @@ namespace Desert::Migration
     // `.demat` written before states the retired form, and this step re-states it:
     //   FoliageSurface + AlphaCutoff            -> OpacityMaskClipValue, same value;
     //   StandardSurface + AlphaCutoff > 0       -> the StandardSurfaceMasked template, OpacityMaskClipValue;
-    //   StandardSurface, no cut (AlphaCutoff 0 or unstated) -> AlphaCutoff, OpacityChannel and u_OpacityTexture
+    //   StandardSurface, no cut (AlphaCutoff 0 or unstated) -> AlphaCutoff, OpacityChannel and OpacityTexture
     //                                              dropped (an opaque surface has no mask; MAT-MASKED dropped them
     //                                              from the committed materials by hand).
     // A material stating both AlphaCutoff and OpacityMaskClipValue states two values for one threshold: refused,

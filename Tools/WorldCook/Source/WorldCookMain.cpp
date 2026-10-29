@@ -1,12 +1,13 @@
 #include "WorldCookMain.hpp"
 
+#include <Engine/Core/HLODMeshBuilder.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
-#include <Common/Core/Constants.hpp>
-#include <Common/Project/ProjectFormat.hpp>
+#include <ToolProject.hpp>
+
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
@@ -25,16 +26,21 @@ namespace Desert::WorldCook
 
         std::string Usage()
         {
-            return "usage: WorldCook <source.desce> --project <file.deproj> --out <directory> (--registry "
-                   "<file.dreg>... | --no-registry) "
-                   "[--verify]";
+            return "usage: WorldCook <source.desce> --out <directory> (--project <file.deproj> | --no-project) "
+                   "(--registry <file.dreg>... | --no-registry) [--verify]\n"
+                   "  --project      open this project first, as GamePackager does: the source's content paths\n"
+                   "                 (landscape tiles, meshes) resolve under its folder, and the cook's log goes "
+                   "to\n"
+                   "                 its Saved/Logs\n"
+                   "  --no-project   cook a world that names no project content (primitives only)";
         }
 
         struct Options
         {
             fs::path              Source;
-            fs::path              Project;
             fs::path              Out;
+            std::string           Project; // the .deproj as typed; empty with --no-project
+            bool                  NoProject = false;
             std::vector<fs::path> Registries;
             bool                  NoRegistry = false;
             bool                  Verify     = false;
@@ -57,15 +63,21 @@ namespace Desert::WorldCook
                     auto value = takeOne( arg.c_str() );
                     if ( !value )
                         return Common::MakeError<Options>( value.GetError() );
-                    if ( arg == "--project" )
-                        options.Project = value.GetValue();
-                    else if ( arg == "--out" )
+                    if ( arg == "--out" )
                         options.Out = value.GetValue();
+                    else if ( arg == "--project" )
+                    {
+                        if ( !options.Project.empty() )
+                            return Common::MakeError<Options>( "a second --project; one project per run" );
+                        options.Project = value.GetValue();
+                    }
                     else
                         options.Registries.emplace_back( value.GetValue() );
                 }
                 else if ( arg == "--no-registry" )
                     options.NoRegistry = true;
+                else if ( arg == "--no-project" )
+                    options.NoProject = true;
                 else if ( arg == "--verify" )
                     options.Verify = true;
                 else if ( !arg.empty() && arg[0] == '-' )
@@ -79,44 +91,22 @@ namespace Desert::WorldCook
             // absolute here, so the content resolver (Constants::Path::FullPath) never reads it as one.
             options.Source =
                  options.Source.empty() ? options.Source : fs::absolute( options.Source ).lexically_normal();
-            options.Project =
-                 options.Project.empty() ? options.Project : fs::absolute( options.Project ).lexically_normal();
             options.Out = options.Out.empty() ? options.Out : fs::absolute( options.Out ).lexically_normal();
             for ( fs::path& registry : options.Registries )
                 registry = fs::absolute( registry ).lexically_normal();
             if ( options.Source.empty() || options.Out.empty() )
                 return Common::MakeError<Options>( "a source and --out are required" );
-            // The cook works INSIDE a project, as UE's cook takes the .uproject: a content-relative path in the
-            // world (a prefab instance's PrefabPath, WP21) means the project's content and nothing else. Never
-            // searched for above the source and never defaulted.
-            if ( options.Project.empty() )
-                return Common::MakeError<Options>( "--project <file.deproj> is required: the cook resolves the "
-                                                   "world's content paths in that project" );
             // Without a registry mesh assets are placed by position alone and no unit's assets are known.
             // That is a legitimate cook (a world of primitives needs none), but it is CHOSEN, never defaulted.
             if ( options.Registries.empty() == !options.NoRegistry )
                 return Common::MakeError<Options>( "state exactly one of --registry <file>... or --no-registry" );
+            // Without a project a content path in the source (a landscape's tiles, a mesh, a prefab instance's
+            // PrefabPath, WP21) has nothing to resolve under, and the cook stops at the first one. Opening one is
+            // likewise CHOSEN, never defaulted.
+            if ( options.Project.empty() == !options.NoProject )
+                return Common::MakeError<Options>(
+                     "state exactly one of --project <file.deproj> or --no-project" );
             return Common::MakeSuccess( std::move( options ) );
-        }
-
-        // Points every content path at the named project (Constants::Path::SetProjectRoot), before anything
-        // is read: the same opening the editor does while parsing its --project.
-        Common::ResultStr<fs::path> OpenProject( const fs::path& projectFile )
-        {
-            if ( projectFile.extension() != ".deproj" )
-                return Common::MakeError<fs::path>( "--project '" + projectFile.string() +
-                                                    "' is not a .deproj file" );
-            const auto json = Common::Utils::FileSystem::ReadFileContent( projectFile.string() );
-            if ( !json )
-                return Common::MakeError<fs::path>( "--project '" + projectFile.string() +
-                                                    "' does not read: " + json.GetError() );
-            const auto project = Common::Project::ReadProjectFile( json.GetValue() );
-            if ( !project )
-                return Common::MakeError<fs::path>( "--project '" + projectFile.string() +
-                                                    "' is not a readable project: " + project.GetError() );
-            const fs::path projectDir = fs::absolute( projectFile ).parent_path().lexically_normal();
-            Common::Constants::Path::SetProjectRoot( projectDir, project.GetValue().AssetsRoot );
-            return Common::MakeSuccess( fs::path( projectDir ) );
         }
 
         double MsSince( std::chrono::steady_clock::time_point start )
@@ -135,10 +125,17 @@ namespace Desert::WorldCook
         }
         const Options options = parsed.ExtractValue();
 
-        if ( auto opened = OpenProject( options.Project ); !opened )
+        // The project is open before anything of the world is read: the same call GamePackager and TextureCook
+        // make (Tools/Shared/ToolProject.hpp), so the cook resolves content exactly as the packager does.
+        if ( !options.Project.empty() )
         {
-            err << "WorldCook: " << opened.GetError() << "\n";
-            return 3;
+            const Tools::OpenedToolProject opened = Tools::OpenToolProject( options.Project, {} );
+            if ( !opened.Refused.empty() )
+            {
+                err << "WorldCook: " << opened.Refused << "\n";
+                return 3;
+            }
+            out << "WorldCook: project " << opened.Descriptor.string() << "\n";
         }
 
         const auto started = std::chrono::steady_clock::now();
@@ -180,10 +177,16 @@ namespace Desert::WorldCook
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
         const auto prefabs = Core::WorldCells::PrefabFileReader();
-        auto       cooked  = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, prefabs );
+        // The HLODs are the ones Build HLODs saved beside the scene (WP-FAR-6B D1): packed here, never built.
+        auto hlods = Core::WorldCells::ReadBuiltHLODs( options.Source );
+        if ( hlods )
+            out << "WorldCook: built HLODs " << Core::WorldCells::BuiltHLODDirectory( options.Source ).string()
+                << ": " << hlods.GetValue().Index.Cells.size() << " cell row(s)\n";
+        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, prefabs,
+                                                   hlods ? &hlods.GetValue() : nullptr );
         if ( !cooked )
         {
-            err << "WorldCook: " << cooked.GetError() << "\n";
+            err << "WorldCook: " << cooked.GetError() << ( hlods ? "" : " (" + hlods.GetError() + ")" ) << "\n";
             return 4;
         }
         const double cookMs = MsSince( cookStart );

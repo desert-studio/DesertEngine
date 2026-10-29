@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
+
 #include <glm/glm.hpp>
 
 #include <cmath>
@@ -81,6 +83,7 @@ namespace Desert::Graphic
 
     /// The block's name, shared by the binders and the shader census.
     inline constexpr const char* kSkyLookBlockName = "SkyLookUB";
+    inline constexpr RDG::UniformBufferParameter kSkyLookBlock{ kSkyLookBlockName };
 
     class ImageCube;
 

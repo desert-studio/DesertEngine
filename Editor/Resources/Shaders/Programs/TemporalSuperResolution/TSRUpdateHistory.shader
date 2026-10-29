@@ -22,8 +22,8 @@ Shader "TSRUpdateHistory"
         // TSR_UPDATE_QUALITY (r.TSR.History.UpdateQuality): 0 bilinear history and a plus-shaped clamp box; 1
         // bilinear history and the 3x3 box; 2 and 3 a 5-tap Catmull-Rom history and the 3x3 box.
         // TSR_WRITE_OUTPUT: 1 when the history is the output's size (r.TSR.History.ScreenPercentage 100) — the
-        // same value goes to u_Output, the post chain's input; 0 leaves the output to TSR.ResolveHistory.
-        // r.TSR.ReprojectionField and r.TSR.Resurrection are uniforms (u_ReprojectionField, u_ResurrectionEnabled),
+        // same value goes to OutputTexture, the post chain's input; 0 leaves the output to TSR.ResolveHistory.
+        // r.TSR.ReprojectionField and r.TSR.Resurrection are uniforms (ReprojectionField, ResurrectionEnabled),
         // as in UE.
         #ifndef TSR_UPDATE_QUALITY
         #define TSR_UPDATE_QUALITY 2
@@ -38,36 +38,36 @@ Shader "TSRUpdateHistory"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(14) sampler u_LinearClampSampler;
-        Uniform(15) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_SceneColor;            // linear HDR, RenderExtent, jittered
-        #define u_SceneColor sampler2D(u_SceneColor, u_LinearClampSampler)
-        Uniform(2) texture2D u_Exposure;              // 1x1 previous adapted luminance
-        Uniform(3) texture2D u_ResponsiveAA;          // R8 coverage of responsive translucency, RenderExtent
-        #define u_ResponsiveAA sampler2D(u_ResponsiveAA, u_PointClampSampler)
-        Uniform(4) texture2D u_DilatedVelocity;       // TSR.DilateVelocity: the reprojection vector (NDC)
-        #define u_DilatedVelocity sampler2D(u_DilatedVelocity, u_PointClampSampler)
-        Uniform(5) texture2D u_HistoryRejection;      // TSR.RejectShading
-        #define u_HistoryRejection sampler2D(u_HistoryRejection, u_PointClampSampler)
-        Uniform(6) utexture2D u_AntiAliasing;         // TSR.SpatialAntiAliasing: offset | noise << 8
-        #define u_AntiAliasing usampler2D(u_AntiAliasing, u_PointClampSampler)
-        Uniform(7) texture2D u_PrevHistory;           // previous TSR.History.Color, HistoryExtent (bilinear)
-        Uniform(8) texture2D u_ClosestDepth;          // TSR.DilateVelocity
-        #define u_ClosestDepth sampler2D(u_ClosestDepth, u_PointClampSampler)
-        Uniform(9) utexture2D u_ReprojectionJacobian; // TSR.DilateVelocity (r.TSR.ReprojectionField)
-        #define u_ReprojectionJacobian usampler2D(u_ReprojectionJacobian, u_PointClampSampler)
-        Uniform(10) utexture2D u_ReprojectionBoundary;
-        #define u_ReprojectionBoundary usampler2D(u_ReprojectionBoundary, u_PointClampSampler)
-        Uniform(11) texture2D u_ResurrectionHistory;  // the persistent TSR.History.Color.Persistent* frame
-        layout(binding = 12, rgba16f) restrict writeonly uniform image2D u_HistoryOut;
+        Uniform(14) sampler LinearClampSampler;
+        Uniform(15) sampler PointClampSampler;
+        Uniform(1) texture2D SceneColorTexture;            // linear HDR, RenderExtent, jittered
+        #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
+        Uniform(2) texture2D ExposureTexture;              // 1x1 previous adapted luminance
+        Uniform(3) texture2D ResponsiveAaTexture;          // R8 coverage of responsive translucency, RenderExtent
+        #define ResponsiveAaTexture sampler2D(ResponsiveAaTexture, PointClampSampler)
+        Uniform(4) texture2D DilatedVelocityTexture;       // TSR.DilateVelocity: the reprojection vector (NDC)
+        #define DilatedVelocityTexture sampler2D(DilatedVelocityTexture, PointClampSampler)
+        Uniform(5) texture2D HistoryRejectionTexture;      // TSR.RejectShading
+        #define HistoryRejectionTexture sampler2D(HistoryRejectionTexture, PointClampSampler)
+        Uniform(6) utexture2D AntiAliasingTexture;         // TSR.SpatialAntiAliasing: offset | noise << 8
+        #define AntiAliasingTexture usampler2D(AntiAliasingTexture, PointClampSampler)
+        Uniform(7) texture2D PreviousHistoryTexture;           // previous TSR.History.Color, HistoryExtent (bilinear)
+        Uniform(8) texture2D ClosestDepthTexture;          // TSR.DilateVelocity
+        #define ClosestDepthTexture sampler2D(ClosestDepthTexture, PointClampSampler)
+        Uniform(9) utexture2D ReprojectionJacobianTexture; // TSR.DilateVelocity (r.TSR.ReprojectionField)
+        #define ReprojectionJacobianTexture usampler2D(ReprojectionJacobianTexture, PointClampSampler)
+        Uniform(10) utexture2D ReprojectionBoundaryTexture;
+        #define ReprojectionBoundaryTexture usampler2D(ReprojectionBoundaryTexture, PointClampSampler)
+        Uniform(11) texture2D ResurrectionHistoryTexture;  // the persistent TSR.History.Color.Persistent* frame
+        layout(binding = 12, rgba16f) restrict writeonly uniform image2D HistoryOutTexture;
         #if TSR_WRITE_OUTPUT
-        layout(binding = 13, rgba16f) restrict writeonly uniform image2D u_Output;
+        layout(binding = 13, rgba16f) restrict writeonly uniform image2D OutputTexture;
         #endif
 
         // 5-tap Catmull-Rom (the 4x4 kernel folded onto bilinear taps, corners dropped), as TemporalAA.shader.
         vec3 SampleHistoryCatmullRom(texture2D history, vec2 uv)
         {
-            const vec2 size     = u_HistorySize;
+            const vec2 size     = HistorySize;
             const vec2 position = uv * size;
             const vec2 texPos1  = floor(position - 0.5) + 0.5;
             const vec2 f        = position - texPos1;
@@ -79,18 +79,18 @@ Shader "TSRUpdateHistory"
             const vec2 tex0     = (texPos1 - 1.0) / size;
             const vec2 tex3     = (texPos1 + 2.0) / size;
             const vec2 tex12    = (texPos1 + w2 / w12) / size;
-            vec3 result = textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex12.x, tex0.y), 0.0).rgb * (w12.x * w0.y) +
-                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex0.x, tex12.y), 0.0).rgb * (w0.x * w12.y) +
-                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex12.x, tex12.y), 0.0).rgb * (w12.x * w12.y) +
-                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex3.x, tex12.y), 0.0).rgb * (w3.x * w12.y) +
-                          textureLod(sampler2D(history, u_LinearClampSampler), vec2(tex12.x, tex3.y), 0.0).rgb * (w12.x * w3.y);
+            vec3 result = textureLod(sampler2D(history, LinearClampSampler), vec2(tex12.x, tex0.y), 0.0).rgb * (w12.x * w0.y) +
+                          textureLod(sampler2D(history, LinearClampSampler), vec2(tex0.x, tex12.y), 0.0).rgb * (w0.x * w12.y) +
+                          textureLod(sampler2D(history, LinearClampSampler), vec2(tex12.x, tex12.y), 0.0).rgb * (w12.x * w12.y) +
+                          textureLod(sampler2D(history, LinearClampSampler), vec2(tex3.x, tex12.y), 0.0).rgb * (w3.x * w12.y) +
+                          textureLod(sampler2D(history, LinearClampSampler), vec2(tex12.x, tex3.y), 0.0).rgb * (w12.x * w3.y);
             const float weight = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
             return max(result / weight, vec3(0.0)); // the negative lobes may undershoot
         }
 
         vec4 SampleHistory(texture2D history, vec2 uv)
         {
-            const vec4 bilinear = textureLod(sampler2D(history, u_LinearClampSampler), uv, 0.0);
+            const vec4 bilinear = textureLod(sampler2D(history, LinearClampSampler), uv, 0.0);
         #if TSR_UPDATE_QUALITY >= 2
             return vec4(SampleHistoryCatmullRom(history, uv), bilinear.a);
         #else
@@ -103,23 +103,23 @@ Shader "TSRUpdateHistory"
         vec2 ResurrectionVector(vec2 uv, float depth)
         {
             const vec2 screenPos        = ScreenUVToNdc(uv);
-            const vec4 resurrectionClip = u_ClipToResurrectionClip * vec4(screenPos, depth, 1.0);
+            const vec4 resurrectionClip = ClipToResurrectionClip * vec4(screenPos, depth, 1.0);
             return screenPos - resurrectionClip.xy / resurrectionClip.w;
         }
 
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_HistorySize))))
+            if (any(greaterThanEqual(pixel, ivec2(HistorySize))))
                 return;
 
-            const float exposure = TsrExposure(u_Exposure, u_PointClampSampler);
-            const vec2  uv       = (vec2(pixel) + 0.5) / u_HistorySize;
+            const float exposure = TsrExposure(ExposureTexture, PointClampSampler);
+            const vec2  uv       = (vec2(pixel) + 0.5) / HistorySize;
             // The history pixel's centre in the JITTERED input (UE ViewportUVToInputPPCo = uv * size + jitter).
-            vec2  inputPPCo  = (uv + u_JitterUv) * u_RenderSize;
+            vec2  inputPPCo  = (uv + JitterUv) * RenderSize;
             ivec2 inputPixel = TsrClampRender(ivec2(floor(inputPPCo)));
             const vec2 dInputKOFetch = inputPPCo - (vec2(inputPixel) + 0.5);
-            const bool field         = u_ReprojectionField > 0.5;
+            const bool field         = ReprojectionField > 0.5;
 
             // The reprojection field's boundary: which side of the depth edge this history pixel is on picks the
             // pixel whose reprojection it takes (UE FetchVelocityDilateBoundary, :752-777).
@@ -127,13 +127,13 @@ Shader "TSRUpdateHistory"
             vec2  jacobianCoordinate = dInputKOFetch;
             if (field)
             {
-                const uint encodedBoundary = texelFetch(u_ReprojectionBoundary, inputPixel, 0).r;
+                const uint encodedBoundary = texelFetch(ReprojectionBoundaryTexture, inputPixel, 0).r;
                 if (encodedBoundary != EncodeReprojectionBoundary(ivec2(0), kFullDilateBoundary))
                 {
                     const ivec2 offset      = DecodeReprojectionOffset(encodedBoundary);
                     const vec2  boundary    = DecodeReprojectionBoundary(encodedBoundary);
                     const bool  withinBound = IsHistoryPixelWithinOffsetBoundary(dInputKOFetch, boundary,
-                                                                                1.0 / u_InputToHistoryFactor);
+                                                                                1.0 / InputToHistoryFactor);
                     const ivec2 dilate      = withinBound ? offset : -offset;
                     jacobianCoordinate      = dInputKOFetch - vec2(dilate);
                     fetchPixel              = TsrClampRender(inputPixel + dilate);
@@ -141,8 +141,8 @@ Shader "TSRUpdateHistory"
             }
 
             // The rejection (UE :837-864): the field takes the dilated pixel's bits and the worst of both.
-            const vec4 rawRejection     = texelFetch(u_HistoryRejection, inputPixel, 0);
-            const vec4 dilatedRejection = texelFetch(u_HistoryRejection, fetchPixel, 0);
+            const vec4 rawRejection     = texelFetch(HistoryRejectionTexture, inputPixel, 0);
+            const vec4 dilatedRejection = texelFetch(HistoryRejectionTexture, fetchPixel, 0);
             float      lowFrequencyRejection      = rawRejection.x;
             float      disableHistoryClamp        = rawRejection.y;
             float      decreaseValidityMultiplier = rawRejection.z;
@@ -154,10 +154,10 @@ Shader "TSRUpdateHistory"
                 decreaseValidityMultiplier = max(decreaseValidityMultiplier, dilatedRejection.z);
             }
             const bool parallaxRejected = (bits & kRejectionNotDisoccluded) == 0u;
-            const bool resurrected = u_ResurrectionEnabled > 0.5 && (bits & kRejectionResurrected) != 0u;
+            const bool resurrected = ResurrectionEnabled > 0.5 && (bits & kRejectionResurrected) != 0u;
 
             // The reprojection vector, corrected by the jacobian across the input pixel (UE :797-834).
-            vec2  velocity                      = texelFetch(u_DilatedVelocity, fetchPixel, 0).xy;
+            vec2  velocity                      = texelFetch(DilatedVelocityTexture, fetchPixel, 0).xy;
             float reprojectionUpscaleCorrection = 1.0;
             mat2  jacobian                      = mat2(0.0);
             vec2  jacobianAt                    = jacobianCoordinate;
@@ -165,9 +165,9 @@ Shader "TSRUpdateHistory"
             {
                 // The resurrection frame's reprojection of this pixel's closest surface, its jacobian by one-pixel
                 // finite differences (UE ResurrectionJacobian: the projection's derivative, the depth's ignored).
-                const float depth   = texelFetch(u_ClosestDepth, inputPixel, 0).r;
+                const float depth   = texelFetch(ClosestDepthTexture, inputPixel, 0).r;
                 const vec2  surface = TsrSurfaceUv(inputPixel);
-                const vec2  texel   = 1.0 / u_RenderSize;
+                const vec2  texel   = 1.0 / RenderSize;
                 const vec2  centre  = ResurrectionVector(surface, depth);
                 velocity            = centre;
                 jacobian[0] = TsrNdcToPixelVelocity(ResurrectionVector(surface + vec2(texel.x, 0.0), depth) - centre);
@@ -176,7 +176,7 @@ Shader "TSRUpdateHistory"
             }
             else if (field)
             {
-                jacobian = DecodeReprojectionJacobian(texelFetch(u_ReprojectionJacobian, fetchPixel, 0).r);
+                jacobian = DecodeReprojectionJacobian(texelFetch(ReprojectionJacobianTexture, fetchPixel, 0).r);
             }
             if (field)
             {
@@ -185,12 +185,12 @@ Shader "TSRUpdateHistory"
             }
 
             const vec2 prevUv    = uv - velocity * vec2(0.5, -0.5);
-            const bool offScreen = u_HistoryValid < 0.5 || any(lessThan(prevUv, vec2(0.0))) ||
+            const bool offScreen = HistoryValid < 0.5 || any(lessThan(prevUv, vec2(0.0))) ||
                                    any(greaterThan(prevUv, vec2(1.0)));
             const bool noHistory = offScreen || (parallaxRejected && !resurrected);
 
             // The spatial anti-aliasing offset, the more the history is rejected (UE :866-874, :1093-1100).
-            const uint  encodedAntiAliasing     = texelFetch(u_AntiAliasing, inputPixel, 0).r;
+            const uint  encodedAntiAliasing     = texelFetch(AntiAliasingTexture, inputPixel, 0).r;
             const float noiseFiltering          = float((encodedAntiAliasing >> 8u) & 0xFFu) / 255.0;
             const float spatialAntiAliasingLerp = noHistory ? 1.0 : clamp(1.0 - lowFrequencyRejection * 4.0, 0.0, 1.0);
             inputPPCo += DecodeSpatialAntiAliasingOffset(encodedAntiAliasing & 0xFFu) * spatialAntiAliasingLerp;
@@ -202,9 +202,11 @@ Shader "TSRUpdateHistory"
             float prevValidity = 0.0;
             if (!offScreen)
             {
-                const vec4 history = resurrected ? SampleHistory(u_ResurrectionHistory, prevUv)
-                                                 : SampleHistory(u_PrevHistory, prevUv);
-                prevColor    = history.rgb;
+                const vec4 history = resurrected ? SampleHistory(ResurrectionHistoryTexture, prevUv)
+                                                 : SampleHistory(PreviousHistoryTexture, prevUv);
+                // Stored pre-exposed by its own frame: brought to this frame's pre-exposure (UE
+                // HistoryPreExposureCorrection / ResurrectionPreExposureCorrection).
+                prevColor    = history.rgb * (resurrected ? ResurrectionPreExposureCorrection : HistoryPreExposureCorrection);
                 prevValidity = history.a;
             }
 
@@ -218,11 +220,11 @@ Shader "TSRUpdateHistory"
                 minRejectionBlendFactor = offScreen ? 1.0 : minRejectionBlendFactor;
 
                 const float coarseAlignment  = TsrSampleWeight(1.0, dInputKO, 0.0);
-                const float idealAlignment   = TsrSampleWeight(u_InputToHistoryFactor, dInputKO, 0.0);
-                const float coarseCurrent    = coarseAlignment * u_HistoryHisteresis;
-                const float idealCurrent     = idealAlignment * u_HistoryHisteresis;
+                const float idealAlignment   = TsrSampleWeight(InputToHistoryFactor, dInputKO, 0.0);
+                const float coarseCurrent    = coarseAlignment * HistoryHysteresis;
+                const float idealCurrent     = idealAlignment * HistoryHysteresis;
 
-                const float maxValidity              = 1.0 - u_WeightClampingRejection * decreaseValidityMultiplier;
+                const float maxValidity              = 1.0 - WeightClampingRejection * decreaseValidityMultiplier;
                 const float clampedPrevValidity      = min(prevValidity, maxValidity);
                 const float refiningHisteresis       = clampedPrevValidity + idealCurrent > 0.0
                                                            ? idealCurrent / (clampedPrevValidity + idealCurrent)
@@ -230,16 +232,16 @@ Shader "TSRUpdateHistory"
                 const float coarseRejectedPrevWeight = min(coarseCurrent * ComputePrevWeightMultiplier(minRejectionBlendFactor), 1.0);
                 const float coarseRefiningPrevWeight = min(coarseCurrent * ComputePrevWeightMultiplier(refiningHisteresis), 1.0);
                 float       isRefining               = coarseRejectedPrevWeight < coarseRefiningPrevWeight ? 0.0 : 1.0;
-                isRefining = min(isRefining, clamp(clampedPrevValidity * u_HistorySampleCount, 0.0, 1.0));
+                isRefining = min(isRefining, clamp(clampedPrevValidity * HistorySampleCount, 0.0, 1.0));
 
                 // Soften the spatial kernel where the input is noisy (UE :1158).
                 const float offScreenInputToHistoryFactor = 1.0 - 0.5 * noiseFiltering;
                 const float kernelLerp = noHistory ? 0.0 : clamp(lowFrequencyRejection * 16.0 - 13.0, 0.0, 1.0) * isRefining;
-                kernelInputToHistoryFactor = mix(offScreenInputToHistoryFactor, u_InputToHistoryFactor, kernelLerp);
-                const float alignmentFactor = mix(1.0, u_InputToHistoryFactor, kernelLerp);
+                kernelInputToHistoryFactor = mix(offScreenInputToHistoryFactor, InputToHistoryFactor, kernelLerp);
+                const float alignmentFactor = mix(1.0, InputToHistoryFactor, kernelLerp);
 
                 const float alignment = TsrSampleWeight(alignmentFactor, dInputKO, 0.0);
-                currentWeight         = alignment * u_HistoryHisteresis;
+                currentWeight         = alignment * HistoryHysteresis;
                 prevWeight = min((currentWeight > 0.0 ? currentWeight : coarseCurrent) *
                                       ComputePrevWeightMultiplier(minRejectionBlendFactor),
                                  clampedPrevValidity);
@@ -249,7 +251,7 @@ Shader "TSRUpdateHistory"
             // The filtered input and its clamp box (UE :1202-1236), pre-exposed.
             vec3  filtered       = vec3(0.0);
             float filteredWeight = 0.0;
-            const vec3 center    = max(texelFetch(u_SceneColor, inputPixel, 0).rgb, vec3(0.0)) * exposure;
+            const vec3 center    = max(texelFetch(SceneColorTexture, inputPixel, 0).rgb, vec3(0.0)) * exposure;
             vec3  boxMin         = center;
             vec3  boxMax         = center;
             for (int y = -1; y <= 1; ++y)
@@ -259,8 +261,8 @@ Shader "TSRUpdateHistory"
                     const ivec2 offset = ivec2(x, y);
                     const ivec2 q      = inputPixel + offset;
                     // An edge sample is clamped to the border: a duplicate of a sample already counted.
-                    const bool duplicated = any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(u_RenderSize)));
-                    const vec3 c          = max(texelFetch(u_SceneColor, TsrClampRender(q), 0).rgb, vec3(0.0)) * exposure;
+                    const bool duplicated = any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(RenderSize)));
+                    const vec3 c          = max(texelFetch(SceneColorTexture, TsrClampRender(q), 0).rgb, vec3(0.0)) * exposure;
                     const float spatial   = duplicated ? 0.0
                                                        : TsrSampleWeight(kernelInputToHistoryFactor, vec2(offset) - dInputKO, 0.005);
                     filtered += c * (spatial * TsrHdrWeight(c));
@@ -288,9 +290,9 @@ Shader "TSRUpdateHistory"
             // The validity clamped by the output pixel velocity, raised back for stability on high-contrast edges
             // (UE :1262-1282).
             {
-                const float outputPixelVelocity = length(velocity * 0.5 * u_OutputSize);
-                float       maxValidity         = 1.0 - u_WeightClampingPixelSpeedAmplitude *
-                                                            clamp(outputPixelVelocity * u_InvWeightClampingPixelSpeed, 0.0, 1.0);
+                const float outputPixelVelocity = length(velocity * 0.5 * OutputSize);
+                float       maxValidity         = 1.0 - WeightClampingPixelSpeedAmplitude *
+                                                            clamp(outputPixelVelocity * InverseWeightClampingPixelSpeed, 0.0, 1.0);
                 const float prevLuma            = TsrLuma(blendedPrev);
                 const float filteredLuma        = TsrLuma(filtered);
                 const float largest             = max(filteredLuma, prevLuma);
@@ -299,8 +301,8 @@ Shader "TSRUpdateHistory"
             }
 
             // Responsive translucency: the current frame is at least a quarter of the result.
-            const float responsive = texelFetch(u_ResponsiveAA, inputPixel, 0).r;
-            prevWeight = mix(prevWeight, min(prevWeight, 3.0 * max(currentWeight, u_HistoryHisteresis)), responsive);
+            const float responsive = texelFetch(ResponsiveAaTexture, inputPixel, 0).r;
+            prevWeight = mix(prevWeight, min(prevWeight, 3.0 * max(currentWeight, HistoryHysteresis)), responsive);
 
             // The tone-weighted blend and the 8-bit validity quantization (UE :1284-1308).
             const float outputValidity = currentWeight + prevWeight;
@@ -311,9 +313,9 @@ Shader "TSRUpdateHistory"
             const float validity       = ceil(255.0 * clamp(outputValidity, 0.0, 1.0)) / 255.0;
 
             const vec3 linearResult = result / exposure;
-            imageStore(u_HistoryOut, pixel, vec4(linearResult, validity));
+            imageStore(HistoryOutTexture, pixel, vec4(linearResult, validity));
         #if TSR_WRITE_OUTPUT
-            imageStore(u_Output, pixel, vec4(linearResult, 1.0));
+            imageStore(OutputTexture, pixel, vec4(linearResult, 1.0));
         #endif
         }
     }

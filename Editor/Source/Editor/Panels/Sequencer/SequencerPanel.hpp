@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 #include "LevelMaterialProperties.hpp"
 #include "OutlinerColumn.hpp"
 
@@ -29,6 +29,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -221,6 +222,8 @@ namespace Desert::Editor
         /// "+ Track ▸ Visibility" on any actor: the Bool "Visible" track, keyed at the range start with the
         /// actor's current visibility (ECS::AddVisibilityTrack), one undo step.
         void AddLevelVisibilityTrack( const Animation::Timeline::BindingGuid& binding );
+        /// "+ Track ▸ VFX" on an actor with a VFX component: one life-cycle section from the playhead to the end.
+        void AddLevelVFXTrack( const Animation::Timeline::BindingGuid& binding );
         /// A Visibility key @p visible at the playhead on @p binding's track, one undo step.
         void KeyLevelVisibility( const Animation::Timeline::BindingGuid& binding, bool visible );
         /// One parameter "+ Track ▸ Material Parameter ▸ <slot>" offers: a Float / Float3 / Float4 of the slot
@@ -284,6 +287,26 @@ namespace Desert::Editor
         /// The player, (re)built when the sequence's range is not the one it was built for.
         Animation::Timeline::Player& LevelPlayer( const Animation::Timeline::Sequence& sequence );
         void                         JumpLevel( const Animation::Timeline::Sequence& sequence, int32_t tick );
+        /// THE ONE SECTION GESTURE of every lane that holds sections (UE: section trimming) - the clip's section
+        /// lane and the level sequence's VFX lane both press, drag and release through these two. The press
+        /// at @p mouseX picks the section under it, @p topmostFirst order, and whether it holds the body (0, a
+        /// move), the start edge (1) or the end edge (2) - the last 5 points of either end resize; it sets
+        /// m_SectionDrag / m_SectionDragEdge / m_SectionDragTick (-1 when the press hit no section).
+        void GrabSection( const Animation::Timeline::Track& track, std::span<const size_t> topmostFirst,
+                          float mouseX, const std::function<float( Animation::FrameNumber )>& xOf,
+                          Animation::FrameNumber pressTick );
+        /// The held drag at @p now (a tick already snapped to the display grid): moved by the delta from the
+        /// anchor, or the held edge set to @p now (Animation::Timeline::MoveSection / SetSectionRange). True
+        /// when the track changed; the anchor advances only then, so a refused move stays put.
+        [[nodiscard]] bool DragSection( Animation::Timeline::Track& track, Animation::FrameNumber now );
+        /// The VFX track's lane of one binding: its section bars, and the section gesture over them - one
+        /// undo step from press to release (m_LevelEdit, explicitly opened), each step snapped to a frame.
+        void DrawLevelVFXLane( Animation::Timeline::Sequence&          sequence,
+                               const Animation::Timeline::BindingGuid& binding, float laneX0, float laneW,
+                               float rowY, float rowH );
+        /// `set Transport.Time <s>` (scrub the playhead) and `set VFX.<actor>.SectionEnd <s>` (one undo step).
+        [[nodiscard]] Common::BoolResultStr SetLevelTransportProperty( const std::string&        name,
+                                                                       const std::vector<float>& value );
         /// The pose-key lane of one binding: click selects (Shift adds), a drag on the empty lane draws a
         /// marquee, a drag on a selected key retimes the selection on the display grid — one undo step on
         /// release (`ECS::MoveEntityTransformKeys`).
@@ -681,6 +704,8 @@ namespace Desert::Editor
         int                    m_SectionDrag     = -1;
         int                    m_SectionDragEdge = 0;
         Animation::FrameNumber m_SectionDragTick;
+        // Which binding's VFX lane holds the section gesture (the level timeline's rows share the one above).
+        Animation::Timeline::BindingGuid m_LevelSectionDragBinding;
 
         // Layer-preview authoring state (transient — previews on the live Animator).
     };

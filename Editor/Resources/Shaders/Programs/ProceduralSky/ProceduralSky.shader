@@ -25,6 +25,8 @@ Shader "ProceduralSky"
         // this engine keeps CameraUB a vertex-stage block. Constant across the triangle, so interpolation
         // returns it exactly.
         In(1) vec3 v_CameraPos;
+        // ViewFrame::PreExposure, forwarded from the vertex stage like v_CameraPos (constant across the triangle).
+        In(2) float v_PreExposure;
         Out(0) vec4 oColor;
 
         // The sky parameter block. A std430 STORAGE buffer rather than a uniform block, because the
@@ -37,18 +39,22 @@ Shader "ProceduralSky"
         // one as an argument, and when those disagree the buffer quietly lands on another resource's slot.
         ReadBuffer(1) SkyBuffer
         {
-            vec4 u_SkyPacked[SKY_PACKED_VEC4_COUNT];
+            vec4 SkyPackedData[SKY_PACKED_VEC4_COUNT];
         };
 
         // PhysicalAtmosphere only. When the gradient renders, both stay on their fallback descriptors
         // and the branch below never samples them.
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform sampler u_LinearClampSampler;
-        Uniform(2) texture2D u_TransmittanceLut; // cached 256x64 (SkyboxRenderer)
-        #define u_TransmittanceLut sampler2D(u_TransmittanceLut, u_LinearClampSampler)
-        Uniform(3) texture2D u_SkyViewLut;       // per-view 192x104, refilled every frame
-        #define u_SkyViewLut sampler2D(u_SkyViewLut, u_LinearClampSampler)
+        Uniform sampler LinearClampSampler;
+        Uniform(2) texture2D TransmittanceLutTexture; // cached 256x64 (SkyboxRenderer)
+        #define TransmittanceLutTexture sampler2D(TransmittanceLutTexture, LinearClampSampler)
+        Uniform(3) texture2D SkyViewLutTexture;       // per-view 192x104, refilled every frame
+        #define SkyViewLutTexture sampler2D(SkyViewLutTexture, LinearClampSampler)
+        // Atmosphere light 1's Sky-View LUT (the moon), parameterised around ITS direction; black and never
+        // sampled while the scene has no light 1 (UnpackLight1Present).
+        Uniform(4) texture2D SkyViewLut1Texture;
+        #define SkyViewLut1Texture sampler2D(SkyViewLut1Texture, LinearClampSampler)
 
         // The physical path's ON-SCREEN luminance ceiling is UnpackSkyLuminanceCeiling (Graphic::
         // SkyLuminanceCeiling, AutoExposureRules.hpp): the disc's true luminance (illuminance over its
@@ -81,10 +87,22 @@ Shader "ProceduralSky"
 
             // rgb = in-scattered luminance (the SkyAndAP tint is already inside), a = the view path's
             // mean transmittance.
-            vec4 lut = texture(u_SkyViewLut, uv);
+            vec4 lut = texture(SkyViewLutTexture, uv);
             vec3 sky = lut.rgb;
 
+            // Atmosphere light 1 (the moon): its own LUT, read through the same mapping around its own direction.
+            const bool light1 = UnpackLight1Present(s);
+            if (light1)
+            {
+                vec2 unit1 = SkyViewUnitFromParams(atm.BottomRadiusKm, viewHeight, viewZenithCos,
+                                                   SkyViewLightViewCos(zenith, dir, UnpackLight1Direction(s)));
+                sky += texture(SkyViewLut1Texture, vec2(SkyUnitToTexelUv(unit1.x, SKY_VIEW_LUT_WIDTH),
+                                                        SkyUnitToTexelUv(unit1.y, SKY_VIEW_LUT_HEIGHT))).rgb;
+            }
+
             vec3 sunIlluminance = UnpackAtmosphereLightIlluminance(s);
+            // What stands between the eye and a star: the in-scattering of both atmosphere lights (DAY-STARS).
+            const float starBackground = dot(sky, vec3(0.2126f, 0.7152f, 0.0722f));
 
             // BELOW THE HORIZON THIS PASS DRAWS ONLY AIR — never a lit ground, which is what it used to
             // do and what made the lower half of an empty scene a flat beige plate that no scene setting
@@ -109,6 +127,10 @@ Shader "ProceduralSky"
                 // The analytic sun disc: outer-space luminance (illuminance over the disc's solid
                 // angle) times the transmittance toward the view, limb-darkened, soft-edged. Not in
                 // the LUT — 192x104 texels would alias a half-degree disc into a smear.
+                vec3 viewT = texture(TransmittanceLutTexture,
+                                     SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm,
+                                                                     viewHeight, viewZenithCos)).rgb;
+
                 float cosApex = cos(UnpackSunAngularRadius(s));
                 float vDotSun = dot(dir, sunDir);
                 float edge    = SkySunDiscSoftEdge(vDotSun, cosApex);
@@ -118,13 +140,43 @@ Shader "ProceduralSky"
                     float centerToEdge = clamp(acos(clamp(vDotSun, -1.0f, 1.0f)) / apex, 0.0f, 1.0f);
                     float solidAngle   = 2.0f * SKY_PI * (1.0f - cosApex);
 
-                    vec3 viewT = texture(u_TransmittanceLut,
-                                         SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm,
-                                                                         atm.TopRadiusKm, viewHeight,
-                                                                         viewZenithCos)).rgb;
-
                     sky += sunIlluminance * UnpackSunDiskColorScale(s) / max(solidAngle, 1e-7f) * viewT *
                            SkySunLimbDarkening(centerToEdge) * edge;
+                }
+
+                // The stars (Star Intensity): outer-space sources like the disc, so they too reach the eye
+                // through the view path's transmittance, behind the in-scattering already in `sky`. The sky's
+                // brightness hides them through the eye's threshold against it, carried to real units by the
+                // sun's scale (AtmosphereStarVisibility) - no day/night switch. Common/Atmosphere.glslh states
+                // their luminance.
+                const float starShape = AtmosphereStarField(dir);
+                if (starShape > 0.0f)
+                {
+                    const vec3  luma    = vec3(0.2126f, 0.7152f, 0.0722f);
+                    const float starLux = ATMOSPHERE_STAR_MAG0_ILLUMINANCE_LUX * UnpackStarIntensity(s) * dot(viewT, luma);
+                    const float seen    = AtmosphereStarVisibility(starBackground, dot(sunIlluminance, luma), starLux);
+                    sky += starShape * UnpackStarIntensity(s) * AtmosphereStarPeakLuminance() *
+                           ATMOSPHERE_STAR_TINT * viewT * seen;
+                }
+
+                // Light 1's disc (the moon): the same law at its own direction and its own Source Angle.
+                if (light1)
+                {
+                    vec3  light1Dir  = UnpackLight1Direction(s);
+                    float apex1      = max(UnpackLight1AngularRadius(s), 1e-4f);
+                    float cosApex1   = cos(apex1);
+                    float vDotLight1 = dot(dir, light1Dir);
+                    float edge1      = SkySunDiscSoftEdge(vDotLight1, cosApex1);
+                    if (edge1 > 0.0f)
+                    {
+                        float centerToEdge1 = clamp(acos(clamp(vDotLight1, -1.0f, 1.0f)) / apex1, 0.0f, 1.0f);
+                        float solidAngle1   = 2.0f * SKY_PI * (1.0f - cosApex1);
+                        vec3  viewT1 = texture(TransmittanceLutTexture,
+                                               SkyTransmittanceLutUvFromParams(atm.BottomRadiusKm, atm.TopRadiusKm,
+                                                                               viewHeight, viewZenithCos)).rgb;
+                        sky += UnpackLight1Illuminance(s) * UnpackLight1DiskColorScale(s) / max(solidAngle1, 1e-7f) *
+                               viewT1 * SkySunLimbDarkening(centerToEdge1) * edge1;
+                    }
                 }
             }
 
@@ -136,7 +188,7 @@ Shader "ProceduralSky"
         {
             SkyPacked s;
             for (int i = 0; i < SKY_PACKED_VEC4_COUNT; ++i)
-                s.v[i] = u_SkyPacked[i];
+                s.v[i] = SkyPackedData[i];
 
             vec3 dir = normalize(v_RayDir);
 
@@ -149,7 +201,8 @@ Shader "ProceduralSky"
 
             // (Dithering is done at the FINAL 8-bit output in the composite/tonemap pass — doing it here in linear
             // HDR is lost through Reinhard+gamma. See SceneComposite.glsl.frag.)
-            oColor = vec4(color, 1.0);
+            // Stored pre-exposed, like every scene-colour writer (ViewFrame::PreExposure).
+            oColor = vec4(color * v_PreExposure, 1.0);
         }
     }
 
@@ -162,6 +215,7 @@ Shader "ProceduralSky"
         Out(0) vec3 v_RayDir;
         // Camera position for the physical model's altitude (constant across the triangle).
         Out(1) vec3 v_CameraPos;
+        Out(2) float v_PreExposure;
 
         void main()
         {
@@ -176,6 +230,7 @@ Shader "ProceduralSky"
             vec3 viewRay = viewH.xyz / viewH.w;
             v_RayDir     = mat3(inverse(cameraUB.View)) * viewRay;
             v_CameraPos  = cameraUB.CameraPos;
+            v_PreExposure = cameraUB.PreExposure;
         }
     }
 }

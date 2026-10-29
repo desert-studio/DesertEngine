@@ -71,6 +71,13 @@ vec3 SurfaceCardWorldToLocal( SurfaceCard card, vec3 worldPosition )
                  dot( card.worldToLocal[2].xyz, p ) );
 }
 
+// Whether @p mesh is mostly two-sided (cards.z bit 1; UE FLumenMeshCardsData::bMostlyTwoSided): its cards were
+// captured from both faces of thin geometry (foliage).
+bool MeshCardsMostlyTwoSided( MeshCards mesh )
+{
+    return ( mesh.cards.z & 2u ) != 0u;
+}
+
 // The mask of @p mesh's cards facing direction @p direction (0..5, SurfaceCache::CardDirection).
 uint MeshCardsFacing( MeshCards mesh, uint direction )
 {

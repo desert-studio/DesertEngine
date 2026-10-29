@@ -32,6 +32,20 @@ namespace Desert
         static std::shared_ptr<SkinnedMesh>
         MakeMorphedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> morphedVertices );
 
+        // THE DISPLACED TWIN OF A SKINNED MESH (CONTRACT-DISPLACE §9.8, System::DisplacementCache): the rest pose of
+        // the tessellated surface - @p vertices are @p vertexCount SkinnedVertex (rest displaced positions, the
+        // nearest corner's bones), @p indices the tessellation, @p submeshes its ranges (bounds already grown by the
+        // largest displacement) - skinned with @p base's skeleton. The frame's pose of it is written by
+        // "Displacement: Skinned" into the skin cache's displaced streams; this twin's vertices feed only the
+        // vertex stage's fallback, its UVs and the BLAS segments. Bone bounds are @p base's grown by
+        // @p boundsGrowthCm, so posed bounds still enclose the displaced surface. No morph data: morphs apply to the
+        // base before skinning, and the displacement moves that result.
+        static std::shared_ptr<SkinnedMesh>
+        MakeDisplacedTwin( const SkinnedMesh& base, std::shared_ptr<Graphic::VertexBuffer> vertices,
+                           std::shared_ptr<Graphic::VertexBuffer> streams,
+                           std::shared_ptr<Graphic::IndexBuffer>  indices,
+                           std::vector<Submesh> submeshes, uint32_t vertexCount, float boundsGrowthCm );
+
         MeshType GetType() const override
         {
             return MeshType::Skinned;
@@ -99,7 +113,7 @@ namespace Desert
         }
 
     private:
-        SkinnedMesh() = default; // MakeMorphedTwin
+        SkinnedMesh() = default; // MakeMorphedTwin, MakeDisplacedTwin
 
         // `std::unordered_map<std::string, uint32_t> m_BoneNameToIndex;` used to sit here. It was never
         // populated and never read — dead state, and on the wrong object besides: a rig is SHARED between

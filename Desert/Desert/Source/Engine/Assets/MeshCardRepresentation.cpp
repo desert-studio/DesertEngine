@@ -129,7 +129,6 @@ namespace Desert::Assets
         PutF32( image, settings.MinVoxelSize );
         PutU32( image, settings.MinVoxelsAcrossThinAxis );
         PutU32( image, settings.MaxVoxels );
-        PutU32( image, settings.MaxVoxelsLarge );
         PutU32( image, settings.TargetSurfels );
         PutF32( image, settings.MinDensity );
         PutF32( image, settings.NormalThreshold );
@@ -157,8 +156,9 @@ namespace Desert::Assets
 
     Common::ResultStr<std::shared_ptr<const MeshCardsBuildData>>
     LoadMeshCards( const std::filesystem::path& asset, const uint64_t renderDataKey,
-                   const std::vector<uint8_t>& submeshTwoSided, const MeshDistanceFieldBuildInput& input,
-                   const MeshDistanceFieldCancel& cancel )
+                   const std::vector<uint8_t>&                                            submeshTwoSided,
+                   const std::function<Common::ResultStr<MeshDistanceFieldBuildInput>()>& input,
+                   const MeshDistanceFieldCancel&                                         cancel )
     {
         using Result         = std::shared_ptr<const MeshCardsBuildData>;
         const uint64_t   key = MeshCardsDerivedDataKey( renderDataKey, MeshCardsBuildSettings{}, submeshTwoSided );
@@ -180,8 +180,14 @@ namespace Desert::Assets
         }
         else
         {
-            auto derived = Common::DDC::GetOrBuild( kMeshCardsDeriver, key, [&builder, &input, &cancel]()
-                                                    { return builder( input, cancel ); } );
+            auto derived = Common::DDC::GetOrBuild( kMeshCardsDeriver, key,
+                                                    [&builder, &input, &cancel]() -> Common::ResultStr<std::string>
+                                                    {
+                                                        auto in = input();
+                                                        if ( !in.IsSuccess() )
+                                                            return Common::MakeError<std::string>( in.GetError() );
+                                                        return builder( in.GetValue(), cancel );
+                                                    } );
             if ( !derived.IsSuccess() )
                 return Common::MakeFormattedError<Result>( "mesh asset '{}': cards: {}", asset.string(),
                                                            derived.GetError() );
@@ -205,9 +211,12 @@ namespace Desert::Assets
             auto                      measured = Common::DDC::GetOrBuild( kMeshCardsCoverageDeriver, coverageKey,
                                                                           [&input, &cards]() -> Common::ResultStr<std::string>
                                                                           {
+                                                         auto in = input();
+                                                         if ( !in.IsSuccess() )
+                                                             return Common::MakeError<std::string>( in.GetError() );
                                                          std::string             bytes;
                                                          const MeshCardsCoverage coverage =
-                                                              MeasureMeshCardsCoverage( input, cards );
+                                                              MeasureMeshCardsCoverage( in.GetValue(), cards );
                                                          PutF32( bytes, coverage.Held );
                                                          PutF32( bytes, coverage.BackOnly );
                                                          return Common::MakeSuccess( bytes );

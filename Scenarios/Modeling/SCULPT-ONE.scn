@@ -1,0 +1,13 @@
+# SCULPT-ONE: one Sculpt tool in the Deform palette (Vertex Sculpt gone); its Move brush drags a bump on the
+# active plane through the first hit; one Undo returns the sphere
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Direction 0.6,-0.53,0.6
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано run Sculpt "Sculpt tool"
+Тогда 0_palette the Deform palette shows ONE Sculpt entry and no "Vertex Sculpt" / "VSculpt" button
+Когда run Sculpt "Brush: Move"
+Когда --subject viewport drag 700,330 820,250 20
+Тогда-вид 1_move the sphere carries a bump pulled out toward the upper right, along the view-facing plane
+Когда run Action "Undo"
+Тогда-вид 2_undo the sphere is smooth again, as before the drag

@@ -88,6 +88,9 @@ namespace Common::Content
     inline constexpr std::string_view kDebugColorRole    = "DebugColor"; // the scripting flat-colour material
     inline constexpr std::string_view kTerrainRole       = "Terrain";    // a new landscape material's template
     inline constexpr std::string_view kCloudMaterialRole = "CloudMaterial"; // a new cloud material's template
+    // UE WorldGridMaterial: the world-checker stand-in a draw shows when the material it NAMES cannot draw (a
+    // particle row's broken / missing material); DefaultSurface.shader declares it.
+    inline constexpr std::string_view kStandInSurfaceRole = "StandInSurface";
 
     const IAssetHeaderFormat& ShaderCommentHeaderFormat();
 } // namespace Common::Content

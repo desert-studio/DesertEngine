@@ -1,7 +1,7 @@
 // GBUF1 step 4b — EVERY UNIFORM BLOCK THE G-BUFFER RECONSTRUCTION CHANGED HAS ITS C++ TWIN, OFFSET FOR OFFSET.
 //
 // World position is rebuilt from the depth (Common/ReconstructPosition.glslh), so SSR's trace, the SSR/GI resolve,
-// SSAO, the GI gather and the deferred composite each gained u_InvJitteredViewProjection. Every block uploaded
+// SSAO, the GI gather and the deferred composite each gained InverseJitteredViewProjection. Every block uploaded
 // whole from a C++ struct (SetRawData / a graph buffer) is checked member for member: the GLSL names in order,
 // each one's std140 offset == offsetof() of the C++ member that fills it, the block size == sizeof (the parser:
 // TestSupport/std140_block.hpp).
@@ -68,8 +68,8 @@ TEST( UniformBlockLayout, SSRTraceUBIsTheTraceUniforms )
 {
     using T = Desert::Graphic::System::SSRRenderer::TraceUniforms;
     ExpectTwin( "SSR.shader", "SSRTraceUB",
-                { { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
-                  { "u_JitteredViewProjection", offsetof( T, JitteredViewProjection ) } },
+                { { "InverseJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) },
+                  { "JitteredWorldToClip", offsetof( T, JitteredViewProjection ) } },
                 sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 128u );
 }
@@ -82,9 +82,9 @@ TEST( UniformBlockLayout, DenoiserViewUBIsTheDenoisersViewUniforms )
           { "../Denoise/SSDReconstructReflections.shader", "../Denoise/SSDTemporalAccumulation.shader",
             "../Denoise/SSDHistoryConvolution.shader" } )
         ExpectTwin( shader, "DenoiserViewUB",
-                    { { "u_ViewProjection", offsetof( T, ViewProjection ) },
-                      { "u_PrevViewProjection", offsetof( T, PrevViewProjection ) },
-                      { "u_InvJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
+                    { { "ViewProjection", offsetof( T, ViewProjection ) },
+                      { "PreviousViewProjection", offsetof( T, PrevViewProjection ) },
+                      { "InverseJitteredViewProjection", offsetof( T, InvJitteredViewProjection ) } },
                     sizeof( T ) );
     EXPECT_EQ( sizeof( T ), 192u );
 }
@@ -124,5 +124,5 @@ TEST( UniformBlockLayout, DeferredUBHasExactlyTheDeferredLightingMaterialsProper
     EXPECT_FALSE( cpp.empty() ) << "no MPROPERTY parsed from MaterialDeferredLighting.hpp";
     EXPECT_EQ( glsl, cpp )
          << "DeferredUB (DeferredLighting.shader) and MaterialDeferredLighting's MPROPERTYs differ";
-    EXPECT_EQ( glsl.count( { "u_InvJitteredViewProjection", "mat4" } ), 1u );
+    EXPECT_EQ( glsl.count( { "InverseJitteredViewProjection", "mat4" } ), 1u );
 }

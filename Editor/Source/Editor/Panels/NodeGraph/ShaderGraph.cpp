@@ -1,5 +1,6 @@
 #include "ShaderGraph.hpp"
 
+#include <Editor/Core/TextList.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 
 #include <algorithm>
@@ -307,7 +308,7 @@ namespace Desert::Editor::ShaderGraph
     {
         // THREE, AND THE NUMBER IS A FACT ABOUT SCOPE RATHER THAN A CHOICE. A Medium block is compiled
         // into Common/CloudField.glslh, which every consumer includes BEFORE Common/CloudParams.glslh —
-        // so the packed `u_Cloud*` block is not declared yet at that point, and the only material values
+        // so the packed `Cloud*` block is not declared yet at that point, and the only material values
         // in scope are the ones the producer seam already carries in `CloudFieldParams`. That is a
         // property of the include order of four shipped programs, not of this table: moving the include
         // would widen it, and O1_DESIGN §10.3 does not ask for that.
@@ -375,14 +376,8 @@ namespace Desert::Editor::ShaderGraph
     // beside it, so a row added there appears in what the artist is told without anybody remembering to.
     static std::string ShadowRayScopeList()
     {
-        std::string list;
-        for ( const auto& scope : ShadowRayScopes() )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += scope.OutputPin;
-        }
-        return list;
+        return Editor::TextTemplates::JoinList( ShadowRayScopes(), ", ",
+                                                []( const auto& scope ) { return scope.OutputPin; } );
     }
 
     const char* OutputKind( Domain domain )
@@ -427,7 +422,7 @@ namespace Desert::Editor::ShaderGraph
                           : ( IsWorldParameterKind( kind )
                                    ? "Wetness"
                                    : ( spec->HasColorValue ? "Tint"
-                                                           : ( spec->HasFloatValue ? "Amount" : "u_Texture" ) ) );
+                                                           : ( spec->HasFloatValue ? "Amount" : "Texture" ) ) );
             }
             if ( spec->HasFloatValue )
                 node.Value = { 1, 0, 0, 0 };
@@ -626,9 +621,9 @@ namespace Desert::Editor::ShaderGraph
                     // the view's mip bias (Mesh/Surface/SurfaceTypes.glslh); a post-process graph's textures are
                     // read at the implicit level.
                     decl = doc.DomainEnum() == Domain::Surface
-                                ? std::format( "vec4 {} = SurfaceSampleMaterial( u_Material.{}, {} );", var,
+                                ? std::format( "vec4 {} = SurfaceSampleMaterial( Material.{}, {} );", var,
                                                node.ParamName, uv )
-                                : std::format( "vec4 {} = SampleBindless( u_Material.{}, {} );", var,
+                                : std::format( "vec4 {} = SampleBindless( Material.{}, {} );", var,
                                                node.ParamName, uv );
                 }
                 else if ( node.Kind == "MediumTexture" )
@@ -670,7 +665,7 @@ namespace Desert::Editor::ShaderGraph
                     decl = doc.DomainEnum() == Domain::Volume
                                 ? std::format( "{} {} = {}.{}.x;", type, var,
                                                ::Desert::Core::kCloudMediumInstanceName, node.ParamName )
-                                : std::format( "{} {} = u_Material.{};", type, var, node.ParamName );
+                                : std::format( "{} {} = Material.{};", type, var, node.ParamName );
                 }
                 else if ( node.Kind == "CloudSample" )
                     decl = std::format( "CloudGraphSample {} = CloudGraphSampleAt( params, field, "
@@ -786,7 +781,7 @@ namespace Desert::Editor::ShaderGraph
                 else if ( node.Kind == "FloatConst" )
                     decl = std::format( "float {} = {};", var, Lit( node.Value[0] ) );
                 else if ( node.Kind == "SceneColor" )
-                    decl = std::format( "vec4 {} = texture( u_SceneTexture, v_UV );", var );
+                    decl = std::format( "vec4 {} = texture( SceneColorTexture, v_UV );", var );
                 else if ( node.Kind == "UV" )
                     decl = std::format( "vec2 {} = v_UV;", var );
                 else if ( node.Kind == "ParallaxOcclusion" )
@@ -1366,17 +1361,17 @@ namespace Desert::Editor::ShaderGraph
                                     ::Desert::Core::kCloudMediumBlockName, ::Desert::Core::kCloudMediumStructName,
                                     ::Desert::Core::kCloudMediumInstanceName );
             }
-            // Each texture is a SEPARATE texture read through one shared state, u_CloudMediumSampler, bound right
+            // Each texture is a SEPARATE texture read through one shared state, CloudMediumSampler, bound right
             // after them (the cloud passes fill it with GlobalTextureFilterSampler, VolumetricCloudRenderer); the
             // macro of the same name keeps every lookup the graph emits in the sampled form. GLSL never re-expands
             // a macro inside its own expansion, so the inner name is the texture.
             for ( std::size_t i = 0; i < mediumTextures.size(); ++i )
                 out << std::format( "        layout( binding = {0} ) uniform texture2D {1};\n"
-                                    "        #define {1} sampler2D({1}, u_CloudMediumSampler)\n",
+                                    "        #define {1} sampler2D({1}, CloudMediumSampler)\n",
                                     ::Desert::Core::kCloudMediumTextureFirst + static_cast<uint32_t>( i ),
                                     mediumTextures[i]->ParamName );
             if ( !mediumTextures.empty() )
-                out << std::format( "        layout( binding = {} ) uniform sampler u_CloudMediumSampler;\n\n",
+                out << std::format( "        layout( binding = {} ) uniform sampler CloudMediumSampler;\n\n",
                                     ::Desert::Core::kCloudMediumTextureFirst +
                                          static_cast<uint32_t>( mediumTextures.size() ) );
 
@@ -1452,7 +1447,7 @@ namespace Desert::Editor::ShaderGraph
         //
         // The graph's textures are row slots like its numbers: with a row and no TextureBinding the layout puts
         // every Texture2D after the numeric params as a BindlessTexture (Core::Formats::IsRowTexture), and the
-        // generated code samples it through the bindless table as u_Material.<name>. No texture is a descriptor
+        // generated code samples it through the bindless table as Material.<name>. No texture is a descriptor
         // of the material set, so a graph with many textures adds nothing to the stage's sampler count
         // (MoltenVK: 16 per stage) and cannot land on an engine binding.
         // A Parallax Occlusion node gives the surface template its height (Core::Formats::SurfaceHeight): the
@@ -1510,7 +1505,7 @@ namespace Desert::Editor::ShaderGraph
             out << "    Fragment\n    {\n";
             out << "        layout( location = 0 ) in vec2 v_UV;\n";
             out << "        layout( location = 0 ) out vec4 o_Color;\n";
-            out << "        layout( set = 0, binding = 0 ) uniform sampler2D u_SceneTexture;\n";
+            out << "        layout( set = 0, binding = 0 ) uniform sampler2D SceneColorTexture;\n";
             if ( usesTime )
                 out << "\n        #include <Common/TimeUB.glslh>\n";
             out << "\n        void main()\n        {\n";

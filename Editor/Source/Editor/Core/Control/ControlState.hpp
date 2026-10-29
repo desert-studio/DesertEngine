@@ -5,6 +5,7 @@
 
 #include <Editor/Core/Control/ControlPipeline.hpp>
 #include <Editor/Core/EditableProperty.hpp>
+#include <Editor/Core/TextList.hpp>
 
 #include <cstdint>
 #include <string>
@@ -92,6 +93,57 @@ namespace Desert::Editor::Control
         bool        PreviewsBindPose = false; ///< Skeleton only — 07 §1.3; the scene render shows it
     };
 
+    /// THE GPU AND WHAT ITS NEURAL-NETWORK KERNELS RUN ON (NN-RUNTIME): Engine::DeviceCapabilities::Neural as
+    /// plain values, so a scenario reads the kernel path and the fields it was chosen from beside the "[nn_caps]"
+    /// log line, not from a log tail that may have scrolled past it.
+    struct DeviceSnapshot
+    {
+        std::string Name;
+
+        std::string NnPath;   ///< NeuralKernelPathName: "coopmat_fp16" | "fp16" | "fp32"
+        std::string NnTile;   ///< the coopmat tile the path uses; empty off coopmat_fp16
+        std::string NnReason; ///< why a faster path was not taken; empty when the fastest one was
+
+        bool NnShaderFloat16               = false;
+        bool NnShaderInt8                  = false;
+        bool NnStorageBuffer16BitAccess    = false;
+        bool NnStorageBuffer8BitAccess     = false;
+        bool NnSubgroupSizeControl         = false;
+        bool NnCooperativeMatrix           = false;
+        bool NnCooperativeMatrixCompute    = false;
+        bool NnVulkanMemoryModel           = false;
+        bool NnComputeRequiredSubgroupSize = false;
+
+        uint32_t NnSubgroupSize               = 0;
+        uint32_t NnMinSubgroupSize            = 0;
+        uint32_t NnMaxSubgroupSize            = 0;
+        uint32_t NnMaxPushConstantsSize       = 0;
+        uint32_t NnMaxComputeSharedMemorySize = 0;
+
+        std::vector<std::string> NnCooperativeMatrixShapes; ///< FormatCooperativeMatrixShape, driver order
+
+        // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
+        // card without RT (or with it hidden by machine.json) reads the fallback from one source.
+        std::string Rt; ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
+        std::vector<std::string> RtModes; ///< Catalog RayTracingModes, kRayTracingModeNames, best first
+        /// Graphic::PathTracingRefusal: empty when the device can path-trace, else why a PathTraced request is
+        /// refused.
+        std::string PathTracingRefusal;
+        bool        PathTracingActive = false; ///< the main viewport path-traces this frame (Graphic::PathTraced)
+        /// The main viewport's SceneRenderer::GetRenderMethods(), one Graphic::FormatRenderMethods row per axis
+        /// ("GI: HardwareTraced -> ScreenSpace (the device offers no ray query)"), plus the effective method
+        /// names. Empty / "" when no main viewport renders.
+        std::vector<std::string> MethodRows;
+        std::string              GIMethod;
+        std::string              ReflectionsMethod;
+        std::string              ShadowsMethod;
+
+        /// The last nn-check's verdict per path it was asked for, in its order: (path, "pass" | "fail: <errors>" |
+        /// "refused: <reason>"). Empty until the first nn-check completes. Every asked path has an entry, so a
+        /// path that is silently missing from a check is visible as missing here.
+        std::vector<std::pair<std::string, std::string>> NnLastCheck;
+    };
+
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
@@ -119,6 +171,11 @@ namespace Desert::Editor::Control
         // ISM instances the main view's last geometry pass drew, after the frustum and the foliage cull
         // distance (FO-5): what a CullDistance edit is measured by.
         uint32_t IsmInstancesDrawn = 0;
+        // The last completed frame's GeometryPool counters (Graphic/GeometryPool.hpp GeometryPoolStats): Binds,
+        // the shared (binned) geometry binds, equal to the binned passes' pipeline switches; MeshBinds, the
+        // per-mesh binds, counted apart.
+        uint32_t GeometryPoolBinds     = 0;
+        uint32_t GeometryPoolMeshBinds = 0;
 
         std::size_t              LogInfoCount    = 0;
         std::size_t              LogWarningCount = 0;
@@ -127,6 +184,8 @@ namespace Desert::Editor::Control
 
         AuthoringSnapshot Authoring;
 
+        DeviceSnapshot Device;
+
         EditorQuiescence Quiescence;
     };
 
@@ -134,19 +193,12 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "log", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
     {
-        std::string list;
-        for ( const char* section : kStateSections )
-        {
-            if ( !list.empty() )
-                list += ", ";
-            list += section;
-        }
-        return list;
+        return TextTemplates::JoinList( kStateSections, ", " );
     }
 
     /// Refuse a section nobody serves, naming the ones served. A section quietly missing from the answer
@@ -310,6 +362,8 @@ namespace Desert::Editor::Control
             views["budgetBytes"]  = Num( static_cast<double>( snapshot.BudgetBytes ) );
             views["usageBytes"]   = Num( static_cast<double>( snapshot.UsageBytes ) );
             views["ismInstancesDrawn"] = Num( snapshot.IsmInstancesDrawn );
+            views["geometryPoolBinds"]     = Num( snapshot.GeometryPoolBinds );
+            views["geometryPoolMeshBinds"] = Num( snapshot.GeometryPoolMeshBinds );
             root["views"]         = Common::Json::Value( views );
         }
 
@@ -325,6 +379,70 @@ namespace Desert::Editor::Control
             log["error"]   = Num( static_cast<double>( snapshot.LogErrorCount ) );
             log["tail"]    = Common::Json::Value( tail );
             root["log"]    = Common::Json::Value( log );
+        }
+
+        if ( Wanted( sections, "device" ) )
+        {
+            const DeviceSnapshot&      device = snapshot.Device;
+            Common::Json::Value::Array shapes;
+            for ( const std::string& shape : device.NnCooperativeMatrixShapes )
+                shapes.push_back( Str( shape ) );
+
+            Common::Json::Object nn;
+            nn["path"]                        = Str( device.NnPath );
+            nn["tile"]                        = Str( device.NnTile );
+            nn["reason"]                      = Str( device.NnReason );
+            nn["shaderFloat16"]               = Common::Json::Value( device.NnShaderFloat16 );
+            nn["shaderInt8"]                  = Common::Json::Value( device.NnShaderInt8 );
+            nn["storageBuffer16BitAccess"]    = Common::Json::Value( device.NnStorageBuffer16BitAccess );
+            nn["storageBuffer8BitAccess"]     = Common::Json::Value( device.NnStorageBuffer8BitAccess );
+            nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
+            nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
+            nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
+            nn["vulkanMemoryModel"]           = Common::Json::Value( device.NnVulkanMemoryModel );
+            nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
+            nn["subgroupSize"]                = Num( device.NnSubgroupSize );
+            nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );
+            nn["maxSubgroupSize"]             = Num( device.NnMaxSubgroupSize );
+            nn["maxPushConstantsSize"]        = Num( device.NnMaxPushConstantsSize );
+            nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
+            nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
+            Common::Json::Value::Array lastCheck;
+            for ( const auto& [path, verdict] : device.NnLastCheck )
+            {
+                Common::Json::Object entry;
+                entry["path"]    = Str( path );
+                entry["verdict"] = Str( verdict );
+                lastCheck.push_back( Common::Json::Value( entry ) );
+            }
+            nn["lastCheck"] = Common::Json::Value( lastCheck );
+
+            Common::Json::Value::Array modes;
+            for ( const std::string& mode : device.RtModes )
+                modes.push_back( Str( mode ) );
+            Common::Json::Value::Array rows;
+            for ( const std::string& row : device.MethodRows )
+                rows.push_back( Str( row ) );
+
+            Common::Json::Object pathTracing;
+            pathTracing["available"] = Common::Json::Value( device.PathTracingRefusal.empty() );
+            pathTracing["reason"]    = Str( device.PathTracingRefusal );
+            pathTracing["active"]    = Common::Json::Value( device.PathTracingActive );
+
+            Common::Json::Object methods;
+            methods["gi"]          = Str( device.GIMethod );
+            methods["reflections"] = Str( device.ReflectionsMethod );
+            methods["shadows"]     = Str( device.ShadowsMethod );
+            methods["rows"]        = Common::Json::Value( rows );
+
+            Common::Json::Object section;
+            section["name"]        = Str( device.Name );
+            section["nn"]          = Common::Json::Value( nn );
+            section["rt"]          = Str( device.Rt );
+            section["rtModes"]     = Common::Json::Value( modes );
+            section["pathTracing"] = Common::Json::Value( pathTracing );
+            section["methods"]     = Common::Json::Value( methods );
+            root["device"]  = Common::Json::Value( section );
         }
 
         if ( Wanted( sections, "quiescence" ) )

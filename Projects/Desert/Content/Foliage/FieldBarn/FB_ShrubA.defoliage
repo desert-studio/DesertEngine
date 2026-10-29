@@ -5,11 +5,7 @@
         "Versions": {
             "FOLT": 8
         },
-        "Dependencies": [
-            "3a1289c7205a9d50d0fbafa6e09d09b9",
-            "0e67a9bfdff1b3cd7ed50e27dadc465e",
-            "c39ddb7d5965f1c080b50b71c51a6db6"
-        ]
+        "Dependencies": ["3a1289c7205a9d50d0fbafa6e09d09b9", "0e67a9bfdff1b3cd7ed50e27dadc465e", "c39ddb7d5965f1c080b50b71c51a6db6"]
     },
     "Kind": "Mesh",
     "Prefab": {
@@ -52,7 +48,7 @@
         "Max": 12000
     },
     "Wind": {
-        "Strength": 0.2,
+        "Strength": 20.0,
         "Speed": 0.6,
         "Height": 150.0
     },

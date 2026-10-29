@@ -15,13 +15,13 @@ Shader "Unlit"
     {
         Requires "gltf.KHR_materials_unlit"
         "gltf.baseColorFactor"  -> Color
-        "gltf.baseColorTexture" -> u_AlbedoTexture
+        "gltf.baseColorTexture" -> AlbedoTexture
     }
 
     Properties Binding(2)
     {
         Color     Color           ("Color")  = (0.8, 0.4, 0.1, 1)
-        Texture2D u_AlbedoTexture ("Albedo", Intent(Colour))
+        Texture2D AlbedoTexture ("Albedo", Intent(Colour))
     }
 
     State
@@ -38,7 +38,7 @@ Shader "Unlit"
 
         SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-            const vec4 colour = SampleBindless( u_Material.u_AlbedoTexture, i.UV0 ) * u_Material.Color;
+            const vec4 colour = SampleBindless( Material.AlbedoTexture, i.UV0 ) * Material.Color;
             SurfaceOutput s   = DefaultSurfaceOutput();
             s.BaseColor       = vec3( 0.0 );
             s.Emissive        = colour.rgb;

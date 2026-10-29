@@ -5,17 +5,25 @@
 // source models (UE SourceModels[k>0]) are folded as extra index sets of LOD0's sections.
 #include "MeshDeriver.hpp"
 #include "SourceToEngine.hpp"
+#include "TextureImporter.hpp"
 
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Geometry/DynamicMeshAsset.hpp>
 #include <Engine/Geometry/DynamicMeshSerialization.hpp>
 #include <Engine/Geometry/DynamicMeshXformOperations.hpp>
 #include <Engine/Geometry/MeshRegionOperation.hpp>
+#include <Engine/Geometry/DisplacementSurface.hpp>
 #include <Engine/Geometry/MeshLOD.hpp>
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <Common/Core/Logger.hpp>
+
 #include <algorithm>
+#include <array>
+#include <cstring>
+#include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -37,13 +45,21 @@ namespace Desert::Editor
 
             std::vector<float> pos;
             pos.reserve( static_cast<size_t>( sm.VertexCount ) * 3 );
+            std::vector<float> attrs;
+            attrs.reserve( static_cast<size_t>( sm.VertexCount ) * Geometry::kSimplifyAttributeCount );
             for ( uint32_t v = 0; v < sm.VertexCount; ++v )
             {
-                const glm::vec3& p = data.IsSkinned ? data.SkinnedVertices[sm.VertexOffset + v].Position
-                                                    : data.StaticVertices[sm.VertexOffset + v].Position;
-                pos.push_back( p.x );
-                pos.push_back( p.y );
-                pos.push_back( p.z );
+                const auto append = [&]( const auto& vertex )
+                {
+                    pos.push_back( vertex.Position.x );
+                    pos.push_back( vertex.Position.y );
+                    pos.push_back( vertex.Position.z );
+                    Geometry::AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
+                };
+                if ( data.IsSkinned )
+                    append( data.SkinnedVertices[sm.VertexOffset + v] );
+                else
+                    append( data.StaticVertices[sm.VertexOffset + v] );
             }
 
             std::vector<Desert::Index> localTris;
@@ -57,7 +73,7 @@ namespace Desert::Editor
                 localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
             }
 
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris );
+            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, attrs.data() );
             sm.LODs.clear();
             sm.LODs.reserve( levels.size() );
             for ( const auto& lvl : levels )
@@ -246,6 +262,125 @@ namespace Desert::Editor
             out = std::move( lod0.ExtractValue().Data );
         // Sections the authored models left without LODs are simplified; folded ones are kept as authored.
         if ( generate )
+            BakeMeshLODs( out );
+        return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
+    }
+
+    Common::ResultStr<std::string> BuildDisplacedMeshBytes( const Assets::DisplacedMeshBuildInput& input )
+    {
+        if ( !input.Topology )
+            return Common::MakeError<std::string>( "displaced mesh: no displacement topology in the input" );
+        const Geometry::DisplacementTopology& topology = *input.Topology;
+
+        // One decode per distinct height map, shared by the sections that read it: the COOKED chain, as the
+        // GPU samples it, so the bake and collision match the runtime displacement (BC, mip filter).
+        std::map<std::filesystem::path, std::shared_ptr<const Geometry::DisplacementHeightImage>> images;
+        std::vector<Geometry::DisplacementSurfaceMaterial> materials( input.Submeshes.size() );
+        for ( size_t s = 0; s < input.Submeshes.size() && s < input.Heights.size(); ++s )
+        {
+            const auto& height = input.Heights[s];
+            if ( !height )
+                continue;
+            auto& image = images[height->TextureAsset];
+            if ( !image )
+            {
+                auto platform = TextureImporter::DecodePlatformMips( height->TextureAsset );
+                if ( !platform.IsSuccess() )
+                    return Common::MakeFormattedError<std::string>( "displaced mesh: section {} height: {}", s,
+                                                                    platform.GetError() );
+                std::vector<Geometry::DisplacementHeightImage::Mip> mips;
+                for ( TextureImporter::PlatformMip& mip : platform.ExtractValue() )
+                    mips.push_back( { mip.Width, mip.Height, std::move( mip.Texels ) } );
+                auto made = Geometry::MakeDisplacementHeightImage( std::move( mips ) );
+                if ( !made.IsSuccess() )
+                    return Common::MakeFormattedError<std::string>( "displaced mesh: section {} height '{}': {}", s,
+                                                                    height->TextureAsset.generic_string(),
+                                                                    made.GetError() );
+                image = made.ExtractValue();
+            }
+            Geometry::DisplacementSurfaceMaterial& m = materials[s];
+            m.Image                                  = image;
+            m.Channel                                = height->Channel;
+            m.UVSet                                  = height->UVSet;
+            m.ScaleCm                                = height->ScaleCm;
+            m.Center                                 = height->Center;
+            m.Tiling                                 = height->Tiling;
+            m.Offset                                 = height->Offset;
+            m.Rotation                               = height->Rotation;
+            m.HasTransform                           = height->HasTransform;
+        }
+
+        std::vector<uint8_t> levels;
+        if ( input.EdgeLengthCm )
+        {
+            uint32_t clamped = 0;
+            auto     forEdge = Geometry::DisplacementLevelsForEdge( topology, *input.EdgeLengthCm, &clamped );
+            if ( !forEdge.IsSuccess() )
+                return Common::MakeError<std::string>( forEdge.GetError() );
+            levels = forEdge.ExtractValue();
+            if ( clamped != 0 )
+                LOG_WARN( "[DisplacedMesh] {} of {} clusters cannot dice to {} cm (the fixed-point barycentric "
+                          "limit): they bake at their maximum level",
+                          clamped, levels.size(), *input.EdgeLengthCm );
+        }
+        else
+            levels = Geometry::DisplacementMaxLevels( topology );
+
+        const Geometry::DisplacementSurfaceSource source{ input.Vertices, input.Streams, input.Indices,
+                                                          input.Submeshes };
+        auto surface = Geometry::BuildDisplacedSurface( topology, source, materials, levels );
+        if ( !surface.IsSuccess() )
+            return Common::MakeError<std::string>( surface.GetError() );
+        const Geometry::DisplacedSurface& built = surface.GetValue();
+
+        // Weld bitwise-equal vertices per submesh: both clusters of a border emit its points, and an unwelded
+        // border would be cut open by the LOD simplifier.
+        Ser::MeshAssetData out;
+        const bool         streams = !built.Streams.empty();
+        for ( size_t s = 0; s < built.Submeshes.size(); ++s )
+        {
+            const Submesh& sm = built.Submeshes[s];
+            using Key         = std::array<uint32_t, 17>;
+            std::map<Key, uint32_t> welded;
+            std::vector<uint32_t>   remap( sm.VertexCount );
+            const auto              firstVertex = static_cast<uint32_t>( out.StaticVertices.size() );
+            for ( uint32_t v = 0; v < sm.VertexCount; ++v )
+            {
+                const Vertex& vertex = built.Vertices[sm.VertexOffset + v];
+                Key           key{};
+                std::memcpy( key.data(), &vertex, sizeof( Vertex ) );
+                if ( streams )
+                    std::memcpy( key.data() + 14, &built.Streams[sm.VertexOffset + v], sizeof( MeshVertexStreams ) );
+                const auto [it, inserted] = welded.emplace(
+                     key, static_cast<uint32_t>( out.StaticVertices.size() ) - firstVertex );
+                remap[v] = it->second;
+                if ( !inserted )
+                    continue;
+                out.StaticVertices.push_back(
+                     { vertex.Position, vertex.Normal, vertex.Tangent, vertex.Bitangent, vertex.TexCoord } );
+                if ( streams )
+                {
+                    out.Colors.push_back( built.Streams[sm.VertexOffset + v].Color );
+                    out.UV1.push_back( built.Streams[sm.VertexOffset + v].UV1 );
+                }
+            }
+            const auto firstIndex = static_cast<uint32_t>( out.Indices.size() * 3 );
+            for ( uint32_t t = 0; t < sm.IndexCount / 3; ++t )
+            {
+                const Index& tri = built.Indices[sm.IndexOffset / 3 + t];
+                out.Indices.push_back( { remap[tri.V1], remap[tri.V2], remap[tri.V3] } );
+            }
+            Ser::SubmeshData data;
+            data.Name         = sm.Name;
+            data.VertexOffset = firstVertex;
+            data.VertexCount  = static_cast<uint32_t>( out.StaticVertices.size() ) - firstVertex;
+            data.IndexOffset  = firstIndex;
+            data.IndexCount   = sm.IndexCount;
+            data.Transform    = sm.Transform;
+            data.BoundingBox  = sm.BoundingBox;
+            out.Submeshes.push_back( std::move( data ) );
+        }
+        if ( input.BakeLODs )
             BakeMeshLODs( out );
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }

@@ -88,6 +88,10 @@ namespace Common::Content
         LandscapeGrassType,
         WorldParameters,
         WeatherPreset,
+        VFXEffectType,
+        StateTree,
+        SubsurfaceProfile,
+        VFXModule,
         COUNT,
     };
 
@@ -139,9 +143,13 @@ namespace Common::Content
              // .dclayout reads their texels on the CPU at bake time (CloudLayoutAsset) -- they are the
              // layout's source data, never sampled on the GPU, so there is no platform data to derive.
              /* Texture              */ { "Texture", ".detex", &P::ASSETS_PATH },
-             // Materials are editable CONTENT (the project's Materials/ dir): imported per-mesh
-             // subfolders and editor-created files both land there, in the unified .demat format.
-             /* Material             */ { "Material", E::MATERIAL_EXTENSION, &P::MATERIAL_PATH },
+             // Materials are editable CONTENT anywhere under the assets root (UE: a material is a package
+             // like any other): imported per-mesh subfolders and editor-created files land in Materials/,
+             // but a world's baked HLOD materials sit beside its HLODs (<world>_HLOD/M_<cell>.demat). Rooting
+             // the kind at Materials/ kept those out of the gather, so the cook shipped them with no registry
+             // row and a packaged game could not resolve them. `.demat` is the kind's own extension, so the
+             // wider root claims no other kind's file.
+             /* Material             */ { "Material", E::MATERIAL_EXTENSION, &P::ASSETS_PATH },
              /* Skybox               */ { "Skybox", ".detex", &P::SKYBOX_PATH },
              /* Shader               */ { "Shader", ".shader", &P::SHADERDIR_PATH },
              // The four cloud kinds. CloudNoiseVolume's root is `Clouds/` itself, which CONTAINS the
@@ -198,6 +206,20 @@ namespace Common::Content
              /* WorldParameters      */ { "WorldParameters", ".dworldparams", &P::WORLD_PARAMETERS_PATH },
              // One weather as data (Engine/Assets/Serialization/WeatherPreset.hpp, WTH-STATE).
              /* WeatherPreset        */ { "WeatherPreset", ".dweatherpreset", &P::WEATHER_PATH },
+             // UE's UNiagaraEffectType: the scalability a family of systems shares
+             // (Engine/Assets/Serialization/VFXEffectType.hpp).
+             /* VFXEffectType        */ { "VFXEffectType", ".dfxtype", &P::VFX_PATH },
+             // UE's UStateTree: the authored tree an AI controller runs (Engine/AI/StateTree/StateTree.hpp). Under
+             // the assets root, as a sound is: a tree sits beside the AI that runs it.
+             /* StateTree            */ { "StateTree", ".dstatetree", &P::ASSETS_PATH },
+             // UE USubsurfaceProfile: one Burley subsurface profile a material names (Engine/Assets/Serialization/
+             // SubsurfaceProfile.hpp, SSS-PROFILE). Under the assets root, beside the materials that name it.
+             /* SubsurfaceProfile    */ { "SubsurfaceProfile", ".dsssprofile", &P::ASSETS_PATH },
+             // UE's UNiagaraScript of Usage Module (Engine/VFX/VFXModuleFormat.hpp). Rooted in the project's VFX
+             // folder, so ScanRootsOf also walks the engine content mount's VFX folder: the engine's module
+             // library (Editor/Resources/Engine/VFX/Modules) and a project's own modules are one list, as UE's
+             // /Niagara and /Game mounts are.
+             /* VFXModule            */ { "VFXModule", ".dfxmod", &P::VFX_PATH },
         } };
     }
 

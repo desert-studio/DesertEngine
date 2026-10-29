@@ -26,8 +26,8 @@
 #include <Engine/Desert.hpp>
 #include <Engine/EntryPoint.hpp>
 #include <Engine/Core/SaveGame.hpp>
-#include <Engine/Project/ProjectContext.hpp>
-#include <Engine/Project/StartupLayout.hpp>
+#include <Projects/ProjectContext.hpp>
+#include <Projects/StartupLayout.hpp>
 #include <Engine/Settings/GameUserSettings.hpp>
 
 #include <Common/Core/Constants.hpp>
@@ -384,6 +384,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
 
     ApplicationInfo appInfo;
     appInfo.Title   = Desert::Project::ProjectContext::Current().Name;
+    // The player's machine store, loaded before the device (RuntimeLayer starts the quality from the same path).
+    appInfo.MachineSettingsFile =
+         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) / "machine.json";
     appInfo.Display = Desert::Player::s_UserSettings.Display;
     // A movie renders into its own offscreen target; the window is only the host of the device, so it is a
     // small window rather than a fullscreen one covering the desktop for the length of the render.

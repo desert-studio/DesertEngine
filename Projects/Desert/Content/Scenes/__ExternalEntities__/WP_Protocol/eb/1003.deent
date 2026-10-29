@@ -1,0 +1,13 @@
+{
+    "id": 1003,
+    "Tag": "Camera",
+    "Translation": [0.0, -310.21875, 0.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [1.0, 1.0, 1.0],
+    "Camera": {
+        "AutoActivateForPlayer": true,
+        "FOV": 75.0,
+        "Near": 10.0,
+        "Far": 306000.0
+    }
+}

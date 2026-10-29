@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 
 #include <cstddef>
@@ -89,6 +90,8 @@ namespace Desert::Graphic::RayTracing
             // a later buffer never matches a dead one).
             std::weak_ptr<void>                         Vertices;
             std::weak_ptr<void>                         Indices;
+            // Where in them (a pool arena holds many meshes; a re-upload moves the mesh to a new span).
+            MeshGeometryBinding                         Binding;
             std::shared_ptr<RayTracingGeometryResource> Geometry;
             bool                                        Used = false;
         };

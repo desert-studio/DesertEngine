@@ -2,12 +2,14 @@
 
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -350,7 +352,8 @@ namespace Desert::Graphic
 
         // Post stack, all built in Init.
         add( { "SilhouetteMask", "MeshRenderer.cpp", F::kSilhouetteMask, width, height } );
-        add( { "JFA.Seed+Output", "JumpFloodOutlineRenderer.cpp", F::kJFASeed, width, height, 1, 3 } );
+        // Graph transients of a frame that outlines a selection (editor); the pool keeps them while the view is open.
+        add( { "JFA.Seed+Output", "SceneRendererFramePostFX.cpp", F::kJFASeed, width, height, 1, 3 } );
         add( { "Tonemap", "TonemapRenderer.cpp", F::kTonemap, width, height } );
         add( { "FXAA", "FXAARenderer.cpp", F::kFXAA, width, height } );
         add( { "SMAA.Edges+Weights", "SMAARenderer.cpp", F::kSMAAEdges, width, height, 1, 2 } );
@@ -456,25 +459,27 @@ namespace Desert::Graphic
         std::sort( rows.begin(), rows.end(),
                    []( const ViewTarget& a, const ViewTarget& b ) { return a.Bytes() > b.Bytes(); } );
         const auto mib = []( const uint64_t bytes ) { return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 ); };
-        std::string text = "view " + std::to_string( width ) + "x" + std::to_string( height ) + "\n";
+        Common::Json::Value::Array lines;
         for ( const auto& row : rows )
         {
-            char line[192];
-            std::snprintf( line, sizeof( line ), "  %-26s %-8s %5ux%-5u x%u mips%u %9.2f MiB  %s\n",
-                           std::string( row.Name ).c_str(),
-                           std::string( ViewMemoryDetail::FormatName( row.Format ) ).c_str(), row.Width,
-                           row.Height, row.Count, row.Mips, mib( row.Bytes() ),
-                           std::string( row.CreatedAt ).c_str() );
-            text += line;
+            lines.emplace_back( std::format( "  {:<26} {:<8} {:5}x{:<5} x{} mips{} {:9.2f} MiB  {}", row.Name,
+                                             ViewMemoryDetail::FormatName( row.Format ), row.Width, row.Height,
+                                             row.Count, row.Mips, mib( row.Bytes() ), row.CreatedAt ) );
         }
         const auto totals = SumViewTargets( rows );
-        char       tail[160];
-        std::snprintf( tail, sizeof( tail ),
-                       "  total %.2f MiB = %.2f MiB view-scaled (%.1f B/px) + %.2f MiB fixed\n",
-                       mib( totals.Total() ), mib( totals.ViewScaledBytes ),
-                       static_cast<double>( totals.ViewScaledBytes ) / ( static_cast<double>( width ) * height ),
-                       mib( totals.FixedBytes ) );
-        text += tail;
-        return text;
+        Common::Json::ObjectBuilder model;
+        model.Set( "width", width )
+             .Set( "height", height )
+             .Set( "rows", Common::Json::Value( std::move( lines ) ) )
+             .Set( "total",
+                   std::format( "  total {:.2f} MiB = {:.2f} MiB view-scaled ({:.1f} B/px) + {:.2f} MiB fixed",
+                                mib( totals.Total() ), mib( totals.ViewScaledBytes ),
+                                static_cast<double>( totals.ViewScaledBytes ) /
+                                     ( static_cast<double>( width ) * height ),
+                                mib( totals.FixedBytes ) ) );
+        static const Desert::Core::TextTemplate kCensus(
+             "ViewTargetCensus", "view {{ width }}x{{ height }}\n{% for line in rows %}{{ line }}\n{% endfor %}"
+                                 "{{ total }}\n" );
+        return kCensus.RenderOrLog( Common::Json::Value( model.Build() ) );
     }
 } // namespace Desert::Graphic

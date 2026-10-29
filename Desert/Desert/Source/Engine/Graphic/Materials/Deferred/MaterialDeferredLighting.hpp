@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Materials/Properties/TextureCubeProperty.hpp>
 #include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
+#include <Engine/Graphic/DebugViewState.hpp>
 #include <Engine/Graphic/DefaultTextures.hpp>
 #include <Engine/Graphic/FallbackTextures.hpp>
 
@@ -27,22 +28,22 @@
 
 namespace Desert::Graphic
 {
-    // The sun's cascades (mirrors Graphic::SceneShadowBind): the composite's default program samples them.
+    // Every shadowed directional light's cascades (the same views Graphic::SceneShadowBind packs): the composite's
+    // default program samples them for the sun and for atmosphere light 1 alike.
     struct DeferredCascadeShadow
     {
-        const glm::mat4* CascadeVP            = nullptr; // [Count] light view-proj matrices
-        uint32_t         Count                = 0;
-        bool             Enabled              = true;
-        glm::vec4        CascadeWorldPerTexel = glm::vec4( 1.0f );
-        glm::vec4        CascadeDepthRange    = glm::vec4( 1.0f );
-        float            SourceTanHalf        = 0.0f;
+        SceneResources::DirectionalShadowViews Lights{};
     };
 
-    // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask, read by the
-    // composite's DESERT_SUN_SHADOW_SCREEN_MASK program in place of the cascades.
+    // "Shadows: Ray Traced Sun" (UE FScreenShadowMaskTexture): the denoised screen visibility mask of the SUN, read by
+    // the composite's DESERT_SUN_SHADOW_SCREEN_MASK program in place of the sun's cascades. The other shadowed
+    // directional lights keep their cascades under it (Lights below).
     struct DeferredScreenShadowMask
     {
         RDG::TextureRef Mask; // r = visibility, 1 = lit
+        // The cascades of the lights the mask does not cover (slot kDirectionalShadowSun is the mask's and is
+        // packed unshadowed-by-cascades).
+        SceneResources::DirectionalShadowViews Lights{};
     };
 
     // What the deferred lighting pass shadows the sun with: the arm IS the program (no method uniform).
@@ -52,13 +53,20 @@ namespace Desert::Graphic
         // Shadows Stochastic: the local lights are MegaLights' (DeferredCompositeInputs::MegaLights) and the
         // composite draws its MegaLights program (the Sun arm is then the screen mask).
         bool MegaLightsLocalLights = false;
+        // Shadows HardwareTraced: the local lights with a ShadowMaskSlot read the ray-traced masks
+        // (DeferredCompositeInputs::LocalShadowMasks) - the composite draws its RayTracedLocal program.
+        bool RayTracedLocalLights = false;
         // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
         SceneResources::ContactShadowSettings Contact{};
         // The sun's PCSS taps (SceneResources::PackShadowFilter); read by the cascade program only.
         SceneResources::ShadowFilterSettings Filter{};
+        // The view's directional-shadow view mode (UE "Shadow" / CSM visualization in the lighting pass): ShadowFactor
+        // writes the sun's occlusion as grey, Cascades tints the lit colour by the sun's chosen cascade. Rides
+        // ShadowUB DebugParams.z, the slot the forward mesh shaders read it from.
+        ShadowDebugMode Debug = ShadowDebugMode::Off;
     };
 
-    // Where the composite's indirect light comes from (DeferredLighting.shader u_Params.w / u_ScreenSpaceGI).
+    // Where the composite's indirect light comes from (DeferredLighting.shader Params.w / ScreenSpaceGi).
     struct DeferredGIInput
     {
         // 0 none, 1 the screen-space gather inside the composite, 2 the traced final gather in place of the sky's
@@ -67,41 +75,34 @@ namespace Desert::Graphic
         float Intensity = 0.0f; // scales the screen-space gather only (PostProcessSettings GIIntensity)
         // The screen-space gather's samples per pixel (Scalability GlobalIllumination.ScreenSpaceSamples).
         int ScreenSpaceSamples = 12;
+        // ViewFrame::PreExposure: the composite writes the scene colour multiplied by it (ScreenSpaceGi.y).
+        float PreExposure = 1.0f;
+        // SSS-PROFILE (CONTRACT §4): the view scatters - the composite splits the screen-space scattered texels'
+        // diffuse into SubsurfaceDiffuseTexture (ScreenSpaceGi.z).
+        bool SubsurfaceSplit = false;
     };
 
-    // PURE. The ShadowUB values of @p shadow (x the sun's angular radius tangent for the soft shadow; y enabled;
-    // z debug mode 0; w cascade count; the cascades' depth ranges and the contact shadow settings) - the deferred
-    // composite's and the surface-cache lighting's one packer.
+    // PURE. The ShadowUB values of @p shadow (every shadowed directional light's slot, PackDirectionalShadows; the
+    // debug word 0; the contact shadow settings and the PCSS taps) - the deferred composite's and the surface-cache
+    // lighting's one packer. Under a screen mask the sun's slot keeps its CastShadows but no cascade: the mask
+    // program reads the mask for it.
     [[nodiscard]] inline SceneResources::ShadowUBData PackDeferredShadow( const DeferredShadowInput& shadow )
     {
-        constexpr uint32_t           kCascades = SceneResources::kMaxCascades;
         SceneResources::ShadowUBData data{};
-        data.DebugParams = glm::vec4( 0.0f );
         std::visit(
              [&data]( const auto& sun )
              {
                  using Arm = std::decay_t<decltype( sun )>;
-                 if constexpr ( std::is_same_v<Arm, DeferredCascadeShadow> )
+                 SceneResources::DirectionalShadowViews lights = sun.Lights;
+                 if constexpr ( std::is_same_v<Arm, DeferredScreenShadowMask> )
                  {
-                     const uint32_t n = sun.Count < kCascades ? sun.Count : kCascades;
-                     for ( uint32_t i = 0; i < kCascades; ++i )
-                         data.LightViewProj[i] = ( i < n && sun.CascadeVP ) ? sun.CascadeVP[i] : glm::mat4( 1.0f );
-                     data.Params =
-                          glm::vec4( sun.SourceTanHalf, sun.Enabled ? 1.0f : 0.0f, 0.0f, static_cast<float>( n ) );
-                     data.CascadeTexelWorld = sun.CascadeWorldPerTexel;
-                     data.CascadeDepthRange = sun.CascadeDepthRange;
+                     lights[SceneResources::kDirectionalShadowSun].CascadeVP = nullptr;
+                     lights[SceneResources::kDirectionalShadowSun].Count     = 0;
                  }
-                 else
-                 {
-                     // The mask program reads no cascade: the block keeps only its "enabled" word.
-                     for ( glm::mat4& viewProj : data.LightViewProj )
-                         viewProj = glm::mat4( 1.0f );
-                     data.Params            = glm::vec4( 0.0f, 1.0f, 0.0f, 0.0f );
-                     data.CascadeTexelWorld = glm::vec4( 1.0f );
-                     data.CascadeDepthRange = glm::vec4( 1.0f );
-                 }
+                 SceneResources::PackDirectionalShadows( data, lights );
              },
              shadow.Sun );
+        data.DebugParams = glm::vec4( 0.0f, 0.0f, static_cast<float>( shadow.Debug ), 0.0f );
         SceneResources::PackContactShadow( data, shadow.Contact );
         SceneResources::PackShadowFilter( data, shadow.Filter );
         return data;
@@ -157,7 +158,9 @@ namespace Desert::Graphic
         // is bound by name through RDG::PassBindings (DeferredLightingRenderer::Record). lightDir.xyz = direction
         // the sun travels; lightColor.rgb/.a = colour/intensity; cameraPos.xyz = camera world pos (view vector);
         // debugMode 0=Lit,1=Albedo,2=Normal,3=Metallic,4=Roughness; point/spotCount = the uploaded lights' counts.
-        void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+        // light1Dir / light1Color: atmosphere light 1 (the moon) in the same form; light1Color.a == 0 = none.
+        void BindInputs( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& light1Dir,
+                         const glm::vec4& light1Color, const glm::vec4& cameraPos,
                          const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                          uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
                          bool ssaoEnabled, const CloudShadowInput& cloudShadow,
@@ -172,18 +175,23 @@ namespace Desert::Graphic
 
             SetLightDir( lightDir );
             SetLightColor( lightColor );
+            SetLight1Dir( light1Dir );
+            SetLight1Color( light1Color );
             SetCameraPos( cameraPos );
             // World position is rebuilt from the G-buffer depth (Common/ReconstructPosition.glslh) with
             // ViewFrame::InvJitteredViewProjection, the view's one copy of that inverse.
             SetInvJitteredViewProjection( invJitteredViewProjection );
-            // u_Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
+            // Params: x = debug mode, y = GI intensity (0 = off), z = SSAO enabled (else shader uses AO=1),
             // w = GI mode (0 = off, 1 = screen-space gather, 2 = the traced GI's final gather in place of the
             // sky's two cubes). Mode picks WHERE the indirect light comes from; intensity scales the screen-space
             // gather only.
             SetParams( glm::vec4( static_cast<float>( debugMode ), gi.Intensity, ssaoEnabled ? 1.0f : 0.0f,
                                   static_cast<float>( gi.Mode ) ) );
-            // u_ScreenSpaceGI: x = the screen-space gather's samples per pixel (read under mode 1 only).
-            SetScreenSpaceGI( glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), 0.0f, 0.0f, 0.0f ) );
+            // ScreenSpaceGi: x = the screen-space gather's samples per pixel (read under mode 1 only), y = the
+            // view's PreExposure the lit colour is stored at.
+            SetScreenSpaceGI(
+                 glm::vec4( static_cast<float>( gi.ScreenSpaceSamples ), gi.PreExposure,
+                            gi.SubsurfaceSplit ? 1.0f : 0.0f, 0.0f ) );
 
             // The contact shadows march the G-buffer depth in the space it was rasterised in
             // (Common/ContactShadow.glslh); their steps and the sun's length ride ShadowUB (UploadShadow).
@@ -198,31 +206,27 @@ namespace Desert::Graphic
             // leaves those slots to the pass. Only the counts the shader loops to are written here.
             const ShaderProtocols::LightsMetadata counts{
                  .DirectionLightsCount = 0U, .PointLightsCount = pointCount, .SpotLightsCount = spotCount };
-            if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
+            if ( auto* meta = Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Parameter ) )
                 meta->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
 
-            UploadRegisteredProperties();
-            // DeferredUB (the MPROPERTYs above) is the only field-filled buffer here. ShadowUB,
-            // CloudShadowUB and LightsMetadata were just written whole, a few lines up, and this loop
-            // used to reach them too: every field of every buffer starts dirty, so on the opening
-            // frames it flushed uninitialised shadow copies straight over the cascade matrices it had
-            // just been given. They decline now — see ShaderResources::BufferFillKind.hpp.
-            FlushFieldFilledUniformBuffers();
+            // DeferredUB (the MPROPERTYs above) is the only field-filled buffer here and is uploaded where the
+            // composite reads it (MaterialExecutor::Apply). ShadowUB, CloudShadowUB and LightsMetadata were just
+            // written whole and are never flushed from field copies -- see ShaderResources::BufferFillKind.hpp.
         }
 
-        // Uploads the CSM data into ShadowUB (the cascade maps u_ShadowCascades are a graph texture, bound by
+        // Uploads the CSM data into ShadowUB (the cascade maps ShadowCascadesTexture are a graph texture, bound by
         // DeferredLightingRenderer::Record) — mirrors Graphic::SceneShadowBind so the SAME sun shadows appear.
         void UploadShadow( const DeferredShadowInput& shadow )
         {
             const SceneResources::ShadowUBData data = PackDeferredShadow( shadow );
 
-            if ( auto* ub = Get<UniformBufferProperty>( "ShadowUB" ) )
+            if ( auto* ub = Get<UniformBufferProperty>( SceneResources::kShadowBlock ) )
                 ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
         }
 
         // Uploads the cloud layer's shadow into CloudShadowUB through the SAME packer the forward lit
         // materials and the terrain material use (Graphic::CloudShadowUpload), so the two render paths cannot
-        // be told different things about one map. The map itself (u_CloudShadowMap) is a graph resource the
+        // be told different things about one map. The map itself (CloudShadowMapTexture) is a graph resource the
         // composite exec binds through RDG::PassBindings (FrameTransients::CloudShadowMap, System.White when
         // the frame has none), never here.
         void UploadCloudShadow( const CloudShadowInput& cloudShadow )
@@ -230,13 +234,15 @@ namespace Desert::Graphic
             CloudShadowUpload( this, cloudShadow );
         }
 
-        MPROPERTY( glm::vec4, LightDir,   "u_LightDir",   ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )
-        MPROPERTY( glm::vec4, LightColor, "u_LightColor", ( glm::vec4( 1.0f, 1.0f, 1.0f, 3.0f ) ) )
-        MPROPERTY( glm::vec4, Params,     "u_Params",     ( glm::vec4( 0.0f ) ) )
-        MPROPERTY( glm::vec4, CameraPos,  "u_CameraPos",  ( glm::vec4( 0.0f ) ) )
-        MPROPERTY( glm::mat4, InvJitteredViewProjection, "u_InvJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
-        MPROPERTY( glm::mat4, JitteredViewProjection, "u_JitteredViewProjection", ( glm::mat4( 1.0f ) ) )
-        MPROPERTY( glm::vec4, ScreenSpaceGI, "u_ScreenSpaceGI", ( glm::vec4( 12.0f, 0.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, LightDir,   "LightDirection",   ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, LightColor, "LightColor", ( glm::vec4( 1.0f, 1.0f, 1.0f, 3.0f ) ) )
+        MPROPERTY( glm::vec4, Params,     "Params",     ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::vec4, CameraPos,  "CameraPosition",  ( glm::vec4( 0.0f ) ) )
+        MPROPERTY( glm::mat4, InvJitteredViewProjection, "InverseJitteredViewProjection", ( glm::mat4( 1.0f ) ) )
+        MPROPERTY( glm::mat4, JitteredViewProjection, "JitteredWorldToClip", ( glm::mat4( 1.0f ) ) )
+        MPROPERTY( glm::vec4, ScreenSpaceGI, "ScreenSpaceGi", ( glm::vec4( 12.0f, 1.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, Light1Dir,   "Light1Direction", ( glm::vec4( 0.0f, -1.0f, 0.0f, 0.0f ) ) )
+        MPROPERTY( glm::vec4, Light1Color, "Light1Color",     ( glm::vec4( 0.0f ) ) )
 
     private:
     };

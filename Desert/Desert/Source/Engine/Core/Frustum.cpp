@@ -38,6 +38,12 @@ namespace Desert::Core
                             } );
     }
 
+    bool Frustum::IntersectsSphere( const glm::vec3& center, const float radius ) const
+    {
+        return std::all_of( m_Planes.begin(), m_Planes.end(),
+                            [&center, radius]( const Plane& plane ) { return plane.GetDistance( center ) >= -radius; } );
+    }
+
     void Frustum::Rebuild( const glm::mat4& projection, const glm::mat4& view )
     {
         glm::mat4 viewProjection = projection * view;

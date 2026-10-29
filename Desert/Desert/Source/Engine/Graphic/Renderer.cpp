@@ -2,6 +2,7 @@
 #include <Engine/Graphic/MemoryReadout.hpp>
 #include <Engine/Graphic/BRDFLut.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 
 #include <Engine/Graphic/RendererContext.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
@@ -220,10 +221,11 @@ namespace Desert::Graphic
                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                 const glm::mat4& transform, const MaterialExecutor& material,
                                                 uint32_t instanceCount, uint32_t firstInstance,
-                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel )
+                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel,
+                                                std::span<const uint32_t> submeshFirstRows )
     {
         return s_RendererAPI->RenderMesh( bindings, pipeline, mesh, transform, material, instanceCount,
-                                          firstInstance, hiddenSubmeshMask, lodLevel );
+                                          firstInstance, hiddenSubmeshMask, lodLevel, submeshFirstRows );
     }
 
     Common::BoolResultStr
@@ -329,6 +331,36 @@ namespace Desert::Graphic
         return s_RendererAPI->ImportVertexBuffer( buffer, into );
     }
 
+    Common::BoolResultStr Renderer::ImportVertexBufferRange( const std::shared_ptr<VertexBuffer>& buffer,
+                                                             const uint64_t offset, const uint64_t bytes,
+                                                             RDG::ExternalBuffer& into )
+    {
+        return s_RendererAPI->ImportVertexBufferRange( buffer, offset, bytes, into );
+    }
+
+    void Renderer::InvalidateGeometryBinding()
+    {
+        s_RendererAPI->InvalidateGeometryBinding();
+    }
+
+    Common::BoolResultStr Renderer::ImportMeshVertices( const MeshGeometry& geometry, RDG::ExternalBuffer& into )
+    {
+        if ( !geometry.IsResident() )
+            return Common::MakeError( "ImportMeshVertices: the mesh has no resident vertices" );
+        return s_RendererAPI->ImportVertexBufferRange(
+             geometry.Vertices, geometry.VertexByteOffset,
+             uint64_t{ geometry.VertexCount } * uint64_t{ geometry.VertexStride }, into );
+    }
+
+    Common::BoolResultStr Renderer::ImportMeshStreams( const MeshGeometry& geometry, RDG::ExternalBuffer& into )
+    {
+        if ( !geometry.IsResident() || !geometry.Streams )
+            return Common::MakeError( "ImportMeshStreams: the mesh has no resident stream buffer" );
+        return s_RendererAPI->ImportVertexBufferRange(
+             geometry.Streams, geometry.StreamByteOffset,
+             uint64_t{ geometry.VertexCount } * uint64_t{ kGeometryStreamStride }, into );
+    }
+
     void Renderer::BeginDebugLabel( const char* name )
     {
         s_RendererAPI->BeginDebugLabel( name );
@@ -394,6 +426,9 @@ namespace Desert::Graphic
         {
             LOG_ERROR( "[Renderer] schema default textures were not released: {}", released.GetError() );
         }
+
+        // The pool's arena buffers are device memory owned by a static: dropped here, before the device.
+        GeometryPool::Get().RT_Shutdown();
 
         s_RendererAPI->Shutdown();
         delete s_RendererAPI;

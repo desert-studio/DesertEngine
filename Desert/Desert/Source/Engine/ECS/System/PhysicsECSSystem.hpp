@@ -13,8 +13,8 @@
 #include <Engine/ECS/System/ColliderMesh.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/PhysicsEvents.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/CollisionProfiles.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/CollisionProfiles.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Engine/Destruction/DestructionWorld.hpp>
 #include <Engine/Water/WaterBodyQuery.hpp>
@@ -368,6 +368,21 @@ namespace Desert::ECS
         GatherColliderMesh( entt::registry& registry, entt::entity entity, const glm::vec3& scale )
         {
             using Result = std::optional<ColliderMesh>;
+            // A VOLUME holds its own shape (UE's brush geometry lives in the AVolume): its hull points, not a
+            // mesh it draws.
+            if ( const auto* volume = registry.try_get<VolumeComponent>( entity ) )
+            {
+                const size_t corners = VolumeCornerCount( volume->Data );
+                if ( corners < 4 )
+                    return Common::MakeError<Result>( std::format(
+                         "the volume has {} hull points; a convex volume needs at least 4", corners ) );
+                ColliderMesh hull;
+                hull.Points.reserve( corners );
+                for ( size_t c = 0; c < corners; ++c )
+                    hull.Points.push_back( VolumeCorner( volume->Data, c ) * scale );
+                hull.Indices = volume->Data.HullIndices;
+                return Common::MakeSuccess( Result( std::move( hull ) ) );
+            }
             if ( !registry.has<StaticMeshComponent>( entity ) )
                 return Common::MakeError<Result>(
                      "the collider builds from its entity's StaticMesh, and there is none" );
@@ -406,6 +421,26 @@ namespace Desert::ECS
                         return Common::MakeError<Result>(
                              "the StaticMesh's asset is skinned: a skinned mesh has no rest "
                              "collision, use a Box/Sphere/Capsule" );
+                    // A displaced mesh collides with its bake-level surface in BOTH modes (CONTRACT-DISPLACE §9.9):
+                    // one fixed level, so the ground does not change with the camera. Not landed yet = still
+                    // loading; a failed derive was logged naming the mesh and keeps the base, as that log says.
+                    if ( const auto& slot = staticAsset->GetDisplacedMesh(); slot && !slot->Failed() )
+                    {
+                        const auto surface = slot->Get();
+                        if ( !surface )
+                            return Common::MakeSuccess( Result{} );
+                        // The surface's indices are submesh-local (VertexOffset); the collider reads one list.
+                        std::vector<Index> global;
+                        global.reserve( surface->Indices.size() );
+                        for ( const Submesh& sm : surface->Submeshes )
+                            for ( uint32_t t = 0; t < sm.IndexCount / 3; ++t )
+                            {
+                                const Index& tri = surface->Indices[sm.IndexOffset / 3 + t];
+                                global.push_back( { tri.V1 + sm.VertexOffset, tri.V2 + sm.VertexOffset,
+                                                    tri.V3 + sm.VertexOffset } );
+                            }
+                        return Common::MakeSuccess( Result( BuildColliderMesh( surface->Vertices, global, scale ) ) );
+                    }
                     return Common::MakeSuccess( Result(
                          BuildColliderMesh( staticAsset->GetVertices(), staticAsset->GetIndices(), scale ) ) );
                 }
@@ -460,6 +495,30 @@ namespace Desert::ECS
         // This frame's steps' contact events, named by entity, into the registry's PhysicsEventQueue (see
         // PhysicsEvents.hpp). The body → entity map keeps an entity whose body went this frame until its
         // EndOverlap is named.
+        // A volume's overlaps in the log, by name (UE: a Trigger Volume's begin/end overlap is what a level
+        // designer checks first). The events themselves go to the volume's subscribers like any body's.
+        static void LogVolumeOverlaps( entt::registry& registry, const std::vector<PhysicsEvent>& events )
+        {
+            const auto nameOf = [&registry]( entt::entity entity ) -> std::string
+            {
+                if ( !registry.valid( entity ) )
+                    return "(destroyed)";
+                if ( const auto* tag = registry.try_get<TagComponent>( entity ) )
+                    return tag->Tag;
+                return "(unnamed)";
+            };
+            for ( const PhysicsEvent& event : events )
+            {
+                if ( event.Kind != PhysicsEventKind::BeginOverlap && event.Kind != PhysicsEventKind::EndOverlap )
+                    continue;
+                if ( !registry.valid( event.Self ) || !registry.has<VolumeComponent>( event.Self ) )
+                    continue;
+                LOG_INFO( "[Volume] '{}' {} '{}'", nameOf( event.Self ),
+                          event.Kind == PhysicsEventKind::BeginOverlap ? "entered by" : "left by",
+                          nameOf( event.Other ) );
+            }
+        }
+
         void PublishEvents( entt::registry& registry )
         {
             auto& queue = registry.ctx_or_set<PhysicsEventQueue>();
@@ -483,6 +542,7 @@ namespace Desert::ECS
                     m_BodyEntities[body] = entity;
             }
             NameContactEvents( m_World->GetContactEvents(), m_BodyEntities, queue.Events );
+            LogVolumeOverlaps( registry, queue.Events );
 
             std::erase_if( m_BodyEntities,
                            [&]( const auto& entry )

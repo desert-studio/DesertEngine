@@ -21,6 +21,8 @@
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
+#include <Engine/World/Landscape/LandscapeData.hpp>
+#include <Common/Core/ResultStr.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -36,7 +38,7 @@ namespace Desert::WorldGen
     // time the editor saves it, which breaks the round-trip identity above.
     struct MaterialRef
     {
-        std::string Path; // e.g. "Materials/CB_White.demat", relative to the assets root
+        std::string Path; // e.g. "assets:Materials/CB_White.demat" - the content key, written into the scene as is
         std::string Guid; // the material's header GUID as text - what a scene's MaterialGuids states (SCNE 27)
     };
 
@@ -142,6 +144,77 @@ namespace Desert::WorldGen
     Core::SceneSerialized BuildWorld( const WorldSpec& spec, const std::vector<MaterialRef>& buildingMaterials,
                                       const MaterialRef& groundMaterial, const std::vector<PropTheme>& themes,
                                       const Common::Content::AssetGuid& guid, WorldStats& stats );
+
+    // ---------------------------------------------------------------------------------------------------
+    // THE LANDSCAPE WORLD (WG-1): a seeded New Landscape dressed with a real grass/foliage content set, the
+    // instrument the grass and foliage measurements run on. Same purity as BuildWorld: numbers and content
+    // identities in, a scene tree and the tiles' data out; the caller writes the tile files and the scene.
+    // ---------------------------------------------------------------------------------------------------
+
+    // A paint layer as the scene names it ({Guid, Path} relative to the assets root, the saver's spelling of an
+    // AssetHandle) plus what its .delayerinfo states for the merge (LandscapeLayerRule).
+    struct LandscapeLayerRef
+    {
+        std::string Guid;
+        std::string Path;
+        std::string LayerName;
+        float       Hardness      = 0.5f;
+        bool        NoWeightBlend = false;
+    };
+
+    // A foliage type as a ProceduralFoliage volume names it.
+    struct FoliageTypeRef
+    {
+        std::string Guid;
+        std::string Path;
+    };
+
+    struct LandscapeContent
+    {
+        MaterialRef                 Material; // the landscape material, written as its {Guid, Path} handle
+        LandscapeLayerRef           Dirt;     // slopes
+        LandscapeLayerRef           Grass;    // everywhere else: its GrassTypes grow around the camera
+        LandscapeLayerRef           Dry;      // hollows
+        std::vector<FoliageTypeRef> Meadow;   // first volume over the whole extent
+        std::vector<FoliageTypeRef> Trees;    // second volume, its own seed
+    };
+
+    // Every length an integer number of centimetres (the determinism contract above).
+    struct LandscapeWorldSpec
+    {
+        std::string Name          = "World Landscape";
+        int         TilesPerSide  = 8;
+        int         QuadsPerTile  = 255;
+        int         SpacingCm     = 100;
+        int         ZScale        = 4; // UE landscape Z scale: ZScale / 128 cm per height unit
+        uint32_t    Seed          = 1u;
+        int         NoiseHeightCm = 3000;
+    };
+
+    struct LandscapeWorldTile
+    {
+        uint64_t                            Id = 0; // the tile entity's id: names its .dlht
+        World::Landscape::LandscapeTileData Data;
+    };
+
+    struct LandscapeWorld
+    {
+        Core::SceneSerialized           Scene;
+        std::vector<LandscapeWorldTile> Tiles;
+    };
+
+    // @p heightFileKeyPrefix is "assets:<scene dir>/<scene stem>_Landscape/" (the caller derives it from the
+    // output path, LandscapeTileBlobPath); a tile's HeightFile is that prefix + "<id>.dlht".
+    //
+    // WEIGHTS ARE A PURE INTEGER FUNCTION OF THE HEIGHTS: Dirt where rise over run passes 0.35 (full at 0.6),
+    // Dry below the map's mid height (full a quarter of NoiseHeightCm lower), Grass the rest, summing to 255.
+    // They are written into the BASE EDIT LAYER and merged, as an editor brush writes them: a tile that carries
+    // edit layers refuses a direct weight write (LandscapeTileData::RefuseIfMerged).
+    Common::ResultStr<LandscapeWorld> BuildLandscapeWorld( const LandscapeWorldSpec&         spec,
+                                                           const LandscapeContent&           content,
+                                                           const std::string&                heightFileKeyPrefix,
+                                                           const Common::Content::AssetGuid& guid,
+                                                           WorldStats&                       stats );
 
     // The GUID a REGENERATION of `outputFile` must keep: parsed from that file's own header when it
     // already exists and the header is well-formed. Absent otherwise (no file yet, or one this build

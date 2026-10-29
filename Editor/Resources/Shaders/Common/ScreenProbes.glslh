@@ -23,24 +23,43 @@
 // one of its rays leaves the surface. UE traces a world-space full octahedron and spends the texels below the
 // surface on importance sampling; here no texel is below it, so all SP_RES² rays carry light.
 
-#define SP_DOWNSAMPLE 16u
-#define SP_LEVELS 3u
-#define SP_RES 8u
+// THE LAYOUT IS A PERMUTATION (UE r.Lumen.ScreenProbeGather.DownsampleFactor / TracingOctahedronResolution):
+// ScreenProbeGather compiles every screen-probe program under SP_DOWNSAMPLE_LOG2 and SP_TRACED_TEXELS
+// (ScreenProbeLayoutDefines, from Scalability GlobalIllumination.ScreenProbeDownsample / ScreenProbeTracedTexels),
+// because the groupshared arrays and the per-probe workgroups are SP_RES² wide. The defaults are UE's (16 / 8) and
+// only serve a compile that names no layout. Adaptive levels run down to 4 px (UE
+// AdaptiveProbeMinDownsampleFactor 4): SP_LEVELS = log2(SP_DOWNSAMPLE) - 1.
+#ifndef SP_DOWNSAMPLE_LOG2
+#define SP_DOWNSAMPLE_LOG2 4
+#endif
+#ifndef SP_TRACED_TEXELS
+#define SP_TRACED_TEXELS 8
+#endif
+#if SP_DOWNSAMPLE_LOG2 < 3 || SP_DOWNSAMPLE_LOG2 > 6
+#error SP_DOWNSAMPLE_LOG2 must be 3..6 (8..64 pixels a probe)
+#endif
+#if SP_TRACED_TEXELS < 4 || SP_TRACED_TEXELS > 16
+#error SP_TRACED_TEXELS must be 4..16
+#endif
+#define SP_DOWNSAMPLE ( 1u << uint( SP_DOWNSAMPLE_LOG2 ) )
+#define SP_LEVELS ( uint( SP_DOWNSAMPLE_LOG2 ) - 1u )
+#define SP_RES uint( SP_TRACED_TEXELS )
 #define SP_TILE ( SP_RES + 2u ) // a filtered probe with its one-texel border
 #define SP_INVALID 0xFFFFFFFFu
 // UE's Epsilon of the upsample: below this summed interpolation weight a pixel has no probe lighting. A placement
 // position under it gets an adaptive probe; an integrated pixel under it (the budget spent) reads the world radiance
 // cache; a uniform corner at or under it is replaced by its tile's best adaptive probe.
 #define SP_ADAPTIVE_EPSILON 0.01
-// The adaptive positions of one uniform tile: 2x2 - 1 on the 8 pixel grid, 4x4 - 2x2 on the 4 pixel grid
-// (GlobalIllumination::ScreenProbeLayout::kAdaptivePerTile).
-#define SP_ADAPTIVE_PER_TILE 15u
+// The adaptive positions of one uniform tile: level l holds (2^l)² positions, 4^(l-1) of them a coarser level's,
+// so all adaptive levels together hold (SP_DOWNSAMPLE / 4)² - 1 (15 at 16 px;
+// GlobalIllumination::ScreenProbeLayout::AdaptivePerTile).
+#define SP_ADAPTIVE_PER_TILE ( ( 1u << ( 2u * ( SP_LEVELS - 1u ) ) ) - 1u )
 
 // std430 — must match GlobalIllumination::ScreenProbeParamsPayload (192 bytes).
 struct ScreenProbeParams {
     mat4  prevViewProjection; // last frame's (unjittered) view-projection: the screen trace's reprojection
     mat4  prevInvViewProjection; // its inverse: the temporal filter's previous world position of a pixel
-    vec4  prevCamera;         // xyz = last frame's camera (cm)
+    vec4  prevCamera;         // xyz = last frame's camera (cm), w = 1 / PrevPreExposure (the scene colour history's scale)
     vec4  jitter;             // xy = this frame's jitter in NDC, zw = last frame's (the temporal filter's history)
     uvec4 grid;               // xy = level-0 grid, z = uniform probes, w = adaptive probe budget
     uvec4 atlas;              // x = probes per atlas row, y = frame index, z = SP_FLAG_* below,
@@ -100,15 +119,16 @@ ivec2 SPProbePixel( uint level, ivec2 cell, uvec2 jitter )
     return cell * int( SP_DOWNSAMPLE >> level ) + ivec2( jitter );
 }
 
-// The adaptive probe slots of a level inside its uniform tile's SP_ADAPTIVE_PER_TILE: 3 at 8 px, then 12 at 4 px.
+// The adaptive probe slots of a level inside its uniform tile's SP_ADAPTIVE_PER_TILE: 3 * 4^(level-1) new
+// positions per level (3 at the first adaptive level, 12 at the second, ...), after the coarser levels'.
 uint SPLevelSlotBase( uint level )
 {
-    return level == 1u ? 0u : 3u;
+    return ( 1u << ( 2u * ( level - 1u ) ) ) - 1u;
 }
 
 uint SPLevelSlots( uint level )
 {
-    return level == 1u ? 3u : 12u;
+    return 3u << ( 2u * ( level - 1u ) );
 }
 
 // The orthonormal frame of a probe's hemisphere around @p n (Duff et al. 2017, branchless).

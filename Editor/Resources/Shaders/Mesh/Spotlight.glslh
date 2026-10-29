@@ -5,11 +5,9 @@
 // of them and the debug-view helper.
 #include "LightSources.glslh"
 
-// Unbounded storage buffer — no cap. Count from LightsMetadata.SpotLightCount.
-ReadBuffer(16) SpotLightsUB
-{
-    SpotLight spotLights[];
-};
+// Unbounded storage buffer (binding 16) — no cap. Count from LightsMetadata.SpotLightCount.
+// GENERATED from Engine/Graphic/ShaderProtocols/SpotLight.hpp by the shader includer.
+#include <Mesh/SpotLightsUB.glslh>
 
 // Scalar "how much this spot light lands here" for the lighting debug view.
 float SpotLightContribution(SpotLight light, vec3 worldPosition, vec3 N)

@@ -2,7 +2,8 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Json.hpp>
-#include <Engine/Audio/AudioMix.hpp>
+#include <Common/Utilities/FileSystem.hpp>
+#include <Audio/AudioMix.hpp>
 #include <Engine/Core/FramePacer.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Graphic/SwapChain.hpp>
@@ -101,7 +102,10 @@ namespace Desert::Settings
         std::error_code             ec;
         if ( std::filesystem::exists( user, ec ) )
             return ReadValid( user );
-        if ( std::filesystem::exists( project, ec ) )
+        // The project's defaults are CONTENT (UE: Config/Default*.ini ship inside the build): asked through the
+        // same file layer as every asset, so a packaged game finds them in its archive (PackagedContentTrees
+        // stages the project Config under the "Config" key) and the dev tree finds them on disk.
+        if ( Common::Utils::FileSystem::Exists( project ) )
             return ReadValid( project );
         return Common::MakeError<GameUserSettings>(
              std::format( "no game user settings: neither the player's {} nor the project's {} exists",

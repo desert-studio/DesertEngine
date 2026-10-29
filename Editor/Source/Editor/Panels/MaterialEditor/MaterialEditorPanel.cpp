@@ -168,7 +168,7 @@ namespace Desert::Editor
                 }
             }
             // Named by handle rather than "Material": two unnamed materials must still read as two windows.
-            return "Material " + std::to_string( static_cast<uint64_t>( material ) );
+            return std::format( "Material {}", static_cast<uint64_t>( material ) );
         }
     } // namespace
 
@@ -1339,7 +1339,7 @@ namespace Desert::Editor
                 // ONE TABLE ID PER GROUP. Reusing a single id for every group would put several tables under
                 // one ImGui identity in one window, which is the collision that silently merges two widgets
                 // into one — the same hazard SubjectId::ToString refuses a digest for.
-                const std::string tableId = "##material_params_" + std::to_string( drawnGroup );
+                const std::string tableId = std::format( "##material_params_{}", drawnGroup );
                 if ( !BeginParameterTable( tableId.c_str() ) )
                     return changed;
                 tableOpen = true;
@@ -1371,11 +1371,14 @@ namespace Desert::Editor
             // members disagree cannot speak for them — and a person reading ONE control should not have to
             // scroll up to learn whether moving it costs a frame or fourteen seconds. Drawn only when the
             // schema states one: an unclassified parameter gets no sentence rather than a guessed one.
+            // The PARAMETER name heads the tooltip: it is what the .demat stores and what a script or an
+            // import mapping names, while the label is only the schema's display text.
             const char* timingPhrase = MaterialEdit::ParamTimingPhrase( p.Timing );
-            if ( ( !p.Tooltip.empty() || *timingPhrase != '\0' ) && ImGui::IsItemHovered() )
+            if ( ImGui::IsItemHovered() )
             {
                 ImGui::BeginTooltip();
                 ImGui::PushTextWrapPos( ImGui::GetFontSize() * 30.0f );
+                ImGui::TextDisabled( "Parameter: %s", p.Name.c_str() );
                 if ( !p.Tooltip.empty() )
                     ImGui::TextUnformatted( p.Tooltip.c_str() );
                 if ( *timingPhrase != '\0' )

@@ -7,7 +7,7 @@
 // Why it is a header and not four copies. It WAS four copies, and by the time Д20 measured them two of
 // them had already drifted: Programs/Surface/StaticMeshLit.shader and Programs/Deferred/DeferredLighting.shader
 // carried the cascade CROSS-FADE (sampleCascade + a blend band at the tight cascade's border), while
-// Programs/Surface/SkinnedMeshLit.shader and Programs/Surface/StaticMeshLit_Instanced.shader carried the version
+// Programs/Surface/StandardSurface.shader's Vertex_Skinned cell and Programs/Surface/StaticMeshLit_Instanced.shader carried the version
 // from before that fix and returned the tight cascade's PCF result raw. A skinned character and an
 // instanced prop therefore carried the hard cascade seam the other two had had smoothed away, standing
 // beside a non-instanced static mesh that did not, in the same frame, lit by the same sun, through the
@@ -33,19 +33,26 @@
 // mesh shaders' 8/9/10), the mesh shaders share one layout with the G-buffer pass, and a shader-graph
 // material's layout is generated. The includer must declare, at whatever slots are free in ITS layout:
 //
-//     Uniform(a) texture2DArray u_ShadowCascades; // layer c = cascade c
-//     #define u_ShadowCascades sampler2DArray(u_ShadowCascades, u_LinearRepeatSampler) // a shared state of the pass
-//     Uniform(e) ShadowUB {
-//         mat4 u_LightViewProj[4];
-//         vec4 u_ShadowParams;      // x = tan(sun source angle / 2), y = enabled (>0.5), z = debug mode (0/1/2), w = cascade count
-//         vec4 u_DebugParams;       // x = show normals (>0.5), y = light debug (>0.5); z,w reserved
-//         vec4 u_CascadeTexelWorld; // per-cascade world size of one shadow-map texel (x..w = cascade 0..3)
-//         vec4 u_CascadeDepthRange; // per-cascade world length the [0,1] map depth spans (x..w = cascade 0..3)
-//         vec4 u_ContactShadowView; // the view's contact shadow march (Common/ContactShadow.glslh); its z, the
+//     Uniform(a) texture2DArray ShadowCascadesTexture; // layer DirectionalShadow[light].w + c = light's cascade c
+//     #define ShadowCascadesTexture sampler2DArray(ShadowCascadesTexture, LinearRepeatSampler) // a shared state of the pass
+//     the view's ShadowUB - by #include <Mesh/ShadowUB.glslh>, its one declaration, or (a storage-block reader
+//     such as the surface-cache cards) a block of these same members:
+//     ShadowUB {
+//         mat4 LightViewProjection[8]; // [light * 4 + cascade] (SceneResources::kMaxCascadeViews)
+//         vec4 DirectionalShadow[2];   // per light: x = tan(source angle / 2), y = casts shadows (>0.5),
+//                                      //            z = cascades fitted, w = first array layer
+//         vec4 CascadeTexelWorld[2];   // per light: world size of one map texel (x..w = cascade 0..3)
+//         vec4 CascadeDepthRange[2];   // per light: world length the [0,1] map depth spans (x..w = cascade 0..3)
+//         vec4 DebugParams;       // x = show normals (>0.5), y = light debug (>0.5), z = cascade debug mode (0/1/2)
+//         vec4 ContactShadowView; // the view's contact shadow march (Common/ContactShadow.glslh); its z, the
 //                                   // view's dither frame, also turns the soft filter's disc below
-//         vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
-//         vec4 u_ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (SceneResources::PackShadowFilter)
+//         vec4 SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5)
+//         vec4 ShadowFilter;      // x = PCSS blocker search taps, y = PCSS filter taps (SceneResources::PackShadowFilter)
 //     };
+//
+// `light` IS THE DIRECTIONAL LIGHT'S SLOT (SceneResources::kMaxShadowedDirectionalLights: its Atmosphere Sun Light
+// Index - 0 the sun, 1 the moon). Every function below takes it, so a light is shadowed by the one text that
+// shadows the sun, from its own cascades (UE: a CSM per directional light), never by a copy.
 //
 // The cascades are the layers of ONE D32F DEPTH array (ViewTargetFormats::kShadowDepth; UE: the whole-scene
 // shadow atlas of a directional light), so the shader indexes the cascade at run time and the lit passes spend
@@ -64,13 +71,22 @@
 // Core/Projection.hpp.
 
 // The 2x2 depths around uv in cascade c (gather order: (0,1) (1,1) (1,0) (0,0) of the footprint).
-vec4 gatherShadowMap(int c, vec2 uv)
+// SceneResources::kMaxCascades: the stride of one light's matrices in LightViewProjection.
+const int kCascadesPerLight = 4;
+// The slots (SceneResources::kDirectionalShadowSun; the slot is the light's Atmosphere Sun Light Index).
+const int kShadowLightSun          = 0;
+const int kShadowLightAtmosphere1  = 1;
+int cascadeView(int light, int c)
 {
-	return textureGather(u_ShadowCascades, vec3(uv, float(c)), 0);
+	return light * kCascadesPerLight + c;
+}
+vec4 gatherShadowMap(int light, int c, vec2 uv)
+{
+	return textureGather(ShadowCascadesTexture, vec3(uv, DirectionalShadow[light].w + float(c)), 0);
 }
 ivec2 shadowMapSize(int c)
 {
-	return textureSize(u_ShadowCascades, 0).xy; // every layer has the array's extent
+	return textureSize(ShadowCascadesTexture, 0).xy; // every layer has the array's extent
 }
 vec3 cascadeDebugColor(int c)
 {
@@ -82,11 +98,11 @@ vec3 cascadeDebugColor(int c)
 }
 
 // First cascade (tightest→loosest) whose light-space projection contains worldPos. -1 = outside all.
-int chooseCascade(vec3 worldPos)
+int chooseCascade(int light, vec3 worldPos)
 {
-	for (int c = 0; c < int(u_ShadowParams.w); ++c)
+	for (int c = 0; c < int(DirectionalShadow[light].z); ++c)
 	{
-		vec4 lc  = u_LightViewProj[c] * vec4(worldPos, 1.0);
+		vec4 lc  = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
 		vec3 ndc = lc.xyz / lc.w;
 		vec2 uv  = ndc.xy * 0.5 + 0.5;
 		if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && ndc.z <= 1.0)
@@ -111,9 +127,9 @@ int chooseCascade(vec3 worldPos)
 const float kMaxSoftKernelTexels = 40.0;
 
 // Bilinear percentage-closer comparison at uv: 1 lit, 0 shadowed. `depth` is the receiver's.
-float shadowCompare2x2(int c, vec2 uv, vec2 size, float depth)
+float shadowCompare2x2(int light, int c, vec2 uv, vec2 size, float depth)
 {
-	vec4 d   = gatherShadowMap(c, uv);
+	vec4 d   = gatherShadowMap(light, c, uv);
 	vec4 lit = step(vec4(depth), d); // depth <= occluder: lit
 	vec2 f   = fract(uv * size - 0.5);
 	return mix(mix(lit.w, lit.z, f.x), mix(lit.x, lit.y, f.x), f.y);
@@ -121,15 +137,15 @@ float shadowCompare2x2(int c, vec2 uv, vec2 size, float depth)
 
 // Samples ONE cascade at worldPos. Returns 1 (lit) when outside the cascade so the caller's blend/fallback can
 // take over. Factored out of ShadowFactor so cascades can be cross-faded.
-float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
+float sampleCascade(int light, int c, vec3 worldPos, vec3 N, float NdotL)
 {
 	// Normal-offset bias scaled by the cascade's world-per-texel (a few texels along the normal,
 	// widening at grazing angles) — cascade-correct instead of fixed world-unit constants.
-	float texelWorld   = u_CascadeTexelWorld[c];
+	float texelWorld   = CascadeTexelWorld[light][c];
 	float normalOffset = (1.5 + 2.5 * (1.0 - NdotL)) * texelWorld;
 	vec3  samplePos    = worldPos + N * normalOffset;
 
-	vec4 lightClip = u_LightViewProj[c] * vec4(samplePos, 1.0);
+	vec4 lightClip = LightViewProjection[cascadeView(light, c)] * vec4(samplePos, 1.0);
 	vec3 ndc = lightClip.xyz / lightClip.w;
 	vec2 uv = ndc.xy * 0.5 + 0.5;
 	// Shadow maps are rendered through the engine's negative-height (Y-flipped) viewport -> flip Y.
@@ -146,12 +162,12 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 
 	vec2  size       = vec2(shadowMapSize(c));
 	vec2  texel      = 1.0 / size;
-	float depthRange = max(u_CascadeDepthRange[c], 1e-3);   // world cm per unit of map depth
-	float tanHalf    = u_ShadowParams.x;                     // tan(sun source angle / 2)
-	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy, u_ContactShadowView.z);
+	float depthRange = max(CascadeDepthRange[light][c], 1e-3); // world cm per unit of map depth
+	float tanHalf    = DirectionalShadow[light].x;            // tan(light source angle / 2)
+	float phi        = 6.28318531 * shadowInterleavedGradientNoise(gl_FragCoord.xy, ContactShadowView.z);
 	// The kernel's cost (Scalability Shadows.BlockerSearchTaps / Shadows.FilterTaps, the view's ShadowUB).
-	int   blockerSearchTaps = int(u_ShadowFilter.x + 0.5);
-	int   filterTaps        = int(u_ShadowFilter.y + 0.5);
+	int   blockerSearchTaps = int(ShadowFilter.x + 0.5);
+	int   filterTaps        = int(ShadowFilter.y + 0.5);
 
 	// THE RECEIVER PLANE across the kernel. A tap `r` centimetres from the centre reads a map texel of the
 	// receiver's own plane that lies r * tan(theta) nearer the sun at most (theta: the receiver's angle to the
@@ -168,7 +184,7 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	{
 		vec2  offset = shadowVogelDisk(i, blockerSearchTaps, phi) * searchTexels;
 		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
-		vec4  d      = gatherShadowMap(c, uv + offset * texel);
+		vec4  d      = gatherShadowMap(light, c, uv + offset * texel);
 		vec4  isBlocker = step(d, vec4(currentDepth - slack - 1e-6));
 		blockerSum   += dot(d, isBlocker);
 		blockerCount += dot(isBlocker, vec4(1.0));
@@ -187,7 +203,7 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 	{
 		vec2  offset = shadowVogelDisk(i, filterTaps, phi) * penumbraTexels;
 		float slack  = length(offset) * texelWorld * tanTheta / depthRange;
-		lit += shadowCompare2x2(c, uv + offset * texel, size, currentDepth - slack);
+		lit += shadowCompare2x2(light, c, uv + offset * texel, size, currentDepth - slack);
 	}
 	return lit / float(filterTaps);
 }
@@ -210,32 +226,32 @@ float sampleCascade(int c, vec3 worldPos, vec3 N, float NdotL)
 // applied BEFORE the cloud shadow is multiplied in and not after: it is a CASCADE toggle, and a mesh
 // that opted out of geometry shadows must not become the one surface in the scene whose cloud shading
 // depends on which path drew it.
-float ShadowFactor(vec3 worldPos, vec3 N, vec3 L, out int cascadeOut)
+float ShadowFactor(int light, vec3 worldPos, vec3 N, vec3 L, out int cascadeOut)
 {
 	cascadeOut = -1;
-	if (u_ShadowParams.y < 0.5)
+	if (DirectionalShadow[light].y < 0.5)
 		return 1.0;
 
-	int c = chooseCascade(worldPos);
+	int c = chooseCascade(light, worldPos);
 	cascadeOut = c;
 	if (c < 0)
 		return 1.0;
 
 	float NdotL  = max(dot(N, L), 0.0);
-	float shadow = sampleCascade(c, worldPos, N, NdotL);
+	float shadow = sampleCascade(light, c, worldPos, N, NdotL);
 
 	// Cross-fade near the chosen cascade's border into the next one (which fully covers this
 	// region). `edge` is the distance to the nearest UV border (0.5 at centre, 0 at the seam).
 	const float kBand = 0.10;
-	int cascadeCount = int(u_ShadowParams.w);
+	int cascadeCount = int(DirectionalShadow[light].z);
 	if (c + 1 < cascadeCount)
 	{
-		vec4  lc  = u_LightViewProj[c] * vec4(worldPos, 1.0);
+		vec4  lc  = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
 		vec2  uv  = (lc.xy / lc.w) * 0.5 + 0.5;
 		float edge = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
 		if (edge < kBand)
 		{
-			float next = sampleCascade(c + 1, worldPos, N, NdotL);
+			float next = sampleCascade(light, c + 1, worldPos, N, NdotL);
 			shadow = mix(next, shadow, clamp(edge / kBand, 0.0, 1.0));
 		}
 	}
@@ -247,22 +263,22 @@ float ShadowFactor(vec3 worldPos, vec3 N, vec3 L, out int cascadeOut)
 // the projection's depth range) and ShadowFilteringCommon.ush CalculateShadowVisibilityTransmittanceFactor
 // (transmittance exp( -thickness * density ) per texel, a texel never written transmits all), adapted: the caster
 // bias is already in the map's depth (Graphic::CascadeCasterBias), so the receiver's depth is taken as is; the
-// map depth turns into centimetres through the cascade's u_CascadeDepthRange; the four texels of one gather are
+// map depth turns into centimetres through the cascade's CascadeDepthRange; the four texels of one gather are
 // filtered bilinearly, as shadowCompare2x2 filters the opaque comparison.
 // A leaf's own far side reads the leaf at its own depth (thickness 0, the light passes); a leaf deep inside a hedge
 // reads the hedge's sunward surface tens of centimetres nearer the sun and transmits nothing.
 // `density`: per centimetre (Common/ContactShadow.glslh ContactShadowSubsurfaceDensity of the receiver's opacity).
-float sampleCascadeTransmission(int c, vec3 worldPos, float density)
+float sampleCascadeTransmission(int light, int c, vec3 worldPos, float density)
 {
-	vec4 lightClip = u_LightViewProj[c] * vec4(worldPos, 1.0);
+	vec4 lightClip = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
 	vec3 ndc       = lightClip.xyz / lightClip.w;
 	vec2 uv        = ndc.xy * 0.5 + 0.5;
 	uv.y           = 1.0 - uv.y; // the negative-height viewport, as sampleCascade
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
 		return 1.0;
 
-	const vec4  occluder   = gatherShadowMap(c, uv);
-	const float depthRange = max(u_CascadeDepthRange[c], 1e-3); // world cm per unit of map depth
+	const vec4  occluder   = gatherShadowMap(light, c, uv);
+	const float depthRange = max(CascadeDepthRange[light][c], 1e-3); // world cm per unit of map depth
 	const vec4  thickness  = max(vec4(ndc.z) - occluder, vec4(0.0)) * depthRange;
 	vec4        through    = clamp(exp(-thickness * density), vec4(0.0), vec4(1.0));
 	through                = mix(through, vec4(1.0), step(vec4(0.99), occluder)); // UE: depth > .99 never written
@@ -272,23 +288,23 @@ float sampleCascadeTransmission(int c, vec3 worldPos, float density)
 
 // The cascades' TransmissionShadow at worldPos: the cascade ShadowFactor chooses, cross-faded into the next one
 // across the same border band, so the transmitted light and the surface light change cascade together.
-float TransmissionShadowFactor(vec3 worldPos, float density)
+float TransmissionShadowFactor(int light, vec3 worldPos, float density)
 {
-	if (u_ShadowParams.y < 0.5)
+	if (DirectionalShadow[light].y < 0.5)
 		return 1.0;
-	const int c = chooseCascade(worldPos);
+	const int c = chooseCascade(light, worldPos);
 	if (c < 0)
 		return 1.0;
-	float     through      = sampleCascadeTransmission(c, worldPos, density);
-	const int cascadeCount = int(u_ShadowParams.w);
+	float     through      = sampleCascadeTransmission(light, c, worldPos, density);
+	const int cascadeCount = int(DirectionalShadow[light].z);
 	if (c + 1 < cascadeCount)
 	{
 		const float kBand = 0.10;
-		vec4        lc    = u_LightViewProj[c] * vec4(worldPos, 1.0);
+		vec4        lc    = LightViewProjection[cascadeView(light, c)] * vec4(worldPos, 1.0);
 		vec2        uv    = (lc.xy / lc.w) * 0.5 + 0.5;
 		float       edge  = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
 		if (edge < kBand)
-			through = mix(sampleCascadeTransmission(c + 1, worldPos, density), through, clamp(edge / kBand, 0.0, 1.0));
+			through = mix(sampleCascadeTransmission(light, c + 1, worldPos, density), through, clamp(edge / kBand, 0.0, 1.0));
 	}
 	return through;
 }

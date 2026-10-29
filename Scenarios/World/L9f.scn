@@ -1,0 +1,44 @@
+# L9f: the dark notch across the L9e Cube slab at the MIDDLE control point (the joint of the two segments).
+# Same road and slab as L9e.scn; cameras low and close at the joint (9282, ~1400, -1906), then the slab lifted
+# 100 cm (UE CenterAdjust): a notch that survives the lift is in the joint geometry, one that goes was ground.
+# The scenario does not save; still `git checkout -- Projects/Desert/Content/Scenes/G3_TwoTerrains*` after a play.
+Дано run View "View mode: Lit"
+Дано run Scene "Open Scene G3_TwoTerrains.desce"
+Дано run Landscape "Sculpt mode"
+Дано run Landscape "Tool: Splines"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline width: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано run Landscape "Spline side falloff: smaller"
+Дано --subject viewport set Camera.Direction 0.001,-1,0.001
+Дано --subject viewport set Camera.Position 6300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 9282,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано --subject viewport set Camera.Position 12300,9000,-1906
+Дано run Landscape "Spline: add control point at viewport centre"
+Дано run Landscape "Spline mesh: engine Cube slab 400 x 20 cm"
+Когда --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда --subject viewport set Camera.Position 9282,3600,-1906
+Когда state
+Тогда-вид 0_joint from above, close: the slab continuous across the middle point, no dark notch, no visible seam
+Когда --subject viewport set Camera.Position 9282,2300,-3100
+Когда --subject viewport set Camera.Direction 0,-0.602,0.798
+Когда state
+Тогда-вид 0b_joint_side low and close from the side: the slab top continuous over the hill top, nothing pokes through it
+Когда run Landscape "Spline mesh: lift 100 cm"
+Когда state
+Тогда-вид 1_lifted the slab 100 cm above the road and still continuous at the joint (the joint geometry itself is closed)
+Когда --subject viewport set Camera.Direction 0.001,-1,0.001
+Когда --subject viewport set Camera.Position 9282,3600,-1906
+Когда state
+Тогда-вид 1b_lifted_top from above: the lifted slab continuous across the middle point

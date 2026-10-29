@@ -1,0 +1,127 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "0f729185ea454070b585abdd399769ff",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": [
+            "2ca20b839c0f4b64a386aa77417e945f",
+            "de833da1c590167f50019798f398e4ba",
+            "7882ab6261358370aac1050c75c873ae",
+            "22b01fc09c9534c2581e85dbffde50d1",
+            "846f14ac1c08275836d88709f10f6bc3"
+        ]
+    },
+    "Shader": {
+        "Guid": "2ca20b839c0f4b64a386aa77417e945f",
+        "Path": "engine:Shaders/Programs/Surface/GrassBladeSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "AlbedoColor",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "RoughnessFactor",
+            "Value": [
+                1.0,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "OpacityMaskClipValue",
+            "Value": [
+                0.35,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "OpacityChannel",
+            "Value": [
+                0.0,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "ClumpTintCool",
+            "Value": [
+                0.9,
+                0.95,
+                0.9,
+                1.0
+            ]
+        },
+        {
+            "Name": "ClumpTintWarm",
+            "Value": [
+                1.15,
+                1.05,
+                0.85,
+                1.0
+            ]
+        },
+        {
+            "Name": "RootOcclusion",
+            "Value": [
+                0.5,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "SubsurfaceOpacity",
+            "Value": [
+                0.25,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "SubsurfaceColor",
+            "Value": [
+                1.0,
+                1.0,
+                0.6,
+                1.0
+            ]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "de833da1c590167f50019798f398e4ba",
+            "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_02/textures/grass_medium_02_diff_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "7882ab6261358370aac1050c75c873ae",
+            "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_02/textures/grass_medium_02_arm_2k_ORMTexture.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "22b01fc09c9534c2581e85dbffde50d1",
+            "Path": "assets:Environments/FieldBarn/Meshes/grass_medium_02/textures/grass_medium_02_nor_gl_2k.detex"
+        },
+        {
+            "Name": "OpacityTexture",
+            "Guid": "846f14ac1c08275836d88709f10f6bc3",
+            "Path": "assets:Textures/FieldBarn/grass_medium_02_alpha_2k.detex"
+        }
+    ],
+    "CloudAssets": [],
+    "TwoSided": true
+}

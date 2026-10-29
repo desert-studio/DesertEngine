@@ -7,6 +7,10 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <algorithm>
+#include <cstring>
+#include <type_traits>
+
 namespace Desert::Graphic
 {
     void Texture2D::ReleaseImage()
@@ -79,15 +83,85 @@ namespace Desert::Graphic
         cooked.ColorSpace = data.ColorSpace;
         cooked.Pixels = std::move( data.Pixels );
         cooked.Levels = std::move( spans );
+        cooked.FullWidth  = cooked.Width;
+        cooked.FullHeight = cooked.Height;
+        cooked.FullLevelBytes.reserve( cooked.Levels.size() );
+        for ( const Core::Formats::MipLevelSpan& level : cooked.Levels )
+            cooked.FullLevelBytes.push_back( level.ByteSize );
         return Common::MakeSuccess( std::move( cooked ) );
+    }
+
+    Common::ResultStr<CookedTexture2D> Texture2D::ReadCookedMips( const std::filesystem::path& cookedPath,
+                                                                  const uint32_t               firstMip,
+                                                                  const uint32_t               tailSize )
+    {
+        auto cooked = ReadCooked( cookedPath );
+        if ( !cooked.IsSuccess() )
+            return cooked;
+        CookedTexture2D texture = cooked.ExtractValue();
+        uint32_t        first   = firstMip;
+        if ( firstMip == kStreamingTail )
+        {
+            first = 0;
+            while ( std::max( texture.FullWidth >> first, texture.FullHeight >> first ) > tailSize &&
+                    first + 1 < texture.Levels.size() )
+                ++first;
+        }
+        texture.KeepFromMip( first );
+        return Common::MakeSuccess( std::move( texture ) );
+    }
+
+    void CookedTexture2D::KeepFromMip( const uint32_t firstMip )
+    {
+        if ( Levels.empty() )
+            return;
+        const uint32_t first = std::min<uint32_t>( firstMip, static_cast<uint32_t>( Levels.size() ) - 1 );
+        if ( first == FirstMip )
+            return;
+        // Levels are always counted from the asset's level 0 by the caller; this texture may already be trimmed.
+        if ( first < FirstMip )
+            return;
+        const uint32_t drop    = first - FirstMip;
+        auto           compact = [&]( auto& blob )
+        {
+            using Element = typename std::remove_reference_t<decltype( blob )>::value_type;
+            std::remove_reference_t<decltype( blob )> kept;
+            uint64_t                                  bytes = 0;
+            for ( std::size_t level = drop; level < Levels.size(); ++level )
+                bytes += Levels[level].ByteSize;
+            kept.resize( static_cast<std::size_t>( bytes / sizeof( Element ) ) );
+            uint64_t                                 offset = 0;
+            std::vector<Core::Formats::MipLevelSpan> spans;
+            for ( std::size_t level = drop; level < Levels.size(); ++level )
+            {
+                std::memcpy( reinterpret_cast<unsigned char*>( kept.data() ) + offset,
+                             reinterpret_cast<const unsigned char*>( blob.data() ) + Levels[level].ByteOffset,
+                             static_cast<std::size_t>( Levels[level].ByteSize ) );
+                spans.push_back( { offset, Levels[level].ByteSize } );
+                offset += Levels[level].ByteSize;
+            }
+            blob   = std::move( kept );
+            Levels = std::move( spans );
+        };
+        if ( auto* u8 = std::get_if<std::vector<unsigned char>>( &Pixels ) )
+            compact( *u8 );
+        else if ( auto* f32 = std::get_if<std::vector<float>>( &Pixels ) )
+            compact( *f32 );
+        else
+            return; // a bare pointer carries no length to compact from: kept whole
+        FirstMip = first;
+        Width    = std::max( 1u, FullWidth >> first );
+        Height   = std::max( 1u, FullHeight >> first );
     }
 
     Common::ResultStr<std::shared_ptr<Texture2D>> Texture2D::CreateFromCooked( CookedTexture2D       cooked,
                                                                                const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
-        texture->m_Width  = cooked.Width;
-        texture->m_Height = cooked.Height;
+        texture->m_Width      = cooked.Width;
+        texture->m_Height     = cooked.Height;
+        texture->m_FullWidth  = cooked.FullWidth;
+        texture->m_FullHeight = cooked.FullHeight;
 
         const std::size_t                         levelCount = cooked.Levels.size();
         const Core::Formats::Image2DSpecification imageSpec  = { .Tag        = cooked.Tag,
@@ -112,13 +186,58 @@ namespace Desert::Graphic
         return Common::MakeSuccess( texture );
     }
 
+    Common::BoolResultStr Texture2D::ReplaceLevels( CookedTexture2D cooked, const TextureBackend& backend )
+    {
+        auto* current = m_Service != nullptr ? dynamic_cast<Image2D*>( m_Service->Resolve( m_Handle ) ) : nullptr;
+        if ( current == nullptr )
+            return Common::MakeFormattedError<bool>( "texture '{}' has no resident image to replace", cooked.Tag );
+        const uint32_t                            width = cooked.Width, height = cooked.Height;
+        const std::size_t                         levelCount = cooked.Levels.size();
+        const Core::Formats::Image2DSpecification imageSpec  = { .Tag        = cooked.Tag,
+                                                                 .Width      = cooked.Width,
+                                                                 .Height     = cooked.Height,
+                                                                 .Format     = cooked.Format,
+                                                                 .Data       = std::move( cooked.Pixels ),
+                                                                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                                                                 .Properties = Core::Formats::Sample,
+                                                                 .MipLevels  = std::move( cooked.Levels ),
+                                                                 .ColorSpace = cooked.ColorSpace };
+        const std::shared_ptr<Image2D>            staged     = backend.Images.CreateImage2D( imageSpec );
+        if ( !staged )
+            return Common::MakeFormattedError<bool>(
+                 "the GPU image for texture '{}' ({}x{}, {} levels) was not created", imageSpec.Tag, width, height,
+                 levelCount );
+        // The ledger row moves with the pixels: the staged image is the asset's until it dies holding the old
+        // ones.
+        staged->ClaimOwnership( current->GetResourceOwner(), current->GetOwningAsset() );
+        if ( auto taken = current->TakeDeviceImageFrom( *staged ); !taken.IsSuccess() )
+            return taken;
+        m_Width  = width;
+        m_Height = height;
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr Texture2D::StreamOutLevels( const uint32_t droppedLevels )
+    {
+        auto* current = m_Service != nullptr ? dynamic_cast<Image2D*>( m_Service->Resolve( m_Handle ) ) : nullptr;
+        if ( current == nullptr )
+            return Common::MakeError<bool>( "the texture has no resident image to stream out of" );
+        if ( auto dropped = current->StreamOutLevels( droppedLevels ); !dropped.IsSuccess() )
+            return dropped;
+        m_Width  = std::max( 1u, m_Width >> droppedLevels );
+        m_Height = std::max( 1u, m_Height >> droppedLevels );
+        return Common::MakeSuccess( true );
+    }
+
     Common::ResultStr<std::shared_ptr<Texture2D>>
     Texture2D::Create( const std::string& tag, uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
                        Core::Formats::ImagePixelData&& data, const TextureBackend& backend )
     {
         auto texture      = std::make_shared<Texture2D>();
-        texture->m_Width  = width;
-        texture->m_Height = height;
+        texture->m_Width      = width;
+        texture->m_Height     = height;
+        texture->m_FullWidth  = width;
+        texture->m_FullHeight = height;
 
         const Core::Formats::Image2DSpecification imageSpec = {
             .Tag        = tag,

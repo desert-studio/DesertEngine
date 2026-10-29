@@ -18,6 +18,19 @@
 #include <format>
 #include <utility>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshVirtualShadowShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmFrameData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmPageTable );
+        DESERT_SHADER_PARAMETER( StorageTexture, PhysicalPoolTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmRasterLevel );
+        DESERT_SHADER_PARAMETER( StorageBuffer, VsmInstanceRemap );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     using MeshRendererDetail::MeshDrawCommand;
@@ -185,7 +198,7 @@ namespace Desert::Graphic::System
             if ( rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
             SignatureHash hash;
-            hash.Add( rd.Mesh );
+            hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
@@ -207,7 +220,7 @@ namespace Desert::Graphic::System
             if ( g.Mesh == nullptr || !g.CastShadows )
                 continue;
             SignatureHash hash;
-            hash.Add( g.Mesh );
+            hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
             hash.Add( g.VisibleSubmeshMask );
             hash.Add( ComputeLOD( g.Transform, g.Mesh, -1 ) );
@@ -236,7 +249,7 @@ namespace Desert::Graphic::System
             }
             // Keyed by its snapshot, as the cascades' cache is (m_VsmKeySnapshots keeps the address unique).
             SignatureHash hash;
-            hash.Add( ism.Mesh );
+            hash.Add( ism.Mesh->GetRenderRevision() );
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );
@@ -433,13 +446,18 @@ namespace Desert::Graphic::System
             const VirtualShadowBlockParameters parameters =
                  [&frame, level, remap]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
             {
-                block.Storage( "VsmFrameData", frame.FrameData, RDG::Access::StorageRead )
-                     .Storage( "VsmPageTable", frame.PageTable, RDG::Access::StorageRead )
-                     .Storage( "u_PhysicalPool", frame.PhysicalPool, RDG::Access::StorageWrite )
-                     .Storage( "VsmRasterLevel", frame.RasterLevel[level], RDG::Access::StorageRead );
+                block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
+                               RDG::Access::StorageRead )
+                     .Storage( MeshVirtualShadowShaderParameters::VsmPageTable, frame.PageTable,
+                               RDG::Access::StorageRead )
+                     .Storage( MeshVirtualShadowShaderParameters::PhysicalPoolTexture, frame.PhysicalPool,
+                               RDG::Access::StorageWrite )
+                     .Storage( MeshVirtualShadowShaderParameters::VsmRasterLevel, frame.RasterLevel[level],
+                               RDG::Access::StorageRead );
                 if ( std::any_of( layout.Slots.begin(), layout.Slots.end(),
                                   []( const RDG::ShaderSlot& slot ) { return slot.Name == "VsmInstanceRemap"; } ) )
-                    block.Storage( "VsmInstanceRemap", remap, RDG::Access::StorageRead );
+                    block.Storage( MeshVirtualShadowShaderParameters::VsmInstanceRemap, remap,
+                                   RDG::Access::StorageRead );
             };
             graph.AddPass(
                  std::format( "VSM: Raster L{}", level ), RDG::PassFlags::Raster,

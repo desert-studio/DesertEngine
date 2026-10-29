@@ -3,8 +3,11 @@
         "Kind": "Scene",
         "Guid": "5d1e7c0a2b9f4e3c8a6d1f0b7e2c9a41",
         "Versions": {
-            "SCNE": 66,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "a0f8d89f476e4abfb22847b902230cb7", "e12666e7f7b0b5c39c12214da879324e"]
     },
@@ -14,8 +17,8 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.614159345626831, 0.30455127358436584, -0.09725314378738403],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -138,9 +141,72 @@
                 "CollisionProfile": "BlockAll"
             },
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4001,
+            "siblingIndex": 4,
+            "Tag": "Crate",
+            "Translation": [0.0, 250.0, 0.0],
+            "Rotation": [0.30000001192092896, 0.0, 0.4000000059604645],
+            "Scale": [1.0, 1.0, 1.0],
+            "Destructible": {
+                "Source": 0,
+                "Fracture": "assets:Fractures/Crate.dfrac",
+                "RuntimeSites": 12,
+                "ImpactRadius": 50.0,
+                "ImpactShells": 3,
+                "ImpactSitesPerShell": 8,
+                "InteriorMaterial": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "DamageThreshold": [50000.0, 50000.0],
+                "AnchoredNodes": [],
+                "DensityKgPerCm3": 0.002400000113993883,
+                "Friction": 0.6000000238418579,
+                "Restitution": 0.10000000149011612,
+                "RemoveOnSleep": true,
+                "MaxSleepTime": [5.0, 10.0],
+                "SlowMovingAsSleeping": true,
+                "SlowMovingVelocityThreshold": 1.0,
+                "NotifyBreaks": true,
+                "NotifyCollisions": true,
+                "NotifyRemovals": true,
+                "CollisionEventMinImpulse": 1000.0
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/DestructionDust.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4002,
+            "siblingIndex": 5,
+            "Tag": "Dust",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "VFX": {
+                "System": "assets:VFX/DestructionDust.dfx",
+                "AutoActivate": true,
+                "Overrides": [],
+                "PointSets": []
             }
         },
         {
@@ -174,6 +240,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
@@ -202,56 +279,6 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
-            }
-        },
-        {
-            "id": 4001,
-            "siblingIndex": 4,
-            "Tag": "Crate",
-            "Translation": [0.0, 250.0, 0.0],
-            "Rotation": [0.30000001192092896, 0.0, 0.4000000059604645],
-            "Scale": [1.0, 1.0, 1.0],
-            "Destructible": {
-                "Source": 0,
-                "Fracture": "Fractures/Crate.dfrac",
-                "RuntimeSites": 12,
-                "ImpactRadius": 50.0,
-                "ImpactShells": 3,
-                "ImpactSitesPerShell": 8,
-                "InteriorMaterial": "",
-                "DamageThreshold": [50000.0, 50000.0],
-                "AnchoredNodes": [],
-                "DensityKgPerCm3": 0.002400000113993883,
-                "Friction": 0.6000000238418579,
-                "Restitution": 0.10000000149011612,
-                "RemoveOnSleep": true,
-                "MaxSleepTime": [5.0, 10.0],
-                "SlowMovingAsSleeping": true,
-                "SlowMovingVelocityThreshold": 1.0,
-                "NotifyBreaks": true,
-                "NotifyCollisions": true,
-                "NotifyRemovals": true,
-                "CollisionEventMinImpulse": 1000.0
-            },
-            "Script": {
-                "Scripts": [
-                    {
-                        "ScriptKey": "assets:Scripts/Examples/DestructionDust.lua",
-                        "Props": []
-                    }
-                ]
-            }
-        },
-        {
-            "id": 4002,
-            "siblingIndex": 5,
-            "Tag": "Dust",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "VFX": {
-                "System": "VFX/DestructionDust.dfx",
-                "AutoActivate": true
             }
         }
     ],

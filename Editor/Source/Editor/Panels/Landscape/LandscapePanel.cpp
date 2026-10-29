@@ -13,7 +13,7 @@
 
 #include "LandscapePanel.hpp"
 
-#include <Editor/Core/Commands/LandscapeLayerCommands.hpp>
+#include <Editor/Panels/Landscape/LandscapeLayerCommands.hpp>
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ToastManager.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -34,6 +34,7 @@
 #include <array>
 #include <cstdio>
 #include <filesystem>
+#include <format>
 #include <string>
 
 namespace Desert::Editor
@@ -50,7 +51,7 @@ namespace Desert::Editor
 
         // UE's Sculpt mode strip, in its order (LandscapeEdMode.cpp:231-244); Visibility and Mask are absent
         // because this landscape has no visibility layer and no selection mask to paint.
-        constexpr std::array<ToolButton, 10> kSculptTools = { {
+        constexpr std::array<ToolButton, 11> kSculptTools = { {
              { Core::LandscapeTool::Sculpt, ICON_MDI_BRUSH },
              { Core::LandscapeTool::Erase, ICON_MDI_ERASER },
              { Core::LandscapeTool::Smooth, ICON_MDI_BLUR },
@@ -61,6 +62,7 @@ namespace Desert::Editor
              { Core::LandscapeTool::HydroErosion, ICON_MDI_WEATHER_POURING },
              { Core::LandscapeTool::CopyPaste, ICON_MDI_CONTENT_COPY },
              { Core::LandscapeTool::Mirror, ICON_MDI_FLIP_HORIZONTAL },
+             { Core::LandscapeTool::Splines, ICON_MDI_VECTOR_CURVE },
         } };
 
         /// A button lit with the editor's one accent colour when @p active (UE's checked tool-strip entry).
@@ -194,13 +196,11 @@ namespace Desert::Editor
             return;
         auto& s = Core::LandscapeSculptState::Get().NewLandscape;
         ImGui::DragFloat3( "Location (cm)", &s.LocationCm.x, 100.0f );
-        if ( ImGui::BeginCombo( "Section Size", ( std::to_string( s.QuadsPerTile ) + "x" +
-                                                  std::to_string( s.QuadsPerTile ) + " Quads" )
-                                                     .c_str() ) )
+        if ( ImGui::BeginCombo( "Section Size",
+                                std::format( "{}x{} Quads", s.QuadsPerTile, s.QuadsPerTile ).c_str() ) )
         {
             for ( const uint32_t q : L::kLandscapeTileQuadsValues )
-                if ( ImGui::Selectable( ( std::to_string( q ) + "x" + std::to_string( q ) + " Quads" ).c_str(),
-                                        q == s.QuadsPerTile ) )
+                if ( ImGui::Selectable( std::format( "{}x{} Quads", q, q ).c_str(), q == s.QuadsPerTile ) )
                     s.QuadsPerTile = q;
             ImGui::EndCombo();
         }
@@ -251,9 +251,8 @@ namespace Desert::Editor
         if ( Commands::IsCreatingLandscape() )
         {
             const float fraction = Commands::CreateLandscapeFraction();
-            ImGui::ProgressBar(
-                 fraction, ImVec2( -FLT_MIN, 0.0f ),
-                 ( "Generating " + std::to_string( static_cast<int>( fraction * 100.0f ) ) + " %" ).c_str() );
+            ImGui::ProgressBar( fraction, ImVec2( -FLT_MIN, 0.0f ),
+                                std::format( "Generating {} %", static_cast<int>( fraction * 100.0f ) ).c_str() );
             ImGui::BeginDisabled();
             ImGui::Button( ICON_MDI_CHECK "  Create", ImVec2( -FLT_MIN, 0.0f ) );
             ImGui::EndDisabled();

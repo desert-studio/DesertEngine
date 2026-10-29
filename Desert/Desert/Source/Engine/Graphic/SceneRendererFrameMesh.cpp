@@ -128,7 +128,7 @@ namespace Desert::Graphic
         {
             // OnUpdate's frame decision: under "Shadows: Ray Traced Sun" the composite and the opaque programs
             // read the screen mask, and the cascades are drawn only for the blended programs that sample them.
-            if ( m_FrameSunCascades )
+            if ( m_FrameCascades )
                 AddFrameSunCascades( graph, textures, *mesh );
             // The local lights' views LOAD the atlas: each clears and draws only its own tile, and a tile whose
             // light and casters stood still keeps last frame's depth (it has no pass at all).
@@ -386,12 +386,14 @@ namespace Desert::Graphic
              textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer, rayTracedSun = SunShadowIsScreenMask()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun ); } );
+             [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
+              localShadowMasks = LocalShadowsAreRayTraced()]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
-                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask )
+                                         System::MeshRenderer* meshRenderer, const RDG::TextureRef sunShadowMask,
+                                         const RDG::TextureRef localShadowMasks )
     {
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Generic" );
         if ( !targets || meshRenderer == nullptr )
@@ -403,6 +405,12 @@ namespace Desert::Graphic
         // declared (AddFrameRayTracedSunShadow logged it) leaves the sun unshadowed, as in the composite.
         if ( SunShadowIsScreenMask() )
             view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
+        // Under ray-traced local shadows the opaque programs read the masks in place of the atlas (the prepass chose
+        // the same permutation by LocalShadowsAreRayTraced). The masks exist whenever the frame traced them
+        // (AddFrameRayTracedLocalShadows packs at least one layer); a pack that failed (logged there) leaves them
+        // invalid and the draws on the atlas program - no stand-in array is read in place of a missing mask.
+        if ( LocalShadowsAreRayTraced() )
+            view.LocalShadowMasks = localShadowMasks;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
@@ -434,22 +442,31 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
-    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )
+    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
-        if ( water == nullptr || !water->HasDraws() )
+        if ( water == nullptr || !water->HasDraws() || !sceneCopy.IsValid() )
             return;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the fog and the particles after it see the surface.
+        // depth, so the glass, the fog and the particles after it see the surface. It samples the opaque scene's
+        // copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image
+        // from the scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( meshRenderer == nullptr )
+            return;
+        const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return water->RenderManual( context ); },
-             [water]( RDG::PassBuilder& pass ) { water->DeclareDraws( pass ); } );
+             { return water->RenderManual( context ); }, [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, view, frame ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -457,7 +474,7 @@ namespace Desert::Graphic
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( meshRenderer == nullptr )
+        if ( meshRenderer == nullptr || !meshRenderer->EnsureOverdrawPass() )
             return;
         const auto accum =
              TargetsOf( textures, meshRenderer->GetOverdrawFramebuffer(), "Overdraw", "Debug: Overdraw" );
@@ -471,7 +488,7 @@ namespace Desert::Graphic
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderOverdrawAccumManual( context ); },
              [meshRenderer]( RDG::PassBuilder& pass ) { meshRenderer->DeclareOverdrawDraws( pass ); } );
-        // The accumulation is read through the resolve's block (its u_Overdraw entry is the node's read).
+        // The accumulation is read through the resolve's block (its OverdrawTexture entry is the node's read).
         AddRaster(
              graph, "Debug: Overdraw Resolve", *scene, textures.ColorLoads( *scene, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr

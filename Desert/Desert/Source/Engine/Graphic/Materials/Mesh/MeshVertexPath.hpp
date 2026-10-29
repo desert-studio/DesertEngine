@@ -145,9 +145,14 @@ namespace Desert::Graphic
         // vertices the stage bends, tapers, colours and sways from the variety's GrassBladeShape (binding 13).
         // Only a template that declares `Usage GrassBlades` has its cells; it draws in the passes a mesh does.
         GrassBlade = 4,
+        // A camera-facing strip through an emitter's live particles in age order (UE: the Niagara ribbon vertex
+        // factory, a material's "Used with Niagara Ribbons"), pulled from the same attribute columns / alive list
+        // as the sprite path plus the pool's slots (binding 13, which particles are alive). Only a template that
+        // declares `Usage ParticleRibbons` has its cell (ParticleRibbon.Forward); drawn by ParticleRenderer only.
+        ParticleRibbon = 5,
     };
 
-    inline constexpr uint32_t kMeshVertexPathCount = 5;
+    inline constexpr uint32_t kMeshVertexPathCount = 6;
 
     // What the fragment stage of the draw WRITES. Orthogonal to the path above: the same geometry can be
     // rasterized into the lit scene, into the deferred G-buffer, into the transparent composite or into a

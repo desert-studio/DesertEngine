@@ -232,15 +232,28 @@ namespace Desert::Graphic
     ScreenProbeGatherHistory::Refs ScreenProbeGatherHistory::CreateCurrent( RDG::Builder&    graph,
                                                                             const ViewExtent extent )
     {
-        // The other slot held the set of two frames ago, which nothing registers any more; emptied first so a
-        // frame whose extraction does not happen leaves no stale image in it.
+        // The other slot holds the set of two frames ago, which nothing reads any more. This frame writes into
+        // those same images (UE: the pooled render target the history released is the one the next frame gets
+        // back), so the view holds exactly two sets: current and previous. Releasing them and creating a fresh
+        // set instead kept a third alive until the frame-in-flight that last used them retired. The write is
+        // ordered after the older frame's reads by the registered state's barrier on the same queue. A set of
+        // another size or format is released and created anew.
         std::array<RDG::ExternalTexture, TextureCount>& next = m_Slots[m_PreviousSlot ^ 1u];
-        next                                                 = {};
+        bool                                            reusable = !AnyMissing( next );
+        for ( uint32_t i = 0; reusable && i < TextureCount; ++i )
+        {
+            const RDG::TextureDesc wanted = Desc( static_cast<Texture>( i ), extent );
+            reusable                      = next[i].Desc.Size.Width == wanted.Size.Width &&
+                       next[i].Desc.Size.Height == wanted.Size.Height && next[i].Desc.Format == wanted.Format;
+        }
+        if ( !reusable )
+            next = {};
         Refs current;
         for ( uint32_t i = 0; i < TextureCount; ++i )
         {
-            current[i] =
-                 graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ), kScreenProbeHistoryNames[i] );
+            current[i] = reusable ? graph.RegisterExternal( next[i], kScreenProbeHistoryNames[i] )
+                                  : graph.CreateTexture( Desc( static_cast<Texture>( i ), extent ),
+                                                         kScreenProbeHistoryNames[i] );
             graph.Extract( current[i], next[i], RDG::Access::SampledCompute );
         }
         m_CurrentExtent = extent;
@@ -391,7 +404,7 @@ namespace Desert::Graphic
         const auto split = MakeResolutionSplit( inputs.Output, inputs.RenderScalePercent );
         if ( !split.IsSuccess() )
             return Common::MakeError<ViewFrame>( split.GetError() );
-        const auto method = SelectTemporalMethod( inputs.AntiAliasing, split.GetValue(), inputs.Upscaler );
+        const auto method = SelectTemporalMethod( inputs.AntiAliasing, split.GetValue() );
         if ( !method.IsSuccess() )
             return Common::MakeError<ViewFrame>( method.GetError() );
 
@@ -438,18 +451,6 @@ namespace Desert::Graphic
                 return Common::MakeError<ViewFrame>( named.GetError() );
         }
 
-        // A BeginFrame whose frame never reached EndFrame (FrameFault, no graph): it never happened. Only ITS
-        // motion records go; the previous frame's stay, since they belong to the committed frame that this
-        // frame's Prev* matrices and history textures also belong to.
-        if ( m_FrameOpen )
-            m_Motion.DiscardCurrent();
-
-        if ( inputs.SceneIdentity != m_SceneIdentity )
-        {
-            m_Motion.Clear();
-            m_SceneIdentity = inputs.SceneIdentity;
-        }
-
         const bool historyRecreated = m_History.Prepare( descs );
 
         // Compared with the camera of the COMMITTED frame (the one the history and every Prev* belong to); this
@@ -470,8 +471,6 @@ namespace Desert::Graphic
         else if ( methodChanged )
             reset = HistoryResetReason::TemporalMethodChange;
         const bool isReset = reset != HistoryResetReason::None;
-        if ( isReset )
-            m_Motion.Clear(); // "or the history was reset": no previous transform survives a reset
 
         ViewFrame f;
         f.FrameIndex = m_HasCommitted ? m_Committed.FrameIndex + 1 : 0;
@@ -516,6 +515,9 @@ namespace Desert::Graphic
         f.TimeSeconds     = inputs.TimeSeconds;
         f.PrevTimeSeconds = isReset ? inputs.TimeSeconds : m_Committed.TimeSeconds;
         f.DeltaSeconds    = static_cast<float>( f.TimeSeconds - f.PrevTimeSeconds );
+        // A reset has no history to rescale: the previous scale is this frame's own.
+        f.PreExposure     = ScenePreExposure( inputs.LastExposure );
+        f.PrevPreExposure = isReset ? f.PreExposure : m_Committed.PreExposure;
 
         // Only a TEMPORAL method reconstructs output-pixel detail from the jittered samples; the spatial
         // upscale has one sample per render pixel, and a negative bias there only aliases. The rule is the
@@ -560,11 +562,6 @@ namespace Desert::Graphic
         return m_History;
     }
 
-    MotionHistory& SceneViewState::Motion()
-    {
-        return m_Motion;
-    }
-
     void SceneViewState::EndFrame( const RDG::ExecuteReport& report )
     {
         m_Committed               = m_Pending;
@@ -578,7 +575,6 @@ namespace Desert::Graphic
         m_Clouds.EndFrame( report );
         m_ScreenProbeGather.EndFrame( report );
         m_History.Swap();
-        m_Motion.EndFrame();
     }
 
     void SceneViewState::Reset()
@@ -587,7 +583,6 @@ namespace Desert::Graphic
         m_ScreenProbeGather.Reset();
         m_History.Release();
         m_UpscalerHistory.reset();
-        m_Motion.Clear();
         m_HasCommitted            = false;
         m_Pending                 = ViewFrame{};
         m_Committed               = ViewFrame{};

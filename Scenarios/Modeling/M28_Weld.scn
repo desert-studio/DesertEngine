@@ -1,0 +1,21 @@
+# M28 Weld Edges (UE UWeldMeshEdgesTool, MeshOps palette "Mesh"): Box 100 cm with its top face disconnected in PolyModel (UE PolyEdit Disconnect) -> the open edges shown by Hole Fill -> Weld Edges (preview, the open edges left drawn red) -> Accept -> Undo. Wireframe, seen from above and to the side.
+Дано run View "View mode: Wireframe"
+Дано --subject viewport set Camera.Direction 0.3,-0.9,0.3
+Дано run Modeling "Create shape tool: Box"
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,0,0
+Дано run Entity Box
+Дано run "Level Viewport" "Focus Selected"
+Дано run Modeling "Select Elements tool"
+Дано run Modeling "Mesh selection mode: PolyGroup"
+Дано run Modeling "Mesh selection: pick at the viewport centre"
+Дано run Modeling "Mesh operation: Disconnect"
+Дано run Modeling "Mesh tool: Hole Fill"
+Тогда 0_open the top face's perimeter is drawn as open edges (red rims: the lid's and the walls'); the Mesh palette shows Hole Fill "Holes: 0 selected of 2"; the log reports the Disconnect with open edges > 0
+Когда run Modeling "Mesh tool: Weld Edges"
+Тогда 1_weld no open edge is drawn; the Mesh palette shows Weld Edges with "8 open edges, 4 edge pairs welded ..., 0 open edges remain"
+Когда run Modeling "Active tool: Accept"
+Тогда-вид 1_weld_accepted after Accept the Box is whole in wireframe (the tool ended); the log has "Weld Edges accepted: 8 open edges, 4 edge pairs welded, 0 open edges remain"
+Когда run Action Undo
+Когда run Modeling "Mesh tool: Hole Fill"
+Тогда 2_undo after Undo the top perimeter's open edges are drawn again (Hole Fill "Holes: 0 selected of 2")

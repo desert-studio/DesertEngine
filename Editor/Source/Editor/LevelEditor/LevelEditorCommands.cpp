@@ -1,11 +1,12 @@
 #include "Editor/LevelEditor/LevelEditorCommands.hpp"
+#include <Editor/Panels/ViewportPanel/Tools/VFXPaintTool.hpp>
 
 #include "Editor/Core/CommandHistory.hpp"
 #include "Editor/Core/Commands/SceneCommands.hpp"
 #include "Editor/Core/DebugCommands.hpp"
 #include "Editor/Core/DetailsNavigation.hpp"
 #include "Editor/Core/PanelRegistry.hpp"
-#include "Editor/Core/Rigging/HumanoidCommands.hpp"
+#include "Editor/Panels/SceneHierarchy/HumanoidCommands.hpp"
 #include "Editor/Core/SaveShortcut.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
 #include "Editor/Core/ToastManager.hpp"
@@ -26,6 +27,9 @@
 #include "Editor/Panels/Localization/LanguageCommands.hpp"
 #include "Editor/Panels/Modeling/ModelingCommands.hpp"
 #include "Editor/Panels/Scalability/AntiAliasingPaletteCommands.hpp"
+#include "Editor/Panels/Scalability/QualityLevelPaletteCommands.hpp"
+#include "Editor/Panels/Scalability/DisplayOutputPaletteCommands.hpp"
+#include "Editor/Panels/Scalability/NeuralPaletteCommands.hpp"
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include "Editor/Panels/UI/UICommands.hpp"
 #include "Editor/Panels/ViewportPanel/ViewportPanel.hpp"
@@ -85,6 +89,32 @@ namespace Desert::Editor
                                      out.push_back( std::move( command ) );
                                  }
                              } );
+        // Quality group levels: the Scalability panel's level combos, reachable from the control channel.
+        m_Commands.Register( "Quality",
+                             []( Out& out )
+                             {
+                                 for ( PaletteCommand& command : QualityLevelPaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                                 for ( PaletteCommand& command : QualityMethodOverridePaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                                 for ( PaletteCommand& command : QualityRenderScalePaletteCommands(
+                                            Common::Scalability::QualityState::Catalog() ) )
+                                     out.push_back( std::move( command ) );
+                             } );
+        // Display output (HDR-OUTPUT): the Scalability panel's Display Output combo, reachable from the control channel.
+        m_Commands.Register( "Display",
+                             []( Out& out )
+                             {
+                                 for ( PaletteCommand& command : DisplayOutputPaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                             } );
+        // The NN layer's forced kernel path (NN-RUNTIME): machine.json ForcedNeuralKernelPath, read by nn-check.
+        m_Commands.Register( "Neural",
+                             []( Out& out )
+                             {
+                                 for ( PaletteCommand& command : NeuralPaletteCommands() )
+                                     out.push_back( std::move( command ) );
+                             } );
         m_Commands.Register( "Clouds",
                              [&workspace]( Out& out ) { AppendCloudCommands( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Language", []( Out& out ) { AppendLanguageCommands( out ); } );
@@ -92,6 +122,8 @@ namespace Desert::Editor
         m_Commands.Register( "Entity", [this]( Out& out ) { m_EntityCommands.Append( out ); } );
         m_Commands.Register( "Modeling (Mesh To Collision)", [&workspace]( Out& out )
                              { AppendMeshToCollisionCommands( out, workspace.ActiveScene() ); } );
+        m_Commands.Register( "Modeling (Bake)", [this, &workspace]( Out& out )
+                             { AppendBakeCommands( out, workspace.ActiveScene(), m_Modules.AssetsSlot ); } );
         m_Commands.Register( "Entity (collapse)", []( Out& out ) { EntityCommands::AppendCollapse( out ); } );
         m_Commands.Register( "Menu", [this]( Out& out ) { m_Modules.Menu.AppendMenuCommands( out ); } );
         m_Commands.Register( "Level viewport", []( Out& out ) { AppendViewportCommands( out ); } );
@@ -117,6 +149,7 @@ namespace Desert::Editor
                                  AppendFoliageCommands( out, workspace.ActiveScene(), m_Modules.AssetsSlot,
                                                         m_AssetFiles.Files() );
                              } );
+        m_Commands.Register( "VFX Paint", []( Out& out ) { Tools::VFXPaintTool::AppendCommands( out ); } );
         m_Commands.Register( "Open", [this, &documents]( Out& out )
                              { documents.AppendOpenCommands( out, m_AssetFiles.Files() ); } );
         m_Commands.Register( "Assets (folders)",
@@ -125,6 +158,8 @@ namespace Desert::Editor
         m_Commands.Register( "Scene (new views)",
                              [&workspace]( Out& out ) { workspace.AppendNewViewCommands( out ); } );
         m_Commands.Register( "Debug (GPU allocations)", []( Out& out ) { AppendGpuAllocationCommand( out ); } );
+        m_Commands.Register( "Debug (particles)", [&workspace]( Out& out )
+                             { AppendParticleDebuggerCommand( out, workspace.ActiveScene() ); } );
         m_Commands.Register( "Scene (view layout)",
                              [&workspace]( Out& out ) { workspace.AppendViewLayoutCommands( out ); } );
         m_Commands.Register( "Scene (actions)",

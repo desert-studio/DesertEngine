@@ -12,6 +12,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
+#include <Engine/Graphic/Systems/RayTracing/RayTracingProgramHit.hpp>
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialSilhouette.hpp>
 #include <Engine/Graphic/Materials/Mesh/MaterialShadow.hpp>
@@ -26,7 +27,7 @@
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Graphic/GlobalIllumination/SurfaceCacheScene.hpp>
-#include <Engine/Graphic/View/ObjectMotionRows.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
@@ -49,15 +50,24 @@
 #include <functional>
 #include <memory>
 #include <array>
+#include <vector>
 #include <optional>
 #include <span>
 #include <string>
 #include <utility>
 #include <unordered_map>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
+#include <Common/Core/AssetHandle.hpp>
+
+namespace Desert::Runtime
+{
+    class MaterialService;
+    class ShaderService;
+} // namespace Desert::Runtime
 
 namespace Desert::Graphic::System
 {
+    class DisplacementCache;
     namespace MeshRendererDetail
     {
         // One draw of a lit mesh node, chosen when the frame's draw list is BUILT (the node's setup, before any
@@ -93,6 +103,11 @@ namespace Desert::Graphic::System
             std::span<const glm::mat4>        Instances{};
             float                             BoundsPad = 0.0f;
             std::optional<Common::Math::AABB> WorldBounds{};
+            // A BINNED cell's draw (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS): per submesh of Mesh, the base of
+            // its rows on the pass's unculled VisibleInstances list (GpuDriven::DrawCommandCache::UnculledFirstVisible
+            // at LodLevel), kInvalidIndex where it has no cached draw; Renderer::RenderMesh binds the id stream and
+            // draws each submesh from its base. Empty: a cell that reads no id stream.
+            std::vector<uint32_t> SubmeshFirstRows{};
         };
 
         // THE frame's draw list of one lit mesh node. The material (hence shader and route fill) of every draw is
@@ -112,6 +127,17 @@ namespace Desert::Graphic::System
             [[nodiscard]] bool IsEmpty() const
             {
                 return m_Commands.empty();
+            }
+            // The triangles this list sends to the GPU: per draw, the index count of the LOD level it was built
+            // with (clamped to the chain the submesh has, as RenderMesh draws it), for each visible submesh, times
+            // its instances. A GPU-generated draw (IndirectArgs) is not counted: its instance count is the
+            // GPU's, unknown here. UE: the "Triangles drawn" of stat RHI, for one pass. Counted by Add, while the
+            // frame's meshes are alive: the list outlives its frame (the status bar reads it from the UI, after a
+            // sculpt stroke or an undo may have released a mesh a command still points to), so this never
+            // dereferences a command's Mesh.
+            [[nodiscard]] uint64_t Triangles() const
+            {
+                return m_Triangles;
             }
             // The binding blocks Declare declares (one per distinct executor + recording shader): a node declaring
             // more blocks after the list's numbers them from here.
@@ -165,6 +191,7 @@ namespace Desert::Graphic::System
             std::optional<std::string>   m_Error;
             RDG::BufferRef               m_IndirectArguments; // SetIndirect; invalid: the commands' own counts
             std::vector<uint32_t>        m_FirstRecords;
+            uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
         };
@@ -172,7 +199,7 @@ namespace Desert::Graphic::System
 
     struct MeshRenderData
     {
-        // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+        // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
         uint32_t    Entity = 0;
         uint32_t    MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
         class Mesh* Mesh;
@@ -204,14 +231,22 @@ namespace Desert::Graphic::System
     class MeshRenderer final : public RenderSystem
     {
     public:
+        // Releases this view's GPU-instanced material copies (MaterialService::ReleaseViewVariants).
+        ~MeshRenderer() override;
+
         struct StaticMeshRenderData
         {
-            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
             uint32_t Entity = 0;
             uint32_t MotionPart = 0; // a stable part of the entity (MotionRecord::Part), 0 = by submission
-            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
-            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t                  MotionRow = 0;
+            // Its primitive in the scene's GpuScene (SyncGpuScene); the view-pass cells read the primitive's
+            // world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                  GpuPrimitive = 0;
+            // The primitive's GpuScene instance (SyncGpuScene): its TLAS custom index and GI card-table row.
+            uint32_t                  GpuInstance = 0;
+            // Its section's row in the scene material table (SyncGpuScene, GpuSceneRegistry::SyncMaterialRow): the
+            // MaterialIndex its forward / G-buffer draw names, and GpuDrawSlot::MaterialRow for the cached draws.
+            uint32_t                  MaterialRow = 0;
             class Desert::StaticMesh* Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -244,12 +279,17 @@ namespace Desert::Graphic::System
 
         struct SkinnedMeshRenderData
         {
-            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
             uint32_t Entity = 0;
-            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
-            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t                   MotionRow = 0;
+            // Its primitive in the scene's GpuScene (SyncGpuScene); the view-pass cells read the primitive's
+            // world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   GpuPrimitive = 0;
+            // The primitive's GpuScene instance (SyncGpuScene): its TLAS custom index and GI card-table row.
+            uint32_t                   GpuInstance = 0;
             class Desert::SkinnedMesh* Mesh      = nullptr;
+            // The mesh the skin cache skins when Mesh is a displaced twin (ApplyDisplacement, CONTRACT-DISPLACE
+            // §9.8): the base (or its morph twin); the twin's streams are then written from that pose. Null = Mesh.
+            class Desert::SkinnedMesh* SkinSource = nullptr;
             glm::mat4                  Transform = glm::mat4( 1.0f );
             // The binding every section's instance below was selected FROM, carried so that it keeps those
             // instances alive: the entity that authored it can be destroyed between the record and this queue
@@ -276,6 +316,12 @@ namespace Desert::Graphic::System
             uint32_t                                      Entity = 0;
             class Desert::Mesh*                           Mesh   = nullptr;
             MaterialInstancePtr                           Material; // the section group's slot (a mesh cell)
+            // The same slot for displaced geometry (MaterialService displaced sibling: base cells, no parallax
+            // march); null when the mesh is not displaced. ApplyDisplacement draws the twins' groups with it.
+            MaterialInstancePtr DisplacedMaterial;
+            // The component's instance index of each transform when ApplyDisplacement split the record by twin
+            // (null = the transforms ARE the component's, in order): the GPU-scene row stays {Entity, index + 1}.
+            std::shared_ptr<const std::vector<uint32_t>> InstanceIds;
             uint64_t                                      HiddenSubmeshes = 0; // the other slots' sections
             std::shared_ptr<const std::vector<glm::mat4>> Transforms; // snapshot of InstanceTransforms
             bool                                          CastShadows = true;
@@ -284,10 +330,10 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
-            // Where this field's per-instance rows start in GetInstancedMotionRows() (BuildObjectMotions):
-            // instance i is GPU-scene row GetInstancedMotionRows()[FirstMotionRow + i] - its TLAS custom index and
+            // Where this field's GpuScene instances start in GetInstancedGpuInstances() (SyncGpuScene): instance
+            // i is GpuScene instance GetInstancedGpuInstances()[FirstGpuInstance + i] - its TLAS custom index and
             // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
-            uint32_t FirstMotionRow = 0;
+            uint32_t FirstGpuInstance = 0;
         };
 
         // An instanced section whose transforms and count the GPU wrote this frame (GpuInstances.hpp): the
@@ -308,8 +354,26 @@ namespace Desert::Graphic::System
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
-            // Stable per section across frames: the view-variant key (several cascades: Key * kMaxCascades + c).
+            // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
+            // the producer (RayTracingGpuInstanceSource::Rows).
+            uint32_t Capacity = 0;
+            // Per bucket (a strip level for GrassBlade), the instances its record holds room for: the TLAS rows
+            // reserved for that level (RayTracingGpuInstanceSource::Rows). Owned by the producer, this frame.
+            std::span<const uint32_t> BucketCapacities;
+            // Stable per section across frames: the view-variant key (several cascade views: Key * kCascadeViews + v).
             uint32_t Key = 0;
+            // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
+            // empty when the view has no TLAS. Owned by the grass renderer, this frame.
+            std::span<const RayTracing::RayTracingGeometryResource* const> BladeGeometry;
+            // Where Instances holds each instance's LAST frame transform: instance i's previous world sits at
+            // i + PrevInstanceOffset (a producer whose instances move, e.g. particle Mesh rows). 0 = the instances
+            // do not move (grass: only the wind moves them), the previous world is the world.
+            uint32_t PrevInstanceOffset = 0;
+            // A world box every instance lies in, cm, when the producer has one (a particle emitter's fixed
+            // Bounds through the entity's transform, VFXBoundsAt): the section is drawn only into the views and the cascades
+            // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
+            // follows the camera), drawn into every view and cascade.
+            std::optional<Common::Math::AABB> WorldBounds{};
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -319,14 +383,16 @@ namespace Desert::Graphic::System
         //    params already applied) and VisibleSubmeshMask limits the draw to that slot's submeshes.
         struct GenericMeshRenderData
         {
-            // The entity that owns the draw: the key of its previous transform in the view's MotionHistory.
+            // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
             uint32_t Entity = 0;
             // A stable part of the entity (MotionRecord::Part, e.g. a fracture piece), 0 = the entity itself. A
             // slot-material draw of a part carries the part its lit draw carries, so both read one motion row.
             uint32_t MotionPart = 0;
-            // This frame's row in the view's ObjectMotions buffer (BuildObjectMotions); the view-pass cells read
-            // the primitive's world, previous world and bone offsets from it through the push PrimitiveIndex.
-            uint32_t                   MotionRow = 0;
+            // Its primitive in the scene's GpuScene (SyncGpuScene); the view-pass cells read the primitive's
+            // world, previous world and bone offsets from it through the push PrimitiveIndex.
+            uint32_t                   GpuPrimitive = 0;
+            // The primitive's GpuScene instance (SyncGpuScene): its TLAS custom index and GI card-table row.
+            uint32_t                   GpuInstance = 0;
             class Mesh*               Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             std::string               ShaderName;
@@ -352,6 +418,17 @@ namespace Desert::Graphic::System
             // system's SDF font atlas. Non-owning: the producer keeps it alive for the frame.
             Graphic::Image2D* DirectTexture        = nullptr;
             std::string       DirectTextureSampler;
+
+            // The record's own hit group when its program is no surface template (3D text: TextRayHit, built by
+            // the producer from the values this draw carries). Empty Template: a ray hit shades with SlotMaterial,
+            // else the default surface. Read by the gather only when VisibleInRayTracing.
+            RayTracing::RayTracingProgramHit RayHit;
+
+            // Its row in the scene material table (SyncGpuScene, RegisterGenericRows): a per-slot draw's is its
+            // asset's row, a Shader Override draw's its own (template defaults + Overrides.Params + texture slots,
+            // keyed by Entity/MotionPart). nullopt: SyncGpuScene could not shade the record (no compiled program,
+            // a domain the mesh path does not draw) and the record is not drawn.
+            std::optional<uint32_t> MaterialRow;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
@@ -362,13 +439,19 @@ namespace Desert::Graphic::System
             MaterialInstance*            Instance = nullptr;
             Graphic::DataDrivenMaterial* Surface  = nullptr; // null: the slot holds no mesh-cell surface
             bool                         Masked   = false;
+            // The surface's template is BlendMode Translucent / Additive (the translucency pass draws it): a ray
+            // tracing primitive drawn only by such sections takes the translucent instance mask alone.
+            bool Translucent = false;
         };
         [[nodiscard]] static bool IsMaskedSurface( const Graphic::DataDrivenMaterial* material );
+        [[nodiscard]] static bool IsTranslucentSurface( const Graphic::DataDrivenMaterial* material );
         // A static entry's section: SectionSurface of its SectionSlot.
         [[nodiscard]] static SectionShading ShadingOf( const StaticMeshRenderData& data );
         // An ISM section group: its slot instance and that instance's parent surface.
         [[nodiscard]] static SectionShading ShadingOf( const InstancedMeshRenderData& data );
         [[nodiscard]] static SectionShading ShadingOf( const SkinnedSection& section );
+        // A GPU-instanced section: its slot instance and that instance's parent surface, as an ISM's.
+        [[nodiscard]] static SectionShading ShadingOf( const GpuInstancedRenderData& data );
 
         using RenderSystem::RenderSystem;
 
@@ -392,33 +475,70 @@ namespace Desert::Graphic::System
             m_ParallaxQuality = parallax;
         }
 
-        // The view's motion rows for this frame — UE's GPUScene primitive data: ONE GpuObjectMotion per drawn
-        // primitive (key {Entity, slot}; the static, generic and slot-material records of one entity share
-        // slot 0, the skinned records of an entity are slots 0..n-1 in submission order), its World, the world
-        // @p motion says the view drew it with last frame, and for a skinned primitive where this frame's palette
-        // and the previous one start in the view's ObjectBones buffer (both frames' palettes, end to end). Writes
-        // the row index into each queued record (MotionRow) and uploads both per-(frame x view) buffers at their
-        // final size, so CaptureFrameState hands every view pass the buffers its draws will read. Called by
-        // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
-        // Errors: a buffer that could not be created or written (the view draws nothing this frame: its passes
-        // would read rows that are not this frame's).
-        // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
-        // tiles) that still need a GPU-scene row - their TLAS custom index; their rows, in order, are
-        // GetOtherMotionRows().
-        // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex
-        // stage) writes each skinned row's cached-streams address (RayTracingSkinCache::PrepareRows), then - after
-        // the ObjectBones upload, before the rows' - runs the scene's skin step for what no earlier view of the
-        // absolute frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view
-        // graph). A skin step that fails is logged and its rows lose the address; the view still draws.
-        [[nodiscard]] Common::BoolResultStr BuildObjectMotions( MotionHistory&                   motion,
-                                                                std::span<const MotionRecord>    otherRigid,
-                                                                RayTracing::RayTracingSkinCache* skinCache,
-                                                                uint64_t                         frame );
+        // MESH DISPLACEMENT (DisplacementCache.hpp), after the queues are built and before SyncGpuScene: asks
+        // @p cache for the levels of every static record whose mesh carries a displacement topology (per submesh, the
+        // height inputs of its effective material row, a section without an assigned Height moving by 0), lets the
+        // first view of @p frame displace, then points each record whose twin is ready at the twin - every pass of
+        // this view (GBuffer, forward, depth, velocity, cascades, VSM) draws the displaced surface. A record whose
+        // twin is not ready draws its base mesh. Errors are logged; the view still draws.
+        // @p requestLevels: only CAMERA views ask for levels (§4); a capture face (ViewProfile::SceneCapture) is a
+        // consumer like the shadows - it draws the twins the cameras asked for and never raises a level itself.
+        void ApplyDisplacement( DisplacementCache& cache, const Geometry::LODView& view, float viewHeightPixels,
+                                uint64_t frame, bool requestLevels );
 
-        // The rows of BuildObjectMotions' @p otherRigid records, in their order. Valid until the next build.
-        [[nodiscard]] std::span<const uint32_t> GetOtherMotionRows() const
+        // This view's queues into the scene's GPU scene (UE FGPUScene::Update, GpuDriven/GpuSceneRegistry.hpp):
+        // ONE primitive per drawn object (key {Entity, slot}; the static, generic and slot-material records of one
+        // entity with one world share slot 0, the skinned records of an entity are its next slots in submission
+        // order, an ISM / foliage field is one primitive with an instance per field instance). The registry keeps
+        // each primitive's index while views keep queueing it: its PrevLocalToWorld is the world it was drawn
+        // with last frame, and a skinned primitive's row names this frame's and the previous frame's palette in
+        // the scene's ObjectBones. Writes each queued record's primitive and instance back (GpuPrimitive,
+        // GpuInstance, FirstGpuInstance) and uploads the scene's deltas in a graph of its own, so
+        // CaptureFrameState hands every view pass the tables its draws will read at their final size. Called by
+        // SceneRenderer once per frame per view after the queues are complete and before any pass is declared.
+        // Errors: an upload that could not be declared or executed (the view draws nothing this frame: its
+        // passes would read rows that are not this frame's).
+        // @p otherRigid: rigid primitives drawn by another renderer of the view (the terrain renderer's landscape
+        // tiles) that still need a GpuScene instance - their TLAS custom index; their instances, in order, are
+        // GetOtherGpuInstances().
+        // @p skinCache (the scene's GPU skin cache, null = none: every skinned primitive skins in the vertex
+        // stage) writes each skinned primitive's cached-streams address (RayTracingSkinCache::PrepareRows), then
+        // - after the palettes' upload - runs the scene's skin step for what no earlier view of the absolute
+        // frame @p frame skinned (RayTracingSkinCache::SkinFrame: its own graph, executed before any view graph).
+        // A skin step that fails is logged and its primitives lose the address; the view still draws.
+        [[nodiscard]] Common::BoolResultStr SyncGpuScene( GpuDriven::GpuSceneRegistry&     registry,
+                                                          std::span<const MotionRecord>    otherRigid,
+                                                          RayTracing::RayTracingSkinCache* skinCache,
+                                                          uint64_t                         frame );
+
+        // The scene's GPU scene of this frame (SyncGpuScene; null before the first sync): the skin cache skins
+        // from the same palette at the same BoneOffset the raster does - one source of the pose - and the global
+        // distance field's objects read a primitive's previous world from it.
+        // The matrix the casters of shadow view @p view draw with (m_CascadeCasterVP; view = slot * kMaxCascades + c
+        // for a cascade, kVsmViewBase + level for a VSM level): the GPU cull's caster views test the same box.
+        [[nodiscard]] const glm::mat4& GetCasterViewProjection( const uint32_t view ) const
         {
-            return m_OtherMotionRows;
+            return m_CascadeCasterVP[view];
+        }
+
+        [[nodiscard]] const GpuDriven::GpuScene* GetGpuScene() const
+        {
+            return m_GpuScene;
+        }
+
+        // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
+        // runs before the sync (the terrain's, SceneRenderer::OnUpdate) then finds none instead of the previous
+        // frame's, whose Scene a scene switch has already destroyed.
+        void ForgetGpuScene()
+        {
+            m_GpuScene = nullptr;
+        }
+
+        // The GpuScene instances of SyncGpuScene's @p otherRigid records, in their order. Valid until the next
+        // sync.
+        [[nodiscard]] std::span<const uint32_t> GetOtherGpuInstances() const
+        {
+            return m_OtherGpuInstances;
         }
 
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
@@ -448,7 +568,7 @@ namespace Desert::Graphic::System
             return m_SkinCacheBonesImport;
         }
 
-        // This frame's static queue, rows assigned (BuildObjectMotions): what the view's TLAS instances come from
+        // This frame's static queue, GpuScene rows assigned (SyncGpuScene): what the view's TLAS instances come from
         // (RayTracingSceneRenderer). Valid until the next frame's queue is built.
         [[nodiscard]] std::span<const StaticMeshRenderData> GetStaticQueue() const
         {
@@ -464,29 +584,21 @@ namespace Desert::Graphic::System
         {
             return m_GenericQueue;
         }
-        // This frame's ISM / foliage fields; with GetInstancedMotionRows, one TLAS instance per field instance.
+        // This frame's ISM / foliage fields; with GetInstancedGpuInstances, one TLAS instance per field instance.
         [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
         {
             return m_InstancedQueue;
         }
-        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstMotionRow).
-        [[nodiscard]] std::span<const uint32_t> GetInstancedMotionRows() const
+        // This frame's GPU-instanced sections (the landscape grass): their TLAS rows are written on the GPU.
+        [[nodiscard]] std::span<const GpuInstancedRenderData> GetGpuInstancedQueue() const
         {
-            return m_InstancedMotionRows;
+            return m_GpuInstancedQueue;
         }
-        // This frame's rows (indexed by a queued record's MotionRow) and the view's ObjectBones
-        // (BuildObjectMotions): the skin cache skins from the same palette at the same BoneOffset the raster does
-        // - one source of the pose - and the global distance field's objects read a primitive's previous world
-        // from them.
-        [[nodiscard]] const ObjectMotionRows& GetObjectMotionRows() const
+        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstGpuInstance).
+        [[nodiscard]] std::span<const uint32_t> GetInstancedGpuInstances() const
         {
-            return m_ScratchMotionRows;
+            return m_InstancedGpuInstances;
         }
-        [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetObjectBones() const
-        {
-            return m_ObjectBones;
-        }
-
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
         // this renderer can fit and the cascades a shader can read are one number and cannot drift apart.
@@ -500,6 +612,13 @@ namespace Desert::Graphic::System
                        "The ShadowUB block's cascade count and the fitter's array bound are the same "
                        "number seen from two sides; a renderer that fitted more than the block can carry "
                        "would write matrices no shader ever reads." );
+        // EVERY SHADOWED DIRECTIONAL LIGHT'S CASCADES, by one index: cascade VIEW v = slot * kMaxCascades + c
+        // (SceneResources::ShadowUBData::LightViewProj's own index), slot 0 the sun, 1 atmosphere light 1. Each
+        // slot is fitted, cached, drawn and published by the same code (UpdateCascades, PlanCascadeCache,
+        // ShadowCascadePasses, DirectionalShadows). Its array LAYER is CascadeLayer(v): the slots are packed
+        // in the array at the budget's cascade count.
+        static constexpr uint32_t kDirectionalShadowSlots = SceneResources::kMaxShadowedDirectionalLights;
+        static constexpr uint32_t kCascadeViews           = SceneResources::kMaxCascadeViews;
 
         virtual Common::BoolResultStr Initialize() override;
 
@@ -533,15 +652,35 @@ namespace Desert::Graphic::System
         };
         // @p maps is this frame's AcquireCascadeMaps.
         [[nodiscard]] ShadowCascadeFrame ShadowCascadePasses( RDG::TextureRef maps );
-        // THE ONE ANSWER TO "does a program of this frame sample the sun's cascades while the sun is ray traced":
-        // a blended draw of the generic queue, in the camera's frustum, whose program declares u_ShadowCascades
-        // (the opaque ones read the screen mask through their DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit
-        // queue is shaded by the composite). SceneRenderer::OnUpdate draws the low-detail cascades only when true.
+        // The mesh part of SceneRenderer::SunCascadesRead ("does a program of this frame sample the sun's cascades
+        // while the sun is a screen mask"): a blended draw of the generic queue, or a translucent section of the
+        // static queue (glass, its front layer cell), in the camera's frustum, whose program declares
+        // ShadowCascadesTexture (the opaque generic ones read the screen mask through their
+        // DESERT_SUN_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the composite).
         [[nodiscard]] bool SunCascadeReadersQueued() const;
+        // The mesh part of SceneRenderer::LocalShadowMapsRead ("does a program of this frame sample the local shadow
+        // atlas while the local shadows are ray traced"): a visible blended draw of the generic queue, or a
+        // translucent section of the static queue, whose program samples the atlas (the opaque generic ones read the
+        // ray-traced masks through their DESERT_LOCAL_SHADOW_SCREEN_MASK permutation, the lit queue is shaded by the
+        // composite).
+        [[nodiscard]] bool LocalShadowMapReadersQueued() const;
+        // The visible translucent sections of the static queue (RenderGlassManual's cells, TranslucentDrawFor) and
+        // their front layer cells (FrontLayerShaderFor) whose compiled program samples @p textureName.
+        [[nodiscard]] bool QueuedStaticTranslucentSamples( std::string_view textureName ) const;
+        // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
+        // @p blendedOnly).
+        [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;
         // Every cascade's static cache marked never drawn: the next ShadowCascadePasses redraws and rebuilds each
         // fitted cascade. For a frame that draws the cascades after frames that did not (nothing kept them
         // current).
         void InvalidateCascadeCaches();
+        // THIS FRAME DRAWS NOTHING FOR directional slot @p slot, though UpdateCascades fitted it: SceneRenderer's
+        // frame decision, for a sun whose shadow is the screen mask and whose cascades no program of the frame
+        // samples, while another slot (the moon) still draws the array. The slot publishes no cascade from here on
+        // (DirectionalShadows: Count 0, so every receiver packed after this call reads it lit and the surface
+        // cache traces it), and its views' caches are marked never drawn so the frame it is drawn again rebuilds
+        // them. Called after UpdateCascades and before ShadowCascadePasses.
+        void DropDirectionalShadow( uint32_t slot );
         // THE SUN'S CASCADES AS ONE DEPTH ARRAY in @p graph, layer c = cascade c (RDG::TextureDim::Tex2DArray, so
         // the lit passes spend one sampler on all of them: UE's whole-scene shadow depth target). The renderer
         // keeps it across frames (a cascade with no work keeps last frame's layer); the first frame after the
@@ -549,8 +688,10 @@ namespace Desert::Graphic::System
         // has no cascades.
         [[nodiscard]] RDG::TextureRef AcquireCascadeMaps( RDG::Builder& graph );
         // One depth-only pass per local shadow view whose cached depth is stale this frame, each into its own
-        // tile of the atlas (it clears the tile, never the atlas). SceneRenderer::AddFrameShadowDepths adds them
-        // after the cascades, LOADING the atlas.
+        // tile of the atlas (it clears the tile, never the atlas), its mesh casters and then the non-mesh ones
+        // (IShadowCaster: the terrain). SceneRenderer::AddFrameShadowDepths adds them after the cascades, LOADING
+        // the atlas. The cache decision is made here (PlanLocalShadowCache), not in UpdateLocalShadows: a
+        // non-mesh caster's draws are resolved after that (TerrainRenderer::PrepareFrame), and its key is theirs.
         [[nodiscard]] std::vector<SystemRasterPass> LocalShadowPasses();
 
         // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp): a top-down depth of every caster in a box around
@@ -573,21 +714,25 @@ namespace Desert::Graphic::System
                                       : RainOcclusionUniforms{};
         }
 
-        // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index: 0..kMaxCascades-1 are the sun's cascades, the
-        // rest the point and spot lights' views (LocalShadows.hpp). The per-view caster state below
-        // (m_ShadowMaterial, m_CascadeCasterVP, ...) is indexed by it, so one caster walk
-        // (BuildShadowCascadeDraws) serves a cascade and a cube face alike.
-        // After those, one view per cascade for its MOVABLE layer: drawn in a pass of its own, possibly in the
-        // same frame as the cascade's static layer, so it needs caster materials (light-matrix UBO, instance and
-        // bone SSBOs) of its own — two passes through one material would both read whichever upload came last.
-        static constexpr uint32_t kCascadeMovableViewBase = kMaxShadowCascades + kMaxLocalShadowViews;
-        // After those, one view per clipmap level of the sun's virtual shadow map ("VSM: Raster"): its casters
-        // draw into the physical pool through the VirtualShadowDepth cells (CasterPipelinesOf), each level with
-        // caster materials of its own for the same reason as the movable views.
-        static constexpr uint32_t           kVsmViewBase    = kCascadeMovableViewBase + kMaxShadowCascades;
-        // Last, the rain occlusion's top-down view (RainOcclusionPass): the cascades' caster cells, no bias.
-        static constexpr uint32_t           kRainOcclusionView = kVsmViewBase + kVsmClipmapLevelCount;
-        static constexpr uint32_t           kMaxShadowViews    = kRainOcclusionView + 1u;
+        // EVERY SHADOW VIEW THIS RENDERER DRAWS, by one index. The FIXED views first, a known count per renderer:
+        // 0..kCascadeViews-1 every shadowed directional light's cascades (slot * kMaxCascades + cascade); then one
+        // view per cascade view for its MOVABLE layer, drawn in a pass
+        // of its own, possibly in the same frame as the cascade's static layer, so it needs caster materials
+        // (light-matrix UBO, instance and bone SSBOs) of its own — two passes through one material would both
+        // read whichever upload came last; then one view per clipmap level of the sun's virtual shadow map ("VSM:
+        // Raster"), whose casters draw into the physical pool through the VirtualShadowDepth cells
+        // (CasterPipelinesOf), each level with materials of its own for the same reason; then the rain
+        // occlusion's top-down view (RainOcclusionPass). LAST, from kLocalShadowViewBase, the point and spot
+        // lights' views (LocalShadows.hpp), as many as this frame shadows: no count is fixed for them — the
+        // only budget is the scene's atlas (UE: the shadow pool, not a number of views). The per-view caster
+        // state below (m_ShadowMaterial, m_CascadeCasterVP, ...) is indexed by this index and grows with the
+        // local views (EnsureShadowViewCount), so one caster walk (BuildShadowCascadeDraws) serves a cascade
+        // and a cube face alike.
+        static constexpr uint32_t           kCascadeMovableViewBase = kCascadeViews;
+        static constexpr uint32_t           kVsmViewBase            = kCascadeMovableViewBase + kCascadeViews;
+        static constexpr uint32_t kRainOcclusionView      = kVsmViewBase + kVsmClipmapLevelCount;
+        static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
+        static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
         [[nodiscard]] static constexpr bool IsVirtualShadowView( const uint32_t view )
         {
             return view >= kVsmViewBase && view < kRainOcclusionView;
@@ -631,6 +776,17 @@ namespace Desert::Graphic::System
         {
             return m_LocalShadowRows;
         }
+        // This frame's shadowed point/spot lights as their casters see them (LocalShadowCasterLight), in view
+        // order: what a non-mesh caster resolves its local-view draws for (TerrainRenderer::PrepareFrame), between
+        // UpdateLocalShadows and LocalShadowPasses.
+        [[nodiscard]] std::vector<LocalShadowCasterLight> GetLocalShadowCasterLights() const
+        {
+            std::vector<LocalShadowCasterLight> lights;
+            lights.reserve( m_LocalCachePlans.size() );
+            for ( const LocalShadowCachePlan& plan : m_LocalCachePlans )
+                lights.push_back( plan.Caster );
+            return lights;
+        }
         // The scene's atlas depth image (D32F, Graphic/LocalShadowCache.hpp), or null while no light of the scene
         // has cast a shadow or outside a BeginScene/EndScene bracket.
         [[nodiscard]] std::shared_ptr<Image2D> GetLocalShadowAtlasImage() const;
@@ -656,7 +812,7 @@ namespace Desert::Graphic::System
         // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
         // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
-        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun );
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks );
         [[nodiscard]] Common::BoolResultStr
         RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
@@ -666,12 +822,12 @@ namespace Desert::Graphic::System
         // DeclareGlassBindings built in the node's setup. Nothing to draw is success; a refused draw is the error.
         [[nodiscard]] Common::BoolResultStr RenderGlassManual( const RDG::PassContext& context ) const;
         // SETUP of the "Deferred: Glass" node: the frame's translucent draw list, one binding block per cell (its
-        // shader's reflected layout, its dedicated material as the other route), each carrying u_SceneColor =
+        // shader's reflected layout, its dedicated material as the other route), each carrying SceneColorTexture =
         // @p sceneCopy (this frame's snapshot of the opaque scene, FrameTransients::SceneColorCopy, sampled for
         // refraction) and the scene/view inputs of @p view the cell's shader has a slot for. Declares nothing
         // (and the node draws nothing) when no translucent object is visible.
         // @p frontLayer: this frame's front layer reflection and depth (Reflections.TranslucentFrontLayer), bound as
-        // u_FrontLayerReflection / u_FrontLayerDepth wherever the cell's shader has the slots - the graph's black
+        // FrontLayerReflectionTexture / FrontLayerDepthTexture wherever the cell's shader has the slots - the graph's black
         // texture for both when the frame has no front layer.
         struct GlassFrontLayer
         {
@@ -733,7 +889,7 @@ namespace Desert::Graphic::System
         void                                DeclareOverdrawDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderOverdrawAccumManual( const RDG::PassContext& context ) const;
         // node "Debug: Overdraw Resolve" (the scene target): its setup declares the resolve's block, which samples
-        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as u_Overdraw; the exec draws through
+        // @p overdraw - the accumulation the node "Debug: Overdraw" wrote - as OverdrawTexture; the exec draws through
         // it.
         void DeclareOverdrawResolve( RDG::PassBuilder& pass, RDG::TextureRef overdraw );
         [[nodiscard]] Common::BoolResultStr RecordOverdrawResolve( const RDG::PassContext& context ) const;
@@ -742,6 +898,10 @@ namespace Desert::Graphic::System
         {
             return m_OverdrawFB;
         }
+        // The overdraw view's pipelines and accumulation target, made on the first frame the Overdraw debug mode
+        // is chosen (SceneRenderer::AddFrameOverdraw) and kept after. False (said once) when its shaders are
+        // missing: the mode then draws the scene without the heat map.
+        [[nodiscard]] bool EnsureOverdrawPass();
 #endif // DESERT_DEV_INSTRUMENTS
 
         // True if any queued mesh is flagged for the selection outline this frame. The Jump Flood pass
@@ -764,6 +924,10 @@ namespace Desert::Graphic::System
         void SubmitGenericMesh( const GenericMeshRenderData& data );
         void SubmitInstancedMesh( const InstancedMeshRenderData& data );
         void SubmitGpuInstanced( const GpuInstancedRenderData& data );
+        // A producer that submits its GPU-instanced casters after UpdateCascades (the particles' Mesh rows, from
+        // the render graph) says so before it: the cascade plan then keeps the movable layer for them.
+        void ExpectGpuInstancedCasters( const bool expected ) { m_GpuInstancedCastersExpected = expected; }
+        bool m_GpuInstancedCastersExpected = false;
 
         /// ISM instances the last geometry pass drew, after the frustum and the cull distance: what a
         /// foliage type's CullDistance is measured by (FO-5). The shadow cascades are not counted.
@@ -771,6 +935,17 @@ namespace Desert::Graphic::System
         {
             return m_IsmInstancesDrawn;
         }
+        /// Draws (cells or generic materials) the last frame gave to the default surface, or left out, because
+        /// their own pipeline was still compiling: the picture is not the scene yet. UE's automated screenshot
+        /// waits for FinishAllCompilation; the control gate's PendingWork::MaterialPipelines waits on this.
+        [[nodiscard]] uint32_t GetStandInDraws() const
+        {
+            return m_StandInDraws;
+        }
+        /// Triangles the last frame's VIEW pass sent to the GPU (forward geometry, or the deferred G-buffer +
+        /// forward generic), at the LOD each draw was built with: UE's stat "Triangles drawn" for the base pass.
+        /// Shadow and debug passes are not counted.
+        [[nodiscard]] uint64_t GetViewTrianglesDrawn() const;
         void ClearQueues();
 
         // THE BOUNDARY IS DRAWN INSIDE THIS HEADER, not at the call sites, and Common/Core/Profiler.hpp
@@ -815,13 +990,24 @@ namespace Desert::Graphic::System
         // or the pipeline is refused — the caller skips that draw rather than binding another template's program.
         [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline*         passState,
                                                       const DataDrivenMaterial& cell );
+        [[nodiscard]] GraphicsPipeline* CellPipeline( GraphicsPipeline* passState, const std::string& cellShader );
         std::unordered_map<MeshCellPipelineKey, std::shared_ptr<GraphicsPipeline>, MeshCellPipelineKeyHash>
              m_CellPipelines; // null = refused
 
+        // THE WIREFRAME TWIN OF A FORWARD PASS PIPELINE (UE draws every mesh kind in its wireframe view through
+        // the same pass it is drawn in otherwise): @p fallback's line-polygon twin while the view is on, else
+        // @p fallback. Static and Instanced each have one, so an ISM is drawn in wireframe by the same recording
+        // as in Lit — only the pass state differs. A pipeline with no twin answers itself.
         [[nodiscard]] GraphicsPipeline* WireframePipelineOr( GraphicsPipeline* fallback ) const
         {
 #if DESERT_DEV_INSTRUMENTS
-            return ( m_Wireframe && m_StaticWireframePipeline ) ? m_StaticWireframePipeline.get() : fallback;
+            if ( !m_Wireframe || fallback == nullptr )
+                return fallback;
+            if ( fallback == m_StaticPipeline.get() && m_StaticWireframePipeline )
+                return m_StaticWireframePipeline.get();
+            if ( fallback == m_StaticInstancedPipeline.get() && m_StaticInstancedWireframePipeline )
+                return m_StaticInstancedWireframePipeline.get();
+            return fallback;
 #else
             return fallback;
 #endif
@@ -875,18 +1061,14 @@ namespace Desert::Graphic::System
             return m_Shadow.CascadeCount;
         }
 
-        // HOW MANY OF THEM CARRY A MATRIX FROM THIS FRAME'S FIT — the number every SHADER-facing consumer
-        // wants, and a different question from the one above. `GetCascadeCount` answers "what does this
-        // renderer own" (the budget: what to allocate, what to show in Scene Settings); this answers "what
-        // may be sampled right now". They are equal in the ordinary frame and diverge exactly when
-        // UpdateCascades does not run to completion — no main camera, no directional light, a degenerate
-        // fit — which is when publishing the budget hands the shader matrices nothing ever wrote.
-        //
-        // The min() is belt and braces against the two ever being written from different places again.
-        [[nodiscard]] uint32_t GetValidCascadeCount() const
-        {
-            return m_FittedCascades < m_Shadow.CascadeCount ? m_FittedCascades : m_Shadow.CascadeCount;
-        }
+        // EVERY SHADOWED DIRECTIONAL LIGHT'S CASCADES AS THIS FRAME PUBLISHES THEM, the one value every
+        // receiver packs (SceneFrameBinding::DirectionalShadows, the deferred composite, the surface cache).
+        // Count is how many carry a matrix from THIS frame's fit — a different question from GetCascadeCount
+        // ("what does this renderer own", the budget): they diverge exactly when UpdateCascades does not run to
+        // completion — no main camera, no such light, a degenerate fit — which is when publishing the budget
+        // hands the shader matrices nothing ever wrote. CastShadows is the light's own (a light whose shadows
+        // are off packs 0 and is lit, never sampled); FirstLayer its cascade 0's layer of the shared array.
+        [[nodiscard]] SceneResources::DirectionalShadowViews DirectionalShadows() const;
 
         // The budget this renderer was created with. Fixed after Initialize — the framebuffers are
         // allocated from it once.
@@ -895,9 +1077,10 @@ namespace Desert::Graphic::System
             return m_Shadow;
         }
         // RE-ALLOCATE THE CASCADE MAPS TO A NEW BUDGET — the Shadows quality level changed (SceneRenderer, on a
-        // QualityState generation change, never per frame). Waits for the device to go idle, releases the
-        // cascade framebuffers, caster materials, caster pipelines and the attachment lease, then runs
-        // SetupShadowPass again on the new budget. False when the new shadow pass could not be set up (logged).
+        // QualityState generation change, never per frame, at the head of its frame). Waits for the device to go
+        // idle, releases the cascade framebuffers and maps, the local views' rows and the attachment lease, then
+        // runs SetupShadowPass again on the new budget. The caster materials and pipelines are KEPT (they do not
+        // depend on the map size). False when the new shadow pass could not be set up (logged).
         [[nodiscard]] bool RebudgetShadows( const ShadowQuality& budget );
 
         void SetShadows( const ViewShadowSettings& shadows, int debugMode )
@@ -912,9 +1095,6 @@ namespace Desert::Graphic::System
         {
             return m_ShadowsEnabled;
         }
-        // CSM data the deferred lighting pass needs to shadow the sun (same source the forward material uses).
-        const glm::mat4* GetCascadeViewProj() const        { return m_CascadeVP; }
-
         // The target a non-mesh caster builds its pipeline against: the depth format of every cascade layer
         // (the static caches are framebuffers of it; the array layers are drawn through the graph).
         [[nodiscard]] const std::shared_ptr<Framebuffer>& GetCascadeFramebuffer() const
@@ -928,16 +1108,6 @@ namespace Desert::Graphic::System
         {
             m_ShadowCasters.push_back( std::move( caster ) );
         }
-        const glm::vec4& GetCascadeWorldPerTexel() const   { return m_CascadeWorldPerTexel; }
-        // Per cascade, the world length the [0,1] light depth spans (CascadeFit::DepthRange): what turns a depth
-        // difference in the map into centimetres for the soft shadow's penumbra (Mesh/CascadedShadow.glslh).
-        const glm::vec4& GetCascadeDepthRange() const
-        {
-            return m_CascadeDepthRange;
-        }
-        // tan of half the sun's angular diameter (DirectionalLightData::SourceAngle): penumbra width per
-        // centimetre between occluder and receiver.
-        [[nodiscard]] float GetSunSourceTanHalf() const;
 
         // Debug visualizations. TWO KINDS, and the boundary runs between them: `showNormals` and
         // `lightingDebug` are BRANCHES IN THE Lit SHADER, so they travel with the program and cost no
@@ -983,6 +1153,21 @@ namespace Desert::Graphic::System
         // Holds @p budget as m_Shadow, clamped to what the arrays can carry. Initialize and RebudgetShadows.
         void TakeShadowBudget( const ShadowQuality& budget );
         bool SetupShadowPass();
+        // One directional-shadow slot's static caches and caster materials, at the budget's cascade count
+        // (SetupShadowPass for every slot held, EnsureCascadeSlots for one first needed).
+        void AllocateCascadeSlot( uint32_t slot );
+        // The instanced and skinned caster materials of every held slot's cascades, for each optional pipeline built.
+        void EnsureCascadeCasterMaterials();
+        // HOLDS @p slots DIRECTIONAL-SHADOW SLOTS (the sun's is held from SetupShadowPass; another is taken the
+        // first frame its light casts, and kept: UE allocates a light's whole-scene shadow when the light needs
+        // it). A new slot drains the device, allocates its caches and materials and drops the cascade array, so
+        // the next AcquireCascadeMaps makes it again with every slot's layers. False under a zero budget.
+        bool EnsureCascadeSlots( uint32_t slots );
+        // The array layer of cascade view @p view: slot * the budget's cascade count + cascade.
+        [[nodiscard]] uint32_t CascadeLayer( uint32_t view ) const
+        {
+            return ( view / kMaxCascades ) * m_Shadow.CascadeCount + view % kMaxCascades;
+        }
         // The one place the shadow budget is said out loud. Called from both arms of SetupShadowPass —
         // the allocating one and the zero-budget one — because a renderer that spends nothing on the sun
         // is exactly as worth reading in a log as one that spends 320 MiB, and a line printed on only one
@@ -1011,7 +1196,7 @@ namespace Desert::Graphic::System
             // at CloserOrEqual against its own prepassed depth.
             DeferredForward,
             // DeferredForward while the sun is ray traced: an opaque program that samples the sun shadow is shaded
-            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ReadsSunShadowScreenMask), which reads the
+            // through its DESERT_SUN_SHADOW_SCREEN_MASK permutation (ForwardShadowMaskVariant), which reads the
             // view's screen mask (SceneViewInputs.SunShadowMask) in place of the cascades; a blended one through
             // itself.
             DeferredForwardRayTracedSun,
@@ -1026,7 +1211,8 @@ namespace Desert::Graphic::System
             Static,  // static, generic and still instanced meshes
             Movable, // skinned meshes and swaying foliage
         };
-        // The casters of shadow view @p cascade (a cascade, or a local view: kMaxShadowViews) into @p list.
+        // The casters of shadow view @p cascade (a fixed view, or a local view: kLocalShadowViewBase + row) into
+        // @p list.
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list,
                                       ShadowCasterLayer layer = ShadowCasterLayer::All );
         // The cache decision of each cascade for this frame (UpdateCascades, after the fit): whether its static
@@ -1038,9 +1224,18 @@ namespace Desert::Graphic::System
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
-        // A hash of every caster within @p radius of @p centre (what it draws and where), or nullopt when one of
-        // them moves by itself every frame (a skinned mesh, swaying foliage): the cache key of a local view.
+        // A hash of every caster in @p light's reach (what it draws into its views and where) - the meshes and the
+        // non-mesh casters (IShadowCaster::LocalShadowSignature) - or nullopt when one of them moves by itself
+        // every frame (a skinned mesh, swaying foliage): the cache key of a local view.
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const LocalShadowCasterLight& light ) const;
+        // The mesh casters alone in the sphere (@p centre, @p radius cm), or nullopt when one of them moves by itself
+        // every frame: the part of a local view's key the meshes give, and the rain occlusion map's key (the
+        // terrain under it changes only with the box, which RainOcclusionNeedsRecentre redraws on).
         [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
+        // its casters and its views; the views of a light whose key changed (or that has none) go to
+        // m_LocalRedraws.
+        void PlanLocalShadowCache();
 
         // The frame's draw lists, rebuilt by each node's setup and recorded by its exec.
         MeshRendererDetail::MeshDrawList m_ForwardDraws; // MeshGeometryPass: static + skinned + generic
@@ -1048,10 +1243,10 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         // "MeshShadowCascade<c>": the cascade's casters, built by its Declare (BuildShadowCascadeDraws).
-        MeshRendererDetail::MeshDrawList m_CascadeDraws[kMaxCascades];
+        MeshRendererDetail::MeshDrawList m_CascadeDraws[kCascadeViews];
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
-        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kMaxCascades];
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kCascadeViews];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_FrontLayerDraws; // "Translucency: Front Layer G-buffer"
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"
@@ -1064,9 +1259,9 @@ namespace Desert::Graphic::System
             // section's. Null for a Shader Override draw (Generic below).
             DataDrivenMaterial* Surface = nullptr;
             uint64_t            Hidden  = 0; // every submesh of the instance's other sections
-            // Static, generic and skinned: the view's ObjectMotions row (the view-pass cell's world, and the
+            // Static, generic and skinned: the primitive in the scene's GpuScene (the view-pass cell's world, and the
             // skinned cell's bone palette).
-            uint32_t MotionRow = 0;
+            uint32_t GpuPrimitive = 0;
             // A Shader Override draw (MaterialComponent: no `.demat`): its record of this frame's generic queue,
             // and the (Static x GBuffer) cell of its template that captures it.
             const GenericMeshRenderData* Generic = nullptr;
@@ -1107,16 +1302,48 @@ namespace Desert::Graphic::System
         [[nodiscard]] static GraphicsPipelineSpecification
              GenericPipelineSpec( const std::shared_ptr<Shader>& shader );
         void PrecacheRequestedMaterials();
+        // The mesh-table cells requested on load (MaterialPipelineRequests::RequestCell), compiled through the
+        // same CellPipeline/CullPermutation the draw uses, so the draw finds them in m_CellPipelines. A cell whose
+        // pass state is not built yet waits in m_PendingCellPrecache for the frame that has it.
+        void PrecacheRequestedCells();
         void TrackMaterialPipeline( const std::string& shaderName, const GraphicsPipeline& pipeline );
-        // An opaque generic program that samples the sun's shadow (declares u_ShadowCascades): the one that gets a
-        // DESERT_SUN_SHADOW_SCREEN_MASK permutation while the sun is ray traced. A blended program (TextSDF) or
-        // one that reads no sun shadow is shaded through itself.
-        [[nodiscard]] static bool ReadsSunShadowScreenMask( const Shader& shader, bool opaque );
+    public:
+        // THE ONE PERMUTATION FUNCTION of a generic forward program on the deferred path, asked by every place
+        // that builds or cooks it: "Deferred: Generic" (BuildGenericDraws), the prepass's readiness check
+        // (GenericForwardPipelineReady) and the cook (MaterialProgramVariants, OverrideProgramVariants). An
+        // opaque program reads DESERT_SUN_SHADOW_SCREEN_MASK when @p rayTracedSun and it samples the sun's shadow
+        // (declares ShadowCascadesTexture), and DESERT_LOCAL_SHADOW_SCREEN_MASK when @p localShadowMasks (the view has
+        // SceneViewInputs.LocalShadowMasks) and it samples the local shadow atlas; defines in that order (sun,
+        // then local), ShippedByCook. A blended program (TextSDF) or one that reads neither is the default
+        // permutation (shaded through itself).
+        [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
+                                                                           bool localShadowMasks );
+        // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
+        // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
+        // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook
+        // CookShaderVariants cooks, from the same function the renderer acquires by. A material without that
+        // cell draws nothing forward (CreateSurfaceMaterial names it) and has nothing to cook. A Shader Override
+        // draw (no `.demat`) is OverrideProgramVariants'.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant>
+             MaterialProgramVariants( const Runtime::MaterialService& materials,
+                                      const Runtime::ShaderService&   shaders,
+                                      std::span<const ::Common::AssetHandle> handles );
+        // The permutations a Shader Override draw (MaterialComponent::ShaderName, no `.demat`) can select: each
+        // named program BuildGenericDraws shades forward, under every ForwardShadowMaskVariant (sun only, local
+        // only, both), defaults omitted. A surface template's override is drawn through its (Static x GBuffer)
+        // cell, never forward, and has nothing here. PackageCook CookShaderVariants passes the overrides its
+        // cooked scenes state.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant>
+             OverrideProgramVariants( const Runtime::ShaderService& shaders,
+                                      std::span<const std::string>  shaderNames );
+
+    private:
         // Whether the pipeline "Deferred: Generic" shades @p shader's opaque draw with is Ready, tracked (so a
-        // compiling one counts among the pending pipelines); @p rayTracedSun picks the permutation as that pass
-        // does.
+        // compiling one counts among the pending pipelines); @p rayTracedSun and @p localShadowMasks pick the
+        // permutation through ForwardShadowMaskVariant, as that pass does.
         [[nodiscard]] bool GenericForwardPipelineReady( const std::shared_ptr<Shader>& shader,
-                                                        const std::string& shaderName, bool rayTracedSun );
+                                                        const std::string& shaderName, bool rayTracedSun,
+                                                        bool localShadowMasks );
         // THE ONE READINESS CHECK for an opaque generic draw on the deferred path: "Deferred: Forward
         // Depth/Normal" admits it when BOTH its depth-normal and its forward pipeline are Ready and records it
         // here; "Deferred: Generic" shades only what this frame admitted, so no draw is shaded forward against a
@@ -1126,6 +1353,8 @@ namespace Desert::Graphic::System
         std::unordered_set<const GenericMeshRenderData*> m_GenericPrepassed;
         std::optional<uint64_t>                          m_GenericPrepassFrame;
         bool                                             m_GenericPrepassRayTracedSun = false;
+        bool                                             m_GenericPrepassLocalShadowMasks = false; // the prepass's DESERT_LOCAL_SHADOW_SCREEN_MASK choice
+        bool                                             m_GenericLocalShadowMasks        = false; // "Deferred: Generic" (DeclareGenericDraws)
         std::shared_ptr<GraphicsPipeline> DefaultSurfacePipeline();
         // A caster whose material is Masked draws through its OWN template's (path x ShadowDepth) cell
         // (ShadowCasterCellFor), on a per-cascade copy of that material (MaterialService::GetViewVariant) —
@@ -1160,6 +1389,9 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline> m_StaticWireframePipeline; // same spec, PolygonMode::Wireframe
 #endif
         std::shared_ptr<GraphicsPipeline> m_StaticInstancedPipeline; // reads per-instance transform from SSBO
+#if DESERT_DEV_INSTRUMENTS
+        std::shared_ptr<GraphicsPipeline> m_StaticInstancedWireframePipeline; // same spec, PolygonMode::Wireframe
+#endif
 #if DESERT_DEV_INSTRUMENTS
         bool m_Wireframe = false;
 #endif
@@ -1257,14 +1489,15 @@ namespace Desert::Graphic::System
         // frame by UpdateCascades().
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         std::shared_ptr<Shader>           m_ShadowShader;
-        std::unique_ptr<MaterialShadow>           m_ShadowMaterial[kMaxShadowViews];
+        std::vector<std::unique_ptr<MaterialShadow>> m_ShadowMaterial =
+             std::vector<std::unique_ptr<MaterialShadow>>( kFixedShadowViews );
         // The sampled cascade maps: ONE depth array, a layer per cascade, owned by this renderer across frames
         // and handed to each frame's graph (AcquireCascadeMaps). Empty until the first frame after the budget.
         RDG::ExternalTexture m_CascadeMaps;
         bool                 m_CascadeMapsBuilt = false;
         // The cache of each cascade's static casters (depth only, the map's format): drawn when its key changes,
         // copied into layer c of m_CascadeMaps whenever the map is rebuilt.
-        std::shared_ptr<Framebuffer> m_CascadeStaticFB[kMaxCascades];
+        std::shared_ptr<Framebuffer> m_CascadeStaticFB[kCascadeViews]; // by cascade view; a slot not held: null
         struct CascadeCacheState
         {
             std::optional<uint64_t> StaticKey; // the key the cache was drawn with; nullopt = never drawn
@@ -1277,8 +1510,8 @@ namespace Desert::Graphic::System
         // holds them: a snapshot is immutable and is replaced when its instances change, so its address is its
         // revision only while no new snapshot can be allocated at that address — which holding it guarantees.
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> m_CascadeKeySnapshots;
-        CascadeCacheState                                          m_CascadeCache[kMaxCascades];
-        MeshRendererDetail::MeshDrawList                           m_CascadeMovableDraws[kMaxCascades];
+        CascadeCacheState                                          m_CascadeCache[kCascadeViews];
+        MeshRendererDetail::MeshDrawList                           m_CascadeMovableDraws[kCascadeViews];
         std::vector<std::weak_ptr<IShadowCaster>> m_ShadowCasters; // non-mesh casters, AddShadowCaster
 
         // Instanced shadow caster: one pipeline + per-cascade instanced material (each owns the cascade's
@@ -1286,7 +1519,8 @@ namespace Desert::Graphic::System
         // instanced draw per cascade. Optional — null if the Instanced.ShadowDepth cell is missing.
         std::shared_ptr<GraphicsPipeline>        m_ShadowInstancedPipeline;
         std::shared_ptr<Shader>                  m_ShadowInstancedShader;
-        std::unique_ptr<MaterialShadowInstanced> m_ShadowInstancedMaterial[kMaxShadowViews];
+        std::vector<std::unique_ptr<MaterialShadowInstanced>> m_ShadowInstancedMaterial =
+             std::vector<std::unique_ptr<MaterialShadowInstanced>>( kFixedShadowViews );
 
         // Skinned shadow caster: the (Skinned x ShadowDepth) cell, which did not exist — the cascade pass
         // walked the static queue by name and a character cast nothing. One material per cascade, exactly
@@ -1294,7 +1528,8 @@ namespace Desert::Graphic::System
         // Optional — null if the Skinned.ShadowDepth cell is missing, and then skinned shadows are simply off.
         std::shared_ptr<GraphicsPipeline>      m_ShadowSkinnedPipeline;
         std::shared_ptr<Shader>                m_ShadowSkinnedShader;
-        std::unique_ptr<MaterialShadowSkinned> m_ShadowSkinnedMaterial[kMaxShadowViews];
+        std::vector<std::unique_ptr<MaterialShadowSkinned>> m_ShadowSkinnedMaterial =
+             std::vector<std::unique_ptr<MaterialShadowSkinned>>( kFixedShadowViews );
 
         // The virtual shadow map's caster pipelines, by path: the (path x VirtualShadowDepth) cells of the default
         // surface, no attachment (RenderTargetLayout{}), no depth test (the pool's atomic max is the test). Null
@@ -1345,34 +1580,35 @@ namespace Desert::Graphic::System
         // of hand-written add/remove calls.
         ShadowAttachmentLease m_ShadowAttachments;
 
-        // How many of m_CascadeVP below were written by THIS frame's fit (0 until UpdateCascades runs).
-        // See GetValidCascadeCount for why this is not the same number as m_Shadow.CascadeCount.
-        uint32_t m_FittedCascades = 0;
+        // How many directional-shadow slots hold caches, materials and array layers (EnsureCascadeSlots).
+        uint32_t m_CascadeSlots = 1;
+        // ONE DIRECTIONAL LIGHT'S CASCADES THIS FRAME, per slot (UpdateCascades): what its light asked for and
+        // what its fit produced. Fitted = how many of its m_CascadeVP rows THIS frame wrote (0 until UpdateCascades
+        // runs; see DirectionalShadows for why this is not m_Shadow.CascadeCount).
+        struct DirectionalShadowSlot
+        {
+            uint32_t  Fitted        = 0;
+            bool      CastShadows   = false;
+            float     SourceTanHalf = 0.0f;
+            glm::vec4 WorldPerTexel = glm::vec4( 1.0f ); // per cascade: world size of one map texel (2*radius/res)
+            glm::vec4 DepthRange    = glm::vec4( 1.0f ); // per cascade: world length of the [0,1] light depth
+        };
+        DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];
 
-        // EVERY element identity, spelled element by element. `= { glm::mat4( 1.0f ) }` reads as "all
-        // identity" and is not: it initializes element 0 and VALUE-initializes the rest, so cascades 1..3
-        // began life as ZERO matrices, whose w is 0 and whose perspective divide is a division by zero in
-        // the sampling shader. Nothing should ever read past m_FittedCascades — this is what the array
-        // holds if something does.
-        glm::mat4 m_CascadeVP[kMaxCascades] = { glm::mat4( 1.0f ), glm::mat4( 1.0f ), glm::mat4( 1.0f ),
-                                                glm::mat4( 1.0f ) };
-        static_assert( kMaxCascades == 4, "m_CascadeVP's initializer lists one identity per cascade" );
-        // World-space size of one shadow-map texel per cascade (2*radius/res) — drives a cascade-correct
-        // normal-offset/bias in the lit shader instead of the old fixed world-unit constants.
-        glm::vec4                         m_CascadeWorldPerTexel    = glm::vec4( 1.0f );
-        glm::vec4                         m_CascadeDepthRange       = glm::vec4( 1.0f );
+        // The receivers' matrix of every cascade view, EVERY element identity (a zero matrix's w is 0 and its
+        // perspective divide a division by zero in the sampling shader). Nothing should ever read past a slot's
+        // Fitted — this is what the array holds if something does.
+        std::vector<glm::mat4> m_CascadeVP = std::vector<glm::mat4>( kCascadeViews, glm::mat4( 1.0f ) );
         // The receivers sample with m_CascadeVP; the casters draw with m_CascadeCasterVP (the constant depth
         // bias folded in, CasterViewProj) and write the slope term from m_CascadeCasterBias through CameraUB.
-        // Indexed by SHADOW VIEW (kMaxShadowViews): the cascades first, then the local views, whose matrices
-        // UpdateLocalShadows writes and whose bias is zero (a local view's bias is the receiver's, in texels).
-        std::array<glm::mat4, kMaxShadowViews>                      m_CascadeCasterVP = IdentityShadowViews();
-        CascadeCasterBias                                           m_CascadeCasterBias[kMaxShadowViews]{};
-        [[nodiscard]] static std::array<glm::mat4, kMaxShadowViews> IdentityShadowViews()
-        {
-            std::array<glm::mat4, kMaxShadowViews> views;
-            views.fill( glm::mat4( 1.0f ) );
-            return views;
-        }
+        // Indexed by SHADOW VIEW: the fixed views first, then the local views (kLocalShadowViewBase + row),
+        // whose matrices UpdateLocalShadows writes with the light's bias (Graphic::LocalCasterBias, texels at the
+        // caster). Sized kFixedShadowViews + this frame's local views (EnsureShadowViewCount).
+        std::vector<glm::mat4> m_CascadeCasterVP = std::vector<glm::mat4>( kFixedShadowViews, glm::mat4( 1.0f ) );
+        std::vector<CascadeCasterBias> m_CascadeCasterBias = std::vector<CascadeCasterBias>( kFixedShadowViews );
+        // Grows every per-view array above (and the local views' draw lists) to hold @p viewCount views. Never
+        // shrinks: a view's caster materials are kept for the next frame that has as many local views.
+        void EnsureShadowViewCount( uint32_t viewCount );
 
         // THE LOCAL LIGHTS' SHADOW STATE OF THIS VIEW. The atlas, its tiles and what each light's tiles hold are
         // the SCENE's (Graphic/LocalShadowCache.hpp, through SceneRenderer::GetFrameLocalShadows): every view of a
@@ -1382,11 +1618,25 @@ namespace Desert::Graphic::System
         std::vector<LocalShadowViewPayload> m_LocalShadowRows;
         struct LocalShadowRedraw
         {
-            uint32_t  View = 0; // shadow view index (kMaxCascades + row)
+            uint32_t  View = 0; // shadow view index (kLocalShadowViewBase + row)
             AtlasTile Tile;
         };
         std::vector<LocalShadowRedraw>    m_LocalRedraws;
-        MeshRendererDetail::MeshDrawList  m_LocalDraws[kMaxLocalShadowViews];
+        // What PlanLocalShadowCache decides from: each light given views this frame, where it reaches.
+        struct LocalShadowCachePlan
+        {
+            uint64_t               Light = 0; // its key in the scene's LocalShadowCache
+            LocalShadowCasterLight Caster;    // its views, reach and detail view (FirstView - kLocalShadowViewBase =
+                                              // its first row of m_LocalShadowRows)
+            uint64_t               Frame   = 0;     // the cache's frame the views were given in
+            bool                   Primary = false; // given by a primary view (a level's viewport)
+        };
+        std::vector<LocalShadowCachePlan> m_LocalCachePlans;
+        // Per local view (its row of m_LocalShadowRows), as many as this frame shadows (EnsureShadowViewCount).
+        std::vector<std::unique_ptr<MeshRendererDetail::MeshDrawList>> m_LocalDraws;
+        // Each local view's non-mesh casters its Declare declared, with the index of its first block (as
+        // m_CascadeCasters for a cascade).
+        std::vector<std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>>> m_LocalCasters;
 
         // The rain occlusion (SetRainOcclusionQuality / UpdateRainOcclusion / RainOcclusionPass): its budget, its
         // depth target (kept across frames: redrawn only when the box moved or its casters changed), the box it
@@ -1400,6 +1650,8 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList                               m_RainOcclusionDraws;
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_RainOcclusionCasters;
         uint32_t                          m_LocalRefusedLogged = 0; // lights last reported as left unshadowed
+        // The SUN'S cascade policy (ViewShadowSettings, SetShadows); atmosphere light 1's comes with it each frame
+        // (SceneRenderer::GetAtmosphereLight1).
         bool                              m_ShadowsEnabled  = true;
         CascadeBiasSettings               m_ShadowBias;
         int                               m_ShadowDebugMode = 0;     // ShadowDebugMode (Off/ShadowFactor/Cascades)
@@ -1426,6 +1678,7 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader>                  m_OverdrawShader;
         std::unique_ptr<MaterialOverdraw>        m_OverdrawMaterial;
         std::shared_ptr<Framebuffer>             m_OverdrawFB;
+        bool                                     m_OverdrawRefused = false; // EnsureOverdrawPass said it once
         std::shared_ptr<GraphicsPipeline>        m_OverdrawResolvePipeline;
         // The resolve block's layout, keyed on m_OverdrawResolvePipeline's shader.
         ShaderBindingLayoutCache                 m_OverdrawResolveLayout;
@@ -1445,7 +1698,11 @@ namespace Desert::Graphic::System
             SkinnedMesh*                  Base = nullptr;
             std::shared_ptr<SkinnedMesh>  Twin;
             std::shared_ptr<VertexBuffer> Vertices;
-            std::shared_ptr<VertexBuffer> BaseVertices;
+            // The base content the twin blends from: its render revision and its geometry (held, so its span
+            // and buffers outlive the twin's reads; the binding is part of the identity, a re-upload into a new
+            // span is a new twin).
+            uint64_t                      BaseRevision = 0;
+            MeshGeometry                  BaseGeometry;
             bool                          Blended  = false;
             uint64_t                      Revision = 0;
             bool                          Pending  = false;
@@ -1481,6 +1738,9 @@ namespace Desert::Graphic::System
         // read the process-wide on-load request list; the stand-in every not-yet-ready material draws with.
         MaterialPipelineTracker             m_MaterialPipelines;
         size_t                              m_MaterialRequestCursor = 0;
+        size_t                                             m_CellRequestCursor     = 0;
+        std::vector<MaterialPipelineRequests::CellRequest> m_PendingCellPrecache;
+        uint32_t m_StandInDraws = 0; // see GetStandInDraws; reset per frame in DeclareGenericDraws
         std::unique_ptr<DataDrivenMaterial> m_DefaultSurfaceMaterial;
 
         // AL1-12 INSIDE THE GRAPH (RDG-PSO). A graph pass records only pipelines it can bind: binding a content
@@ -1507,6 +1767,36 @@ namespace Desert::Graphic::System
         };
         StandInCell*                              StandIn( MeshVertexPath path, MeshPass pass );
         std::unordered_map<uint32_t, StandInCell> m_StandIns; // key: path * 16 + pass; Material null = refused
+        // The default surface's scene material table rows (the (Static x Forward) stand-in's), [0] receiving sun
+        // shadows and [1] not (SyncGpuScene): the row any draw names while it stands in for a material whose cell
+        // is not ready (static, instanced, skinned and glass stand-ins and the instanced spare all show the default
+        // surface's defaults; every cell of one template declares one Materials layout).
+        std::array<uint32_t, 2> m_StandInMaterialRows{};
+        // The generic path's stand-in row: m_DefaultSurfaceMaterial's own (SyncGpuScene, whenever m_GenericQueue
+        // is not empty), what a generic draw names while its pipeline compiles (BuildGenericDraws).
+        std::optional<uint32_t> m_GenericStandInRow;
+
+        // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row (GpuScene::AddMaterialRow).
+        // SyncGpuScene registers the row of every (template, instance) a queued draw shades with BEFORE the scene's
+        // upload, so the table is at its final size and content before any pass is declared; the draw paths only
+        // look rows up and lend the table to the recording cell. Cleared at each SyncGpuScene.
+        std::unordered_map<GpuDriven::MaterialRowKey, uint32_t, GpuDriven::MaterialRowKeyHash> m_FrameMaterialRows;
+        std::unordered_set<const void*> m_MissingMaterialRowReported; // a template whose miss was said once
+        // The row of (@p material, @p instance) with ReceiveSunShadows zeroed unless @p receiveSunShadows: added
+        // or refreshed in @p registry the first time this frame asks, then the frame's index.
+        uint32_t RegisterMaterialRow( GpuDriven::GpuSceneRegistry& registry, const DataDrivenMaterial* material,
+                                      MaterialInstance* instance, bool receiveSunShadows );
+        // The row SyncGpuScene registered for the key; nullopt (said once per template) when it did not, and the
+        // caller does not record the draw: a row looked up after the upload would not be on the device.
+        [[nodiscard]] std::optional<uint32_t> FindMaterialRow( const DataDrivenMaterial* material,
+                                                               const MaterialInstance*   instance,
+                                                               bool                      receiveSunShadows = true );
+        // Lends the scene material table to @p material's Materials block (a template with no parameters declares
+        // none: true, nothing to lend). False, said by name, when the table is not on the device.
+        [[nodiscard]] bool LendMaterialTable( DataDrivenMaterial& material ) const;
+        // Every m_GenericQueue record's row (GenericMeshRenderData::MaterialRow) and m_GenericStandInRow, registered
+        // in @p registry: called by SyncGpuScene before the upload.
+        void RegisterGenericRows( GpuDriven::GpuSceneRegistry& registry );
         // The glass pass's stand-in: the default surface's (Static x Forward) cell with the translucent draw
         // state.
         TranslucentDraw* TranslucentStandIn();
@@ -1514,8 +1804,8 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
-        std::vector<uint32_t>                m_InstancedMotionRows; // see GetInstancedMotionRows
-        std::vector<uint32_t>                m_OtherMotionRows;     // see GetOtherMotionRows
+        std::vector<uint32_t>                m_InstancedGpuInstances; // see GetInstancedGpuInstances
+        std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
         // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
         std::unordered_map<uint32_t, MaterialInstancePtr> m_GpuInstancedInstances;
@@ -1524,7 +1814,11 @@ namespace Desert::Graphic::System
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                      MeshPass pass, const SceneFrameBinding& frameState );
-        void BuildGpuInstancedShadowDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list );
+        // `cascade` keys the caster cell (one per section x cascade); `shadowView` is the view drawn (the cascade
+        // itself, or its movable layer kCascadeMovableViewBase + cascade over the cache) and names its light
+        // camera.
+        void BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
+                                           MeshRendererDetail::MeshDrawList& list );
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed
@@ -1541,7 +1835,6 @@ namespace Desert::Graphic::System
         {
             const StaticMeshRenderData* Obj  = nullptr;
             MaterialInstance*           Inst = nullptr;
-            Core::Formats::MaterialParamRow Row; // this object's effective Materials[] row
             bool                        HasOverrides = false;
         };
         struct InstancedDraw
@@ -1579,26 +1872,17 @@ namespace Desert::Graphic::System
             Graphic::DataDrivenMaterial* Mat  = nullptr;
             MaterialInstance*           Inst = nullptr;
             std::vector<glm::mat4>      Transforms;
-            std::vector<glm::vec4>       Materials; // Materials[] rows, end to end
             std::vector<InstancedDraw>  Draws;
         };
 
-        // One recorded generic draw, resolved in DrawGenericMeshes' first pass and executed in its third.
-        // The passes are separate because every row has to be uploaded at FINAL size before the first draw
-        // is recorded — growing a storage buffer reallocates the VkBuffer under a draw already recorded
-        // against the old one — and only the first pass knows how many rows there will be.
+        // One recorded generic draw, resolved in BuildGenericDraws' first pass and recorded after every recording
+        // material was lent the scene material table. Row: its row in that table (SyncGpuScene).
         struct GenericDraw
         {
             const GenericMeshRenderData*      Data     = nullptr;
             DataDrivenMaterial*               Material = nullptr;
             GraphicsPipeline*                 Pipeline = nullptr; // held by the pipeline cache / m_CellPipelines
             uint32_t                          Row = 0;
-        };
-        // One material's rows, end to end: Count rows of (parameter slots per row) vec4s.
-        struct MaterialRows
-        {
-            std::vector<glm::vec4> Bytes;
-            uint32_t               Count = 0;
         };
         struct ShadowBatch
         {
@@ -1637,7 +1921,6 @@ namespace Desert::Graphic::System
         // stable by construction.
         std::vector<std::unique_ptr<InstancedBatchSet>> m_ScratchInstSets;
         std::size_t                                     m_ScratchInstSetCount = 0;
-        std::vector<glm::vec4>                   m_ScratchGpuMaterials; // per-object Materials[] rows, end to end
         std::vector<ObjDraw>        m_ScratchSingles;
         std::vector<ShadowBatch>    m_ScratchShadowBatches;
         std::vector<const StaticMeshRenderData*> m_ScratchShadowSingles;
@@ -1646,7 +1929,6 @@ namespace Desert::Graphic::System
         struct MaskedCasterSet
         {
             DataDrivenMaterial*    Caster = nullptr;
-            std::vector<glm::vec4> Rows;
             std::vector<glm::mat4> Transforms; // Instanced path: InstanceTransforms; Skinned path: Bones
         };
         struct MaskedCasterDraw
@@ -1659,9 +1941,9 @@ namespace Desert::Graphic::System
             uint32_t          Row       = 0;
             uint32_t          Count     = 1; // instances (Instanced path)
             uint32_t          First     = 0; // first instance transform / first bone
-            // Skinned path: the primitive's row in the view's ObjectMotions (PrimitiveIndex), whose skin-cache
+            // Skinned path: the primitive in the scene's GpuScene (PrimitiveIndex), whose skin-cache
             // fields the cell fetches the cached pose by; a row without an address skins from the copy's bones.
-            uint32_t          MotionRow         = 0;
+            uint32_t          GpuPrimitive         = 0;
             uint32_t          LodLevel  = 0;
             uint64_t          HiddenSubmeshMask = 0; // the caster's section group, as its lit draw
             InstanceWindPush  Wind;
@@ -1674,16 +1956,15 @@ namespace Desert::Graphic::System
         std::unordered_map<std::string, std::shared_ptr<GraphicsPipeline>>
                                                                   m_MaskedCasterPipelines; // null = refused
         std::vector<GenericDraw>                 m_ScratchGenericDraws;
-        std::vector<std::pair<DataDrivenMaterial*, MaterialRows>> m_ScratchGenericRows;
+        std::vector<DataDrivenMaterial*>         m_ScratchGenericRecorders; // distinct recording materials
         float                                                     m_WorldTimeSeconds = 0.0f;
         ParallaxQuality                                           m_ParallaxQuality;
-        // BuildObjectMotions' output: the rows and both frames' palettes (CPU scratch, capacity kept) and the
-        // per-(frame x view) buffers they are uploaded into (StorageBuffer::Create non-persistent: one copy per
-        // frame in flight). Created on the first frame, grown by SetData.
-        std::vector<MotionRecord>                       m_ScratchMotionRecords;
-        ObjectMotionRows                                m_ScratchMotionRows;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectMotions;
-        std::shared_ptr<ShaderResources::StorageBuffer> m_ObjectBones;
+        // SyncGpuScene's CPU scratch (capacity kept) and the scene's GPU scene it last synced into.
+        std::vector<MotionRecord>          m_ScratchRigidRecords;
+        std::vector<MotionRecord>          m_ScratchSkinnedRecords;
+        std::vector<MotionFieldRecord>     m_ScratchFieldRecords;
+        GpuDriven::GpuSceneRecordRows      m_ScratchGpuSceneRows;
+        const GpuDriven::GpuScene*         m_GpuScene = nullptr;
         // The GPU skin cache's per-view side (SetSkinCacheEnabled, SkinCacheReads, SkinCacheBonesImport).
         std::vector<RDG::BufferRef> m_SkinCacheReads;
         RDG::ExternalBuffer         m_SkinCacheBonesImport;

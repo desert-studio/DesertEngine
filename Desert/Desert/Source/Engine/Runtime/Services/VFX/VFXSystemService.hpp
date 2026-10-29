@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/AsyncAssetLoader.hpp>
+#include <Engine/Assets/VFXEffectTypeAsset.hpp>
 #include <Engine/Assets/VFXSystemAsset.hpp>
 
 #include <Common/Core/ResultStr.hpp>
@@ -30,15 +31,31 @@ namespace Desert::Runtime
         /// The system @p handle names: null while it is being read; an error once it cannot be read.
         Common::ResultStr<System> Get( const Assets::AssetHandle& handle );
 
+        /// The effect type NAMED @p name (VFXSystemData::EffectType: a `.dfxtype` file stem, anywhere under the
+        /// VFX content root), read on the first ask. The asset is the manager's own (IsProjectScopedAsset), so
+        /// AssetHotReload's re-read is what the caller sees through it. An error names why: no file of that
+        /// name, two of them, or a first read that failed.
+        Common::ResultStr<Assets::Asset<Assets::VFXEffectTypeAsset>> EffectType( const std::string& name );
+
+        /// Forgets the copy of @p handle, so the next Get adopts the asset's data afresh - a new pointer, so every
+        /// component playing it starts over. Called after the editor saved the system (VFX-12).
+        void Refresh( const Assets::AssetHandle& handle );
+
         void Clear();
 
     private:
         void Request( const Assets::AssetHandle& handle );
         void Adopt( const Assets::AssetHandle& handle, const Assets::Asset<Assets::VFXSystemAsset>& asset );
+        /// A `.dfxmod` written since the last look (the module document's save, a re-import): every ready system
+        /// whose header Dependencies name it is handed out as a NEW pointer, which is what makes the particle world
+        /// recompile the emitter (ParticleWorldGpu compares the pointer). One serial compare while nothing was
+        /// written.
+        void ReissueOnModuleWrites();
 
         std::weak_ptr<Assets::AssetManager>                          m_Assets;
         std::unordered_map<Assets::AssetHandle, Assets::LoadRequest> m_Requests;
         std::unordered_map<Assets::AssetHandle, System>              m_Ready;
         std::unordered_map<Assets::AssetHandle, std::string>         m_Failed;
+        uint64_t                                                     m_ModuleSerial = 0;
     };
 } // namespace Desert::Runtime

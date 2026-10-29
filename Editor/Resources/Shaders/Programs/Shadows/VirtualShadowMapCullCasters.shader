@@ -11,7 +11,7 @@ Shader "VirtualShadowMapCullCasters"
     // One thread per instance. A surviving instance takes the next slot of its draw (the first record's instance count,
     // counted up from 0), writes the instance index its vertex stage fetches to the draw's remap slot (the records'
     // first instance is the draw's RemapBase, so gl_InstanceIndex names the slot - Mesh/Surface/Vertex_Instanced.glslh
-    // reads u_InstanceRemap in the VirtualShadowDepth cell) and counts itself into the draw's other records. A level
+    // reads InstanceRemap in the VirtualShadowDepth cell) and counts itself into the draw's other records. A level
     // with no drawn page leaves every count at 0: nothing of it is rasterised.
     Compute
     {
@@ -28,33 +28,33 @@ Shader "VirtualShadowMapCullCasters"
 
         ReadBuffer(0) VsmFrameData
         {
-            VsmFrame u_Frame;
-            VsmLevel u_Levels[];
+            VsmFrame Frame;
+            VsmLevel Levels[];
         };
         ReadBuffer(1) VsmDirtyMask
         {
-            uint u_Mask[];
+            uint DirtyPageMask[];
         };
         ReadBuffer(2) VsmCullInstances
         {
-            VsmCullInstance u_Instances[];
+            VsmCullInstance Instances[];
         };
         ReadBuffer(3) VsmCullDraws
         {
-            uvec4 u_Draws[]; // x = first record, y = records, z = remap base
+            uvec4 Draws[]; // x = first record, y = records, z = remap base
         };
         Buffer(4) VsmCasterArguments
         {
-            uint u_Arguments[]; // VSM_DRAW_ARGUMENT_WORDS per record, the instance count at word 1
+            uint Arguments[]; // VSM_DRAW_ARGUMENT_WORDS per record, the instance count at word 1
         };
         Buffer(5) VsmInstanceRemap
         {
-            uint u_Remap[];
+            uint Remap[];
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Params; // x = level, y = instance count, z = threads per row of groups
+            uvec4 Params; // x = level, y = instance count, z = threads per row of groups
         };
 
         bool CoversDrawnCell( uint level, ivec2 lowPage, ivec2 highPage )
@@ -66,7 +66,7 @@ Shader "VirtualShadowMapCullCasters"
                 for ( int x = lowCell.x; x <= highCell.x; ++x )
                 {
                     const uint index = uint( y ) * VSM_MASK_CELLS + uint( x );
-                    if ( ( u_Mask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u] & ( 1u << ( index % 32u ) ) ) != 0u )
+                    if ( ( DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u] & ( 1u << ( index % 32u ) ) ) != 0u )
                         return true;
                 }
             }
@@ -75,12 +75,12 @@ Shader "VirtualShadowMapCullCasters"
 
         void main()
         {
-            const uint i = gl_GlobalInvocationID.y * u_Params.z + gl_GlobalInvocationID.x;
-            if ( i >= u_Params.y )
+            const uint i = gl_GlobalInvocationID.y * Params.z + gl_GlobalInvocationID.x;
+            if ( i >= Params.y )
                 return;
-            const uint            level    = u_Params.x;
-            const VsmCullInstance instance = u_Instances[i];
-            const mat4            vp       = u_Levels[level].ViewProjection;
+            const uint            level    = Params.x;
+            const VsmCullInstance instance = Instances[i];
+            const mat4            vp       = Levels[level].ViewProjection;
 
             // The box's footprint in the level's window pages (the map's texel convention, VsmProject) and its depth
             // span. Nearer the sun than the level's range still draws (depth clamp, "VSM: Raster"); wholly past its
@@ -105,11 +105,11 @@ Shader "VirtualShadowMapCullCasters"
             if ( any( greaterThan( lowPage, highPage ) ) || !CoversDrawnCell( level, lowPage, highPage ) )
                 return;
 
-            const uvec4 draw = u_Draws[instance.Draw.x];
-            const uint  slot = atomicAdd( u_Arguments[draw.x * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
+            const uvec4 draw = Draws[instance.Draw.x];
+            const uint  slot = atomicAdd( Arguments[draw.x * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
             for ( uint r = 1u; r < draw.y; ++r )
-                atomicAdd( u_Arguments[( draw.x + r ) * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
-            u_Remap[draw.z + slot] = instance.Draw.y;
+                atomicAdd( Arguments[( draw.x + r ) * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
+            Remap[draw.z + slot] = instance.Draw.y;
         }
     }
 }

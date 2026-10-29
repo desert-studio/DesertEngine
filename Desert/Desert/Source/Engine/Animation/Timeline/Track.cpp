@@ -34,6 +34,8 @@ namespace Desert::Animation::Timeline
                 return "Subsequence";
             case TrackKind::Audio:
                 return "Audio";
+            case TrackKind::VFX:
+                return "VFX";
         }
         // A kind outside the enum is refused where it is READ; this names it for the log that says so.
         return "Unknown";
@@ -62,6 +64,10 @@ namespace Desert::Animation::Timeline
                  {
                      return TrackKind::Audio;
                  }
+                 else if constexpr ( std::is_same_v<Held, VFXSectionContent> )
+                 {
+                     return TrackKind::VFX;
+                 }
                  else
                  {
                      static_assert( std::is_same_v<Held, SubsequenceSectionContent> );
@@ -85,6 +91,8 @@ namespace Desert::Animation::Timeline
                     return SubsequenceSectionContent{};
                 case TrackKind::Audio:
                     return AudioSectionContent{};
+                case TrackKind::VFX:
+                    return VFXSectionContent{};
                 default:
                     return MakeChannel( static_cast<ChannelKind>( kind ) );
             }

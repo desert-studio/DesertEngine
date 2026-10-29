@@ -146,6 +146,9 @@ namespace Desert::Graphic::Streamline
         float     AspectRatio = 0.0f;
         bool      Reset       = false; // the view's history is invalid (camera cut, resize, first frame)
         uint64_t  EngineFrame = 0;     // FrameManager absolute frame count: the frame token
+        // ViewFrame::PreExposure: Color arrives multiplied by it (sl DLSSOptions/DLSSDOptions::preExposure; DLSS
+        // divides it out before Exposure and puts it back on Output, as UE's DLSS plugin hands View.PreExposure).
+        float PreExposure = 1.0f;
     };
 
     class Runtime final : public API::Vulkan::IVulkanDeviceExtension
@@ -202,6 +205,9 @@ namespace Desert::Graphic::Streamline
         {
             bool        Candidate = false; // supported + requirements enabled on the device
             bool        Ready     = false; // slSetVulkanInfo accepted, entry points resolved
+            // AmendCatalogProbe reported it as available: a later Refuse is a refusal of an offered method
+            // (CatalogProbe::Dlss*Refused). Written under m_Mutex by the const AmendCatalogProbe.
+            mutable bool Offered = false;
             std::string Refusal;
         };
         // One feature refuses itself; the other keeps its state.
@@ -212,10 +218,12 @@ namespace Desert::Graphic::Streamline
         [[nodiscard]] const FeatureState& StateOf( DlssFeature feature ) const;
         [[nodiscard]] bool                AnyCandidate() const;
         // SetOptions under m_Mutex. @p worldToView / @p viewToWorld: Ray Reconstruction's camera (identity at
-        // creation, the frame's at evaluation). @p heldBytes: where the feature's estimate goes, null to skip it.
+        // creation, the frame's at evaluation). @p preExposure: the colour's pre-exposure (1 at creation, the
+        // frame's at evaluation). @p heldBytes: where the feature's estimate goes, null to skip it.
         [[nodiscard]] Common::BoolResultStr SetOptionsLocked( uint32_t viewport, const DlssOptions& input,
                                                               const glm::mat4& worldToView,
-                                                              const glm::mat4& viewToWorld, uint64_t* heldBytes );
+                                                              const glm::mat4& viewToWorld, float preExposure,
+                                                              uint64_t* heldBytes );
 
         mutable std::mutex                          m_Mutex;
         std::unique_ptr<Library>                    m_Library;

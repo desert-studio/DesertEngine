@@ -23,15 +23,15 @@ Shader "SwapchainBlit"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(1) sampler u_LinearClampSampler;
-        Uniform(0) texture2D u_Texture;
-        #define u_Texture sampler2D(u_Texture, u_LinearClampSampler)
+        Uniform(1) sampler LinearClampSampler;
+        Uniform(0) texture2D FinalColorTexture;
+        #define FinalColorTexture sampler2D(FinalColorTexture, LinearClampSampler)
 
         Out(0) vec4 o_Color;
 
         void main()
         {
-            o_Color = texture(u_Texture, v_TexCoord);
+            o_Color = texture(FinalColorTexture, v_TexCoord);
         }
     }
 }

@@ -1,3 +1,4 @@
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Common/Core/DevInstruments.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
@@ -66,6 +67,11 @@ namespace Desert::Graphic
         // VFX-08: every view sorts its own translucent / additive emitters back to front (the key is its view
         // depth); the graph orders the sort after the last Compact and before ParticlePass from the buffers.
         particles->AddSortPasses( graph );
+        // VFX-09: Mesh renderer rows as GPU instances of the mesh renderer (lit by the GBuffer, cast into the
+        // cascades) - submitted here, before the cascades and the base pass build their draws.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
+            particles->AddMeshInstances( graph, *meshes );
     }
 
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer )
@@ -97,6 +103,22 @@ namespace Desert::Graphic
                  [particles, step]( RDG::PassContext& context ) -> Common::BoolResultStr
                  { return particles->Compact( context, step + 1 ); } );
         }
+        // VFX-16 (UE Niagara Debugger, dev only): the GPU counts and one attribute page, after the last compact (the
+        // graph orders it from the buffers), only while an editor debugger asks.
+        if ( particles->DebugReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Debug Readback", RDG::PassFlags::Compute,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareDebugReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->DebugReadback( context ); } );
+        // VFX-LIGHT (UE Niagara Light Renderer): the Light rows' particles, after the last compact, for the
+        // scene's particle point lights FramesInFlight frames later (ParticleWorldGpu::ReadLightReadbacks).
+        if ( particles->LightReadbackRequested() )
+            graph.AddPass(
+                 "Particles: Light Readback", RDG::PassFlags::Compute,
+                 [particles]( RDG::PassBuilder& pass ) { particles->DeclareLightReadbackBindings( pass ); },
+                 [particles]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return particles->LightReadback( context ); } );
     }
 
     void SceneRenderer::AddFrameCloudShadowMap( RDG::Builder& graph, FrameTextures& textures )
@@ -114,6 +136,20 @@ namespace Desert::Graphic
         clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
         // A transient of this graph; its readers take the ref through SceneViewInputsOf (CloudShadowMapOrWhite).
         textures.Transients.CloudShadowMap = clouds->GetShadowMap();
+    }
+
+    void SceneRenderer::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // A path-traced frame draws no screen clouds, but the layer's sky-occlusion volume is an input of the sky
+        // capture that marches the clouds into the environment the paths read (PathTracerSky "Prepare"): without
+        // it the capture waits on an undecided volume and the path-traced sky has no clouds.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
+        if ( clouds == nullptr )
+            return;
+        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareSkyOcclusionNodes();
+        clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
+        clouds->SettleSkyOcclusionNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
     }
 
     void SceneRenderer::AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures )

@@ -87,12 +87,15 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -406,7 +409,8 @@ namespace Desert::Assets::Serialization
     BlockCompressChain( uint32_t width, uint32_t height, uint32_t levelCount, uint32_t layerCount,
                         Core::Formats::ImageFormat sourceFormat, Core::Formats::ImageFormat blockFormat,
                         const std::vector<TextureLevel>&  sourceLevels,
-                        const std::vector<unsigned char>& sourcePixels );
+                        const std::vector<unsigned char>& sourcePixels,
+                        const Core::Formats::BlockEncodeSettings& settings = {} );
 
     /// How many bytes `BuildLevelTable` demands in @p images for this shape: every level of every layer,
     /// tightly packed. Exposed because a caller that reads a GPU image back has to SIZE the readback
@@ -427,10 +431,26 @@ namespace Desert::Assets::Serialization
     /// An odd extent halves DOWN (`max(1, n/2)`, the Vulkan chain rule) and the filter averages the
     /// 2x2 block clamped to the source, so the last row or column of an odd level is not dropped.
     /// @p base must hold exactly `width * height * GetBytesPerPixel(format)` bytes.
+    ///
+    /// PRESERVED ALPHA COVERAGE (UE AlphaCoverageThresholds): a channel whose threshold is > 0 has every level
+    /// below 0 scaled so the share of its texels at or above the threshold equals level 0's (a masked material's
+    /// clip value: foliage keeps its silhouette with distance). 0 = the channel is filtered and left as filtered.
     [[nodiscard]] Common::ResultStr<std::vector<TextureLevel>>
     BuildMipChain( uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
                    const std::vector<unsigned char>& base, std::vector<unsigned char>& chainOut,
-                   Core::Formats::TextureColorSpace space = Core::Formats::TextureColorSpace::Linear );
+                   Core::Formats::TextureColorSpace space = Core::Formats::TextureColorSpace::Linear,
+                   const std::array<float, 4>& alphaCoverageThresholds = {} );
+
+    /// COLOUR DILATION UNDER A MASK (GRASS-ASSET p5; Megascans/Substance "padding", UE ships such atlases dilated).
+    /// Every texel of @p base whose @p mask value (one float per texel, row-major, @p width x @p height) is below
+    /// @p threshold gets its RGB from the masked average of the nearest coarser level of a push-pull pyramid that
+    /// only kept texels contribute to; kept texels and the alpha channel are untouched. Averaged in linear light when
+    /// @p space is sRGB, like the mip filter. Run on level 0 BEFORE BuildMipChain so no mip mixes a blade with the
+    /// matte colour under its cut-away. Returns the number of texels it filled; an error when no texel is kept.
+    [[nodiscard]] Common::ResultStr<uint64_t>
+    DilateColorUnderMask( uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
+                          std::vector<unsigned char>& base, std::span<const float> mask, float threshold,
+                          Core::Formats::TextureColorSpace space );
 
     /// Header `Flags` bit 0: the stored values are sRGB (`TextureAssetData::ColorSpace`). No other bit is defined.
     inline constexpr uint32_t kTextureFlagSRGB = 1u;

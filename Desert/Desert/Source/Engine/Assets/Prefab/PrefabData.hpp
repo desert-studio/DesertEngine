@@ -13,9 +13,12 @@
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
 #include <Common/Json/Json.hpp>
+#include <Common/Json/Template.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <string>
@@ -31,12 +34,17 @@ namespace Desert::Assets
     // asset reference persists BOTH ways:
     //   *Guid  — the asset's header GUID as text (meshes SCNE 28, materials SCNE 27): the identity
     //   *Path  — a locator only: loads the asset when it is not resident, and must hold that GUID's asset
+    //
+    // THE STATIC MESH'S TWO REFERENCES ARE THE REFLECTED FIELDS' OWN KEYS (STATICMESH-FORMAT, asset-reference
+    // format v1 under Assets::kAssetRefSchemaTag): `MeshHandle` {Guid, Path} and `MaterialSlots` [{Guid, Path}],
+    // written and read by Reflection::SerializeReflected / DeserializeReflected as UE saves UPROPERTY StaticMesh
+    // and OverrideMaterials. They are declared here, typed as the file states them, for the readers that take a
+    // record's block raw (HLOD, World Partition rules, WorldGen) and so the scene reader knows the keys; the
+    // component serializer never fills them.
     struct StaticMeshComponentSer
     {
-        std::optional<std::string>                  MeshPath;
-        std::optional<std::string>                  MeshGuid; // mesh header GUID text (SCNE 28)
-        std::optional<std::vector<std::string>>     MaterialPaths;
-        std::optional<std::vector<std::string>>     MaterialGuids; // material header GUID text (SCNE 27)
+        std::optional<AssetGuidRef>                 MeshHandle;
+        std::optional<std::vector<AssetGuidRef>>    MaterialSlots;
         std::optional<Geometry::PrimitiveType>      Primitive;
         // The editor-built mesh, the SOURCE the render mesh is derived from. Schema v22 replaced the v21
         // CustomVertices/CustomIndices render arrays with it (Tools/SceneMigrator, MigrateEditMeshV21ToV22).
@@ -261,6 +269,26 @@ namespace Desert::Assets
         std::optional<std::vector<PrefabOverrideData>> PrefabOverrides;
     };
 
+    // THE SCENE'S RECORD ORDER (scene v25): a .desce lists its records by ascending id, so the file order is a
+    // function of the SET of entities - not of the order they were created, reparented or iterated out of the
+    // registry in - and a save with one edit changes only that edit's lines. Stable, so records without an id
+    // (sorted as 0) keep their relative order. Returns true when anything moved. PURE: the scene saver and the
+    // migrator's canonical pass run this one rule, so a file the migrator wrote is already in the order the
+    // editor writes (SAVE-ENTITY-ORDER: 33 tracked scenes predated the rule and every editor save of one of
+    // them moved records). A .deprefab keeps hierarchy order and is not sorted.
+    inline bool SortSceneRecordsById( std::vector<EntityData>& records )
+    {
+        const auto byId = []( const EntityData& a, const EntityData& b )
+        {
+            return static_cast<uint64_t>( a.id.value_or( Common::UUID( 0 ) ) ) <
+                   static_cast<uint64_t>( b.id.value_or( Common::UUID( 0 ) ) );
+        };
+        if ( std::is_sorted( records.begin(), records.end(), byId ) )
+            return false;
+        std::stable_sort( records.begin(), records.end(), byId );
+        return true;
+    }
+
     // THE INSTANCE ROOT'S TRANSFORM, TAKEN OUT OF ITS OVERRIDES (scene v37, PFX1). A scene record states its
     // instance's root transform itself; the root's override (the one whose Path is @p rootPath) must not state
     // it a second time. Removes Translation, Rotation and Scale from that override, drops the override when
@@ -296,21 +324,16 @@ namespace Desert::Assets
     // root stands, which would look exactly like a right answer.
     inline std::string MissingInstanceTransform( const EntityData& record )
     {
-        std::string missing;
         if ( !record.PrefabPath.has_value() )
-            return missing;
-        const auto note = [&missing]( bool stated, const char* name )
-        {
-            if ( stated )
-                return;
-            if ( !missing.empty() )
-                missing += ", ";
-            missing += name;
-        };
-        note( record.Translation.has_value(), "Translation" );
-        note( record.Rotation.has_value(), "Rotation" );
-        note( record.Scale.has_value(), "Scale" );
-        return missing;
+            return {};
+        std::vector<std::string_view> missing;
+        if ( !record.Translation.has_value() )
+            missing.emplace_back( "Translation" );
+        if ( !record.Rotation.has_value() )
+            missing.emplace_back( "Rotation" );
+        if ( !record.Scale.has_value() )
+            missing.emplace_back( "Scale" );
+        return Common::Text::Join( missing, ", " );
     }
 
     // THE SAVER'S HALF (scene v37): what a scene keeps of a prefab instance. The record keeps the root's

@@ -12,6 +12,15 @@
 #include <format>
 #include <unordered_map>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshCardCaptureShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     namespace
@@ -63,10 +72,14 @@ namespace Desert::Graphic::System
             ready                        = pass != nullptr;
             if ( materials == nullptr || !materials->Owns( surface ) )
                 return;
+            // The asset's build revision, not the cell's address: a material rebuilt bound (its texture landed)
+            // may reuse its predecessor's address, and the card captured in the slot defaults would never
+            // recapture (GRASS-SETTLE). Not ready while a texture is in flight — as UE's card capture waits for
+            // the material's textures to stream — the same gate the scene's own draw asks (AwaitsTextures).
             DataDrivenMaterial* const cell = materials->GetVariant( surface, path, MeshPass::GBuffer );
-            key                            = HashCombine( key, PointerBits( cell ) );
-            const bool twoSided            = instance != nullptr ? instance->IsTwoSided() : surface->IsTwoSided();
-            ready                          = cell != nullptr && pass != nullptr &&
+            key                 = HashCombine( key, static_cast<uint64_t>( materials->BuildRevision( surface ) ) );
+            const bool twoSided = instance != nullptr ? instance->IsTwoSided() : surface->IsTwoSided();
+            ready               = cell != nullptr && pass != nullptr && !materials->AwaitsTextures( surface ) &&
                     ChooseCellDraw( pass, *cell, twoSided, nullptr ) == MaterialPipelineTracker::CellDraw::Own;
         };
         // ONE CARD SET PER MESH INSTANCE (UE FLumenCardRenderer): a section joins the instance of its key when
@@ -136,7 +149,7 @@ namespace Desert::Graphic::System
                         { .Instance  = shading.Instance,
                           .Surface   = shading.Surface,
                           .Hidden    = data.HiddenSubmeshes,
-                          .MotionRow = data.MotionRow },
+                          .GpuPrimitive = data.GpuPrimitive },
                         std::nullopt );
         }
         // Instanced static meshes and foliage: every instance is an instance of the Lumen scene (UE adds each ISM
@@ -180,7 +193,7 @@ namespace Desert::Graphic::System
             if ( !cards || cards->Cards.empty() )
                 continue;
             const uint64_t     key = ( static_cast<uint64_t>( g.Entity ) << 24u ) | ( g.MotionPart & 0xFFFFFFu );
-            CardCaptureSection section{ .Hidden = ~g.VisibleSubmeshMask, .MotionRow = g.MotionRow };
+            CardCaptureSection section{ .Hidden = ~g.VisibleSubmeshMask, .GpuPrimitive = g.GpuPrimitive };
             if ( g.SlotMaterial != nullptr )
             {
                 auto* const surface = dynamic_cast<DataDrivenMaterial*>( g.SlotMaterial );
@@ -266,7 +279,7 @@ namespace Desert::Graphic::System
                             { .Instance  = shading.Instance,
                               .Surface   = shading.Surface,
                               .Hidden    = skinned.HiddenSubmeshes,
-                              .MotionRow = data.MotionRow },
+                              .GpuPrimitive = data.GpuPrimitive },
                             std::nullopt );
             }
         }
@@ -284,7 +297,8 @@ namespace Desert::Graphic::System
         // a mesh batch per section, each with its own material). The k-th section draw of a surface in this
         // frame draws through that surface's k-th view copy (its camera block holds this card's camera); the
         // renderer-owned surface through the k-th material of its cell's pool; a Shader Override through the
-        // k-th material of its cell's pool, its overrides written in.
+        // k-th material of its cell's pool, its texture overrides bound. Every section reads its row from the scene
+        // material table, lent to the material it records with.
         std::unordered_map<const DataDrivenMaterial*, uint32_t> viewsTaken;
         std::unordered_map<const void*, uint32_t>               overridesTaken;
         uint32_t                                                pooled[3] = { 0u, 0u, 0u };
@@ -309,9 +323,11 @@ namespace Desert::Graphic::System
             const SurfaceCache::AtlasRect rect = capture.CaptureRect;
             for ( const CardCaptureSection& section : source.Sections )
             {
-                DataDrivenMaterial*    material = nullptr;
-                MaterialInstance*      instance = section.Instance;
-                std::vector<glm::vec4> rows;
+                DataDrivenMaterial* material = nullptr;
+                MaterialInstance*   instance = section.Instance;
+                // The section's row in the scene material table, the one its scene draw names (SyncGpuScene
+                // registered it this frame: the captured sections are this frame's queue records).
+                std::optional<uint32_t> row;
                 if ( section.Generic != nullptr )
                 {
                     auto& pool =
@@ -320,9 +336,9 @@ namespace Desert::Graphic::System
                     while ( pool.size() <= k )
                         pool.push_back( std::make_shared<DataDrivenMaterial>( section.OverrideCell ) );
                     material = pool[k].get();
-                    ApplyGenericOverrides( *material, *section.Generic, section.OverrideCell, true );
-                    const auto& row = material->GetParamRow();
-                    rows.assign( row.begin(), row.end() );
+                    // Its descriptors (TextureBinding textures); its values are its record's table row.
+                    ApplyGenericTextures( *material, *section.Generic, section.OverrideCell, true );
+                    row = section.Generic->MaterialRow;
                 }
                 else if ( materials != nullptr && materials->Owns( section.Surface ) )
                 {
@@ -337,8 +353,7 @@ namespace Desert::Graphic::System
                                           MeshVertexPathName( path ), view ) );
                         return;
                     }
-                    // Its one row: the surface's effective parameters, as the scene's G-buffer draw packs them.
-                    AppendRow( rows, EffectiveRow( section.Surface, section.Instance ) );
+                    row = FindMaterialRow( section.Surface, section.Instance );
                 }
                 else
                 {
@@ -361,15 +376,16 @@ namespace Desert::Graphic::System
                     // The default surface's own instance stands for itself: its overrides are the slot's.
                     instance = section.Instance != nullptr ? section.Instance : instances[pooled[cell]].get();
                     ++pooled[cell];
-                    AppendRow( rows, EffectiveRow( section.Surface, section.Instance ) );
+                    row = FindMaterialRow( section.Surface, section.Instance );
                 }
-
-                if ( !rows.empty() )
-                    if ( auto* sb = material->Get<StorageBufferProperty>( "Materials" ) )
-                        sb->SetRawData( rows.data(), static_cast<uint32_t>( rows.size() * sizeof( glm::vec4 ) ) );
+                // A miss was said by FindMaterialRow (or SyncGpuScene could not shade the generic record): the
+                // section is not drawn into the card rather than drawn with another object's row.
+                if ( !row || !LendMaterialTable( *material ) )
+                    continue;
                 // An instance's one transform (the instanced cell reads its world from InstanceTransforms).
                 if ( path == MeshVertexPath::Instanced )
-                    if ( auto* sb = material->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+                    if ( auto* sb = material->Get<StorageBufferProperty>(
+                              MeshCardCaptureShaderParameters::InstanceTransforms ) )
                         sb->SetRawData( &source.World, static_cast<uint32_t>( sizeof( glm::mat4 ) ) );
                 CaptureFrameState( &cardView ).ApplyTo( static_cast<Material*>( material ) );
 
@@ -386,7 +402,8 @@ namespace Desert::Graphic::System
                                           .InstanceCount     = 1u,
                                           .FirstInstance     = 0u,
                                           .HiddenSubmeshMask = section.Hidden,
-                                          .BindState = [material, instance, row = section.MotionRow, path, rect]
+                                          .BindState = [material, instance, motionRow = section.GpuPrimitive,
+                                                        materialRow = *row, path, rect]
                                           {
                                               // Its own rectangle of the capture atlas only (the pass cleared the
                                               // whole atlas: every capture of the frame is new).
@@ -394,15 +411,14 @@ namespace Desert::Graphic::System
                                                    static_cast<int32_t>( rect.X ), static_cast<int32_t>( rect.Y ),
                                                    rect.Width, rect.Height );
                                               material->SetPushMatrix( glm::mat4( 1.0f ) );
-                                              material->SetMaterialIndex( 0u );
+                                              material->SetMaterialIndex( materialRow );
                                               if ( path == MeshVertexPath::Instanced )
                                                   material->SetInstancedWind( InstanceWindPush{} ); // a still card
                                               else
-                                                  material->SetPrimitiveIndex( row );
-                                              // A Shader Override draw has no instance: ApplyGenericOverrides
-                                              // wrote its values into the pooled material, and the scene's
-                                              // generic pass draws it without a Bind (Material::Bind reads the
-                                              // instance).
+                                                  material->SetPrimitiveIndex( motionRow );
+                                              // A Shader Override draw has no instance: its values are its
+                                              // record's table row, and the scene's generic pass draws it
+                                              // without a Bind (Material::Bind reads the instance).
                                               if ( instance != nullptr )
                                                   material->Bind( instance );
                                           } } );

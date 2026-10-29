@@ -42,11 +42,11 @@ namespace
       "Cinematic": { "AntiAliasing.Method": "TAA",  "AntiAliasing.Samples": 1, "AntiAliasing.TemporalQuality": 2 }
     },
     "ResolutionScale": {
-      "Low":       { "Resolution.Percent": 50,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },
-      "Medium":    { "Resolution.Percent": 67,  "Resolution.Upscaler": "TAAU", "Resolution.Sharpness": 20 },
-      "High":      { "Resolution.Percent": 100, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 },
-      "Epic":      { "Resolution.Percent": 100, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 },
-      "Cinematic": { "Resolution.Percent": 200, "Resolution.Upscaler": "None", "Resolution.Sharpness": 0 }
+      "Low":       { "Resolution.Percent": 50,  "Resolution.Sharpness": 20 },
+      "Medium":    { "Resolution.Percent": 67,  "Resolution.Sharpness": 20 },
+      "High":      { "Resolution.Percent": 100, "Resolution.Sharpness": 0 },
+      "Epic":      { "Resolution.Percent": 100, "Resolution.Sharpness": 0 },
+      "Cinematic": { "Resolution.Percent": 200, "Resolution.Sharpness": 0 }
     },
     "Filtering": {
       "Low":       { "Filtering.Texture": 1, "Filtering.Anisotropy": 1 },
@@ -84,11 +84,18 @@ namespace
       "Cinematic": { "Shadows.Cascades": 4, "Shadows.MapSize": 4096, "Shadows.Distance": 30000, "Shadows.ContactShadowSteps": 24, "Shadows.Method": "Stochastic", "Shadows.LightGridPixelSize": 32, "Shadows.LightGridSlices": 64, "Shadows.LightGridMaxLightsPerCell": 64, "Shadows.RayTracedSamplesPerPixel": 2, "Shadows.FilterTaps": 64, "Shadows.BlockerSearchTaps": 32, "Shadows.RayTracedDenoiserRadius": 3 }
     },
     "GlobalIllumination": {
-      "Low":       { "GlobalIllumination.DistanceFieldPoolMiB": 64,  "GlobalIllumination.Method": "ScreenSpace", "GlobalIllumination.SurfaceCacheAtlasSize": 2048, "GlobalIllumination.CardTexelDensityScale": 50, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 256, "GlobalIllumination.DirectLightingUpdateFactor": 128, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0, "GlobalIllumination.ScreenSpaceSamples": 6, "GlobalIllumination.ScreenProbeDownsample": 32, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 66, "PathTracing.PathsPerFrame": 1, "PathTracing.MaxBounces": 4, "PathTracing.SamplesPerPixel": 64 },
-      "Medium":    { "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.Method": "ProbeVolume", "GlobalIllumination.SurfaceCacheAtlasSize": 2048, "GlobalIllumination.CardTexelDensityScale": 50, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 256, "GlobalIllumination.DirectLightingUpdateFactor": 128, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0, "GlobalIllumination.ScreenSpaceSamples": 8, "GlobalIllumination.ScreenProbeDownsample": 32, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 66, "PathTracing.PathsPerFrame": 1, "PathTracing.MaxBounces": 8, "PathTracing.SamplesPerPixel": 256 },
-      "High":      { "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 3584, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 4, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 64, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 8, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0, "GlobalIllumination.ScreenSpaceSamples": 12, "GlobalIllumination.ScreenProbeDownsample": 16, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 66, "PathTracing.PathsPerFrame": 1, "PathTracing.MaxBounces": 16, "PathTracing.SamplesPerPixel": 1024 },
-      "Epic":      { "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 4096, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 32, "GlobalIllumination.RadiosityUpdateFactor": 64, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 4, "GlobalIllumination.RadianceCacheProbeResolution": 32, "GlobalIllumination.RadianceCacheProbesPerFrame": 150, "GlobalIllumination.HitLighting": 1, "GlobalIllumination.ScreenSpaceSamples": 16, "GlobalIllumination.ScreenProbeDownsample": 16, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 100, "PathTracing.PathsPerFrame": 2, "PathTracing.MaxBounces": 32, "PathTracing.SamplesPerPixel": 4096 },
-      "Cinematic": { "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.Method": "PathTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 4096, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 32, "GlobalIllumination.RadiosityUpdateFactor": 64, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 4, "GlobalIllumination.RadianceCacheProbeResolution": 32, "GlobalIllumination.RadianceCacheProbesPerFrame": 350, "GlobalIllumination.HitLighting": 1, "GlobalIllumination.ScreenSpaceSamples": 32, "GlobalIllumination.ScreenProbeDownsample": 8, "GlobalIllumination.ScreenProbeTracedTexels": 16, "GlobalIllumination.IrradianceFieldProbesPerFrame": 233, "PathTracing.PathsPerFrame": 4, "PathTracing.MaxBounces": 32, "PathTracing.SamplesPerPixel": 16384 }
+      "Low":       { "GlobalIllumination.DistanceFieldPoolMiB": 64,  "GlobalIllumination.Method": "ScreenSpace", "GlobalIllumination.SurfaceCacheAtlasSize": 2048, "GlobalIllumination.CardTexelDensityScale": 50, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 256, "GlobalIllumination.DirectLightingUpdateFactor": 128, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0, "GlobalIllumination.ScreenSpaceSamples": 6, "GlobalIllumination.ScreenProbeDownsample": 32, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 66 },
+      "Medium":    { "GlobalIllumination.DistanceFieldPoolMiB": 128, "GlobalIllumination.Method": "ProbeVolume", "GlobalIllumination.SurfaceCacheAtlasSize": 2048, "GlobalIllumination.CardTexelDensityScale": 50, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 256, "GlobalIllumination.DirectLightingUpdateFactor": 128, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0, "GlobalIllumination.ScreenSpaceSamples": 8, "GlobalIllumination.ScreenProbeDownsample": 32, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 66 },
+      "High":      { "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 3584, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 4, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 64, "GlobalIllumination.RadiosityUpdateFactor": 128, "GlobalIllumination.RadiosityProbeSpacing": 8, "GlobalIllumination.RadiosityHemisphereProbeResolution": 3, "GlobalIllumination.RadianceCacheProbeResolution": 16, "GlobalIllumination.RadianceCacheProbesPerFrame": 100, "GlobalIllumination.HitLighting": 0, "GlobalIllumination.ScreenSpaceSamples": 12, "GlobalIllumination.ScreenProbeDownsample": 16, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 66 },
+      "Epic":      { "GlobalIllumination.DistanceFieldPoolMiB": 384, "GlobalIllumination.Method": "HardwareTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 4096, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 32, "GlobalIllumination.RadiosityUpdateFactor": 64, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 4, "GlobalIllumination.RadianceCacheProbeResolution": 32, "GlobalIllumination.RadianceCacheProbesPerFrame": 150, "GlobalIllumination.HitLighting": 1, "GlobalIllumination.ScreenSpaceSamples": 16, "GlobalIllumination.ScreenProbeDownsample": 16, "GlobalIllumination.ScreenProbeTracedTexels": 8, "GlobalIllumination.IrradianceFieldProbesPerFrame": 100 },
+      "Cinematic": { "GlobalIllumination.DistanceFieldPoolMiB": 512, "GlobalIllumination.Method": "PathTraced", "GlobalIllumination.SurfaceCacheAtlasSize": 4096, "GlobalIllumination.CardTexelDensityScale": 100, "GlobalIllumination.CardMinResolution": 2, "GlobalIllumination.CardMaxResolution": 512, "GlobalIllumination.DirectLightingUpdateFactor": 32, "GlobalIllumination.RadiosityUpdateFactor": 64, "GlobalIllumination.RadiosityProbeSpacing": 4, "GlobalIllumination.RadiosityHemisphereProbeResolution": 4, "GlobalIllumination.RadianceCacheProbeResolution": 32, "GlobalIllumination.RadianceCacheProbesPerFrame": 350, "GlobalIllumination.HitLighting": 1, "GlobalIllumination.ScreenSpaceSamples": 32, "GlobalIllumination.ScreenProbeDownsample": 8, "GlobalIllumination.ScreenProbeTracedTexels": 16, "GlobalIllumination.IrradianceFieldProbesPerFrame": 233 }
+    },
+    "PathTracing": {
+      "Low":       { "PathTracing.PathsPerFrame": 1, "PathTracing.MaxBounces": 4, "PathTracing.SamplesPerPixel": 64, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" },
+      "Medium":    { "PathTracing.PathsPerFrame": 1, "PathTracing.MaxBounces": 8, "PathTracing.SamplesPerPixel": 256, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" },
+      "High":      { "PathTracing.PathsPerFrame": 1, "PathTracing.MaxBounces": 16, "PathTracing.SamplesPerPixel": 1024, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" },
+      "Epic":      { "PathTracing.PathsPerFrame": 2, "PathTracing.MaxBounces": 32, "PathTracing.SamplesPerPixel": 4096, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" },
+      "Cinematic": { "PathTracing.PathsPerFrame": 4, "PathTracing.MaxBounces": 32, "PathTracing.SamplesPerPixel": 16384, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" }
     },
     "Reflections": {
       "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace", "Reflections.DenoiserRadius": 1, "Reflections.DownsampleFactor": 2, "Reflections.HitLighting": 0, "Reflections.TranslucentFrontLayer": 0 },
@@ -115,6 +122,7 @@ namespace
       "Textures":           [ 15, 40, 90 ],
       "Shadows":            [ 25, 70, 140 ],
       "GlobalIllumination": [ 30, 80, 160 ],
+      "PathTracing":        [ 30, 80, 160 ],
       "Reflections":        [ 30, 80, 160 ],
       "PostProcess":        [ 15, 50, 110 ]
     },
@@ -228,7 +236,6 @@ TEST( ScalabilityContract, TheRetiredMachineSettingsFieldsAreGroupParameters )
     EXPECT_EQ( SpecOf( Parameter::MeshLOD ).Owner, Group::ViewDistance );
     EXPECT_EQ( SpecOf( Parameter::CloudQuality ).Owner, Group::Effects );
     EXPECT_EQ( SpecOf( Parameter::RenderScalePercent ).Owner, Group::ResolutionScale );
-    EXPECT_EQ( SpecOf( Parameter::Upscaler ).Owner, Group::ResolutionScale );
 }
 
 // ---- The data file ---------------------------------------------------------------------------------------
@@ -307,10 +314,10 @@ TEST( ScalabilityContract, AGroupMissingItsLevelsIsRefused )
 TEST( ScalabilityContract, AnEnumValueIsWrittenByNameNotByNumber )
 {
     std::string bad( kTable );
-    bad.replace( bad.find( R"("Resolution.Upscaler": "TAAU")" ), 29, R"("Resolution.Upscaler": 1     )" );
+    bad.replace( bad.find( R"("AntiAliasing.Method": "FXAA")" ), 29, R"("AntiAliasing.Method": 1     )" );
     const auto parsed = ScalabilityTable::Parse( bad );
     ASSERT_FALSE( parsed.IsSuccess() );
-    EXPECT_NE( parsed.GetError().find( "Resolution.Upscaler" ), std::string::npos ) << parsed.GetError();
+    EXPECT_NE( parsed.GetError().find( "AntiAliasing.Method" ), std::string::npos ) << parsed.GetError();
 }
 
 // ---- Placeholders: reserved rows nobody may see or set ---------------------------------------------------
@@ -336,7 +343,8 @@ TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader
     EXPECT_FALSE( IsGroupListed( Group::Textures ) );
     for ( const Group g :
           { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance, Group::Effects,
-            Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess } )
+            Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess,
+            Group::Shading, Group::PathTracing } )
         EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
 }
 
@@ -411,8 +419,8 @@ TEST( ScalabilityContract, VSyncOnIsFifoAndOffTakesTheLowestLatencyModeOffered )
 TEST( ScalabilityContract, RtxOffersTheRayTracingPipelineAndNoThirdPartyUpscaler )
 {
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( RtxProbe() );
-    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::Spatial, Upscaler::None } ) );
-    EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
+    EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLSS ) );
+    EXPECT_TRUE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::TSR ) );
     EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayTracingPipeline ) );
     EXPECT_EQ( c.MSAACounts, ( std::vector<int>{ 1, 2, 4, 8 } ) );
     EXPECT_EQ( c.AnisotropyLevels, ( std::vector<int>{ 1, 2, 4, 8, 16 } ) );
@@ -428,11 +436,10 @@ TEST( ScalabilityContract, EveryDeviceOffersTheEnginesOwnMethodsAndFifo )
     for ( const Vk::CatalogProbe& probe : { RtxProbe(), AmdProbe(), AppleSiliconProbe() } )
     {
         const CapabilityCatalog c = Vk::BuildCapabilityCatalog( probe );
-        for ( const AntiAliasingMethod m : { AntiAliasingMethod::None, AntiAliasingMethod::FXAA,
-                                             AntiAliasingMethod::SMAA, AntiAliasingMethod::TAA } )
+        for ( const AntiAliasingMethod m :
+              { AntiAliasingMethod::None, AntiAliasingMethod::FXAA, AntiAliasingMethod::SMAA,
+                AntiAliasingMethod::TAA, AntiAliasingMethod::TSR } )
             EXPECT_TRUE( CapabilityCatalog::Offers( c.AntiAliasingMethods, m ) );
-        EXPECT_TRUE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::None ) );
-        EXPECT_TRUE( CapabilityCatalog::Offers( c.Upscalers, Upscaler::TAAU ) );
         EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::None ) );
         EXPECT_TRUE( CapabilityCatalog::Offers( c.PresentModes, PresentMode::Fifo ) );
         EXPECT_TRUE( CapabilityCatalog::Offers( c.DisplayOutputs, DisplayOutput::SDR_sRGB ) );
@@ -447,8 +454,8 @@ TEST( ScalabilityContract, MoltenVkNeverOffersTheRtPipelineOrAsyncComputeAndPref
     const CapabilityCatalog c = Vk::BuildCapabilityCatalog( AppleSiliconProbe() );
     EXPECT_FALSE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayTracingPipeline ) );
     EXPECT_TRUE( CapabilityCatalog::Offers( c.RayTracingModes, RayTracingMode::RayQuery ) );
-    EXPECT_EQ( c.Upscalers, ( std::vector<Upscaler>{ Upscaler::TAAU, Upscaler::Spatial, Upscaler::None } ) );
-    EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLAA ) );
+    EXPECT_FALSE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::DLSS ) );
+    EXPECT_TRUE( CapabilityCatalog::Offers( c.AntiAliasingMethods, AntiAliasingMethod::TSR ) );
     ASSERT_FALSE( c.TextureCompression.empty() );
     EXPECT_EQ( c.TextureCompression.front(), TextureCompressionFamily::ASTC );
     EXPECT_FALSE( c.AsyncCompute );
@@ -480,11 +487,12 @@ TEST( ScalabilityContract, AnOverrideSitsOnTopOfItsGroupLevelAndTouchesNothingEl
 
 TEST( ScalabilityContract, ASavedValueTheDeviceLacksResolvesWithOneReportedFallback )
 {
-    // The saved value is DLAA, which no catalog offers since the fixtures went DLSS-free (SCAL1-S2): the
+    // The saved value is DLSS, which no catalog offers since the fixtures went DLSS-free (SCAL1-S2): the
     // table's Cinematic row no longer carries it, so the saved selection does, as a user's override would.
+    // Cinematic renders at 200 %, where DLSS's own fallback (TSR, rule 4) is refused too (rule 5): TAA.
     QualitySelection s = AllAt( Level::Cinematic );
     s.Overrides.push_back( { std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ),
-                             static_cast<ParameterValue>( AntiAliasingMethod::DLAA ) } );
+                             static_cast<ParameterValue>( AntiAliasingMethod::DLSS ) } );
     const ResolvedQuality r = Resolve( s, Table(), Vk::BuildCapabilityCatalog( AmdProbe() ) );
     EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
     const auto count = std::count_if( r.Fallbacks.begin(), r.Fallbacks.end(),
@@ -504,14 +512,24 @@ TEST( ScalabilityContract, MsaaCountWalksDownToTheLargestOfferedCount )
     EXPECT_TRUE( HasFallback( r, Parameter::AntiAliasingSamples ) );
 }
 
-TEST( ScalabilityContract, BelowNativeScaleAnUpscalerIsMandatoryAndItAntiAliases )
+namespace
+{
+    // The reconstruction pass a resolved quality runs: derived, never a parameter (UpscalerForScale).
+    Upscaler ReconstructionOf( const ResolvedQuality& r )
+    {
+        return UpscalerForScale( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ),
+                                 r.As<int>( Parameter::RenderScalePercent ) );
+    }
+} // namespace
+
+TEST( ScalabilityContract, BelowNativeScaleTaaReconstructsAsTaau )
 {
     QualitySelection s = AllAt( Level::High );
     s.Overrides.push_back( { std::string( SpecOf( Parameter::RenderScalePercent ).Key ), 67 } );
     const ResolvedQuality r = Resolve( s, Table(), Vk::BuildCapabilityCatalog( AmdProbe() ) );
     EXPECT_EQ( r.Scale, ScaleMode::Upscale );
-    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::TAAU );
-    EXPECT_TRUE( HasFallback( r, Parameter::Upscaler ) );
+    EXPECT_EQ( ReconstructionOf( r ), Upscaler::TAAU );
+    EXPECT_TRUE( r.Fallbacks.empty() );
 }
 
 // THE UPSCALER IS CHOSEN IN RESOLVE (TAA1-B 6a, SCAL-SPATIAL1): below 100 % temporal AA upscales with TAAU,
@@ -536,7 +554,7 @@ TEST( ScalabilityContract, TaaAtHalfScaleUpscalesWithTaauAtTheAskedPercent )
     const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 50 );
     EXPECT_EQ( r.Scale, ScaleMode::Upscale );
     EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 50 );
-    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::TAAU );
+    EXPECT_EQ( ReconstructionOf( r ), Upscaler::TAAU );
     EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
     EXPECT_FALSE( HasFallback( r, Parameter::RenderScalePercent ) );
 }
@@ -549,7 +567,7 @@ TEST( ScalabilityContract, WithoutTemporalAaHalfScaleUpscalesSpatiallyAndKeepsTh
         const ResolvedQuality r = ResolveAtHigh( method, 50 );
         EXPECT_EQ( r.Scale, ScaleMode::Upscale ) << static_cast<int>( method );
         EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 50 );
-        EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::Spatial );
+        EXPECT_EQ( ReconstructionOf( r ), Upscaler::Spatial );
         EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), method );
         EXPECT_FALSE( HasFallback( r, Parameter::RenderScalePercent ) ) << static_cast<int>( method );
         EXPECT_FALSE( HasFallback( r, Parameter::AntiAliasingMethod ) ) << static_cast<int>( method );
@@ -557,14 +575,14 @@ TEST( ScalabilityContract, WithoutTemporalAaHalfScaleUpscalesSpatiallyAndKeepsTh
     // MSAA cannot render below native: FXAA, and FXAA upscales spatially.
     const ResolvedQuality msaa = ResolveAtHigh( AntiAliasingMethod::MSAA, 50 );
     EXPECT_EQ( msaa.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::FXAA );
-    EXPECT_EQ( msaa.As<Upscaler>( Parameter::Upscaler ), Upscaler::Spatial );
+    EXPECT_EQ( ReconstructionOf( msaa ), Upscaler::Spatial );
 }
 
 TEST( ScalabilityContract, TaaAtNativeScaleRunsNoUpscaler )
 {
     const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 100 );
     EXPECT_EQ( r.Scale, ScaleMode::Native );
-    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_EQ( ReconstructionOf( r ), Upscaler::None );
     EXPECT_TRUE( r.Fallbacks.empty() );
 }
 
@@ -573,7 +591,7 @@ TEST( ScalabilityContract, TaaAboveNativeScaleIsSupersampledUnchanged )
     const ResolvedQuality r = ResolveAtHigh( AntiAliasingMethod::TAA, 150 );
     EXPECT_EQ( r.Scale, ScaleMode::Supersample );
     EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 150 );
-    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_EQ( ReconstructionOf( r ), Upscaler::None );
     EXPECT_EQ( r.As<AntiAliasingMethod>( Parameter::AntiAliasingMethod ), AntiAliasingMethod::TAA );
     EXPECT_TRUE( r.Fallbacks.empty() );
 }
@@ -583,7 +601,7 @@ TEST( ScalabilityContract, AboveNativeScaleIsSupersampledWithoutAnUpscaler )
     const ResolvedQuality r =
          Resolve( AllAt( Level::Cinematic ), Table(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
     EXPECT_EQ( r.Scale, ScaleMode::Supersample );
-    EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None );
+    EXPECT_EQ( ReconstructionOf( r ), Upscaler::None );
 }
 
 TEST( ScalabilityContract, MsaaOnAPathThatCannotMultisampleRunsFxaaAndSaysWhy )
@@ -669,7 +687,7 @@ TEST( ScalabilityContract, EveryShippedLevelResolvesToNativeScale )
              Resolve( AllAt( level ), parsed.GetValue(), Vk::BuildCapabilityCatalog( RtxProbe() ) );
         EXPECT_EQ( r.Values[static_cast<std::size_t>( Parameter::RenderScalePercent )], 100 ) << LevelKey( level );
         EXPECT_EQ( r.Scale, ScaleMode::Native ) << LevelKey( level );
-        EXPECT_EQ( r.As<Upscaler>( Parameter::Upscaler ), Upscaler::None ) << LevelKey( level );
+        EXPECT_EQ( ReconstructionOf( r ), Upscaler::None ) << LevelKey( level );
     }
 }
 
@@ -715,7 +733,6 @@ TEST( ScalabilityContract, TheShippedHighLevelIsTheValueEveryReaderUsedBeforeThe
     EXPECT_EQ( high( Parameter::AntiAliasingMethod ), static_cast<ParameterValue>( AntiAliasingMethod::TAA ) );
     EXPECT_EQ( high( Parameter::AntiAliasingSamples ), kOldSamples );
     EXPECT_EQ( high( Parameter::RenderScalePercent ), kOldScale );
-    EXPECT_EQ( high( Parameter::Upscaler ), static_cast<ParameterValue>( Upscaler::None ) );
     EXPECT_EQ( high( Parameter::MeshLOD ), kOldMeshLOD );
     EXPECT_EQ( high( Parameter::TextureFilter ), kOldFilter );
     EXPECT_EQ( high( Parameter::Anisotropy ), kOldAnisotropy );
@@ -738,9 +755,9 @@ TEST( ScalabilityContract, APresetDecomposesIntoTheTwoAxes )
         std::set<std::string> keys;
         for ( const ParameterOverride& o : overrides )
             keys.insert( o.Key );
-        EXPECT_EQ( keys.size(), 4u ) << preset.Key;
+        EXPECT_EQ( keys.size(), 3u ) << preset.Key;
         EXPECT_TRUE( keys.count( std::string( SpecOf( Parameter::RenderScalePercent ).Key ) ) ) << preset.Key;
-        EXPECT_TRUE( keys.count( std::string( SpecOf( Parameter::Upscaler ).Key ) ) ) << preset.Key;
+        EXPECT_TRUE( keys.count( std::string( SpecOf( Parameter::AntiAliasingMethod ).Key ) ) ) << preset.Key;
     }
 }
 
@@ -757,7 +774,6 @@ TEST( ScalabilityContract, OfferedPresetsResolveWithoutAFallback )
             s.Overrides             = Decompose( preset );
             const ResolvedQuality r = Resolve( s, Table(), c );
             EXPECT_FALSE( HasFallback( r, Parameter::AntiAliasingMethod ) ) << preset.Key;
-            EXPECT_FALSE( HasFallback( r, Parameter::Upscaler ) ) << preset.Key;
             EXPECT_FALSE( HasFallback( r, Parameter::RenderScalePercent ) ) << preset.Key;
         }
     }
@@ -898,26 +914,21 @@ TEST( ScalabilityContract, TheCacheKeyIsTheCreatedDevicesIdentityAndATableChange
 // so an editor viewport's Screen Percentage cannot pick an upscaler the game setting would not).
 TEST( ScalabilityContract, UpscalerForScaleIsResolvesCouplingRule )
 {
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::None, EngineTemporalUpscaler::TAAU ),
-               Upscaler::TAAU );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 99, Upscaler::FSR, EngineTemporalUpscaler::TAAU ),
-               Upscaler::FSR ); // vendor override
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 100, Upscaler::TAAU, EngineTemporalUpscaler::TAAU ),
-               Upscaler::None );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 150, Upscaler::None, EngineTemporalUpscaler::TAAU ),
-               Upscaler::None );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 50, Upscaler::None, EngineTemporalUpscaler::TAAU ),
-               Upscaler::Spatial );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::MSAA, 50, Upscaler::TAAU, EngineTemporalUpscaler::TAAU ),
-               Upscaler::Spatial );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 50, Upscaler::FSR, EngineTemporalUpscaler::TAAU ),
-               Upscaler::Spatial );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50, Upscaler::Spatial, EngineTemporalUpscaler::TAAU ),
-               Upscaler::TAAU );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 100, Upscaler::Spatial, EngineTemporalUpscaler::TAAU ),
-               Upscaler::None );
-    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100, Upscaler::None, EngineTemporalUpscaler::TAAU ),
-               Upscaler::None );
-    EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::DLAA ) );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 50 ), Upscaler::TAAU );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 100 ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TAA, 150 ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TSR, 50 ), Upscaler::TSR );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::TSR, 100 ), Upscaler::TSR );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FSR, 99 ), Upscaler::FSR );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::DLSS, 100 ), Upscaler::DLSS );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::DLSSRayReconstruction, 67 ),
+               Upscaler::DLSSRayReconstruction );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 50 ), Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::MSAA, 50 ), Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 50 ), Upscaler::Spatial );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::FXAA, 100 ), Upscaler::None );
+    EXPECT_EQ( UpscalerForScale( AntiAliasingMethod::None, 100 ), Upscaler::None );
+    EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::DLSS ) );
+    EXPECT_TRUE( IsTemporalAntiAliasing( AntiAliasingMethod::TSR ) );
     EXPECT_FALSE( IsTemporalAntiAliasing( AntiAliasingMethod::SMAA ) );
 }

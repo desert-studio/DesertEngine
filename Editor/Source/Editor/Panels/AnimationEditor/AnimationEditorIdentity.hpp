@@ -2,7 +2,7 @@
 
 #include <Editor/Core/AssetOpen.hpp>
 #include <Editor/Core/SubjectEditorRegistry.hpp>
-#include <Editor/Panels/IPanel.hpp>
+#include <Editor/Core/IPanel.hpp>
 
 #include <string>
 

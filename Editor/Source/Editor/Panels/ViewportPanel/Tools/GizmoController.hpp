@@ -38,12 +38,68 @@ namespace Desert::Editor::Tools
         // have placed its gizmo through another one's projection and dragged the wrong direction.
         void RenderObject( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
                            const glm::vec2& viewportPos, const glm::vec2& viewportSize );
+        // A tool's own frame (UE's combined translate + rotate gizmo on a tool's transform proxy, e.g. Warp's
+        // deformer): edits @p frame in place, in its local space. No undo - the frame is tool state. True on a
+        // frame the drag changed it.
+        // @p handles: kFrameTranslateRotate (Warp) or kFrameTranslateRotateScale (Lattice's point selection).
+        static constexpr int kFrameTranslateRotate      = 1;
+        static constexpr int kFrameTranslateRotateScale = 2;
+        bool                 RenderFrame( const char* site, glm::mat4& frame,
+                                          const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
+                                          const glm::vec2& viewportSize, int handles );
+        // UE's UIntervalGizmo on a tool frame (Warp's Upper / Lower bounds): the frame's Z axis between @p lower
+        // and @p upper (cm from the frame origin) with a handle at each end, dragged along the axis; upper stays
+        // >= 0 and lower <= 0, as UE clamps them. A hovered or held handle stands picking down like the gizmo.
+        // True on a frame a drag changed a bound.
+        // A handle is hovered or held: the caller disables ImGuizmo for the frame gizmo this frame.
+        bool IntervalOwnsInput() const
+        {
+            return m_IntervalHover || m_IntervalDrag != 0;
+        }
+        // The cursor is over one of our scale handles, or one is held (see ScaleHandles): a click is the gizmo's.
+        bool ScaleHandleBusy() const
+        {
+            return m_ScaleAxis >= 0 || m_ScaleHover >= 0;
+        }
+        bool RenderInterval( const glm::mat4& frame, float& lower, float& upper,
+                             const std::shared_ptr<::Desert::Core::Camera>& camera, const glm::vec2& viewportPos,
+                             const glm::vec2& viewportSize );
         // Bone gizmo (Skeleton Edit mode) — edits the selected bone's LocalBindTransform.
         void RenderBone( ::Desert::Core::Scene& scene, const std::shared_ptr<::Desert::Core::Camera>& camera,
                          const glm::vec2& viewportPos, const glm::vec2& viewportSize );
 
     private:
+        // The per-axis scale handles (the balls), hit-tested and dragged on SCREEN here instead of by ImGuizmo:
+        // its GetScaleType intersects the mouse ray with the plane whose NORMAL is the axis, so with the camera
+        // near that plane the ray meets it behind the eye and the ball cannot be grabbed. ImGuizmo is upstream
+        // (not patched); this owns the scale drag, the caller disables ImGuizmo while Owns is set.
+        // @p operation: the ImGuizmo::OPERATION bits handed to Manipulate. @p snap: scale ratio step or null.
+        struct ScaleHandleResult
+        {
+            bool Owns    = false; // a scale handle is held: ImGuizmo must stand down this frame
+            bool Changed = false; // @p matrix was rescaled
+        };
+        ScaleHandleResult ScaleHandles( const char* site, glm::mat4& matrix, const glm::mat4& view,
+                                        const glm::mat4& proj, const glm::vec2& viewportPos,
+                                        const glm::vec2& viewportSize, int operation, const float* snap );
+        // Draws the hovered / held handle over ImGuizmo's (call after Manipulate).
+        void DrawScaleHandle( const char* site ) const;
+
         bool m_Hovered = false;
+        // ScaleHandles state: the held axis (-1 none) and the site holding it, the hovered axis this frame.
+        int         m_ScaleAxis  = -1;
+        int         m_ScaleHover = -1;
+        const char* m_ScaleSite  = nullptr;
+        glm::mat4   m_ScaleStart{ 1.0f };  // the matrix when the drag began
+        glm::vec2   m_ScaleMouse{ 0.0f };  // the cursor when the drag began
+        glm::vec2   m_ScaleOrigin{ 0.0f }; // gizmo origin on screen
+        glm::vec2   m_ScaleDir{ 0.0f };    // unit screen direction origin -> ball
+        float       m_ScalePixels = 1.0f;  // screen distance origin -> ball at scale 1
+        float       m_ScaleFactor = 1.0f;  // the held drag's current ratio (for drawing)
+        // RenderInterval's held handle: 0 none, 1 lower, 2 upper.
+        int m_IntervalDrag = 0;
+        // The cursor was over a handle last frame: the frame gizmo stands down so the handle gets the click.
+        bool m_IntervalHover = false;
 
         // One undo entry per gizmo drag: pre-drag TRS of every selected top-level root captured when the
         // drag starts, committed as one (possibly composite) command on release.

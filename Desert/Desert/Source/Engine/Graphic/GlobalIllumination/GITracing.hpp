@@ -4,12 +4,17 @@
 #include <Common/Settings/RenderMethods.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+
+#include <array>
+#include <vector>
 #include <Engine/Graphic/DistanceField/MeshDistanceFieldReads.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
+#include <Engine/Graphic/RDG/RDGShaderParameters.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneMetadata.hpp>
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -175,11 +180,35 @@ namespace Desert::Graphic::GlobalIllumination
     }
 
     // The permutation a tracing consumer program is compiled under: the tracer's define and the hit-lighting
-    // define. Every pass that traces acquires its program with this (ShaderService::AcquireVariant).
+    // define. Every pass that traces acquires its program with this (ShaderService::AcquireVariant). COOKED
+    // (ShaderVariant::ShippedByCook): each consumer lists its programs under kTracerPermutations
+    // (TracerProgramVariants), the list the package cook compiles.
     [[nodiscard]] inline Core::ShaderVariant TracerVariant( const GlobalIllumination::Pipeline& pipeline )
     {
-        return Core::ShaderVariant{ .Defines = { std::string( TracerDefine( pipeline.Tracer ) ),
-                                                 std::string( HitLightingDefine( pipeline.Hits ) ) } };
+        return Core::ShaderVariant{ .Defines       = { std::string( TracerDefine( pipeline.Tracer ) ),
+                                                       std::string( HitLightingDefine( pipeline.Hits ) ) },
+                                    .ShippedByCook = true };
+    }
+
+    // EVERY TRACER PERMUTATION A Pipeline RESOLVES TO (PipelineFor): software + surface cache, hardware +
+    // surface cache, hardware + in-place hit lighting (in-place hit lighting is hardware-only). The one list the
+    // tracing consumers' cooked variants are enumerated from.
+    inline constexpr std::array<GlobalIllumination::Pipeline, 3> kTracerPermutations{
+         GlobalIllumination::Pipeline{ .Tracer = GlobalIllumination::Tracer::SoftwareDistanceField,
+                                       .Hits   = GlobalIllumination::HitLighting::SurfaceCache },
+         GlobalIllumination::Pipeline{ .Tracer = GlobalIllumination::Tracer::HardwareRayQuery,
+                                       .Hits   = GlobalIllumination::HitLighting::SurfaceCache },
+         GlobalIllumination::Pipeline{ .Tracer = GlobalIllumination::Tracer::HardwareRayQuery,
+                                       .Hits   = GlobalIllumination::HitLighting::InPlace } };
+
+    // @p program under TracerVariant of every kTracerPermutations entry - the cooked list of a consumer whose
+    // permutation is the tracer's alone (WorldRadianceCache Trace, SurfaceCacheDirectLighting).
+    [[nodiscard]] inline std::vector<Core::CookedProgramVariant> TracerProgramVariants( const std::string_view program )
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( const GlobalIllumination::Pipeline& pipeline : kTracerPermutations )
+            variants.push_back( { std::string( program ), TracerVariant( pipeline ) } );
+        return variants;
     }
 
     // THIS FRAME'S RESOURCES OF THE ACTIVE TRACER — what DeclareTracerReads binds, with the pipeline that chose
@@ -205,7 +234,7 @@ namespace Desert::Graphic::GlobalIllumination
         GlobalIllumination::Pipeline   Pipeline{};
         std::array<RDG::TextureRef, 4> GlobalDistanceField{};
         RDG::BufferRef                 GlobalDistanceFieldLevels; // "GITracerSoftwareUB" (TracerSoftwarePayload)
-        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "u_GlobalDistanceFieldObjectGrid"
+        RDG::TextureRef                GlobalDistanceFieldObjectGrid; // "GlobalDistanceFieldObjectGridTexture"
         DistanceField::MeshDistanceFieldReads MeshDistanceFields;
         RDG::BufferRef                        Tlas;
         RayTracing::RayTracingMetadataFrame   Metadata;
@@ -222,13 +251,19 @@ namespace Desert::Graphic::GlobalIllumination
 
     // The shader names of the hardware tracer's four reads (Common/GITracer.glslh declares them at
     // GI_TRACER_BINDING + 0..3; the record blocks are Common/RayQueryVisibility.glslh's, shared with RT-SHADOWS).
-    inline constexpr std::string_view kHardwareTracerTlasName                     = "u_SceneTLAS";
+    inline constexpr std::string_view kHardwareTracerTlasName                     = "SceneTlas";
     inline constexpr std::string_view kHardwareTracerGeometryName                 = "RayTracingGeometryRecords";
     inline constexpr std::string_view kHardwareTracerMaterialsName                = "RayTracingMaterialRecords";
     inline constexpr std::string_view kHardwareTracerInstanceSurfaceCacheRowsName = "GIInstanceSurfaceCacheRows";
+    // Their binding form (RDGShaderParameters.hpp), from the names above.
+    inline constexpr RDG::AccelerationStructureParameter kHardwareTracerTlas{ kHardwareTracerTlasName };
+    inline constexpr RDG::StorageBufferParameter         kHardwareTracerGeometry{ kHardwareTracerGeometryName };
+    inline constexpr RDG::StorageBufferParameter         kHardwareTracerMaterials{ kHardwareTracerMaterialsName };
+    inline constexpr RDG::StorageBufferParameter         kHardwareTracerInstanceSurfaceCacheRows{
+         kHardwareTracerInstanceSurfaceCacheRowsName };
 
     // THE GI FRAME RECORD — what every GI pass knows of the frame, neutral to the tracer. std430 — must match
-    // `struct GIFrame` in Common/GIFrame.glslh. 224 bytes. Uploaded once per frame by the frame's owner and bound
+    // `struct GIFrame` in Common/GIFrame.glslh. 256 bytes. Uploaded once per frame by the frame's owner and bound
     // as "GIFrameUB" by the radiance cache's passes and the screen probe gather.
     struct GIFramePayload
     {
@@ -236,12 +271,14 @@ namespace Desert::Graphic::GlobalIllumination
         glm::mat4 InvViewProjection{ 1.0f }; // its inverse
         glm::vec4 Camera{ 0.0f };            // xyz = camera world position (cm)
         glm::vec4 SunTravel{ 0.0f };         // xyz = direction the sunlight travels, w = 1 when there is a sun
-        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity
+        glm::vec4 SunRadiance{ 0.0f };       // rgb = colour * intensity, w = 1 when it casts shadows
+        glm::vec4 Light1Travel{ 0.0f };   // atmosphere light 1 (the moon): xyz = travel, w = 1 when there is one
+        glm::vec4 Light1Radiance{ 0.0f }; // rgb = colour * intensity, w = 1 when it casts shadows
         glm::vec4 SkyYawCosSin{ 1.0f, 0.0f, 0.0f, 0.0f };
         glm::vec4 SkyGain{ 1.0f };
         glm::vec4 Screen{ 0.0f }; // xy = G-buffer extent (pixels), zw = 1 / that
     };
-    static_assert( sizeof( GIFramePayload ) == 224 );
+    static_assert( sizeof( GIFramePayload ) == 256 );
 
     // Empty when @p frame holds every resource its tracer reads; otherwise what is missing (for the consumer's
     // one error line).
@@ -274,6 +311,55 @@ namespace Desert::Graphic::GlobalIllumination
     [[nodiscard]] std::string_view SurfaceCacheFrameMissing( const SurfaceCacheFrame& frame );
 
     // Declares the surface cache's reads of GIHitRadiance on a tracing consumer's binding block, under the names
-    // // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 6).
-    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame );
+    // Common/SurfaceCacheSampling.glslh declares (at GI_SURFACE_CACHE_BINDING .. + 6); @p sampled is the atlas
+    // layers' access (SampledGraphics for a raster consumer).
+    void DeclareSurfaceCacheReads( RDG::BindingBlockBuilder& block, const SurfaceCacheFrame& frame,
+                                   RDG::Access sampled = RDG::Access::SampledCompute );
+
+    // THE DIRECTIONAL LIGHTS A CACHE'S HISTORY WAS LIT BY: the frame sun and atmosphere light 1 (the moon), each
+    // as the lit passes receive it (SceneRenderer::GetFrameSun / GetFrameLight1: direction it travels, rgb colour
+    // with the intensity in w). A world-space history (the radiance cache's probes, the surface cache's lit pages)
+    // blended across a significant change of these keeps the old sun's light in whole cells for seconds: a
+    // straight edged patch of another colour that fades slowly (GRASS-SETTLE). UE Lumen's answer is the full
+    // update (r.Lumen.RadianceCache.ForceFullUpdate, the scene lighting's full relight): the history is dropped
+    // and the first frame after the change is converged from the new light, never blended with the old one.
+    struct DirectionalLighting
+    {
+        glm::vec4 SunDirection{ 0.0f };
+        glm::vec4 SunColorIntensity{ 0.0f };
+        glm::vec4 Light1Direction{ 0.0f };
+        glm::vec4 Light1ColorIntensity{ 0.0f };
+    };
+
+    // What a "significant" change is, measured against the lighting the history was last invalidated for (so a
+    // slow time-of-day drift invalidates once it has added up, not every frame): the direction turned by more than
+    // one degree, or the radiance moved by more than 5% of the brighter of the two.
+    inline constexpr float kLightingHistoryCosAngle      = 0.99984770f; // cos( 1 degree )
+    inline constexpr float kLightingHistoryRadianceShare = 0.05f;
+
+    // True when a history lit by @p was must be dropped for a frame lit by @p now.
+    [[nodiscard]] inline bool InvalidatesLightingHistory( const DirectionalLighting& was,
+                                                          const DirectionalLighting& now )
+    {
+        const auto changed = []( const glm::vec4& wasDirection, const glm::vec4& wasColor,
+                                 const glm::vec4& nowDirection, const glm::vec4& nowColor )
+        {
+            const glm::vec3 a     = glm::vec3( wasColor ) * wasColor.w;
+            const glm::vec3 b     = glm::vec3( nowColor ) * nowColor.w;
+            const float     scale = std::max( { a.x, a.y, a.z, b.x, b.y, b.z } );
+            if ( scale <= 0.0f )
+                return false; // dark before and after: nothing it lit is in the history
+            if ( glm::length( a - b ) > kLightingHistoryRadianceShare * scale )
+                return true;
+            const float wasLength = glm::length( glm::vec3( wasDirection ) );
+            const float nowLength = glm::length( glm::vec3( nowDirection ) );
+            if ( wasLength <= 0.0f || nowLength <= 0.0f )
+                return wasLength != nowLength;
+            return glm::dot( glm::vec3( wasDirection ) / wasLength, glm::vec3( nowDirection ) / nowLength ) <
+                   kLightingHistoryCosAngle;
+        };
+        return changed( was.SunDirection, was.SunColorIntensity, now.SunDirection, now.SunColorIntensity ) ||
+               changed( was.Light1Direction, was.Light1ColorIntensity, now.Light1Direction,
+                        now.Light1ColorIntensity );
+    }
 } // namespace Desert::Graphic::GlobalIllumination

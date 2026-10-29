@@ -5,11 +5,12 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/AssetServiceRegistration.hpp>
 #include "RuntimeShot.hpp"
-#include <Engine/Audio/AudioEngine.hpp>
+#include <Audio/AudioEngine.hpp>
 #include <Engine/Media/MediaAudioOutput.hpp>
 #include <Engine/Media/MediaTexture.hpp>
 #include <Engine/Media/StartupMoviePlayer.hpp>
-#include <Engine/Project/GameSettings.hpp>
+#include <Projects/GameSettings.hpp>
+#include <Projects/RendererSettings.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
 
@@ -21,10 +22,11 @@
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/LevelTravel.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/Window.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Graphic/QualityBoot.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 
@@ -102,6 +104,16 @@
 
 namespace
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct RuntimeLayerBlitShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FinalColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+    };
+} // namespace
+
+namespace
+{
     // The runtime present reports every failed import/pass under one prefix.
     constexpr std::string_view kRuntimePresentErrorFormat = "[Runtime] present: {}";
 
@@ -159,6 +171,31 @@ namespace
             mods = mods | UIKeyMods::Super;
         return mods;
     }
+
+    /// THE GAME VIEW'S EXTENT for a @p width x @p height present target (UE FSceneViewFamily secondary screen
+    /// percentage of the game viewport, auto mode): the window's LOGICAL resolution -- its pixels divided by the
+    /// display's content scale -- unless the project renders the game at native pixels
+    /// (RendererSettings::GameViewportHighDPI). The present blit stretches the view's final image over the whole
+    /// target, so the upscale costs one bilinear sample; every resolution-proportional target, history and RDG
+    /// heap of the view follows this extent. A movie (@p windowTarget false) renders at the size it asked for.
+    std::pair<uint32_t, uint32_t> GameViewExtent( const uint32_t width, const uint32_t height,
+                                                  const bool windowTarget )
+    {
+        if ( !windowTarget || Desert::Project::CurrentRendererSettings().GameViewportHighDPI )
+            return { width, height };
+        const float    scale = Desert::EngineContext::GetInstance().GetWindow()->GetContentScale();
+        const uint32_t w     = std::max( 1u, static_cast<uint32_t>( static_cast<float>( width ) / scale + 0.5f ) );
+        const uint32_t h     = std::max( 1u, static_cast<uint32_t>( static_cast<float>( height ) / scale + 0.5f ) );
+        static std::pair<uint32_t, uint32_t> said{};
+        if ( said != std::pair{ w, h } )
+        {
+            LOG_INFO( "[Runtime] game view {}x{} for a {}x{} window (content scale {:.2f}; "
+                      "Config/Engine.json GameViewportHighDPI renders at native pixels)",
+                      w, h, width, height, scale );
+            said = { w, h };
+        }
+        return { w, h };
+    }
 } // namespace
 
 namespace Desert::Player
@@ -185,11 +222,16 @@ namespace Desert::Player
         // the renderer: SceneRenderer::Init bakes the MSAA sample count into its pipelines.
         m_QualityStart = Graphic::QualityBoot::Start(
              Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) /
-             "machine.json" );
-        // The game's view IS the window, so here — and only here — the window's size is the view's.
-        const auto window = EngineContext::GetInstance().GetWindow();
-        m_SceneRenderer   = std::make_unique<Graphic::SceneRenderer>(
-             Graphic::ViewExtent{ window->GetWidth(), window->GetHeight() } );
+                  "machine.json",
+             Graphic::QualityBoot::Persistence::MachineFile );
+        // The game's view IS the window, so here — and only here — the window's size is the view's, at the
+        // extent the first present asks for (GameViewExtent). Built at the window's full pixels and resized on
+        // that present, a Retina game allocated the whole native-resolution target set once and left it owed
+        // for deletion at the footprint peak (UE sizes the view from the screen percentage before the first
+        // allocation, too).
+        const auto window         = EngineContext::GetInstance().GetWindow();
+        const auto [viewW, viewH] = GameViewExtent( window->GetWidth(), window->GetHeight(), true );
+        m_SceneRenderer = std::make_unique<Graphic::SceneRenderer>( Graphic::ViewExtent{ viewW, viewH } );
         m_Scene = std::make_shared<Core::Scene>( "Game", m_SceneRenderer.get() );
     }
 
@@ -342,7 +384,8 @@ namespace Desert::Player
                                  return world.has_value()
                                              ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager,
                                                                                  std::move( *world ) )
-                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson );
+                                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, sceneJson,
+                                                                           std::filesystem::path( scenePath ) );
                              } );
             if ( !streamer )
                 return Common::MakeError( streamer.GetError() );
@@ -659,9 +702,10 @@ namespace Desert::Player
         {
             return Common::MakeFormattedError<bool>( "Play refused for '{}': {}", path, began.GetError() );
         }
-        auto streamer = world.has_value()
-                             ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
-                             : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json );
+        auto streamer =
+             world.has_value()
+                  ? Core::WorldStreamer::BeginCooked( *m_Scene, *m_AssetManager, std::move( *world ) )
+                  : Core::WorldStreamer::Begin( *m_Scene, *m_AssetManager, json, std::filesystem::path( path ) );
         if ( !streamer )
         {
             return Common::MakeFormattedError<bool>( "Scene switch could not stream the world: {}",
@@ -1033,7 +1077,7 @@ namespace Desert::Player
             {
                 m_LastWidth     = width;
                 m_LastHeight    = height;
-                m_PendingResize = { width, height };
+                m_PendingResize = GameViewExtent( width, height, composeTarget == renderer.GetCompositeFramebuffer() );
             }
             const float w = static_cast<float>( width );
             const float h = static_cast<float>( height );
@@ -1243,9 +1287,10 @@ namespace Desert::Player
                  {
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
                                     m_BlitExecutor->GetRouteFill() )
-                          .Texture( "u_Texture", sceneRef, Graphic::RDG::Access::SampledGraphics,
-                                    Graphic::RDG::SubresourceRange::All() )
-                          .Sampler( "u_LinearClampSampler", Graphic::RDG::SamplerDesc::LinearClamp() );
+                          .Texture( RuntimeLayerBlitShaderParameters::FinalColorTexture, sceneRef,
+                                    Graphic::RDG::Access::SampledGraphics, Graphic::RDG::SubresourceRange::All() )
+                          .Sampler( RuntimeLayerBlitShaderParameters::LinearClampSampler,
+                                    Graphic::RDG::SamplerDesc::LinearClamp() );
                  }
                  // The runtime has no backdrop pyramid: a glass panel draws as its flat tinted fill.
                  if ( drawUI )

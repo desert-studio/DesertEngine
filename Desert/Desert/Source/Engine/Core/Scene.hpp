@@ -51,6 +51,11 @@ namespace Desert::Graphic::RayTracing
     class RayTracingSceneCache;
 }
 
+namespace Desert::Graphic::GpuDriven
+{
+    class GpuSceneRegistry;
+}
+
 namespace Desert::Graphic
 {
     class SceneRenderer;
@@ -62,6 +67,11 @@ namespace Desert::Graphic
     // error waiting for the day this forward declaration is the one a caller sees first.
     struct Environment;
 } // namespace Desert::Graphic
+
+namespace Desert::Graphic::DistanceField
+{
+    class DistanceFieldSceneData;
+}
 
 namespace Common::Math
 {
@@ -164,7 +174,16 @@ namespace Desert::Core
         // Walks the ECS ONCE and then records one set of GPU passes per view.
         [[nodiscard]] Common::BoolResultStr OnUpdate( const Common::Timestep& ts );
 
-        [[nodiscard]] Common::BoolResultStr Init();
+        // WHAT AN INIT ANNOUNCES. A World scene replaces what the editor or game shows, so its Init asks for an
+        // asset-eviction sweep (the answer to "what is still needed" changed). An Offscreen scene (a bake, a
+        // capture) is drawn BESIDE the live world and changes nothing it needs: its Init asks for no sweep —
+        // one it asked for dropped the live scene's built meshes and materials (Build HLODs, WP-FAR-6B 8d).
+        enum class InitPurpose : uint8_t
+        {
+            World,
+            Offscreen
+        };
+        [[nodiscard]] Common::BoolResultStr Init( InitPurpose purpose = InitPurpose::World );
 
         // Has Init() ever run on this scene? Asked by a caller that DEFERRED the first Init and now has
         // to know whether the deferred one actually happened — a scene load can refuse the file and
@@ -338,14 +357,23 @@ namespace Desert::Core
 
         [[nodiscard]] SceneState GetState() const { return m_State; }
         // Entering Play from Edit starts the world's clock from zero, as UE's PIE world does; Paused and
-        // back keep it (a pause is not a new world).
+        // back keep it (a pause is not a new world). The effects start over with it: Play and Simulate run this
+        // scene in place, where UE builds a fresh PIE/SIE world whose Niagara components activate at age zero -
+        // without the reset an effect would enter Play mid-loop at whatever age the editor preview reached, and a
+        // burst at SpawnTime 0 would not fire until the loop came round. Back to Edit the preview starts over
+        // too (the restored world is a new one).
         void SetState( SceneState state )
         {
             if ( m_State == SceneState::Edit && state == SceneState::Play )
             {
                 m_WorldTime.Reset();
+                m_VFXWorld.Reset();
             }
+            else if ( m_State != SceneState::Edit && state == SceneState::Edit )
+                m_VFXWorld.Reset();
             m_State = state;
+            if ( state == SceneState::Edit )
+                m_Simulating = false; // a simulation ends with the session it ran in
             m_Subsystems.SetPlaying( state != SceneState::Edit );
             if ( state != SceneState::Paused )
             {
@@ -459,6 +487,16 @@ namespace Desert::Core
         [[nodiscard]] bool IsPlayFromHere() const
         {
             return m_PlayFromHere;
+        }
+        // UE's GEditor->bIsSimulatingInEditor: the world runs (Play/Paused) with no player, seen through the
+        // editor camera with the editor's overlays (BeginPlay with PlayRequest::Simulate). Cleared with the world.
+        void SetSimulating( bool simulating )
+        {
+            m_Simulating = simulating;
+        }
+        [[nodiscard]] bool IsSimulating() const
+        {
+            return m_Simulating;
         }
 
         // Resolves and records the Play view target, UE's order: (1) a camera on the player's pawn (its
@@ -626,6 +664,15 @@ namespace Desert::Core
             return *m_RayTracingCache;
         }
 
+        // THE SCENE'S GPU SCENE (UE FScene::GPUScene, GpuDriven/GpuSceneRegistry.hpp): the persistent primitive /
+        // instance / palette tables every view of this scene reads (velocity, skin cache, TLAS custom index, GI
+        // card rows), synced by each view's MeshRenderer::SyncGpuScene. Renderer state cached on the scene, like
+        // the ray-tracing cache.
+        [[nodiscard]] Graphic::GpuDriven::GpuSceneRegistry& GetGpuScene() const
+        {
+            return *m_GpuScene;
+        }
+
         // THE SCENE'S SKY LIGHT (UE: FScene's SkyLight and its real-time capture): one capture of the procedural
         // sky's light, shared by every view of this scene and every face view of its reflection captures. Renderer
         // state cached on the scene, like the captures above; a view holds it weakly (SkyboxRenderer).
@@ -640,6 +687,14 @@ namespace Desert::Core
         [[nodiscard]] Graphic::LocalShadowCache& GetLocalShadows() const
         {
             return *m_LocalShadows;
+        }
+
+        // THE SCENE'S MESH DISTANCE FIELDS (UE: FScene's FDistanceFieldSceneData): one brick atlas, one set of
+        // records and one streaming for every view of this scene, the reflection captures' face views included
+        // (Graphic/DistanceField/DistanceFieldSceneData.hpp). Renderer state cached on the scene, like the captures.
+        [[nodiscard]] Graphic::DistanceField::DistanceFieldSceneData& GetDistanceFields() const
+        {
+            return *m_DistanceFields;
         }
 
         // THE SCENE in the resource ledger: every device object of the scene's shared renderer state above — the
@@ -776,10 +831,14 @@ namespace Desert::Core
         std::unique_ptr<Graphic::ReflectionCaptureRenderer> m_ReflectionCaptures;
         // See GetRayTracingCache. Never null: made by both constructors.
         std::unique_ptr<Graphic::RayTracing::RayTracingSceneCache> m_RayTracingCache;
+        // See GetGpuScene. Never null: made by both constructors.
+        std::unique_ptr<Graphic::GpuDriven::GpuSceneRegistry> m_GpuScene;
         // See GetSkyLight. Never null: made by both constructors. Shared so a view can hold it weakly.
         std::shared_ptr<Graphic::SceneSkyLight> m_SkyLight;
         // See GetLocalShadows. Never null: made by both constructors.
         std::unique_ptr<Graphic::LocalShadowCache> m_LocalShadows;
+        // See GetDistanceFields. Never null: made by both constructors.
+        std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
@@ -799,6 +858,7 @@ namespace Desert::Core
         entt::entity                  m_ViewTarget     = entt::null; // see ResolveViewTarget
         uint64_t                      m_Generation         = NextSceneGeneration(); // see GetGeneration
         bool                          m_PlayFromHere   = false;
+        bool                          m_Simulating         = false; // see SetSimulating
 
         // One command buffer PER system (index-matched to m_Systems): parallel systems record without
         // sharing the arena; buffers are executed in registration order, so the frame's draw order is

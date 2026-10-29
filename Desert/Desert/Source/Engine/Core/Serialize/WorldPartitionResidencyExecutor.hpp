@@ -46,6 +46,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <span>
 #include <string>
@@ -148,9 +149,9 @@ namespace Desert::Core::Rules
                 if ( !records[record].id.has_value() || records[record].id->IsNull() )
                 {
                     return Common::MakeError<ResidencyExecutor>(
-                         "ResidencyExecutor: record " + std::to_string( record ) + " ('" +
-                         records[record].Tag.value_or( "" ) +
-                         "') has no id, so its entity could not be found again to be destroyed" );
+                         std::format( "ResidencyExecutor: record {} ('{}') has no id, so its entity could not be "
+                                      "found again to be destroyed",
+                                      record, records[record].Tag.value_or( "" ) ) );
                 }
                 byId.emplace( *records[record].id, record );
             }
@@ -182,10 +183,10 @@ namespace Desert::Core::Rules
                 if ( executor.m_UnitOfRecord[record] == kNoRecord )
                 {
                     return Common::MakeError<ResidencyExecutor>(
-                         "ResidencyExecutor: record " + std::to_string( record ) + " ('" +
-                         records[record].Tag.value_or( "" ) + "', id " +
-                         std::to_string( static_cast<std::uint64_t>( *records[record].id ) ) +
-                         ") belongs to no unit of the plan; the plan was not made from these records" );
+                         std::format( "ResidencyExecutor: record {} ('{}', id {}) belongs to no unit of the plan; "
+                                      "the plan was not made from these records",
+                                      record, records[record].Tag.value_or( "" ),
+                                      static_cast<std::uint64_t>( *records[record].id ) ) );
                 }
             // The units resident from the start: what the first step would want.
             auto wished = QueryStreamingCells( executor.m_Plan, executor.m_Partition, sources );
@@ -220,8 +221,8 @@ namespace Desert::Core::Rules
             for ( std::size_t record = 0; record < recordCount; ++record )
                 if ( executor.m_UnitOfRecord[record] == kNoRecord )
                     return Common::MakeError<ResidencyExecutor>(
-                         "ResidencyExecutor: record " + std::to_string( record ) + " of " +
-                         std::to_string( recordCount ) + " belongs to no unit of the plan" );
+                         std::format( "ResidencyExecutor: record {} of {} belongs to no unit of the plan", record,
+                                      recordCount ) );
             return Common::MakeSuccess( std::move( executor ) );
         }
 
@@ -259,8 +260,8 @@ namespace Desert::Core::Rules
                         if ( auto made = world.Activate( action.Unit, records ); !made.IsSuccess() )
                         {
                             return Common::MakeError<ResidencyTick>(
-                                 "ResidencyExecutor: activating unit " + std::to_string( action.Unit ) + " (" +
-                                 std::to_string( records.size() ) + " record(s)) failed: " + made.GetError() );
+                                 std::format( "ResidencyExecutor: activating unit {} ({} record(s)) failed: {}",
+                                              action.Unit, records.size(), made.GetError() ) );
                         }
                         for ( const std::size_t record : records )
                             m_Live[record] = true;
@@ -338,9 +339,9 @@ namespace Desert::Core::Rules
                 {
                     if ( record >= recordCount )
                         return Common::MakeError<ResidencyExecutor>(
-                             "ResidencyExecutor: unit " + std::to_string( unit ) + " names record " +
-                             std::to_string( record ) + " of " + std::to_string( recordCount ) +
-                             "; the plan was not made from these records" );
+                             std::format( "ResidencyExecutor: unit {} names record {} of {}; the plan was not "
+                                          "made from these records",
+                                          unit, record, recordCount ) );
                     executor.m_UnitOfRecord[record] = unit;
                 }
             }
@@ -349,9 +350,9 @@ namespace Desert::Core::Rules
             for ( const auto& [from, to] : observations )
             {
                 if ( from >= recordCount || to >= recordCount )
-                    return Common::MakeError<ResidencyExecutor>( "ResidencyExecutor: a reference names record " +
-                                                                 std::to_string( std::max( from, to ) ) + " of " +
-                                                                 std::to_string( recordCount ) );
+                    return Common::MakeError<ResidencyExecutor>(
+                         std::format( "ResidencyExecutor: a reference names record {} of {}", std::max( from, to ),
+                                      recordCount ) );
                 executor.m_RefsFrom[from].push_back( to );
                 executor.m_RefsTo[to].push_back( from );
             }
@@ -390,8 +391,11 @@ namespace Desert::Core::Rules
     {
         if ( !scene.WorldPartition.has_value() )
             return Common::MakeSuccess( std::optional<ResidencyExecutor>() );
-        auto begun = ResidencyExecutor::Begin( PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds ),
-                                               *scene.WorldPartition, scene.Entities, settings, sources, world );
+        WorldPartitionPlan plan = PlanWorldPartition( scene.Entities, *scene.WorldPartition, bounds );
+        // Play names what the planner refused exactly as the cook does (ReportPlanIssues).
+        ReportPlanIssues( plan, scene.SceneName );
+        auto begun = ResidencyExecutor::Begin( std::move( plan ), *scene.WorldPartition, scene.Entities, settings,
+                                               sources, world );
         if ( !begun.IsSuccess() )
             return Common::MakeError<std::optional<ResidencyExecutor>>( "'" + scene.SceneName +
                                                                         "': " + begun.GetError() );

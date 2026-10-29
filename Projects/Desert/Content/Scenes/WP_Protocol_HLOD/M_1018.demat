@@ -1,0 +1,38 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "9c970132e0ba3d946b9ed66cae4b2560",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "409b54a6423d4b52e7ea7c9f31363097", "75667d780abb052cccad25ad53dac919", "a8d14ccacd0b7bd2c566d6fd78e3ca0c"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "RoughnessFactor",
+            "Value": [1.0, 1.0, 1.0, 1.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "409b54a6423d4b52e7ea7c9f31363097",
+            "Path": "assets:Scenes/WP_Protocol_HLOD/T_1018_BaseColor.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "75667d780abb052cccad25ad53dac919",
+            "Path": "assets:Scenes/WP_Protocol_HLOD/T_1018_ORM.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "a8d14ccacd0b7bd2c566d6fd78e3ca0c",
+            "Path": "assets:Scenes/WP_Protocol_HLOD/T_1018_Normal.detex"
+        }
+    ],
+    "CloudAssets": []
+}

@@ -141,6 +141,12 @@ namespace Desert
         // it reports 1280x720 for a window that is in the taskbar.
         [[nodiscard]] virtual bool HasDrawableArea() const = 0;
 
+        // THE DISPLAY'S PIXELS PER LOGICAL POINT for this window (glfwGetWindowContentScale; 2 on a Retina panel,
+        // the Windows DPI setting / 96 there, 1 on a plain display). Read by the game's viewport to render at the
+        // logical resolution and upscale at present (UE r.SecondaryScreenPercentage.GameViewport, auto mode),
+        // unless the project lets the game render at the native pixels (RendererSettings::GameViewportHighDPI).
+        [[nodiscard]] virtual float GetContentScale() const = 0;
+
         // Puts a window created with `Visible = false` on screen and gives it the focus. Called by the
         // editor when its start is over — every stage run and the scene's content settled — immediately
         // before the first frame a person is meant to see (EditorLayer::RevealWhenReady).

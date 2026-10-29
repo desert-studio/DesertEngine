@@ -4,7 +4,7 @@
 #include <Engine/Assets/Mesh/SurfaceMaterialAsset.hpp>
 #include <Engine/Assets/RegistryDiscovery.hpp>
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/MaterialPipelineStates.hpp>
@@ -96,10 +96,38 @@ namespace Desert::Runtime
                 {
                     continue;
                 }
-                if ( auto* prop = material.Get<Graphic::Texture2DProperty>( param.Name ) )
+                // A schema slot is an authored name (the asset's), so it reaches the executor directly
+                // (Material::Get is for engine code naming a parameter).
+                if ( auto prop = material.GetMaterialExecutor()->GetTexture2DProperty( param.Name ) )
                     prop->SetSamplerState( data.SlotSampler( param.Name, param.Sampler ) );
             }
         }
+    } // namespace
+
+    namespace
+    {
+    // The row a stated profile occupies in the atlas; 255 (not scattered) when it cannot be read, said once per ask.
+    float SubsurfaceProfileRow( const Assets::AssetGuidRef& profile )
+    {
+        const auto index = ResourceRegistry::GetSubsurfaceProfileService()->IndexFor( profile );
+        if ( !index )
+            LOG_ERROR( "[MaterialService] {}; the material is drawn unscattered", index.GetError() );
+        const float row = index ? static_cast<float>( index.GetValue() )
+                                : static_cast<float>( Graphic::SubsurfaceProfileRegistry::kInvalidIndex );
+        return row;
+    }
+
+    template <class MaterialT> void ApplySubsurfaceProfile( MaterialT& material,
+                                                             const std::optional<Assets::AssetGuidRef>& profile )
+    {
+        if ( !profile.has_value() )
+            return;
+        const glm::vec4 row( SubsurfaceProfileRow( *profile ) );
+        if constexpr ( requires { material.SetParamFromVec4( "", row ); } )
+            material.SetParamFromVec4( "SubsurfaceProfileIndex", row );
+        else
+            material.SetParam( "SubsurfaceProfileIndex", row );
+    }
     } // namespace
 
     void ApplySurfaceAsset( Graphic::DataDrivenMaterial& material, const Assets::SurfaceMaterialAsset& asset )
@@ -110,6 +138,9 @@ namespace Desert::Runtime
         const auto& data = asset.Data();
         for ( const auto& p : data.Params )
             material.SetParamRaw( p.Name, p.Value );
+        // SSS-PROFILE: the material's profile reference becomes the template's SubsurfaceProfileIndex row field (UE
+        // GetSubsurfaceProfileId at the base pass). Absent = the template's default, 255 = not scattered.
+        ApplySubsurfaceProfile( material, data.SubsurfaceProfile );
         // The template's `Surface { TwoSided }` is the material's DEFAULT (UE: the parent material's TwoSided);
         // the asset states it only to override. The parser publishes it as the default cell's Cull None
         // (DShaderParser: Meta.State = the default cell's state), so every draw path — including the batched
@@ -176,7 +207,8 @@ namespace Desert::Runtime
     }
 
     static Common::ResultStr<std::string> CellShaderOf( const Assets::MaterialAsset& asset,
-                                                        Graphic::MeshVertexPath path, Graphic::MeshPass pass )
+                                                        Graphic::MeshVertexPath path, Graphic::MeshPass pass,
+                                                        const bool displaced )
     {
         const std::string templateName = asset.GetShaderName();
         auto              cell         = Graphic::TemplateCellShader(
@@ -188,7 +220,8 @@ namespace Desert::Runtime
                  "block carries no skinning, instancing or G-buffer stage.",
                  asset.GetMetadata().Filepath.generic_string(), templateName, Graphic::MeshVertexPathName( path ),
                  Graphic::MeshPassName( pass ) ) );
-        if ( Graphic::MeshCellPath( *cell ) && AssignsSurfaceHeight( asset, templateName ) )
+        // Over displaced geometry the base cell: its SurfaceParallaxOcclusion is `return uv;`.
+        if ( !displaced && Graphic::MeshCellPath( *cell ) && AssignsSurfaceHeight( asset, templateName ) )
         {
             std::string parallax = Graphic::ParallaxCellOf( *cell );
             if ( ResourceRegistry::GetShaderService()->GetByName( parallax ) == nullptr )
@@ -205,7 +238,8 @@ namespace Desert::Runtime
     std::shared_ptr<Graphic::DataDrivenMaterial> CreateSurfaceMaterial( const Assets::MaterialAsset* asset,
                                                                         Graphic::MeshVertexPath      path,
                                                                         Graphic::MeshPass            pass,
-                                                                        const Core::ShaderVariant&   permutation )
+                                                                        const Core::ShaderVariant&   permutation,
+                                                                        const bool                   displaced )
     {
         if ( asset == nullptr )
             return nullptr;
@@ -230,7 +264,7 @@ namespace Desert::Runtime
         // THERE IS DELIBERATELY NO DOMAIN CHECK HERE: this function does not know its consumer. A Terrain
         // material is legitimately built by the terrain, the Material Editor and the File Explorer; the
         // refusal lives in MeshRenderer::DrawGenericMeshes, which asks Core::Formats::DrawnByMeshPath().
-        const auto cell = CellShaderOf( *asset, path, pass );
+        const auto cell = CellShaderOf( *asset, path, pass, displaced );
         if ( !cell )
         {
             LOG_WARN( "[Materials] {} The mesh asking for it falls back to the default surface material; assign a "
@@ -252,16 +286,18 @@ namespace Desert::Runtime
                            permutation.VirtualSources.size() );
                 return nullptr;
             }
-            auto shader = ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
-            if ( !shader )
+            ShaderService* shaders  = ResourceRegistry::GetShaderService();
+            auto           acquired = shaders->AcquireVariant( shaderName, permutation );
+            if ( !acquired )
             {
-                LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' did not "
-                           "compile; the draw asking for it is refused.",
-                           asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
-                           shaderName );
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[Materials] Material '{}': the permutation ({} define(s)) of the cell '{}' was "
+                               "refused; the draw asking for it is refused: {}",
+                               asset->GetMetadata().Filepath.generic_string(), permutation.Defines.size(),
+                               shaderName, acquired.GetError() );
                 return nullptr;
             }
-            auto variant = std::make_shared<Graphic::DataDrivenMaterial>( shader );
+            auto variant = std::make_shared<Graphic::DataDrivenMaterial>( acquired.ExtractValue() );
             if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
                 ApplySurfaceAsset( *variant, *surface );
             return variant;
@@ -276,6 +312,17 @@ namespace Desert::Runtime
             Graphic::MaterialPipelineRequests::Get().Request( shaderName );
         if ( const auto* surface = dynamic_cast<const Assets::SurfaceMaterialAsset*>( asset ) )
             ApplySurfaceAsset( *material, *surface );
+        // A mesh-table cell is precached on the path it IS drawn on (GRASS-SETTLE): the G-buffer cells of the
+        // static and instanced vertex paths, with the material's cull permutation. Only on the base build: a
+        // permutation returned above is a draw-time sibling, and its base was requested when it loaded.
+        if ( Graphic::MeshCellPath( shaderName ) )
+            for ( const auto cellPath : { Graphic::MeshVertexPath::Static, Graphic::MeshVertexPath::Instanced } )
+                if ( const auto gbufferCell =
+                          CellShaderOf( *asset, cellPath, Graphic::MeshPass::GBuffer, displaced ) )
+                    Graphic::MaterialPipelineRequests::Get().RequestCell( { .Shader   = gbufferCell.GetValue(),
+                                                                            .Path     = cellPath,
+                                                                            .Pass     = Graphic::MeshPass::GBuffer,
+                                                                            .TwoSided = material->IsTwoSided() } );
         return material;
     }
 
@@ -367,6 +414,28 @@ namespace Desert::Runtime
         return Common::MakeSuccess( std::move( *shader ) );
     }
 
+    Common::ResultStr<std::string> MaterialService::StandInSurfaceShader( Graphic::MeshVertexPath path,
+                                                                          Graphic::MeshPass       pass ) const
+    {
+        const auto assets = m_Assets.lock();
+        if ( !assets )
+            return Common::MakeError<std::string>(
+                 std::string( "no asset manager is bound, so no template declares 'Role StandInSurface' yet" ) );
+        const auto handle = Assets::FindTemplateByRole( *assets, Common::Content::kStandInSurfaceRole );
+        if ( !handle )
+            return Common::MakeError<std::string>( handle.GetError() );
+        const auto shader = assets->FindByHandle<Assets::ShaderAsset>( handle.GetValue() );
+        if ( shader == nullptr )
+            return Common::MakeError<std::string>( std::string( "the 'StandInSurface' template is not loaded" ) );
+        const std::string templateName = shader->GetMetadata().Filepath.stem().string();
+        auto              cell         = Graphic::MeshShaderFor( templateName, path, pass );
+        if ( !cell )
+            return Common::MakeError<std::string>(
+                 std::format( "the stand-in surface template '{}' has no ({} x {}) cell", templateName,
+                              Graphic::MeshVertexPathName( path ), Graphic::MeshPassName( pass ) ) );
+        return Common::MakeSuccess( std::move( *cell ) );
+    }
+
     void MaterialService::PinDefaultSurfaceTemplate( const Common::AssetHandle& handle )
     {
         m_DefaultSurfacePin = std::make_unique<Assets::AssetRootPin>(
@@ -456,7 +525,8 @@ namespace Desert::Runtime
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
                      LOG_ERROR( "[MaterialService] '{}' is BROKEN: {} — every mesh slot naming it draws the "
-                                "engine's Default Surface material until the file is fixed and reloaded.",
+                                "engine's Default Surface material (a particle renderer row its path's engine "
+                                "default cell) until the file is fixed and reloaded.",
                                 loaded->GetMetadata().Filepath.string(), error );
                      ++m_InvalidationVersion; // the slots waiting on it build their default instance now
                      return;
@@ -539,7 +609,7 @@ namespace Desert::Runtime
     }
 
     Graphic::Material* MaterialService::Get( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
-                                             Graphic::MeshPass pass ) const
+                                             Graphic::MeshPass pass, const bool displaced ) const
     {
         // Material-instance assets resolve through the parent chain to the BASE material: an
         // instance never builds a runtime Material of its own (its overrides live on the
@@ -571,7 +641,7 @@ namespace Desert::Runtime
             break;
         }
 
-        const size_t slot = VariantSlot( path, pass );
+        const size_t slot = VariantSlot( path, pass, displaced );
         if ( auto it = m_Materials.find( current ); it != m_Materials.end() && it->second[slot] )
             return it->second[slot].get();
 
@@ -586,11 +656,13 @@ namespace Desert::Runtime
             if ( !RequestIfUnread( ait->second ) )
                 return nullptr;
 
-            auto material = CreateSurfaceMaterial( ait->second.get(), path, pass );
+            auto material = CreateSurfaceMaterial( ait->second.get(), path, pass, {}, displaced );
             if ( !material )
                 return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
             auto* raw           = material.get();
             m_BuiltToAsset[raw] = current;
+            if ( displaced )
+                m_DisplacedBuilt.insert( raw );
             raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, current );
             m_Materials[current][slot] = std::move( material );
             return raw;
@@ -615,7 +687,7 @@ namespace Desert::Runtime
         // the same parameters and the same textures by construction.
         // Every material the service builds is a DataDrivenMaterial (CreateSurfaceMaterial); a sibling that is
         // not one was not built here, and is refused by its cell rather than drawn as the wrong class.
-        Graphic::Material* sibling = Get( it->second, path, pass );
+        Graphic::Material* sibling = Get( it->second, path, pass, m_DisplacedBuilt.contains( built ) );
         auto*              surface = dynamic_cast<Graphic::DataDrivenMaterial*>( sibling );
         if ( sibling != nullptr && surface == nullptr )
             LOG_ERROR(
@@ -627,9 +699,18 @@ namespace Desert::Runtime
 
     Graphic::DataDrivenMaterial* MaterialService::GetViewVariant( const Graphic::Material* built,
                                                                   Graphic::MeshVertexPath  path,
-                                                                  Graphic::MeshPass pass, uint32_t view ) const
+                                                                  Graphic::MeshPass pass, uint32_t view,
+                                                                  const void* owner ) const
     {
-        return SiblingOf( built, path, pass, view, Core::ShaderVariant{} );
+        return SiblingOf( built, path, pass, view, Core::ShaderVariant{}, owner );
+    }
+
+    void MaterialService::ReleaseViewVariants( const void* owner )
+    {
+        if ( owner == nullptr )
+            return;
+        for ( auto& [handle, views] : m_ViewMaterials )
+            std::erase_if( views, [owner]( const ViewVariant& v ) { return v.Owner == owner; } );
     }
 
     Graphic::DataDrivenMaterial* MaterialService::GetVariant( const Graphic::Material* built,
@@ -644,7 +725,8 @@ namespace Desert::Runtime
     Graphic::DataDrivenMaterial* MaterialService::SiblingOf( const Graphic::Material* built,
                                                              Graphic::MeshVertexPath path, Graphic::MeshPass pass,
                                                              uint32_t                   view,
-                                                             const Core::ShaderVariant& permutation ) const
+                                                             const Core::ShaderVariant& permutation,
+                                                             const void*                asker ) const
     {
         // The sibling first: it resolves the asset (instance chain, unread shell, cell refusal) once, and a
         // view variant exists only where the plain one does.
@@ -655,27 +737,46 @@ namespace Desert::Runtime
         if ( owner == m_BuiltToAsset.end() )
             return nullptr;
 
-        const size_t slot  = VariantSlot( path, pass );
-        auto&        views = m_ViewMaterials[owner->second];
+        // A displaced built material's siblings are displaced too: one source (the section draws displaced
+        // geometry) decides the base cell in EVERY view - a masked cascade caster or a card capture of a displaced
+        // section that marched the `.Parallax` cell would put the relief on twice.
+        const bool   displaced = m_DisplacedBuilt.contains( built );
+        const size_t slot      = VariantSlot( path, pass, displaced );
+        auto&        views     = m_ViewMaterials[owner->second];
         for ( const auto& v : views )
-            if ( v.Slot == slot && v.View == view && v.Defines == permutation.Defines )
+            if ( v.Slot == slot && v.View == view && v.Owner == asker && v.Defines == permutation.Defines )
                 return v.Material.get();
 
         const auto ait = m_MaterialAssets.find( owner->second );
         if ( ait == m_MaterialAssets.end() )
             return nullptr;
-        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass, permutation );
+        auto material = CreateSurfaceMaterial( ait->second.get(), path, pass, permutation, displaced );
         if ( !material )
             return nullptr; // CreateSurfaceMaterial named the material and the cell it refused
         auto* raw = material.get();
         raw->ClaimOwnership( Graphic::ResourceOwner::AssetService, owner->second );
-        views.push_back( ViewVariant{ slot, view, permutation.Defines, std::move( material ) } );
+        views.push_back( ViewVariant{ slot, view, permutation.Defines, asker, std::move( material ) } );
         return raw;
     }
 
     bool MaterialService::Owns( const Graphic::Material* material ) const
     {
         return material && m_BuiltToAsset.count( material ) != 0;
+    }
+
+    bool MaterialService::AwaitsTextures( const Graphic::Material* built ) const
+    {
+        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        return it != m_BuiltToAsset.end() && ResourceRegistry::GetTextureService()->AwaitedBy( it->second );
+    }
+
+    uint32_t MaterialService::BuildRevision( const Graphic::Material* built ) const
+    {
+        const auto it = built != nullptr ? m_BuiltToAsset.find( built ) : m_BuiltToAsset.end();
+        if ( it == m_BuiltToAsset.end() )
+            return 0;
+        const auto revision = m_BuildRevisions.find( it->second );
+        return revision != m_BuildRevisions.end() ? revision->second : 0;
     }
 
     std::vector<Graphic::Material*> MaterialService::GetBuiltVariants( const Assets::AssetHandle& handle ) const
@@ -696,7 +797,8 @@ namespace Desert::Runtime
     }
 
     Graphic::MaterialInstancePtr MaterialService::CreateRuntimeInstance( const Assets::AssetHandle& handle,
-                                                                         Graphic::MeshVertexPath    path ) const
+                                                                         Graphic::MeshVertexPath    path,
+                                                                         const bool displaced ) const
     {
         // Collect the instance chain child -> base (depth-capped cycle guard), then create one
         // runtime instance of the base material and apply overrides base-first so the NEAREST
@@ -727,7 +829,7 @@ namespace Desert::Runtime
             current = parent;
         }
 
-        auto* base = Get( current, path );
+        auto* base = Get( current, path, Graphic::MeshPass::Forward, displaced );
         if ( !base )
             return nullptr;
 
@@ -736,6 +838,8 @@ namespace Desert::Runtime
         {
             for ( const auto& p : ( *it )->Data().Params )
                 instance->SetParamFromVec4( p.Name, p.Value );
+            // UE bOverrideSubsurfaceProfile: the childmost instance that states a profile wins.
+            ApplySubsurfaceProfile( *instance, ( *it )->Data().SubsurfaceProfile );
             // The childmost instance that states TwoSided wins, as its parameters do.
             if ( ( *it )->Data().TwoSided.has_value() )
                 instance->SetTwoSidedOverride( ( *it )->Data().TwoSided );
@@ -811,6 +915,12 @@ namespace Desert::Runtime
         return it->second->GetMetadata().Filepath.stem().string();
     }
 
+    bool MaterialService::IsBroken( const Assets::AssetHandle& handle ) const
+    {
+        const auto it = FindOrDiscover( handle );
+        return it != m_MaterialAssets.end() && it->second && it->second->IsBroken();
+    }
+
     const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const
     {
         // An instance names no program of its own, so every question about its template is the base's.
@@ -843,15 +953,23 @@ namespace Desert::Runtime
         return MaterialTemplate{ base->GetShaderHandle(), base->GetShaderName() };
     }
 
-    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
-                                                   Graphic::MeshPass pass ) const
+    Common::ResultStr<std::string> MaterialService::CellShaderNameOf( const Assets::AssetHandle& handle,
+                                                                      Graphic::MeshVertexPath    path,
+                                                                      Graphic::MeshPass          pass ) const
     {
         const auto* base = BaseOf( handle );
         if ( base == nullptr )
-            return Common::MakeFormattedError( "material {} (or a parent in its instance chain) is not registered "
-                                               "or not readable, so it has no cell to draw with",
-                                               static_cast<uint64_t>( handle ) );
-        if ( const auto cell = CellShaderOf( *base, path, pass ); !cell )
+            return Common::MakeError<std::string>( std::format(
+                 "material {} (or a parent in its instance chain) is not registered or not readable, so it has no "
+                 "cell to draw with",
+                 static_cast<uint64_t>( handle ) ) );
+        return CellShaderOf( *base, path, pass, false );
+    }
+
+    Common::BoolResultStr MaterialService::CellOf( const Assets::AssetHandle& handle, Graphic::MeshVertexPath path,
+                                                   Graphic::MeshPass pass ) const
+    {
+        if ( const auto cell = CellShaderNameOf( handle, path, pass ); !cell )
             return Common::MakeFormattedError( "{}", cell.GetError() );
         return BOOLSUCCESS;
     }
@@ -860,9 +978,13 @@ namespace Desert::Runtime
     {
         // Was an empty body. The graveyard goes with the rest: at shutdown there is no next frame to
         // collect it, and its materials own descriptor pools that must not outlive the device.
+        // The revisions outlive the clear and move: a material built after it is a new build of its asset.
+        for ( const auto& [handle, variants] : m_Materials )
+            ++m_BuildRevisions[handle];
         m_Materials.clear();
         m_ViewMaterials.clear();
         m_BuiltToAsset.clear();
+        m_DisplacedBuilt.clear();
         m_MaterialAssets.clear();
         m_Requests.clear();
         m_ReportedMissing.clear();
@@ -892,6 +1014,7 @@ namespace Desert::Runtime
             if ( variant )
             {
                 m_BuiltToAsset.erase( variant.get() );
+                m_DisplacedBuilt.erase( variant.get() );
                 m_Graveyard.Park( std::move( variant ),
                                   Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             }
@@ -903,6 +1026,7 @@ namespace Desert::Runtime
                                   Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
             m_ViewMaterials.erase( views );
         }
+        ++m_BuildRevisions[handle];
         ++m_InvalidationVersion; // cached instance sets rebuild on their next system tick
     }
 

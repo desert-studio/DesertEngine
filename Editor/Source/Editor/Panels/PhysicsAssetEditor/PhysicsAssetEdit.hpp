@@ -2,9 +2,9 @@
 
 #include <Editor/Core/CommandHistory.hpp>
 
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
-#include <Engine/Physics/PhysicsWorld.hpp>
-#include <Engine/Physics/RagdollDesc.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsWorld.hpp>
+#include <PhysicsCore/RagdollDesc.hpp>
 
 #include <Common/Core/Core.hpp>
 #include <Common/Core/ResultStr.hpp>

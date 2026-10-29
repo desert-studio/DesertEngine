@@ -13,7 +13,9 @@ include( buildScripts .. "/Luau.lua" ) -- 0.741: VM, Compiler, CodeGen and their
 include( buildScripts .. "/Optick.lua" )
 include( buildScripts .. "/MeshOptimizer.lua" )
 include( buildScripts .. "/Voro.lua" ) -- voro++ 0.4.6, the fracture bake's Voronoi cells
+include( buildScripts .. "/Compressonator.lua" ) -- CMP_Core BC7 encoder (all eight modes), the texture cook's
 include( buildScripts .. "/OpenSubdiv.lua" ) -- CPU refiner only (sdc/vtr/far), see the file
+include( buildScripts .. "/Embree.lua" ) -- 4.4.1, triangles + one ISA: the mesh distance-field builder; see the file
 include( buildScripts .. "/Dlib.lua" ) -- optional; no-op when ThirdParty/dlib is absent
 
 -- assimp, compiled from the pinned submodule on every platform. It used to be a committed MSVC import
@@ -34,6 +36,9 @@ include( buildScripts .. "/FidelityFX.lua" )
 -- used to link a prebuilt reflectcpp.lib instead, of which only the Debug flavour was
 -- ever committed — the Release job died on LNK1181 from the day it existed.
 include( buildScripts .. "/ReflectCpp.lua" )
+
+-- SPIRV-Cross core + GLSL, from the vendored sources (ThirdParty/SPIRV-Cross/VERSION.txt); see the file.
+include( buildScripts .. "/SPIRVCross.lua" )
 
 -- gtest, from the vendored v1.17.0 sources — Windows only; the unix-likes link the
 -- package manager's build by name (see the file for why).

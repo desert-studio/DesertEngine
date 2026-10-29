@@ -2,7 +2,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
 #include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/PipelineCacheFile.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <vk-bootstrap/VkBootstrap.h>
@@ -63,6 +63,12 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.SupportsAnisotropy           = m_DeviceCaps.Has( Capability::SamplerAnisotropy );
         m_Capabilities.SupportsNonSolidFill         = m_DeviceCaps.Has( Capability::FillModeNonSolid );
         m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
+        m_Capabilities.SupportsMultiDrawIndirect    = m_DeviceCaps.Has( Capability::MultiDrawIndirect );
+        m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
+        // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
+        m_Capabilities.Neural = m_DeviceCaps.Neural;
+        // machine.json HideRayTracing, applied at the probe (DeviceCaps::RayTracingHidden): the reason rt is off.
+        m_Capabilities.RayTracingHidden = m_DeviceCaps.RayTracingHidden;
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
@@ -108,6 +114,17 @@ namespace Desert::Graphic::API::Vulkan
             m_Capabilities.SupportsTimestampQueries  = deviceProperties.limits.timestampComputeAndGraphics == VK_TRUE;
             m_Capabilities.TimestampPeriodNs         = deviceProperties.limits.timestampPeriod;
 
+            // The per-stage descriptor ceilings a shader's bindings are held against (MoltenVK reports
+            // Metal's, far below a desktop driver's): logged so a stage near the limit is seen at start-up.
+            LOG_INFO( "[Vulkan] per-stage limits: samplers {}, sampled images {}, uniform buffers {}, storage "
+                      "buffers {}, storage images {}, resources {}",
+                      deviceProperties.limits.maxPerStageDescriptorSamplers,
+                      deviceProperties.limits.maxPerStageDescriptorSampledImages,
+                      deviceProperties.limits.maxPerStageDescriptorUniformBuffers,
+                      deviceProperties.limits.maxPerStageDescriptorStorageBuffers,
+                      deviceProperties.limits.maxPerStageDescriptorStorageImages,
+                      deviceProperties.limits.maxPerStageResources );
+
             // Float render targets: RGBA32F must be usable as a colour attachment AND blendable, which is
             // what every accumulating screen-space pass (SSR trace/resolve, GI resolve, bloom) relies on.
             {
@@ -134,6 +151,14 @@ namespace Desert::Graphic::API::Vulkan
                                                                                            : "other";
             LOG_INFO( "[Vulkan] GPU: {} ({}, {}, {} MB VRAM)", m_Capabilities.Name, m_Capabilities.VendorName,
                       typeName, m_Capabilities.VideoMemory / ( 1024ull * 1024ull ) );
+            // WHICH driver answered (core 1.2): on macOS the ICD is the pinned MoltenVK built by
+            // scripts/MacOS/BuildMoltenVK.sh, and this line is how a run proves it was not Homebrew's.
+            VkPhysicalDeviceDriverProperties driver{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES };
+            VkPhysicalDeviceProperties2      props2{ VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driver };
+            vkGetPhysicalDeviceProperties2( m_PhysicalDevice, &props2 );
+            LOG_INFO( "[Vulkan] Driver: {} ({}), conformance {}.{}.{}.{}", driver.driverName, driver.driverInfo,
+                      driver.conformanceVersion.major, driver.conformanceVersion.minor,
+                      driver.conformanceVersion.subminor, driver.conformanceVersion.patch );
             LOG_INFO( "[Vulkan] Caps: maxTex2D {}, colorAttachments {}, float RTs {}, "
                       "timestamps {} (period {} ns/tick)",
                       m_Capabilities.MaxTexture2DSize, m_Capabilities.MaxColorAttachments,
@@ -147,12 +172,53 @@ namespace Desert::Graphic::API::Vulkan
 
             // The selectable lists, built once from probed facts (VulkanCapabilityCatalog.hpp). The surface half
             // (display outputs, present modes beyond FIFO) is probed when the first swapchain's surface exists.
+            m_RuntimeOffers = AskRuntimeOffers();
             m_Capabilities.Catalog =
                  BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, VK_NULL_HANDLE, m_DeviceCaps ) );
             LOG_INFO( "[Vulkan] {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
 
             m_QueueFamilyProperties = m_Bootstrap->get_queue_families();
             m_DepthFormat           = FindDepthFormat();
+    }
+
+    void VulkanPhysicalDevice::ProbeSurface( VkSurfaceKHR surface )
+    {
+        if ( m_SurfaceProbed || surface == VK_NULL_HANDLE )
+            return;
+        m_SurfaceProbed        = true;
+        m_ProbedSurface        = surface;
+        m_RuntimeOffers        = AskRuntimeOffers();
+        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, surface, m_DeviceCaps ) );
+        LOG_INFO( "[Vulkan] with the surface: {}", Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
+    }
+
+    VulkanPhysicalDevice::RuntimeOffers VulkanPhysicalDevice::AskRuntimeOffers()
+    {
+        CatalogProbe runtimes;
+        for ( const IVulkanDeviceExtension* extension : VulkanDeviceExtensions() )
+            extension->AmendCatalogProbe( runtimes );
+        return { .Dlss                         = runtimes.DlssAvailable,
+                 .DlssRayReconstruction        = runtimes.DlssRayReconstructionAvailable,
+                 .DlssRefused                  = runtimes.DlssRefused,
+                 .DlssRayReconstructionRefused = runtimes.DlssRayReconstructionRefused,
+                 .Xess                         = runtimes.XessAvailable,
+                 .MetalFx                      = runtimes.MetalFxAvailable };
+    }
+
+    void VulkanPhysicalDevice::RefreshRuntimeOffers()
+    {
+        // The driver's half of the probe cannot change while the device lives; the runtimes' half can.
+        const RuntimeOffers now = AskRuntimeOffers();
+        if ( now == m_RuntimeOffers )
+            return;
+        // Rebuilt whole from the probe, as at the surface, so the one builder's rules (DLSS NVIDIA-only, RR
+        // beside DLSS) hold; the surface is the one the catalog was completed with (none on a windowless host).
+        m_RuntimeOffers        = now;
+        m_Capabilities.Catalog = BuildCapabilityCatalog( ProbeCatalog( m_PhysicalDevice, m_ProbedSurface, m_DeviceCaps ) );
+        LOG_WARN( "[Vulkan] a vendor runtime changed what it offers: {}",
+                  Common::Scalability::FormatCatalog( m_Capabilities.Catalog ) );
+        Common::Scalability::QualityState::ReplaceCatalog( m_Capabilities.Catalog );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanPhysicalDevice>> VulkanPhysicalDevice::Create( ProbedDevice probed )
@@ -192,13 +258,23 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> VulkanLogicalDevice::Create()
     {
-        auto probed = SelectDevice( VulkanContext::GetBootstrapInstance() );
+        // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,
+        // before the probe, so the device is created as the restricted card would create it.
+        const DeviceRestrictions restrictions{ .HideRayTracing =
+                                                    Common::Settings::MachineSettings::Get().HideRayTracing };
+        auto                     probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
         if ( !probed )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
+        if ( restrictions.HideRayTracing )
+            LOG_WARN( "[Vulkan] ray tracing hidden by {} (HideRayTracing): acceleration_structure, ray_query and "
+                      "ray_tracing_pipeline are not enabled; the renderer runs the non-RT methods",
+                      Common::Settings::MachineSettings::File().string() );
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
         LOG_INFO( "[Vulkan] {}", FormatDescriptorLimits( probed.GetValue().Caps ) );
+        // The NN layer's line (NeuralComputeCaps.hpp): the kernel path chosen and every field it was chosen from.
+        LOG_INFO( "[Vulkan] {}", Engine::FormatNeuralComputeCaps( probed.GetValue().Caps.Neural ) );
 
         // A platform runtime enables what it needs on the chosen device before the catalog is probed from it and
         // before vkCreateDevice (VulkanDeviceExtensions.hpp).

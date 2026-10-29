@@ -1,0 +1,43 @@
+{
+    "id": 9000002,
+    "Tag": "Plane",
+    "Translation": [-90000.0, 5000.0, 0.0],
+    "Rotation": [0.0, 0.0, 0.0],
+    "Scale": [2.0, 2.0, 2.0],
+    "StaticMesh": {
+        "MaterialSlots": [
+            {
+                "Guid": "df51ca6ed9cb71779a9b5634db0863bc",
+                "Path": "assets:Materials/CB_Orange.demat"
+            }
+        ],
+        "Primitive": "Cube",
+        "MeshHandle": {
+            "Guid": "",
+            "Path": ""
+        }
+    },
+    "StreamingSource": {
+        "Enabled": false,
+        "TargetGrids": ["Main", "Foliage"],
+        "LookAheadTime": 2.0,
+        "MaxLookAhead": 50000.0,
+        "OverrideLoadingRange": false,
+        "LoadingRange": 0.0,
+        "Priority": 0,
+        "IsSector": false,
+        "SectorAngle": 360.0,
+        "SectorAngleFromCamera": false,
+        "ShapeOffset": [0.0, 0.0, 0.0],
+        "ShapeYaw": 0.0,
+        "UseVelocityForSorting": false
+    },
+    "Script": {
+        "Scripts": [
+            {
+                "ScriptKey": "assets:Scripts/World/WPFly.lua",
+                "Props": []
+            }
+        ]
+    }
+}

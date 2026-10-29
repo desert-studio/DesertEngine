@@ -6,6 +6,11 @@
 #include <Common/Json/Document.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <Engine/World/Landscape/LandscapeEditLayers.hpp>
+#include <Engine/World/Landscape/LandscapeGenerator.hpp>
+
+#include <cstdlib>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -210,8 +215,8 @@ namespace Desert::WorldGen
                                      { 0.0f, 0.0f, 0.0f }, BoxScale( spec.CellSizeCm, 50, spec.CellSizeCm ) );
 
                     Assets::StaticMeshComponentSer mesh;
-                    mesh.MaterialPaths              = std::vector<std::string>{ groundMaterial.Path };
-                    mesh.MaterialGuids              = std::vector<std::string>{ groundMaterial.Guid };
+                    mesh.MaterialSlots              = std::vector<Assets::AssetGuidRef>{
+                         Assets::AssetGuidRef{ groundMaterial.Guid, groundMaterial.Path } };
                     mesh.Primitive                  = Geometry::PrimitiveType::Cube;
                     ground.Components["StaticMesh"] = AsBlock( mesh );
                     scene.Entities.push_back( std::move( ground ) );
@@ -290,10 +295,9 @@ namespace Desert::WorldGen
                         else
                         {
                             Assets::StaticMeshComponentSer mesh;
-                            mesh.MeshPath                   = prop.Mesh.Path;
-                            mesh.MeshGuid                   = prop.Mesh.Guid;
-                            mesh.MaterialPaths              = std::vector<std::string>{ prop.Material.Path };
-                            mesh.MaterialGuids              = std::vector<std::string>{ prop.Material.Guid };
+                            mesh.MeshHandle    = Assets::AssetGuidRef{ prop.Mesh.Guid, prop.Mesh.Path };
+                            mesh.MaterialSlots = std::vector<Assets::AssetGuidRef>{
+                                 Assets::AssetGuidRef{ prop.Material.Guid, prop.Material.Path } };
                             entity.Components["StaticMesh"] = AsBlock( mesh );
                         }
                         scene.Entities.push_back( std::move( entity ) );
@@ -352,8 +356,8 @@ namespace Desert::WorldGen
                     Assets::StaticMeshComponentSer mesh;
                     const auto&                    material = buildingMaterials[static_cast<size_t>(
                          Range( Mix( d5 ), 0, static_cast<int>( buildingMaterials.size() ) - 1 ) )];
-                    mesh.MaterialPaths                      = std::vector<std::string>{ material.Path };
-                    mesh.MaterialGuids                      = std::vector<std::string>{ material.Guid };
+                    mesh.MaterialSlots = std::vector<Assets::AssetGuidRef>{ Assets::AssetGuidRef{ material.Guid,
+                                                                                                  material.Path } };
                     mesh.Primitive                          = Geometry::PrimitiveType::Cube;
                     building.Components["StaticMesh"]       = AsBlock( mesh );
                     scene.Entities.push_back( std::move( building ) );
@@ -365,13 +369,264 @@ namespace Desert::WorldGen
         // Each record's place among its siblings, stated the way the editor's saver states it (SceneSerializer's
         // SiblingIndexOf: roots numbered in load order, a child by its place in its parent's children, which is
         // load order too). Left unstated, the first editor save of a generated world adds it to EVERY record, and
-        // a partitioned world's first save after moving one entity rewrites every entity file (WP16b).
+        // a partitioned world's first save after moving one entity rewrites every entity file (WP16b). A
+        // partitioned world then drops the ROOTS' index again (WorldGenMain, --partition): its root order is
+        // not persisted.
         std::map<uint64_t, uint32_t> nextUnder; // parent id -> next sibling index; 0 = the roots
         for ( auto& record : scene.Entities )
             record.siblingIndex = nextUnder[record.parent ? static_cast<uint64_t>( *record.parent ) : 0]++;
 
         stats.Entities = static_cast<int>( scene.Entities.size() );
         return scene;
+    }
+
+    namespace
+    {
+        constexpr uint64_t kLandscapeSalt = 0x4C41'4E44'5343'4150ull; // "LANDSCAP": foliage seeds
+
+        Common::Json::Value Int( int64_t v )
+        {
+            return Common::Json::Value( v );
+        }
+
+        Common::Json::Value Vec3( double x, double y, double z )
+        {
+            return Common::Json::Value( Common::Json::Value::Array{ Num( x ), Num( y ), Num( z ) } );
+        }
+
+        Common::Json::Value Handle( const std::string& guid, const std::string& path )
+        {
+            Common::Json::Object h;
+            h["Guid"] = Common::Json::Value( guid );
+            h["Path"] = Common::Json::Value( path );
+            return Common::Json::Value( std::move( h ) );
+        }
+
+        // In FIELD_Barn.desce's key order (the saver's).
+        Common::Json::Value FoliageVolume( const std::vector<FoliageTypeRef>& types, int halfExtentCm,
+                                           int heightCm, int seed )
+        {
+            Common::Json::Object pf;
+            pf["Extent"]              = Vec3( halfExtentCm, heightCm, halfExtentCm );
+            pf["TileSize"]            = Num( 3000.0 );
+            pf["MinimumQuadTreeSize"] = Num( 100.0 );
+            pf["NumUniqueTiles"]      = Int( 10 );
+            pf["RandomSeed"]          = Int( seed );
+            pf["TileOverlap"]         = Num( 0.0 );
+            pf["AllowLandscape"]      = Common::Json::Value( true );
+            pf["AllowStaticMesh"]     = Common::Json::Value( false );
+            Common::Json::Value::Array list;
+            for ( const auto& t : types )
+                list.push_back( Handle( t.Guid, t.Path ) );
+            pf["FoliageTypes"] = Common::Json::Value( std::move( list ) );
+            return Common::Json::Value( std::move( pf ) );
+        }
+
+        // The three weight planes of one tile from its heights; integer only (header).
+        std::vector<World::Landscape::LandscapeWeightLayer> LandscapeWeights( const LandscapeWorldSpec&    spec,
+                                                                             const LandscapeContent&      c,
+                                                                             const std::vector<uint16_t>& h,
+                                                                             uint32_t                     n )
+        {
+            std::vector<World::Landscape::LandscapeWeightLayer> out( 3 );
+            out[0].Name = c.Dirt.LayerName;
+            out[1].Name = c.Grass.LayerName;
+            out[2].Name = c.Dry.LayerName;
+            for ( auto& l : out )
+                l.Weights.assign( static_cast<size_t>( n ) * n, uint8_t{ 0 } );
+            const int64_t last = static_cast<int64_t>( n ) - 1;
+            const auto    at   = [&]( int64_t x, int64_t z ) -> int64_t
+            { return h[static_cast<size_t>( std::clamp<int64_t>( z, 0, last ) * n + std::clamp<int64_t>( x, 0, last ) )]; };
+            const int64_t runCm      = 2ll * spec.SpacingCm; // central difference
+            const int64_t mid        = 32768;
+            const int64_t hollowUnit = std::max<int64_t>( 1, ( spec.NoiseHeightCm / 4 ) * 128 / spec.ZScale );
+            for ( int64_t z = 0; z <= last; ++z )
+                for ( int64_t x = 0; x <= last; ++x )
+                {
+                    const int64_t dx      = std::llabs( at( x + 1, z ) - at( x - 1, z ) );
+                    const int64_t dz      = std::llabs( at( x, z + 1 ) - at( x, z - 1 ) );
+                    const int64_t permil  = std::max( dx, dz ) * spec.ZScale * 1000 / ( 128 * runCm );
+                    const int64_t dirt    = std::clamp<int64_t>( ( permil - 350 ) * 255 / 250, 0, 255 );
+                    const int64_t dryFull = std::clamp<int64_t>( ( mid - at( x, z ) ) * 255 / hollowUnit, 0, 255 );
+                    const int64_t dry     = dryFull * ( 255 - dirt ) / 255;
+                    const size_t  i       = static_cast<size_t>( z * n + x );
+                    out[0].Weights[i]     = static_cast<uint8_t>( dirt );
+                    out[2].Weights[i]     = static_cast<uint8_t>( dry );
+                    out[1].Weights[i]     = static_cast<uint8_t>( 255 - dirt - dry );
+                }
+            return out;
+        }
+    } // namespace
+
+    Common::ResultStr<LandscapeWorld> BuildLandscapeWorld( const LandscapeWorldSpec&         spec,
+                                                           const LandscapeContent&           content,
+                                                           const std::string&                heightFileKeyPrefix,
+                                                           const Common::Content::AssetGuid& guid,
+                                                           WorldStats&                       stats )
+    {
+        namespace LS = World::Landscape;
+        LS::LandscapeGenerateSettings gen;
+        gen.QuadsPerTile  = static_cast<uint32_t>( spec.QuadsPerTile );
+        gen.TilesX        = spec.TilesPerSide;
+        gen.TilesZ        = spec.TilesPerSide;
+        gen.SpacingCm     = static_cast<float>( spec.SpacingCm );
+        gen.ZScale        = static_cast<float>( spec.ZScale );
+        gen.Fill          = LS::LandscapeGenerateFill::Noise;
+        gen.Seed          = spec.Seed;
+        gen.NoiseHeightCm = static_cast<float>( spec.NoiseHeightCm );
+        if ( auto valid = LS::ValidateLandscapeGenerate( gen ); !valid )
+            return Common::MakeError<LandscapeWorld>( "landscape: " + valid.GetError() );
+        auto generated = LS::GenerateLandscape( gen );
+        if ( !generated )
+            return Common::MakeError<LandscapeWorld>( "landscape: " + generated.GetError() );
+        auto g = generated.ExtractValue();
+
+        LandscapeWorld world;
+        auto&          scene = world.Scene;
+        scene.SceneName      = spec.Name;
+        scene.Header         = Common::Content::MakeTextHeader( Common::Content::ContentKind::Scene, guid,
+                                                                Core::SceneTextSubsystems() );
+        stats                = WorldStats{};
+        const int extentCm   = spec.TilesPerSide * spec.QuadsPerTile * spec.SpacingCm;
+        stats.ExtentCm       = extentCm;
+        stats.Cells          = spec.TilesPerSide * spec.TilesPerSide;
+
+        const std::vector<LS::LandscapeLayerRule> rules = {
+             { content.Dirt.LayerName, content.Dirt.Hardness, content.Dirt.NoWeightBlend },
+             { content.Grass.LayerName, content.Grass.Hardness, content.Grass.NoWeightBlend },
+             { content.Dry.LayerName, content.Dry.Hardness, content.Dry.NoWeightBlend },
+        };
+        const Common::UUID base( LS::kLandscapeBaseEditLayerGuid );
+        const glm::vec3    zero( 0.0f );
+        const glm::vec3    one( 1.0f );
+
+        uint64_t nextId = 1000;
+        // Fixtures: sun, sky, wind (the grass bends with it), camera at eye height over the world's centre.
+        {
+            auto                 sun = MakeEntity( nextId++, "Sun", { 0.709f, -0.309f, 0.633f }, zero, one );
+            Common::Json::Object light;
+            light["Color"]                   = Vec3( 1.0, 0.97, 0.92 );
+            light["Intensity"]               = Num( 16.0 );
+            light["AtmosphereSunLight"]      = Common::Json::Value( true );
+            light["CastShadows"]             = Common::Json::Value( true );
+            sun.Components["DirectionLight"] = Common::Json::Value( std::move( light ) );
+            scene.Entities.push_back( std::move( sun ) );
+
+            auto                 sky = MakeEntity( nextId++, "Sky", zero, zero, one );
+            Common::Json::Object atmosphere;
+            atmosphere["Enabled"]           = Common::Json::Value( true );
+            atmosphere["SkyBrightness"]     = Num( 1.0 );
+            sky.Components["SkyAtmosphere"] = Common::Json::Value( std::move( atmosphere ) );
+            scene.Entities.push_back( std::move( sky ) );
+
+            auto                 wind = MakeEntity( nextId++, "Wind Source", zero, zero, one );
+            Common::Json::Object w;
+            w["Direction"]                = Vec3( 0.8, 0.0, 0.6 );
+            w["Speed"]                    = Num( 1500.0 );
+            w["PointWind"]                = Common::Json::Value( false );
+            w["Radius"]                   = Num( 1000.0 );
+            wind.Components["WindSource"] = Common::Json::Value( std::move( w ) );
+            scene.Entities.push_back( std::move( wind ) );
+
+            // World (0, 0) is sample (0, 0) of tile (N/2, N/2): the generator centres the map on the origin.
+            // (h - mid) * ZScale / 128 is a multiple of 1/32 cm: exact in a float.
+            float groundCm = 0.0f;
+            for ( const auto& t : g.Tiles )
+                if ( t.TileX == spec.TilesPerSide / 2 && t.TileZ == spec.TilesPerSide / 2 )
+                    groundCm = static_cast<float>( ( static_cast<int64_t>( t.Heights.Samples()[0] ) - 32768 ) *
+                                                   spec.ZScale ) /
+                               128.0f;
+            auto camera = MakeEntity( nextId++, "Camera", { 0.0f, groundCm + 170.0f, 0.0f }, zero, one );
+            Common::Json::Object cam;
+            cam["AutoActivateForPlayer"] = Common::Json::Value( true );
+            cam["FOV"]                   = Num( 75.0 );
+            cam["Near"]                  = Num( 10.0 );
+            cam["Far"]                   = Num( static_cast<double>( extentCm ) * 1.5 );
+            camera.Components["Camera"]  = Common::Json::Value( std::move( cam ) );
+            scene.Entities.push_back( std::move( camera ) );
+        }
+
+        // The root, as CreateLandscapeCommand::Redo makes it (LandscapeLayerCommands.cpp:112-135), in the
+        // saver's key order (FIELD_Barn.desce:228-260).
+        const uint64_t rootId = nextId++;
+        {
+            auto                 root = MakeEntity( rootId, "Landscape", g.Root.Origin, zero, one );
+            Common::Json::Object ls;
+            ls["QuadsPerTile"] = Int( spec.QuadsPerTile );
+            ls["SpacingCm"]    = Num( spec.SpacingCm );
+            ls["ZScale"]       = Num( spec.ZScale );
+            Common::Json::Value::Array layers;
+            for ( const auto& l : g.EditLayers.Layers )
+            {
+                Common::Json::Object e;
+                e["Guid"]        = Common::Json::Value( std::to_string( static_cast<uint64_t>( l.Guid ) ) );
+                e["Name"]        = Common::Json::Value( l.Name );
+                e["Visible"]     = Common::Json::Value( l.Visible );
+                e["Locked"]      = Common::Json::Value( l.Locked );
+                e["HeightAlpha"] = Num( l.HeightAlpha );
+                e["WeightAlpha"] = Num( l.WeightAlpha );
+                layers.push_back( Common::Json::Value( std::move( e ) ) );
+            }
+            ls["EditLayers"] = Common::Json::Value( std::move( layers ) );
+            ls["Layers"]     = Common::Json::Value( Common::Json::Value::Array{
+                 Handle( content.Dirt.Guid, content.Dirt.Path ), Handle( content.Grass.Guid, content.Grass.Path ),
+                 Handle( content.Dry.Guid, content.Dry.Path ) } );
+            root.Components["Landscape"] = Common::Json::Value( std::move( ls ) );
+            Common::Json::Object material;
+            material["Material"]                 = Handle( content.Material.Guid, content.Material.Path );
+            root.Components["LandscapeMaterial"] = Common::Json::Value( std::move( material ) );
+            scene.Entities.push_back( std::move( root ) );
+        }
+
+        // Foliage volumes over the whole extent, seeds drawn from the spec's seed.
+        {
+            const int height = spec.NoiseHeightCm * 2;
+            auto      meadow = MakeEntity( nextId++, "Meadow Foliage", zero, zero, one );
+            meadow.Components["ProceduralFoliage"] = FoliageVolume(
+                 content.Meadow, extentCm / 2, height, Range( Mix( spec.Seed ^ kLandscapeSalt ), 1, 1'000'000 ) );
+            scene.Entities.push_back( std::move( meadow ) );
+            auto trees = MakeEntity( nextId++, "Tree Foliage", zero, zero, one );
+            trees.Components["ProceduralFoliage"] =
+                 FoliageVolume( content.Trees, extentCm / 2, height,
+                                Range( Mix( Mix( spec.Seed ^ kLandscapeSalt ) ), 1, 1'000'000 ) );
+            scene.Entities.push_back( std::move( trees ) );
+        }
+
+        // Tiles: weights into the Base edit layer, then merged over the whole tile.
+        for ( auto& t : g.Tiles )
+        {
+            const uint64_t id    = nextId++;
+            auto&          data  = t.Heights;
+            const auto*    layer = data.FindEditLayer( base );
+            if ( layer == nullptr )
+                return Common::MakeError<LandscapeWorld>( "landscape: a generated tile carries no Base layer" );
+            LS::LandscapeEditLayerTileData paint = *layer;
+            paint.Weights = LandscapeWeights( spec, content, paint.Heights, data.SamplesX() );
+            if ( auto set = data.SetEditLayer( std::move( paint ) ); !set )
+                return Common::MakeError<LandscapeWorld>( "landscape: " + set.GetError() );
+            const LS::LandscapeRect all{ 0u, 0u, data.SamplesX(), data.SamplesZ() };
+            if ( auto merged = LS::MergeLandscapeEditLayers( g.EditLayers, rules, all, data ); !merged )
+                return Common::MakeError<LandscapeWorld>( "landscape: " + merged.GetError() );
+
+            char tag[48];
+            std::snprintf( tag, sizeof( tag ), "Landscape Tile %d_%d", t.TileX, t.TileZ );
+            auto                 entity = MakeEntity( id, tag, zero, zero, one );
+            Common::Json::Object tile;
+            tile["Landscape"]  = Common::Json::Value( std::to_string( rootId ) );
+            tile["TileX"]      = Int( t.TileX );
+            tile["TileZ"]      = Int( t.TileZ );
+            tile["HeightFile"] = Common::Json::Value( heightFileKeyPrefix + std::to_string( id ) + ".dlht" );
+            entity.Components["LandscapeTile"] = Common::Json::Value( std::move( tile ) );
+            scene.Entities.push_back( std::move( entity ) );
+            world.Tiles.push_back( { id, std::move( data ) } );
+            ++stats.GroundTiles;
+        }
+
+        std::map<uint64_t, uint32_t> nextUnder;
+        for ( auto& record : scene.Entities )
+            record.siblingIndex = nextUnder[record.parent ? static_cast<uint64_t>( *record.parent ) : 0]++;
+        stats.Entities = static_cast<int>( scene.Entities.size() );
+        return Common::MakeSuccess( std::move( world ) );
     }
 
     std::optional<Common::Content::AssetGuid> ExistingWorldGuid( const std::filesystem::path& outputFile )

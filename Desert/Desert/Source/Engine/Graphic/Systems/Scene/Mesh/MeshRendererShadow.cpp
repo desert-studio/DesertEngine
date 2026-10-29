@@ -5,6 +5,16 @@
 
 #include <format>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct MeshShadowShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, InstanceTransforms );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+    };
+} // namespace
+
 namespace Desert::Graphic::System
 {
     using MeshRendererDetail::SignatureHash;
@@ -19,12 +29,13 @@ namespace Desert::Graphic::System
         //
         // MiB, spelled out. The unit was "MB" while the arithmetic divided by 1024*1024, so the same
         // quantity read as 320 here and 335 in ShadowQuality's own comment.
-        LOG_INFO( "[Shadows] {} cascade(s) at {}x{} over {:.0f} m = {:.1f} MiB of attachments for this "
-                  "renderer, allocated in {:.1f} ms ({:.1f} MiB live across {} renderer(s) holding "
-                  "cascades).",
-                  m_Shadow.CascadeCount, m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize,
+        LOG_INFO( "[Shadows] {} cascade(s) x {} directional light(s) at {}x{} over {:.0f} m = {:.1f} MiB of "
+                  "attachments for this renderer, allocated in {:.1f} ms ({:.1f} MiB live across {} renderer(s) "
+                  "holding cascades).",
+                  m_Shadow.CascadeCount, m_CascadeSlots, m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize,
                   Common::Units::ToMetres( m_Shadow.MaxDistance ),
-                  static_cast<double>( ShadowAttachmentBytes( m_Shadow ) ) / ( 1024.0 * 1024.0 ), allocMs,
+                  static_cast<double>( ShadowAttachmentBytes( m_Shadow, m_CascadeSlots ) ) / ( 1024.0 * 1024.0 ),
+                  allocMs,
                   static_cast<double>( ShadowAttachmentLease::LiveBytes() ) / ( 1024.0 * 1024.0 ),
                   ShadowAttachmentLease::LiveHolders() );
     }
@@ -33,6 +44,15 @@ namespace Desert::Graphic::System
     {
         for ( CascadeCacheState& cache : m_CascadeCache )
             cache = CascadeCacheState{};
+    }
+
+    void MeshRenderer::DropDirectionalShadow( const uint32_t slot )
+    {
+        if ( slot >= kDirectionalShadowSlots )
+            return;
+        m_DirectionalShadow[slot].Fitted = 0;
+        for ( uint32_t c = 0; c < kMaxCascades; ++c )
+            m_CascadeCache[slot * kMaxCascades + c] = CascadeCacheState{};
     }
 
     void MeshRenderer::TakeShadowBudget( const ShadowQuality& budget )
@@ -53,20 +73,22 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::RebudgetShadows( const ShadowQuality& budget )
     {
-        // The maps, the caster materials (their light-matrix UBOs) and the pipelines (built against cascade
-        // 0's framebuffer) may all be referenced by a frame still in flight; a quality change is rare and
-        // user-driven, so the whole device is drained rather than each object's release deferred.
+        // ONLY WHAT THE BUDGET SIZES IS MADE AGAIN (UE re-creates its shadow depth targets on r.Shadow.*, not its
+        // shadow-depth shaders): the cascade maps, their static caches, the lease that accounts for them and the
+        // local views' rows over the atlas. The caster materials (one light-matrix UBO per shadow view) and the
+        // three caster pipelines depend on the depth FORMAT, never on the map size or the cascade count, so they
+        // stay - the rain-occlusion view, the local views and the VSM pages keep the materials their own planning
+        // made (EnsureShadowViewMaterials), and a renderer that re-budgets can never hand a view a null material
+        // (SHADOW-CINE-ABORT). The caller takes the re-budget at the frame boundary, before any shadow view of the
+        // frame is planned (SceneRenderer::OnUpdate, RebudgetShadowsFor).
+        //
+        // The maps may still be referenced by a frame in flight; a quality change is rare and user-driven, so the
+        // whole device is drained rather than each object's release deferred.
         Renderer::GetInstance().WaitDeviceIdle();
-        for ( uint32_t i = 0; i < kMaxCascades; ++i )
+        for ( uint32_t i = 0; i < kCascadeViews; ++i )
         {
             m_CascadeStaticFB[i].reset();
             m_CascadeCache[i] = CascadeCacheState{};
-        }
-        for ( uint32_t i = 0; i < kMaxShadowViews; ++i )
-        {
-            m_ShadowMaterial[i].reset();
-            m_ShadowInstancedMaterial[i].reset();
-            m_ShadowSkinnedMaterial[i].reset();
         }
         // The local lights' atlas is the scene's (Graphic/LocalShadowCache.hpp): it follows the viewports' new
         // budget (LocalShadowAtlasSize) at the next frame boundary. This view's table goes.
@@ -75,12 +97,12 @@ namespace Desert::Graphic::System
         m_CascadeMapsBuilt = false;
         m_LocalShadowRows.clear();
         m_LocalRedraws.clear();
-        m_ShadowPipeline.reset();
-        m_ShadowInstancedPipeline.reset();
-        m_ShadowSkinnedPipeline.reset();
+        m_LocalCachePlans.clear();
         m_ShadowAttachments = ShadowAttachmentLease{};
-        m_FittedCascades    = 0;
+        for ( DirectionalShadowSlot& slot : m_DirectionalShadow )
+            slot = DirectionalShadowSlot{};
 
+        // The slots held are kept (SetupShadowPass allocates each at the new budget).
         TakeShadowBudget( budget );
         return SetupShadowPass();
     }
@@ -91,7 +113,7 @@ namespace Desert::Graphic::System
         // built with Graphic::kNoShadowQuality allocates no map, compiles no caster pipeline and loads no
         // shadow shader; everything downstream is already driven by the count it publishes
         // (ShadowCascadePasses hands no pass, CaptureFrameState reports 0, and the shader's cascade
-        // loop over u_ShadowParams.w selects none), so there is no second switch to keep in step.
+        // loop over each slot's fitted count selects none), so there is no second switch to keep in step.
         //
         // Returning `true` matters: Initialize treats a false here as fatal, and "this renderer was asked
         // for no shadows" is not a failure to set them up.
@@ -119,23 +141,23 @@ namespace Desert::Graphic::System
         // around the ALLOCATION alone — not the pipelines below, which a lazy scheme would build once at
         // startup anyway.
         const auto allocStart = std::chrono::steady_clock::now();
-        for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-        {
-            FramebufferSpecification cacheSpec;
-            cacheSpec.DebugName = std::format( "ShadowCascade{}.StaticCache", i );
-            cacheSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
-            m_CascadeStaticFB[i] = Graphic::Framebuffer::Create( cacheSpec );
-            m_CascadeStaticFB[i]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
-            m_CascadeCache[i]   = CascadeCacheState{};
-            m_ShadowMaterial[i] = std::make_unique<MaterialShadow>( MeshPass::ShadowDepth );
-        }
+        for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
+            AllocateCascadeSlot( slot );
         const double allocMs =
              std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - allocStart ).count();
 
         // The lease is what makes the LIVE total below true, and it is taken here rather than in
         // Initialize so that it is created and destroyed with the framebuffers it accounts for.
-        m_ShadowAttachments = ShadowAttachmentLease{ m_Shadow };
+        m_ShadowAttachments = ShadowAttachmentLease{ m_Shadow, m_CascadeSlots };
         LogShadowBudget( allocMs );
+
+        // The caster pipelines are built once: they are render-pass compatible with every cascade framebuffer of
+        // any size (one depth format), so a re-budget keeps them.
+        if ( m_ShadowPipeline )
+        {
+            EnsureCascadeCasterMaterials();
+            return true;
+        }
 
         GraphicsPipelineSpecification spec;
         spec.DebugName         = "ShadowPipeline";
@@ -179,10 +201,6 @@ namespace Desert::Graphic::System
             if ( const auto instanced = GraphicsPipeline::Create( ispec ) )
             {
                 m_ShadowInstancedPipeline = instanced.GetValue();
-
-                for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowInstancedMaterial[i] =
-                         std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -204,9 +222,6 @@ namespace Desert::Graphic::System
             if ( const auto skinnedShadow = GraphicsPipeline::Create( sspec ) )
             {
                 m_ShadowSkinnedPipeline = skinnedShadow.GetValue();
-
-                for ( uint32_t i = 0; i < m_Shadow.CascadeCount; ++i )
-                    m_ShadowSkinnedMaterial[i] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
             }
             else
             {
@@ -218,6 +233,68 @@ namespace Desert::Graphic::System
             LOG_WARN( "[MeshRenderer] Skinned shadow-depth cell missing — skinned meshes will cast no shadow." );
         }
 
+        EnsureCascadeCasterMaterials();
+        return true;
+    }
+
+    void MeshRenderer::AllocateCascadeSlot( const uint32_t slot )
+    {
+        for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
+        {
+            const uint32_t           v = slot * kMaxCascades + c;
+            FramebufferSpecification cacheSpec;
+            cacheSpec.DebugName = std::format( "ShadowCascade{}.{}.StaticCache", slot, c );
+            cacheSpec.Attachments.Attachments.emplace_back( ViewTargetFormats::kShadowDepth );
+            m_CascadeStaticFB[v] = Graphic::Framebuffer::Create( cacheSpec );
+            m_CascadeStaticFB[v]->Resize( m_Shadow.ShadowMapSize, m_Shadow.ShadowMapSize );
+            m_CascadeCache[v] = CascadeCacheState{};
+            // A re-budget keeps the cascade's caster material (RebudgetShadows); a cascade the old budget did
+            // not have gets its own.
+            if ( !m_ShadowMaterial[v] )
+                m_ShadowMaterial[v] = std::make_unique<MaterialShadow>( MeshPass::ShadowDepth );
+        }
+    }
+
+    void MeshRenderer::EnsureCascadeCasterMaterials()
+    {
+        // THE CASCADES' INSTANCED AND SKINNED CASTER MATERIALS, one per cascade view held, for each optional
+        // pipeline that was built; a re-budget keeps the ones it has (RebudgetShadows) and adds what a larger
+        // cascade count or a new slot needs.
+        for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
+            for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
+            {
+                const uint32_t v = slot * kMaxCascades + c;
+                if ( m_ShadowInstancedPipeline && !m_ShadowInstancedMaterial[v] )
+                    m_ShadowInstancedMaterial[v] =
+                         std::make_unique<MaterialShadowInstanced>( MeshPass::ShadowDepth );
+                if ( m_ShadowSkinnedPipeline && !m_ShadowSkinnedMaterial[v] )
+                    m_ShadowSkinnedMaterial[v] = std::make_unique<MaterialShadowSkinned>( MeshPass::ShadowDepth );
+            }
+    }
+
+    bool MeshRenderer::EnsureCascadeSlots( const uint32_t slots )
+    {
+        if ( m_Shadow.CascadeCount == 0 || !m_ShadowPipeline || slots > kDirectionalShadowSlots )
+            return false;
+        if ( slots <= m_CascadeSlots )
+            return true;
+        // The cascade array the frames in flight sample is replaced by one with the new slot's layers; a slot is
+        // taken once per renderer (and kept), so the device is drained rather than the array's release deferred
+        // (RebudgetShadows does the same, at the same frame boundary: SceneRenderer, "Shadow: UpdateCascades").
+        Renderer::GetInstance().WaitDeviceIdle();
+        const auto allocStart = std::chrono::steady_clock::now();
+        for ( uint32_t slot = m_CascadeSlots; slot < slots; ++slot )
+            AllocateCascadeSlot( slot );
+        m_CascadeSlots = slots;
+        EnsureCascadeCasterMaterials();
+        const double allocMs =
+             std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - allocStart ).count();
+        // The next AcquireCascadeMaps makes the array with every held slot's layers and rebuilds each fitted
+        // cascade into it from its cache.
+        m_CascadeMaps       = RDG::ExternalTexture{};
+        m_CascadeMapsBuilt  = false;
+        m_ShadowAttachments = ShadowAttachmentLease{ m_Shadow, m_CascadeSlots };
+        LogShadowBudget( allocMs );
         return true;
     }
 
@@ -230,11 +307,12 @@ namespace Desert::Graphic::System
         // index, and a count asked of the class instead of the instance): the count published to the
         // shader was the count ALLOCATED, and the count fitted is a different number. A scene with no
         // directional light returns here having written no matrix at all, and every lit draw was still
-        // told u_ShadowParams.w = 4 — so the shader walked four cascades whose matrices are the array's
+        // told ShadowParams.w = 4 — so the shader walked four cascades whose matrices are the array's
         // initializer, which is identity for cascade 0 and the ZERO matrix for 1..3. A zero matrix divides
         // by w = 0; identity makes light space equal world space, so fragments near the origin test as
         // "inside cascade 0" and are sampled from a map nothing rendered. Nothing reports any of it.
-        m_FittedCascades = 0;
+        for ( DirectionalShadowSlot& slot : m_DirectionalShadow )
+            slot = DirectionalShadowSlot{};
         // This frame's cache plan, cleared with the count and for the same reason: an early return below leaves no
         // cascade with work (MapHasMovable is the map's state, not the frame's, and survives).
         for ( CascadeCacheState& state : m_CascadeCache )
@@ -248,51 +326,107 @@ namespace Desert::Graphic::System
         if ( camera == nullptr )
             return;
 
-        const auto& dirLights = m_SceneRenderer->GetDirectionLights();
-        if ( dirLights.DirectionLights.empty() )
-            return;
-
-        // The fitting itself is pure math and lives in Engine/Graphic/ShadowCascades.hpp so a test can pin
-        // it down — this function only feeds it the scene's numbers and stores the result.
-        CascadeSetup setup;
-        setup.CameraView       = camera->GetViewMatrix();
-        setup.CameraProjection = camera->GetProjectionMatrix();
-        setup.CameraNear       = camera->GetNear();
-        setup.CameraFar        = camera->GetFar();
-        setup.LightDirection   = glm::vec3( dirLights.DirectionLights[0].Direction );
-        ApplyShadowQuality( setup, m_Shadow );
-        setup.SplitLambda = m_SplitLambda;
-
-        CascadeFit     fits[kMaxShadowCascades];
-        const uint32_t n = ComputeShadowCascades( setup, fits );
-        // Written HERE, beside the call whose return value it is, and nowhere else. The fitter can also
-        // hand back 0 without an early return of ours — a zero-length light direction, or a MaxDistance
-        // that has fallen behind the camera's near plane.
-        m_FittedCascades = n;
-
-        for ( uint32_t c = 0; c < n; ++c )
+        // EVERY SHADOWED DIRECTIONAL LIGHT, by its slot (= its Atmosphere Sun Light Index): the sun with the view's
+        // resolved policy (SetShadows), atmosphere light 1 with its own component's (SceneRenderer::AtmosphereLight1
+        // Frame). Each is fitted by the same call below; nothing after this list knows which light a slot is.
+        struct SlotLight
         {
-            m_CascadeVP[c]                                          = fits[c].ViewProj;
-            m_CascadeWorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
-            // The caster's bias, in world centimetres scaled per cascade (CascadeBiasSettings), as the
-            // matrix the casters draw with and the slope term their depth cell adds.
-            m_CascadeCasterBias[c] = ComputeCascadeCasterBias( m_ShadowBias, fits[c], fits[0].WorldPerTexel );
-            m_CascadeCasterVP[c]   = CasterViewProj( fits[c].ViewProj, m_CascadeCasterBias[c].DepthBias );
-            m_CascadeDepthRange[static_cast<glm::length_t>( c )] = fits[c].DepthRange;
-            // The movable layer draws the same cascade with the same matrix and bias, through its own view.
-            m_CascadeCasterVP[kCascadeMovableViewBase + c]   = m_CascadeCasterVP[c];
-            m_CascadeCasterBias[kCascadeMovableViewBase + c] = m_CascadeCasterBias[c];
+            glm::vec3           Direction{ 0.0f };
+            bool                CastShadows        = false;
+            CascadeBiasSettings Bias;
+            float               SplitLambda        = 0.6f;
+            float               SourceAngleDegrees = 0.0f;
+        };
+        std::optional<SlotLight> lights[kDirectionalShadowSlots];
+        const auto&              dirLights = m_SceneRenderer->GetDirectionLights();
+        if ( !dirLights.DirectionLights.empty() )
+            lights[SceneResources::kDirectionalShadowSun] =
+                 SlotLight{ .Direction          = glm::vec3( dirLights.DirectionLights[0].Direction ),
+                            .CastShadows        = m_ShadowsEnabled,
+                            .Bias               = m_ShadowBias,
+                            .SplitLambda        = m_SplitLambda,
+                            .SourceAngleDegrees = m_SunSourceAngle };
+        static_assert( kDirectionalShadowSlots == 2, "a slot per atmosphere light: list each one's source here" );
+        if ( const auto& light1 = m_SceneRenderer->GetAtmosphereLight1() )
+            lights[1] = SlotLight{ .Direction          = glm::vec3( light1->Light.Direction ),
+                                   .CastShadows        = light1->CastShadows,
+                                   .Bias               = light1->ShadowBias,
+                                   .SplitLambda        = light1->CascadeSplitLambda,
+                                   .SourceAngleDegrees = light1->SourceAngleDegrees };
+
+        for ( uint32_t slot = 0; slot < kDirectionalShadowSlots; ++slot )
+        {
+            const std::optional<SlotLight>& light = lights[slot];
+            // A light whose shadows are off has no cascades at all (UE: no whole-scene shadow for it): it is
+            // packed CastShadows 0 and lit, and its slot is never taken for it.
+            if ( !light || !light->CastShadows )
+                continue;
+            if ( !EnsureCascadeSlots( slot + 1 ) )
+                continue;
+            DirectionalShadowSlot& state = m_DirectionalShadow[slot];
+            state.CastShadows            = true;
+            // UE's LightSourceAngle: the light's angular DIAMETER in degrees; the penumbra grows by tan(angle / 2)
+            // per centimetre between the occluder and the receiver (each side of the edge).
+            state.SourceTanHalf =
+                 std::tan( glm::radians( std::clamp( light->SourceAngleDegrees, 0.0f, 89.0f ) ) * 0.5f );
+
+            // The fitting itself is pure math and lives in Engine/Graphic/ShadowCascades.hpp so a test can pin
+            // it down — this function only feeds it the scene's numbers and stores the result.
+            CascadeSetup setup;
+            setup.CameraView       = camera->GetViewMatrix();
+            setup.CameraProjection = camera->GetProjectionMatrix();
+            setup.CameraNear       = camera->GetNear();
+            setup.CameraFar        = camera->GetFar();
+            setup.LightDirection   = light->Direction;
+            ApplyShadowQuality( setup, m_Shadow );
+            setup.SplitLambda = light->SplitLambda;
+
+            CascadeFit     fits[kMaxShadowCascades];
+            const uint32_t n = ComputeShadowCascades( setup, fits );
+            // Written HERE, beside the call whose return value it is, and nowhere else. The fitter can also
+            // hand back 0 without an early return of ours — a zero-length light direction, or a MaxDistance
+            // that has fallen behind the camera's near plane.
+            state.Fitted = n;
+
+            for ( uint32_t c = 0; c < n; ++c )
+            {
+                const uint32_t v                                     = slot * kMaxCascades + c;
+                m_CascadeVP[v]                                       = fits[c].ViewProj;
+                state.WorldPerTexel[static_cast<glm::length_t>( c )] = fits[c].WorldPerTexel;
+                state.DepthRange[static_cast<glm::length_t>( c )]    = fits[c].DepthRange;
+                // The caster's bias, in world centimetres scaled per cascade (CascadeBiasSettings), as the
+                // matrix the casters draw with and the slope term their depth cell adds.
+                m_CascadeCasterBias[v] = ComputeCascadeCasterBias( light->Bias, fits[c], fits[0].WorldPerTexel );
+                m_CascadeCasterVP[v]   = CasterViewProj( fits[c].ViewProj, m_CascadeCasterBias[v].DepthBias );
+                // The movable layer draws the same cascade with the same matrix and bias, through its own view.
+                m_CascadeCasterVP[kCascadeMovableViewBase + v]   = m_CascadeCasterVP[v];
+                m_CascadeCasterBias[kCascadeMovableViewBase + v] = m_CascadeCasterBias[v];
+            }
         }
 
         PlanCascadeCache();
     }
 
-    float MeshRenderer::GetSunSourceTanHalf() const
+    SceneResources::DirectionalShadowViews MeshRenderer::DirectionalShadows() const
     {
-        // UE's LightSourceAngle: the sun's angular DIAMETER in degrees; the penumbra grows by tan(angle / 2) per
-        // centimetre between the occluder and the receiver (each side of the edge).
-        const float degrees = std::clamp( m_SunSourceAngle, 0.0f, 89.0f );
-        return std::tan( glm::radians( degrees ) * 0.5f );
+        SceneResources::DirectionalShadowViews views{};
+        for ( uint32_t slot = 0; slot < kDirectionalShadowSlots; ++slot )
+        {
+            const DirectionalShadowSlot& state = m_DirectionalShadow[slot];
+            // The min() is belt and braces against the fitted count and the budget ever being written from
+            // different places again; a slot not held has no layers to sample.
+            const uint32_t count =
+                 slot < m_CascadeSlots ? std::min( state.Fitted, m_Shadow.CascadeCount ) : 0u;
+            views[slot] = SceneResources::DirectionalShadowView{
+                 .CascadeVP            = m_CascadeVP.data() + slot * kMaxCascades,
+                 .Count                = count,
+                 .FirstLayer           = CascadeLayer( slot * kMaxCascades ),
+                 .CastShadows          = state.CastShadows,
+                 .SourceTanHalf        = state.SourceTanHalf,
+                 .CascadeWorldPerTexel = state.WorldPerTexel,
+                 .CascadeDepthRange    = state.DepthRange };
+        }
+        return views;
     }
 
     uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, bool& movable ) const
@@ -306,7 +440,7 @@ namespace Desert::Graphic::System
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
                  !IsVisibleInView( frustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
                 continue;
-            hash.Add( rd.Mesh );
+            hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
@@ -323,7 +457,7 @@ namespace Desert::Graphic::System
             if ( g.Mesh == nullptr || !g.CastShadows ||
                  !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
-            hash.Add( g.Mesh );
+            hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
         }
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound); a
@@ -337,7 +471,7 @@ namespace Desert::Graphic::System
                 movable = true;
                 continue;
             }
-            hash.Add( ism.Mesh );
+            hash.Add( ism.Mesh->GetRenderRevision() );
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );
@@ -349,8 +483,10 @@ namespace Desert::Graphic::System
                 movable = true;
         }
         for ( const auto& gpu : m_GpuInstancedQueue )
-            if ( gpu.CastShadows )
+            if ( gpu.CastShadows && ( !gpu.WorldBounds || frustum.Intersects( *gpu.WorldBounds ) ) )
                 movable = true; // regenerated around the camera every frame
+        if ( m_GpuInstancedCastersExpected )
+            movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
         return hash.Value;
     }
 
@@ -360,7 +496,7 @@ namespace Desert::Graphic::System
         // cascade and drawn again only when the cascade's matrix (the sun turned, the camera moved a texel) or
         // one of the static casters it reaches changed; the movable casters are drawn over a copy of it every
         // frame they exist.
-        if ( !m_ShadowsEnabled || !m_ShadowPipeline )
+        if ( !m_ShadowPipeline )
             return;
 
         bool castersMove = false;
@@ -368,25 +504,32 @@ namespace Desert::Graphic::System
             if ( const auto caster = weak.lock(); caster && caster->CastsShadowThisFrame() )
                 castersMove = true;
 
-        const uint32_t count = std::min( m_FittedCascades, m_Shadow.CascadeCount );
-        for ( uint32_t c = 0; c < count; ++c )
+        for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
         {
-            CascadeCacheState& state = m_CascadeCache[c];
-            if ( !m_CascadeStaticFB[c] )
+            // A light without shadows draws none of its cascades (its slot is packed lit).
+            if ( !m_DirectionalShadow[slot].CastShadows )
                 continue;
-            bool          movable = castersMove;
-            SignatureHash key;
-            key.Add( CascadeStaticSignature( c, movable ) );
-            key.Add( m_CascadeCasterVP[c] );
-            key.Add( m_CascadeCasterBias[c] );
-            EnsureShadowViewMaterials( kCascadeMovableViewBase + c );
+            const uint32_t count = std::min( m_DirectionalShadow[slot].Fitted, m_Shadow.CascadeCount );
+            for ( uint32_t c = 0; c < count; ++c )
+            {
+                const uint32_t     v     = slot * kMaxCascades + c;
+                CascadeCacheState& state = m_CascadeCache[v];
+                if ( !m_CascadeStaticFB[v] )
+                    continue;
+                bool          movable = castersMove;
+                SignatureHash key;
+                key.Add( CascadeStaticSignature( v, movable ) );
+                key.Add( m_CascadeCasterVP[v] );
+                key.Add( m_CascadeCasterBias[v] );
+                EnsureShadowViewMaterials( kCascadeMovableViewBase + v );
 
-            state.Movable      = movable;
-            state.RedrawStatic = state.StaticKey != key.Value;
-            state.StaticKey    = key.Value;
-            state.Rebuild      = state.RedrawStatic || state.Movable || state.MapHasMovable;
-            if ( state.Rebuild )
-                state.MapHasMovable = state.Movable;
+                state.Movable      = movable;
+                state.RedrawStatic = state.StaticKey != key.Value;
+                state.StaticKey    = key.Value;
+                state.Rebuild      = state.RedrawStatic || state.Movable || state.MapHasMovable;
+                if ( state.Rebuild )
+                    state.MapHasMovable = state.Movable;
+            }
         }
 
         m_CascadeKeySnapshots.clear();
@@ -403,13 +546,27 @@ namespace Desert::Graphic::System
                     ShadowCasterCell::Own;
     }
 
+    bool MeshRenderer::IsTranslucentSurface( const DataDrivenMaterial* material )
+    {
+        return material != nullptr && Core::Formats::IsTranslucentBlend( material->GetSchema().Blend );
+    }
+
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const StaticMeshRenderData& data )
     {
         const SurfaceSlot slot = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
-        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ) };
+        return { slot.Instance, slot.Surface, IsMaskedSurface( slot.Surface ),
+                 IsTranslucentSurface( slot.Surface ) };
     }
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const InstancedMeshRenderData& data )
+    {
+        MaterialInstance* instance = data.Material.get();
+        auto*             surface =
+             instance != nullptr ? dynamic_cast<DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
+        return { instance, surface, IsMaskedSurface( surface ), IsTranslucentSurface( surface ) };
+    }
+
+    MeshRenderer::SectionShading MeshRenderer::ShadingOf( const GpuInstancedRenderData& data )
     {
         MaterialInstance* instance = data.Material.get();
         auto*             surface =
@@ -419,7 +576,8 @@ namespace Desert::Graphic::System
 
     MeshRenderer::SectionShading MeshRenderer::ShadingOf( const SkinnedSection& section )
     {
-        return { section.Instance, section.Material, IsMaskedSurface( section.Material ) };
+        return { section.Instance, section.Material, IsMaskedSurface( section.Material ),
+                 IsTranslucentSurface( section.Material ) };
     }
 
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
@@ -444,9 +602,14 @@ namespace Desert::Graphic::System
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell )
     {
+        return CellPipeline( passState, cell.GetShaderName() );
+    }
+
+    GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader )
+    {
         if ( passState == nullptr )
             return nullptr;
-        MeshCellPipelineKey key{ passState, cell.GetShaderName() };
+        MeshCellPipelineKey key{ passState, cellShader };
         if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_CellPipelines[key];
@@ -523,7 +686,13 @@ namespace Desert::Graphic::System
             }
         }
         const bool standInReady = standIn != nullptr && standIn->GetReadiness() == PipelineReadiness::Ready;
+        const auto before       = m_MaterialPipelines.StateOf( key );
         const auto choice       = m_MaterialPipelines.ChooseCell( key, reports, standInReady );
+        if ( choice.Draw != MaterialPipelineTracker::CellDraw::Own )
+            ++m_StandInDraws;
+        else if ( before && *before != MaterialPipelineState::Ready )
+            LOG_INFO( "[MeshRenderer] '{}' draws its own pipeline now (it was {})", key,
+                      MaterialPipelineStateName( *before ) );
         if ( choice.Announce )
             LOG_INFO( "[MeshRenderer] '{}' draws the default surface until its pipeline is ready (pipeline {}{})",
                       key, MaterialPipelineStateName( reports ),
@@ -629,7 +798,7 @@ namespace Desert::Graphic::System
         const bool drawStatic  = layer != ShadowCasterLayer::Movable;
         const bool drawMovable = layer != ShadowCasterLayer::Static;
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
-        // Projection and identity as View, matching u_LightViewProj[c] on the lit side.
+        // Projection and identity as View, matching LightViewProjection[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                              m_CascadeCasterBias[c], m_ParallaxQuality );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
@@ -710,7 +879,6 @@ namespace Desert::Graphic::System
             }
             auto& set  = *m_ScratchMaskedSets[maskedSetCount++];
             set.Caster = caster;
-            set.Rows.clear();
             set.Transforms.clear();
             return set;
         };
@@ -740,6 +908,13 @@ namespace Desert::Graphic::System
             {
                 continue; // refused by name, once
             }
+            // The caster's row is the lit draw's, from the scene material table (SyncGpuScene: the receiving
+            // row; a caster never reads ReceiveSunShadows).
+            const std::optional<uint32_t> row = FindMaterialRow( mat, inst );
+            if ( !row )
+            {
+                continue;
+            }
             auto&            set = maskedSetFor( caster );
             MaskedCasterDraw draw;
             draw.Set       = &set;
@@ -747,7 +922,7 @@ namespace Desert::Graphic::System
             draw.Mesh      = rd.Mesh;
             draw.Transform = rd.Transform;
             draw.Instance  = inst;
-            draw.Row       = AppendRow( set.Rows, EffectiveRow( mat, inst ) );
+            draw.Row       = *row;
             draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
             draw.HiddenSubmeshMask = rd.HiddenSubmeshes;
             m_ScratchMaskedDraws.push_back( draw );
@@ -848,8 +1023,12 @@ namespace Desert::Graphic::System
                     {
                         continue; // refused by name, once
                     }
-                    auto&          set = maskedSetFor( caster );
-                    const uint32_t row = AppendRow( set.Rows, EffectiveRow( ismMat, ismInst ) );
+                    const std::optional<uint32_t> row = FindMaterialRow( ismMat, ismInst );
+                    if ( !row )
+                    {
+                        continue;
+                    }
+                    auto& set = maskedSetFor( caster );
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
                         const auto first = static_cast<uint32_t>( set.Transforms.size() );
@@ -866,7 +1045,7 @@ namespace Desert::Graphic::System
                         draw.Mesh     = ism.Mesh;
                         draw.HiddenSubmeshMask = ism.HiddenSubmeshes;
                         draw.Instance = ismInst;
-                        draw.Row      = row;
+                        draw.Row      = *row;
                         draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
                         draw.First    = first;
                         draw.LodLevel = level;
@@ -980,6 +1159,11 @@ namespace Desert::Graphic::System
                     {
                         continue; // refused by name, once
                     }
+                    const std::optional<uint32_t> row = FindMaterialRow( section.Material, section.Instance );
+                    if ( !row )
+                    {
+                        continue;
+                    }
                     auto&            set = maskedSetFor( caster );
                     MaskedCasterDraw draw;
                     draw.Set       = &set;
@@ -987,9 +1171,9 @@ namespace Desert::Graphic::System
                     draw.Mesh      = sd.Mesh;
                     draw.Transform = sd.Transform;
                     draw.Instance  = section.Instance;
-                    draw.Row       = AppendRow( set.Rows, EffectiveRow( section.Material, section.Instance ) );
+                    draw.Row       = *row;
                     draw.First     = static_cast<uint32_t>( set.Transforms.size() );
-                    draw.MotionRow = sd.MotionRow;
+                    draw.GpuPrimitive = sd.GpuPrimitive;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     if ( IsVirtualShadowView( c ) )
                         draw.WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
@@ -1004,12 +1188,13 @@ namespace Desert::Graphic::System
             if ( !opaqueCasters.empty() )
             {
                 skinMat->UploadBones( skinBones );
-                const std::span<const GpuObjectMotion> rows = m_ScratchMotionRows.Rows;
                 for ( const OpaqueCaster& caster : opaqueCasters )
                 {
                     // The cached pose when the skin cache holds this primitive (one skinning per frame).
-                    const GpuObjectMotion row =
-                         caster.Data->MotionRow < rows.size() ? rows[caster.Data->MotionRow] : GpuObjectMotion{};
+                    const GpuDriven::GpuScenePrimitive row =
+                         m_GpuScene != nullptr && m_GpuScene->IsValid( caster.Data->GpuPrimitive )
+                              ? m_GpuScene->Primitive( caster.Data->GpuPrimitive )
+                              : GpuDriven::GpuScenePrimitive{};
                     const uint64_t address =
                          ( static_cast<uint64_t>( row.SkinCacheAddressHi ) << 32u ) | row.SkinCacheAddressLo;
                     // A virtual shadow map level culls the caster by its posed box (CollectVirtualShadowCull).
@@ -1040,7 +1225,7 @@ namespace Desert::Graphic::System
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                                      m_CascadeCasterBias[c], m_ParallaxQuality );
-            if ( auto* sb = instMat->Get<StorageBufferProperty>( "InstanceTransforms" ) )
+            if ( auto* sb = instMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
             for ( const auto& b : batches )
@@ -1068,9 +1253,10 @@ namespace Desert::Graphic::System
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
                               m_CascadeCasterBias[c], m_ParallaxQuality );
-            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( "Materials" ) )
+            // The draws' rows are the scene material table's (SyncGpuScene); a refusal was said by name.
+            if ( !LendMaterialTable( *set.Caster ) )
             {
-                sb->SetRawData( set.Rows.data(), static_cast<uint32_t>( set.Rows.size() * sizeof( glm::vec4 ) ) );
+                continue;
             }
             if ( set.Transforms.empty() )
             {
@@ -1078,20 +1264,22 @@ namespace Desert::Graphic::System
             }
             // The one binding the path adds (MeshPathOwnBinding): instance matrices or bone poses.
             const auto path = MeshCellPath( set.Caster->GetShaderName() );
-            // A skinned caster also reads its row's skin-cache fields from the view's rows (Vertex_Skinned.glslh).
+            // A skinned caster also reads its primitive's skin-cache fields from the scene's GpuScene
+            // (Vertex_Skinned.glslh).
             if ( path == MeshVertexPath::Skinned )
             {
-                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kObjectMotionsName );
-                const bool bound = rows != nullptr && m_ObjectMotions != nullptr;
-                DESERT_VERIFY( bound, "a skinned masked caster reads ObjectMotions but the view carries none" );
-                rows->SetBuffer( m_ObjectMotions );
+                auto*      rows  = set.Caster->Get<StorageBufferProperty>( SceneResources::kGpuScenePrimitives );
+                const bool bound = rows != nullptr && m_GpuScene != nullptr && m_GpuScene->GetPrimitivesBuffer();
+                DESERT_VERIFY( bound, "a skinned masked caster reads GpuScenePrimitives but the view carries none" );
+                rows->LendViewBuffer( m_GpuScene->GetPrimitivesBuffer() );
             }
-            const std::string own  = path ? MeshPathOwnBufferName( *path ) : std::string();
-            if ( own.empty() )
+            const std::optional<RDG::StorageBufferParameter> own =
+                 path ? MeshPathOwnBuffer( *path ) : std::nullopt;
+            if ( !own )
             {
                 continue;
             }
-            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( own ) )
+            if ( auto* sb = set.Caster->Get<StorageBufferProperty>( *own ) )
             {
                 sb->SetRawData( set.Transforms.data(),
                                 static_cast<uint32_t>( set.Transforms.size() * sizeof( glm::mat4 ) ) );
@@ -1137,7 +1325,7 @@ namespace Desert::Graphic::System
                        if ( draw.Path == MeshVertexPath::Skinned )
                        {
                            material->SetSkinnedBoneOffset( draw.First );
-                           material->SetPrimitiveIndex( draw.MotionRow );
+                           material->SetPrimitiveIndex( draw.GpuPrimitive );
                        }
                        material->Bind( draw.Instance );
                    },
@@ -1149,7 +1337,7 @@ namespace Desert::Graphic::System
                    .WorldBounds = draw.WorldBounds } );
         }
         // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
-        if ( maskedPending && layer == ShadowCasterLayer::Static && c < kMaxCascades )
+        if ( maskedPending && layer == ShadowCasterLayer::Static && c < kCascadeViews )
             m_CascadeCache[c].StaticKey.reset();
         // A virtual shadow map level's cached pages lack them the same way: the next frame drops every page
         // (CollectVirtualShadowInvalidation).
@@ -1158,8 +1346,12 @@ namespace Desert::Graphic::System
 
         // The GPU-generated sections move with the camera (and sway): every frame, over the cache. Cascades only:
         // their caster cells and light cameras are the cascades' (a virtual shadow map level draws none of them).
-        if ( drawMovable && c < kMaxCascades )
-            BuildGpuInstancedShadowDraws( c, list );
+        // A cached cascade draws its movers from its movable view (kCascadeMovableViewBase + cascade view), the
+        // uncached one from the cascade's own: both name the same cascade view.
+        if ( drawMovable && c < kCascadeViews )
+            BuildGpuInstancedShadowDraws( c, c, list );
+        else if ( drawMovable && c >= kCascadeMovableViewBase && c < kCascadeMovableViewBase + kCascadeViews )
+            BuildGpuInstancedShadowDraws( c - kCascadeMovableViewBase, c, list );
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {
@@ -1171,7 +1363,7 @@ namespace Desert::Graphic::System
         const RDG::TextureRef created = graph.CreateTexture(
              RDG::TextureDesc{ .Size   = { .Width = m_Shadow.ShadowMapSize, .Height = m_Shadow.ShadowMapSize },
                                .Format = ViewTargetFormats::kShadowDepth,
-                               .Layers = m_Shadow.CascadeCount,
+                               .Layers = m_CascadeSlots * m_Shadow.CascadeCount,
                                .Dim    = RDG::TextureDim::Tex2DArray },
              "CSM.Cascades" );
         // A rebuilt cascade is COPIED from its cache in a later frame (SceneRenderer::AddFrameSunCascades,
@@ -1190,13 +1382,17 @@ namespace Desert::Graphic::System
              []( RDG::PassContext& ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
         // A fresh array holds nothing: every cascade fitted this frame is rebuilt into it (its cache copied, its
         // movable casters drawn), and one not fitted now redraws its cache the frame it is.
-        const uint32_t fitted = GetValidCascadeCount();
-        for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
+        for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
         {
-            if ( c < fitted )
-                m_CascadeCache[c].Rebuild = true;
-            else
-                m_CascadeCache[c].StaticKey.reset();
+            const DirectionalShadowSlot& light  = m_DirectionalShadow[slot];
+            const uint32_t               fitted = light.CastShadows ? light.Fitted : 0u;
+            for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
+            {
+                if ( c < fitted )
+                    m_CascadeCache[slot * kMaxCascades + c].Rebuild = true;
+                else
+                    m_CascadeCache[slot * kMaxCascades + c].StaticKey.reset();
+            }
         }
         return created;
     }
@@ -1207,21 +1403,26 @@ namespace Desert::Graphic::System
         // SetupShadowPass can now refuse. No caster pipeline means no cascade passes and an unshadowed
         // scene, not a dead editor.
         ShadowCascadeFrame frame;
-        if ( !m_ShadowPipeline || !m_ShadowsEnabled )
+        if ( !m_ShadowPipeline )
             return frame;
 
         // Cascade matrices and the cache plan are computed in UpdateCascades() before the graph records: a pass
         // only reads them. Each layer clears to 1 (far): the cascades are STANDARD-Z (SetupShadowPass says why),
         // and a 0 clear under its LessOrEqual test would reject every caster and hand back an empty map, silently.
-        for ( uint32_t c = 0; c < m_Shadow.CascadeCount; ++c )
+        // Every held slot's cascades by the same loop; `c` below is the cascade VIEW (slot * kMaxCascades +
+        // cascade), its layer of the array CascadeLayer( c ).
+        for ( uint32_t c = 0; c < m_CascadeSlots * kMaxCascades; ++c )
         {
             const CascadeCacheState& state = m_CascadeCache[c];
-            if ( !maps.IsValid() || !m_CascadeStaticFB[c] || !state.Rebuild )
+            if ( c % kMaxCascades >= m_Shadow.CascadeCount || !maps.IsValid() || !m_CascadeStaticFB[c] ||
+                 !state.Rebuild )
                 continue;
+            const uint32_t    layer = CascadeLayer( c );
+            const std::string name  = std::format( "MeshShadowCascade{}.{}", c / kMaxCascades, c % kMaxCascades );
 
             if ( state.RedrawStatic )
             {
-                SystemRasterPass pass{ .Name        = std::format( "MeshShadowCascade{}.Static", c ),
+                SystemRasterPass pass{ .Name        = name + ".Static",
                                        .ExecuteFunc = [this, c]( RDG::PassContext& context,
                                                                  const FrameGraphRefs& ) -> Common::BoolResultStr
                                        { return m_CascadeDraws[c].Record( context ); },
@@ -1240,14 +1441,14 @@ namespace Desert::Graphic::System
             }
 
             frame.Copies.push_back( { .From  = m_CascadeStaticFB[c]->GetDepthAttachmentImage(),
-                                      .Layer = c,
-                                      .Name  = std::format( "MeshShadowCascade{}.FromCache", c ) } );
+                                      .Layer = layer,
+                                      .Name  = name + ".FromCache" } );
 
             if ( !state.Movable )
                 continue;
             const uint32_t   view = kCascadeMovableViewBase + c;
             SystemRasterPass pass{
-                 .Name        = std::format( "MeshShadowCascade{}.Movable", c ),
+                 .Name        = name + ".Movable",
                  .ExecuteFunc = [this, c]( RDG::PassContext& context,
                                            const FrameGraphRefs& ) -> Common::BoolResultStr
                  {
@@ -1264,8 +1465,8 @@ namespace Desert::Graphic::System
                          {
                              continue; // gone since the setup: its draws went with it
                          }
-                         if ( auto cast = caster->RecordShadowCascade(
-                                   context, c, firstBlock, m_CascadeCasterVP[c], m_CascadeCasterBias[c] );
+                         if ( auto cast = caster->RecordShadowView( context, c, firstBlock, m_CascadeCasterVP[c],
+                                                                    m_CascadeCasterBias[c] );
                               !cast.IsSuccess() )
                          {
                              return cast;
@@ -1274,7 +1475,7 @@ namespace Desert::Graphic::System
                      return BOOLSUCCESS;
                  },
                  .TargetDepthArray = maps,
-                 .TargetLayer      = c };
+                 .TargetLayer      = layer };
             pass.Declare = [this, c, view]( RenderPassDeclaration& declared, const FrameGraphRefs& )
             {
                 m_CascadeMovableDraws[c].Clear();
@@ -1286,13 +1487,13 @@ namespace Desert::Graphic::System
                     declared.Read( streams, RDG::Access::StorageRead );
 
                 // The non-mesh casters declare their blocks after the list's
-                // (IShadowCaster::DeclareShadowCascade).
+                // (IShadowCaster::DeclareShadowView).
                 uint32_t nextBlock = m_CascadeMovableDraws[c].BlockCount();
                 for ( const auto& weak : m_ShadowCasters )
                 {
                     if ( const auto caster = weak.lock() )
                     {
-                        const uint32_t declaredBlocks = caster->DeclareShadowCascade( declared, c );
+                        const uint32_t declaredBlocks = caster->DeclareShadowView( declared, c );
                         m_CascadeCasters[c].emplace_back( weak, nextBlock );
                         nextBlock += declaredBlocks;
                     }

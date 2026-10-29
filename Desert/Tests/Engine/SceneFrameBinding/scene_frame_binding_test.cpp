@@ -5,7 +5,7 @@
 // the shadow cascades and the IBL environment — were written by the static path only, so a skinned mesh was the
 // one class of geometry in the engine that received neither. Nothing crashed and no validation layer said
 // anything, because an unwritten descriptor here is not undefined memory: the backend seeds every binding first
-// (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept the zero-filled dummy buffer — `u_ShadowParams.y ==
+// (VulkanMaterialBackend::WriteFallbacks), so `ShadowUB` kept the zero-filled dummy buffer — `ShadowParams.y ==
 // 0`, cascades silently OFF — while the environment trio kept its fallback images, which sample black, so the
 // split-sum ambient was zero and a skinned surface was lit by the sun and the anti-black floor alone no matter
 // what the sky was doing.
@@ -189,7 +189,7 @@ namespace
     // what the writers in SceneLightingBinding.hpp look the blocks up under. Nothing here is a literal
     // repeated from the engine — a rename that reaches only one side fails to compile, not to pass.
     //
-    // The cloud-shadow pair (u_CloudShadowMap / CloudShadowUB) is deliberately NOT here: ApplyTo uploads the
+    // The cloud-shadow pair (CloudShadowMapTexture / CloudShadowUB) is deliberately NOT here: ApplyTo uploads the
     // block through Graphic::CloudShadowUpload, the map is a pass parameter every mesh node binds (see
     // TheCloudShadowMapIsAPassParameterNotTheFrameSnapshots below), and Tests/Engine/CloudShadow already asserts
     // that every sun-lit shader in the tree — these three included — declares it.
@@ -219,15 +219,15 @@ namespace
         const char* Path;
         const char* Cell;                  // the StandardSurface cell (SURF1c: the three were programs)
         const char* PerObjectVertexBuffer; // nullptr = none
-        // The view's motion groups the cell's VIEW-pass vertex stage reads (TAA1 step 4): the per-primitive rows
-        // (static, skinned) and the view's palettes (skinned: both frames' palettes, named by the row). A batch
+        // The scene groups the cell's VIEW-pass vertex stage reads (TAA1 step 4): the GpuScene primitive rows
+        // (static, skinned) and the scene's palettes (skinned: both frames' palettes, named by the row). A batch
         // of instances is world-static and reads neither. Filled by SceneFrameBinding::ApplyTo like every scene
         // group.
-        bool ReadsObjectMotions = false;
-        bool ReadsObjectBones   = false;
+        bool ReadsGpuScenePrimitives = false;
+        bool ReadsObjectBones        = false;
     };
 
-    // The skinned cell has no per-object buffer of its own any more: its palettes are the view's ObjectBones.
+    // The skinned cell has no per-object buffer of its own any more: its palettes are the scene's ObjectBones.
     const MeshShader kMeshShaders[] = {
          { "Surface/StandardSurface.shader", "Static.Forward", nullptr, true, false },
          { "Surface/StandardSurface.shader", "Instanced.Forward", "InstanceTransforms", false, false },
@@ -238,8 +238,8 @@ namespace
     std::vector<std::string> MotionNamesOf( const MeshShader& shader )
     {
         std::vector<std::string> names;
-        if ( shader.ReadsObjectMotions )
-            names.emplace_back( SceneResources::kObjectMotionsName );
+        if ( shader.ReadsGpuScenePrimitives )
+            names.emplace_back( SceneResources::kGpuScenePrimitivesName );
         if ( shader.ReadsObjectBones )
             names.emplace_back( SceneResources::kObjectBonesName );
         return names;
@@ -312,7 +312,7 @@ TEST_F( SceneFrameBindingShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclar
         const auto declared = DeclaredNames( GraphicsSetZero( ShaderPath( shader.Path ), shader.Cell ) );
         ASSERT_FALSE( declared.empty() ) << shader.Path;
 
-        // Mutation: drop DESERT_OBJECT_MOTION_ROWS / DESERT_OBJECT_BONES from a view-pass vertex path -> red.
+        // Mutation: drop DESERT_GPU_SCENE_PRIMITIVES / DESERT_GPU_SCENE_BONES from a view-pass vertex path -> red.
         for ( const auto& name : MotionNamesOf( shader ) )
             EXPECT_TRUE( declared.contains( name ) ) << shader.Cell << " does not declare '" << name << "'";
         for ( const auto& name : expected )
@@ -323,7 +323,7 @@ TEST_F( SceneFrameBindingShaderRoot, EverySceneBindingTheOneApplierFillsIsDeclar
 }
 
 // The other direction, and the one that would have caught Д15 the day it was written: a scene-level
-// resource DECLARED by a mesh shader that no applier fills. Before this task SkinnedMeshLit declared
+// resource DECLARED by a mesh shader that no applier fills. Before this task StandardSurface's Vertex_Skinned cell declared
 // ShadowUB, four cascade maps and the environment trio, and the skinned draw path wrote none of them —
 // the shader sampled the fallbacks and read as unshadowed and blown-out white.
 TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoApplierFills )
@@ -336,11 +336,11 @@ TEST_F( SceneFrameBindingShaderRoot, NoMeshLitShaderDeclaresASceneResourceNoAppl
     // fallback descriptor. A slot the manifest stops declaring, or the walk stops visiting, is red here.
     // The cloud-shadow pair: the block uploaded by Graphic::CloudShadowUpload out of the same snapshot, the
     // map bound by the mesh node through RDG::PassBindings — see the note on SceneBindingNames().
-    const char* kCloudShadow[] = { "u_CloudShadowMap", "CloudShadowUB" };
+    const char* kCloudShadow[] = { "CloudShadowMapTexture", "CloudShadowUB" };
     // The opaque scene depth the contact shadows march and the shading word whose caster bit they read at the
     // hit: pass parameters too, bound by the mesh node from SceneViewInputs::SceneDepth / SceneShadingWord
     // (Graphic::kSceneViewSceneDepthName / kSceneViewSceneShadingWordName), never by the frame snapshot.
-    const char* kSceneDepth[] = { "u_SceneDepth", "u_SceneShadingWord" };
+    const char* kSceneDepth[] = { "SceneDepthTexture", "SceneShadingWordTexture" };
 
     for ( const auto& shader : kMeshShaders )
     {
@@ -413,9 +413,11 @@ TEST_F( SceneFrameBindingShaderRoot, TheThreeMeshLitShadersDeclareOneSceneContra
 // and lands in three different descriptor sets.
 TEST_F( SceneFrameBindingShaderRoot, TheShadowBlockIsTheSameBytesInTheApplierAndInEveryMeshLitShader )
 {
-    // 4 x mat4 + 7 x vec4 (the contact shadows' two, then the PCSS filter). Spelt out so a silently added member
-    // is visible as a number here.
-    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascades * 64u + 7u * 16u;
+    // One mat4 per cascade view (every shadowed directional light's cascades), three vec4 per light (its slot
+    // word, texel sizes and depth ranges), then four vec4 (debug, the contact shadows' two, the PCSS filter).
+    // Spelt out so a silently added member is visible as a number here.
+    constexpr uint32_t kExpectedBytes = SceneResources::kMaxCascadeViews * 64u +
+                                        3u * SceneResources::kMaxShadowedDirectionalLights * 16u + 4u * 16u;
     EXPECT_EQ( sizeof( SceneResources::ShadowUBData ), kExpectedBytes );
 
     for ( const auto& shader : kMeshShaders )
@@ -546,16 +548,16 @@ void main() { gl_Position = vec4( 0.0 ); }
 )";
     constexpr const char* kMockFragment = R"(#version 450
 layout( set = 0, binding = 2 ) uniform ShadowUB { mat4 LightViewProj[4]; vec4 Params; vec4 DebugParams; vec4 CascadeTexelWorld; vec4 CascadeDepthRange; };
-layout( set = 0, binding = 3 ) uniform sampler2DArray u_ShadowCascades;
-layout( set = 0, binding = 7 ) uniform samplerCube u_EnvIrradianceTex;
-layout( set = 0, binding = 8 ) uniform samplerCube u_EnvSpecularTex;
-layout( set = 0, binding = 9 ) uniform sampler2D u_BRDFLUTTexture;
+layout( set = 0, binding = 3 ) uniform sampler2DArray ShadowCascadesTexture;
+layout( set = 0, binding = 7 ) uniform samplerCube EnvironmentIrradianceTexture;
+layout( set = 0, binding = 8 ) uniform samplerCube EnvironmentSpecularTexture;
+layout( set = 0, binding = 9 ) uniform sampler2D BrdfLutTexture;
 layout( location = 0 ) out vec4 o_Color;
 void main()
 {
-    o_Color = Params + texture( u_ShadowCascades, vec3( 0.5, 0.5, 0.0 ) ) +
-              texture( u_EnvIrradianceTex, vec3( 0.0, 1.0, 0.0 ) ) + texture( u_EnvSpecularTex, vec3( 0.0, 1.0, 0.0 ) ) +
-              texture( u_BRDFLUTTexture, vec2( 0.5 ) );
+    o_Color = Params + texture( ShadowCascadesTexture, vec3( 0.5, 0.5, 0.0 ) ) +
+              texture( EnvironmentIrradianceTexture, vec3( 0.0, 1.0, 0.0 ) ) + texture( EnvironmentSpecularTexture, vec3( 0.0, 1.0, 0.0 ) ) +
+              texture( BrdfLutTexture, vec2( 0.5 ) );
 }
 )";
 
@@ -580,7 +582,7 @@ TEST( SceneFrameCapability, ANonStandardTemplateReadingShadowAndIBLIsHandedThem 
     const SceneRead groups = SceneFrameBinding::Groups( cell.Layout );
 
     EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Shadow ) )
-         << "a template sampling u_ShadowCascades and declaring ShadowUB was not handed the cascades";
+         << "a template sampling ShadowCascadesTexture and declaring ShadowUB was not handed the cascades";
     EXPECT_TRUE( Desert::Core::Formats::Reads( groups, SceneRead::Environment ) )
          << "a template sampling the IBL cubes and the BRDF LUT was not handed the environment";
     EXPECT_EQ( groups, SceneRead::Shadow | SceneRead::Environment )
@@ -606,7 +608,7 @@ TEST( SceneFrameCapability, EverySceneResourceTheMockDeclaresHasAWriter )
              << "the mock template reads '" << name << "' and no scene writer fills it";
 }
 
-// MESH-PB1: u_CloudShadowMap is a PASS parameter (UE: a view/scene texture, never a material parameter). The
+// MESH-PB1: CloudShadowMapTexture is a PASS parameter (UE: a view/scene texture, never a material parameter). The
 // mesh nodes (MeshGeometryPass, Deferred: Generic / Skinned / Glass) bind CloudShadowMapOrWhite by name through
 // RDG::PassBindings, so the frame snapshot must upload only the block: writing the map onto the material as
 // well is the "filled both" refusal on every lit draw.
@@ -618,8 +620,8 @@ TEST_F( SceneFrameBindingShaderRoot, TheCloudShadowMapIsAPassParameterNotTheFram
     ASSERT_FALSE( applier.empty() ) << file.string() << " not found";
     EXPECT_NE( applier.find( "CloudShadowUpload( material, CloudShadow )" ), std::string::npos )
          << "SceneFrameBinding::ApplyTo must upload CloudShadowUB through CloudShadowUpload";
-    EXPECT_EQ( applier.find( "\"u_CloudShadowMap\"" ), std::string::npos )
-         << "SceneFrameBinding::ApplyTo binds u_CloudShadowMap on the material; the mesh node binds it as a pass "
+    EXPECT_EQ( applier.find( "\"CloudShadowMapTexture\"" ), std::string::npos )
+         << "SceneFrameBinding::ApplyTo binds CloudShadowMapTexture on the material; the mesh node binds it as a pass "
             "parameter, so the slot would be filled by both routes";
 }
 
@@ -651,19 +653,19 @@ namespace
 TEST_F( SceneFrameBindingShaderRoot, MaterialTexturesAreThePropertiesTexturesAndNoPassInput )
 {
     const auto standard = MaterialTextureNames( "Surface/StandardSurface.shader" );
-    for ( const char* own : { "u_AlbedoTexture", "u_NormalTexture", "u_OpacityTexture" } )
+    for ( const char* own : { "AlbedoTexture", "NormalTexture", "OpacityTexture" } )
         EXPECT_TRUE( Has( standard, own ) ) << own;
-    for ( const char* pass : { "u_ShadowCascades", "u_EnvSpecularTex", "u_EnvIrradianceTex", "u_BRDFLUTTexture",
-                               "u_CloudShadowMap" } )
+    for ( const char* pass : { "ShadowCascadesTexture", "EnvironmentSpecularTexture", "EnvironmentIrradianceTexture", "BrdfLutTexture",
+                               "CloudShadowMapTexture" } )
         EXPECT_FALSE( Has( standard, pass ) ) << pass << " is a pass parameter";
 
     for ( const char* terrain :
           { "Terrain/Terrain.shader", "Terrain/TerrainGBuffer.shader", "Terrain/TerrainShadow.shader" } )
     {
         const auto names = MaterialTextureNames( terrain );
-        EXPECT_TRUE( Has( names, "u_Heightmap" ) ) << terrain;
-        EXPECT_TRUE( Has( names, "u_Weightmap" ) ) << terrain;
-        EXPECT_FALSE( Has( names, "u_CloudShadowMap" ) ) << terrain;
+        EXPECT_TRUE( Has( names, "HeightmapTexture" ) ) << terrain;
+        EXPECT_TRUE( Has( names, "WeightmapTexture" ) ) << terrain;
+        EXPECT_FALSE( Has( names, "CloudShadowMapTexture" ) ) << terrain;
     }
 
     // The declared default travels with the parameter (the executor reads it at creation).
@@ -671,7 +673,7 @@ TEST_F( SceneFrameBindingShaderRoot, MaterialTexturesAreThePropertiesTexturesAnd
          ReadFile( ShaderPath( "Surface/StandardSurface.shader" ) ) );
     ASSERT_TRUE( parsed.IsSuccess() );
     for ( const auto* param : Desert::Core::Formats::MaterialTextureParameters( parsed.GetValue().Meta ) )
-        if ( param->Name == "u_NormalTexture" )
+        if ( param->Name == "NormalTexture" )
             EXPECT_NE( param->DefaultTexture, Desert::Core::Formats::DefaultTextureKind::White )
                  << "a normal map's default must be the flat normal, not White";
 }

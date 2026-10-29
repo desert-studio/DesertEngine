@@ -11,7 +11,8 @@ namespace Desert::Editor::Core
         Foliage,
         Modeling,
         Landscape,
-        Fracture
+        Fracture,
+        VFXPaint ///< VFX-15: paint a VFX placement's point set (Panels/ViewportPanel/Tools/VFXPaintTool)
     };
 
     class ViewportMode final

@@ -2,6 +2,8 @@
 
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/MeshCore/CompGeom/PolygonTriangulation.hpp>
+#include <Engine/Geometry/MikkTangents.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -10,12 +12,15 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <map>
+#include <new>
+#include <span>
 #include <unordered_map>
 #include <optional>
 #include <vector>
@@ -26,7 +31,7 @@ namespace Desert::Geometry
     // the scene's `Primitive` meshes (PrimitiveMeshFactory is a GPU cache over MakePrimitive), and the
     // Modeling Create tool's shapes (ShapeToDynamicMesh). The pattern is UE's UAddPrimitiveTool: Box, Sphere,
     // Cylinder, Cone, Capsule, Pyramid, Stairs (Linear / Floating / Curved / Spiral), Torus, Arrow, Disc and
-    // Rectangle, each with a polygroup mode and a pivot.
+    // Rectangle, plus UE's revolve generators as Revolve and Spiral, each with a polygroup mode and a pivot.
     //
     // Pure CPU: vertices + triangles + one polygroup per triangle, nothing GPU, nothing ECS.
     //
@@ -162,14 +167,20 @@ namespace Desert::Geometry
             std::vector<int>   m_FaceGroup;
         };
 
-        inline uint32_t PushVertex( ShapeMesh& m, const glm::vec3& p, const glm::vec3& n, const glm::vec3& t,
-                                    const glm::vec2& uv )
+        // The engine's one tangent generator over a finished shape (MikkTangents.hpp): PushVertex leaves the
+        // frame zero and every Make* runs this once its triangles are complete. MikkTSpace fails only when it
+        // cannot allocate, and a shape has no error channel but the allocator's.
+        inline void ComputeShapeTangents( ShapeMesh& m )
+        {
+            if ( !ApplyMikkTangents( m.Vertices, 0, std::span( m.Indices ) ) )
+                throw std::bad_alloc();
+        }
+
+        inline uint32_t PushVertex( ShapeMesh& m, const glm::vec3& p, const glm::vec3& n, const glm::vec2& uv )
         {
             Vertex v{};
             v.Position  = p;
             v.Normal    = n;
-            v.Tangent   = t;
-            v.Bitangent = glm::normalize( glm::cross( n, t ) );
             v.TexCoord  = uv;
             m.Vertices.push_back( v );
             return static_cast<uint32_t>( m.Vertices.size() - 1 );
@@ -180,10 +191,9 @@ namespace Desert::Geometry
                              const std::array<glm::vec2, 4>& uv )
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[3] - p[0] ) );
-            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 4; ++i )
-                PushVertex( m, p[i], n, t, uv[i] );
+                PushVertex( m, p[i], n, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
             m.Indices.push_back( { base + 2, base + 3, base + 0 } );
             m.Groups.push_back( group );
@@ -195,10 +205,9 @@ namespace Desert::Geometry
                                  const std::array<glm::vec2, 3>& uv )
         {
             const glm::vec3 n    = glm::normalize( glm::cross( p[1] - p[0], p[2] - p[0] ) );
-            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 3; ++i )
-                PushVertex( m, p[i], n, t, uv[i] );
+                PushVertex( m, p[i], n, uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
             m.Groups.push_back( group );
         }
@@ -212,7 +221,6 @@ namespace Desert::Geometry
                                  const glm::vec3& u, const glm::vec3& v, int nu, int nv )
         {
             const glm::vec3 n    = glm::normalize( glm::cross( u, v ) );
-            const glm::vec3 t    = glm::normalize( u );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             const auto      at   = [&]( int i, int j ) {
                 return base + static_cast<uint32_t>( i ) * static_cast<uint32_t>( nv + 1 ) +
@@ -223,7 +231,7 @@ namespace Desert::Geometry
                 {
                     const float s0 = static_cast<float>( i ) / static_cast<float>( nu );
                     const float t0 = static_cast<float>( j ) / static_cast<float>( nv );
-                    PushVertex( m, origin + u * s0 + v * t0, n, t, glm::vec2( s0, t0 ) );
+                    PushVertex( m, origin + u * s0 + v * t0, n, glm::vec2( s0, t0 ) );
                 }
             for ( int i = 0; i < nu; ++i )
                 for ( int j = 0; j < nv; ++j )
@@ -502,7 +510,7 @@ namespace Desert::Geometry
         // UE's buffers as a ShapeMesh: one output vertex per distinct (vertex, UV element, normal element)
         // corner, so UE's UV and normal seams stay seams after the weld in ShapeToDynamicMesh. Polygroup ids are
         // renumbered densely in order of first use (the partition is UE's; PerShape collapses it to one, as
-        // UAddPrimitiveTool::UpdatePreviewMesh does). Tangents follow +U, as the renderer's normal maps expect.
+        // UAddPrimitiveTool::UpdatePreviewMesh does). Tangents are MikkTSpace's (ComputeShapeTangents).
         inline ShapeMesh ToShapeMesh( const UEShapeBuffers& g, ShapePolygroupMode mode )
         {
             ShapeMesh m;
@@ -510,7 +518,6 @@ namespace Desert::Geometry
             std::unordered_map<uint64_t, uint32_t> corners;
             corners.reserve( g.Triangles.size() * 3 );
             std::map<int, int>     groups;
-            std::vector<glm::vec3> tangents;
             for ( size_t t = 0; t < g.Triangles.size(); ++t )
             {
                 std::array<uint32_t, 3> out{};
@@ -529,7 +536,6 @@ namespace Desert::Geometry
                         v.TexCoord = g.UVs[static_cast<size_t>( key[1] )];
                         v.Normal   = FromUE( glm::dvec3( g.Normals[static_cast<size_t>( key[2] )] ) );
                         m.Vertices.push_back( v );
-                        tangents.emplace_back( 0.0f );
                     }
                     out[static_cast<size_t>( k )] = it->second;
                 }
@@ -538,35 +544,15 @@ namespace Desert::Geometry
                 m.Groups.push_back( mode == ShapePolygroupMode::PerShape
                                          ? 0
                                          : groups.emplace( id, static_cast<int>( groups.size() ) ).first->second );
-
-                const Vertex&   a  = m.Vertices[out[0]];
-                const Vertex&   b  = m.Vertices[out[1]];
-                const Vertex&   c  = m.Vertices[out[2]];
-                const glm::vec3 e1 = b.Position - a.Position;
-                const glm::vec3 e2 = c.Position - a.Position;
-                const glm::vec2 d1 = b.TexCoord - a.TexCoord;
-                const glm::vec2 d2 = c.TexCoord - a.TexCoord;
-                const float     r  = d1.x * d2.y - d2.x * d1.y;
-                if ( std::abs( r ) > 1e-12f )
-                {
-                    const glm::vec3 dPdU = ( e1 * d2.y - e2 * d1.y ) / r;
-                    for ( const uint32_t i : out )
-                        tangents[i] += dPdU;
-                }
             }
             for ( size_t i = 0; i < m.Vertices.size(); ++i )
             {
                 Vertex&   v = m.Vertices[i];
                 glm::vec3 n = v.Normal;
                 n           = glm::length( n ) > 1e-12f ? glm::normalize( n ) : glm::vec3( 0.0f, 1.0f, 0.0f );
-                glm::vec3 t = tangents[i] - n * glm::dot( n, tangents[i] );
-                if ( glm::length( t ) < 1e-8f )
-                    t = glm::cross( n, std::abs( n.y ) < 0.9f ? glm::vec3( 0.0f, 1.0f, 0.0f )
-                                                              : glm::vec3( 1.0f, 0.0f, 0.0f ) );
                 v.Normal    = n;
-                v.Tangent   = glm::normalize( t );
-                v.Bitangent = glm::normalize( glm::cross( n, v.Tangent ) );
             }
+            ComputeShapeTangents( m );
             return m;
         }
 
@@ -1687,6 +1673,426 @@ namespace Desert::Geometry
         return Detail::Finish( g, options );
     }
 
+    // ── UE'S REVOLVE GENERATORS ─────────────────────────────────────────────────────────────────
+    //
+    // Revolve and Spiral: UE's FRevolvePlanarPolygonGenerator and FSpiralRevolvePlanarPolygonGenerator
+    // (GeometryCore/Public/Generators/RevolveGenerator.h:85-130), both built, as in UE, by an
+    // FProfileSweepGenerator (SweepGenerator.cpp:817-1298) over a circular / helical sweep curve from
+    // RevolveUtil::GenerateSweepCurve, with a partial revolve's open ends ear-clipped
+    // (RevolveGenerator.cpp:423-512). UE's palette has no such shape: UE reaches these generators from its
+    // revolve tools with a drawn profile; here a fixed profile (a rectangle, a circle) makes them shapes of
+    // the Create palette. The parameters are UE's (FBaseRevolveGenerator / URevolveProperties names), the
+    // default step count UE's StepsMaxDegrees (15 degrees per step, RevolveProperties.h:102).
+
+    struct RevolveShape // FRevolvePlanarPolygonGenerator over a rectangle profile
+    {
+        float InnerRadius       = 25.0f;  // from the +Y axis to the profile's inner side
+        float Width             = 25.0f;  // the profile's radial extent
+        float Height            = 50.0f;  // the profile's vertical extent
+        float RevolveDegrees    = 360.0f; // 0.1..360 (UE clamps a planar revolve to one turn)
+        float DegreesOffset     = 0.0f;
+        int   Steps             = 24; // 1..500
+        bool  ReverseDirection  = false;
+        bool  ProfileAtMidpoint = false;
+
+        bool operator==( const RevolveShape& ) const = default;
+    };
+
+    struct SpiralShape // FSpiralRevolvePlanarPolygonGenerator over a circle profile
+    {
+        float SpiralRadius          = 40.0f; // from the +Y axis to the profile's centre
+        float ProfileRadius         = 10.0f;
+        int   ProfileSlices         = 16;     // 3..500
+        float RevolveDegrees        = 720.0f; // 0.01.. (any number of turns)
+        float RisePerFullRevolution = 50.0f;  // UE's default
+        float DegreesOffset         = 0.0f;
+        int   Steps                 = 48; // 1..500
+        bool  ReverseDirection      = false;
+        bool  ProfileAtMidpoint     = false;
+
+        bool operator==( const SpiralShape& ) const = default;
+    };
+
+    namespace Detail
+    {
+        // UE's EProfileSweepPolygonGrouping (SweepGenerator.h). The palette's modes map onto it: Per Shape ->
+        // Single, Per Face -> PerProfileSegment (one group per side of the profile, as a cylinder's faces),
+        // Per Quad -> UE's PerFace (one group per swept quad). Each cap is a group of its own.
+        enum class ProfileSweepGrouping
+        {
+            Single,
+            PerFace,
+            PerProfileSegment,
+        };
+
+        inline ProfileSweepGrouping SweepGroupingFor( ShapePolygroupMode mode )
+        {
+            switch ( mode )
+            {
+                case ShapePolygroupMode::PerShape:
+                    return ProfileSweepGrouping::Single;
+                case ShapePolygroupMode::PerFace:
+                    return ProfileSweepGrouping::PerProfileSegment;
+                case ShapePolygroupMode::PerQuad:
+                    return ProfileSweepGrouping::PerFace;
+            }
+            return ProfileSweepGrouping::PerProfileSegment;
+        }
+
+        // A frame of the sweep curve: an origin and a rotation (UE's FFrame3d as RevolveUtil builds it).
+        struct SweepFrame
+        {
+            glm::dvec3 Origin{ 0.0 };
+            glm::dquat Rotation{ 1.0, 0.0, 0.0, 0.0 };
+
+            [[nodiscard]] glm::dvec3 FromFramePoint( const glm::dvec3& p ) const
+            {
+                return Rotation * p + Origin;
+            }
+        };
+
+        // Ported from UE 5.8 GeometryCore/Private/Util/RevolveUtil.cpp:7-22 (GenerateSweepCurve), axis +Z
+        // through the origin (the only axis the planar revolve generators use).
+        inline std::vector<SweepFrame> GenerateRevolveSweepCurve( double degreesOffset, double degreesPerStep,
+                                                                  double downAxisOffset, int totalNumFrames )
+        {
+            std::vector<SweepFrame> frames;
+            frames.reserve( static_cast<size_t>( totalNumFrames ) );
+            const glm::dvec3 axis( 0.0, 0.0, 1.0 );
+            for ( int i = 0; i < totalNumFrames; ++i )
+            {
+                SweepFrame f;
+                f.Rotation = glm::angleAxis( glm::radians( degreesOffset + degreesPerStep * i ), axis );
+                f.Origin   = f.Rotation * ( static_cast<double>( i ) * downAxisOffset * axis );
+                frames.push_back( f );
+            }
+            return frames;
+        }
+
+        // Ported from UE 5.8 RevolveUtil.cpp:108-120 (MakeProfileCurveMidpointOfFirstStep), axis +Z.
+        inline void MakeProfileCurveMidpointOfFirstStep( std::vector<glm::dvec3>& profile, double degreesPerStep )
+        {
+            const double     scale = std::tan( glm::radians( degreesPerStep ) / 2.0 );
+            const glm::dvec3 axis( 0.0, 0.0, 1.0 );
+            for ( glm::dvec3& p : profile )
+            {
+                const glm::dvec3 radial = p - glm::dot( p, axis ) * axis;
+                const double     dist   = glm::length( radial );
+                if ( dist < 1e-12 )
+                    continue;
+                p += scale * dist * -glm::normalize( glm::cross( axis, p ) );
+            }
+        }
+
+        // Ported from UE 5.8 GeometryCore/Private/Generators/SweepGenerator.cpp:780-1298
+        // (FProfileSweepGenerator::Generate, AdjustNormalsForTriangle, InitializeUvBuffer), adapted: the
+        // revolve generators here weld no profile vertex (UE's bWeldVertsOnAxis defaults to false) and keep
+        // UE's Uniform quad split, smooth normals (the revolve generators hard-code bSharpNormals = false) and
+        // UV scale relative to the curves, so the welded-vertex, shortest-diagonal and world-UV branches are
+        // not carried. Returns the two end profiles (vertex indices) of an open sweep, for the caps.
+        inline std::array<std::vector<int>, 2> GenerateProfileSweep( UEShapeBuffers&                g,
+                                                                     const std::vector<glm::dvec3>& profile,
+                                                                     const std::vector<SweepFrame>& sweep,
+                                                                     bool profileClosed, bool sweepClosed,
+                                                                     ProfileSweepGrouping grouping )
+        {
+            std::array<std::vector<int>, 2> endProfiles;
+            const int                       numProfilePoints = static_cast<int>( profile.size() );
+            const int                       numSweepPoints   = static_cast<int>( sweep.size() );
+            const int                       numSweepSegments = sweepClosed ? numSweepPoints : numSweepPoints - 1;
+            const int numProfileSegments = profileClosed ? numProfilePoints : numProfilePoints - 1;
+            const int numVerts           = numProfilePoints * numSweepPoints;
+            const int numTriangles       = 2 * numProfileSegments * numSweepSegments;
+
+            const auto vert = [&]( int sweepIndex, int profileIndex )
+            { return sweepIndex * numProfilePoints + profileIndex; };
+
+            // UVs (InitializeUvBuffer): V along the profile, U along the sweep, each weighted by distance and
+            // scaled to 0..1; closed curves get an extra row / column so nothing wraps back to 0.
+            std::vector<double> vs{ 0.0 };
+            double              cumulative = 0.0;
+            for ( int p = 0; p < numProfileSegments; ++p )
+            {
+                cumulative += glm::distance( profile[static_cast<size_t>( p )],
+                                             profile[static_cast<size_t>( ( p + 1 ) % numProfilePoints )] );
+                vs.push_back( cumulative );
+            }
+            const double vScale = cumulative != 0.0 ? 1.0 / cumulative : 0.0;
+            for ( double& v : vs )
+                v *= vScale;
+
+            g.SetBufferSizes( numVerts, numTriangles, 0, numVerts );
+            for ( int p = 0; p < numProfilePoints; ++p )
+                for ( int s = 0; s < numSweepPoints; ++s )
+                    g.Vertices[static_cast<size_t>( vert( s, p ) )] =
+                         sweep[static_cast<size_t>( s )].FromFramePoint( profile[static_cast<size_t>( p )] );
+
+            std::vector<double> regularUs{ 0.0 };
+            cumulative = 0.0;
+            for ( int s = 0; s < numSweepSegments; ++s )
+            {
+                const int next = ( s + 1 ) % numSweepPoints;
+                double    d    = 0.0;
+                for ( int p = 0; p < numProfilePoints; ++p )
+                    d += glm::distance( g.Vertices[static_cast<size_t>( vert( s, p ) )],
+                                        g.Vertices[static_cast<size_t>( vert( next, p ) )] );
+                cumulative += d;
+                regularUs.push_back( cumulative );
+            }
+            const double uScale = cumulative != 0.0 ? 1.0 / cumulative : 0.0;
+            for ( size_t i = 1; i < regularUs.size(); ++i )
+                regularUs[i] *= uScale;
+
+            const int numUvRows    = static_cast<int>( regularUs.size() );
+            const int numUvColumns = static_cast<int>( vs.size() );
+            g.UVs.resize( static_cast<size_t>( numUvRows * numUvColumns ) );
+            g.UVParentVertex.resize( g.UVs.size() );
+            for ( int i = 0; i < numUvRows; ++i )
+                for ( int j = 0; j < numUvColumns; ++j )
+                    g.SetUV( i * numUvColumns + j,
+                             glm::vec2( static_cast<float>( regularUs[static_cast<size_t>( i )] ),
+                                        static_cast<float>( vs[static_cast<size_t>( j )] ) ),
+                             vert( i % numSweepPoints, j % numProfilePoints ) );
+            const auto uv = [numUvColumns]( int sweepIndex, int profileIndex )
+            { return sweepIndex * numUvColumns + profileIndex; };
+
+            const auto group = [&]( int sweepIndex, int profileIndex )
+            {
+                switch ( grouping )
+                {
+                    case ProfileSweepGrouping::Single:
+                        return 0;
+                    case ProfileSweepGrouping::PerFace:
+                        return sweepIndex * numProfileSegments + profileIndex;
+                    case ProfileSweepGrouping::PerProfileSegment:
+                        return profileIndex;
+                }
+                return 0;
+            };
+
+            // Angle-weighted triangle normals per corner (AdjustNormalsForTriangle), summed per vertex.
+            std::vector<glm::dvec3> normalSums( static_cast<size_t>( numVerts ), glm::dvec3( 0.0 ) );
+            const auto              angle = []( const glm::dvec3& a, const glm::dvec3& b )
+            { return std::acos( std::clamp( glm::dot( a, b ), -1.0, 1.0 ) ); };
+            const auto safeNormal = []( const glm::dvec3& v )
+            {
+                const double l = glm::length( v );
+                return l > 1e-300 ? v / l : glm::dvec3( 0.0 );
+            };
+            const auto adjustNormals = [&]( int a, int b, int c, const glm::dvec3& abNormalized )
+            {
+                const glm::dvec3& va = g.Vertices[static_cast<size_t>( a )];
+                const glm::dvec3& vb = g.Vertices[static_cast<size_t>( b )];
+                const glm::dvec3& vc = g.Vertices[static_cast<size_t>( c )];
+                const glm::dvec3  bc = safeNormal( vc - vb );
+                const glm::dvec3  ac = safeNormal( vc - va );
+                const glm::dvec3  n  = safeNormal( glm::cross( ac, abNormalized ) );
+                normalSums[static_cast<size_t>( a )] += n * angle( abNormalized, ac );
+                normalSums[static_cast<size_t>( b )] += n * angle( bc, -abNormalized );
+                normalSums[static_cast<size_t>( c )] += n * angle( ac, bc );
+            };
+
+            int tri = 0;
+            for ( int s = 0; s < numSweepSegments; ++s )
+            {
+                const int nextS = ( s + 1 ) % numSweepPoints;
+                for ( int p = 0; p < numProfileSegments; ++p )
+                {
+                    const int        nextP        = ( p + 1 ) % numProfilePoints;
+                    const int        current      = vert( s, p );
+                    const int        bottom       = vert( nextS, p );
+                    const int        bottomRight  = vert( nextS, nextP );
+                    const int        right        = vert( s, nextP );
+                    const glm::dvec3 diagonalDown = safeNormal( g.Vertices[static_cast<size_t>( bottomRight )] -
+                                                                g.Vertices[static_cast<size_t>( current )] );
+                    g.SetTriangle( tri, current, bottomRight, right );
+                    g.SetTriangleNormals( tri, current, bottomRight, right );
+                    adjustNormals( current, bottomRight, right, diagonalDown );
+                    g.SetTriangleUVs( tri, uv( s, p ), uv( s + 1, p + 1 ), uv( s, p + 1 ) );
+                    g.SetTrianglePolygon( tri, group( s, p ) );
+                    ++tri;
+                    g.SetTriangle( tri, bottomRight, current, bottom );
+                    g.SetTriangleNormals( tri, bottomRight, current, bottom );
+                    adjustNormals( bottomRight, current, bottom, -diagonalDown );
+                    g.SetTriangleUVs( tri, uv( s + 1, p + 1 ), uv( s, p ), uv( s + 1, p ) );
+                    g.SetTrianglePolygon( tri, group( s, p ) );
+                    ++tri;
+                }
+            }
+            for ( int v = 0; v < numVerts; ++v )
+                g.SetNormal( v, glm::vec3( safeNormal( normalSums[static_cast<size_t>( v )] ) ), v );
+
+            if ( !sweepClosed )
+                for ( int p = 0; p < numProfilePoints; ++p )
+                {
+                    endProfiles[0].push_back( vert( 0, p ) );
+                    endProfiles[1].push_back( vert( numSweepPoints - 1, p ) );
+                }
+            return endProfiles;
+        }
+
+        // Ported from UE 5.8 RevolveGenerator.cpp:423-512 (the end caps of a partial revolve): each end profile
+        // ear-clipped (PolygonTriangulation::TriangulateSimplePolygon) in its best-fit plane, the first one
+        // reversed to face against the sweep, one polygroup per cap, the cap's normals from its own triangles
+        // (UELocal::SetTriangleNormals) and its UVs a planar projection shifted to the origin and normalised to
+        // 0..1 (UELocal::SetTriangleUVsFromProjection, bShiftToOrigin and bNormalizeBeforeScaling).
+        inline void CapRevolveEnds( UEShapeBuffers& g, const std::array<std::vector<int>, 2>& endProfiles )
+        {
+            int nextGroup = 0;
+            for ( const int id : g.TrianglePolygonIDs )
+                nextGroup = std::max( nextGroup, id + 1 );
+            for ( int cap = 0; cap < 2; ++cap )
+            {
+                std::vector<int> loop = endProfiles[static_cast<size_t>( cap )];
+                if ( loop.size() < 3 )
+                    continue;
+                if ( cap == 0 )
+                    std::reverse( loop.begin(), loop.end() );
+                std::vector<glm::dvec3> positions;
+                for ( const int v : loop )
+                    positions.push_back( g.Vertices[static_cast<size_t>( v )] );
+                glm::dvec3 planeNormal{ 0.0 };
+                glm::dvec3 planeOrigin{ 0.0 };
+                PolygonTriangulation::ComputePolygonPlane<double>( positions, planeNormal, planeOrigin );
+                planeNormal *= -1.0; // as UE: the plane fit's normal faces opposite to the cap's
+                std::vector<Index3i> triangles;
+                PolygonTriangulation::TriangulateSimplePolygon<double>( positions, triangles );
+                const int groupId = nextGroup++;
+
+                // Normals: per loop vertex, the sum of the cap triangles' area-weighted normals.
+                std::vector<glm::dvec3> sums( loop.size(), glm::dvec3( 0.0 ) );
+                for ( const Index3i& t : triangles )
+                {
+                    const glm::dvec3 n = glm::cross(
+                         positions[static_cast<size_t>( t.C )] - positions[static_cast<size_t>( t.A )],
+                         positions[static_cast<size_t>( t.B )] - positions[static_cast<size_t>( t.A )] );
+                    sums[static_cast<size_t>( t.A )] += n;
+                    sums[static_cast<size_t>( t.B )] += n;
+                    sums[static_cast<size_t>( t.C )] += n;
+                }
+                const int firstNormal = static_cast<int>( g.Normals.size() );
+                for ( size_t i = 0; i < loop.size(); ++i )
+                {
+                    const double l = glm::length( sums[i] );
+                    g.Normals.push_back( glm::vec3( l > 1e-300 ? sums[i] / l : planeNormal ) );
+                    g.NormalParentVertex.push_back( loop[i] );
+                }
+
+                // UVs: the projection frame is UE's FFrame3d(PlaneOrigin, PlaneNormal) - Z turned onto the
+                // normal by the shortest arc - and a point's UV its frame X, Y.
+                const glm::dvec3 z( 0.0, 0.0, 1.0 );
+                const double     d = glm::dot( z, planeNormal );
+                glm::dquat       rotation( 1.0, 0.0, 0.0, 0.0 );
+                if ( d < -0.999999 )
+                    rotation = glm::angleAxis( glm::pi<double>(), glm::dvec3( 1.0, 0.0, 0.0 ) );
+                else if ( d < 0.999999 )
+                    rotation = glm::angleAxis( std::acos( std::clamp( d, -1.0, 1.0 ) ),
+                                               glm::normalize( glm::cross( z, planeNormal ) ) );
+                const glm::dvec3        axisX = rotation * glm::dvec3( 1.0, 0.0, 0.0 );
+                const glm::dvec3        axisY = rotation * glm::dvec3( 0.0, 1.0, 0.0 );
+                std::vector<glm::dvec2> uvs;
+                glm::dvec2              lo( 1e300 ), hi( -1e300 );
+                for ( const glm::dvec3& p : positions )
+                {
+                    const glm::dvec2 uvp( glm::dot( p - planeOrigin, axisX ), glm::dot( p - planeOrigin, axisY ) );
+                    lo = glm::min( lo, uvp );
+                    hi = glm::max( hi, uvp );
+                    uvs.push_back( uvp );
+                }
+                const glm::dvec2 size = hi - lo;
+                const glm::dvec2 scale( size.x > 0.0 ? 1.0 / size.x : 0.0, size.y > 0.0 ? 1.0 / size.y : 0.0 );
+                const int        firstUV = static_cast<int>( g.UVs.size() );
+                for ( size_t i = 0; i < loop.size(); ++i )
+                {
+                    g.UVs.push_back( glm::vec2( ( uvs[i] - lo ) * scale ) );
+                    g.UVParentVertex.push_back( loop[i] );
+                }
+
+                for ( const Index3i& t : triangles )
+                {
+                    g.Triangles.emplace_back( loop[static_cast<size_t>( t.A )], loop[static_cast<size_t>( t.B )],
+                                              loop[static_cast<size_t>( t.C )] );
+                    g.TriangleNormals.emplace_back( firstNormal + t.A, firstNormal + t.B, firstNormal + t.C );
+                    g.TriangleUVs.emplace_back( firstUV + t.A, firstUV + t.B, firstUV + t.C );
+                    g.TrianglePolygonIDs.push_back( groupId );
+                }
+            }
+        }
+
+        // Ported from UE 5.8 RevolveGenerator.cpp:331-514 / :522-705 (FRevolvePlanarPolygonGenerator and
+        // FSpiralRevolvePlanarPolygonGenerator::GenerateMesh): the polygon (X, Y) goes to (X, 0, Z), reversed
+        // (UE: the sweep is written for a clockwise profile), revolved about +Z; a planar revolve is clamped
+        // to 0.1..360 degrees and closes at 360, a spiral never closes and rises RisePerFullRevolution per turn.
+        inline void GenerateRevolvePlanarPolygon( UEShapeBuffers& g, const std::vector<glm::dvec2>& polygon,
+                                                  double revolveDegrees, double degreesOffset, int steps,
+                                                  bool reverseDirection, bool profileAtMidpoint,
+                                                  double risePerRevolution, bool spiral,
+                                                  ProfileSweepGrouping grouping )
+        {
+            std::vector<glm::dvec3> profile;
+            for ( const glm::dvec2& p : polygon )
+                profile.emplace_back( p.x, 0.0, p.y );
+            std::reverse( profile.begin(), profile.end() );
+
+            const double total =
+                 spiral ? std::max( 0.01, revolveDegrees ) : std::clamp( revolveDegrees, 0.1, 360.0 );
+            double degreesPerStep = total / static_cast<double>( steps );
+            double offset         = degreesOffset;
+            if ( reverseDirection )
+            {
+                degreesPerStep *= -1.0;
+                offset *= -1.0;
+            }
+            const double downAxisOffsetPerStep = spiral ? total * ( risePerRevolution / 360.0 ) / steps : 0.0;
+            if ( profileAtMidpoint && degreesPerStep != 0.0 && std::abs( degreesPerStep ) < 180.0 )
+                MakeProfileCurveMidpointOfFirstStep( profile, degreesPerStep );
+
+            const bool                    sweepClosed = !spiral && total == 360.0;
+            const int                     numFrames   = sweepClosed ? steps : steps + 1;
+            const std::vector<SweepFrame> sweep =
+                 GenerateRevolveSweepCurve( offset, degreesPerStep, downAxisOffsetPerStep, numFrames );
+            const auto ends = GenerateProfileSweep( g, profile, sweep, true, sweepClosed, grouping );
+            if ( !sweepClosed )
+                CapRevolveEnds( g, ends ); // UE's bFillPartialRevolveEndcaps, on by default
+        }
+    } // namespace Detail
+
+    // Revolve: a rectangle profile (InnerRadius..InnerRadius + Width, 0..Height), counter-clockwise, turned
+    // about +Y by FRevolvePlanarPolygonGenerator. 360 degrees is a closed genus-1 ring; less, a capped arc.
+    inline ShapeMesh MakeRevolve( const RevolveShape& revolve, const ShapeOptions& options = {} )
+    {
+        const double           inner  = std::max( 0.0, static_cast<double>( revolve.InnerRadius ) );
+        const double           outer  = inner + Detail::Extent( revolve.Width );
+        const double           height = Detail::Extent( revolve.Height );
+        Detail::UEShapeBuffers g;
+        Detail::GenerateRevolvePlanarPolygon(
+             g, { { inner, 0.0 }, { outer, 0.0 }, { outer, height }, { inner, height } }, revolve.RevolveDegrees,
+             revolve.DegreesOffset, Detail::Count( revolve.Steps, 1 ), revolve.ReverseDirection,
+             revolve.ProfileAtMidpoint, 0.0, false, Detail::SweepGroupingFor( options.Groups ) );
+        return Detail::Finish( g, options );
+    }
+
+    // Spiral: a circle profile of ProfileRadius centred SpiralRadius from +Y, swept along a rising helix by
+    // FSpiralRevolvePlanarPolygonGenerator; both ends capped. The profile is kept off the axis.
+    inline ShapeMesh MakeSpiral( const SpiralShape& spiral, const ShapeOptions& options = {} )
+    {
+        const double radius = Detail::Extent( spiral.ProfileRadius );
+        const double centre = std::max( static_cast<double>( spiral.SpiralRadius ), radius + Detail::kMinExtent );
+        const int    slices = Detail::Count( spiral.ProfileSlices, 3 );
+        std::vector<glm::dvec2> polygon;
+        for ( int i = 0; i < slices; ++i )
+        {
+            const double a = glm::two_pi<double>() * i / slices;
+            polygon.emplace_back( centre + radius * std::cos( a ), radius + radius * std::sin( a ) );
+        }
+        Detail::UEShapeBuffers g;
+        Detail::GenerateRevolvePlanarPolygon( g, polygon, spiral.RevolveDegrees, spiral.DegreesOffset,
+                                              Detail::Count( spiral.Steps, 1 ), spiral.ReverseDirection,
+                                              spiral.ProfileAtMidpoint, spiral.RisePerFullRevolution, true,
+                                              Detail::SweepGroupingFor( options.Groups ) );
+        return Detail::Finish( g, options );
+    }
+
     // Square pyramid: a base and four triangles meeting at the apex. Logical faces: 5.
     inline ShapeMesh MakePyramid( const glm::vec3& size, const ShapeOptions& options = {} )
     {
@@ -1706,6 +2112,7 @@ namespace Desert::Geometry
             Detail::AddTriangle( m, groups.Next( 1 + i ), { base[i], base[( i + 1 ) % 4], apex },
                                  { glm::vec2( 0.0f, 0.0f ), glm::vec2( 1.0f, 0.0f ), glm::vec2( 0.5f, 1.0f ) } );
         }
+        Detail::ComputeShapeTangents( m );
         Detail::ApplyPivot( m, options.Pivot );
         return m;
     }
@@ -1793,10 +2200,9 @@ namespace Desert::Geometry
         inline void AddSmoothQuad( ShapeMesh& m, int group, const std::array<glm::vec3, 4>& p,
                                    const std::array<glm::vec3, 4>& n, const std::array<glm::vec2, 4>& uv )
         {
-            const glm::vec3 t    = glm::normalize( p[1] - p[0] );
             const auto      base = static_cast<uint32_t>( m.Vertices.size() );
             for ( int i = 0; i < 4; ++i )
-                PushVertex( m, p[i], n[i], t, uv[i] );
+                PushVertex( m, p[i], n[i], uv[i] );
             m.Indices.push_back( { base + 0, base + 1, base + 2 } );
             m.Indices.push_back( { base + 2, base + 3, base + 0 } );
             m.Groups.push_back( group );
@@ -1935,6 +2341,7 @@ namespace Desert::Geometry
             across( groups.Next( face++ ), { s, s + 1 }, { s + 1, s + 1 }, 0.0f, 1.0f );
         }
         Detail::CentreOnXZ( m );
+        Detail::ComputeShapeTangents( m );
         Detail::ApplyPivot( m, options.Pivot );
         return m;
     }

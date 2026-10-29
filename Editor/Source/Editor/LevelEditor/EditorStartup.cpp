@@ -10,9 +10,12 @@
 #include "Editor/LevelEditor/ShotDirector.hpp"
 #include "Editor/Core/ProjectContext.hpp"
 #include "Editor/Core/ToastManager.hpp"
+#include <Projects/RendererSettings.hpp>
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/Constants.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Assets/GrassCoverLook.hpp>
+#include <Editor/Import/GrassCoverLookBuilder.hpp>
 #include <Engine/Assets/Serialization/MeshBinary.hpp>
 #include <Engine/Core/Application.hpp>
 #include <filesystem>
@@ -31,6 +34,7 @@
 #include <Engine/Assets/ContentWork.hpp>
 #include <Engine/Assets/MeshDerivedData.hpp>
 #include <Engine/Assets/MeshCardRepresentation.hpp>
+#include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshDistanceField.hpp>
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
@@ -225,6 +229,10 @@ namespace Desert::Editor
                    // The editor derives texture platform data on a DDC miss; a packaged game
                    // has no builder.
                    Assets::SetTexturePlatformDataBuilder( &TextureImporter::BuildPlatformData );
+                   // The builder's encode effort is the project's (Config/Engine.json, Texture Encoding), read at
+                   // every miss so a Project Settings change applies to the next derive.
+                   Assets::SetTextureEncodingSource(
+                        [] { return ::Desert::Project::CurrentRendererSettings().TextureEncoding; } );
                    Assets::SetMeshPlatformDataBuilder( &Editor::BuildMeshPlatformData );
                    // A static mesh's envelope missing from the DDC is cooked from its source (UE: a DDC miss
                    // rebuilds from the package), so a fresh checkout's scene draws without a re-import.
@@ -233,6 +241,12 @@ namespace Desert::Editor
                    Assets::SetMeshDistanceFieldBuilder( &Assets::BuildMeshDistanceFieldBytes );
                    // Its surface-cache cards, the same way (UE CARDREPRESENTATION_DERIVEDDATA_VER).
                    Assets::SetMeshCardsBuilder( &Assets::BuildMeshCardsBytes );
+                   // A Runtime-displaced mesh's cooked topology (clusters, welds), the same way.
+                   Assets::SetDisplacementTopologyBuilder( &Assets::BuildDisplacementTopologyBytes );
+                   // A displaced mesh's bake-level surface (Baked draw, collision; CPU height decode is editor-only).
+                   Assets::SetDisplacedMeshBuilder( &Editor::BuildDisplacedMeshBytes );
+                   // A grass variety's cover look: its albedo map averaged over the texels its blades draw.
+                   Assets::SetGrassCoverLookBuilder( &Editor::BuildGrassCoverLook );
                    (void)m_ImportManager->ImportLooseTextures( SplashItems() );
                },
                kSecondsPerTextureCheck, [] { return LooseTextureSources().size(); }, nullptr, 0 } );

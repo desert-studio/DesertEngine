@@ -41,7 +41,7 @@ namespace
     WorldPartitionSerialized Grid()
     {
         WorldPartitionSerialized partition;
-        partition.Grids.push_back( WorldPartitionGridSerialized{ kCell, kRange } );
+        partition.Grids.push_back( WorldPartitionGridSerialized{ "Main", kCell, kRange } );
         return partition;
     }
 

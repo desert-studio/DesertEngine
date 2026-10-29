@@ -17,15 +17,110 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Mesh/MeshService.hpp>
+#include <Engine/Assets/Mesh/MeshAsset.hpp>
+#include <Engine/Geometry/Mesh.hpp>
+#include <Engine/Geometry/LODSelection.hpp>
+#include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Common/Content/AssetEnvelope.hpp>
+#include <Common/Content/TextAssetHeader.hpp>
 
 #include <Engine/Core/Scene.hpp>
 
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <format>
 #include <tuple>
+
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleCompactShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PoolSlots );
+        DESERT_SHADER_PARAMETER( StorageBuffer, FreeList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleDispatchArgsShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, StepTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DispatchArgs );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleSimulateShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PoolSlots );
+        DESERT_SHADER_PARAMETER( StorageBuffer, StepTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, FreeList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, ChannelSpawns );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeInts );
+        DESERT_SHADER_PARAMETER( StorageBuffer, StackParams );
+        DESERT_SHADER_PARAMETER( StorageBuffer, StackCurves );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointSets );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleMeshInstancesShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Instances );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+        DESERT_SHADER_PARAMETER( StorageBuffer, History );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PoolSlots );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleDebugReadbackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeInts );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleLightReadbackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Materials );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct ParticleSpriteShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DrawLayout );
+        DESERT_SHADER_PARAMETER( StorageBuffer, AliveList );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RibbonOrder );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+} // namespace
 
 namespace Desert::Graphic::System
 {
@@ -58,6 +153,36 @@ namespace Desert::Graphic::System
             return Common::MakeError( "ParticleRenderer: the ParticleSpriteDefault template has no registered "
                                       "ParticleSprite.Forward cell" );
         m_DefaultCell = *cell;
+        const auto ribbon = TemplateCellShader(
+             "ParticleRibbonDefault", MeshVertexPath::ParticleRibbon, MeshPass::Forward,
+             []( std::string_view name ) {
+                 return Runtime::ResourceRegistry::GetShaderService()->GetByName( std::string( name ) ) != nullptr;
+             } );
+        if ( !ribbon )
+            return Common::MakeError( "ParticleRenderer: the ParticleRibbonDefault template has no registered "
+                                      "ParticleRibbon.Forward cell" );
+        m_DefaultRibbonCell = *ribbon;
+        // The stand-in for a named material that cannot draw (UE WorldGridMaterial): the particle cells of the
+        // STAND-IN surface template (`Role StandInSurface`), found by that role and never by a name written here.
+        // A project whose stand-in declares no particle usage keeps the renderer: such a row is then not drawn,
+        // said here once.
+        for ( const auto& [path, into] : { std::pair{ MeshVertexPath::ParticleSprite, &m_BrokenCell },
+                                           std::pair{ MeshVertexPath::ParticleRibbon, &m_BrokenRibbonCell } } )
+        {
+            auto broken =
+                 Runtime::ResourceRegistry::GetMaterialService()->StandInSurfaceShader( path, MeshPass::Forward );
+            if ( broken &&
+                 Runtime::ResourceRegistry::GetShaderService()->GetByName( broken.GetValue() ) == nullptr )
+                broken = Common::MakeError<std::string>(
+                     std::format( "its cell '{}' is not registered", broken.GetValue() ) );
+            if ( broken )
+                *into = broken.GetValue();
+            else
+                LOG_ERROR( "[Particles] the stand-in surface has no {}.Forward cell ({}): a row whose material "
+                           "cannot draw will not be drawn at all - declare `Usage {}` in the stand-in surface",
+                           MeshVertexPathName( path ), broken.GetError(),
+                           path == MeshVertexPath::ParticleRibbon ? "ParticleRibbons" : "ParticleSprites" );
+        }
         return BOOLSUCCESS;
     }
 
@@ -72,7 +197,10 @@ namespace Desert::Graphic::System
         // Spawn+Update is the emitter's own stack host program (ParticleWorldGpu::ProgramFor).
         for ( const auto& [name, into] : { std::pair{ "ParticleCompact", &m_CompactPipeline },
                                            std::pair{ "ParticleDispatchArgs", &m_ArgsPipeline },
-                                           std::pair{ "ParticleSort", &m_SortPipeline } } )
+                                           std::pair{ "ParticleDebugReadback", &m_DebugPipeline },
+                                           std::pair{ "ParticleLightReadback", &m_LightPipeline },
+                                           std::pair{ "ParticleSort", &m_SortPipeline },
+                                           std::pair{ "ParticleMeshInstances", &m_MeshPipeline } } )
         {
             auto shader = shaderService->GetByName( name );
             if ( !shader )
@@ -96,35 +224,89 @@ namespace Desert::Graphic::System
     void ParticleRenderer::OnSceneReplaced()
     {
         m_ViewEmitters.clear();
+        m_ViewCulls.clear();
         m_World     = nullptr;
         m_Simulates = false;
-        if ( m_Materials.empty() )
-            return;
-        LOG_INFO( "[Particles] Released {} emitter material instance(s) belonging to the previous scene.",
-                  m_Materials.size() );
+        std::size_t rows = 0;
+        for ( const auto& [entity, materials] : m_Materials )
+            rows += materials.size();
         m_Materials.clear();
+        if ( rows == 0 )
+            return;
+        LOG_INFO( "[Particles] Released {} renderer row material instance(s) belonging to the previous scene.",
+                  rows );
+    }
+
+    bool ParticleRenderer::ViewEmittersSample( const std::string_view textureName ) const
+    {
+        for ( const ViewEmitter& emitter : m_ViewEmitters )
+            for ( const ViewDraw& draw : emitter.Draws )
+            {
+                if ( !emitter.InView )
+                    continue;
+                if ( draw.Sprite == nullptr || !draw.Sprite->Pipeline )
+                    continue;
+                const auto& shader = draw.Sprite->Pipeline->GetSpecification().Shader;
+                if ( shader && shader->SamplesTexture( textureName ) )
+                    return true;
+            }
+        return false;
     }
 
     void ParticleRenderer::PrepareFrame( const ::Desert::Core::Scene& scene )
     {
         m_ViewEmitters.clear();
+        m_ViewCulls.clear();
 
         ParticleWorldGpu& world = ParticleWorldGpu::Of( scene.GetVFXWorld() );
         m_World                 = &world;
         m_Simulates             = world.PrepareTick( scene );
+        if ( m_Simulates )
+        {
+            world.ReadDebugReadbacks(); // VFX-16: before this frame's node writes the copy it reads
+            world.ReadLightReadbacks(); // VFX-LIGHT: the same, for the Light rows' copies
+        }
 
         // This view's materials follow the scene's emitters: a destroyed emitter's goes through the allocator's
         // deletion ring with it, so the frame still reading it finishes first.
         RetireDestroyedEmitters( m_Materials, scene.GetRegistry() );
         m_ViewEmitters.reserve( world.FrameEmitters().size() );
+        m_ViewCulls.reserve( world.FrameEmitters().size() );
+        // UE's fixed-bounds view cull: an emitter whose box misses this view's frustum draws nothing in it. Its
+        // simulation runs regardless (the simulating view dispatches every declared emitter), and its Mesh rows
+        // still reach the mesh renderer, whose cascades cull them by their own frustum (AddMeshInstances).
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const std::optional<Core::Frustum> frustum =
+             camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
         for ( const ParticleFrameEmitter& fe : world.FrameEmitters() )
         {
-            EmitterMaterial& material = m_Materials[fe.EntityId];
-            ViewEmitter      ve;
-            ve.Frame    = &fe;
-            ve.Sprite   = ResolveSprite( fe.EntityId, fe.Material, material );
-            ve.Instance = ve.Sprite != nullptr ? material.Instance.get() : nullptr;
-            m_ViewEmitters.push_back( ve );
+            EmitterMaterials& materials = m_Materials[fe.EntityId];
+            ViewEmitter       ve;
+            ve.Frame  = &fe;
+            ve.InView = frustum && frustum->Intersects( fe.WorldBounds );
+            m_ViewCulls.push_back( { fe.EntityId, fe.Emitter, !ve.InView } );
+            // One draw per enabled renderer row, in `.dfx` order (UE: every renderer of the emitter draws), each
+            // with its own material instance keyed by (emitter, row).
+            ve.Draws.reserve( fe.Renderers.size() );
+            for ( const ParticleFrameRenderer& row : fe.Renderers )
+            {
+                EmitterMaterial& material = materials[RendererKey{ fe.Emitter, row.Row }];
+                if ( row.Kind == Assets::Serialization::VFXRendererKind::Mesh )
+                {
+                    // A Mesh row draws its static mesh per particle through the mesh renderer's instanced cells
+                    // (AddMeshInstances); a mesh still loading or refused sits the frame out.
+                    if ( row.Mesh != nullptr && ResolveMesh( fe, row, material ) )
+                        ve.Meshes.push_back( { &material.Meshes, row.Mesh->Scale, row.Row } );
+                    continue;
+                }
+                ViewDraw draw;
+                draw.Sprite   = ResolveSprite( fe, row, material );
+                draw.Instance = draw.Sprite != nullptr ? material.Instance.get() : nullptr;
+                draw.Material = draw.Sprite != nullptr ? material.Cell : nullptr;
+                if ( draw.Sprite != nullptr )
+                    ve.Draws.push_back( draw );
+            }
+            m_ViewEmitters.push_back( std::move( ve ) );
         }
     }
 
@@ -193,10 +375,10 @@ namespace Desert::Graphic::System
             if ( !RunsCompact( ve, compact ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
-                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
-                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageWrite )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::PoolSlots, m_Pool.SlotsRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::FreeList, m_Pool.FreeRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::AliveList, m_Pool.AliveRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleCompactShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleCompactPush ) ) );
             if ( compact > 0 )
                 pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
@@ -236,9 +418,11 @@ namespace Desert::Graphic::System
             if ( !RunsStep( ve, step ) )
                 continue; // BuildDispatchArgs skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
-                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageWrite )
-                 .Storage( "DispatchArgs", ve.ArgsRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDispatchArgsShaderParameters::Counters, ve.CountersRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::DispatchArgs, ve.ArgsRef,
+                           RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
         }
     }
@@ -272,16 +456,21 @@ namespace Desert::Graphic::System
             const ComputePipeline& program = *ve.Frame->Pipeline;
             const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
-                 .Storage( "PoolSlots", m_Pool.SlotsRef, RDG::Access::StorageWrite )
-                 .Storage( "StepTable", ve.StepsRef, RDG::Access::StorageRead )
-                 .Storage( "FreeList", m_Pool.FreeRef, RDG::Access::StorageRead )
-                 .Storage( "AliveList", m_Pool.AliveRef, RDG::Access::StorageWrite )
-                 .Storage( "Counters", ve.CountersRef, RDG::Access::StorageRead )
-                 .Storage( "ChannelSpawns", ve.ChannelRef, RDG::Access::StorageRead )
-                 .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageWrite )
-                 .Storage( "AttributeInts", ve.IntsRef, RDG::Access::StorageWrite )
-                 .Storage( "StackParams", ve.ParamsRef, RDG::Access::StorageRead )
-                 .Storage( "StackCurves", ve.CurvesRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::PoolSlots, m_Pool.SlotsRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::FreeList, m_Pool.FreeRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::AliveList, m_Pool.AliveRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::ChannelSpawns, ve.ChannelRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::AttributeFloats, ve.FloatsRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::AttributeInts, ve.IntsRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleSimulateShaderParameters::StackParams, ve.ParamsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::StackCurves, ve.CurvesRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::PointSets, ve.PointSetsRef, RDG::Access::StorageRead )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -294,6 +483,9 @@ namespace Desert::Graphic::System
         {
             ve.Declared = false;
             ve.Sorted   = false;
+            ve.Debugged = false;
+            ve.Lit      = false;
+            ve.Ribboned = false;
         }
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
@@ -325,6 +517,8 @@ namespace Desert::Graphic::System
             Common::BoolResultStr drawn = Renderer::ImportBuffer( gpu.Counters, ve.CountersImport );
             if ( drawn )
                 drawn = Renderer::ImportBuffer( gpu.AttributeFloats, ve.FloatsImport );
+            if ( drawn ) // the ribbon sort reads the RibbonIdBinding's int column
+                drawn = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
             if ( drawn )
                 drawn = Renderer::ImportBuffer( gpu.DrawLayout, ve.DrawLayoutImport );
             if ( !drawn )
@@ -340,11 +534,11 @@ namespace Desert::Graphic::System
                 const Common::BoolResultStr steps = Renderer::ImportBuffer( gpu.Steps, ve.StepsImport );
                 const Common::BoolResultStr args  = Renderer::ImportBuffer( gpu.DispatchArgs, ve.ArgsImport );
                 const Common::BoolResultStr chan  = Renderer::ImportBuffer( gpu.ChannelSpawns, ve.ChannelImport );
-                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.AttributeInts, ve.IntsImport );
-                if ( stack )
-                    stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
+                Common::BoolResultStr       stack = Renderer::ImportBuffer( gpu.Params, ve.ParamsImport );
                 if ( stack )
                     stack = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
+                if ( stack )
+                    stack = Renderer::ImportBuffer( gpu.PointSets, ve.PointSetsImport );
                 if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR(
@@ -359,15 +553,156 @@ namespace Desert::Graphic::System
                      graph.RegisterExternal( ve.ChannelImport, std::format( "ParticleChannelSpawns{}", i ) );
                 ve.StepsRef  = graph.RegisterExternal( ve.StepsImport, std::format( "ParticleSteps{}", i ) );
                 ve.ArgsRef   = graph.RegisterExternal( ve.ArgsImport, std::format( "ParticleDispatchArgs{}", i ) );
-                ve.IntsRef   = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
+                ve.PointSetsRef = graph.RegisterExternal( ve.PointSetsImport, std::format( "VFXPointSets{}", i ) );
+                if ( gpu.DebugReadback && m_World->DebugReading() )
+                {
+                    const Common::BoolResultStr debug = Renderer::ImportBuffer( gpu.DebugReadback, ve.DebugImport );
+                    if ( debug )
+                    {
+                        ve.DebugRef =
+                             graph.RegisterExternal( ve.DebugImport, std::format( "ParticleDebugReadback{}", i ) );
+                        ve.Debugged = true;
+                    }
+                    else
+                        LOG_ERROR( "[Particles] emitter {} has no debug readback this frame: {}", i, debug.GetError() );
+                }
+                if ( gpu.LightReadback && ve.Frame->Light != nullptr )
+                {
+                    const Common::BoolResultStr light =
+                         Renderer::ImportBuffer( gpu.LightReadback, ve.LightImport );
+                    if ( light )
+                    {
+                        ve.LightRef =
+                             graph.RegisterExternal( ve.LightImport, std::format( "ParticleLightReadback{}", i ) );
+                        ve.Lit = true;
+                    }
+                    else
+                        LOG_ERROR( "[Particles] emitter {} casts no light this frame: {}", i, light.GetError() );
+                }
             }
             ve.CountersRef = graph.RegisterExternal( ve.CountersImport, std::format( "ParticleCounters{}", i ) );
             ve.FloatsRef   = graph.RegisterExternal( ve.FloatsImport, std::format( "VFXAttributeFloats{}", i ) );
+            ve.IntsRef     = graph.RegisterExternal( ve.IntsImport, std::format( "VFXAttributeInts{}", i ) );
             ve.DrawLayoutRef =
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
+        }
+    }
+
+    bool ParticleRenderer::RunsDebug( const ViewEmitter& ve ) const
+    {
+        return m_Simulates && ve.Declared && ve.Debugged && m_DebugPipeline != nullptr;
+    }
+
+    bool ParticleRenderer::DebugReadbackRequested() const
+    {
+        return m_Simulates && m_DebugPipeline != nullptr && m_World != nullptr && m_World->DebugReading();
+    }
+
+    Common::BoolResultStr ParticleRenderer::DebugReadback( const RDG::PassContext& context )
+    {
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsDebug( ve ) )
+                continue;
+            const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
+            const uint32_t            half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
+            const uint32_t            rows = m_World->IsDebugTable( gpu ) ? kParticleDebugMaxRows : 0u;
+            const ParticleDebugPush   push{
+                 glm::uvec4( half, m_World->DebugRequest().FirstRow, rows, gpu.FloatColumns ),
+                 glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, gpu.Range.Count, gpu.Range.Base,
+                             m_World->DebugSerial() ),
+                 glm::uvec4( gpu.IntColumns, 0u, 0u, 0u ) };
+            RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_DebugPipeline, std::max( 1u, ( rows + kParticleLocalSize - 1 ) / kParticleLocalSize ),
+                 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    bool ParticleRenderer::RunsLight( const ViewEmitter& ve ) const
+    {
+        return m_Simulates && ve.Declared && ve.Lit && ve.Frame->Light != nullptr && m_LightPipeline != nullptr;
+    }
+
+    bool ParticleRenderer::LightReadbackRequested() const
+    {
+        if ( !m_Simulates || m_LightPipeline == nullptr || m_World == nullptr )
+            return false;
+        return std::ranges::any_of( m_ViewEmitters, [this]( const ViewEmitter& ve ) { return RunsLight( ve ); } );
+    }
+
+    Common::BoolResultStr ParticleRenderer::LightReadback( const RDG::PassContext& context )
+    {
+        uint32_t block = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsLight( ve ) )
+                continue;
+            const ParticleEmitterGpu& gpu = *ve.Frame->Gpu;
+            const uint32_t half = ve.Frame->StepCount & 1u; // the slot / alive half the last compact filled
+            const uint32_t lights =
+                 std::min( ve.Frame->Light->MaxLights, Assets::Serialization::kVFXLightMaxPerEmitter );
+            const ParticleLightPush push{ glm::uvec4( half, lights, m_World->LightSerial(), 0u ),
+                                          glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, 0u, 0u, 0u ) };
+            RDG::PassBindings       bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched = Renderer::GetInstance().DispatchCompute(
+                 bindings, *m_LightPipeline,
+                 std::max( 1u, ( lights + kParticleLocalSize - 1 ) / kParticleLocalSize ), 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareLightReadbackBindings( RDG::PassBuilder& pass ) const
+    {
+        if ( !m_LightPipeline )
+            return; // LightReadback dispatches nothing either
+        const auto& layout = m_LightLayout.Get( m_LightPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsLight( ve ) )
+                continue; // LightReadback skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_LightPipeline ) )
+                 .Storage( ParticleLightReadbackShaderParameters::AttributeFloats, ve.FloatsRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::AliveList, m_Pool.AliveRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::Counters, ve.CountersRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::DrawLayout, ve.DrawLayoutRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleLightReadbackShaderParameters::Readback, ve.LightRef,
+                           RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleLightPush ) ) );
+        }
+    }
+
+    void ParticleRenderer::DeclareDebugReadbackBindings( RDG::PassBuilder& pass ) const
+    {
+        if ( !m_DebugPipeline )
+            return; // DebugReadback dispatches nothing either
+        const auto& layout = m_DebugLayout.Get( m_DebugPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsDebug( ve ) )
+                continue; // DebugReadback skips it the same way
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DebugPipeline ) )
+                 .Storage( ParticleDebugReadbackShaderParameters::Counters, ve.CountersRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::AliveList, m_Pool.AliveRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::AttributeFloats, ve.FloatsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::AttributeInts, ve.IntsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::Readback, ve.DebugRef, RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
         }
     }
 
@@ -389,8 +724,22 @@ namespace Desert::Graphic::System
                 continue;
             const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
             const uint32_t            half = ve.Frame->StepCount & 1u;
+            // The emitter's alive half is sorted once for all its draws: when any of them blends (an opaque draw
+            // reads the sorted order as well as the unsorted one).
+            const auto blends = std::find_if( ve.Draws.begin(), ve.Draws.end(), []( const ViewDraw& d )
+                                              { return ParticleSpritesSort( d.Sprite->Blend ); } );
+            const Core::Formats::SurfaceBlendMode blend =
+                 blends != ve.Draws.end() ? blends->Sprite->Blend : ve.Draws.front().Sprite->Blend;
             emitters.push_back(
-                 { i, ve.Sprite->Blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
+                 { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
+            // A Ribbon row links the particles by (RibbonId, RibbonLinkOrder): its own sort, into RibbonOrder.
+            const bool ribbon = std::any_of( ve.Frame->Renderers.begin(), ve.Frame->Renderers.end(),
+                                             []( const ParticleFrameRenderer& row ) {
+                                                 return row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
+                                             } );
+            if ( ribbon )
+                emitters.push_back(
+                     { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half, true } );
         }
         const ParticleSortPlan plan = PlanParticleSort( emitters );
         if ( plan.Ranges.empty() )
@@ -398,6 +747,8 @@ namespace Desert::Graphic::System
 
         const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
         std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
+        m_RibbonRef =
+             graph.CreateBuffer( RDG::BufferDesc{ aliveBytes * 4u }, "ParticleRibbonOrder" ); // uvec4 each
         // The view depth is along the camera's forward axis from its position (cm): ParticleSortViewOf.
         const ParticleSortView sortView = ParticleSortViewOf( view->InvView );
         const glm::vec4        origin( sortView.Origin, 0.0f );
@@ -405,18 +756,20 @@ namespace Desert::Graphic::System
         for ( const ParticleSortRange& range : plan.Ranges )
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
-            ve.Sorted       = true;
-            const ParticleSortBuffers            buffers{ ve.FloatsRef,   ve.DrawLayoutRef, m_Pool.AliveRef,
-                                               ve.CountersRef, m_SortKeysRef,    m_SortedRef };
-            const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length );
+            ( range.Ribbon ? ve.Ribboned : ve.Sorted ) = true;
+            const ParticleSortBuffers buffers{ ve.FloatsRef,    ve.IntsRef,    ve.DrawLayoutRef,
+                                               m_Pool.AliveRef, ve.CountersRef, m_SortKeysRef,
+                                               m_SortedRef,     m_RibbonRef };
+            const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length, range.Ribbon );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
                 const ParticleSortStage stage = stages[s];
                 const ParticleSortPush  push{
                      glm::uvec4( range.AliveOffset, range.Slot, range.KeyBase, range.Length ),
-                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, 0u ), origin, forward };
+                     glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
+                     origin, forward };
                 graph.AddPass(
-                     ParticleSortPassName( range.Emitter, s ), RDG::PassFlags::Compute,
+                     ParticleSortPassName( range.Emitter, s, range.Ribbon ), RDG::PassFlags::Compute,
                      [this, buffers, stage]( RDG::PassBuilder& pass )
                      {
                          DeclareParticleSortStage(
@@ -436,7 +789,7 @@ namespace Desert::Graphic::System
 
     bool ParticleRenderer::IsDrawn( const ViewEmitter& ve )
     {
-        return ve.Declared && ve.Sprite != nullptr;
+        return ve.Declared && ve.InView && !ve.Draws.empty();
     }
 
     ParticleRenderer::SpriteDraw* ParticleRenderer::SpriteDrawFor( const std::string& cellShader )
@@ -487,39 +840,71 @@ namespace Desert::Graphic::System
         return slot.get();
     }
 
-    ParticleRenderer::SpriteDraw* ParticleRenderer::ResolveSprite( const uint32_t             entityId,
-                                                                   const Common::AssetHandle& handle,
-                                                                   EmitterMaterial&           material )
+    ParticleRenderer::SpriteDraw* ParticleRenderer::ResolveSprite( const ParticleFrameEmitter&  fe,
+                                                                   const ParticleFrameRenderer& row,
+                                                                   EmitterMaterial&             material )
     {
-        // A named material draws through its own ParticleSprite.Forward cell (UE: the sprite renderer's material).
+        const Common::AssetHandle& handle = row.Material;
+        // The row's vertex factory (UE: the sprite / ribbon renderer's vertex factory) and its engine material.
+        const bool           ribbon = row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
+        const MeshVertexPath path   = ribbon ? MeshVertexPath::ParticleRibbon : MeshVertexPath::ParticleSprite;
+        const std::string&   engine = ribbon ? m_DefaultRibbonCell : m_DefaultCell;
+        const std::string&   broken = ribbon ? m_BrokenRibbonCell : m_BrokenCell;
+        // A named material draws through its own cell of the row's path (UE: the renderer's material).
         if ( handle != Common::AssetHandle::Null() )
         {
             auto*       service = Runtime::ResourceRegistry::GetMaterialService();
-            const auto* cell    = dynamic_cast<const DataDrivenMaterial*>(
-                 service->Get( handle, MeshVertexPath::ParticleSprite, MeshPass::Forward ) );
+            const auto* cell =
+                 dynamic_cast<const DataDrivenMaterial*>( service->Get( handle, path, MeshPass::Forward ) );
             SpriteDraw* sprite = cell != nullptr ? SpriteDrawFor( cell->GetShaderName() ) : nullptr;
             if ( sprite != nullptr )
             {
+                material.Cell = cell;
                 if ( !material.Instance || material.Handle != handle )
                 {
                     material.Handle   = handle;
-                    material.Instance = service->CreateRuntimeInstance( handle, MeshVertexPath::ParticleSprite );
+                    material.Instance = service->CreateRuntimeInstance( handle, path );
                 }
                 return sprite;
             }
+            // Still being read: the row sits this frame out (as a Mesh row does), and the next frame asks again.
+            if ( cell == nullptr && service->IsPending( handle ) )
+            {
+                material.Handle   = Common::AssetHandle::Null();
+                material.Instance = nullptr;
+                material.Cell     = nullptr;
+                return nullptr;
+            }
             if ( !material.HasRefused || material.Refused != handle )
             {
-                LOG_ERROR( "[Particles] emitter {} draws with ParticleSpriteDefault: its material {} {}", entityId,
-                           static_cast<uint64_t>( handle ),
-                           cell == nullptr ? "is missing or its template has no `Usage ParticleSprites` cell"
-                                           : "has a ParticleSprite cell that cannot draw (logged above)" );
+                // Named by the ASSET (its file's stem), what a person looks for in the Content Browser; a
+                // broken file was already refused aloud with its path and field by the material service.
+                const std::string name   = service->AssetNameOf( handle );
+                const std::string reason = cell != nullptr
+                     ? std::format( "has a {} cell that cannot draw (logged above)", MeshVertexPathName( path ) )
+                     : ( service->IsBroken( handle )
+                              ? std::string( "is BROKEN (its read was refused, [MaterialService] above names the "
+                                             "file and the field)" )
+                              : std::format( "is missing or its template has no `Usage {}` cell",
+                                             ribbon ? "ParticleRibbons" : "ParticleSprites" ) );
+                LOG_ERROR(
+                     "[Particles] emitter {}.{} renderer row {} draws the stand-in checker (DefaultSurface): its "
+                     "material '{}' ({}) {}",
+                     fe.EntityId, fe.Emitter, row.Row, name.empty() ? std::string( "<no material asset>" ) : name,
+                     static_cast<uint64_t>( handle ), reason );
                 material.Refused    = handle;
                 material.HasRefused = true;
             }
+            // UE WorldGridMaterial: a named material that cannot draw is shown as the engine's checker stand-in.
+            material.Handle   = Common::AssetHandle::Null();
+            material.Instance = nullptr; // DefaultSurface has no parameters
+            material.Cell     = nullptr;
+            return broken.empty() ? nullptr : SpriteDrawFor( broken );
         }
         material.Handle   = Common::AssetHandle::Null();
         material.Instance = nullptr; // the default cell's own defaults
-        return SpriteDrawFor( m_DefaultCell );
+        material.Cell     = nullptr;
+        return SpriteDrawFor( engine );
     }
 
     SystemRasterPass ParticleRenderer::DrawPass()
@@ -542,22 +927,28 @@ namespace Desert::Graphic::System
                  {
                      if ( !IsDrawn( ve ) )
                          continue;
-                     SpriteDraw& sprite = *ve.Sprite;
-                     // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline is
-                     // counted by PipelineBuilds, so no gated frame is shown without it. Failed still faults.
-                     if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
-                         continue;
-                     const RDG::PassBindings bindings( context, context.GetBindingBlock( block++ ) );
-                     sprite.Material->SetMaterialIndex( ve.Row );
-                     sprite.Material->Bind( sprite.Instance.get() );
-                     // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
-                     // particle of alive half StepCount & 1 (the slot's FirstVertex).
-                     const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
-                     if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline,
-                                                                         sprite.Material->GetMaterialExecutor(),
-                                                                         ve.CountersRef, slot );
-                          !drawn.IsSuccess() )
-                         return drawn;
+                     for ( const ViewDraw& draw : ve.Draws )
+                     {
+                         // The n-th declared block is the n-th draw, drawn or not.
+                         const uint32_t drawBlock = block++;
+                         SpriteDraw&    sprite    = *draw.Sprite;
+                         // Still in the driver (PSO1): not drawn this frame and not a fault — an engine pipeline
+                         // is counted by PipelineBuilds, so no gated frame is shown without it. Failed still
+                         // faults.
+                         if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                             continue;
+                         const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
+                         sprite.Material->SetMaterialIndex( draw.Row );
+                         sprite.Material->Bind( sprite.Instance.get() );
+                         // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
+                         // particle of alive half StepCount & 1 (the slot's FirstVertex).
+                         const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
+                         if ( auto drawn = Renderer::DrawProceduralIndirect(
+                                   bindings, *sprite.Pipeline, sprite.Material->GetMaterialExecutor(),
+                                   ve.CountersRef, slot );
+                              !drawn.IsSuccess() )
+                             return drawn;
+                     }
                  }
                  return BOOLSUCCESS;
              },
@@ -580,15 +971,26 @@ namespace Desert::Graphic::System
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-                MaterialInstance* instance = ve.Instance != nullptr ? ve.Instance : ve.Sprite->Instance.get();
-                ve.Row                     = MeshRendererDetail::AppendRow(
-                     ve.Sprite->Rows, MeshRendererDetail::EffectiveRow( ve.Sprite->Material.get(), instance ) );
+                for ( ViewDraw& draw : ve.Draws )
+                {
+                    MaterialInstance* instance =
+                         draw.Instance != nullptr ? draw.Instance : draw.Sprite->Instance.get();
+                    // The row is the material ASSET's (its values, its textures' bindless slots) under the row's
+                    // overrides, as a mesh slot's is; only a row with no material of its own takes the cell's.
+                    const DataDrivenMaterial* rowMaterial =
+                         draw.Material != nullptr ? draw.Material : draw.Sprite->Material.get();
+                    draw.Row = MeshRendererDetail::AppendRow(
+                         draw.Sprite->Rows, MeshRendererDetail::EffectiveRow( rowMaterial, instance ) );
+                }
             }
             for ( auto& [cell, sprite] : m_Sprites )
             {
                 if ( !sprite || sprite->Rows.empty() )
                     continue;
-                if ( auto* sb = sprite->Material->Get<StorageBufferProperty>( "Materials" ) )
+                // Find: a sprite surface template with no parameters (or every row field dead) declares no row
+                // block.
+                if ( auto* sb =
+                          sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
                     sb->SetRawData( sprite->Rows.data(),
                                     static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
                 SceneCameraBind( sprite->Material.get(), *view );
@@ -606,35 +1008,348 @@ namespace Desert::Graphic::System
             {
                 if ( !IsDrawn( ve ) )
                     continue;
-                const auto& layout = ve.Sprite->Layout.Get( ve.Sprite->Pipeline->GetSpecification().Shader );
-                // A translucent / additive emitter reads its alive half back to front from this view's SortedAlive
-                // (AddSortPasses), at the same offset; an opaque / masked one reads AliveList unsorted.
-                auto block =
-                     declared.Bindings( layout, ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill() )
-                          .Storage( "AttributeFloats", ve.FloatsRef, RDG::Access::StorageRead )
-                          .Storage( "DrawLayout", ve.DrawLayoutRef, RDG::Access::StorageRead )
-                          .Storage( "AliveList", ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
-                                    RDG::Access::StorageRead );
-                const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
-                if ( fades && depth )
-                    block.Texture( kSceneViewSceneDepthName, depth, RDG::Access::SampledGraphics,
-                                   "SceneDepth.Compute" )
-                         .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
-                // The rest of the list, minus the depth above and minus what the material route already fills
-                // (a slot filled by both faults the node as surely as one filled by neither).
-                const RDG::OtherRouteFill& route  = ve.Sprite->Material->GetMaterialExecutor()->GetRouteFill();
-                RDG::ShaderBindingLayout   others = *layout;
-                std::erase_if( others.Slots,
-                               [&route]( const RDG::ShaderSlot& slot )
-                               {
-                                   return slot.Name == kSceneViewSceneDepthName ||
-                                          std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
-                                               route.Slots.end();
-                               } );
-                BindSceneViewInputs( block, inputs, others );
+                for ( const ViewDraw& draw : ve.Draws )
+                {
+                    const SpriteDraw& sprite = *draw.Sprite;
+                    const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
+                    // A translucent / additive emitter reads its alive half back to front from this view's
+                    // SortedAlive (AddSortPasses), at the same offset; an opaque / masked one reads AliveList
+                    // unsorted.
+                    auto block =
+                         declared.Bindings( layout, sprite.Material->GetMaterialExecutor()->GetRouteFill() )
+                              .Storage( ParticleSpriteShaderParameters::AttributeFloats, ve.FloatsRef, RDG::Access::StorageRead )
+                              .Storage( ParticleSpriteShaderParameters::DrawLayout, ve.DrawLayoutRef, RDG::Access::StorageRead );
+                    // A sprite cell reads the alive list; a ribbon cell reads the emitter's link order instead
+                    // (Vertex_ParticleRibbon.glslh RibbonOrder, AddSortPasses), at the same offsets.
+                    const bool links =
+                         std::any_of( layout->Slots.begin(), layout->Slots.end(),
+                                      []( const RDG::ShaderSlot& slot ) { return slot.Name == "RibbonOrder"; } );
+                    if ( links && ve.Ribboned )
+                        block.Storage( ParticleSpriteShaderParameters::RibbonOrder, m_RibbonRef, RDG::Access::StorageRead );
+                    else
+                        block.Storage( ParticleSpriteShaderParameters::AliveList, ve.Sorted ? m_SortedRef : m_Pool.AliveRef,
+                                       RDG::Access::StorageRead );
+                    const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
+                    if ( fades && depth )
+                        block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
+                                       "SceneDepth.Compute" )
+                             .Sampler( ParticleSpriteShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
+                    // The rest of the list, minus the depth above and minus what the material route already fills
+                    // (a slot filled by both faults the node as surely as one filled by neither).
+                    const RDG::OtherRouteFill& route  = sprite.Material->GetMaterialExecutor()->GetRouteFill();
+                    RDG::ShaderBindingLayout   others = *layout;
+                    std::erase_if( others.Slots,
+                                   [&route]( const RDG::ShaderSlot& slot )
+                                   {
+                                       return slot.Name == kSceneViewSceneDepthName ||
+                                              slot.Name == "RibbonOrder" ||
+                                              std::find( route.Slots.begin(), route.Slots.end(), slot.Name ) !=
+                                                   route.Slots.end();
+                                   } );
+                    BindSceneViewInputs( block, inputs, others );
+                }
                 declared.Read( ve.CountersRef, RDG::Access::IndirectArgs );
             }
         };
         return pass;
+    }
+
+    bool ParticleRenderer::ResolveMesh( const ParticleFrameEmitter& fe, const ParticleFrameRenderer& row,
+                                        EmitterMaterial& material )
+    {
+        auto* meshes    = Runtime::ResourceRegistry::GetMeshService();
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        const auto refuse = [&]( const std::string& why )
+        {
+            if ( !material.MeshRefused )
+                LOG_ERROR( "[Particles] emitter {}.{} Mesh renderer row {} ('{}') does not draw: {}", fe.EntityId,
+                           fe.Emitter, row.Row, row.Mesh->Mesh.Path, why );
+            material.MeshRefused = true;
+            return false;
+        };
+        if ( meshes == nullptr || materials == nullptr )
+            return refuse( "the mesh or material service is not running" );
+        const auto guid = Common::Content::AssetGuidFromText( row.Mesh->Mesh.Guid );
+        if ( !guid )
+            return refuse( guid.GetError() );
+        const Assets::AssetHandle handle = Common::Content::HandleForGuid( guid.GetValue() );
+        Desert::Mesh*             mesh   = meshes->Get( handle );
+        const Assets::MeshAsset*  asset  = meshes->GetAsset( handle );
+        if ( mesh == nullptr || asset == nullptr )
+            return false; // still loading, or MeshService said why it failed
+        const auto& submeshes = mesh->GetSubmeshes();
+        if ( submeshes.empty() )
+            return refuse( "the mesh has no submeshes" );
+
+        MeshInstances&     state    = material.Meshes;
+        const uint32_t     capacity = std::max( fe.Gpu->Range.Count, 1u );
+        const auto         count    = static_cast<uint32_t>( std::min<size_t>( submeshes.size(), 64 ) );
+        const uint64_t     all      = count >= 64 ? ~0ull : ( 1ull << count ) - 1ull;
+        if ( state.Mesh != mesh || state.Material != row.Material || state.Version != materials->GetInvalidationVersion() )
+        {
+            state.Mesh     = nullptr;
+            state.Material = row.Material;
+            state.Version  = materials->GetInvalidationVersion();
+            state.Sections.clear();
+            // The row's Material overrides every submesh (UE: the mesh renderer's override materials); without
+            // one each material slot of the mesh draws its own sections, as the mesh component does.
+            if ( row.Material != Common::AssetHandle::Null() )
+            {
+                if ( auto instance = materials->CreateRuntimeInstance( row.Material ) )
+                    state.Sections.push_back( { std::move( instance ), 0 } );
+                else
+                    return refuse( "its override material does not resolve" );
+            }
+            else
+            {
+                const auto& slots = asset->GetMaterialHandles();
+                for ( size_t slot = 0; slot < slots.size(); ++slot )
+                {
+                    uint64_t hidden = 0;
+                    for ( uint32_t si = 0; si < count; ++si )
+                        if ( SectionMaterialSlot( si, slots.size() ) != slot )
+                            hidden |= 1ull << si;
+                    if ( hidden == all )
+                        continue;
+                    auto instance =
+                         materials->CreateRuntimeInstance( materials->GetAssetHandleByExternal( slots[slot] ) );
+                    if ( !instance )
+                        return refuse( std::format( "its material slot {} does not resolve", slot ) );
+                    state.Sections.push_back( { std::move( instance ), hidden } );
+                }
+                if ( state.Sections.empty() )
+                    return refuse( "the mesh has no material slot" );
+            }
+            state.Mesh = mesh;
+        }
+        if ( state.Instances == nullptr || state.Capacity != capacity || state.Submeshes != count ||
+             state.ArgsMesh != mesh )
+        {
+            if ( state.Key == 0 )
+                state.Key = ++m_NextMeshKey;
+            state.Capacity  = capacity;
+            state.Submeshes = count;
+            state.Instances = ShaderResources::StorageBuffer::Create(
+                 "ParticleMeshInstances", 2u * capacity * sizeof( glm::mat4 ), 3, true );
+            // Zeroed: frame stamp 0 is no frame's (the first frame stamped is 2), so no particle reads a stale
+            // row.
+            constexpr uint32_t kHistoryRow = sizeof( glm::mat4 ) + sizeof( glm::uvec4 );
+            state.History =
+                 ShaderResources::StorageBuffer::Create( "ParticleMeshHistory", capacity * kHistoryRow, 6, true );
+            const std::vector<uint8_t> zeros( capacity * kHistoryRow, uint8_t{ 0 } );
+            if ( const auto cleared = state.History->SetData( zeros.data(), capacity * kHistoryRow );
+                 !cleared.IsSuccess() )
+            {
+                state.Instances = nullptr;
+                return refuse( std::format( "its transform history was not cleared: {}", cleared.GetError() ) );
+            }
+            // The mesh's levels as the mesh component draws them (Geometry::SelectLODFromBounds): every level a
+            // submesh carries, each with its screen size; a mesh without a LOD chain has one.
+            const std::vector<float>& sizes = mesh->GetLODScreenSizes();
+            state.Levels                    = std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
+                                                                      static_cast<uint32_t>( sizes.size() ) ) );
+            state.LodTable                  = static_cast<uint32_t>( GpuInstanceArgsOffset( count ) / 4u );
+            const auto local                = Geometry::LocalBounds( submeshes );
+            state.LocalSphere =
+                 glm::vec4( 0.5f * ( local.Min + local.Max ), 0.5f * glm::length( local.Max - local.Min ) );
+            const uint32_t argWords = state.LodTable + state.Levels * count * 2u + state.Levels + 1u;
+            const uint32_t argBytes = argWords * 4u;
+            state.Args = ShaderResources::StorageBuffer::Create( "ParticleMeshArgs", argBytes, 4, true );
+            // The records' static half: each submesh's level-0 index range (ParticleMeshInstances' LOD pass
+            // rewrites count and first index from the level table each frame); instanceCount and firstInstance
+            // are ParticleMeshInstances' (one bucket: the whole range).
+            std::vector<uint32_t> args( argWords, 0u );
+            args[0] = 1u;
+            args[1] = capacity;
+            args[2] = count;
+            for ( uint32_t level = 0; level < state.Levels; ++level )
+                for ( uint32_t si = 0; si < count; ++si )
+                {
+                    // A submesh with a shorter chain draws its coarsest level; one without a chain its base range.
+                    const auto& sm    = submeshes[si];
+                    uint32_t*   entry = &args[state.LodTable + ( level * count + si ) * 2u];
+                    if ( sm.LODs.empty() )
+                    {
+                        entry[0] = sm.IndexCount;
+                        entry[1] = sm.IndexOffset;
+                    }
+                    else
+                    {
+                        const auto& lod = sm.LODs[std::min<size_t>( level, sm.LODs.size() - 1 )];
+                        entry[0]        = lod.IndexCount;
+                        entry[1]        = lod.IndexOffset;
+                    }
+                }
+            for ( uint32_t level = 0; level < state.Levels; ++level )
+                args[state.LodTable + state.Levels * count * 2u + level] = std::bit_cast<uint32_t>( sizes[level] );
+            args[argWords - 1u] = state.Levels - 1u; // the reduction starts at the coarsest level
+            for ( uint32_t si = 0; si < count; ++si )
+            {
+                uint32_t* record = &args[GpuInstanceArgsOffset( si ) / 4u];
+                record[0]        = args[state.LodTable + si * 2u];
+                record[2]        = args[state.LodTable + si * 2u + 1u];
+                record[3]        = submeshes[si].VertexOffset;
+            }
+            if ( const auto wrote = state.Args->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
+            {
+                state.Instances = nullptr;
+                return refuse( std::format( "its argument records were not written: {}", wrote.GetError() ) );
+            }
+            state.ArgsMesh = mesh;
+        }
+        material.MeshRefused = false;
+        return true;
+    }
+
+    bool ParticleRenderer::HasMeshRows() const
+    {
+        return std::any_of( m_ViewEmitters.begin(), m_ViewEmitters.end(),
+                            []( const ViewEmitter& ve ) { return !ve.Meshes.empty(); } );
+    }
+
+    void ParticleRenderer::AddMeshInstances( RDG::Builder& graph, MeshRenderer& meshes )
+    {
+        if ( !m_Pool.Declared || !m_MeshPipeline )
+            return;
+        // One view frame: a history row stamped with the previous value is the particle's last drawn transform.
+        const uint32_t frame = ++m_MeshFrame;
+        // The view the level is chosen from (UE ComputeBoundsScreenRadiusSquared through
+        // Geometry::BoundsScreenRadiusSquared): the eye, the lens' focal scale, and whether it is perspective.
+        const auto& camera = m_SceneRenderer->GetMainCamera();
+        if ( camera == nullptr )
+            return;
+        const glm::mat4& projection = camera->GetProjectionMatrix();
+        const glm::vec4  lens( camera->GetPosition(), std::max( 0.5f * std::abs( projection[0][0] ),
+                                                                0.5f * std::abs( projection[1][1] ) ) );
+        const float      perspective = std::abs( projection[2][3] );
+        for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
+        {
+            const ViewEmitter& ve = m_ViewEmitters[i];
+            if ( !ve.Declared )
+                continue;
+            const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
+            const uint32_t            half = ve.Frame->StepCount & 1u;
+            for ( const ViewMesh& vm : ve.Meshes )
+            {
+                MeshInstances& state = *vm.State;
+                Common::BoolResultStr imported = Renderer::ImportBuffer( state.Instances, state.InstancesImport );
+                if ( imported )
+                    imported = Renderer::ImportBuffer( state.Args, state.ArgsImport );
+                if ( imported )
+                    imported = Renderer::ImportBuffer( state.History, state.HistoryImport );
+                if ( !imported )
+                {
+                    LOG_ERROR( "[Particles] emitter {} Mesh row {} sits out this frame: {}", i, vm.Row,
+                               imported.GetError() );
+                    continue;
+                }
+                state.Refs.Instances = graph.RegisterExternal( state.InstancesImport,
+                                                               std::format( "ParticleMeshInstances{}.{}", i, vm.Row ) );
+                state.Refs.Args =
+                     graph.RegisterExternal( state.ArgsImport, std::format( "ParticleMeshArgs{}.{}", i, vm.Row ) );
+                const RDG::BufferRef history = graph.RegisterExternal(
+                     state.HistoryImport, std::format( "ParticleMeshHistory{}.{}", i, vm.Row ) );
+
+                struct MeshPush
+                {
+                    glm::uvec4 Range;
+                    glm::vec4  Scale;
+                    glm::uvec4 Frame;
+                    glm::vec4  Sphere;
+                    glm::vec4  Lens;
+                    glm::uvec4 Lod;
+                };
+                MeshPush push{
+                     glm::uvec4( 2u * gpu.Range.Base + half * gpu.Range.Count, half, state.Submeshes,
+                                 state.Capacity ),
+                     glm::vec4( vm.Scale, 0.0f ),
+                     glm::uvec4( frame, 0u, 0u, 0u ),
+                     state.LocalSphere,
+                     lens,
+                     glm::uvec4( state.Levels, state.LodTable, 0u, std::bit_cast<uint32_t>( perspective ) ) };
+                const uint32_t       groups = ( state.Capacity + 63u ) / 64u;
+                const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
+                const GpuInstanceRefs refs  = state.Refs;
+                graph.AddPass(
+                     std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
+                     {
+                         // PoolSlots: the slot's Id tells a respawned particle from the one the history row holds.
+                         pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
+                                        Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
+                              .Storage( ParticleMeshInstancesShaderParameters::AttributeFloats, floats,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::DrawLayout, layout,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::AliveList, m_Pool.AliveRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Counters, counters,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Instances, refs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::Args, refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::History, history,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
+                                        RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                     },
+                     [this, push, groups]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( &push, sizeof( push ) );
+                         return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, groups, 1, 1 );
+                     } );
+                // The emitter's level (UE Niagara Mesh Renderer, LOD by screen size): the instances pass reduced
+                // the finest level any particle's bounds asks for; one thread writes that level's index ranges
+                // into every record, so the GBuffer and the cascades draw it, and re-arms the reduction.
+                push.Lod.z = 1u;
+                graph.AddPass(
+                     std::format( "Particles: Mesh LOD {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
+                     {
+                         pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),
+                                        Renderer::GetPipelineRouteFill( *m_MeshPipeline ) )
+                              .Storage( ParticleMeshInstancesShaderParameters::AttributeFloats, floats,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::DrawLayout, layout,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::AliveList, m_Pool.AliveRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Counters, counters,
+                                        RDG::Access::StorageRead )
+                              .Storage( ParticleMeshInstancesShaderParameters::Instances, refs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::Args, refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::History, history,
+                                        RDG::Access::StorageWrite )
+                              .Storage( ParticleMeshInstancesShaderParameters::PoolSlots, m_Pool.SlotsRef,
+                                        RDG::Access::StorageRead )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( MeshPush ) ) );
+                     },
+                     [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                         bindings.PushConstants( &push, sizeof( push ) );
+                         return Renderer::GetInstance().DispatchCompute( bindings, *m_MeshPipeline, 1, 1, 1 );
+                     } );
+
+                // Each material section drawn by the GBuffer and the cascades through its Instanced cell; the
+                // view-variant keys sit above the grass's (Key * 64 + section, kept below 2^31 / kCascadeViews).
+                for ( uint32_t s = 0; s < static_cast<uint32_t>( state.Sections.size() ); ++s )
+                    meshes.SubmitGpuInstanced( { .Mesh               = state.Mesh,
+                                                 .Path               = MeshVertexPath::Instanced,
+                                                 .Material           = state.Sections[s].Material,
+                                                 .HiddenSubmeshes    = state.Sections[s].HiddenSubmeshes,
+                                                 .CastShadows        = true,
+                                                 .Instances          = state.Instances,
+                                                 .Refs               = &state.Refs,
+                                                 .Key                = 0x08000000u + state.Key * 64u + s,
+                                                 .PrevInstanceOffset = state.Capacity,
+                                                 .WorldBounds        = ve.Frame->WorldBounds } );
+            }
+        }
     }
 } // namespace Desert::Graphic::System

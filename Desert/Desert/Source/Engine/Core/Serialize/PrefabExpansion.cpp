@@ -134,7 +134,8 @@ namespace Desert::Core::WorldCells
                     if ( !nested )
                         return Common::MakeFormattedError<Result>( "prefab '{}': {}", stated, nested.GetError() );
                     const std::size_t from = body.size();
-                    for ( BodyRecord record : nested.GetValue() ) // GetValue is const-only: copy, then move into the body
+                    for ( BodyRecord record :
+                          nested.GetValue() ) // GetValue is const-only: copy, then move into the body
                     {
                         if ( record.Parent != kNone )
                             record.Parent += from;

@@ -33,6 +33,28 @@ namespace Desert::Editor::Tools
     class CubeGridTool
     {
     public:
+        CubeGridTool() = default;
+        ~CubeGridTool(); // forgets this tool's undo records: they point at it
+        CubeGridTool( const CubeGridTool& )            = delete;
+        CubeGridTool& operator=( const CubeGridTool& ) = delete;
+
+        // What one in-tool undo step puts back (UE's FCubeGridTool change records): the volume - every layer
+        // and the material set its faces index - and the selection the next Push/Pull extrudes from.
+        struct SessionState
+        {
+            Geometry::VoxelBlockout::Volume        Volume;
+            std::vector<Common::AssetHandle>       Materials;
+            bool                                   HasSel = false;
+            Geometry::VoxelBlockout::Rect          Sel;
+            Geometry::VoxelBlockout::WorkPlane     Plane;
+            bool                                   CornerMode = false;
+            bool                                   Crosswise  = false;
+            Geometry::VoxelBlockout::CornerHeights CornerH{};
+        };
+        // Undo / Redo of one in-tool step: the session takes @p state, and the next Update re-bakes the
+        // preview from it (the command history has no scene to hand over).
+        void RestoreState( const SessionState& state );
+
         void Update( ::Desert::Core::Scene& scene, const Common::Math::Ray& ray, const glm::mat4& viewProj,
                      const glm::vec2& viewportPos, const glm::vec2& viewportSize, bool interactive );
 
@@ -53,6 +75,15 @@ namespace Desert::Editor::Tools
         void RegenMesh( ::Desert::Core::Scene& scene );                // rebuild the blockout mesh from the volume
         void Cancel( ::Desert::Core::Scene& scene );                   // delete the in-progress blockout
         void PushPull( ::Desert::Core::Scene& scene, int dir, int K ); // extrude the selection out/in
+        // UE CubeGridBooleanOp (CubeGridTool ApplyPushPull): a Push/Pull on a mesh the session did not build - an
+        // accepted piece, an imported prop - edits THAT entity's mesh with MeshBoolean, as ONE scene undo step
+        // (RecordMeshChange): a Push (dir < 0) subtracts the pushed box (the selection x `height` base cells, one
+        // cell past the face so no cutter face is coplanar with it), a Pull (dir > 0) unions the pulled box (one
+        // cell into the face for the same reason) into the same mesh - no new entity. The box's faces take the
+        // Quick Material (a slot of the target, added when it has none), so pit walls and bumps are painted as
+        // UE's new faces are. The selection follows the edit; Undo / Redo put it back with the mesh. Refused,
+        // logged and toasted by reason (no mesh, a boolean that could not close its seam).
+        void PushPullMesh( ::Desert::Core::Scene& scene, const Common::UUID& target, int dir, int height );
         void RefineBy( int F ); // subdivide the base grid by F (split every cell + the selection xF)
         void FreezeActive();    // commit the volume being worked on into an immutable layer
         // Write the Corner Mode heights into the top layer of cells under the selection.
@@ -67,6 +98,14 @@ namespace Desert::Editor::Tools
         std::optional<uint8_t> OpMaterialId();
         // Point the entity's material slots at m_Materials in the order the bake's submeshes use them.
         void ApplyMaterialSlots( ::Desert::Core::Scene& scene, const std::vector<int>& submeshMaterialIds );
+        // UE's EmitChangeAndUpdate: every Push/Pull (a key, a button, one Ctrl+LMB drag, a corner step) is
+        // its own undo step INSIDE the session, so Undo steps back one push and the tool stays open. The
+        // steps are tool records (EditedObject = this tool); the session's end - Accept's one step for the
+        // whole piece, or Cancel - forgets them, as UE expires a tool's changes when the tool shuts down.
+        // Begin/End nest: an outer change (a drag) swallows the inner ones (each frame's step).
+        void         BeginChange();
+        void         EndChange( const char* label );
+        SessionState CaptureState() const;
         void ResetSession(); // forget the volume, the selection and the material set (Accept / Cancel)
         // Reopen on the selected entity (UE: the tool takes the selected mesh as its target): its voxels - or,
         // when it carries none, the blocks recovered from its mesh - become the volume, the grid goes onto its
@@ -89,11 +128,22 @@ namespace Desert::Editor::Tools
         // entity's transform as a grid frame (identity for a new one, which is built in the world).
         std::shared_ptr<const Commands::EntityStateSnapshot> m_Before;
         Geometry::VoxelBlockout::GridFrame                   m_EntityFrame;
+        std::optional<SessionState>                          m_ChangeBefore; // the open change's state before it
+        int                                                  m_ChangeDepth = 0; // Begin/End nesting
+        bool m_ChangeDirty  = false; // the open change re-baked the volume
+        bool m_PendingRegen = false; // an Undo/Redo restored a state: re-bake next Update
         bool m_WasActive = false; // last frame's toolActive: opening the tool on a blockout reopens it
 
         float     m_GroundY    = 0.0f;    // ground work-plane height in the active grid frame (Level up/down)
         bool      m_GroundToPivot = false;   // Ctrl+MMB moved the pivot: next frame's ground goes through it
         bool      m_HoverValid = false;   // last frame's cursor targeting hit something
+        // The scene entity (not this session's blockout) whose surface last frame's targeting snapped to, and
+        // the one the selection was made on: a Push/Pull there edits that entity's mesh (PushPullMesh).
+        Common::UUID m_HoverEntity = Common::UUID::Null();
+        Common::UUID m_SelEntity   = Common::UUID::Null();
+        // Outlives nothing but the tool: a scene-mesh undo step (PushPullMesh) holds it weakly, so its selection
+        // half is skipped once the tool is gone, while the mesh half stays undoable.
+        std::shared_ptr<int> m_Alive = std::make_shared<int>( 0 );
 
         // Work-plane (in BASE cells): locked while selecting and kept for the active selection.
         Geometry::VoxelBlockout::WorkPlane m_Plane;

@@ -10,7 +10,7 @@
 #include <Editor/Core/IconsMaterialDesignIcons.hpp>
 #include <Editor/Core/ImGuiUtilities.hpp>
 
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <Common/Core/JobSystem.hpp>
 #include <Common/Content/ContentChunks.hpp>
@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <iterator>
 #include <string>
 
@@ -315,11 +316,10 @@ namespace Desert::Editor
             if ( HostPlatformInfo().Platform == TargetPlatform::MacOS && m_LastSuccess &&
                  ImGui::Button( ICON_MDI_FOLDER_OPEN "  Reveal in Finder" ) )
             {
-                std::string quoted = "'";
+                std::string escaped;
                 for ( const char c : m_LastPackageDir )
-                    quoted += c == '\'' ? std::string( "'\\''" ) : std::string( 1, c );
-                quoted += "'";
-                std::system( ( "open " + quoted ).c_str() );
+                    escaped += c == '\'' ? std::string( "'\\''" ) : std::string( 1, c );
+                std::system( std::format( "open '{}'", escaped ).c_str() );
             }
         }
     }

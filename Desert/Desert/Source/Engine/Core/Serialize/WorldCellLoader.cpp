@@ -15,7 +15,12 @@ namespace Desert::Core
     WorldCellLoader::~WorldCellLoader()
     {
         for ( Flight const& flight : m_Flights )
+        {
             flight.Result.wait();
+            m_Source->ReleaseUnit( flight.Unit );
+        }
+        for ( const auto& [unit, records] : m_Ready )
+            m_Source->ReleaseUnit( unit );
     }
 
     void WorldCellLoader::Start( std::size_t unit, std::uint64_t ticket )
@@ -25,6 +30,7 @@ namespace Desert::Core
         flight.Unit   = unit;
         flight.Ticket = ticket;
         flight.HoldTicks = m_DebugDelayTicks;
+        m_Source->HoldUnit( unit ); // released by Unload, or when the load turns out cancelled or failed
         flight.Result = Common::JobSystem::Get().Async(
              [source = std::move( source ), unit]
              {
@@ -51,7 +57,8 @@ namespace Desert::Core
 
     void WorldCellLoader::Unload( std::size_t unit )
     {
-        m_Ready.erase( unit );
+        if ( m_Ready.erase( unit ) > 0 )
+            m_Source->ReleaseUnit( unit );
     }
 
     std::vector<Rules::LoadOutcome> WorldCellLoader::TakeFinished()
@@ -74,14 +81,20 @@ namespace Desert::Core
             Read read = flight.Result.get();
             m_WorkerMs += read.Ms;
             if ( flight.Cancelled )
+            {
+                m_Source->ReleaseUnit( flight.Unit );
                 continue;
+            }
             if ( read.Records.has_value() )
             {
                 m_Ready[flight.Unit] = std::move( *read.Records );
                 finished.push_back( { flight.Unit, flight.Ticket, true, {} } );
             }
             else
+            {
+                m_Source->ReleaseUnit( flight.Unit );
                 finished.push_back( { flight.Unit, flight.Ticket, false, std::move( read.Error ) } );
+            }
         }
         m_Flights = std::move( still );
         return finished;

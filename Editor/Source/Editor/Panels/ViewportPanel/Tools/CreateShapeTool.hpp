@@ -95,5 +95,7 @@ namespace Desert::Editor::Tools
         std::vector<FeatureEdge>           m_Edges;
         bool                               m_HasBuilt = false;
         ToolCursor                         m_Cursor   = ToolCursor::None;
+        // Whether the scene's tool preview is this tool's (ShowPreview ran since it last stopped).
+        bool m_PreviewShown = false;
     };
 } // namespace Desert::Editor::Tools

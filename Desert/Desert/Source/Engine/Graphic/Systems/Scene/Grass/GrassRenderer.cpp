@@ -6,12 +6,14 @@
 // instead of a HISM component.
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
@@ -20,6 +22,7 @@
 #include <bit>
 #include <cmath>
 #include <format>
+#include <optional>
 
 namespace Desert::Graphic::System
 {
@@ -49,17 +52,6 @@ namespace Desert::Graphic::System
             glm::vec4  Lean;    // x = Tilt (radians), y = FacingJitter (radians)
         };
         static_assert( sizeof( GrassParamsGpu ) == 240 );
-
-        // Mirrors Vertex_GrassBlade.glslh's GrassBladeShape (std430).
-        struct GrassBladeShapeGpu
-        {
-            glm::vec4 Size; // Height, Width, Taper, Curvature
-            glm::vec4 Base; // BaseColor, Stiffness
-            glm::vec4 Tip;  // TipColor, DryTipShare
-            glm::vec4 Dry;  // DryTipColor, DryTipLength
-            glm::vec4 Bend; // CurvatureSpread, BendSpread
-        };
-        static_assert( sizeof( GrassBladeShapeGpu ) == 80 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -125,6 +117,73 @@ namespace Desert::Graphic::System
             for ( int i = 0; i < 4; ++i )
                 planes[i] = raw[i] / glm::length( glm::vec3( raw[i] ) );
         }
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct GrassGenerateShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Field );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Params );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Instances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+        };
+
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct GrassFinalizeShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Feedback );
+        };
+
+        // WHAT A VARIETY ASKS OF ITS TEXTURES (TEX-STREAMING). UE streams a grass HISM's textures like any
+        // primitive's: the distance from the view to the component's bounds, the mesh's size at that distance
+        // (FRenderAssetInstanceView). The instances live only on the GPU here, so the nearest one is taken where
+        // it can grow: the field's ground nearest the camera (its sample under the eye, the eye clamped onto the
+        // field), out to the variety's EndCullDistance through this lens. Without it every grass texture kept the
+        // tail it was loaded with (mip 4 of a 2K atlas) at the camera's feet: a near patch of thin grey stalks.
+        void NoteVarietyTextureDemand( const GrassVarietyDraw& variety, const Desert::Mesh& mesh,
+                                       const GrassFieldData& field, const ViewFrame& frame )
+        {
+            const std::vector<uint32_t>& w          = field.Words;
+            const uint32_t               viewHeight = frame.Split.Output.Height;
+            if ( w.size() < 8 || w[0] == 0 || w[1] == 0 || viewHeight == 0 )
+                return;
+            const glm::vec3 eye     = frame.CameraPosition;
+            const glm::vec2 origin  = { std::bit_cast<float>( w[4] ), std::bit_cast<float>( w[5] ) };
+            const float     spacing = std::bit_cast<float>( w[6] );
+            if ( !( spacing > 0.0f ) || w.size() < 8ull + static_cast<uint64_t>( w[0] ) * w[1] )
+                return;
+            const auto sampleOf = [&]( const float at, const float from, const uint32_t count )
+            {
+                const float i = std::round( ( at - from ) / spacing );
+                return static_cast<uint32_t>( std::clamp( i, 0.0f, static_cast<float>( count - 1 ) ) );
+            };
+            const uint32_t sx     = sampleOf( eye.x, origin.x, w[0] );
+            const uint32_t sz     = sampleOf( eye.z, origin.y, w[1] );
+            const float    height = std::bit_cast<float>( w[8 + static_cast<size_t>( sz ) * w[0] + sx] );
+            // No tile loaded under the nearest sample: the ground is not known, so the eye's own height stands for
+            // it (the nearest an instance can be is then the camera itself - all the mips, never too few).
+            const glm::vec3         ground = { origin.x + static_cast<float>( sx ) * spacing,
+                                       height == kGrassNoHeight ? eye.y : height,
+                                               origin.y + static_cast<float>( sz ) * spacing };
+            const Geometry::LODView view{ eye, frame.Projection };
+            if ( glm::length( ground - eye ) > variety.Placement.EndCullDistance * DrawDistanceScale( view ) )
+                return;
+            const GrassPlacement& p        = variety.Placement;
+            const float           maxScale = std::max( { p.ScaleX.y, p.ScaleY.y, p.ScaleZ.y, 1.0e-3f } );
+            float                 radius   = 0.0f;
+            if ( variety.Blade )
+                radius = 0.5f * variety.Blade->Height;
+            else
+            {
+                const Common::Math::AABB bounds = Geometry::LocalBounds( mesh.GetSubmeshes() );
+                radius                          = 0.5f * glm::length( bounds.Max - bounds.Min );
+            }
+            const float pixels = TextureStreamingDemand::ScreenPixels( ground + glm::vec3( 0.0f, radius, 0.0f ),
+                                                                       radius * maxScale, view, viewHeight );
+            for ( const GrassSectionDraw& section : variety.Sections )
+                if ( section.Material )
+                    TextureStreamingDemand::Get().Note( section.Material->GetParentMaterial(), pixels );
+        }
+
     } // namespace
 
     Common::BoolResultStr GrassRenderer::Initialize()
@@ -160,24 +219,11 @@ namespace Desert::Graphic::System
             sm.Name         = std::format( "Blade{}", level );
             sm.VertexOffset = static_cast<uint32_t>( vertices.size() );
             sm.IndexOffset  = static_cast<uint32_t>( indices.size() * 3u );
-            for ( uint32_t row = 0; row <= level; ++row )
-            {
-                const float t = static_cast<float>( row ) / static_cast<float>( level );
-                for ( const float side : { -1.0f, 1.0f } )
-                    vertices.push_back( { .Position  = glm::vec3( side, t, 0.0f ),
-                                          .Normal    = glm::vec3( 0.0f, 0.0f, 1.0f ),
-                                          .Tangent   = glm::vec3( 1.0f, 0.0f, 0.0f ),
-                                          .Bitangent = glm::vec3( 0.0f, 1.0f, 0.0f ),
-                                          .TexCoord  = glm::vec2( side * 0.5f + 0.5f, t ) } );
-            }
-            for ( uint32_t row = 0; row < level; ++row )
-            {
-                const uint32_t a = row * 2u;
-                indices.push_back( { a, a + 1u, a + 2u } );
-                indices.push_back( { a + 1u, a + 3u, a + 2u } );
-            }
-            sm.VertexCount = ( level + 1u ) * 2u;
-            sm.IndexCount  = level * 6u;
+            const GrassBladeStripLevel blade = MakeGrassBladeStripLevel( level );
+            sm.VertexCount                   = static_cast<uint32_t>( blade.Vertices.size() );
+            sm.IndexCount                    = static_cast<uint32_t>( blade.Indices.size() * 3u );
+            vertices.insert( vertices.end(), blade.Vertices.begin(), blade.Vertices.end() );
+            indices.insert( indices.end(), blade.Indices.begin(), blade.Indices.end() );
             sm.Transform   = glm::mat4( 1.0f );
             sm.BoundingBox = Common::Math::AABB{ glm::vec3( -1.0f, 0.0f, 0.0f ), glm::vec3( 1.0f, 1.0f, 0.0f ) };
             submeshes.push_back( std::move( sm ) );
@@ -227,7 +273,7 @@ namespace Desert::Graphic::System
             const GrassBladeDraw& b = *variety.Blade;
             boundsHeight            = 0.5f * b.Height;
             boundsRadius            = boundsHeight * ( 1.0f + b.Curvature * ( 1.0f + b.CurvatureSpread ) ) +
-                           b.Height * std::sin( glm::radians( b.Tilt ) ) + b.Width + variety.Wind.Strength;
+                           b.Height * std::sin( glm::radians( b.Tilt ) ) + b.MaxWidth + variety.Wind.Strength;
         }
         else
         {
@@ -267,15 +313,22 @@ namespace Desert::Graphic::System
         if ( gpu.LowFrames.size() != buckets )
             gpu.LowFrames.assign( buckets, 0u );
 
-        // Per bucket: every cell whose jittered instance can lie within its ring of the cull radius - and, through
-        // a perspective lens, within what that lens can see of the ring - bounds the capacity (`bound`, every cell
-        // kept); the lens share's floor gives the fewest it can keep (`floor`, flat ground everywhere). Between
-        // them only the terrain decides, and the GPU's own count of last frames says what it decided: the capacity
-        // follows that count (UE-style GPU feedback rather than a CPU guess of the slopes), growing at once to
-        // the count plus a quarter, shrinking only after kShrinkFrames frames in a row two steps (half) above it.
+        // Per bucket the capacity holds what the generator ACTUALLY keeps, not what it could (UE grass: a
+        // component's instance buffer is sized by the instances its builder produced, never by density x area).
+        // Every cell whose jittered instance can lie within the bucket's ring of the cull radius - and, through
+        // a perspective lens, within what that lens can see of the ring - only BOUNDS it (`bound`, every cell
+        // kept): the layer's weight, the density range, slopes and the lens share drop most of those cells, and
+        // sizing for the bound held 932 MB of instances on FIELD_Barn (FIELD-MEM) for a fraction drawn. The
+        // GPU's own uncapped count of last frames (GrassFinalize) says what was kept: the capacity follows it,
+        // growing at once to the count plus a quarter, shrinking only after kShrinkFrames frames in a row two
+        // steps (half) above it. Until the first count comes back (FramesInFlight frames after the variety
+        // appears) the capacity is zero: those frames only count, and the field appears once it is measured.
         constexpr uint32_t    kShrinkFrames = 60;
         std::vector<uint32_t> capacities( buckets );
         uint32_t              capacity = 0;
+        // The first bucket whose read-back count exceeds the capacity it was drawn with (GrassGenerate dropped the
+        // rest): the frames since drew a truncated field (InstancesSettling).
+        std::optional<uint32_t> overflowed;
         for ( uint32_t b = 0; b < buckets; ++b )
         {
             const double inner = buckets == 1u ? 0.0 : static_cast<double>( b ) * lodDistance;
@@ -286,20 +339,12 @@ namespace Desert::Graphic::System
                 needed = std::min<uint32_t>(
                      needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
                                                                ( static_cast<double>( cell ) * cell ) ) ) );
-            const uint32_t bound = needed;
-            // The floor's count is a binomial draw over the cells: four standard deviations above its mean (and a
-            // floor for the smallest rings) before GrassFinalize's clamp would drop one.
-            if ( keepShare < 1.0f && needed > 0u )
-            {
-                const double mean = static_cast<double>( needed ) * keepShare;
-                needed            = std::min<uint32_t>(
-                     needed, static_cast<uint32_t>( std::ceil( mean + 4.0 * std::sqrt( mean ) + 64.0 ) ) );
-            }
-            uint32_t target = needed;
-            if ( fedBack && keepShare < 1.0f )
-                target = std::max( target, std::min( bound, counted[b] + counted[b] / 4u + 64u ) );
+            const uint32_t bound  = needed;
+            const uint32_t target = fedBack ? std::min( bound, counted[b] + counted[b] / 4u + 64u ) : 0u;
             const uint32_t step = CapacityStep( target );
             const uint32_t held = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
+            if ( fedBack && counted[b] > held && !overflowed )
+                overflowed = b;
             if ( step >= held || held > CapacityStep( bound ) )
             {
                 capacities[b]    = step;
@@ -319,6 +364,27 @@ namespace Desert::Graphic::System
             capacity += capacities[b];
         }
 
+        // Settling (InstancesSettling): nothing counted yet (capacity zero, the field is not drawn), or an
+        // overflow read now - the frames still in flight were drawn with the old capacity too, so the variety
+        // settles only after that many read-backs within capacity.
+        const uint32_t settleReads = EngineContext::GetInstance().GetMaxFramesInFlight();
+        if ( !fedBack )
+            gpu.SettleReads = settleReads;
+        else if ( overflowed )
+        {
+            if ( !gpu.Truncated )
+                LOG_INFO( "[Grass] variety {:016x} (layer {}) truncated {}->{} in bucket {} of {}: the field drew "
+                          "without the rest until the capacity grows",
+                          variety.Key, variety.Layer, counted[*overflowed],
+                          gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[*overflowed] : 0u,
+                          *overflowed, buckets );
+            gpu.Truncated   = true;
+            gpu.SettleReads = settleReads;
+        }
+        else if ( gpu.SettleReads > 0u && --gpu.SettleReads == 0u )
+            gpu.Truncated = false;
+        m_Settling = m_Settling || gpu.SettleReads > 0u;
+
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
              gpu.BucketCapacities != capacities || !gpu.Instances )
         {
@@ -328,8 +394,9 @@ namespace Desert::Graphic::System
             gpu.BucketCapacities = capacities;
             if ( gpu.Index == 0 )
                 gpu.Index = ++m_NextIndex;
-            gpu.Instances           = ShaderResources::StorageBuffer::Create( "GrassInstances",
-                                                                              capacity * sizeof( glm::mat4 ), 2, true );
+            // One instance's room even at zero capacity: a counting-only frame still binds the buffer.
+            gpu.Instances           = ShaderResources::StorageBuffer::Create(
+                 "GrassInstances", std::max( capacity, 1u ) * sizeof( glm::mat4 ), 2, true );
             const auto submeshCount = static_cast<uint32_t>( submeshes.size() );
             const auto tableWord    = static_cast<uint32_t>( GpuInstanceArgsOffset( submeshCount ) / 4u );
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
@@ -369,11 +436,13 @@ namespace Desert::Graphic::System
         if ( variety.Blade )
         {
             const GrassBladeDraw&    b = *variety.Blade;
-            const GrassBladeShapeGpu shape{
-                 glm::vec4( b.Height, b.Width, b.Taper, b.Curvature ), glm::vec4( b.BaseColor, b.Stiffness ),
-                 glm::vec4( b.TipColor, b.DryTipShare ), glm::vec4( b.DryTipColor, b.DryTipLength ),
-                 glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
-            if ( const auto wrote = gpu.Shape->SetData( &shape, sizeof( shape ) ); !wrote.IsSuccess() )
+            const size_t             cards = std::min( b.Cards.size(), gpu.ShapeData.Cards.size() );
+            gpu.ShapeData =
+                 GrassBladeShapeGpu{ glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
+                                     glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
+            std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
+            if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
+                 !wrote.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the blade shape was not written: {}", wrote.GetError() );
                 return nullptr;
@@ -448,9 +517,12 @@ namespace Desert::Graphic::System
         return &gpu;
     }
 
-    void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes )
+    void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes,
+                                  const bool rayTracing )
     {
         m_Frame.clear();
+        m_Settling = false;
+        m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Finalize )
             return;
 
@@ -482,7 +554,8 @@ namespace Desert::Graphic::System
             for ( const GrassVarietyDraw& variety : field.Varieties )
             {
                 Desert::Mesh* mesh = variety.Blade ? BladeStrip( variety.Blade->Segments ) : variety.Mesh;
-                if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetIndexBuffer() )
+                if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
+                     mesh->GetGeometry().IndexCount == 0 )
                     continue;
                 VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame );
                 if ( gpu == nullptr )
@@ -505,19 +578,45 @@ namespace Desert::Graphic::System
                 gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
+                NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame );
 
+                std::vector<MeshRenderer::GpuInstancedRenderData> sections;
+                sections.reserve( variety.Sections.size() );
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
-                    meshes.SubmitGpuInstanced(
+                    sections.push_back(
                          { .Mesh     = mesh,
                            .Path     = variety.Blade ? MeshVertexPath::GrassBlade : MeshVertexPath::Instanced,
                            .Material = variety.Sections[s].Material,
-                           .HiddenSubmeshes = variety.Sections[s].HiddenSubmeshes,
-                           .CastShadows     = variety.Placement.CastDynamicShadow,
-                           .Wind            = variety.Wind,
-                           .Instances       = gpu->Instances,
-                           .BladeShape      = gpu->Shape,
-                           .Refs            = &gpu->Refs,
-                           .Key             = gpu->Index * 64u + s } );
+                           .HiddenSubmeshes  = variety.Sections[s].HiddenSubmeshes,
+                           .CastShadows      = variety.Placement.CastDynamicShadow,
+                           .Wind             = variety.Wind,
+                           .Instances        = gpu->Instances,
+                           .BladeShape       = gpu->Shape,
+                           .Refs             = &gpu->Refs,
+                           .Capacity         = gpu->Capacity,
+                           .BucketCapacities = gpu->BucketCapacities,
+                           .Key              = gpu->Index * 64u + s } );
+                // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
+                // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
+                // for a mesh (RayTracingGather.cpp).
+                if ( variety.Blade && m_BladeRayTracing.IsRequired() )
+                {
+                    uint64_t nonOpaque = 0;
+                    for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                        if ( MeshRenderer::ShadingOf( section ).Masked )
+                            nonOpaque |= ~section.HiddenSubmeshes;
+                    const auto blas =
+                         m_BladeRayTracing.PrepareVariety( graph, variety.Key, *mesh, gpu->ShapeData, nonOpaque );
+                    if ( blas )
+                        for ( MeshRenderer::GpuInstancedRenderData& section : sections )
+                            section.BladeGeometry = blas.GetValue();
+                    else
+                        LOG_ERROR(
+                             "[Grass] a blade variety is not in the view's TLAS; rays miss it this frame: {}",
+                             blas.GetError() );
+                }
+                for ( const MeshRenderer::GpuInstancedRenderData& section : sections )
+                    meshes.SubmitGpuInstanced( section );
             }
         }
         if ( m_Frame.empty() )
@@ -530,10 +629,13 @@ namespace Desert::Graphic::System
                  const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
                  for ( const VarietyGpu* gpu : m_Frame )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
-                          .Storage( "Field", gpu->FieldRef, RDG::Access::StorageRead )
-                          .Storage( "Params", gpu->ParamsRef, RDG::Access::StorageRead )
-                          .Storage( "Instances", gpu->Refs.Instances, RDG::Access::StorageWrite )
-                          .Storage( "Args", gpu->Refs.Args, RDG::Access::StorageWrite )
+                          .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
+                                    RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args,
+                                    RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::ivec4 ) ) );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -562,8 +664,10 @@ namespace Desert::Graphic::System
                  const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
                  for ( const VarietyGpu* gpu : m_Frame )
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
-                          .Storage( "Args", gpu->Refs.Args, RDG::Access::StorageWrite )
-                          .Storage( "Feedback", gpu->FeedbackRef, RDG::Access::StorageWrite );
+                          .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
+                                    RDG::Access::StorageWrite );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -577,5 +681,11 @@ namespace Desert::Graphic::System
                  }
                  return BOOLSUCCESS;
              } );
+
+        // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
+        // builds (SceneRenderer).
+        if ( const Common::BoolResultStr blades = m_BladeRayTracing.AddPass( graph ); !blades )
+            LOG_ERROR( "[Grass] the blade grass is not in the view's TLAS; rays miss it this frame: {}",
+                       blades.GetError() );
     }
 } // namespace Desert::Graphic::System

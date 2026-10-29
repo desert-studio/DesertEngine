@@ -8,7 +8,7 @@
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderCacheKey.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/ProjectContext.hpp>
 
 #include <Common/Core/Constants.hpp>
 #include <Common/Core/DevInstruments.hpp>
@@ -22,12 +22,16 @@
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/ContentScan.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/Serialization/ImportRecord.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Common/Content/ImportRecord.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Utilities/AssetRegistry.hpp>
 #include <Common/Utilities/PakFile.hpp>
 #include <Common/Utilities/PeImports.hpp>
+#include <Editor/Core/TextList.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #ifdef _WIN32
 #define popen _popen
@@ -43,8 +47,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <set>
 #include <span>
 #include <sstream>
 #include <string>
@@ -98,14 +105,25 @@ namespace Desert::Editor
                  .generic_string();
         }
 
+        // One file StageTree copied: its pak key, the copy in the cooked tree, and the file it was copied from.
+        // The source travels with the copy because a step that cooks from the staged content can need editor
+        // input the stage leaves out — a partitioned world's saved HLODs (Build HLODs) are read beside the
+        // SOURCE scene, since the stage never copies a .dhlod into the cooked tree.
+        struct StagedFile
+        {
+            std::string Key;
+            fs::path    Staged;
+            fs::path    Source;
+        };
+
         // Copies one census tree into the cooked tree at <cooked>/<PakKey>/<relative>, skipping raw mesh
         // sources and staging texture assets in their cooked form when asked (the project asset tree).
-        // `staged` receives ("<PakKey>/<relative>", staged file) for the steps that cook from the staged
-        // content (the partitioned worlds). THE SOURCE TREES ARE READ HERE AND NOWHERE ELSE on the way to an
-        // archive: the packer walks only Saved/Cooked/<Platform> (CollectCookedTree), as UE's pak step reads
+        // `staged` receives ("<PakKey>/<relative>", staged file, source file) for the steps that cook from the
+        // staged content (the partitioned worlds). THE SOURCE TREES ARE READ HERE AND NOWHERE ELSE on the way to
+        // an archive: the packer walks only Saved/Cooked/<Platform> (CollectCookedTree), as UE's pak step reads
         // only the cooker's output.
         bool StageTree( const PackagedTree& tree, const fs::path& cooked, bool developerInstruments,
-                        std::vector<std::pair<std::string, fs::path>>& staged, std::string& error )
+                        std::vector<StagedFile>& staged, std::string& error )
         {
             const fs::path& from = *tree.Tree;
             std::error_code ec;
@@ -135,6 +153,10 @@ namespace Desert::Editor
                 }
                 if ( IsLeftOutOfPackage( src, developerInstruments ) )
                     continue;
+                // A saved HLOD (Build HLODs) is editor input: it ships only as the cooked HLOD cell the world
+                // cook wraps it in, as UE ships the cooked HLOD actors and never the builder's output.
+                if ( src.extension() == ::Desert::Core::WorldCells::kBuiltHLODExtension )
+                    continue;
                 const std::string key = keyPrefix + "/" + rel.generic_string();
                 // A registry left on the disk from before the registry built itself (AF9) is not staged:
                 // the one the pak carries is written from this process's gather, under the same key, and a
@@ -160,7 +182,32 @@ namespace Desert::Editor
                         return false;
                     }
                 }
-                staged.emplace_back( key, target );
+                staged.push_back( { key, target, src } );
+
+                // A whole-file static mesh import (AF4h) has no `.stmesh` of its own and its raw source was just
+                // left out, so the asset the record stands for is staged in its cooked form beside the record
+                // (StageCookedImportedMesh) - the runtime finds the file the registry rows name, and reads it.
+                if ( tree.StripRawMeshSources && Common::Content::IsImportRecord( src ) )
+                {
+                    const fs::path meshAsset = Common::Content::MeshAssetOfImportRecord( src );
+                    const auto     wholeFile = IsWholeFileMeshImport( src );
+                    if ( !wholeFile.IsSuccess() )
+                    {
+                        error = wholeFile.GetError();
+                        return false;
+                    }
+                    // A split import's node meshes are `.stmesh` files, staged as files like any other.
+                    if ( !wholeFile.GetValue() || fs::exists( meshAsset, ec ) )
+                        continue;
+                    const fs::path meshTarget = target.parent_path() / meshAsset.filename();
+                    if ( auto written = StageCookedImportedMesh( src, meshTarget ); !written.IsSuccess() )
+                    {
+                        error = written.GetError();
+                        return false;
+                    }
+                    staged.push_back(
+                         { meshTarget.lexically_relative( cooked ).generic_string(), meshTarget, meshAsset } );
+                }
             }
             return true;
         }
@@ -193,10 +240,17 @@ namespace Desert::Editor
         // WorldCells::CookedWorldDirectory of the scene's key. Cooked here, from the scene as it is on disk, with
         // the registry the editor plans with — so the cells are the ones the editor's Play streams. A scene
         // file that states a partition and does not cook fails the package: the game would fail on it too.
-        bool CollectCookedWorlds( const std::vector<std::pair<std::string, fs::path>>& staged,
-                                  std::vector<std::pair<std::string, std::string>>& baseBlobs, std::string& error )
+        //
+        // A WORLD THAT STATES ChunkRegionSize (WP23) is not pinned to the base: its files go to `chunked` (written
+        // into the cooked tree, divided by the plan) and its RegionChunkGroup to `groups` — the Shared chunk takes
+        // the index, the always-loaded file and the HLODs with the always-loaded units' and HLODs' assets as
+        // roots, each region chunk its cells' files with the union of those cells' assets as roots.
+        bool CollectCookedWorlds( const std::vector<StagedFile>&                       staged,
+                                  std::vector<std::pair<std::string, std::string>>&    baseBlobs,
+                                  std::vector<std::pair<std::string, std::string>>&    chunked,
+                                  std::vector<Common::Content::RegionChunkGroup>& groups, std::string& error )
         {
-            for ( const auto& [key, path] : staged )
+            for ( const auto& [key, path, source] : staged )
             {
                 if ( path.extension() != ".desce" )
                     continue;
@@ -219,20 +273,74 @@ namespace Desert::Editor
                     continue;
                 // The same mesh and landscape HLOD builders editor Play uses (WP-FAR-7, WP-FAR-6).
                 const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
-                auto       cooked     = ::Desert::Core::WorldCells::CookWorld(
+                // The HLODs Build HLODs saved beside the scene (WP-FAR-6B D1): packed, never built here. Read
+                // beside the SOURCE scene: the stage leaves every .dhlod out of the cooked tree (StageTree), so
+                // the staged copy has none. The baked HLOD materials and textures they name are ordinary
+                // content: staged with the rest of the tree, rowed in the registry gathered above, and listed
+                // in each HLOD unit's asset closure through the records' references.
+                auto hlods  = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld(
                      scene.GetValue().Scene, registries, ::Desert::Core::WorldCells::PrefabFileReader(),
-                     ::Desert::Core::MakeHLODMeshBuilder( registries ),
-                     ::Desert::Core::MakeLandscapeHLODBuilder() );
+                     hlods ? &hlods.GetValue() : nullptr );
                 if ( !cooked )
                 {
-                    error = "cooking the world '" + key + "': " + cooked.GetError();
+                    error = "cooking the world '" + key + "': " + cooked.GetError() +
+                            ( hlods ? "" : " (" + hlods.GetError() + ")" );
                     return false;
                 }
                 const std::string directory = ::Desert::Core::WorldCells::CookedWorldDirectory( key );
-                for ( const auto& file : cooked.GetValue().Files )
+                const auto&       index     = cooked.GetValue().Index;
+                auto              layout    = ::Desert::Core::WorldCells::ChunkLayoutOf( index, directory );
+                if ( !layout )
                 {
-                    baseBlobs.emplace_back( directory + file.Name,
-                                            std::string( file.Bytes.begin(), file.Bytes.end() ) );
+                    error = "dividing the world '" + key + "' into chunks: " + layout.GetError();
+                    return false;
+                }
+                if ( layout.GetValue().has_value() )
+                {
+                    const auto&                       division = *layout.GetValue();
+                    Common::Content::RegionChunkGroup group;
+                    group.Shared = division.Shared;
+                    std::set<std::string>                        sharedRoots;
+                    std::map<std::string, std::set<std::string>> regionRoots;
+                    for ( const std::string& region : division.Regions )
+                        regionRoots[region];
+                    for ( const auto& unit : index.Units )
+                    {
+                        if ( unit.Reason.has_value() )
+                            sharedRoots.insert( unit.Assets.begin(), unit.Assets.end() );
+                        else
+                            regionRoots[division.FileChunk.at( unit.File )].insert( unit.Assets.begin(),
+                                                                                    unit.Assets.end() );
+                    }
+                    for ( const auto& hlod : index.HLODs )
+                        sharedRoots.insert( hlod.Assets.begin(), hlod.Assets.end() );
+                    group.SharedRoots.assign( sharedRoots.begin(), sharedRoots.end() );
+                    for ( const auto& [region, roots] : regionRoots )
+                        group.Regions.push_back(
+                             { region, std::vector<std::string>( roots.begin(), roots.end() ) } );
+                    for ( const auto& file : cooked.GetValue().Files )
+                    {
+                        const auto chunk = division.FileChunk.find( file.Name );
+                        if ( chunk == division.FileChunk.end() )
+                        {
+                            error = "dividing the world '" + key + "': its cook wrote '" + file.Name +
+                                    "', which its layout places in no chunk";
+                            return false;
+                        }
+                        group.Files.emplace( directory + file.Name, chunk->second );
+                        chunked.emplace_back( directory + file.Name,
+                                              std::string( file.Bytes.begin(), file.Bytes.end() ) );
+                    }
+                    LOG_INFO( "[Package] world '{}' divided into '{}' + {} region chunk(s)", key, group.Shared,
+                              group.Regions.size() );
+                    groups.push_back( std::move( group ) );
+                }
+                else
+                {
+                    for ( const auto& file : cooked.GetValue().Files )
+                        baseBlobs.emplace_back( directory + file.Name,
+                                                std::string( file.Bytes.begin(), file.Bytes.end() ) );
                 }
                 LOG_INFO( "[Package] world '{}' cooked into {} file(s) under '{}'", key,
                           cooked.GetValue().Files.size(), directory );
@@ -259,11 +367,12 @@ namespace Desert::Editor
         // already wiped the tree and staged the DDC buckets into it. `baseKeys` receives the keys that must
         // land in the base archive whatever the chunk plan says (registry, worlds, descriptor: the game reads
         // them before it knows which chunks exist).
-        bool StageShippedContent( std::vector<std::string>& baseKeys, bool developerInstruments,
-                                  std::string& error )
+        bool StageShippedContent( std::vector<std::string>&                       baseKeys,
+                                  std::vector<Common::Content::RegionChunkGroup>& worldGroups,
+                                  bool developerInstruments, std::string& error )
         {
             const fs::path                                cooked = Common::DDC::PlatformCookedDir();
-            std::vector<std::pair<std::string, fs::path>> staged;
+            std::vector<StagedFile>                       staged;
             for ( const PackagedTree& tree : PackagedContentTrees() )
                 if ( !StageTree( tree, cooked, developerInstruments, staged, error ) )
                     return false;
@@ -280,7 +389,8 @@ namespace Desert::Editor
             for ( const std::string& key : leftOutRows )
                 shipped.Remove( key );
             pinned.emplace_back( ShippedRegistryKey(), shipped.Serialize() );
-            if ( !CollectCookedWorlds( staged, pinned, error ) )
+            std::vector<std::pair<std::string, std::string>> chunkedWorldFiles;
+            if ( !CollectCookedWorlds( staged, pinned, chunkedWorldFiles, worldGroups, error ) )
                 return false;
             // A dev pak that carried content but no identity was an archive only the other entry point's
             // output could be started from; both entry points stage the same descriptor.
@@ -299,6 +409,19 @@ namespace Desert::Editor
                     return false;
                 }
                 baseKeys.push_back( key );
+            }
+            // The divided worlds' files land in the cooked tree like every other file; the plan, not the base
+            // pin, decides their archive (ChunkPlan::FileChunk).
+            for ( const auto& [key, bytes] : chunkedWorldFiles )
+            {
+                const fs::path target = cooked / key;
+                fs::create_directories( target.parent_path(), ec );
+                if ( auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( target, bytes );
+                     !written.IsSuccess() )
+                {
+                    error = "the cooked tree could not take '" + key + "': " + written.GetError();
+                    return false;
+                }
             }
             return true;
         }
@@ -362,9 +485,11 @@ namespace Desert::Editor
         // the package by path, and a one-archive project says so in its file (owner, 2026-09-25).
         // It is READ by the caller before the cook (see PackageGame), and only the plan is built
         // here, because the plan needs the registry the cook and the gather produce.
-        Common::ResultStr<Common::Content::ChunkPlan> PlanTheDivision( const Common::Content::ChunkScheme& scheme )
+        Common::ResultStr<Common::Content::ChunkPlan>
+        PlanTheDivision( const Common::Content::ChunkScheme&                   scheme,
+                         const std::vector<Common::Content::RegionChunkGroup>& worldGroups )
         {
-            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme );
+            return Common::Content::BuildChunkPlan( Assets::ContentRegistry::Get(), scheme, worldGroups );
         }
 
         // What the packager says about the division, so a one-archive project and a divided one are
@@ -520,39 +645,35 @@ namespace Desert::Editor
         if ( !gathered )
             return "The asset registry could not be gathered: " + gathered.GetError();
 
-        std::string text;
-        if ( !refused.empty() )
+        // Each non-empty list is one section: its count and what is wrong, then one indented line per item.
+        static const ::Desert::Core::TextTemplate kSection(
+             "PackagedRegistryProblems",
+             "{{ items | length }} {{ what }}:{% for item in items %}\n  {{ item }}{% endfor %}" );
+        std::vector<std::string> sections;
+        const auto               section = [&]( const std::vector<std::string>& items, std::string_view what )
         {
-            text = std::to_string( refused.size() ) +
-                   " content file(s) on the disk this package is built from could not enter the asset registry, "
-                   "so the packaged game could not load them:";
-            for ( const std::string& refusal : refused )
-                text += "\n  " + refusal;
-        }
+            if ( items.empty() )
+                return;
+            sections.push_back( kSection.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "items", TextTemplates::StringList( items ) )
+                                           .Set( "what", what )
+                                           .Build() ) ) );
+        };
+        section( refused, "content file(s) on the disk this package is built from could not enter the asset "
+                          "registry, so the packaged game could not load them" );
         // T2.7: a noise volume, hero-cloud body or painted layout is created from its row by GUID when a scene
         // names it, so one reachable only by its path would ship as a reference nothing can resolve. (Checked
         // here since AF8: the packager is the one writer of the shipped registry.)
         const std::vector<std::string> pathOnly =
              Common::Content::PathOnlyOnDemandRows( Assets::ContentRegistry::Get() );
-        if ( !pathOnly.empty() )
-        {
-            text += ( text.empty() ? "" : "\n" ) + std::to_string( pathOnly.size() ) +
-                    " on-demand content file(s) state no GUID, so the packaged game could not create them:";
-            for ( const std::string& problem : pathOnly )
-                text += "\n  " + problem;
-        }
+        section( pathOnly, "on-demand content file(s) state no GUID, so the packaged game could not create them" );
         // A mesh cooked before its header stated its box would ship a row without one, and the game's world
         // partition would place it by its origin alone. The packager does not decode meshes (the standalone
         // tool does not link the mesh reader), so it names them instead of shipping them boxless.
-        if ( !unboxed.empty() )
-        {
-            text += ( text.empty() ? "" : "\n" ) + std::to_string( unboxed.size() ) +
-                    " mesh(es) state no box in their header — re-cook them in the editor (Assets > Rebuild "
-                    "Cooked Assets) before packaging:";
-            for ( const std::string& key : unboxed )
-                text += "\n  " + key;
-        }
-        return text;
+        section( unboxed, "mesh(es) state no box in their header — re-cook them in the editor (Assets > Rebuild "
+                          "Cooked Assets) before packaging" );
+        return TextTemplates::JoinList( sections, "\n" );
     }
 
     namespace
@@ -600,8 +721,8 @@ namespace Desert::Editor
         Common::BoolResultStr Run( const std::string& command )
         {
             if ( const CommandOutput done = RunCaptured( command ); done.Status != 0 )
-                return Common::MakeError( "'" + command + "' failed (status " + std::to_string( done.Status ) +
-                                          "): " + done.Text );
+                return Common::MakeError(
+                     std::format( "'{}' failed (status {}): {}", command, done.Status, done.Text ) );
             return Common::MakeSuccess( true );
         }
 
@@ -910,7 +1031,14 @@ namespace Desert::Editor
         // one rule on both sides. A plain folder: beside the player binary. A .app: Contents/Resources —
         // Apple's signing rule keeps Contents/MacOS for code only. The player needs no flag and no launcher
         // to find it; running the binary directly works.
-        const fs::path root    = fs::path( options.OutputDir ) / ( bundle ? safeName + ".app" : safeName );
+        // ONE BASE FOR EVERY WRITE UNDER OutputDir (WP23): the folder is relative to the editor cwd (the
+        // option's contract), and std::filesystem resolves it there — but FileSystem::WriteContentToFileAtomic
+        // resolves a relative path off the PROJECT, so the release manifest went to <project>/Build/Output,
+        // a folder nothing had created, and Package Game failed after the whole cook. Absolute once, here.
+        const fs::path outputDir = fs::absolute( fs::path( options.OutputDir ), ec );
+        if ( ec )
+            return { false, "Cannot resolve the output dir " + options.OutputDir + ": " + ec.message(), "" };
+        const fs::path root       = outputDir / ( bundle ? safeName + ".app" : safeName );
         const fs::path gameDir = bundle ? root / "Contents" / "MacOS" : root;
         const char*    binName = bundle ? kBundlePlayerBinary : host.RuntimeBinary;
         const fs::path contentDir = Common::Utils::FileSystem::PackagedContentDir( gameDir );
@@ -991,12 +1119,13 @@ namespace Desert::Editor
         std::string                                      divisionSummary;
         {
             // Everything that ships is staged into the one cooked tree, then packed from it and from nothing else.
-            std::vector<std::string> baseKeys;
-            if ( !StageShippedContent( baseKeys, developerInstruments, error ) ||
+            std::vector<std::string>                       baseKeys;
+            std::vector<Common::Content::RegionChunkGroup> worldGroups;
+            if ( !StageShippedContent( baseKeys, worldGroups, developerInstruments, error ) ||
                  !CollectCookedTree( baseKeys, contentFiles, baseBlobs, stats, error ) )
                 return { false, error, "" };
 
-            const auto plan = PlanTheDivision( scheme.GetValue() );
+            const auto plan = PlanTheDivision( scheme.GetValue(), worldGroups );
             if ( !plan )
                 return { false, plan.GetError(), "" };
 
@@ -1030,7 +1159,7 @@ namespace Desert::Editor
         // EVERY ARCHIVE OF THE SET, not just the base. A manifest that described only the base would
         // report every chunked file as REMOVED the next time a patch was generated, and the patch
         // would re-ship the whole division to "restore" content that never left.
-        const fs::path manifestPath = fs::path( options.OutputDir ) / ( safeName + kContentManifestExtension );
+        const fs::path manifestPath = outputDir / ( safeName + kContentManifestExtension );
         {
             Common::Utils::ContentManifest release;
             for ( const fs::path& archive : writtenArchives.Archives )
@@ -1200,14 +1329,15 @@ namespace Desert::Editor
         std::vector<std::pair<std::string, fs::path>>    contentFiles;
         std::vector<std::pair<std::string, std::string>> baseBlobs;
         std::vector<std::string>                         baseKeys;
-        if ( !StageShippedContent( baseKeys, DESERT_DEV_INSTRUMENTS != 0, error ) ||
+        std::vector<Common::Content::RegionChunkGroup>   worldGroups;
+        if ( !StageShippedContent( baseKeys, worldGroups, DESERT_DEV_INSTRUMENTS != 0, error ) ||
              !CollectCookedTree( baseKeys, contentFiles, baseBlobs, stats, error ) )
             return { false, error, "" };
 
         // AND THE SAME DIVISION. A dev archive set that was not divided the way the shipped one is
         // would make the developer's runtime read a layout no player ever gets, which is the one
         // property this entry point exists to avoid.
-        const auto plan = PlanTheDivision( scheme.GetValue() );
+        const auto plan = PlanTheDivision( scheme.GetValue(), worldGroups );
         if ( !plan )
             return { false, plan.GetError(), "" };
 

@@ -17,6 +17,20 @@
 #include <format>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct LandscapeRayTracingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeRayTracingRows );
+        DESERT_SHADER_PARAMETER( Texture, HeightmapTexture );
+        DESERT_SHADER_PARAMETER( Texture, WeightmapTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeRayTracingVertexData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeRayTracingIndexData );
+    };
+} // namespace
+
 namespace Desert::Graphic::RayTracing
 {
     namespace
@@ -65,14 +79,22 @@ namespace Desert::Graphic::RayTracing
         Core::Formats::MaterialParamRow row( kLandscapeRayHitRowSlots );
         std::memcpy( row.data(), &material.Instance, sizeof( System::TerrainInstance ) );
         constexpr std::size_t kTintSlot = sizeof( System::TerrainInstance ) / sizeof( glm::vec4 );
-        row[kTintSlot]                  = material.Tint;
+        row[kTintSlot]                  = material.Material.Tint;
         // Slot 0 is the bindless table's missing texture: a tile without a weightmap reads none (the hit group
         // tests the slot before it samples).
         const uint32_t weightmap =
              material.Weights.Weightmap != nullptr ? material.Weights.Weightmap->GetBindlessSlot().Index : 0u;
-        const uint32_t sampler = BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index;
-        row[kTintSlot + 1u] =
-             glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ), 0.0f, 0.0f );
+        const uint32_t sampler    = BindlessSamplerFor( kLandscapeWeightmapRaySampler ).Index;
+        const uint32_t mapSampler = BindlessSamplerFor( kLandscapeLayerMapRaySampler ).Index;
+        row[kTintSlot + 1u]       = glm::vec4( std::bit_cast<float>( weightmap ), std::bit_cast<float>( sampler ),
+                                               std::bit_cast<float>( mapSampler ), 0.0f );
+        constexpr std::size_t kValuesSlot = kTintSlot + 2u;
+        std::memcpy( &row[kValuesSlot], &material.Material.Values, sizeof( System::LandscapeMaterialValues ) );
+        constexpr std::size_t kMapsSlot =
+             kValuesSlot + sizeof( System::LandscapeMaterialValues ) / sizeof( glm::vec4 );
+        for ( std::size_t k = 0; k < material.Material.LayerMaps.size(); ++k )
+            row[kMapsSlot + k] = std::bit_cast<glm::vec4>( material.Material.LayerMaps[k] );
+        row[kMapsSlot + material.Material.LayerMaps.size()] = material.Material.ViewOrigin;
         return row;
     }
 
@@ -220,7 +242,7 @@ namespace Desert::Graphic::RayTracing
             m_Frame.Materials.push_back( { .GpuSceneRow = tile.GpuSceneRow,
                                            .Instance    = tile.Instance,
                                            .Weights     = tile.Weights,
-                                           .Tint        = tile.Tint } );
+                                           .Material    = tile.Material } );
             m_Frame.Opacity.push_back( LandscapeVisibilityOpacity( m_Frame.Materials.back() ) );
             m_Frame.VertexBytes += state.Target->GetBuildInputBytes();
             m_Frame.BlasBytes += state.Target->GetMemoryBytes();
@@ -248,18 +270,22 @@ namespace Desert::Graphic::RayTracing
                                                    std::format( "Landscape.RayTracing.Indices.{}", job.Entity ) );
             vertices.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Pipeline ) )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
-                 .Storage( "LandscapeRayTracingRows", rowBuffer, RDG::Access::StorageRead )
+                 .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingRows, rowBuffer,
+                           RDG::Access::StorageRead )
                  // Both maps are read only by texelFetch (Common/LandscapeHeight.glslh decodes the exact R16
                  // integer; the weights are fetched per vertex): separate textures through the point-clamped
                  // shared state.
-                 .Texture( "u_Heightmap", job.Heightmap, RDG::Access::SampledCompute,
-                           std::format( "Landscape.Heightmap.{}", job.Entity ) )
-                 .Texture( "u_Weightmap", job.Weightmap, RDG::Access::SampledCompute,
+                 .Texture( LandscapeRayTracingShaderParameters::HeightmapTexture, job.Heightmap,
+                           RDG::Access::SampledCompute, std::format( "Landscape.Heightmap.{}", job.Entity ) )
+                 .Texture( LandscapeRayTracingShaderParameters::WeightmapTexture, job.Weightmap,
+                           RDG::Access::SampledCompute,
                            job.HasWeightmap ? std::format( "Landscape.Weightmap.{}", job.Entity )
                                             : std::string( "Landscape.RayTracing.WeightmapFallback" ) )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Storage( "LandscapeRayTracingVertexData", job.Vertices, RDG::Access::StorageWrite )
-                 .Storage( "LandscapeRayTracingIndexData", job.Indices, RDG::Access::StorageWrite );
+                 .Sampler( LandscapeRayTracingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingVertexData, job.Vertices,
+                           RDG::Access::StorageWrite )
+                 .Storage( LandscapeRayTracingShaderParameters::LandscapeRayTracingIndexData, job.Indices,
+                           RDG::Access::StorageWrite );
         }
         std::vector<glm::uvec4> pushes;
         std::vector<uint32_t>   groups;

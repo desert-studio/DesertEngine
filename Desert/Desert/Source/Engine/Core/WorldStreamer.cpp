@@ -8,13 +8,18 @@
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
 
+#include <Common/Content/ContentChunks.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Common/Utilities/ProcessMemory.hpp>
 
 #include <Common/Json/Json.hpp>
 
 #include <algorithm>
+#include <format>
+#include <set>
 #include <chrono>
 #include <cmath>
+#include <map>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -29,20 +34,73 @@ namespace Desert::Core
         }
 
         // A cooked file's bytes through the VFS, so a pak and a loose directory read the same way. Called on
-        // JobSystem workers; a pak read opens its own stream (PakFile.cpp), so it is safe there.
-        WorldCells::FileReader VfsReader( std::string directory )
+        // JobSystem workers; a pak read opens its own stream (PakFile.cpp), so it is safe there. A file the
+        // packager shipped in an on-demand region chunk (WP23) mounts that chunk first — once, thread-safe; with
+        // no chunks registered (editor, loose cooked files) the mount does nothing.
+        using RegionChunks = std::shared_ptr<const std::map<std::string, std::string>>;
+        WorldCells::FileReader VfsReader( std::string directory, RegionChunks regions )
         {
-            return [directory = std::move( directory )](
+            return [directory = std::move( directory ), regions = std::move( regions )](
                         std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
             {
                 const std::string path = directory + std::string( name );
-                auto              read = Common::Utils::FileSystem::ReadByteFileContent( path );
+                if ( regions )
+                    if ( const auto chunk = regions->find( std::string( name ) ); chunk != regions->end() )
+                        if ( auto mounted = Common::Content::MountChunkOnDemand( chunk->second ); !mounted )
+                            return Common::MakeError<std::vector<unsigned char>>( "cooked world file '" + path +
+                                                                                  "' (chunk '" + chunk->second +
+                                                                                  "'): " + mounted.GetError() );
+                auto read = Common::Utils::FileSystem::ReadByteFileContent( path );
                 if ( !read )
                     return Common::MakeError<std::vector<unsigned char>>( "cooked world file '" + path +
                                                                           "': " + read.GetError() );
                 return Common::MakeSuccess( read.ExtractValue() );
             };
         }
+
+        // A cooked world's cells, holding each loaded cell's region chunk while the cell is loaded (WP23): the
+        // chunk unmounts when the last loaded cell of its region goes.
+        class RegionChunkCellSource final : public Rules::WorldCellSource
+        {
+        public:
+            RegionChunkCellSource( std::shared_ptr<const WorldCells::WorldIndex> index, std::string directory,
+                                   RegionChunks regions )
+                 : m_Index( std::move( index ) ), m_Regions( regions ),
+                   m_Cooked( *m_Index, VfsReader( std::move( directory ), std::move( regions ) ) )
+            {
+            }
+
+            [[nodiscard]] Common::ResultStr<std::vector<Assets::EntityData>>
+            UnitRecords( std::size_t unit ) const override
+            {
+                return m_Cooked.UnitRecords( unit );
+            }
+            void HoldUnit( std::size_t unit ) const override
+            {
+                if ( const std::string* chunk = ChunkOf( unit ) )
+                    if ( auto held = Common::Content::HoldChunkOnDemand( *chunk ); !held )
+                        LOG_ERROR( "[WorldPartition] unit {}: {}", unit, held.GetError() );
+            }
+            void ReleaseUnit( std::size_t unit ) const override
+            {
+                if ( const std::string* chunk = ChunkOf( unit ) )
+                    if ( auto released = Common::Content::ReleaseChunkOnDemand( *chunk ); !released )
+                        LOG_ERROR( "[WorldPartition] unit {}: {}", unit, released.GetError() );
+            }
+
+        private:
+            const std::string* ChunkOf( std::size_t unit ) const
+            {
+                if ( !m_Regions || unit >= m_Index->Units.size() )
+                    return nullptr;
+                const auto chunk = m_Regions->find( m_Index->Units[unit].File );
+                return chunk != m_Regions->end() ? &chunk->second : nullptr;
+            }
+
+            std::shared_ptr<const WorldCells::WorldIndex> m_Index;
+            RegionChunks                                  m_Regions;
+            WorldCells::CookedCellSource                  m_Cooked;
+        };
     } // namespace
 
     Common::ResultStr<std::optional<CookedWorldStart>> ReadCookedWorld( const std::string& scenePath )
@@ -54,14 +112,27 @@ namespace Desert::Core
         if ( !Common::Utils::FileSystem::Exists( indexPath ) )
             return Common::MakeSuccess( Result() );
 
-        const WorldCells::FileReader reader = VfsReader( world.Directory );
-        auto                         bytes  = reader( WorldCells::kIndexFileName );
+        // The index ships in the world's Shared chunk, mounted at start: read before any region is known.
+        auto bytes = VfsReader( world.Directory, nullptr )( WorldCells::kIndexFileName );
         if ( !bytes )
             return Common::MakeError<Result>( bytes.GetError() );
         auto index = WorldCells::ReadWorldIndex( indexPath, bytes.GetValue() );
         if ( !index )
             return Common::MakeError<Result>( index.GetError() );
         world.Index = std::make_shared<WorldCells::WorldIndex>( index.ExtractValue() );
+
+        auto layout = WorldCells::ChunkLayoutOf( *world.Index, world.Directory );
+        if ( !layout )
+            return Common::MakeError<Result>( indexPath + ": " + layout.GetError() );
+        if ( layout.GetValue().has_value() )
+        {
+            auto regions = std::make_shared<std::map<std::string, std::string>>();
+            for ( const auto& [file, chunk] : layout.GetValue()->FileChunk )
+                if ( chunk != layout.GetValue()->Shared )
+                    regions->emplace( file, chunk );
+            world.RegionChunkOfFile = std::move( regions );
+        }
+        const WorldCells::FileReader reader = VfsReader( world.Directory, world.RegionChunkOfFile );
 
         auto indexed = WorldCells::PlanFromIndex( *world.Index );
         if ( !indexed )
@@ -82,6 +153,7 @@ namespace Desert::Core
 
     Common::ResultStr<std::unique_ptr<WorldStreamer>>
     WorldStreamer::Begin( Scene& scene, Assets::AssetManager& assets, const std::string& snapshotJson,
+                          const std::filesystem::path&            scenePath,
                           std::span<const Rules::StreamingSource> instruments )
     {
         using Result       = std::unique_ptr<WorldStreamer>;
@@ -117,60 +189,90 @@ namespace Desert::Core
         streamer->m_Loader     = std::make_unique<WorldCellLoader>(
              std::make_shared<Rules::MemoryCellSource>( streamer->Executor().Plan(), snapshot->Entities ) );
         {
-            // The HLODs the cook would write, built from the snapshot by the same builder: editor Play shows
-            // what a cooked game shows while a cell is away.
+            // THE SAVED HLODs (WP-FAR-6B D1; UE: PIE shows what Build HLODs saved): Play reads them and never
+            // builds them. Missing or stale is a logged error naming the scene and the step; Play goes on without
+            // the HLODs concerned.
             const Rules::WorldPartitionPlan&              plan = streamer->Executor().Plan();
             std::unordered_map<Common::UUID, std::size_t> byId;
             for ( std::size_t record = 0; record < snapshot->Entities.size(); ++record )
                 byId.emplace( streamer->m_RecordIds[record], record );
-            const std::vector<glm::mat4>      world = Rules::Detail::ComposeWorld( snapshot->Entities, byId );
-            Common::Json::Issues              issues;
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
-            // The editor's registry is the one the cook reads, so Play excludes what the cook excludes.
-            const Rules::CustomShaderSource customShader =
-                 WorldCells::CustomShaderFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            const Rules::FoliageHLODSource foliageInHLOD =
-                 WorldCells::FoliageInHLODFrom( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            // The same layer and the same mesh builder the cook uses (WP-FAR-7), over the editor's registry.
             if ( auto layers = Rules::ValidateHLODLayers( *partition ); !layers )
                 return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
                                                   "': " + layers.GetError() );
-            const HLODLayerSerialized* const hlodLayer = Rules::CellHLODLayer( *partition );
-            const Rules::HLODMeshBuilder     meshBuilder =
-                 MakeHLODMeshBuilder( std::span( &Assets::ContentRegistry::Get(), 1 ) );
-            // The landscape HLOD (WP-FAR-6): every tile of a cell stands in as a mesh of its own heights.
-            const Rules::LandscapeHLODBuilder landscapeBuilder = MakeLandscapeHLODBuilder();
-            for ( std::size_t unit = plan.AlwaysLoaded.size();
-                  hlodLayer != nullptr && unit < Rules::ResidencyUnitCount( plan ); ++unit )
+            if ( Rules::AnyGridHLODLayer( *partition ) )
             {
-                auto builtCell = Rules::BuildCellHLOD( *hlodLayer, snapshot->Entities, world,
-                                                       Rules::ResidencyUnitMembers( plan, unit ), customShader,
-                                                       issues, foliageInHLOD, meshBuilder, landscapeBuilder );
-                if ( !builtCell )
-                    return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName + "', " +
-                                                      Rules::DescribeResidencyUnit( plan, unit ) + ": " +
-                                                      builtCell.GetError() );
-                const Rules::InstancingHLOD built = builtCell.ExtractValue();
-                for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
-                    holes.push_back( missing.Reason );
-                if ( built.Batches.empty() )
-                    continue;
-                CellHLOD          hlod{ unit, {} };
-                const std::string name = "HLOD " + Rules::DescribeResidencyUnit( plan, unit );
-                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+                auto stored = scenePath.empty()
+                                   ? Common::MakeError<WorldCells::StoredHLODs>(
+                                          "'" + snapshot->SceneName + "' is not saved, so it has no built HLODs" )
+                                   : WorldCells::ReadBuiltHLODs( scenePath );
+                if ( !stored )
                 {
-                    const Common::UUID id = Rules::HLODRecordId( snapshot->SceneName, name, batch );
-                    if ( id.IsNull() || byId.contains( id ) )
-                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                          "': the id of batch " + std::to_string( batch ) +
-                                                          " of " + name +
-                                                          " is null or a record's; rename the world" );
-                    hlod.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
+                    LOG_ERROR( "[WorldPartition] Play of '{0}' runs WITHOUT HLODs: {1}. Run Build > Build HLODs.",
+                               snapshot->SceneName, stored.GetError() );
                 }
-                hlods.push_back( std::move( hlod ) );
+                else
+                {
+                    // Shared with every HLOD read below: BeginHLODs runs them after this block has ended.
+                    const auto held = std::make_shared<const WorldCells::StoredHLODs>( stored.ExtractValue() );
+                    const auto registries = std::span( &Assets::ContentRegistry::Get(), 1 );
+                    const std::vector<Rules::EntityDescriptor> descriptors =
+                         Rules::DescribeEntities( snapshot->Entities );
+                    auto stale = WorldCells::StaleHLODCells( held->Index, *snapshot, descriptors, registries );
+                    if ( !stale )
+                        return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
+                                                          "': " + stale.GetError() );
+                    const std::set<std::string> staleUnits( stale.GetValue().begin(), stale.GetValue().end() );
+                    std::unordered_map<std::string, const WorldCells::BuiltHLODCell*> rows;
+                    for ( const WorldCells::BuiltHLODCell& row : held->Index.Cells )
+                        rows.emplace( row.Unit, &row );
+                    for ( std::size_t unit = plan.AlwaysLoaded.size(); unit < Rules::ResidencyUnitCount( plan );
+                          ++unit )
+                    {
+                        const std::string name = Rules::DescribeResidencyUnit( plan, unit );
+                        const auto        row  = rows.find( name );
+                        if ( staleUnits.contains( name ) || row == rows.end() )
+                        {
+                            LOG_ERROR(
+                                 "[WorldPartition] Play of '{0}': the saved HLOD of {1} is missing or stale, "
+                                 "so that cell has none. Run Build > Build HLODs.",
+                                 snapshot->SceneName, name );
+                            continue;
+                        }
+                        for ( const WorldCells::IndexNotInstanced& missing : row->second->NotInstanced )
+                            holes.push_back( missing.Reason );
+                        // A row without a file, or whose file lists no record, stands in for nothing.
+                        if ( !row->second->File.has_value() || row->second->Ids.empty() )
+                            continue;
+                        // Read when BeginHLODs makes it, not now (CellHLOD): the read shares `held` (this block
+                        // ends before that call); `byId` and `snapshot` outlive it.
+                        const WorldCells::BuiltHLODCell* cell = row->second;
+                        hlods.push_back( CellHLOD{
+                             unit,
+                             [held, &byId, &snapshot, cell,
+                              name]() -> Common::ResultStr<std::vector<Assets::EntityData>>
+                             {
+                                 using Records = std::vector<Assets::EntityData>;
+                                 auto records  = WorldCells::StoredCellRecords( *held, *cell );
+                                 if ( !records )
+                                     return Common::MakeError<Records>( "world streaming of '" +
+                                                                        snapshot->SceneName + "', " + name + ": " +
+                                                                        records.GetError() );
+                                 for ( const Assets::EntityData& record : records.GetValue() )
+                                     if ( byId.contains( *record.id ) )
+                                         return Common::MakeError<Records>(
+                                              "world streaming of '" + snapshot->SceneName +
+                                              "': an HLOD record of " + name +
+                                              " has a record's id; rename the world" );
+                                 return records;
+                             } } );
+                    }
+                    LOG_INFO( "[WorldPartition] Play of '{0}': {1} saved HLOD(s) from {2}, {3} stale cell(s)",
+                              snapshot->SceneName, hlods.size(),
+                              WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
+                }
             }
-            Common::Json::ReportIssues( issues, "the HLODs of the Play snapshot" );
             if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
                 return Common::MakeError<Result>( begun.GetError() );
         }
@@ -217,11 +319,11 @@ namespace Desert::Core
         streamer->m_Partition = partition;
         streamer->m_Index     = world.Index;
         streamer->m_Loader    = std::make_unique<WorldCellLoader>(
-             std::make_shared<WorldCells::CookedCellSource>( *world.Index, VfsReader( world.Directory ) ) );
+             std::make_shared<RegionChunkCellSource>( world.Index, world.Directory, world.RegionChunkOfFile ) );
         {
             // Every HLOD file is read now, on this thread: HLODs stand in for the whole world from the first
             // frame (their own streaming, UE's HLOD grid, is not this round's).
-            const WorldCells::FileReader      reader = VfsReader( world.Directory );
+            const WorldCells::FileReader      reader = VfsReader( world.Directory, world.RegionChunkOfFile );
             std::vector<CellHLOD>             hlods;
             std::vector<Rules::HLODExclusion> holes;
             for ( std::size_t hlod = 0; hlod < world.Index->HLODs.size(); ++hlod )
@@ -231,11 +333,17 @@ namespace Desert::Core
                     holes.push_back( missing.Reason );
                 if ( !row.File.has_value() )
                     continue;
-                auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
-                if ( !records )
-                    return Common::MakeError<Result>( "world streaming of '" + streamer->m_SceneName +
-                                                      "': " + records.GetError() );
-                hlods.push_back( { row.Unit, records.ExtractValue() } );
+                // Read when BeginHLODs makes it (CellHLOD); `world` and `reader` outlive that call, made below.
+                hlods.push_back( CellHLOD{
+                     row.Unit,
+                     [&world, &reader, hlod, &streamer]() -> Common::ResultStr<std::vector<Assets::EntityData>>
+                     {
+                         auto records = WorldCells::HLODRecords( *world.Index, reader, hlod );
+                         if ( !records )
+                             return Common::MakeError<std::vector<Assets::EntityData>>(
+                                  "world streaming of '" + streamer->m_SceneName + "': " + records.GetError() );
+                         return records;
+                     } } );
             }
             if ( auto begun = streamer->BeginHLODs( std::move( hlods ), holes ); !begun )
                 return Common::MakeError<Result>( begun.GetError() );
@@ -266,6 +374,9 @@ namespace Desert::Core
             source.Facing                = -glm::vec3( world[2] );
             source.Priority              = data.Priority;
             source.UseVelocityForSorting = data.UseVelocityForSorting;
+            source.TargetGrids           = data.TargetGrids;
+            source.LookAheadTime         = data.LookAheadTime;
+            source.MaxLookAhead          = data.MaxLookAhead;
             // One shape, always (UE's FStreamingSourceShape on the component): with the defaults it is exactly
             // the circle of the range a source with no shapes loads in.
             Rules::StreamingSourceShape shape;
@@ -387,7 +498,7 @@ namespace Desert::Core
         m_LastTick.LoadsInFlight         = m_Loader->InFlight();
         m_MostResident                   = std::max( m_MostResident, m_LastTick.LiveRecords );
         m_LastTick.Streaming =
-             Rules::AssessStreaming( Executor().Plan(), m_Settings, Executor().State(), sources );
+             Rules::AssessStreaming( Executor().Plan(), m_Partition, m_Settings, Executor().State(), sources );
         const bool wasWaiting = m_FramesWaiting > 0;
         m_FramesWaiting       = m_LastTick.Streaming.Blocks() ? m_FramesWaiting + 1 : 0;
         if ( m_FramesWaiting == 1 )
@@ -504,14 +615,25 @@ namespace Desert::Core
     Common::BoolResultStr WorldStreamer::BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                      std::span<const Rules::HLODExclusion> holes )
     {
-        std::vector<std::size_t>        units;
-        std::vector<Assets::EntityData> records;
+        std::vector<std::size_t> units;
+        units.reserve( hlods.size() );
+        for ( const CellHLOD& hlod : hlods )
+            units.push_back( hlod.Unit );
+        auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), units );
+        if ( !runtime )
+            return Common::MakeError( "world streaming of '" + m_SceneName + "': " + runtime.GetError() );
+        m_HLODs = runtime.ExtractValue();
+        // ONE HLOD'S RECORDS ALIVE AT A TIME (CellHLOD): read, made entities, dropped before the next read.
+        const Common::Utils::ProcessFootprint before = Common::Utils::ReadProcessFootprint();
         m_HLODIds.clear();
+        std::size_t recordCount = 0;
         for ( CellHLOD& hlod : hlods )
         {
-            units.push_back( hlod.Unit );
-            std::vector<Common::UUID>& ids = m_HLODIds.emplace_back();
-            for ( Assets::EntityData& record : hlod.Records )
+            std::vector<Common::UUID>& ids     = m_HLODIds.emplace_back();
+            auto                       records = hlod.Read();
+            if ( !records )
+                return Common::MakeError( records.GetError() );
+            for ( const Assets::EntityData& record : records.GetValue() )
             {
                 if ( !record.id.has_value() || record.id->IsNull() )
                     return Common::MakeError( "world streaming of '" + m_SceneName +
@@ -519,20 +641,26 @@ namespace Desert::Core
                                               Rules::DescribeResidencyUnit( Executor().Plan(), hlod.Unit ) +
                                               " has no id, so it could not be shown or hidden" );
                 ids.push_back( *record.id );
-                records.push_back( std::move( record ) );
             }
+            recordCount += records.GetValue().size();
+            if ( auto made = SceneSerializer( m_Scene, m_Assets )
+                                  .InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
+                 !made )
+                return Common::MakeError( "world streaming of '" + m_SceneName + "': making the HLOD of " +
+                                          Rules::DescribeResidencyUnit( Executor().Plan(), hlod.Unit ) +
+                                          " failed: " + made.GetError() );
+            hlod.Read = nullptr; // what the read holds goes with the records
         }
-        auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), units );
-        if ( !runtime )
-            return Common::MakeError( "world streaming of '" + m_SceneName + "': " + runtime.GetError() );
-        m_HLODs = runtime.ExtractValue();
-        if ( auto made = SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( records, m_SceneName, nullptr );
-             !made )
-            return Common::MakeError( "world streaming of '" + m_SceneName +
-                                      "': making the HLODs failed: " + made.GetError() );
+        // The census the Play start is judged by: the process before and after every HLOD became entities.
+        LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s) made one HLOD at a time; process before: "
+                  "{3}; after: {4}",
+                  m_SceneName, hlods.size(), recordCount, before.Describe(),
+                  Common::Utils::ReadProcessFootprint().Describe() );
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
         if ( auto synced = m_HLODs->Sync( Executor().State(), *this ); !synced )
             return Common::MakeError( "world streaming of '" + m_SceneName + "': " + synced.GetError() );
+        // From here on every switch is an event a flight reads (WP22c): the first Sync above set them all.
+        m_HLODSwitchesSaid = true;
         // THE HOLES: a drawing record the builder could not batch has no stand-in (WorldPartitionHLODSwitch.hpp).
         const std::string holesText =
              holes.empty() ? std::string( "every drawing record has its stand-in" )
@@ -544,12 +672,12 @@ namespace Desert::Core
         if ( holes.empty() )
         {
             LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
-                      m_SceneName, units.size(), records.size(), holesText );
+                      m_SceneName, units.size(), recordCount, holesText );
         }
         else
         {
             LOG_WARN( "[WorldPartition] '{0}': {1} HLOD(s), {2} record(s), stand in for the cells not drawn; {3}.",
-                      m_SceneName, units.size(), records.size(), holesText );
+                      m_SceneName, units.size(), recordCount, holesText );
         }
         return BOOLSUCCESS;
     }
@@ -563,6 +691,18 @@ namespace Desert::Core
             if ( entity.has_value() )
                 m_Scene->SetVisibleRecursive( entity->get(), visible );
         }
+        if ( !m_HLODSwitchesSaid || !m_HLODs.has_value() )
+            return;
+        // A grid's stand-in replaces only that grid's cells (UE UWorldPartitionRuntimeHashSet: each runtime
+        // partition owns its HLOD setup), so the switch is said with the grid it belongs to.
+        const Rules::WorldPartitionPlan& plan = Executor().Plan();
+        const std::size_t                unit = m_HLODs->UnitOf( hlod );
+        const std::size_t                grid =
+             unit < plan.AlwaysLoaded.size() ? 0 : plan.Cells.at( unit - plan.AlwaysLoaded.size() ).Grid;
+        const std::string gridName =
+             grid < m_Partition.Grids.size() ? m_Partition.Grids[grid].Name : std::string( "?" );
+        LOG_INFO( "[WorldPartition] '{0}': grid '{1}' HLOD of {2} {3}.", m_SceneName, gridName,
+                  Rules::DescribeResidencyUnit( plan, unit ), visible ? "shown" : "hidden" );
     }
 
     WorldStreamer::~WorldStreamer()

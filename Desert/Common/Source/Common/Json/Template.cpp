@@ -5,6 +5,8 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <format>
+#include <iterator>
 #include <optional>
 #include <utility>
 #include <variant>
@@ -112,8 +114,7 @@ namespace Common::Text
 
         std::string Located( std::string_view name, Position where, const std::string& message )
         {
-            return std::string( name ) + ":" + std::to_string( where.Line ) + ":" +
-                   std::to_string( where.Column ) + ": " + message;
+            return std::format( "{}:{}:{}: {}", name, where.Line, where.Column, message );
         }
     } // namespace
 
@@ -638,7 +639,7 @@ namespace Common::Text
                         auto key = ExpectIdentifier( "a member name after '.'" );
                         if ( !key.IsSuccess() )
                             return MakeError<ExprPtr>( key.GetError() );
-                        e->PathText += "." + key.GetValue();
+                        std::format_to( std::back_inserter( e->PathText ), ".{}", key.GetValue() );
                         e->Segments.push_back( { false, key.ExtractValue(), 0 } );
                     }
                     else if ( IsSymbol( "[" ) )
@@ -650,12 +651,12 @@ namespace Common::Text
                             std::size_t index = 0;
                             std::from_chars( inside.Text.data(), inside.Text.data() + inside.Text.size(), index );
                             e->Segments.push_back( { true, "", index } );
-                            e->PathText += "[" + inside.Text + "]";
+                            std::format_to( std::back_inserter( e->PathText ), "[{}]", inside.Text );
                         }
                         else if ( inside.Kind == TokenKind::String )
                         {
                             e->Segments.push_back( { false, inside.Text, 0 } );
-                            e->PathText += "[\"" + inside.Text + "\"]";
+                            std::format_to( std::back_inserter( e->PathText ), "[\"{}\"]", inside.Text );
                         }
                         else
                             return MakeError<ExprPtr>(
@@ -1196,8 +1197,8 @@ namespace Common::Text
                     return MakeError(
                          Error( b.Where, "include '" + b.Text + "' but no template loader was given" ) );
                 if ( m_Depth >= kMaxIncludeDepth )
-                    return MakeError( Error( b.Where, "include '" + b.Text + "' nests deeper than " +
-                                                           std::to_string( kMaxIncludeDepth ) + " (a cycle?)" ) );
+                    return MakeError( Error( b.Where, std::format( "include '{}' nests deeper than {} (a cycle?)",
+                                                                   b.Text, kMaxIncludeDepth ) ) );
                 auto loaded = m_Loader( b.Text );
                 if ( !loaded.IsSuccess() )
                     return MakeError( Error( b.Where, "include '" + b.Text + "': " + loaded.GetError() ) );
@@ -1337,8 +1338,8 @@ namespace Common::Text
                         const auto* array = std::get_if<Json::Value::Array>( &raw.variant() );
                         if ( array == nullptr )
                             return MakeError<Value>(
-                                 Error( e.Where, "'" + e.PathText + "': [" + std::to_string( s.Index ) + "] on " +
-                                                      KindName( Json::Root( raw ).GetKind() ) ) );
+                                 Error( e.Where, std::format( "'{}': [{}] on {}", e.PathText, s.Index,
+                                                              KindName( Json::Root( raw ).GetKind() ) ) ) );
                         if ( s.Index >= array->size() )
                         {
                             current.Missing = true;
@@ -1511,8 +1512,8 @@ namespace Common::Text
                             Value element;
                             element.Ref = &array[i];
                             if ( auto appended = AppendText( e, element, text ); !appended.IsSuccess() )
-                                return MakeError<Value>( appended.GetError() + " (element " + std::to_string( i ) +
-                                                         " of join)" );
+                                return MakeError<Value>(
+                                     std::format( "{} (element {} of join)", appended.GetError(), i ) );
                         }
                         return MakeSuccess( Value::Of( Json::Value( std::move( text ) ) ) );
                     }

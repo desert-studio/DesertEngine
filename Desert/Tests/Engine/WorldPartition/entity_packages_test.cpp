@@ -262,7 +262,7 @@ TEST( EntityPackages, ARecordAnEditorRegionLeftOnDiskIsKeptByTheSave )
 
     world.Tags.erase( 30 ); // unloaded: the scene no longer holds it
     const std::vector<Common::UUID> notLoaded{ Common::UUID( 30 ) };
-    world.Packages.AdoptRegion( world.Live(), notLoaded );
+    world.Packages.AdoptRegion( world.Live(), notLoaded, {} );
     EXPECT_FALSE( world.Packages.IsLoaded( Common::UUID( 30 ) ) );
 
     world.Packages.Touch( Common::UUID( 10 ) );
@@ -296,7 +296,7 @@ TEST( EntityPackages, ASaveElsewhereOfAWorldHeldInPartIsRefused )
     world.Packages.Baseline( world.Scene, world.Live() );
     world.Tags.erase( 30 );
     const std::vector<Common::UUID> notLoaded{ Common::UUID( 30 ) };
-    world.Packages.AdoptRegion( world.Live(), notLoaded );
+    world.Packages.AdoptRegion( world.Live(), notLoaded, {} );
     world.Scene      = world.Root / "Elsewhere.desce";
     const auto saved = world.TrySave( CleanCheck::Trust );
     ASSERT_FALSE( saved );

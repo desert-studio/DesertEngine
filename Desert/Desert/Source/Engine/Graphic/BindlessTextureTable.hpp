@@ -10,7 +10,7 @@
 
 // THE GLOBAL BINDLESS TEXTURE TABLE (UE: FRHIDescriptorHandle over the Vulkan bindless descriptor heap,
 // r.Vulkan.Bindless). Every texture created from uploaded pixels gets a SLOT for its GPU life; a shader reaches it
-// as u_BindlessTextures[slot] and samples it with one of a small FIXED sampler set
+// as BindlessTextures[slot] and samples it with one of a small FIXED sampler set
 // (Common/BindlessTextures.glslh). Sampled images and samplers are separate arrays, not combined image samplers:
 // Metal (MoltenVK) caps samplers at ~1-2k, so a sampler per texture cannot scale, and a sampler is a property of
 // the material slot anyway.
@@ -144,6 +144,11 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::ResultStr<BindlessTextureSlot> Register( const Image2D& image ) = 0;
         // Gives @p slot back; it is reused only after the frames in flight have retired (BindlessSlotAllocator).
         virtual void Release( BindlessTextureSlot slot ) = 0;
+        // @p slot names @p image's CURRENT view from the next frame on (Image2D::TakeDeviceImageFrom: the image
+        // kept its slot and changed its device image). The live set may be read by frames in flight, so the change
+        // lands in a NEW set made at EndFrame, as a sampler change does; this frame still reads the old view,
+        // which lives until its frames have completed.
+        virtual void Rewrite( BindlessTextureSlot slot, const Image2D& image ) = 0;
         // Once per frame, after the frame counter advanced: retires released slots and the descriptor sets that
         // growth or a sampler change replaced.
         virtual void EndFrame( uint64_t frame, uint32_t framesInFlight ) = 0;

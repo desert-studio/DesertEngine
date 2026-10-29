@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "d562668374d74ee91d68fc7f98bee672",
         "Versions": {
-            "MATL": 5
+            "MATL": 7
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "febd2e77bc299d43cf5c4a4aa8f3bc50", "ebf4907a499f2625cb893654f4affa97", "3fb2d280d1e451c5e73ffec92d2a5f38"]
     },
@@ -39,17 +39,17 @@
     ],
     "Textures": [
         {
-            "Name": "u_AlbedoTexture",
+            "Name": "AlbedoTexture",
             "Guid": "febd2e77bc299d43cf5c4a4aa8f3bc50",
             "Path": "assets:Environments/FieldBarn/Textures/weathered_plank_siding/weathered_plank_siding_Diffuse_2k.detex"
         },
         {
-            "Name": "u_ORMTexture",
+            "Name": "OrmTexture",
             "Guid": "ebf4907a499f2625cb893654f4affa97",
             "Path": "assets:Environments/FieldBarn/Textures/weathered_plank_siding/weathered_plank_siding_arm_2k.detex"
         },
         {
-            "Name": "u_NormalTexture",
+            "Name": "NormalTexture",
             "Guid": "3fb2d280d1e451c5e73ffec92d2a5f38",
             "Path": "assets:Environments/FieldBarn/Textures/weathered_plank_siding/weathered_plank_siding_nor_gl_2k.detex"
         }

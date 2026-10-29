@@ -115,6 +115,16 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // THE PARTICLE RIBBON USAGE (UE: bUsedWithNiagaraRibbons). `Usage ParticleRibbons` adds the cell
+    // `ParticleRibbon.Forward` after the sprite cell: the ribbon vertex path (Vertex_ParticleRibbon.glslh, a strip
+    // through the emitter's live particles in age order) with the SAME particle pass header and define as the
+    // sprite cell - the fragment half of a particle cell does not care which vertex factory expanded it.
+    inline constexpr std::string_view kSurfaceParticleRibbonPath = "ParticleRibbon";
+    // Defined in the sprite cell's fragment stage when its surface calls DesertDepthFade (UE: the material
+    // compiler noting a scene-depth read): only then does Mesh/Surface/SurfaceTypes.glslh declare the scene depth
+    // and its point-clamped shared sampler, so a sprite that does not fade binds neither.
+    inline constexpr std::string_view kSurfaceDepthFadeDefine   = "DESERT_SURFACE_DEPTH_FADE";
+    inline constexpr std::string_view kSurfaceDepthFadeFunction = "DesertDepthFade";
     // THE RAY TRACING HIT CELL (UE: the material's hit group). Every Opaque / Masked template whose bindings are
     // all row slots gets `RayTracing.Hit` after its mesh cells: ClosestHit (the surface into the ray's payload)
     // and, Masked, AnyHit (the OpacityMask test). Its stages define DESERT_SURFACE_PASS_Hit; their material row
@@ -129,6 +139,17 @@ namespace Desert::Core::Preprocess
     // Vertex_GrassBlade.glslh (a procedural blade placed by the instance's matrix and shaped by the variety's
     // GrassBladeShape), the pass headers are the meshes'.
     inline constexpr std::string_view kSurfaceGrassBladePath = "GrassBlade";
+    // THE WATER MESH USAGE (UE: the water mesh vertex factory, FWaterMeshVertexFactory, and the SingleLayerWater
+    // mesh pass). A template of `ShadingModel SingleLayerWater` declares `Usage WaterMesh` and gets ONE more cell,
+    // `WaterMesh.SingleLayerWater`: the vertex stage is Vertex_WaterMesh.glslh (the water quadtree's tiles,
+    // morphed between LODs), the pass header Pass_SingleLayerWater.glslh (the scene behind refracted, absorbed and
+    // scattered by the material's EvaluateSingleLayerWater, the interface lit through the shading model). Drawn by
+    // Graphic::System::WaterRenderer only. The model and the usage go together: either alone is refused.
+    inline constexpr std::string_view kSurfaceWaterMeshPath        = "WaterMesh";
+    inline constexpr std::string_view kSurfaceSingleLayerWaterPass = "SingleLayerWater";
+    inline constexpr std::string_view kSurfaceSingleLayerWaterPassInclude =
+         "Mesh/Surface/Pass_SingleLayerWater.glslh";
+    inline constexpr std::string_view kSingleLayerWaterShadingModel = "SingleLayerWater";
     // THE TRANSLUCENT FRONT LAYER CELL (UE: EMeshPass::FrontLayerTranslucencyGBuffer, FrontLayerTranslucency.usf
     // MainPS). Every `BlendMode Translucent` template gets `Static.FrontLayer` after its Forward cells: the static
     // vertex path and Mesh/Surface/Pass_FrontLayer.glslh, which writes the surface's world normal + roughness and
@@ -185,7 +206,7 @@ namespace Desert::Core::Preprocess
     }
 
     // The template's blend mode lives on the program metadata (Core/Formats/ShaderProgramMeta.hpp), where the
-    // renderer reads it. Masked: the pass headers discard below u_Material.<kSurfaceMaskClipParam>. Translucent:
+    // renderer reads it. Masked: the pass headers discard below Material.<kSurfaceMaskClipParam>. Translucent:
     // the template has Forward cells only, built on the translucency pass header (kSurfaceTranslucentPassInclude).
     using SurfaceBlendMode = Formats::SurfaceBlendMode;
 
@@ -204,6 +225,10 @@ namespace Desert::Core::Preprocess
     // The threshold of a Masked template is a material PARAMETER (per material, like UE's Opacity Mask Clip
     // Value); a Masked template that does not declare it is refused.
     inline constexpr std::string_view kSurfaceMaskClipParam = "OpacityMaskClipValue";
+    // UE's Dither Opacity Mask (bDitherOpacityMask): OPTIONAL. A Masked template that declares a Float of this
+    // name lets each material choose a dithered cut (keep with probability = mask, Mesh/Surface/SurfaceTypes.glslh
+    // DESERT_SURFACE_CLIP) over the threshold; declared as anything but a Float it is refused.
+    inline constexpr std::string_view kSurfaceMaskDitherParam = "DitherOpacityMask";
 
     std::string SurfaceCellName( std::string_view path, std::string_view pass );
     std::string SurfaceVertexInclude( std::string_view path );
@@ -223,7 +248,9 @@ namespace Desert::Core::Preprocess
         bool                     TwoSided = false;
         SurfaceBlendMode         Blend    = SurfaceBlendMode::Opaque;
         bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
+        bool UsedWithParticleRibbons                 = false; // `Usage ParticleRibbons`: + ParticleRibbon.Forward
         bool                     UsedWithGrassBlades = false;          // `Usage GrassBlades`: + GrassBlade.<Pass>
+        bool                     UsedWithWaterMesh   = false; // `Usage WaterMesh`: + WaterMesh.SingleLayerWater
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
         bool ResponsiveAA = false;
@@ -287,6 +314,11 @@ namespace Desert::Core::Preprocess
         // line-for-line. Used both when assembling stage code AND by the #include resolver, so shared
         // `.glslh` headers can use the same sugar. A no-op on source that has none.
         static std::string TranslateSugar( const std::string& source );
+
+        // The names of the stage inputs a source declares in code (`In(N)`, `In`, `layout(location) in`; comments
+        // skipped). The parser refuses any in a Vertex block, the shader includer any in a header that spells a
+        // generated vertex attribute (Graphic/ShaderProtocols/VertexInputs.hpp) by hand.
+        static std::vector<std::string> DeclaredInputNames( const std::string& source );
 
         // False only when Parse could not produce a Medium block: the block keyword is matched without
         // regard to case, so a source that does not contain "medium" in any case has none. A true is

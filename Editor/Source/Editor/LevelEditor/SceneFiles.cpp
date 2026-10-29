@@ -182,7 +182,42 @@ namespace Desert::Editor
 
     bool SceneFiles::SaveOpenScene()
     {
-        const Common::Filepath destination    = SceneSaveDestination();
+        return SaveOpenSceneTo( SceneSaveDestination() );
+    }
+
+    Common::BoolResultStr SceneFiles::SaveOpenSceneAs( const std::string& sceneName )
+    {
+        if ( sceneName.empty() || sceneName.find_first_of( "/\\.:" ) != std::string::npos )
+            return Common::MakeError<bool>( std::format(
+                 "'{}' is not a scene name: a name is one file name without a folder, a dot or an extension.",
+                 sceneName ) );
+
+        // The rule's own fallback for a scene with no file yet — the scene directory + the name — so a
+        // Save As lands exactly where File -> Save would put a new scene of that name.
+        const Common::Filepath destination{ Editor::Core::Rules::SceneSaveDestination(
+             "", sceneName, Common::Constants::Path::SCENE_PATH.generic_string(),
+             Common::Constants::Extensions::SCENE_EXTENSION ) };
+        if ( std::filesystem::exists( destination ) )
+            return Common::MakeError<bool>(
+                 std::format( "'{}' already exists. Save As writes a NEW level and never overwrites another "
+                              "one: choose another name, or open that scene.",
+                              destination.string() ) );
+
+        const std::string previousName = m_Workspace.ActiveScene()->GetSceneName();
+        m_Workspace.ActiveScene()->SetSceneName( sceneName );
+        (void)SaveOpenSceneTo( destination );
+        // m_OpenScenePath moves to the destination exactly when the save landed (MarkSceneSaved).
+        if ( m_OpenScenePath != destination )
+        {
+            m_Workspace.ActiveScene()->SetSceneName( previousName );
+            return Common::MakeError<bool>( std::format(
+                 "the scene was NOT saved as '{}'; the log line above says why.", destination.string() ) );
+        }
+        return Common::MakeSuccess( true );
+    }
+
+    bool SceneFiles::SaveOpenSceneTo( const Common::Filepath& destination )
+    {
         const auto             previousHeader = ForgetAssetIdentityUnlessSameFile( destination.generic_string() );
         const auto             verdict        = Editor::Core::Rules::DecideAfterSceneSave(
              m_Workspace.ActiveScene()->Serialize( m_Assets.get(), destination ),
@@ -327,9 +362,14 @@ namespace Desert::Editor
         m_SavedRevision = CommandHistory::Get().Revision(); // a freshly loaded scene is "clean"
 
         phases.Lap( "wait for the GPU, drop the undo history", 0 );
+        // This open's device-memory window ("[Memory] scene open #N ... peak"): from here, with the old world
+        // still resident, to the next open (FIELD-MEM p4).
+        m_Workspace.BeginSceneOpenMeasure( path.filename().string() );
         const std::size_t outgoing = m_Workspace.ActiveScene()->GetAllEntities().size();
         m_Workspace.ActiveScene()->Clear();
         phases.Lap( "clear the open scene", outgoing );
+        m_Workspace.ReleaseActiveWorld();
+        phases.Lap( "release the old world's GPU resources, drain deferred deletions", outgoing );
 
         const Desert::Core::SceneSerializer serializer( m_Workspace.ActiveScene().get(), m_Assets.get() );
         // Cannot fire - the same text passed the same check above, before anything was torn down. It is
@@ -365,6 +405,7 @@ namespace Desert::Editor
         m_Workspace.ActiveSceneReplaced();
         phases.Lap( "rebuild the render registry, drop the old world's selection", incoming );
         phases.LogSummary();
+        m_Workspace.SampleSceneOpenMeasure();
 
         // THE OPEN SCENE IS NOW THIS FILE, and it is set HERE rather than at the top of the function on
         // purpose: every early return above leaves a scene that was NOT replaced, and adopting a path for
@@ -403,7 +444,7 @@ namespace Desert::Editor
         {
             const Desert::Core::SceneSerializer         held( m_Workspace.ActiveScene().get(), m_Assets.get() );
             const std::vector<Desert::Core::LiveEntity> live = held.LiveEntities();
-            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded );
+            m_Workspace.ActiveScene()->Packages()->AdoptRegion( live, opened.NotLoaded, {} );
             const std::size_t readCount = opened.Selection.Records.size();
             const std::size_t total     = readCount + opened.NotLoaded.size();
             if ( heldWhole )

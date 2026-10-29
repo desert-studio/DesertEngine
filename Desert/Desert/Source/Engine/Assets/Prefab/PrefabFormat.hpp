@@ -30,13 +30,17 @@ namespace Desert::Assets
     [[nodiscard]] inline bool PrefabIsAtCurrentVersion( const PrefabData& prefab )
     {
         return StatedVersion( prefab.Header, kSceneSchemaTag ) == Core::kSceneVersion &&
-               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion;
+               StatedVersion( prefab.Header, kUnitSchemaTag ) == Core::kUnitVersion &&
+               StatedVersion( prefab.Header, kWorldPartitionSchemaTag ) == Core::kWorldPartitionVersion &&
+               StatedVersion( prefab.Header, kAssetRefSchemaTag ) == Core::kAssetRefVersion &&
+               StatedVersion( prefab.Header, kLightSchemaTag ) == Core::kLightVersion;
     }
 
     // The refusal, as a string: which file, what it is, what this engine needs, and the exact command
     // that fixes it — the four things a reader must have to act without opening any source.
     [[nodiscard]] std::string RefusePrefabVersion( std::string_view source, int foundSceneVersion,
-                                                   int foundUnitVersion );
+                                                   int foundUnitVersion, int foundWorldPartitionVersion,
+                                                   int foundAssetRefVersion, int foundLightVersion );
 
     // Same, read straight off the parsed tree (absent integers become 0).
     [[nodiscard]] std::string RefusePrefabVersion( std::string_view source, const PrefabData& prefab );
@@ -73,7 +77,7 @@ namespace Desert::Assets
     // instance placed in the editor unsaveable: the dependency gather refused the absolute spelling.
     [[nodiscard]] std::string StatePrefabPath( const std::filesystem::path& file );
 
-    // The file a stated PrefabPath names: a relative spelling joined to the assets root, an absolute one as is.
+    // The file a stated PrefabPath names: the content key expanded, an absolute path as is, a bare spelling refused.
     [[nodiscard]] std::filesystem::path ResolvePrefabPath( std::string_view stated );
 
 } // namespace Desert::Assets

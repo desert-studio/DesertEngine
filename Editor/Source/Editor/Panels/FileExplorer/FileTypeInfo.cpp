@@ -81,10 +81,17 @@ namespace Desert::Editor
                            "VFX Data Channel",
                            { 0.95f, 0.70f, 0.20f, 1.00f },
                            ICON_MDI_ACCESS_POINT },
+             FileTypeInfo{ FileType::VFXEffectType,
+                           "VFX Effect Type",
+                           { 0.95f, 0.50f, 0.20f, 1.00f },
+                           ICON_MDI_TUNE_VARIANT },
              FileTypeInfo{ FileType::LandscapeGrassType,
                            "Landscape Grass Type",
                            { 0.35f, 0.80f, 0.35f, 1.00f },
                            ICON_MDI_GRASS },
+             FileTypeInfo{
+                  FileType::StateTree, "State Tree", { 0.30f, 0.65f, 0.95f, 1.00f }, ICON_MDI_STATE_MACHINE },
+             FileTypeInfo{ FileType::VFXModule, "VFX Module", { 0.95f, 0.55f, 0.20f, 1.00f }, ICON_MDI_PUZZLE },
         };
 
         constexpr bool RowsAreInEnumOrder()

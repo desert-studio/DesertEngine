@@ -1,0 +1,12 @@
+# FIELD-LIGHT: FIELD_Barn lit with traced GI, auto exposure, VSM and height fog; the world does not end at 120 m.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 25
+Дано --subject selection set SunAzimuth 110
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_lit under the crowns and on the barn's shadow side clearly darker; the ground does not wash out to yellow
+Когда --subject viewport set Camera.Position 0,600,4500
+Когда --subject viewport set Camera.Direction 0,-0.03,-1
+Тогда-вид 2_depth trees beyond 100 m paler and bluer; no void at the horizon

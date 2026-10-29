@@ -1,0 +1,17 @@
+# VFX-13 curve + gradient inputs in the .dfx stack: Campfire Flames "Color Over Life" gradient white->orange->transparent and "Size Over Life" curve 1->0, edited through the same stop functions the stack widgets call (one set = one undo step), saved, reopened, then a second gradient edit undone back to the saved one
+Дано run Open "VFX/Campfire.dfx"
+Дано set Transport.Playing 0
+Дано set Transport.Time 1.5
+Когда set Flames.ParticleUpdate.SizeOverLife.Scale.Keys 0,1,1,1,0,0
+Когда set Flames.ParticleUpdate.ColorOverLife.Scale.Keys 0,1,1,1,1,0.5,1,0.45,0.1,1,1,1,0.3,0,0
+Тогда 0_edit Stack: SizeOverLife.Scale is a plot 1->0 with two key rows, ColorOverLife.Scale a white->orange->transparent gradient bar with three stop rows; preview flames go orange and shrink to nothing with age
+Когда run Document "Save this document"
+Когда run Document "Close Campfire.dfx"
+Когда run Open "VFX/Campfire.dfx"
+Дано set Transport.Playing 0
+Дано set Transport.Time 1.5
+Тогда 1_reopen after reopen the same gradient (white->orange->transparent, three stops) and size curve (1->0), same flames look
+Когда set Flames.ParticleUpdate.ColorOverLife.Scale.Keys 0,0.3,0.5,1,1,1,0.2,0.3,1,1
+Тогда 2a_second_edit the gradient is now blue (two stops), flames blue
+Когда run Action Undo
+Тогда 2_undo the gradient is back to white->orange->transparent with three stops, flames orange again as in 1_reopen

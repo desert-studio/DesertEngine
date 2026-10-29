@@ -55,11 +55,16 @@ namespace Desert::Graphic
             if ( IsRowTexture() )
                 return;
 
-            // The uniform is shared by every view, so it is re-pointed once per write, not per view.
-            if ( m_UniformVersion != GetVersion() )
+            // The uniform is shared by every view, so it is re-pointed once per write, not per view -- and when
+            // the image changed its device image under the same pointer (a streamed mip change,
+            // Image2D::TakeDeviceImageFrom, or a sampler change): the view it names is then a new one, and each
+            // view's set takes it because the handle it recorded differs.
+            const uint64_t generation = m_Texture->GetResourceGeneration();
+            if ( m_UniformVersion != GetVersion() || m_UniformGeneration != generation )
             {
                 m_Uniform->SetImage2D( m_Texture, m_Declared );
-                m_UniformVersion = GetVersion();
+                m_UniformVersion    = GetVersion();
+                m_UniformGeneration = generation;
             }
             // Asked every time: whether THIS view's set is behind is the set's record, not a flag here.
             backend->ApplyTexture2D( this );
@@ -172,5 +177,6 @@ namespace Desert::Graphic
         Core::Formats::SamplerState                      m_Sampler;
         bool                                             m_SamplesEncoded = false;
         uint64_t                                         m_UniformVersion = PropertyVersion::kNeverWritten;
+        uint64_t m_UniformGeneration                                      = 0; // the image's, at the last re-point
     };
 } // namespace Desert::Graphic

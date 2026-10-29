@@ -18,15 +18,15 @@ Shader "SurfaceCacheAtlasView"
     Fragment
     {
         In(0) vec2 v_Ndc;
-        Uniform sampler u_PointClampSampler;
-        Uniform(0) texture2D u_AtlasDepth;
-        #define u_AtlasDepth sampler2D(u_AtlasDepth, u_PointClampSampler)
-        Uniform(1) texture2D u_AtlasAlbedo;
-        #define u_AtlasAlbedo sampler2D(u_AtlasAlbedo, u_PointClampSampler)
-        Uniform(2) texture2D u_AtlasOpacity;
-        #define u_AtlasOpacity sampler2D(u_AtlasOpacity, u_PointClampSampler)
-        Uniform(3) texture2D u_AtlasNormal;
-        #define u_AtlasNormal sampler2D(u_AtlasNormal, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(0) texture2D AtlasDepthTexture;
+        #define AtlasDepthTexture sampler2D(AtlasDepthTexture, PointClampSampler)
+        Uniform(1) texture2D AtlasAlbedoTexture;
+        #define AtlasAlbedoTexture sampler2D(AtlasAlbedoTexture, PointClampSampler)
+        Uniform(2) texture2D AtlasOpacityTexture;
+        #define AtlasOpacityTexture sampler2D(AtlasOpacityTexture, PointClampSampler)
+        Uniform(3) texture2D AtlasNormalTexture;
+        #define AtlasNormalTexture sampler2D(AtlasNormalTexture, PointClampSampler)
         Out(0) vec4 oColor;
 
         vec3 OctahedronToUnitVector(vec2 o)
@@ -43,16 +43,16 @@ Shader "SurfaceCacheAtlasView"
             const vec2 uv    = vec2(0.5 + 0.5 * v_Ndc.x, 0.5 - 0.5 * v_Ndc.y);
             const vec2 q     = floor(uv * 2.0);
             const vec2 local = fract(uv * 2.0);
-            const ivec2 size = textureSize(u_AtlasAlbedo, 0);
+            const ivec2 size = textureSize(AtlasAlbedoTexture, 0);
             const ivec2 texel = clamp(ivec2(local * vec2(size)), ivec2(0), size - 1);
-            const float opacity = texelFetch(u_AtlasOpacity, texel, 0).r;
+            const float opacity = texelFetch(AtlasOpacityTexture, texel, 0).r;
             vec3 color;
             if (q.y < 0.5)
-                color = q.x < 0.5 ? texelFetch(u_AtlasAlbedo, texel, 0).rgb
-                                  : (opacity > 0.5 ? OctahedronToUnitVector(texelFetch(u_AtlasNormal, texel, 0).rg * 2.0 - 1.0) * 0.5 + 0.5
+                color = q.x < 0.5 ? texelFetch(AtlasAlbedoTexture, texel, 0).rgb
+                                  : (opacity > 0.5 ? OctahedronToUnitVector(texelFetch(AtlasNormalTexture, texel, 0).rg * 2.0 - 1.0) * 0.5 + 0.5
                                                    : vec3(0.0));
             else
-                color = q.x < 0.5 ? (opacity > 0.5 ? vec3(1.0 - texelFetch(u_AtlasDepth, texel, 0).r) : vec3(0.25, 0.0, 0.0))
+                color = q.x < 0.5 ? (opacity > 0.5 ? vec3(1.0 - texelFetch(AtlasDepthTexture, texel, 0).r) : vec3(0.25, 0.0, 0.0))
                                   : vec3(opacity);
             // A thin grid of the 128² physical pages.
             const vec2 pageEdge = abs(fract(local * vec2(size) / 128.0) - 0.5);

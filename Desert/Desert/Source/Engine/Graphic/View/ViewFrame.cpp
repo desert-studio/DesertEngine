@@ -20,52 +20,12 @@ namespace Desert::Graphic
         // memory (the blend forgets a sample before the sequence comes back to it).
         constexpr uint32_t kMaxJitterSequenceLength = 64;
 
-        [[nodiscard]] std::string_view UpscalerName( const Scal::Upscaler upscaler )
-        {
-            switch ( upscaler )
-            {
-                case Scal::Upscaler::None:
-                    return "None";
-                case Scal::Upscaler::TAAU:
-                    return "TAAU";
-                case Scal::Upscaler::FSR:
-                    return "FSR";
-                case Scal::Upscaler::DLSS:
-                    return "DLSS";
-                case Scal::Upscaler::XeSS:
-                    return "XeSS";
-                case Scal::Upscaler::MetalFX:
-                    return "MetalFX";
-                case Scal::Upscaler::Spatial:
-                    return "Spatial";
-                case Scal::Upscaler::TSR:
-                    return "TSR";
-                case Scal::Upscaler::DLSSRayReconstruction:
-                    return "DLSSRayReconstruction";
-            }
-            return "<unknown Upscaler>";
-        }
-
         [[nodiscard]] std::string_view MethodName( const Scal::AntiAliasingMethod method )
         {
-            switch ( method )
-            {
-                case Scal::AntiAliasingMethod::None:
-                    return "None";
-                case Scal::AntiAliasingMethod::FXAA:
-                    return "FXAA";
-                case Scal::AntiAliasingMethod::SMAA:
-                    return "SMAA";
-                case Scal::AntiAliasingMethod::MSAA:
-                    return "MSAA";
-                case Scal::AntiAliasingMethod::TAA:
-                    return "TAA";
-                case Scal::AntiAliasingMethod::FSRNative:
-                    return "FSRNative";
-                case Scal::AntiAliasingMethod::DLAA:
-                    return "DLAA";
-            }
-            return "<unknown AntiAliasingMethod>";
+            const auto index = static_cast<std::size_t>( method );
+            return index < Scal::kAntiAliasingMethodNames.size()
+                        ? Scal::kAntiAliasingMethodNames[index]
+                        : std::string_view( "<unknown AntiAliasingMethod>" );
         }
 
         // round-to-nearest( side * percent / 100 ), integer arithmetic so 1080 x 67 % is 724 on every compiler.
@@ -120,78 +80,44 @@ namespace Desert::Graphic
     }
 
     Common::ResultStr<TemporalMethod> SelectTemporalMethod( const Scal::PathAntiAliasing& path,
-                                                            const ResolutionSplit&        split,
-                                                            const Scal::Upscaler          upscaler )
+                                                            const ResolutionSplit&        split )
     {
-        if ( split.Mode == Scal::ScaleMode::Upscale )
-        {
-            if ( upscaler == Scal::Upscaler::TAAU )
-                return Common::MakeSuccess( TemporalMethod::TAAU );
-            if ( upscaler == Scal::Upscaler::TSR )
-                return Common::MakeSuccess( TemporalMethod::TSR );
-            if ( upscaler == Scal::Upscaler::DLSS && kDlssBuilt )
-                return Common::MakeSuccess( TemporalMethod::DLSS );
-            if ( upscaler == Scal::Upscaler::DLSSRayReconstruction && kDlssBuilt )
-                return Common::MakeSuccess( TemporalMethod::DLSSRR );
-            if ( upscaler == Scal::Upscaler::FSR && kFsrBuilt )
-                return Common::MakeSuccess( TemporalMethod::FSR );
-            // The spatial upscale has no history and no jitter: the frame's temporal method is None, and only a
-            // method without history reaches it (Scalability UpscalerForScale gives a temporal method TAAU).
-            if ( upscaler == Scal::Upscaler::Spatial )
-            {
-                if ( !Scal::IsTemporalAntiAliasing( path.Method ) )
-                    return Common::MakeSuccess( TemporalMethod::None );
-                return Common::MakeFormattedError<TemporalMethod>(
-                     "SelectTemporalMethod: Upscaler Spatial under the temporal method {} at {} % (Scalability "
-                     "UpscalerForScale never produces it: a temporal method upscales temporally)",
-                     MethodName( path.Method ), split.RenderScalePercent );
-            }
-            if ( upscaler == Scal::Upscaler::None )
-                return Common::MakeFormattedError<TemporalMethod>(
-                     "SelectTemporalMethod: render scale {} % with Upscaler None (Scalability Resolve never "
-                     "produces it: below 100 % temporal AA upscales with TAAU, and without temporal AA the "
-                     "spatial upscaler runs)",
-                     split.RenderScalePercent );
-            return Common::MakeFormattedError<TemporalMethod>(
-                 "SelectTemporalMethod: Upscaler {} at {} % has no implementation in this build",
-                 UpscalerName( upscaler ), split.RenderScalePercent );
-        }
-
-        // Ray Reconstruction at 100 % is DLAA's network with the denoiser (Scalability IsNativeRayReconstruction).
-        if ( Scal::IsNativeRayReconstruction( path.Method, split.RenderScalePercent, upscaler ) && kDlssBuilt )
-            return Common::MakeSuccess( TemporalMethod::DLSSRR );
-        if ( upscaler != Scal::Upscaler::None )
-            return Common::MakeFormattedError<TemporalMethod>(
-                 "SelectTemporalMethod: Upscaler {} at render scale {} % (Scalability Resolve never produces it: "
-                 "an upscaler runs only below 100 % under temporal AA; at native and supersampled scale it "
-                 "is None)",
-                 UpscalerName( upscaler ), split.RenderScalePercent );
-
         switch ( path.Method )
         {
-            case Scal::AntiAliasingMethod::TAA:
-                return Common::MakeSuccess( TemporalMethod::TAA );
+            // No history: nothing temporal at any split (below 100 % the spatial upscale, UpscalerForScale
+            // Spatial, brings the frame to the output and is not temporal).
             case Scal::AntiAliasingMethod::None:
             case Scal::AntiAliasingMethod::FXAA:
             case Scal::AntiAliasingMethod::SMAA:
             case Scal::AntiAliasingMethod::MSAA:
                 return Common::MakeSuccess( TemporalMethod::None );
-            // A vendor's native AA ("DLAA", "FSR Native AA"). Above 100 % the vendor method is selected too, and
-            // its Supports refuses the supersample split, so ResolveViewResolution clamps the view to 100 % and
-            // says why.
-            case Scal::AntiAliasingMethod::DLAA:
+            case Scal::AntiAliasingMethod::TAA:
+                return Common::MakeSuccess( split.Mode == Scal::ScaleMode::Upscale ? TemporalMethod::TAAU
+                                                                                   : TemporalMethod::TAA );
+            // One method at every split <= 100 %. Above it (an editor viewport's Screen Percentage > 100 under a
+            // game setting Resolve kept at <= 100 %) the method is selected too, and its Supports refuses the
+            // supersample split, so ResolveViewResolution clamps the view to 100 % and says why.
+            case Scal::AntiAliasingMethod::TSR:
+                return Common::MakeSuccess( TemporalMethod::TSR );
+            case Scal::AntiAliasingMethod::DLSS:
                 if ( kDlssBuilt )
                     return Common::MakeSuccess( TemporalMethod::DLSS );
                 break;
-            case Scal::AntiAliasingMethod::FSRNative:
+            case Scal::AntiAliasingMethod::DLSSRayReconstruction:
+                if ( kDlssBuilt )
+                    return Common::MakeSuccess( TemporalMethod::DLSSRR );
+                break;
+            case Scal::AntiAliasingMethod::FSR:
                 if ( kFsrBuilt )
                     return Common::MakeSuccess( TemporalMethod::FSR );
+                break;
+            case Scal::AntiAliasingMethod::XeSS:
+            case Scal::AntiAliasingMethod::MetalFX:
                 break;
         }
         return Common::MakeFormattedError<TemporalMethod>(
              "SelectTemporalMethod: anti-aliasing method {} ({}) at render scale {} % has no implementation in "
-             "this build (Scalability Resolve keeps it only where the device catalog offers it, and below 100 % "
-             "only as its own upscaler's pass)",
+             "this build (Scalability Resolve keeps it only where the device catalog offers it)",
              MethodName( path.Method ), static_cast<int>( path.Method ), split.RenderScalePercent );
     }
 
@@ -272,6 +198,8 @@ namespace Desert::Graphic
 
         f.TimeSeconds     = timeSeconds;
         f.PrevTimeSeconds = timeSeconds;
+        f.PreExposure     = 1.0f; // a still camera has no eye adaptation: its output is stored absolute
+        f.PrevPreExposure = f.PreExposure;
         f.HistoryReset    = HistoryResetReason::FirstFrame;
         return f;
     }

@@ -143,6 +143,13 @@ namespace Desert::Graphic::SurfaceCache
 
         // One frame: add / remove / move instances, choose resolutions, allocate, pick captures.
         [[nodiscard]] SceneFrame Update( const std::vector<SceneInstance>& instances, const glm::vec3& viewer );
+        // The lit layers no longer hold the scene's light (a significant change of the directional lights,
+        // GlobalIllumination::InvalidatesLightingHistory): the next Update relights every visible page in its
+        // frame instead of one in DirectLightingUpdateFactor (UE: the scene lighting's full relight).
+        void InvalidateLighting()
+        {
+            m_RelightAll = true;
+        }
 
         // From the exec of the graph that copies frame @p frame's captures into the atlas (any thread): those
         // captures landed, their cards are the surface from the next Update on.
@@ -232,6 +239,7 @@ namespace Desert::Graphic::SurfaceCache
         SurfaceCacheAllocator                  m_Allocator;
         std::unordered_map<uint64_t, Instance> m_Instances;
         uint64_t                               m_Frame = 0;
+        bool                                   m_RelightAll = false; // InvalidateLighting, consumed by Update
         // The B3 table's rows: the count ever handed out and the freed ones, reused lowest first.
         uint32_t              m_RowCount = 0;
         std::vector<uint32_t> m_FreeRows;

@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Editor/Core/ShotOptions.hpp>
+#include <Editor/Core/TextList.hpp>
 #include <Engine/Localization/LocaleFormat.hpp>
 
 #include <charconv>
@@ -83,10 +84,12 @@ namespace Desert::Editor
          { "--engine-dir", true, "/opt/Desert/Editor" },
          { "--scene", true, "Scene.desce" },
          { "--shot", true, "out.png" },
+         { "--shot-hdr", true, "out.pfm", "--shot out.png" },
          { "--shot-frames", true, "90" },
          { "--camera", true, "0,200,0" },
          { "--look", true, "0,0.9,-1" },
          { "--camera-to", true, "0,200,-100" },
+         { "--shot-motion-frames", true, "9", "--camera-to 0,200,-100" },
          { "--look-to", true, "0,0.5,-1" },
          { "--shot-sequence", true, "/tmp/seq" },
          { "--shot-every", true, "1" },
@@ -263,14 +266,8 @@ namespace Desert::Editor
         /// rather than written out, so a flag added above appears here without anyone remembering to.
         inline std::string KnownFlagList()
         {
-            std::string list;
-            for ( const CommandLineFlag& flag : kCommandLineFlags )
-            {
-                if ( !list.empty() )
-                    list += ", ";
-                list += flag.Name;
-            }
-            return list;
+            return TextTemplates::JoinList( kCommandLineFlags, ", ",
+                                            []( const CommandLineFlag& flag ) { return flag.Name; } );
         }
     } // namespace CommandLineDetail
 
@@ -356,6 +353,8 @@ namespace Desert::Editor
                 options.Shot.Scene = value;
             else if ( arg == "--shot" )
                 options.Shot.Output = value;
+            else if ( arg == "--shot-hdr" )
+                options.Shot.HdrOutput = value;
             else if ( arg == "--shot-sequence" )
                 options.Shot.Sequence = value;
             else if ( arg == "--control-socket" )
@@ -381,15 +380,10 @@ namespace Desert::Editor
                 // of the one that was asked for. That is the same silent-fallback shape `--sceen` had.
                 if ( Localization::FindLocale( value ) == nullptr )
                 {
-                    std::string known;
-                    for ( const Localization::LocaleRow& row : Localization::Locales() )
-                    {
-                        if ( !known.empty() )
-                            known += ", ";
-                        known += std::string( row.Tag );
-                    }
                     return Common::MakeFormattedError<CommandLineOptions>(
-                         "--language '{}' is not a language this build knows; it knows: {}", value, known );
+                         "--language '{}' is not a language this build knows; it knows: {}", value,
+                         TextTemplates::JoinList( Localization::Locales(), ", ",
+                                                  []( const Localization::LocaleRow& row ) { return row.Tag; } ) );
                 }
                 options.Language = value;
             }
@@ -413,6 +407,17 @@ namespace Desert::Editor
                 }
                 options.Shot.Frames = frames;
                 shotFramesGiven     = true;
+            }
+            else if ( arg == "--shot-motion-frames" )
+            {
+                int frames = 0;
+                if ( !ParseIntStrict( value, frames ) || frames < 2 )
+                {
+                    return Common::MakeFormattedError<CommandLineOptions>(
+                         "--shot-motion-frames '{}' is not a frame count of a path (a whole number, at least 2).",
+                         value );
+                }
+                options.Shot.MotionFrames = frames;
             }
             else if ( arg == "--shot-every" )
             {
@@ -554,6 +559,9 @@ namespace Desert::Editor
         // no file is numbers nobody keeps, no Play is a frozen world in which nothing streams, and a
         // --camera beside a route would be silently overridden by it.
         const ShotOptions& shot    = options.Shot;
+        // The HDR dump is the --shot frame's: without --shot there is no final frame to take it of.
+        if ( !shot.HdrOutput.empty() && shot.Output.empty() )
+            return Common::MakeError<CommandLineOptions>( "--shot-hdr needs --shot: it is the same final frame" );
         const bool         flying  = shot.FlightRoute.has_value();
         const bool         partial = shot.FlightSpeed > 0.0 || !shot.FlightCsv.empty();
         if ( !flying && partial )
@@ -580,6 +588,12 @@ namespace Desert::Editor
             }
             if ( shot.FlightRoute->FilePath.empty() )
                 ArmFlight( options.Shot );
+        }
+        if ( options.Shot.MotionFrames > 0 && !options.Shot.HasMotion() )
+        {
+            return Common::MakeError<CommandLineOptions>(
+                 "--shot-motion-frames walks the --camera-to / --look-to path over the last frames; without either "
+                 "the camera has no path to walk" );
         }
 
         return Common::MakeSuccess( std::move( options ) );

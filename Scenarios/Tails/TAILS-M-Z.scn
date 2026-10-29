@@ -1,0 +1,138 @@
+# TAILS-M-Z: one frame per editor card M-Z whose code is in dev but never had a frame (TAILS-AUDIT-2, 10-29).
+# Cards: UI-LAYOUT UI-SWITCHER UI-TEXTEDIT TAGS TEX-SRGB SEQ-FILTER SCAL-UX TOD-SPLIT WIND-SRC VFX-10 VFX-16
+# VFX-MODULE-ASSET SOUND-ASSET MAT-AO-ONEHOME MAT-INT-PARAM. Writes: the 18 FieldBarn ORM packs set Linear in place (TEX-SRGB content) and a New VFX Module file.
+# TAGS: GameplayTagContainer has no component carrying it (sym.sh --refs: only GameplayTag.hpp) -> no Details frame possible.
+# SOUND-ASSET: Projects/Desert/Content has no .desound -> no Content Browser frame possible.
+# UI clicks are window points (shot-window pixel / 2); the viewport image starts at (324,145) in this layout.
+Дано run Quality "Quality: ResolutionScale Epic"
+# --- UI-LAYOUT: MainMenu canvas laid out from the asset (anchors, layout groups, cards)
+Дано run Scene "Open Scene MainMenu.desce"
+Дано run Action "Play from Here"
+Дано advance 1
+Тогда-вид ui_layout MainMenu: logo top-left, six nav buttons in a column, profile/server/news cards anchored right, bottom bar with ticker and hotkeys
+# --- UI-SWITCHER: SETTINGS pushes Screen_Settings; tabs switch Video/Audio pages; Escape pops back to Main
+Когда input click - 449,493
+Когда advance 0.5
+Тогда-вид ui_switcher_0_settings the Settings screen over the menu: VIDEO tab active, Resolution list page
+Когда input click - 1003,462
+Когда advance 0.5
+Тогда-вид ui_switcher_1_audio the AUDIO tab active: Volume 80% page replaces the Resolution list
+Когда input key - - Escape
+Когда advance 0.5
+Тогда-вид ui_switcher_2_escape Escape popped back to the Main screen: the nav column and cards are back
+Когда run Action Stop
+# --- UI-TEXTEDIT: the InputField takes focus, caret, Backspace and arrows edit "typed text"
+Дано run Scene "Open Scene UI_ElementProbe.desce"
+Дано run Action "Play from Here"
+Дано advance 0.5
+Когда input click - 707,711
+Когда input key - - Backspace
+Когда input key - - Backspace
+Когда input key - - Left
+Когда advance 0.3
+Тогда-вид ui_textedit the InputField focused (outlined), text "typed te" after two Backspaces, caret one left of the end
+Когда run Action Stop
+# --- TEX-SRGB: texture preview with its colour-space (sRGB / linear) row
+Когда run Open "Environments/FieldBarn/Meshes/boulder_01/textures/boulder_01_diff_2k.detex"
+Тогда tex_srgb_diffuse the texture editor: albedo preview, sRGB on
+# TEX-SRGB content: the 18 FieldBarn packs were created Unspecified (= sRGB) before PackTextureChannels stated the
+# slot's space; each is set Linear in place (TextureViewerDocument ColorSpace -> Assets::SetTextureColorSpace).
+# boulder_01 last, so the frame shows the setting it now stores (re-read from the file on open).
+Когда run Open "Environments/FieldBarn/Meshes/celandine_01/textures/celandine_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/dandelion_01/textures/dandelion_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/dead_tree_trunk/textures/dead_tree_trunk_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/grass_bermuda_01/textures/grass_bermuda_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/grass_medium_01/textures/grass_medium_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/grass_medium_02/textures/grass_medium_02_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_branches_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_leaves_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_branches_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/island_tree_02/textures/island_tree_02_leaves_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/shrub_02/textures/shrub_02_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_branch_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/tree_small_02/textures/tree_small_02_leaves_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/tree_stump_01/textures/tree_stump_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/boulder_01/textures/boulder_01_arm_2k_ORMTexture.detex"
+Когда --subject document set ColorSpace 0
+Когда run Action "Close All Documents"
+Когда run Open "Environments/FieldBarn/Meshes/boulder_01/textures/boulder_01_arm_2k_ORMTexture.detex"
+Тогда tex_srgb_orm the ORM texture editor: the colour-space control reads Linear (sRGB off), grey-ish data image
+Когда run Action "Close All Documents"
+# --- SEQ-FILTER: Sequencer with its track filters
+Когда run Open "Sequences/Intro.dseq"
+Тогда seq_filter the Sequencer of Intro.dseq with the track filter control
+Когда run Action "Close All Documents"
+# --- SCAL-UX: the Scalability panel
+Когда run Panel "Open Scalability"
+Тогда scal_ux the Scalability panel: Overall + group sliders incl. PathTracing, Basic rows, Advanced folded
+# --- TOD-SPLIT + WIND-SRC: the Sky's Time of Day component and the Wind Source entity in Details
+Дано run Scene "Open Scene Clouds_Showcase.desce"
+Когда run Entity "Add to selection Sky"
+Тогда tod_split Details of Sky: a separate Time of Day component (time, day length, latitude/longitude, date, north offset)
+Когда run "Level Viewport" "Select None"
+Когда run Entity "Add to selection Wind Source"
+Тогда wind_src Details of Wind Source: the Wind Source component (direction, speed, gusts) driving the clouds
+# --- VFX-16 + VFX-10: Particle Debugger on the Campfire; Spawn from Channel on the Impacts demo
+Дано run Scene "Open Scene Starter.desce"
+Когда run Panel "Open Particle Debugger"
+Когда run Action Simulate
+Когда advance 1
+Тогда vfx16_debugger the Particle Debugger: Campfire's emitters with live particle counts / stats
+Когда run Action Stop
+Когда run Open "VFX/Demo/Impact.dfx"
+Тогда vfx10_channel the Impact system's emitter with a Spawn from Channel module bound to a VFX Data Channel
+Когда run Action "Close All Documents"
+# --- MAT-AO-ONEHOME + MAT-INT-PARAM
+Дано run Scene "Open Scene NRM_Witness.desce"
+Когда run Open "Materials/M_NormalWitness.demat"
+Тогда mat_ao_onehome the material editor of M_NormalWitness: one AO Strength row (UE Ambient Occlusion), no OcclusionStrength
+Когда run View "View mode: Ambient Occlusion"
+Тогда-вид mat_ao_view the Ambient Occlusion view mode of NRM_Witness
+Когда run View "View mode: Lit"
+Когда run Action "Close All Documents"
+Дано run Scene "Open Scene MAT_ProbeIntParam.desce"
+# The editor camera is not the scene Camera entity: aim it at the five probes (x -400..400, y 20, z 0) from the Camera entity spot.
+Дано --subject viewport set Camera.Position 0,60,1100
+Дано --subject viewport set Camera.Direction 0,-0.03,-1
+Тогда-вид mat_int_param five probe meshes, each a different integer Mode of one material (0 / 1 / default 2 / 3 / 1 Darken) - visibly different
+Когда run Quality "Quality: ResolutionScale High"
+# --- VFX-MODULE-ASSET (last: refused on 10-29, VFXModuleFormat.cpp:174 round-trip)
+Когда run Assets "New VFX Module"
+Тогда vfx_module_asset a new .dfxmod asset created in the Content Browser (and its editor)

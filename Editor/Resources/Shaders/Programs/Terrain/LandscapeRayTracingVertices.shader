@@ -21,33 +21,33 @@ Shader "LandscapeRayTracingVertices"
         // The raster's own TerrainInstance rows (TerrainRenderer::PrepareFrame), one per tile of this pass.
         ReadBuffer(0) LandscapeRayTracingRows
         {
-            TerrainInstance u_Terrains[];
+            TerrainInstance Terrains[];
         };
         // Shared sampler states (UE shared samplers): each input below is a separate texture read through one of
         // these, bound by the pass by name and numbered by the program build (ShaderMapBuild.cpp
         // AssignSharedSamplerBindings).
-        Uniform sampler u_PointClampSampler;
-        Uniform(1) texture2D u_Heightmap;
-        #define u_Heightmap sampler2D(u_Heightmap, u_PointClampSampler)
-        // The tile's RGBA8 weight pages (LandscapeWeightDraw); the engine fallback when it has none (u_Tile.w = 0).
-        Uniform(2) texture2D u_Weightmap;
-        #define u_Weightmap sampler2D(u_Weightmap, u_PointClampSampler)
+        Uniform sampler PointClampSampler;
+        Uniform(1) texture2D HeightmapTexture;
+        #define HeightmapTexture sampler2D(HeightmapTexture, PointClampSampler)
+        // The tile's RGBA8 weight pages (LandscapeWeightDraw); the engine fallback when it has none (Tile.w = 0).
+        Uniform(2) texture2D WeightmapTexture;
+        #define WeightmapTexture sampler2D(WeightmapTexture, PointClampSampler)
 
         Buffer(3) LandscapeRayTracingVertexData
         {
-            uint u_Vertices[]; // Desert::Vertex, 14 words each
+            uint Vertices[]; // Desert::Vertex, 14 words each
         };
         Buffer(4) LandscapeRayTracingIndexData
         {
-            uint u_Indices[];
+            uint Indices[];
         };
 
         PushConstant PushConstants
         {
-            uvec4 u_Tile; // x = the tile's row, y = grid vertices per side (cells + 1), z = cells per side, w = 1 when a weightmap is bound
+            uvec4 Tile; // x = the tile's row, y = grid vertices per side (cells + 1), z = cells per side, w = 1 when a weightmap is bound
         };
 
-        #define u_T u_Terrains[u_Tile.x]
+        #define CurrentTerrain Terrains[Tile.x]
 
         #include <Common/LandscapeHeight.glslh>
         #include <Common/LandscapeLod.glslh>
@@ -59,45 +59,45 @@ Shader "LandscapeRayTracingVertices"
         void WriteVertex( uint index, vec3 position, vec3 normal, vec3 tangent, vec3 bitangent, vec2 uv )
         {
             uint w = index * kVertexWords;
-            u_Vertices[w + 0u]  = floatBitsToUint( position.x );
-            u_Vertices[w + 1u]  = floatBitsToUint( position.y );
-            u_Vertices[w + 2u]  = floatBitsToUint( position.z );
-            u_Vertices[w + 3u]  = floatBitsToUint( normal.x );
-            u_Vertices[w + 4u]  = floatBitsToUint( normal.y );
-            u_Vertices[w + 5u]  = floatBitsToUint( normal.z );
-            u_Vertices[w + 6u]  = floatBitsToUint( tangent.x );
-            u_Vertices[w + 7u]  = floatBitsToUint( tangent.y );
-            u_Vertices[w + 8u]  = floatBitsToUint( tangent.z );
-            u_Vertices[w + 9u]  = floatBitsToUint( bitangent.x );
-            u_Vertices[w + 10u] = floatBitsToUint( bitangent.y );
-            u_Vertices[w + 11u] = floatBitsToUint( bitangent.z );
-            u_Vertices[w + 12u] = floatBitsToUint( uv.x );
-            u_Vertices[w + 13u] = floatBitsToUint( uv.y );
+            Vertices[w + 0u]  = floatBitsToUint( position.x );
+            Vertices[w + 1u]  = floatBitsToUint( position.y );
+            Vertices[w + 2u]  = floatBitsToUint( position.z );
+            Vertices[w + 3u]  = floatBitsToUint( normal.x );
+            Vertices[w + 4u]  = floatBitsToUint( normal.y );
+            Vertices[w + 5u]  = floatBitsToUint( normal.z );
+            Vertices[w + 6u]  = floatBitsToUint( tangent.x );
+            Vertices[w + 7u]  = floatBitsToUint( tangent.y );
+            Vertices[w + 8u]  = floatBitsToUint( tangent.z );
+            Vertices[w + 9u]  = floatBitsToUint( bitangent.x );
+            Vertices[w + 10u] = floatBitsToUint( bitangent.y );
+            Vertices[w + 11u] = floatBitsToUint( bitangent.z );
+            Vertices[w + 12u] = floatBitsToUint( uv.x );
+            Vertices[w + 13u] = floatBitsToUint( uv.y );
         }
 
         // Grid vertex (gx, gz) of the tile's LOD grid, placed as LandscapeLodGridCoord places a cell corner.
         LandscapeMorphedVertex GridVertex( int gx, int gz )
         {
-            int quads  = int( u_T.LandscapeTile.z + 0.5 );
-            int stride = LandscapeLodStride( int( u_T.Params.w + 0.5 ) );
+            int quads  = int( CurrentTerrain.LandscapeTile.z + 0.5 );
+            int stride = LandscapeLodStride( int( CurrentTerrain.Params.w + 0.5 ) );
             return LandscapeEvaluateVertex( min( gx * stride, quads ), min( gz * stride, quads ) );
         }
 
         // Whether tile sample (x, z) is a hole: the surface's own test (LandscapeIsHole) on the weight pages.
         bool SampleIsHole( int x, int z )
         {
-            float pages = u_T.Params2.z;
-            int   rows  = int( float( textureSize( u_Weightmap, 0 ).y ) / max( pages, 1.0 ) + 0.5 );
-            vec4  w0    = texelFetch( u_Weightmap, ivec2( x, z ), 0 );
-            vec4  w1    = pages > 1.5 ? texelFetch( u_Weightmap, ivec2( x, z + rows ), 0 ) : vec4( 0.0 );
-            return LandscapeIsHole( LandscapeVisibility( w0, w1, u_T.Params.z ) );
+            float pages = CurrentTerrain.Params2.z;
+            int   rows  = int( float( textureSize( WeightmapTexture, 0 ).y ) / max( pages, 1.0 ) + 0.5 );
+            vec4  w0    = texelFetch( WeightmapTexture, ivec2( x, z ), 0 );
+            vec4  w1    = pages > 1.5 ? texelFetch( WeightmapTexture, ivec2( x, z + rows ), 0 ) : vec4( 0.0 );
+            return LandscapeIsHole( LandscapeVisibility( w0, w1, CurrentTerrain.Params.z ) );
         }
 
         void main()
         {
             uint i     = gl_GlobalInvocationID.x;
-            uint side  = u_Tile.y;
-            uint cells = u_Tile.z;
+            uint side  = Tile.y;
+            uint cells = Tile.z;
             uint nanVertex = side * side;
 
             if ( i < nanVertex )
@@ -121,7 +121,7 @@ Shader "LandscapeRayTracingVertices"
             // is the bilinear of the samples around it, so the box's samples decide the whole cell exactly.
             bool anyHole = false;
             bool allHole = false;
-            if ( u_Tile.w == 1u && u_T.Params.z > 0.5 )
+            if ( Tile.w == 1u && CurrentTerrain.Params.z > 0.5 )
             {
                 vec2 lo = vec2( 1e9 );
                 vec2 hi = vec2( -1e9 );
@@ -131,7 +131,7 @@ Shader "LandscapeRayTracingVertices"
                     lo = min( lo, local );
                     hi = max( hi, local );
                 }
-                int last = int( u_T.LandscapeTile.z + 0.5 );
+                int last = int( CurrentTerrain.LandscapeTile.z + 0.5 );
                 int x0   = clamp( int( floor( lo.x ) ), 0, last );
                 int z0   = clamp( int( floor( lo.y ) ), 0, last );
                 int x1   = clamp( int( ceil( hi.x ) ), 0, last );
@@ -153,8 +153,8 @@ Shader "LandscapeRayTracingVertices"
             for ( int k = 0; k < 6; ++k )
             {
                 uint vertex = uint( cz + LandscapeLodCornerZ( k ) ) * side + uint( cx + LandscapeLodCornerX( k ) );
-                u_Indices[opaqueBase + uint( k )] = !anyHole ? vertex : nanVertex;
-                u_Indices[maskedBase + uint( k )] = ( anyHole && !allHole ) ? vertex : nanVertex;
+                Indices[opaqueBase + uint( k )] = !anyHole ? vertex : nanVertex;
+                Indices[maskedBase + uint( k )] = ( anyHole && !allHole ) ? vertex : nanVertex;
             }
         }
     }

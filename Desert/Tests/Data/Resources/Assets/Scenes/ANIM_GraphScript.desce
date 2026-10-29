@@ -3,8 +3,9 @@
         "Kind": "Scene",
         "Guid": "a8b98e82066b336a19f729bde6b25331",
         "Versions": {
-            "SCNE": 64,
-            "UNIT": 1
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["003085b663f8dac28c0a750a38cf6db8", "443da08f9e394860b5c2bd3bb619e9cd", "d4fbdf9b566d4035ab03ab0f9a35330e", "e06572ed86a043209146d11062e05b5c"]
     },
@@ -123,7 +124,7 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [60.0, 0.20000000298023224, 16.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
+                "MaterialPaths": ["assets:Materials/CB_White.demat"],
                 "MaterialGuids": ["443da08f9e394860b5c2bd3bb619e9cd"],
                 "Primitive": "Cube"
             }
@@ -140,7 +141,7 @@
                 "Playing": true,
                 "Loop": true,
                 "PlaybackSpeed": 1.0,
-                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
+                "Graph": "assets:AnimGraphs/ScriptDriven.danimgraph"
             },
             "Script": {
                 "Scripts": [
@@ -151,9 +152,9 @@
                 ]
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
@@ -169,7 +170,7 @@
                 "Playing": true,
                 "Loop": true,
                 "PlaybackSpeed": 1.0,
-                "Graph": "AnimGraphs/ScriptDriven.danimgraph"
+                "Graph": "assets:AnimGraphs/ScriptDriven.danimgraph"
             },
             "Script": {
                 "Scripts": [
@@ -188,9 +189,9 @@
                 ]
             },
             "SkinnedMesh": {
-                "MeshPath": "Resources/Assets/Meshes/Skinned/TwoBoneProbe.skmesh",
+                "MeshPath": "assets:Meshes/Skinned/TwoBoneProbe.skmesh",
                 "MeshGuid": "d4fbdf9b566d4035ab03ab0f9a35330e",
-                "MaterialPaths": ["Materials/CB_Orange.demat"],
+                "MaterialPaths": ["assets:Materials/CB_Orange.demat"],
                 "MaterialGuids": ["e06572ed86a043209146d11062e05b5c"]
             }
         },
@@ -233,7 +234,6 @@
                     "DistanceFieldShadows": false,
                     "Tonemapper": 0,
                     "ManualExposureEV100": 0.5260688662528992,
-                    "Gamma": 2.200000047683716,
                     "WhitePoint": 8.0,
                     "AutoExposure": false,
                     "AutoExposureKey": 0.18000000715255737,
@@ -283,6 +283,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
+        "WorldParameters": "",
         "SplashSprite": {
             "Guid": "",
             "Path": ""

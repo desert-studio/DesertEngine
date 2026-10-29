@@ -78,6 +78,7 @@
 *.dephysasset    -text
 *.desound        -text
 *.dfxch          -text
+*.dfxmod         -text
 
 
 # The cooked texture container (B17). It stopped being JSON the day it grew a pixel payload, and a

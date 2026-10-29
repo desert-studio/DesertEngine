@@ -7,6 +7,9 @@
 
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
+#include <unordered_set>
+
 namespace Desert::Editor::Render
 {
     namespace
@@ -103,11 +106,8 @@ namespace Desert::Editor::Render
             const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
             if ( view == nullptr )
                 return BOOLSUCCESS;
-            if ( !ctx.Renderer->GetDebugView().ShowColliders )
-                return BOOLSUCCESS;
-
             std::vector<LineVertex> lines;
-            BuildLines( lines );
+            BuildLines( lines, ctx.Renderer->GetDebugView().ShowColliders );
             if ( lines.empty() )
                 return BOOLSUCCESS;
 
@@ -121,7 +121,7 @@ namespace Desert::Editor::Render
         return BOOLSUCCESS;
     }
 
-    void EditorColliderPass::BuildLines( std::vector<LineVertex>& outLines ) const
+    void EditorColliderPass::BuildLines( std::vector<LineVertex>& outLines, bool showColliders ) const
     {
         const auto scene = m_Scene.lock();
         if ( !scene )
@@ -133,6 +133,8 @@ namespace Desert::Editor::Render
              scene->GetRegistry().view<ECS::ColliderComponent, ECS::TransformComponent>();
         for ( auto entity : view )
         {
+            if ( !showColliders && scene->GetRegistry().try_get<ECS::VolumeComponent>( entity ) == nullptr )
+                continue;
             const auto& collider  = view.get<ECS::ColliderComponent>( entity ).Data;
             const auto& transform = view.get<ECS::TransformComponent>( entity );
 
@@ -173,8 +175,34 @@ namespace Desert::Editor::Render
                 }
                 case Physics::ShapeType::Mesh:
                 case Physics::ShapeType::ConvexHull:
-                    // Built from the entity's own mesh, which is already drawn: an outline would repeat it.
+                {
+                    // Built from the entity's own mesh, which is already drawn: an outline would repeat it. A
+                    // VOLUME draws nothing else, so its hull IS drawn (UE: a volume shows as its brush outline),
+                    // with the entity's scale, as PhysicsECSSystem cooks it.
+                    const auto* volume = scene->GetRegistry().try_get<ECS::VolumeComponent>( entity );
+                    if ( volume == nullptr )
+                        break;
+                    const size_t corners = ECS::VolumeCornerCount( volume->Data );
+                    const auto&  indices = volume->Data.HullIndices;
+                    const auto   world   = [&]( uint32_t i )
+                    { return transform.Translation + R * ( ECS::VolumeCorner( volume->Data, i ) * transform.Scale ); };
+                    std::unordered_set<uint64_t> drawn;
+                    const auto edge = [&]( uint32_t a, uint32_t b )
+                    {
+                        if ( a >= corners || b >= corners )
+                            return;
+                        const uint64_t key = ( uint64_t( std::min( a, b ) ) << 32u ) | std::max( a, b );
+                        if ( drawn.insert( key ).second )
+                            AddLine( outLines, world( a ), world( b ) );
+                    };
+                    for ( size_t t = 0; t + 2 < indices.size(); t += 3 )
+                    {
+                        edge( indices[t], indices[t + 1] );
+                        edge( indices[t + 1], indices[t + 2] );
+                        edge( indices[t + 2], indices[t] );
+                    }
                     break;
+                }
                 case Physics::ShapeType::Capsule:
                 {
                     // Jolt capsule: axis along local Y; HalfHeight is the CYLINDER half-length,

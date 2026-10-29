@@ -23,6 +23,11 @@ namespace Desert::Editor::WorldPartitionMap
         {
             return level < 0 || cellLevel == level;
         }
+
+        bool OnGrid( const ::Desert::Core::Rules::PlannedCell& cell, std::optional<std::size_t> grid )
+        {
+            return !grid.has_value() || cell.Grid == *grid;
+        }
     } // namespace
 
     glm::dvec2 WorldToScreen( const View& view, glm::dvec2 screenSize, glm::dvec2 world )
@@ -76,29 +81,36 @@ namespace Desert::Editor::WorldPartitionMap
     }
 
     std::optional<::Desert::Core::Rules::CellBounds>
-    PlanBounds( const ::Desert::Core::Rules::WorldPartitionPlan& plan )
+    PlanBounds( const ::Desert::Core::Rules::WorldPartitionPlan& plan, std::optional<std::size_t> grid )
     {
-        if ( plan.Cells.empty() )
-            return std::nullopt;
-        ::Desert::Core::Rules::CellBounds bounds = plan.Cells.front().Square;
+        std::optional<::Desert::Core::Rules::CellBounds> found;
         for ( const ::Desert::Core::Rules::PlannedCell& cell : plan.Cells )
         {
+            if ( !OnGrid( cell, grid ) )
+                continue;
+            if ( !found.has_value() )
+            {
+                found = cell.Square;
+                continue;
+            }
+            ::Desert::Core::Rules::CellBounds& bounds = *found;
             bounds.MinX = std::min( bounds.MinX, cell.Square.MinX );
             bounds.MinZ = std::min( bounds.MinZ, cell.Square.MinZ );
             bounds.MaxX = std::max( bounds.MaxX, cell.Square.MaxX );
             bounds.MaxZ = std::max( bounds.MaxZ, cell.Square.MaxZ );
         }
-        return bounds;
+        return found;
     }
 
     std::vector<std::size_t> VisibleCells( const ::Desert::Core::Rules::WorldPartitionPlan& plan, const View& view,
-                                           glm::dvec2 screenSize, int level )
+                                           glm::dvec2 screenSize, int level, std::optional<std::size_t> grid )
     {
         const glm::dvec2         lo = ScreenToWorld( view, screenSize, { 0.0, 0.0 } );
         const glm::dvec2         hi = ScreenToWorld( view, screenSize, screenSize );
         std::vector<std::size_t> visible;
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
-            if ( Shown( plan.Cells[cell].Level, level ) && Overlaps( plan.Cells[cell].Square, lo, hi ) )
+            if ( OnGrid( plan.Cells[cell], grid ) && Shown( plan.Cells[cell].Level, level ) &&
+                 Overlaps( plan.Cells[cell].Square, lo, hi ) )
                 visible.push_back( cell );
         std::stable_sort( visible.begin(), visible.end(), [&plan]( std::size_t a, std::size_t b )
                           { return plan.Cells[a].Level > plan.Cells[b].Level; } );
@@ -106,7 +118,7 @@ namespace Desert::Editor::WorldPartitionMap
     }
 
     std::optional<std::size_t> CellAt( const ::Desert::Core::Rules::WorldPartitionPlan& plan, glm::dvec2 world,
-                                       int level )
+                                       int level, std::optional<std::size_t> grid )
     {
         std::optional<std::size_t> found;
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
@@ -114,7 +126,7 @@ namespace Desert::Editor::WorldPartitionMap
             const ::Desert::Core::Rules::PlannedCell& candidate = plan.Cells[cell];
             const bool inside = world.x >= candidate.Square.MinX && world.x < candidate.Square.MaxX &&
                                 world.y >= candidate.Square.MinZ && world.y < candidate.Square.MaxZ;
-            if ( inside && Shown( candidate.Level, level ) &&
+            if ( inside && OnGrid( candidate, grid ) && Shown( candidate.Level, level ) &&
                  ( !found.has_value() || candidate.Level < plan.Cells[*found].Level ) )
                 found = cell;
         }
@@ -273,14 +285,14 @@ namespace Desert::Editor::WorldPartitionMap
 
     std::vector<LegendRow> Legend( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                                    const ::Desert::Core::Rules::ResidencyState* residency, int level,
-                                   std::span<const CellState> editor )
+                                   std::span<const CellState> editor, std::optional<std::size_t> grid )
     {
         std::vector<LegendRow> rows;
         for ( const CellState state : LegendStates( residency != nullptr, !editor.empty() ) )
             rows.push_back( LegendRow{ state, 0 } );
         for ( std::size_t cell = 0; cell < plan.Cells.size(); ++cell )
         {
-            if ( !Shown( plan.Cells[cell].Level, level ) )
+            if ( !OnGrid( plan.Cells[cell], grid ) || !Shown( plan.Cells[cell].Level, level ) )
                 continue;
             // A state without a row is left uncounted, and then the rows no longer sum to the cell count:
             // that sum is what the suite asserts for every residency.

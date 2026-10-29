@@ -6,6 +6,8 @@
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
+#include <Engine/ShaderResources/StorageBuffer.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 
 #include <array>
 #include <memory>
@@ -17,6 +19,33 @@ namespace Desert::Graphic::System
     // luminance with percentile clipping (rejects bright/dark outliers) and temporally adapts a 1x1
     // luminance image that tonemap turns into exposure. Replaces the old 8x8-grid fragment pass. Runs in
     // the explicit post-process chain (before tonemap), outside any render pass.
+    // The Clear shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct AutoExposureClearShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Histogram );
+        static constexpr std::array kAll{ RDG::Erase( Histogram ) };
+    };
+
+    // The Histogram shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct AutoExposureHistogramShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Histogram );
+        static constexpr std::array kAll{ RDG::Erase( SceneColorTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( Histogram ) };
+    };
+
+    // The Average shader's parameters: the one spelling the pass binds and Initialize checks.
+    struct AutoExposureAverageShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, Histogram );
+        DESERT_SHADER_PARAMETER( Texture, PreviousLuminanceTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, OutLuminanceTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+        static constexpr std::array kAll{ RDG::Erase( Histogram ), RDG::Erase( PreviousLuminanceTexture ), RDG::Erase( PointClampSampler ), RDG::Erase( OutLuminanceTexture ), RDG::Erase( Readback ) };
+    };
+
     class AutoExposureRenderer final : public RenderSystem
     {
     public:
@@ -24,7 +53,7 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override;
 
-        // The histogram's bins: one uint per bin, 256 bins (AEHistogram*.shader `uint u_Bins[256]`).
+        // The histogram's bins: one uint per bin, 256 bins (AEHistogram*.shader `uint Bins[256]`).
         static constexpr uint32_t kBins           = 256;
         static constexpr uint64_t kHistogramBytes = kBins * sizeof( uint32_t );
         // The histogram is a transient of each frame graph (Builder::CreateBuffer with this desc): it is written
@@ -54,8 +83,15 @@ namespace Desert::Graphic::System
         // 3) Percentile-clipped average + temporal adaptation: reads @p histogram, samples @p previous (the
         //    imported GetPreviousLuminanceImage(), PointClamp at its one texel), writes @p adapted (the imported
         //    GetAdaptedLuminanceImage()).
+        //    Also writes the adapted luminance into @p readback (ImportReadback) for the CPU.
         void DeclareAverageBindings( RDG::PassBuilder& pass, RDG::BufferRef histogram, RDG::TextureRef previous,
-                                     RDG::TextureRef adapted ) const;
+                                     RDG::TextureRef adapted, RDG::BufferRef readback ) const;
+        // The per-frame host-readable copy of the adapted luminance, imported into this frame's graph (invalid
+        // ref + LOG_ERROR when the import fails).
+        [[nodiscard]] RDG::BufferRef ImportReadback( RDG::Builder& graph );
+        // The adapted luminance the Average pass wrote FramesInFlight frames ago into this frame's copy (UE
+        // FViewInfo::UpdatePreExposure). Call before this frame's graph binds the copy. 0 = nothing written yet.
+        [[nodiscard]] float                 ReadBackAdaptedLuminance();
         [[nodiscard]] Common::BoolResultStr RecordAverage( const RDG::PassContext& context );
 
         [[nodiscard]] std::shared_ptr<Image2D> GetSceneColorImage() const
@@ -96,6 +132,24 @@ namespace Desert::Graphic::System
             m_DeltaSeconds = seconds;
         }
 
+        // This frame's ViewFrame::PreExposure (> 0): the scene colour the histogram reads is stored multiplied by it.
+        void SetPreExposure( float preExposure )
+        {
+            m_PreExposure = preExposure;
+        }
+        // Local exposure (UE PostProcessEyeAdaptation.usf:202-248): the Average pass also resolves the histogram's
+        // AverageLocalExposure into the readback; pre-exposure multiplies by it (UE EyeAdaptation.cpp:1559,1587).
+        void SetLocalExposure( const LocalExposureParams& params, float logMiddleGrey, float key )
+        {
+            m_LocalExposure        = params;
+            m_LocalExposureLogGrey = logMiddleGrey;
+            m_LocalExposureKey     = key;
+        }
+        // The AverageLocalExposure read back with the adapted luminance (1 when none was written or identity).
+        [[nodiscard]] float GetLastAverageLocalExposure() const
+        {
+            return m_LastAverageLocalExposure;
+        }
         void SetParams( float adaptSpeed, float minLuma, float maxLuma )
         {
             m_AdaptSpeed = adaptSpeed;
@@ -115,6 +169,9 @@ namespace Desert::Graphic::System
 
         // History (read by the next frame's Average and by the tonemap): stays external, imported every frame.
         std::array<std::shared_ptr<Image2D>, 2> m_LumImage; // ping-pong 1x1
+        // Per-frame-in-flight (not persistent): each frame's copy is read back FramesInFlight frames later.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_Readback;
+        RDG::ExternalBuffer                             m_ReadbackImport;
 
         std::shared_ptr<ComputePipeline> m_ClearPipeline;
         std::shared_ptr<ComputePipeline> m_HistogramPipeline;
@@ -128,6 +185,11 @@ namespace Desert::Graphic::System
         bool  m_SnapNextAdaptation = false;
         float m_AdaptSpeed         = 1.5f;
         float m_DeltaSeconds       = 0.0f;
+        float m_PreExposure        = 1.0f;
+        LocalExposureParams m_LocalExposure;
+        float               m_LocalExposureLogGrey     = -2.4739312f;
+        float               m_LocalExposureKey         = 0.18f;
+        float               m_LastAverageLocalExposure = 1.0f;
         float m_MinLuma    = 0.02f;
         float m_MaxLuma    = 8.0f;
     };

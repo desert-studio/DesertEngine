@@ -3,8 +3,11 @@
         "Kind": "Scene",
         "Guid": "8c6878d7020fb35245a45d383b1ec4db",
         "Versions": {
-            "SCNE": 66,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "e04d99eaf3ddd30e0184e38e5c3bcc57"]
     },
@@ -14,8 +17,8 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-0.30000001192092896, -0.550000011920929, -0.7799999713897705],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.614159345626831, 0.30455127358436584, -0.09725314378738403],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -123,9 +126,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2.4000000953674316, 2.4000000953674316, 0.019999999552965164],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -136,9 +147,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.7000000476837158, 1.7000000476837158, 0.019999999552965164],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Red.demat"],
-                "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                        "Path": "assets:Materials/CB_Red.demat"
+                    }
+                ]
             }
         },
         {
@@ -149,9 +168,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [2400.0, 2400.0, 20.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_White.demat"],
-                "MaterialGuids": ["04f3bb576e64e248daad7640edbe91c5"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
             }
         },
         {
@@ -162,9 +189,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1700.0, 1700.0, 20.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/CB_Red.demat"],
-                "MaterialGuids": ["e04d99eaf3ddd30e0184e38e5c3bcc57"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "e04d99eaf3ddd30e0184e38e5c3bcc57",
+                        "Path": "assets:Materials/CB_Red.demat"
+                    }
+                ]
             }
         },
         {
@@ -198,6 +233,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,

@@ -1,0 +1,27 @@
+{
+    "Header": {
+        "Kind": "Skeleton",
+        "Guid": "fd194f3e11607b96ac1c28c21f6e9c27",
+        "Versions": {
+            "SKEL": 4
+        },
+        "Dependencies": []
+    },
+    "Signature": 4699069763035776985,
+    "Bones": [
+        {
+            "Name": "Root",
+            "OffsetMatrix": [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+            ],
+            "LocalBindTransform": [
+                1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+            ]
+        }
+    ],
+    "CompatibleSkeletons": [],
+    "Sockets": [],
+    "BoneMasks": []
+}

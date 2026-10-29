@@ -7,6 +7,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassBladeRayTracing.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
@@ -32,7 +33,7 @@ namespace Desert::Graphic::System
     class MeshRenderer;
 
     // One landscape root's heights and grass-layer weights on ONE sample grid over all its tiles (tiles share
-    // their edge samples), packed as the generator reads it (Programs/Grass/GrassGenerate.shader, u_Field):
+    // their edge samples), packed as the generator reads it (Programs/Grass/GrassGenerate.shader, FieldData):
     //   [0] samples X, [1] samples Z, [2] grass layer count, [3] 0, [4] origin X (float bits), [5] origin Z,
     //   [6] spacing cm, [7] 0, then one float world height per sample (kGrassNoHeight where no tile is loaded),
     //   then per grass layer one byte of weight per sample, four to a word.
@@ -66,11 +67,13 @@ namespace Desert::Graphic::System
     // tilt, the facing jitter and the levels.
     struct GrassBladeDraw
     {
-        float     Height = 45.0f, Width = 1.2f, Taper = 0.9f, Curvature = 0.35f, CurvatureSpread = 0.4f;
-        float     BendSpread = 0.0f, Tilt = 0.0f, FacingJitter = 0.0f, Stiffness = 0.3f;
-        glm::vec3 BaseColor{ 0.06f, 0.10f, 0.03f }, TipColor{ 0.25f, 0.33f, 0.09f },
-             DryTipColor{ 0.45f, 0.38f, 0.2f };
-        float    DryTipShare = 0.25f, DryTipLength = 0.3f, Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
+        float Height = 45.0f, Curvature = 0.35f, CurvatureSpread = 0.4f;
+        float BendSpread = 0.0f, Tilt = 0.0f, FacingJitter = 0.0f, Stiffness = 0.3f;
+        /// The material atlas's cards (u0, v tip, u1, v root) the blades draw from, and the widest one's width,
+        /// cm at scale 1 (the bounds).
+        std::vector<glm::vec4> Cards;
+        float                  MaxWidth = 0.0f;
+        float                  Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
         float    Scatter = 0.0f, Patchiness = 0.0f, PatchSize = 800.0f;
         uint32_t Segments    = 6;
         float    LodDistance = 700.0f;
@@ -126,8 +129,29 @@ namespace Desert::Graphic::System
         }
 
         // Before the cascades and the geometry: the generation nodes of this frame's view, and the sections handed
-        // to @p meshes. A view that is not the main one (a capture face) grows nothing.
-        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes );
+        // to @p meshes. A view that is not the main one (a capture face) grows nothing. @p rayTracing: the view
+        // builds a TLAS this frame (RayTracingSceneRequired): the Blade varieties' level BLASes are prepared and
+        // handed with the sections (GrassBladeRayTracing.hpp).
+        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing );
+
+        // This frame's blade BLAS requests and resident BLASes (after AddFrame): the view's TLAS block hands them
+        // to the RT scene with the landscape's.
+        [[nodiscard]] const GrassBladeRayTracing& GetBladeRayTracing() const
+        {
+            return m_BladeRayTracing;
+        }
+
+        // THE CONTROL GATE'S QUESTION (PendingWork::GrassInstances, GRASS-SETTLE p14): the last AddFrame drew a
+        // variety whose instance buffer may hold fewer instances than its generator keeps - its first count has
+        // not come back yet (capacity zero), or a read-back count overflowed the capacity the frame was drawn with
+        // (a camera cut: the buffers are sized by the PREVIOUS view's count, and GrassGenerate drops everything
+        // past them, a straight-edged block of cells losing its meshes). Clears once every drawn variety has had
+        // the swapchain's frames in flight worth of read-backs within its capacity since the last overflow. UE's
+        // automated screenshot waits for the grass builds the same way (the async grass tasks must finish).
+        [[nodiscard]] bool InstancesSettling() const noexcept
+        {
+            return m_Settling;
+        }
 
     private:
         struct FieldGpu
@@ -145,6 +169,7 @@ namespace Desert::Graphic::System
             std::shared_ptr<ShaderResources::StorageBuffer> Args;
             std::shared_ptr<ShaderResources::StorageBuffer> Params;
             std::shared_ptr<ShaderResources::StorageBuffer> Shape; // Kind Blade: GrassBladeShapeGpu
+            GrassBladeShapeGpu                              ShapeData{}; // Kind Blade: what Shape was written with
             uint32_t                                        Buckets     = 1;
             std::vector<uint32_t> BucketCapacities; // what Args' bucket table was written with
             // GPU-count feedback (GrassFinalize): per frame in flight, each bucket's unclamped count and a written
@@ -152,6 +177,10 @@ namespace Desert::Graphic::System
             // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
             std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
             std::vector<uint32_t>                           LowFrames;
+            // Read-backs still to come, after the last one that overflowed a bucket, before this variety's draw is
+            // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
+            uint32_t                                        SettleReads = 0;
+            bool                                            Truncated   = false;
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
@@ -171,10 +200,12 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
+        bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
         mutable ShaderBindingLayoutCache m_GenerateLayout;
         mutable ShaderBindingLayoutCache m_FinalizeLayout;
         uint32_t                         m_NextIndex = 0;
+        GrassBladeRayTracing             m_BladeRayTracing;
     };
 } // namespace Desert::Graphic::System

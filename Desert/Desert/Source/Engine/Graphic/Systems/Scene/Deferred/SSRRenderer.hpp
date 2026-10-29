@@ -28,9 +28,79 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRFrontLayerShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerNormalTexture );
+        DESERT_SHADER_PARAMETER( Texture, FrontLayerDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRTraceShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, SsrTraceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TraceRayTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRHitLightingShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, GBufferNormalTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( StorageTexture, SsrTraceTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TraceRayTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, TileMaskTexture );
+        DESERT_SHADER_PARAMETER( UniformBuffer, SSRTraceUB );
+        DESERT_SHADER_PARAMETER( UniformBuffer, CameraUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct SSRShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIFrameUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PointLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, SpotLightsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridWorldCellsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheParamsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheIndirectionUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, RadianceCacheProbesUB );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheIrradianceTexture );
+        DESERT_SHADER_PARAMETER( Texture, RadianceCacheDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, EnvironmentSpecularTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, DistanceFieldBrickAtlasTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DFAssetData );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DFIndirection );
+        DESERT_SHADER_PARAMETER( StorageBuffer, DFObjects );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFObjectRowsUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, GIMeshSDFCulledUB );
+    };
+
     // Screen-space reflections (SSR2): one compute dispatch that classifies and traces; the screen-space
     // denoiser (ScreenSpaceDenoiser, the reflections signal) turns the trace into the reflection the deferred
-    // lighting composes (DeferredLighting.shader u_SSR).
+    // lighting composes (DeferredLighting.shader SsrTexture).
     //  1) CLASSIFY + TRACE (SSR.shader, compute, one workgroup per kTileSize x kTileSize screen tile): the tile
     //     is marked in the tile mask when any pixel passes the trace's G-buffer gate (sky / too rough -
     //     Common/SSRGate.glslh), and the same workgroup then traces at the resolution Reflections.DownsampleFactor
@@ -86,7 +156,7 @@ namespace Desert::Graphic::System
         }
 
         // The front layer's G-buffer (Mesh/Surface/Pass_FrontLayer.glslh) the TranslucentFrontLayer programs start
-        // their rays from: normal + roughness and depth, as u_FrontLayerNormal / u_FrontLayerDepth.
+        // their rays from: normal + roughness and depth, as FrontLayerNormalTexture / FrontLayerDepthTexture.
         struct FrontLayerInputs
         {
             RDG::TextureRef Normal;
@@ -95,15 +165,20 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_TraceShader = m_Surface == ReflectingSurface::TranslucentFrontLayer
-                                 ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-                                        "SSR", Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) } } )
-                                 : Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
+            {
+                auto frontLayer =
+                     Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", FrontLayerVariant() );
+                if ( !frontLayer )
+                    return Common::MakeFormattedError<bool>(
+                         "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) was refused: {}",
+                         frontLayer.GetError() );
+                m_TraceShader = frontLayer.ExtractValue();
+            }
+            else
+                m_TraceShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
             if ( !m_TraceShader )
-                return Common::MakeError( m_Surface == ReflectingSurface::TranslucentFrontLayer
-                                               ? "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) "
-                                                 "did not compile"
-                                               : "SSR shader not found (SSR)" );
+                return Common::MakeError( "SSR shader not found (SSR)" );
 
             const auto tracePipeline =
                  ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
@@ -138,6 +213,48 @@ namespace Desert::Graphic::System
             RDG::TextureRef                                                 GBufferEmissive;
         };
 
+        // The traced permutation (cooked: TracerVariant is ShippedByCook) - the one statement EnsureTracedProgram
+        // acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant TracedVariant( const GlobalIllumination::Pipeline& pipeline,
+                                                                const bool hitLighting, const ReflectingSurface surface )
+        {
+            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( pipeline );
+            variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
+            if ( hitLighting )
+                variant.Defines.emplace_back( "DESERT_REFLECTIONS_HIT_LIGHTING" );
+            if ( surface == ReflectingSurface::TranslucentFrontLayer )
+                variant.Defines.emplace_back( kFrontLayerDefine );
+            return variant;
+        }
+
+        // The untraced front layer's permutation (screen trace of the translucent front layer), cooked:
+        // ShippedByCook - the one statement Initialize acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant FrontLayerVariant()
+        {
+            return Core::ShaderVariant{ .Defines = { std::string( kFrontLayerDefine ) }, .ShippedByCook = true };
+        }
+
+        // Every variant the renderer can acquire, cooked by the package (PackageCook CookShaderVariants): the
+        // untraced front layer (FrontLayerVariant); "SSR" under each tracer permutation
+        // (GlobalIllumination::kTracerPermutations) from either surface. A permutation is hit-lit exactly when its
+        // hits are lit in place (SceneRenderer::ReflectionsTracer: Hits = InPlace iff ReflectionsHitLit), and only
+        // then does it carry the ray generation ("SSR/HitLighting"). Like UE's ShouldCompilePermutation, a
+        // combination the renderer can never select (hit-lit over the surface cache: SSRTrace.glslh's #error) is
+        // not cooked at all.
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
+        {
+            std::vector<Core::CookedProgramVariant> variants{ { "SSR", FrontLayerVariant() } };
+            for ( const ReflectingSurface surface : { ReflectingSurface::Opaque, ReflectingSurface::TranslucentFrontLayer } )
+                for ( const GlobalIllumination::Pipeline& pipeline : GlobalIllumination::kTracerPermutations )
+                {
+                    const bool hitLit = pipeline.Hits == GlobalIllumination::HitLighting::InPlace;
+                    variants.push_back( { "SSR", TracedVariant( pipeline, hitLit, surface ) } );
+                    if ( hitLit )
+                        variants.push_back( { "SSR/HitLighting", TracedVariant( pipeline, true, surface ) } );
+                }
+            return variants;
+        }
+
         // GRAPH BUILD, before DeclareTraceBindings of a traced frame: the traced permutation for @p pipeline's
         // tracer, compiled on first use and again when the tracer changes. An error: the program did not compile.
         // @p hitLighting: Reflections.HitLighting on the hardware tracer - the compute classifies only and the
@@ -148,18 +265,14 @@ namespace Desert::Graphic::System
         {
             if ( m_TracedPipeline && pipeline == m_TracedFor && hitLighting == m_TracedHitLit )
                 return BOOLSUCCESS;
-            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( pipeline );
-            variant.Defines.emplace_back( "DESERT_REFLECTIONS_TRACED" );
-            if ( hitLighting )
-                variant.Defines.emplace_back( "DESERT_REFLECTIONS_HIT_LIGHTING" );
-            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
-                variant.Defines.emplace_back( kFrontLayerDefine );
-            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
-            if ( !shader )
+            Core::ShaderVariant variant = TracedVariant( pipeline, hitLighting, m_Surface );
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
+            if ( !acquired )
                 return Common::MakeFormattedError<bool>(
-                     "SSR: the traced reflections' program ({}, {}) did not compile",
+                     "SSR: the traced reflections' program ({}, {}) was refused: {}",
                      GlobalIllumination::TracerDefine( pipeline.Tracer ),
-                     GlobalIllumination::HitLightingDefine( pipeline.Hits ) );
+                     GlobalIllumination::HitLightingDefine( pipeline.Hits ), acquired.GetError() );
+            auto       shader  = acquired.ExtractValue();
             const auto compute = ComputePipeline::Create(
                  { .Shader = shader,
                    .DebugName =
@@ -189,10 +302,11 @@ namespace Desert::Graphic::System
                  m_HitLightingFor == m_TracedVariant.Hash() )
                 return BOOLSUCCESS;
             auto* shaders = Runtime::ResourceRegistry::GetShaderService();
-            auto  program = shaders->AcquireVariant( "SSR/HitLighting", m_TracedVariant );
-            if ( !program )
-                return Common::MakeError( "SSR: the hit-lit ray generation ('SSR/HitLighting') did not compile or "
-                                          "is not registered on this device" );
+            auto  acquired = shaders->AcquireVariant( "SSR/HitLighting", m_TracedVariant );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>(
+                     "SSR: the hit-lit ray generation ('SSR/HitLighting') was refused: {}", acquired.GetError() );
+            auto                            program = acquired.ExtractValue();
             RayTracingPipelineSpecification spec{
                  .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
             for ( const std::string& name : templates )
@@ -238,7 +352,7 @@ namespace Desert::Graphic::System
         struct TraceTargets
         {
             RDG::TextureDesc Trace;
-            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader u_TraceRay)
+            RDG::TextureDesc TraceRay; // the trace texels' hit points + ray pdfs (SSR.shader TraceRayTexture)
             RDG::TextureDesc TileMask;
             // The factor the targets were sized for: the trace's push (TraceSettings) and the denoiser's
             // reconstruction (ReflectionsDenoiserInputs) take it from here, so all three agree within a frame.
@@ -293,7 +407,8 @@ namespace Desert::Graphic::System
             glm::vec4 Params;    // x = rays per texel, y = HZB iterations per ray, z = intensity, w = thickness
             glm::vec4 Params2;   // x = max ray distance, y = 1 when the scene colour history is last frame's,
                                  // z = mesh SDF trace distance, w = mesh SDF end distance from the camera
-            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor), yzw unused
+            glm::vec4 Params3;   // x = the trace's downsample factor (TraceTargets::DownsampleFactor),
+                                 // y = 1 / PrevPreExposure (the scene history's scale), zw unused
         };
 
         // The trace's uniform block (SSR.shader SSRTraceUB, std140: two mat4), from the ViewFrame once per view
@@ -339,21 +454,23 @@ namespace Desert::Graphic::System
             ComputePipeline&               pipeline = tracedProgram ? *m_TracedPipeline : *m_TracePipeline;
             ShaderBindingLayoutCache&      layout   = tracedProgram ? m_TracedLayout : m_TraceLayout;
             auto block = pass.Bindings( layout.Get( shader ), Renderer::GetPipelineRouteFill( pipeline ) );
-            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+            block.Texture( SSRTraceShaderParameters::GBufferNormalTexture, gbuffer[1], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                 .Sampler( SSRTraceShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( SSRTraceShaderParameters::GBufferDepthTexture, gbuffer[2], RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
+                 .Texture( SSRTraceShaderParameters::SceneColorTexture, sceneHistory, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
-                 .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
-                 .Storage( "u_TileMask", tiles, RDG::Access::StorageWrite )
-                 .Uniform( "SSRTraceUB", uniforms )
+                 .Sampler( SSRTraceShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SSRTraceShaderParameters::HzbTexture, hzb, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Texture( SSRTraceShaderParameters::VelocityTexture, velocity, RDG::Access::SampledCompute,
+                           RDG::SubresourceRange::All() )
+                 .Sampler( SSRTraceShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( SSRTraceShaderParameters::SsrTraceTexture, trace, RDG::Access::StorageWrite )
+                 .Storage( SSRTraceShaderParameters::TraceRayTexture, traceRay, RDG::Access::StorageWrite )
+                 .Storage( SSRTraceShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageWrite )
+                 .Uniform( SSRTraceShaderParameters::SSRTraceUB, uniforms )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             if ( tracedProgram )
                 DeclareTracedReads( block, *traced );
@@ -374,22 +491,24 @@ namespace Desert::Graphic::System
             if ( !m_HitLightingPipeline )
                 return;
             auto block = pass.Bindings( m_HitLightingLayout.Get( m_HitLightingShader ), RDG::OtherRouteFill{} );
-            block.Texture( "u_GBufferNormal", gbuffer[1], RDG::Access::SampledCompute,
+            block.Texture( SSRHitLightingShaderParameters::GBufferNormalTexture, gbuffer[1],
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRHitLightingShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                 .Texture( SSRHitLightingShaderParameters::GBufferDepthTexture, gbuffer[2],
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( SSRHitLightingShaderParameters::SceneColorTexture, sceneHistory,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRHitLightingShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SSRHitLightingShaderParameters::HzbTexture, hzb, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( "u_GBufferDepth", gbuffer[2], RDG::Access::SampledCompute,
+                 .Texture( SSRHitLightingShaderParameters::VelocityTexture, velocity, RDG::Access::SampledCompute,
                            RDG::SubresourceRange::All() )
-                 .Texture( "u_SceneColor", sceneHistory, RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_HZB", hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Texture( "u_Velocity", velocity, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Storage( "u_Trace", trace, RDG::Access::StorageWrite )
-                 .Storage( "u_TraceRay", traceRay, RDG::Access::StorageWrite )
-                 .Storage( "u_TileMask", tiles, RDG::Access::StorageRead )
-                 .Uniform( "SSRTraceUB", uniforms )
-                 .Uniform( "CameraUB", camera )
+                 .Sampler( SSRHitLightingShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Storage( SSRHitLightingShaderParameters::SsrTraceTexture, trace, RDG::Access::StorageWrite )
+                 .Storage( SSRHitLightingShaderParameters::TraceRayTexture, traceRay, RDG::Access::StorageWrite )
+                 .Storage( SSRHitLightingShaderParameters::TileMaskTexture, tiles, RDG::Access::StorageRead )
+                 .Uniform( SSRHitLightingShaderParameters::SSRTraceUB, uniforms )
+                 .Uniform( SSRHitLightingShaderParameters::CameraUB, camera )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
             DeclareTracedReads( block, traced );
             DeclareFrontLayerReads( block, frontLayer );
@@ -412,6 +531,10 @@ namespace Desert::Graphic::System
             bool Traced = false;
             // TraceTargets::DownsampleFactor of this frame's targets.
             uint32_t DownsampleFactor = 2;
+            // 1 / ViewFrame::PrevPreExposure: the scene colour history is stored at LAST frame's pre-exposure; a
+            // screen hit's radiance is multiplied by this so the trace's output stays absolute (the deferred
+            // composite applies this frame's PreExposure to it).
+            float InvPrevPreExposure = 1.0f;
         };
         [[nodiscard]] Common::BoolResultStr RecordTrace( const RDG::PassContext& context,
                                                          const glm::vec4& cameraPos, const TraceSettings& settings,
@@ -484,7 +607,8 @@ namespace Desert::Graphic::System
                                          static_cast<float>( settings.Iterations ), settings.Intensity,
                                          settings.Thickness ),
                               glm::vec4( settings.MaxDistance, sceneHistoryReadable ? 1.0f : 0.0f, 0.0f, 0.0f ),
-                              glm::vec4( static_cast<float>( settings.DownsampleFactor ), 0.0f, 0.0f, 0.0f ) };
+                              glm::vec4( static_cast<float>( settings.DownsampleFactor ),
+                                         settings.InvPrevPreExposure, 0.0f, 0.0f ) };
         }
 
         // The front layer permutation's reads (Common/SSRTrace.glslh DESERT_REFLECTIONS_FRONT_LAYER): a
@@ -494,12 +618,11 @@ namespace Desert::Graphic::System
         {
             if ( frontLayer == nullptr )
                 return;
-            block
-                 .Texture( "u_FrontLayerNormal", frontLayer->Normal, RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Texture( "u_FrontLayerDepth", frontLayer->Depth, RDG::Access::SampledCompute,
-                           RDG::SubresourceRange::All() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+            block.Texture( SSRFrontLayerShaderParameters::FrontLayerNormalTexture, frontLayer->Normal,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Texture( SSRFrontLayerShaderParameters::FrontLayerDepthTexture, frontLayer->Depth,
+                           RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                 .Sampler( SSRFrontLayerShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
         }
 
         // The traced permutation's reads (SSR.shader DESERT_REFLECTIONS_TRACED), by the names its includes
@@ -509,21 +632,22 @@ namespace Desert::Graphic::System
             constexpr RDG::Access kR  = RDG::Access::StorageRead;
             constexpr RDG::Access kS  = RDG::Access::SampledCompute;
             const auto            all = RDG::SubresourceRange::All();
-            block.Storage( "GIFrameUB", traced.GIFrame, kR )
-                 .Storage( "PointLightsUB", traced.PointLights, kR )
-                 .Storage( "SpotLightsUB", traced.SpotLights, kR )
-                 .Storage( "LightGridParamsUB", traced.WorldGridParams, kR )
-                 .Storage( "LightGridWorldCellsUB", traced.WorldGridCells, kR )
-                 .Storage( "RadianceCacheParamsUB", traced.RadianceCache.Params, kR )
-                 .Storage( "RadianceCacheIndirectionUB", traced.RadianceCache.Indirection, kR )
-                 .Storage( "RadianceCacheProbesUB", traced.RadianceCache.Probes, kR )
-                 .Texture( "u_RadianceCacheIrradiance", traced.RadianceCache.Irradiance, kS, all )
-                 .Texture( "u_RadianceCacheDepth", traced.RadianceCache.Depth, kS, all )
-                 .Texture( "u_EnvSpecularTex", traced.EnvSpecular, kS, all )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Texture( "u_GBufferA", traced.GBufferA, kS, all )
-                 .Texture( "u_GBufferEmissive", traced.GBufferEmissive, kS, all )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() );
+            block.Storage( SSRShaderParameters::GIFrameUB, traced.GIFrame, kR )
+                 .Storage( SSRShaderParameters::PointLightsUB, traced.PointLights, kR )
+                 .Storage( SSRShaderParameters::SpotLightsUB, traced.SpotLights, kR )
+                 .Storage( SSRShaderParameters::LightGridParamsUB, traced.WorldGridParams, kR )
+                 .Storage( SSRShaderParameters::LightGridWorldCellsUB, traced.WorldGridCells, kR )
+                 .Storage( SSRShaderParameters::RadianceCacheParamsUB, traced.RadianceCache.Params, kR )
+                 .Storage( SSRShaderParameters::RadianceCacheIndirectionUB, traced.RadianceCache.Indirection, kR )
+                 .Storage( SSRShaderParameters::RadianceCacheProbesUB, traced.RadianceCache.Probes, kR )
+                 .Texture( SSRShaderParameters::RadianceCacheIrradianceTexture, traced.RadianceCache.Irradiance,
+                           kS, all )
+                 .Texture( SSRShaderParameters::RadianceCacheDepthTexture, traced.RadianceCache.Depth, kS, all )
+                 .Texture( SSRShaderParameters::EnvironmentSpecularTexture, traced.EnvSpecular, kS, all )
+                 .Sampler( SSRShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Texture( SSRShaderParameters::GBufferATexture, traced.GBufferA, kS, all )
+                 .Texture( SSRShaderParameters::GBufferEmissiveTexture, traced.GBufferEmissive, kS, all )
+                 .Sampler( SSRShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() );
             GlobalIllumination::DeclareTracerReads( block, traced.Tracer );
             if ( traced.Tracer.Pipeline.Hits == GlobalIllumination::HitLighting::SurfaceCache )
                 GlobalIllumination::DeclareSurfaceCacheReads( block, traced.SurfaceCache );

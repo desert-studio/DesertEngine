@@ -540,9 +540,10 @@ TEST( PakChunks, TheChunkListSurvivesTheHostThatWroteIt )
     // player as "an update is missing" rather than as the line-ending problem it is.
     const auto parsed = ParseChunkManifest( "North\r\nSouth\r\n" );
     ASSERT_TRUE( parsed ) << parsed.GetError();
-    ASSERT_EQ( parsed.GetValue().size(), 2u );
-    EXPECT_EQ( parsed.GetValue()[0], "North" );
-    EXPECT_EQ( parsed.GetValue()[1], "South" );
+    ASSERT_EQ( parsed.GetValue().Mounted.size(), 2u );
+    EXPECT_EQ( parsed.GetValue().Mounted[0], "North" );
+    EXPECT_EQ( parsed.GetValue().Mounted[1], "South" );
+    EXPECT_TRUE( parsed.GetValue().OnDemand.empty() );
 
     EXPECT_FALSE( ParseChunkManifest( "../escape\n" ).IsSuccess() );
 }
@@ -812,8 +813,8 @@ TEST( PakChunks, EveryContentKindSurvivesTheDivisionByteForByte )
              ASSERT_TRUE( manifest.has_value() );
              const auto names = ParseChunkManifest( *manifest );
              ASSERT_TRUE( names ) << names.GetError();
-             ASSERT_EQ( names.GetValue().size(), 1u );
-             EXPECT_EQ( names.GetValue().front(), "Region" );
+             ASSERT_EQ( names.GetValue().Mounted.size(), 1u );
+             EXPECT_EQ( names.GetValue().Mounted.front(), "Region" );
 
              VFS::Unmount();
          } ) );

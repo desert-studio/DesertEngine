@@ -1,0 +1,24 @@
+# M29 Mesh To Volume: a Sphere becomes a Trigger volume (outline, Volume component); Undo restores the Sphere; a falling 20 cm Box passes through the volume in Play and the log names its entry and exit
+# Play and Stop clear the undo history (PlaySession), so Undo is checked BEFORE Simulate and Redo brings the volume back.
+# Simulate (UE Simulate In Editor): the world ticks with no pawn, so the frame is the editor camera with the volume outline.
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 300,400,500
+Дано --subject viewport set Camera.Direction -0.45,-0.45,-0.77
+Дано run Scene "Add shape: Cube"
+Дано run Entity Cube
+Дано --subject selection set Translation 0,330,0
+Дано --subject selection set Scale 0.2,0.2,0.2
+Дано add-component selected "Rigid Body"
+Дано add-component selected Collider
+Дано run Scene "Add shape: Sphere"
+Дано run Entity Sphere
+Дано --subject selection set Translation 0,100,0
+Когда run Modeling "Mesh To Volume Trigger"
+Тогда 1_volume на месте сферы контур выпуклого объёма без заливки; в Outliner сущность TriggerVolume; в Details компонент Volume (Volume Type Trigger)
+Когда run Action Undo
+Тогда 3_undo объёма нет, Sphere снова меш на своём месте, в Outliner Sphere
+Когда run Action Redo
+Когда run Action Simulate
+Когда advance 1.5
+Тогда 2_overlap Cube пролетел сквозь зелёный контур объёма (ниже сферы), вид — камера редактора, контур виден; в логе editor.log строки [Volume] 'TriggerVolume' entered by / left by
+Когда run Action Stop

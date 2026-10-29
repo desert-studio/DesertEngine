@@ -93,7 +93,7 @@ namespace Desert::Editor::Tools
         if ( m_TopologyMesh != mesh )
         {
             m_TopologyMesh = mesh;
-            m_Topology     = std::make_shared<const Geometry::GroupTopology>( mesh.get(), true );
+            m_Topology = std::make_shared<const Geometry::GroupTopology>( Geometry::PolyEditTopology( *mesh ) );
         }
         // Nearest triangle under the ray - the same pick the Select Elements tool makes in Triangle mode.
         Geometry::PickView view;

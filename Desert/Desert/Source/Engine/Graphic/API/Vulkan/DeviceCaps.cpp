@@ -3,6 +3,10 @@
 
 #include <algorithm>
 #include <format>
+#include <string>
+#include <vector>
+
+#include <Common/Json/Template.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -12,6 +16,7 @@ namespace Desert::Graphic::API::Vulkan
         using N = CapabilityNeed;
 
         constexpr uint32_t V10 = VK_API_VERSION_1_0;
+        constexpr uint32_t V11 = VK_API_VERSION_1_1;
         constexpr uint32_t V12 = VK_API_VERSION_1_2;
         constexpr uint32_t V13 = VK_API_VERSION_1_3;
 
@@ -42,6 +47,10 @@ namespace Desert::Graphic::API::Vulkan
              // MoltenVK has no wide lines; the debug-line path clamps the width instead.
              { C::WideLines, "wideLines", N::Optional, V10, {} },
              { C::FillModeNonSolid, "fillModeNonSolid", N::Optional, V10, {} },
+             // GPU-DRIVEN (GpuDriven/IndirectDrawSubmission.hpp): one vkCmdDrawIndexedIndirect over an
+             // IndirectGroup's bins. Optional (decision 10-27, no device refused): without it the group's records
+             // go one call each.
+             { C::MultiDrawIndirect, "multiDrawIndirect", N::Optional, V10, {} },
              { C::SamplerAnisotropy, "samplerAnisotropy", N::Optional, V10, {} },
              { C::TextureCompressionBC, "textureCompressionBC", N::Optional, V10, {} },
              // A storage image declared without a format and written (OpTypeImage Unknown + OpImageWrite): the FSR
@@ -92,6 +101,27 @@ namespace Desert::Graphic::API::Vulkan
                VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
                V12,
                { C::AccelerationStructure, C::Count, C::Count } },
+             // The NN layer (NN-RUNTIME; NeuralComputeCaps.hpp). Optional: SelectNeuralKernelPath chooses the
+             // coopmat fp16 / fp16 / fp32 kernels from them, and every device runs fp32. The 8-bit pair is
+             // recorded for int8 weights, which no kernel uses yet.
+             { C::StorageBuffer16BitAccess, "storageBuffer16BitAccess", N::Optional, V11,
+               VK_KHR_16BIT_STORAGE_EXTENSION_NAME },
+             { C::ShaderFloat16, "shaderFloat16", N::Optional, V12, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME },
+             { C::ShaderInt8, "shaderInt8", N::Available, V12, VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME },
+             { C::StorageBuffer8BitAccess, "storageBuffer8BitAccess", N::Available, V12,
+               VK_KHR_8BIT_STORAGE_EXTENSION_NAME },
+             // subgroupSizeControl + computeFullSubgroups: a kernel that names its subgroup size (a coopmat tile
+             // is one subgroup) and needs every lane of it. The size range is read with it (DeviceCapsProbe).
+             { C::SubgroupSizeControl, "subgroupSizeControl", N::Available, V13,
+               VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME },
+             // Tensor cores / WMMA / XMX. Never core in 1.3. Its shapes are listed by the probe.
+             { C::CooperativeMatrix, "cooperative_matrix", N::Optional, 0,
+               VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME },
+             // Every cooperative-matrix SPIR-V module glslang emits is declared under the Vulkan memory model
+             // (Shaders/Programs/Compute/NeuralFusedMlp.shader), so the coopmat path needs it. Optional: only that
+             // path reads it (SelectNeuralKernelPath).
+             { C::VulkanMemoryModel, "vulkanMemoryModel", N::Optional, V12,
+               VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every
@@ -162,6 +192,22 @@ namespace Desert::Graphic::API::Vulkan
         return caps;
     }
 
+    bool IsRayTracingCapability( Capability capability )
+    {
+        return capability == Capability::AccelerationStructure || capability == Capability::RayQuery ||
+               capability == Capability::RayTracingPipeline;
+    }
+
+    void HideRayTracing( DeviceCaps& caps )
+    {
+        for ( std::size_t i = 0; i < kCapabilityCount; ++i )
+        {
+            if ( IsRayTracingCapability( static_cast<Capability>( i ) ) )
+                caps.Rows[i] = CapabilityRow{ .Route = CapabilityRoute::Unreachable, .Present = false };
+        }
+        caps.RayTracingHidden = true;
+    }
+
     bool DependenciesPresent( const DeviceCaps& caps, Capability capability )
     {
         for ( const Capability dependency : SpecOf( capability ).DependsOn )
@@ -174,22 +220,20 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr CheckRequired( const DeviceCaps& caps )
     {
-        std::string missing;
+        std::vector<std::string> missing;
         if ( MajorMinor( caps.DeviceApiVersion ) < kMinimumDeviceApiVersion )
         {
-            missing += std::format( "Vulkan {} (device reports {})", FormatApiVersion( kMinimumDeviceApiVersion ),
-                                    FormatApiVersion( caps.DeviceApiVersion ) );
+            missing.push_back( std::format( "Vulkan {} (device reports {})",
+                                            FormatApiVersion( kMinimumDeviceApiVersion ),
+                                            FormatApiVersion( caps.DeviceApiVersion ) ) );
         }
         for ( std::size_t i = 0; i < kCapabilityCount; ++i )
         {
             const CapabilitySpec& spec = kTable[i];
             if ( spec.Need != CapabilityNeed::Required || caps.Rows[i].Present )
                 continue;
-            if ( !missing.empty() )
-                missing += ", ";
-            missing += spec.Name;
-            if ( !spec.Extension.empty() )
-                missing += std::format( " ({})", spec.Extension );
+            missing.push_back( spec.Extension.empty() ? std::format( "{}", spec.Name )
+                                                      : std::format( "{} ({})", spec.Name, spec.Extension ) );
         }
         if ( caps.Has( Capability::DescriptorIndexing ) )
         {
@@ -197,28 +241,24 @@ namespace Desert::Graphic::API::Vulkan
             // BindlessCapacityCeiling's rule: the table keeps at most half the ceiling for itself.
             if ( limits.SampledImageCeiling() < 2 * kBindlessInitialTextureCapacity )
             {
-                if ( !missing.empty() )
-                    missing += ", ";
-                missing += std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
+                missing.push_back( std::format( "{} update-after-bind sampled images (per stage {}, per set {})",
                                         2 * kBindlessInitialTextureCapacity,
                                         limits.MaxPerStageUpdateAfterBindSampledImages,
-                                        limits.MaxSetUpdateAfterBindSampledImages );
+                                        limits.MaxSetUpdateAfterBindSampledImages ) );
             }
             if ( limits.SamplerCeiling() < ::Desert::Core::kBindlessSamplerStateCount )
             {
-                if ( !missing.empty() )
-                    missing += ", ";
-                missing += std::format( "{} update-after-bind samplers (per stage {}, per set {})",
+                missing.push_back( std::format( "{} update-after-bind samplers (per stage {}, per set {})",
                                         ::Desert::Core::kBindlessSamplerStateCount,
                                         limits.MaxPerStageUpdateAfterBindSamplers,
-                                        limits.MaxSetUpdateAfterBindSamplers );
+                                        limits.MaxSetUpdateAfterBindSamplers ) );
             }
         }
         if ( missing.empty() )
             return Common::MakeSuccess( true );
         return Common::MakeError<bool>(
              std::format( "the Vulkan device '{}' ({}) lacks what this engine requires: {}", caps.DeviceName,
-                          caps.Driver, missing ) );
+                          caps.Driver, Common::Text::Join( missing, ", " ) ) );
     }
 
     std::string FormatCapsTable( const DeviceCaps& caps )
@@ -230,11 +270,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             const CapabilitySpec& spec = kTable[i];
             const CapabilityRow&  row  = caps.Rows[i];
-            const char*           how  = !row.Present                              ? "no"
-                                         : row.Route == CapabilityRoute::Extension ? "ext"
-                                         : spec.CoreSince == VK_API_VERSION_1_0    ? "1.0"
-                                         : spec.CoreSince == VK_API_VERSION_1_2    ? "core1.2"
-                                                                                   : "core1.3";
+            const char* how = caps.RayTracingHidden && IsRayTracingCapability( static_cast<Capability>( i ) )
+                                   ? "hidden"
+                              : !row.Present                            ? "no"
+                              : row.Route == CapabilityRoute::Extension ? "ext"
+                              : spec.CoreSince == VK_API_VERSION_1_0    ? "1.0"
+                              : spec.CoreSince == VK_API_VERSION_1_1    ? "core1.1"
+                              : spec.CoreSince == VK_API_VERSION_1_2    ? "core1.2"
+                                                                        : "core1.3";
             const char*           need = spec.Need == CapabilityNeed::Required ? "!" : "";
             line += std::format( " {}{}={}", need, spec.Name, how );
         }

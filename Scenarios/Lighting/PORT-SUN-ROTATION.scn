@@ -1,0 +1,36 @@
+# PORT-SUN-ROTATION: a directional light is aimed by its Rotation (forward -Z), as UE's ULightComponent::GetDirection;
+# Translation no longer encodes a direction. Every scene/prefab is raised by the light chain (LGHT v1, SceneMigrator
+# MigrateLightRotationV0ToV1). Details shows ONE direction widget on the sun: compass + horizon arc + Elevation/Azimuth.
+# The Starter sun is entity 13376537502658031226 ("Sun"); after the migration its Translation is 0,0,0.
+Дано run Scene "Open Scene Starter.desce"
+Дано run Entity "Sun"
+Дано --subject viewport set Camera.FOV 60
+Дано --subject viewport set Camera.Position 0,400,1500
+Дано --subject viewport set Camera.Direction 0,-0.2,-1
+# Details scrolled with the mouse wheel down to the Sun Direction widget (it sits below Transform/Light/Atmosphere).
+Дано input scroll Details 150,300 -10
+# The cursor off Details, so no field tooltip covers the widget.
+Дано input move - 1000,1100
+Тогда 1_migrated frame and shadows as on dev before the migration (the sun lights from the same place); Details on Sun shows the Sun Direction widget
+# The widget's Elevation number, through the same rule (Rules::SunAngles -> AimDirectionalLight, one undo step).
+Когда --subject selection set SunElevation 5
+Тогда 2_low_sun long shadows; Details: the whole direction widget in view (compass + horizon arc + Elevation/Azimuth), Elevation 5.0, no second direction control
+# The horizon, looking towards the sun: Elevation 5 / Azimuth 54.5 = towards +X+Z (0.811, 0, 0.579), past the fire VFX.
+Когда --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 0.811,0.0,0.579
+Тогда-вид 2b_horizon sunset sky, the sun disc just above the horizon
+# A REAL drag on the rotate gizmo's world-Y (azimuth) ring, seen from above. The camera clamps its pitch short of
+# straight down (Direction reads back 0,-0.99985,-0.01745 = pitch -89), so the gizmo centre is NOT the viewport
+# centre: measured at ~(715.5, 451) pt, ring radius ~86 pt. The end point was tuned live against the readback:
+# 801.5,451 -> 719,365 turns the light's azimuth -125.54 -> -36.01 = 89.5 deg (Space: World; snap off).
+Когда run Transform Rotate
+Когда run Transform "Space: World"
+Когда --subject viewport set Camera.Position 0,1500,0
+Когда --subject viewport set Camera.Direction 0,-1,-0.0001
+Когда --subject viewport drag 801.5,451 719,365 24
+Тогда 3_gizmo shadows turned by 90 deg (seen from above); the widget shows the azimuth changed by 90
+Когда --subject viewport set Camera.Position 0,400,1500
+Когда --subject viewport set Camera.Direction 0,-0.2,-1
+Когда run Action Undo
+Когда run Action Undo
+Тогда 4_undo frame as 1_migrated

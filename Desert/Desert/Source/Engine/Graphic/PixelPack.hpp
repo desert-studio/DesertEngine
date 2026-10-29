@@ -1,7 +1,10 @@
 #pragma once
 
 #include <Common/Core/Math/Rounding.hpp>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <cstring>
 #include <vector>
 
@@ -33,13 +36,76 @@ namespace Desert::Graphic
         RGBA8,   ///< 4 bytes/pixel, already in the wanted order
         BGRA8,   ///< 4 bytes/pixel, red and blue exchanged (what every macOS surface negotiates)
         RGBA32F, ///< 16 bytes/pixel, linear floats that have to be clamped and quantised
+        RGBA16F, ///< 8 bytes/pixel, half floats already display-encoded: clamped and quantised like RGBA32F
+        /// 8 bytes/pixel, IEEE half floats in scRGB (linear, Rec.709 primaries, 1.0 = SDR paper white, values
+        /// above 1 are EDR/HDR headroom) — the swapchain of DisplayOutput::scRGB_Linear. Packed to the SDR
+        /// rendition: clamped to [0,1] and sRGB-encoded (the same display transfer SceneComposite applies on
+        /// the SDR output), so a capture of an HDR window compares against an SDR one (HDR-OUTPUT).
+        RGBA16F_ScRGB,
     };
+
+    /// IEEE 754 binary16 -> float, without a library: the pack stays free of glm and Vulkan.
+    [[nodiscard]] inline float HalfToFloat( uint16_t h ) noexcept
+    {
+        const uint32_t sign     = ( h >> 15 ) & 1u;
+        const uint32_t exponent = ( h >> 10 ) & 0x1Fu;
+        const uint32_t mantissa = h & 0x3FFu;
+        float          value    = 0.0f;
+        if ( exponent == 0u )
+            value = std::ldexp( static_cast<float>( mantissa ), -24 );
+        else if ( exponent == 31u )
+            value = mantissa ? std::numeric_limits<float>::quiet_NaN() : std::numeric_limits<float>::infinity();
+        else
+            value = std::ldexp( static_cast<float>( mantissa | 0x400u ), static_cast<int>( exponent ) - 25 );
+        return sign ? -value : value;
+    }
+
+    /// The sRGB OETF (IEC 61966-2-1) on [0,1] — SceneComposite.shader's LinearToSrgb, on the CPU.
+    [[nodiscard]] inline float LinearToSrgbUnit( float linear ) noexcept
+    {
+        const float c = std::clamp( linear, 0.0f, 1.0f );
+        return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow( c, 1.0f / 2.4f ) - 0.055f;
+    }
+
+    /// The sRGB EOTF continued past 1 (Apple's extended sRGB): SceneComposite's LinearToSrgbExtended, inverted —
+    /// what an HDR rendition's code means in paper-white units (HDR-OUTPUT p3).
+    [[nodiscard]] inline float SrgbToLinearExtended( float encoded ) noexcept
+    {
+        const float e = std::max( encoded, 0.0f );
+        return e < 0.04045f ? e / 12.92f : std::pow( ( e + 0.055f ) / 1.055f, 2.4f );
+    }
+
+    /// The brightest colour channel of an RGBA16F_ScRGB readback, and where it is: the evidence that an HDR
+    /// swapchain carries values above paper white (1.0). Zero pixels -> { 0, 0 }.
+    struct ScRGBPeak
+    {
+        float       Value = 0.0f;
+        std::size_t Pixel = 0;
+    };
+    [[nodiscard]] inline ScRGBPeak FindScRGBPeak( const uint8_t* raw, std::size_t rawBytes, std::size_t pixels )
+    {
+        ScRGBPeak peak;
+        if ( raw == nullptr || rawBytes < pixels * 8u )
+            return peak;
+        for ( std::size_t i = 0; i < pixels; ++i )
+            for ( std::size_t c = 0; c < 3u; ++c )
+            {
+                uint16_t half = 0;
+                std::memcpy( &half, raw + i * 8u + c * 2u, sizeof( half ) );
+                const float v = HalfToFloat( half );
+                if ( v > peak.Value )
+                    peak = { v, i };
+            }
+        return peak;
+    }
 
     /// Bytes ONE pixel occupies at the source. The size of a readback staging buffer is this times the
     /// pixel count, and getting it from the same enum the pack reads is what stops the two disagreeing.
     [[nodiscard]] constexpr uint32_t BytesPerPixel( PackedPixelSource source ) noexcept
     {
-        return source == PackedPixelSource::RGBA32F ? 16u : 4u;
+        return source == PackedPixelSource::RGBA32F         ? 16u
+               : source == PackedPixelSource::RGBA16F_ScRGB || source == PackedPixelSource::RGBA16F ? 8u
+                                                            : 4u;
     }
 
     /**
@@ -74,6 +140,30 @@ namespace Desert::Graphic
                 float value = 0.0f;
                 std::memcpy( &value, raw + i * sizeof( float ), sizeof( float ) );
                 out[i] = Common::Math::QuantiseUnitToByte( value );
+            }
+            return out;
+        }
+
+        if ( source == PackedPixelSource::RGBA16F )
+        {
+            for ( std::size_t i = 0; i < pixels * 4u; ++i )
+            {
+                uint16_t half = 0;
+                std::memcpy( &half, raw + i * 2u, sizeof( half ) );
+                out[i] = Common::Math::QuantiseUnitToByte( HalfToFloat( half ) );
+            }
+            return out;
+        }
+
+        if ( source == PackedPixelSource::RGBA16F_ScRGB )
+        {
+            for ( std::size_t i = 0; i < pixels * 4u; ++i )
+            {
+                uint16_t half = 0;
+                std::memcpy( &half, raw + i * 2u, sizeof( half ) );
+                const float value = HalfToFloat( half );
+                // Alpha is coverage, not light: it is quantised as it is, never encoded.
+                out[i] = Common::Math::QuantiseUnitToByte( ( i % 4u ) == 3u ? value : LinearToSrgbUnit( value ) );
             }
             return out;
         }

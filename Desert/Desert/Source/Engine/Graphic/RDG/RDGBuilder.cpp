@@ -1,6 +1,7 @@
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <spdlog/fmt/fmt.h>
 
@@ -922,6 +923,8 @@ namespace Desert::Graphic::RDG
             return finish();
         };
 
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "RDG: Compile" );
         const Common::ResultStr<CompileResult> compiled =
              Compile( backend.GetMemoryRequirements(), backend.GetPipeCapabilities() );
         if ( !compiled )
@@ -999,6 +1002,7 @@ namespace Desert::Graphic::RDG
                 views[source].Used = true;
         }
 
+        DESERT_PROFILE_PHASE( phases, "RDG: BeginGraph" );
         const GraphView             graph{ m_Name, views, &result };
         const Common::BoolResultStr begun = backend.BeginGraph( graph );
         if ( !begun )
@@ -1130,6 +1134,7 @@ namespace Desert::Graphic::RDG
             return Common::MakeSuccess( true );
         };
 
+        DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );
         for ( const PipeSegment& segment : result.Segments )
         {
             // Amendment B: the prologue has no passes; it records the releases of a fork from the start.
@@ -1213,6 +1218,7 @@ namespace Desert::Graphic::RDG
                 extractedBuffers[final.Resource] = backend.GetPhysicalBuffer( final.Resource );
         }
 
+        DESERT_PROFILE_PHASE( phases, "RDG: EndGraph" );
         const Common::BoolResultStr ended = backend.EndGraph( result.FinalBarriers );
         if ( !ended )
             return frameFault( std::format( "graph '{}': {}", m_Name, ended.GetError() ), {} );

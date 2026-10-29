@@ -13,6 +13,25 @@
 #include <span>
 #include <string>
 
+namespace
+{
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct TemporalAAShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, SceneColorTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, VelocityTexture );
+        DESERT_SHADER_PARAMETER( Texture, ExposureTexture );
+        DESERT_SHADER_PARAMETER( Texture, PreviousResolvedColorTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, HistoryOutTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, ResolvedColorTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, TemporalAABuffer );
+        DESERT_SHADER_PARAMETER( Texture, ResponsiveAaTexture );
+    };
+} // namespace
+
 namespace Desert::Graphic
 {
     namespace
@@ -44,17 +63,17 @@ namespace Desert::Graphic
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>(
                   RDG::ShaderBindingLayout{ .ShaderName        = kShaderName,
-                                            .Slots             = { { "u_SceneColor", Kind::Texture },
-                                                                   { "u_SceneDepth", Kind::Texture },
-                                                                   { "u_Velocity", Kind::Texture },
-                                                                   { "u_Exposure", Kind::Texture },
-                                                                   { "u_History", Kind::Texture },
-                                                                   { "u_LinearClampSampler", Kind::Sampler },
-                                                                   { "u_PointClampSampler", Kind::Sampler },
-                                                                   { "u_HistoryOut", Kind::StorageTexture },
-                                                                   { "u_Output", Kind::StorageTexture },
+                                            .Slots             = { { "SceneColorTexture", Kind::Texture },
+                                                                   { "SceneDepthTexture", Kind::Texture },
+                                                                   { "VelocityTexture", Kind::Texture },
+                                                                   { "ExposureTexture", Kind::Texture },
+                                                                   { "PreviousResolvedColorTexture", Kind::Texture },
+                                                                   { "LinearClampSampler", Kind::Sampler },
+                                                                   { "PointClampSampler", Kind::Sampler },
+                                                                   { "HistoryOutTexture", Kind::StorageTexture },
+                                                                   { "ResolvedColorTexture", Kind::StorageTexture },
                                                                    { "TemporalAABuffer", Kind::StorageBuffer },
-                                                                   { "u_ResponsiveAA", Kind::Texture } },
+                                                                   { "ResponsiveAaTexture", Kind::Texture } },
                                             .PushConstantBytes = 0 } );
         return layout;
     }
@@ -69,6 +88,8 @@ namespace Desert::Graphic
         params.OutputSize   = glm::vec2( static_cast<float>( output.Width ), static_cast<float>( output.Height ) );
         params.JitterUv     = frame.JitterNdc * glm::vec2( 0.5f, -0.5f ); // Velocity.hpp: uv = ndc * (0.5, -0.5)
         params.HistoryValid = frame.HistoryValid() ? 1.0f : 0.0f;
+        params.HistoryPreExposureCorrection = frame.PreExposure / frame.PrevPreExposure;
+        params.PreExposure                  = frame.PreExposure;
         return params;
     }
 
@@ -160,23 +181,25 @@ namespace Desert::Graphic
                  // Every texture is read at texel centres or filtered inside the shader; the linear sampler on
                  // the history is its bilinear fetch (Low / Medium) and the Catmull-Rom taps (High).
                  pass.Bindings( TemporalAALayout(), RDG::OtherRouteFill{} )
-                      .Texture( "u_SceneColor", inputs.SceneColor, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                      .Texture( "u_SceneDepth", inputs.SceneDepth, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Texture( "u_Velocity", inputs.Velocity, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_Exposure", inputs.Exposure, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Texture( "u_History", history.Previous, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Storage( "u_HistoryOut", history.Current, RDG::Access::StorageWrite, 0 )
-                      .Storage( "u_Output", output, RDG::Access::StorageWrite, 0 )
-                      .Storage( "TemporalAABuffer", buffer, RDG::Access::StorageRead )
-                      .Texture( "u_ResponsiveAA", inputs.ResponsiveAA, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() );
+                      .Texture( TemporalAAShaderParameters::SceneColorTexture, inputs.SceneColor,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( TemporalAAShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                      .Texture( TemporalAAShaderParameters::SceneDepthTexture, inputs.SceneDepth,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( TemporalAAShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                      .Texture( TemporalAAShaderParameters::VelocityTexture, inputs.Velocity,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( TemporalAAShaderParameters::ExposureTexture, inputs.Exposure,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Texture( TemporalAAShaderParameters::PreviousResolvedColorTexture, history.Previous,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Storage( TemporalAAShaderParameters::HistoryOutTexture, history.Current,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TemporalAAShaderParameters::ResolvedColorTexture, output,
+                                RDG::Access::StorageWrite, 0 )
+                      .Storage( TemporalAAShaderParameters::TemporalAABuffer, buffer, RDG::Access::StorageRead )
+                      .Texture( TemporalAAShaderParameters::ResponsiveAaTexture, inputs.ResponsiveAA,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
              },
              [this, quality, extent]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
@@ -190,6 +213,19 @@ namespace Desert::Graphic
              } );
 
         return Common::MakeSuccess( TemporalUpscalerOutputs{ .SceneColor = output } );
+    }
+
+    Core::ShaderVariant TemporalAA::QualityVariant( const uint32_t quality )
+    {
+        return Core::ShaderVariant{ .Defines = { std::format( "TAA_QUALITY={}", quality ) }, .ShippedByCook = true };
+    }
+
+    std::vector<Core::CookedProgramVariant> TemporalAA::ProgramVariants()
+    {
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( uint32_t quality = 0; quality < kQualityVariants; ++quality )
+            variants.push_back( { kShaderName, QualityVariant( quality ) } );
+        return variants;
     }
 
     std::shared_ptr<ComputePipeline> TemporalAA::PipelineFor( TemporalAAQuality quality, std::string& error ) const
@@ -212,15 +248,14 @@ namespace Desert::Graphic
             error = std::format( "{}: no shader service to compile '{}' ({})", DebugName(), kShaderName, define );
             return nullptr;
         }
-        const std::shared_ptr<Shader> shader =
-             service->AcquireVariant( kShaderName, Core::ShaderVariant{ .Defines = { define } } );
-        if ( !shader )
+        auto acquired = service->AcquireVariant( kShaderName, QualityVariant( index ) );
+        if ( !acquired )
         {
-            error = std::format( "{}: the shader '{}' ({}) did not compile — expected "
-                                 "Editor/Resources/Shaders/Programs/TemporalAA/TemporalAA.shader",
-                                 DebugName(), kShaderName, define );
+            error = std::format( "{}: the shader '{}' ({}) was refused: {}", DebugName(), kShaderName, define,
+                                 acquired.GetError() );
             return nullptr;
         }
+        const std::shared_ptr<Shader> shader       = acquired.ExtractValue();
         const std::string pipelineName = std::format( "{} ({})", kShaderName, define );
         const auto        built = ComputePipeline::Create( { .Shader = shader, .DebugName = pipelineName } );
         if ( !built )

@@ -316,7 +316,7 @@ namespace Desert::Core::Formats
     enum class SurfaceBlendMode : uint8_t
     {
         Opaque,
-        Masked,      // the pass headers discard below u_Material.OpacityMaskClipValue
+        Masked,      // the pass headers discard below Material.OpacityMaskClipValue
         Translucent, // drawn over the composited scene by the translucency pass; Forward cells only
         // UE BLEND_Additive: everything Translucent is (Forward cells only, the translucency pass header, the
         // DESERT_SURFACE_TRANSLUCENT define) except how the pass composites it: colour x opacity ADDED to the
@@ -350,6 +350,11 @@ namespace Desert::Core::Formats
         std::string OffsetParam;   // Vec2
         std::string RotationParam; // Float, radians
         std::string ClipParam;     // the Float clip threshold: a texel whose mask is below it is cut
+        // UE bDitherOpacityMask: a Float parameter named kSurfaceMaskDitherParam, when the template declares one.
+        // A material that sets it > 0.5 keeps a pixel with PROBABILITY = mask (a per-pixel dither threshold that
+        // TAA integrates) instead of cutting at ClipParam: a leaf smaller than a texel of the level it samples
+        // keeps its share of the pixel, which no threshold on a mip can do. Empty = the template never dithers.
+        std::string DitherParam;
 
         bool operator==( const SurfaceOpacityMask& ) const = default;
     };
@@ -414,8 +419,8 @@ namespace Desert::Core::Formats
         std::string MediumSource;
 
         // THE BODY OF A `Particle { ... }` BLOCK — the second program fragment, in `Domain Particle`
-        // (VFX-04): either one stack module (Engine/VFX/VFXStackCompiler.hpp ParseParticleModule reads its
-        // declarations) or the whole simulation body an emitter's stack compiles to. Like the medium it has
+        // (VFX-04): the whole simulation body an emitter's stack compiles to (a stack module is a `.dfxmod`,
+        // Engine/VFX/VFXModuleFormat.hpp, not a shader). Like the medium it has
         // no stages of its own: the simulation program includes it. Empty for every other program.
         std::string ParticleSource;
 

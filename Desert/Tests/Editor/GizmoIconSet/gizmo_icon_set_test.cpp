@@ -24,7 +24,7 @@
 
 #include <Editor/Core/GizmoIconSet.hpp>
 
-#include <Engine/Vector/VectorImage.hpp>
+#include <TextCore/Vector/VectorImage.hpp>
 
 #include <gtest/gtest.h>
 

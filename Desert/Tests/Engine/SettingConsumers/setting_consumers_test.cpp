@@ -1000,6 +1000,8 @@ namespace
          { "ShapeOffset", kWorldStreamer },
          { "ShapeYaw", kWorldStreamer },
          { "UseVelocityForSorting", kWorldStreamer },
+         { "LookAheadTime", kWorldStreamer },
+         { "MaxLookAhead", kWorldStreamer },
     };
 
     constexpr Row kRetargetRows[] = {
@@ -1881,7 +1883,7 @@ TEST( SettingConsumers, TheShaderClampsTheShadowRayAtTheSameCeilingTheSliderOffe
 
     // The exact line the march clamps on. Written out in full rather than matched loosely, because a
     // regex that still matched after somebody rewrote the clamp would pass while testing nothing.
-    const std::string expected = "int   lightSamples = int(clamp(u_CloudSunColour.w, 1.0f, " +
+    const std::string expected = "int   lightSamples = int(clamp(CloudSunColour.w, 1.0f, " +
                                  std::to_string( Desert::ECS::kCloudLightMarchMaxSamples ) + ".0f));";
 
     EXPECT_NE( source.find( expected ), std::string::npos )
@@ -1948,7 +1950,7 @@ TEST( SettingConsumers, EveryWindConsumerAsksTheOneQueryAndKeepsNoWindOfItsOwn )
          << "MakeInstanceWind takes an authored angle instead of the scene's wind";
 
     // Cloth and groom are seams (no stepping system yet): their contexts carry the query's answer, and say so.
-    for ( const char* seam : { "Desert/Desert/Source/Engine/Physics/Cloth/ClothingSimulation.hpp",
+    for ( const char* seam : { "Desert/PhysicsCore/Source/PhysicsCore/Cloth/ClothingSimulation.hpp",
                                "Desert/Desert/Source/Engine/Hair/GroomSimulation.hpp",
                                "Desert/Desert/Source/Engine/Animation/Modular/ModularCharacter.hpp" } )
         EXPECT_NE( ReadFile( root / seam ).find( "ECS::WindAt" ), std::string::npos )

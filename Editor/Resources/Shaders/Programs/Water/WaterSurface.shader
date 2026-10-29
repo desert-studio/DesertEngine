@@ -1,117 +1,93 @@
 // DesertAsset {"Kind":"Shader","Guid":"bcefeba392c545f6b95dcb1c2554b7a8","Versions":{"SHDR":1},"Dependencies":[]}
 Shader "WaterSurface"
 {
-    // THE WATER SURFACE (WATER-W6): every tile the water quadtree selected (Engine/Water/WaterQuadTree.hpp), drawn
-    // by Graphic::System::WaterRenderer after the scene-colour copy and before the glass, into the scene target with
-    // depth. One vertexless instanced draw per grid density: the vertex stage decodes its quad from gl_VertexIndex,
-    // its tile row from MaterialIndex + gl_InstanceIndex, and morphs toward the next LOD by distance (UE's water
-    // vertex factory, ported) so a LOD boundary never opens a crack. The surface is the bodies' still plane; the
-    // waves and the single-layer-water shading are WATER-W7.
+    // THE WATER SURFACE TEMPLATE (UE: a Surface-domain material of ShadingModel SingleLayerWater, drawn through the
+    // water mesh vertex factory). Its one drawn cell is `WaterMesh.SingleLayerWater` (Usage WaterMesh): every tile
+    // the water quadtree selected, drawn by Graphic::System::WaterRenderer with Mesh/Surface/Pass_SingleLayerWater.glslh
+    // - the physics of light in water. The LOOK is the body's `.demat` of this template: the ripple normal maps and
+    // their scroll, roughness and specular (EvaluateSurface), the volume's scattering, absorption, phase and the tint
+    // behind (EvaluateSingleLayerWater), the foam's texture, tint and thresholds. Nothing here states a colour of its own.
+    Domain Surface
+    Usage WaterMesh
+    TwoSided
 
-    State
+    Properties Binding(2)
     {
-        Topology Triangles
-        Cull None
-        ZTest Less
-        ZWrite On
+        Color       ScatteringCoefficients ("Scattering Coefficients (1/m)", Category("Water")) = (0.02, 0.06, 0.06, 1)
+        Color       AbsorptionCoefficients ("Absorption Coefficients (1/m)", Category("Water")) = (0.45, 0.09, 0.06, 1)
+        Float       PhaseG ("Phase G", Range(-0.9,0.9), Category("Water")) = 0.3
+        Color       ColorScaleBehindWater ("Color Scale Behind Water", Category("Water")) = (1, 1, 1, 1)
+        Float       Roughness ("Roughness", Range(0.02,1), Category("Surface")) = 0.05
+        Float       Specular ("Specular", Range(0,1), Category("Surface")) = 0.255
+        Float       RefractionStrength ("Refraction Strength (cm)", Range(0,200), Category("Surface")) = 40
+        Texture2D   RippleNormalA ("Ripple Normal A", Category("Ripples"), Intent(NormalMap)) = "normal"
+        Texture2D   RippleNormalB ("Ripple Normal B", Category("Ripples"), Intent(NormalMap)) = "normal"
+        Float       RippleTileSizeA ("Ripple Tile Size A (cm)", Range(10,10000), Category("Ripples")) = 400
+        Float       RippleTileSizeB ("Ripple Tile Size B (cm)", Range(10,10000), Category("Ripples")) = 170
+        Float       RippleAngleA ("Ripple Direction A (deg)", Range(-180,180), Category("Ripples")) = 20
+        Float       RippleAngleB ("Ripple Direction B (deg)", Range(-180,180), Category("Ripples")) = -70
+        Float       RippleSpeed ("Ripple Speed (cm/s)", Range(0,500), Category("Ripples")) = 20
+        Float       RippleStrength ("Ripple Strength", Range(0,4), Category("Ripples")) = 1
+        Texture2D   FoamTexture ("Foam Colour", Category("Foam"), Intent(Colour)) = "white"
+        Texture2D   FoamStructure ("Foam Structure", Category("Foam"), Intent(Mask)) = "white"
+        Color       FoamTint ("Foam Tint", Category("Foam")) = (1, 1, 1, 1)
+        Float       FoamTileSize ("Foam Tile Size (cm)", Range(10,10000), Category("Foam")) = 300
+        Float       FoamJacobianThreshold ("Whitecap Jacobian Threshold", Range(-1,1), Category("Foam")) = 0.5
+        Float       FoamJacobianSoftness ("Whitecap Jacobian Softness", Range(0.01,1), Category("Foam")) = 0.25
+        Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,30), Category("Foam")) = 3
+        Float       FoamBreakerIndex ("Breaker Index H/d", Range(0.4,1.5), Category("Foam")) = 0.78
     }
 
-    Vertex
+    ShadingModel SingleLayerWater
+
+    Surface
     {
-        #include <Common/MaterialTransport.glslh>
-        #include <Programs/Water/WaterSurfaceData.glslh>
-
-        Out(0) vec3 v_WorldPos;
-
-        // UE MorphTranslatedWorldPosition (Plugins/Experimental/Water/Shaders/Private/WaterMeshVertexFactory.ush:
-        // 252-275), in the tile's own frame: @p local is the vertex relative to the tile's lower corner, the frame UE
-        // measures the morph in (InMorphOriginTWS = the node's corner). Every other vertex slides toward its
-        // neighbour by the LOD factor, so at factor 1 the grid IS the next LOD's (two quads per quad).
-        vec2 MorphLocal( vec2 local, WaterTileRow t, float lodLevel, float quadSize, float heightLodFactor,
-                         out float lodFactor )
+        // One ripple layer: a tangent-space normal map scrolled across the water at its own size and heading. UV v
+        // runs with -Z, as the water mesh's tangent frame (Vertex_WaterMesh.glslh).
+        vec3 WaterRipple( BindlessTexture map, vec2 worldXZ, float tileCm, float angleDeg, float speed, float seconds )
         {
-            vec2  world = t.Zone.xy + t.Tile.xy + local;
-            float dist  = distance( world, u.CameraPos.xz );
-            lodFactor   = clamp( dist / ( t.Zone.z * exp2( lodLevel ) ) - 1.0, 0.0, 1.0 );
-            lodFactor   = clamp( heightLodFactor + lodFactor, 0.0, 1.0 );
-
-            float grid4  = 4.0 * quadSize;
-            vec2  offset = fract( local / grid4 ) - vec2( 0.5 );
-            const float kMinRadius = 0.26;
-            if ( abs( offset.x ) < kMinRadius )
-                local.x += offset.x * lodFactor * grid4;
-            if ( abs( offset.y ) < kMinRadius )
-                local.y += offset.y * lodFactor * grid4;
-            return local;
+            const float r   = radians( angleDeg );
+            const vec2  dir = vec2( cos( r ), sin( r ) );
+            const vec2  p   = ( worldXZ + dir * speed * seconds ) / max( tileCm, 1.0 );
+            return SurfaceSampleTangentNormal( map, vec2( p.x, -p.y ) );
         }
 
-        void main()
+        SurfaceOutput EvaluateSurface( SurfaceInput i )
         {
-            WaterTileRow t = u_Tiles[int( m_PushConstants.MaterialIndex ) + gl_InstanceIndex];
-
-            // Two triangles per quad, quads row by row.
-            const ivec2 kCorner[6] = ivec2[]( ivec2( 0, 0 ), ivec2( 1, 0 ), ivec2( 0, 1 ),
-                                              ivec2( 1, 0 ), ivec2( 1, 1 ), ivec2( 0, 1 ) );
-            int   quads    = int( t.Zone.w + 0.5 );
-            int   quad     = gl_VertexIndex / 6;
-            ivec2 q        = ivec2( quad % quads, quad / quads ) + kCorner[gl_VertexIndex % 6];
-            float quadSize = t.Tile.w / float( quads );
-            vec2  local    = vec2( q ) * quadSize;
-
-            if ( t.Lod.y > 0.5 )
-            {
-                // The lowest LOD also carries the camera height's global morph (t.Lod.w).
-                float lodFactor = 0.0;
-                local = MorphLocal( local, t, t.Lod.x, quadSize, t.Lod.w, lodFactor );
-                // Fully morphed: morph again as a vertex of the next LOD — a tile reaches into the next ring because
-                // the observer moves, so it must be able to span three LODs (no height factor on the second).
-                if ( lodFactor >= 1.0 && t.Lod.z > 0.5 )
-                    local = MorphLocal( local, t, t.Lod.x + 1.0, quadSize * 2.0, 0.0, lodFactor );
-            }
-
-            // Zone-relative first (exact multiples of the quad size), then the zone's origin: two tiles sharing an
-            // edge add the same two numbers, so the edge is at the same bits in both.
-            vec2 zoneLocal = t.Tile.xy + local;
-            v_WorldPos     = vec3( t.Zone.x + zoneLocal.x, t.Tile.z, t.Zone.y + zoneLocal.y );
-            gl_Position    = m_PushConstants.Transform * vec4( v_WorldPos, 1.0 );
+            SurfaceOutput s = DefaultSurfaceOutput();
+            // Two ripple maps crossing (UE's water material's detail normals), whiteout-blended, tilted by strength.
+            const vec3 a = WaterRipple( Material.RippleNormalA, i.WorldPosition.xz, Material.RippleTileSizeA,
+                                        Material.RippleAngleA, Material.RippleSpeed, i.Time );
+            const vec3 b = WaterRipple( Material.RippleNormalB, i.WorldPosition.xz, Material.RippleTileSizeB,
+                                        Material.RippleAngleB, Material.RippleSpeed, i.Time );
+            s.Normal    = normalize( vec3( ( a.xy + b.xy ) * Material.RippleStrength, a.z * b.z ) );
+            s.BaseColor = vec3( 0.0 );
+            s.Metallic  = 0.0;
+            s.Roughness = Material.Roughness;
+            s.Specular  = Material.Specular;
+            return s;
         }
-    }
 
-    Fragment
-    {
-        In(0) vec3 v_WorldPos;
-        Out(0) vec4 o_Color;
-        Out(1) vec4 oVelocity; // the view's velocity, slot 1 of the scene target
-        // The view's thin-geometry coverage, slot 3 of the scene target: this pass writes the view's depth. Water is
-        // a lit surface that is not foliage (UE: SingleLayerWater counts as a regular surface).
-        Out(3) float oThinGeometryCoverage;
-
-        #include <Programs/Water/WaterSurfaceData.glslh>
-        #include <Common/ObjectMotion.glslh>
-        #include <Common/ThinGeometryCoverage.glslh>
-
-        void main()
+        SingleLayerWaterOutput EvaluateSingleLayerWater( SurfaceInput i )
         {
-            // The still plane, lit by the scene sun: Schlick Fresnel between the water body's colour and the sky it
-            // mirrors, plus the sun's glint. WATER-W7 moves this to UE's single layer water (scene-copy refraction,
-            // volume absorption and scattering, SSR).
-            const vec3 N    = vec3( 0.0, 1.0, 0.0 );
-            vec3       V    = normalize( u.CameraPos.xyz - v_WorldPos );
-            vec3       L    = normalize( -u.SunDir.xyz );
-            vec3       sun  = u.SunColor.rgb * max( u.SunColor.a, 0.0001 );
-            float      NdV  = abs( dot( N, V ) );
-            float      fres = 0.02 + 0.98 * pow( 1.0 - NdV, 5.0 );
-
-            vec3 skyCol   = vec3( 0.45, 0.52, 0.62 ) * 0.5;
-            vec3 waterCol = vec3( 0.02, 0.09, 0.13 );
-            vec3 body     = waterCol * ( skyCol + sun * max( L.y, 0.0 ) * 0.25 );
-            vec3 H        = normalize( V + L );
-            vec3 glint    = sun * pow( max( dot( N, H ), 0.0 ), 400.0 ) * fres * step( 0.0, L.y );
-
-            o_Color   = vec4( mix( body, skyCol, fres ) + glint, 1.0 );
-            vec4 world = vec4( v_WorldPos, 1.0 );
-            oVelocity  = DesertVelocity( u.ViewProjection * world, u.PrevViewProjection * world );
-            oThinGeometryCoverage = kThinGeometryCoverageSurface;
+            SingleLayerWaterOutput w;
+            w.ScatteringCoefficients = Material.ScatteringCoefficients.rgb;
+            w.AbsorptionCoefficients = Material.AbsorptionCoefficients.rgb;
+            w.PhaseG                 = Material.PhaseG;
+            w.ColorScaleBehindWater  = Material.ColorScaleBehindWater.rgb;
+            w.RefractionOffset       = Material.RefractionStrength;
+            // The foam rides the water particle (UV1 = its still-water X, Z; Vertex_WaterMesh.glslh), at two scales
+            // so the sheet does not repeat.
+            const vec2 foamUv        = vec2( i.UV1.x, -i.UV1.y ) / max( Material.FoamTileSize, 1.0 );
+            const vec2 foamUv2       = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
+            w.FoamAlbedo             = SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb;
+            w.FoamCoverage           = 0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
+                                     SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r );
+            w.FoamJacobianThreshold  = Material.FoamJacobianThreshold;
+            w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
+            w.FoamDecaySeconds       = Material.FoamDecaySeconds;
+            w.FoamBreakerIndex       = Material.FoamBreakerIndex;
+            return w;
         }
     }
 }

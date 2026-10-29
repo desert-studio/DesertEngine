@@ -15,7 +15,8 @@
 //          its last streaming source. The streamer is asked for through a getter each frame rather than
 //          handed in once, because Play's stop and a streaming error both destroy it from the editor's side.
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
+#include "LandscapeHLODBake.hpp"
 #include "WorldPartitionMap.hpp"
 
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -66,6 +67,22 @@ namespace Desert::Editor
         /// the button and the command palette both show the same sentence.
         [[nodiscard]] Common::BoolResultStr ConvertSceneToWorldPartition();
 
+        /// UE's Build > Build HLODs (WP-FAR-6B, lead D1): every cell's HLOD of the world SAVED at the scene's
+        /// file (scene + entity files, as WorldCook reads it), built by MakeHLODBuilders and written to
+        /// `<Scene>_HLOD/` (WorldCells::BuiltHLODWriter, cell by cell); read back and checked stale-free. Refused,
+        /// by name, for a scene not opened from a file or a world the build refuses. Two phases: this call checks
+        /// the world and starts the landscape tiles' BaseColor bake (LandscapeHLODBake, over the next editor
+        /// frames); TickBuild finishes it — the HLODs are built with each landscape HLOD bound to its baked
+        /// material, written and read back. A world without landscape HLODs is built here at once.
+        [[nodiscard]] Common::BoolResultStr BuildHLODs();
+
+        /// Advances a running Build HLODs (its bake) by one editor frame; called every frame by EditorLayer,
+        /// whether the panel's window is open or not.
+        void TickBuild();
+
+        /// A Build HLODs is running: its landscape bake has not finished, so its cell files are not written yet.
+        [[nodiscard]] bool IsBuildingHLODs() const noexcept { return m_Bake != nullptr; }
+
         /// What a region change asks for: the regions to hold, or the whole world.
         struct RegionRequest
         {
@@ -78,6 +95,10 @@ namespace Desert::Editor
         /// scene not opened from its files). The undo history is reset on success, as UE resets its transactions
         /// when it unloads actors: an entry may name an entity that is gone.
         [[nodiscard]] Common::BoolResultStr LoadRegion( const RegionRequest& request );
+        // One combo per grid: the layer its cells' HLOD is built with (UE FRuntimePartitionDesc::HLODSetups);
+        // undoable.
+        void DrawRuntimeGrids();
+        void DrawGridHLODLayers();
         /// The panel's Load Region button: the rectangle selected on the map. Refused by name when nothing is
         /// selected; otherwise LoadRegion. The palette offers it beside Unload All / Load All.
         [[nodiscard]] Common::BoolResultStr LoadSelectedRegion();
@@ -92,6 +113,9 @@ namespace Desert::Editor
         // The Edit plan of m_Scene: a partitioned world opened from its files is planned over its descriptor
         // index (every entity of the world, loaded or not); any other scene over its serialised form.
         void RebuildEditPlan();
+        // Build HLODs' second phase: build from the saved files (each landscape HLOD bound to its @p baked
+        // material), write, read back.
+        [[nodiscard]] Common::BoolResultStr FinishBuildHLODs( const std::vector<LandscapeHLODBaked>& baked );
         void DrawMap( const ::Desert::Core::Rules::WorldPartitionPlan& plan,
                       const ::Desert::Core::WorldPartitionSerialized&  partition,
                       const ::Desert::Core::Rules::ResidencyState*     residency,
@@ -100,6 +124,8 @@ namespace Desert::Editor
         std::shared_ptr<::Desert::Core::Scene> m_Scene;
         ::Desert::Assets::AssetManager*        m_Assets;
         StreamerGetter                         m_Streamer;
+        // The landscape BaseColor bake of a running Build HLODs (BuildHLODs -> TickBuild).
+        std::unique_ptr<LandscapeHLODBake> m_Bake;
 
         // Edit: the plan made from the scene, or why there is none ("not partitioned", a parse error).
         std::optional<::Desert::Core::Rules::WorldPartitionPlan> m_EditPlan;
@@ -118,6 +144,7 @@ namespace Desert::Editor
         std::optional<::Desert::Core::Rules::CellBounds> m_Selection;
         std::optional<glm::dvec2>                        m_DragFrom;
         std::string                                      m_RegionStatus;
+        std::string                                      m_GridEditStatus; ///< the last Runtime grids refusal
         // Whether the Edit plan is the world on disk (its descriptor index) rather than the scene in memory.
         bool m_PlanFromIndex = false;
         // Edit over the index: what the editor holds of each cell of m_EditPlan (empty otherwise).
@@ -128,7 +155,14 @@ namespace Desert::Editor
         bool                    m_Fitted       = false; // the view is the last fit: a resize refits it
         glm::dvec2              m_MapSize{ 0.0 };       // the canvas size the view was last drawn at
         bool                    m_Follow       = true; // Play: keep the streaming source centred (UE's default)
+        // A wheel while following keeps the follow and its own scale (UE re-fits PlayerExtent = 100 m every tick
+        // and drops the follow on a wheel, so a 200 m loading range with look-ahead never fits). Focus clears it.
+        bool                    m_FollowZoomed = false;
         int                     m_Level        = -1;   // -1 shows every level
+        // The runtime grid the map, the header and the source circles show (index into the partition's Grids):
+        // UE's World Partition editor shows one runtime hash grid at a time; every grid is reachable by the
+        // picker beside the Level slider.
+        std::size_t             m_Grid         = 0;
         bool                    m_WasPlaying   = false;
     };
 } // namespace Desert::Editor

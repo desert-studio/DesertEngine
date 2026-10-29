@@ -48,6 +48,7 @@
 #include <unordered_map>
 #include <vector>
 #include <Editor/Core/AssetPickerRows.hpp>
+#include <Editor/Core/TextList.hpp>
 
 namespace Desert::Editor
 {
@@ -362,6 +363,65 @@ namespace Desert::Editor
                 case 8:  *static_cast<int64_t*>( p ) = value; break;
                 default: *static_cast<int32_t*>( p ) = static_cast<int32_t>( value ); break;
             }
+        }
+
+        // A TYPED SOFT REFERENCE OVER THE CONTENT REGISTRY (UE TSoftObjectPtr<T> in the Details panel): the
+        // slot lists only the rows of ONE kind, and a dragged file is accepted only when it is a row of that
+        // kind - so the handle is never asked for as another asset class. A set handle no row names reads
+        // "(missing)". Returns whether the handle changed.
+        bool DrawRegistryRowPicker( uint64_t* handle, Common::Content::ContentKind kind, const char* id,
+                                    const char* noneLabel, const char* kindNoun )
+        {
+            bool        changed = false;
+            std::string preview = noneLabel;
+            if ( *handle != 0 )
+            {
+                preview = "(missing)";
+                for ( const auto& row : Assets::ContentRegistry::Rows( kind ) )
+                    if ( static_cast<uint64_t>( row.Handle ) == *handle )
+                        preview = ::Desert::Editor::PickerDisplayName( row );
+            }
+
+            ImGui::SetNextItemWidth( -1.0f );
+            if ( ImGui::BeginCombo( id, preview.c_str() ) )
+            {
+                if ( ImGui::Selectable( noneLabel, *handle == 0 ) )
+                {
+                    *handle = 0;
+                    changed = true;
+                }
+                for ( const auto& row : Assets::ContentRegistry::Rows( kind ) )
+                {
+                    const bool selected = ( static_cast<uint64_t>( row.Handle ) == *handle );
+                    if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(), selected ) )
+                    {
+                        *handle = static_cast<uint64_t>( row.Handle );
+                        changed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if ( ImGui::BeginDragDropTarget() )
+            {
+                if ( const ImGuiPayload* payload =
+                          ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
+                {
+                    const std::string path( static_cast<const char*>( payload->Data ),
+                                            payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
+                    if ( const auto row = Assets::ContentRegistry::RowAtPath( kind, path ) )
+                    {
+                        *handle = static_cast<uint64_t>( row->Handle );
+                        changed = true;
+                    }
+                    else
+                    {
+                        LOG_WARN( "[Details] '{}' is no {} of the content registry; pick one from the list.", path,
+                                  kindNoun );
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            return changed;
         }
     } // namespace
 
@@ -1108,122 +1168,21 @@ namespace Desert::Editor
 
                 // A prefab slot (SceneSettings::DefaultPawn): the registry's prefab rows, or a .deprefab
                 // dropped from the Content Browser. "None" is meaningful — a level without a player.
-                // The scene's world parameter collection (SceneSettings::WorldParameters): the prefab picker's
-                // registry list, over the `.dworldparams` rows.
-                if ( field.Meta.AssetType == "WorldParametersAsset" )
+                // EVERY REFERENCE WHOSE TARGET IS A CONTENT-REGISTRY ROW (UE TSoftObjectPtr<T>): one picker over the
+                // rows of the slot's own kind - the `.dfx` systems for a VFX component's System, the `.dworldparams`
+                // collections for the scene's world parameters, and so on (RegistryPickerForAssetType).
+                if ( const ::Desert::Editor::RegistryPickerSpec* picker =
+                          ::Desert::Editor::RegistryPickerForAssetType( field.Meta.AssetType ) )
                 {
-                    auto*       collectionHandle = static_cast<uint64_t*>( p );
-                    std::string preview          = "None (no world parameters)";
-                    for ( const auto& row :
-                          Assets::ContentRegistry::Rows( Common::Content::ContentKind::WorldParameters ) )
+                    const auto kind = ::Desert::Editor::ContentKindForAssetType( field.Meta.AssetType );
+                    if ( !kind )
                     {
-                        if ( *collectionHandle != 0 && static_cast<uint64_t>( row.Handle ) == *collectionHandle )
-                            preview = ::Desert::Editor::PickerDisplayName( row );
+                        ImGui::TextDisabled( "(asset type '%s' names no content kind)",
+                                             field.Meta.AssetType.c_str() );
+                        break;
                     }
-                    if ( *collectionHandle != 0 && preview.starts_with( "None" ) )
-                        preview = "(missing)";
-
-                    ImGui::SetNextItemWidth( -1.0f );
-                    if ( ImGui::BeginCombo( "##worldparams", preview.c_str() ) )
-                    {
-                        if ( ImGui::Selectable( "None (no world parameters)", *collectionHandle == 0 ) )
-                        {
-                            *collectionHandle = 0;
-                            changed           = true;
-                        }
-                        for ( const auto& row :
-                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::WorldParameters ) )
-                        {
-                            const bool selected = ( static_cast<uint64_t>( row.Handle ) == *collectionHandle );
-                            if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
-                                                    selected ) )
-                            {
-                                *collectionHandle = static_cast<uint64_t>( row.Handle );
-                                changed           = true;
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    if ( ImGui::BeginDragDropTarget() )
-                    {
-                        if ( const ImGuiPayload* payload =
-                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
-                        {
-                            const std::string path( static_cast<const char*>( payload->Data ),
-                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                            if ( const auto row = Assets::ContentRegistry::RowAtPath(
-                                      Common::Content::ContentKind::WorldParameters, path ) )
-                            {
-                                *collectionHandle = static_cast<uint64_t>( row->Handle );
-                                changed           = true;
-                            }
-                            else
-                            {
-                                LOG_WARN( "[Scene] '{}' is no world parameter collection of the content registry; "
-                                          "pick one from "
-                                          "the list.",
-                                          path );
-                            }
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
-                    break;
-                }
-                if ( field.Meta.AssetType == "PrefabAsset" )
-                {
-                    auto*       prefabHandle = static_cast<uint64_t*>( p );
-                    std::string preview      = "None (no player pawn)";
-                    for ( const auto& row : Assets::ContentRegistry::Rows( Common::Content::ContentKind::Prefab ) )
-                    {
-                        if ( *prefabHandle != 0 && static_cast<uint64_t>( row.Handle ) == *prefabHandle )
-                            preview = ::Desert::Editor::PickerDisplayName( row );
-                    }
-                    if ( *prefabHandle != 0 && preview.starts_with( "None" ) )
-                        preview = "(missing)";
-
-                    ImGui::SetNextItemWidth( -1.0f );
-                    if ( ImGui::BeginCombo( "##prefab", preview.c_str() ) )
-                    {
-                        if ( ImGui::Selectable( "None (no player pawn)", *prefabHandle == 0 ) )
-                        {
-                            *prefabHandle = 0;
-                            changed       = true;
-                        }
-                        for ( const auto& row :
-                              Assets::ContentRegistry::Rows( Common::Content::ContentKind::Prefab ) )
-                        {
-                            const bool selected = ( static_cast<uint64_t>( row.Handle ) == *prefabHandle );
-                            if ( ImGui::Selectable( ::Desert::Editor::PickerDisplayName( row ).c_str(),
-                                                    selected ) )
-                            {
-                                *prefabHandle = static_cast<uint64_t>( row.Handle );
-                                changed       = true;
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    if ( ImGui::BeginDragDropTarget() )
-                    {
-                        if ( const ImGuiPayload* payload =
-                                  ImGui::AcceptDragDropPayload( ::Desert::Editor::DragPayloads::AssetFile ) )
-                        {
-                            const std::string path( static_cast<const char*>( payload->Data ),
-                                                    payload->DataSize > 0 ? payload->DataSize - 1 : 0 );
-                            if ( const auto row = Assets::ContentRegistry::RowAtPath(
-                                      Common::Content::ContentKind::Prefab, path ) )
-                            {
-                                *prefabHandle = static_cast<uint64_t>( row->Handle );
-                                changed       = true;
-                            }
-                            else
-                            {
-                                LOG_WARN( "[Scene] '{}' is no prefab row of the content registry; pick one from "
-                                          "the list.",
-                                          path );
-                            }
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
+                    changed = DrawRegistryRowPicker( static_cast<uint64_t*>( p ), *kind, picker->Id,
+                                                     picker->NoneLabel, picker->Noun );
                     break;
                 }
 
@@ -1411,6 +1370,18 @@ namespace Desert::Editor
                                            "entity draws no cloud at all — there is no built-in hero cloud, "
                                            "because a body nobody sculpted appearing in a scene is a cloud "
                                            "nobody can explain." );
+                    break;
+                }
+
+                // NO SLOT FOR THIS TYPE IS A REFUSAL, NOT A TEXTURE: every asset type above has its own picker, and
+                // the texture slot below asks the handle as a Texture2D - which, for any other type, is an error per
+                // frame and a "(missing)" over a reference that resolves (VFX-SYS-REF: a VFX component's System).
+                if ( field.Meta.AssetType != "TextureAsset" )
+                {
+                    ImGui::TextDisabled( "(no Details slot for asset type '%s')", field.Meta.AssetType.c_str() );
+                    if ( ImGui::IsItemHovered() )
+                        ImGui::SetTooltip( "This reference type has no picker in PropertyEditorBuilder.cpp: add a "
+                                           "row to RegistryPickerForAssetType or a branch of its own." );
                     break;
                 }
 
@@ -1803,26 +1774,22 @@ namespace Desert::Editor
         if ( !object )
             return {};
 
-        std::string out;
-        int         used = 0;
+        std::vector<std::string> facts;
         for ( const auto& field : type.Fields )
         {
             if ( !field.Meta.Summary || field.Meta.Hidden )
                 continue;
 
-            const std::string value = FormatSummaryValue( object, field );
+            std::string value = FormatSummaryValue( object, field );
             if ( value.empty() )
                 continue;
-
-            if ( !out.empty() )
-                out += "  \xE2\x80\xA2  "; // bullet
-            out += value;
+            facts.push_back( std::move( value ) );
 
             // Three facts is what fits beside a header before it turns into a second panel.
-            if ( ++used == 3 )
+            if ( facts.size() == 3 )
                 break;
         }
-        return out;
+        return TextTemplates::JoinList( facts, "  \xE2\x80\xA2  " ); // bullet
     }
 
     bool PropertyEditorBuilder::DrawPinnedRow( void* object, const TypeInfo& type, const FieldInfo& field,

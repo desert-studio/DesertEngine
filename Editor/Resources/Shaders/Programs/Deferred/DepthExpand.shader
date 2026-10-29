@@ -21,13 +21,13 @@ Shader "DepthExpand"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(0) sampler u_PointClampSampler;
-        Uniform(1) texture2D u_Depth;
-        #define u_Depth sampler2D(u_Depth, u_PointClampSampler)
+        Uniform(0) sampler PointClampSampler;
+        Uniform(1) texture2D SourceDepthTexture;
+        #define SourceDepthTexture sampler2D(SourceDepthTexture, PointClampSampler)
 
         void main()
         {
-        	gl_FragDepth = texelFetch(u_Depth, ivec2(gl_FragCoord.xy), 0).r;
+        	gl_FragDepth = texelFetch(SourceDepthTexture, ivec2(gl_FragCoord.xy), 0).r;
         }
     }
 }

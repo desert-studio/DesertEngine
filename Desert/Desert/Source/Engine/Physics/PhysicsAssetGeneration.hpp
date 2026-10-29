@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Engine/Geometry/MeshTypes.hpp>
-#include <Engine/Physics/PhysicsAssetFormat.hpp>
+#include <PhysicsCore/PhysicsAssetFormat.hpp>
 
 #include <Common/Core/ResultStr.hpp>
 

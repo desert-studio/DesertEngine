@@ -136,14 +136,14 @@ struct CloudFieldParams
     // CloudProceduralLevelOriginKm decides each corner and snaps it to the level's own voxel, and the march
     // only asks which window a position is inside. Level 0 is the finest (side RegionSize / 4), level
     // CLOUD_PROCEDURAL_CLIP_LEVELS - 1 is the whole region. Common/CloudParams.glslh fills it from
-    // u_CloudLevel[k].
+    // CloudLevel[k].
     vec4 ProceduralLevel[CLOUD_PROCEDURAL_CLIP_LEVELS];
 
     // THE WORLD WEATHER (Graphic::CloudGpuPayload::Weather .y and .w): x the weather strength, y 1 / the
     // weather's period in km. A vec2 because x is FarScale and z is Coverage, below — and the unpack fetches
     // only what is read, as
     // LayoutStrength does (WX-PAINT-b). A MEMBER AND NOT A MACRO, because
-    // it is a value of the parameter block and not a sampler: a macro naming u_CloudWeather was read here,
+    // it is a value of the parameter block and not a sampler: a macro naming CloudWeather was read here,
     // in this header, BEFORE Common/CloudParams.glslh declares the block — and a GLSL variable cannot be
     // declared forward, so all four cloud passes failed to compile (FARWX-b6). Only samplers cross the seam
     // as macros; every block value arrives here through CloudUnpackFieldParams.
@@ -151,6 +151,8 @@ struct CloudFieldParams
     // THE COVERAGE SLIDER (Graphic::CloudGpuPayload::Weather.z, WTH-CLOUDS): the threshold the march cuts the
     // baked field by (CloudCoverageThreshold) — no longer a bake input, so the weather can move it every frame.
     float Coverage;
+    // PER SPECIES, the share of Coverage that species' channel is cut at (CloudSpeciesCover, WTH-OVERCAST).
+    vec4 SpeciesCover;
     // THE FAR PATH (CLOUD-SEAM24): FarScale the read scale of the world weather map that draws the far
     // column field, 1/km (Assets::CloudFarFieldScale); per height band, per species, the coarsest level's
     // share of cloud voxels and their mean profile (Assets::CloudProceduralFarStatistics). Zero draws no
@@ -503,19 +505,21 @@ vec4 CloudSampleProceduralBaked( CloudFieldParams params, float heightFraction, 
 // Nubis's weather-map remap — on the field the bake builds WITHOUT the slider. Coverage used to be a bake
 // input, so a value moving every frame (the weather's Clear -> Rain over 60 s) superseded its own pending bake
 // and the sky never changed until the value stopped; here it is four ALU per sample at every Coverage.
-vec4 CloudCoverageThreshold( vec4 field, float coverage )
+// PER CHANNEL since WTH-OVERCAST: each species is cut at its own coverage (the layer's Coverage times that type's
+// weight), so the weather can take one type out of the sky while bringing another in.
+vec4 CloudCoverageThreshold( vec4 field, vec4 coverage )
 {
-    if ( coverage <= 0.0f )
-        return vec4( 0.0f );
-    float c = min( coverage, 1.0f );
-    return clamp( ( field - vec4( 1.0f - c ) ) / c, vec4( 0.0f ), vec4( 1.0f ) );
+    vec4 c   = clamp( coverage, vec4( 0.0f ), vec4( 1.0f ) );
+    vec4 cut = clamp( ( field - ( vec4( 1.0f ) - c ) ) / max( c, vec4( 1e-4f ) ), vec4( 0.0f ), vec4( 1.0f ) );
+    return mix( vec4( 0.0f ), cut, greaterThan( c, vec4( 0.0f ) ) );
 }
 
 // The read every consumer takes: the baked level (or the far path) cut by this frame's Coverage, so the march,
 // the shadow map, the sky occlusion and the diagnostic views all see one threshold.
 vec4 CloudSampleProceduralVolume( CloudFieldParams params, float heightFraction, vec3 windPos )
 {
-    return CloudCoverageThreshold( CloudSampleProceduralBaked( params, heightFraction, windPos ), params.Coverage );
+    return CloudCoverageThreshold( CloudSampleProceduralBaked( params, heightFraction, windPos ),
+                                   vec4( params.Coverage ) * params.SpeciesCover );
 }
 
 // ---------------------------------------------------------------------------------------------------

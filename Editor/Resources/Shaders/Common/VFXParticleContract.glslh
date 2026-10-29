@@ -49,6 +49,10 @@ int   VFX_ReadInt( uint particle, uint component );
 void  VFX_WriteFloat( uint particle, uint component, float value );
 void  VFX_WriteInt( uint particle, uint component, int value );
 float VFX_CurveLUT( uint index );
+// VFX-15: a point of the placement's painted set whose parameter row is @p row (x = first, y = count in the
+// emitter's point-set buffer), picked in proportion to the points' weights by the uniform number @p u in [0, 1);
+// the point is relative to the placement, turned by its rotation and scale (cm). An empty set gives 0.
+vec3  VFX_PointSet( vec4 row, float u );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )

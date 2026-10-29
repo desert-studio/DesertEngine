@@ -34,12 +34,12 @@ namespace Desert::Editor::Core
         InsertEdgeLoop,
         Cut,
         Clean,
-        Subdivide, // mesh-wide, like Clean: no selection in, none out
-        Mirror,    // mesh-wide
-        PlaneCut,  // mesh-wide; Keep Both Halves splits the entity in two
-        FillHole,  // the open loops through a selected edge, or every loop
-        WeldEdges, // mesh-wide, UE's coincidence tolerance: no distance
-        Simplify,  // mesh-wide, UE's Simplify tool (QEM)
+        Subdivide,  // mesh-wide, like Clean: no selection in, none out
+        Mirror,     // mesh-wide
+        PlaneCut,   // mesh-wide; Keep Both Halves splits the entity in two
+        FillHole,   // the open loops through a selected edge, or every loop
+        WeldEdges,  // mesh-wide, UE's coincidence tolerance: no distance
+        Disconnect, // UE PolyEdit Disconnect: the selected faces cut loose along their border, nothing moves
     };
 
     // What an operation reads besides the selection. The panel, the hotkeys and the palette build it from
@@ -50,7 +50,6 @@ namespace Desert::Editor::Core
         float LoopPosition  = 0.5f;  // Insert Edge Loop, in (0, 1) along each ring edge
         float WeldTolerance   = 0.01f; // Clean, and Mirror's seam, cm
         Geometry::SubdivideSettings Subdivide{};
-        Geometry::SimplifySettings  Simplify{};
         int                       MirrorAxis      = 0;     // 0 = X, 1 = Y, 2 = Z
         bool                      MirrorWorld     = false; // the world's axis through its origin, not the entity's
         bool                      MirrorKeepNegative = false;

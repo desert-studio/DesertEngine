@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
+#include <Engine/Graphic/AllocationLedger.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 
@@ -200,8 +201,11 @@ namespace Desert::Graphic::API::Vulkan
                       VmaAllocation memory, uint64_t offset, std::string_view name );
         // The graph's handle on an engine buffer it does not own (Renderer::ImportBuffer): it records the
         // barriers and binds @p buffer, and never destroys it; the engine buffer outlives every graph that
-        // imports it because its own frames-in-flight release waits for them.
-        static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size );
+        // imports it because its own frames-in-flight release waits for them. @p offset: the wrapped range
+        // begins @p offset bytes into @p buffer (a mesh's span of a GeometryPool buffer,
+        // VulkanRendererAPI::ImportVertexBufferRange); every descriptor, barrier, copy and device address the
+        // graph derives from the handle is of [offset, offset + size).
+        static std::shared_ptr<VulkanRdgBuffer> Wrap( VkBuffer buffer, uint64_t size, uint64_t offset = 0 );
         // Wrap of the buffer backing @p accelerationStructure (a view's TLAS): a block entry of kind
         // AccelerationStructure on it binds @p accelerationStructure.
         static std::shared_ptr<VulkanRdgBuffer>
@@ -221,6 +225,12 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] uint64_t GetSize() const
         {
             return m_Size;
+        }
+        // Where this resource begins in GetBuffer() (0 except for a wrapped sub-range): every address or
+        // descriptor of the resource adds it.
+        [[nodiscard]] uint64_t GetOffset() const
+        {
+            return m_Offset;
         }
         [[nodiscard]] uint32_t GetAccessMask() const
         {
@@ -253,6 +263,7 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocation m_Allocation = nullptr;
         VkBuffer      m_Buffer     = VK_NULL_HANDLE;
         uint64_t      m_Size       = 0;
+        uint64_t      m_Offset     = 0;
         uint32_t      m_AccessMask = 0;
         // The dedicated allocation's ledger row (Create only), as VulkanRdgTexture's.
         ResourceOwnership m_Ledger;
@@ -265,11 +276,12 @@ namespace Desert::Graphic::API::Vulkan
     // An entry is handed out again for the same description and usage, so an unchanged graph gets the same
     // images every frame and whatever descriptors point at them stay valid.
     //
-    // Entries are kept per frame slot: a slot's resources are reused only when the caller has waited for
-    // that slot's previous frame (the renderer's frames-in-flight fence), so the first barrier of a reused
-    // image - from UNDEFINED, waiting on nothing - never races the GPU still reading it from an earlier
-    // frame. An entry not handed out during a slot's whole previous frame is destroyed at the next
-    // BeginFrame of that slot; an entry still held by an extraction target is never handed out twice.
+    // Entries are shared by every frame slot (UE FRenderTargetPool): an entry is handed out again only when
+    // nothing holds it and its last hand-out was in a frame the caller has waited for (the renderer's
+    // frames-in-flight fence), so the first barrier of a reused image - from UNDEFINED, waiting on nothing -
+    // never races the GPU still reading it. Per-slot lists (p2) kept a history target's copies once per slot
+    // (4 where 3 suffice). An entry not handed out since the last waited frame is destroyed at BeginFrame; an
+    // entry still held by an extraction target is never handed out twice.
     class VulkanRdgPool
     {
     public:
@@ -309,17 +321,25 @@ namespace Desert::Graphic::API::Vulkan
         };
         struct Slot
         {
-            std::vector<Entry<VulkanRdgTexture>>                Textures;
-            std::vector<Entry<VulkanRdgBuffer>>                 Buffers;
             std::vector<std::shared_ptr<RDG::IPhysicalTexture>> Retired; // released at the slot's next BeginFrame
-            uint64_t PreviousFrame = 0; // frame counter of the slot's last BeginFrame
         };
+        // Frame @p frame has completed: the caller waited for it at a BeginFrame since.
+        [[nodiscard]] bool Fenced( uint64_t frame ) const noexcept
+        {
+            return frame + m_Slots.size() <= m_Frame;
+        }
 
-        const VulkanRdgDevice& m_Device;
-        std::vector<Slot>      m_Slots;
-        uint32_t               m_Slot  = 0;
-        uint64_t               m_Frame = 1;
+        const VulkanRdgDevice&               m_Device;
+        std::vector<Slot>                    m_Slots;
+        std::vector<Entry<VulkanRdgTexture>> m_Textures;
+        std::vector<Entry<VulkanRdgBuffer>>  m_Buffers;
+        uint32_t                             m_Slot  = 0;
+        uint64_t                             m_Frame = 1;
     };
+
+    // The dedicated (extracted) render graph resources' own ledger, by resource name: VMA allocations outside
+    // VulkanAllocator's tag ledger, rolled up by the memory census (VulkanAllocator::LogCensusIfDue).
+    [[nodiscard]] const AllocationLedger& RdgDedicatedLedger();
 
     // RDG-CONTRACTS A(3). Descriptor sets for graph resources, allocated from a pool per frame slot that is reset
     // when the slot is re-begun. The one way a pass binds a transient to a pipeline: allocate a set for the
@@ -512,6 +532,10 @@ namespace Desert::Graphic::API::Vulkan
         VulkanRdgTransientAllocator* m_Transients  = nullptr;
         VulkanRdgPassDescriptors*    m_Descriptors = nullptr;
         std::string                  m_GraphName; // the graph between BeginGraph and EndGraph / AbandonGraph
+        // The graph holds the shared transient heaps after an earlier graph
+        // (VulkanRdgTransientAllocator::ReserveGraphHeaps): its first command buffer opens with a memory barrier.
+        bool m_SharedHeapBarrierPending = false;
+        void RecordSharedHeapBarrier( VkCommandBuffer commandBuffer );
 
         std::vector<std::shared_ptr<VulkanRdgTexture>> m_Textures; // by resource index, this graph only
         std::vector<std::shared_ptr<VulkanRdgBuffer>>  m_Buffers;

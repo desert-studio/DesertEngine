@@ -16,6 +16,14 @@ namespace Desert::Graphic
     namespace
     {
         constexpr const char* kExposureShaderName = "UpscalerExposure";
+        // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+        struct UpscalerExposureShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( Texture, AdaptedLuminanceTexture );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( StorageTexture, ExposureTexture );
+        };
+
     } // namespace
 
     const std::shared_ptr<const RDG::ShaderBindingLayout>& UpscalerExposureLayout()
@@ -24,9 +32,9 @@ namespace Desert::Graphic
         static const std::shared_ptr<const RDG::ShaderBindingLayout> layout =
              std::make_shared<const RDG::ShaderBindingLayout>(
                   RDG::ShaderBindingLayout{ .ShaderName = kExposureShaderName,
-                                            .Slots      = { { "u_AdaptedLuminance", Kind::Texture },
-                                                            { "u_PointClampSampler", Kind::Sampler },
-                                                            { "u_Exposure", Kind::StorageTexture } } } );
+                                            .Slots      = { { "AdaptedLuminanceTexture", Kind::Texture },
+                                                            { "PointClampSampler", Kind::Sampler },
+                                                            { "ExposureTexture", Kind::StorageTexture } } } );
         return layout;
     }
 
@@ -83,10 +91,12 @@ namespace Desert::Graphic
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( UpscalerExposureLayout(), RDG::OtherRouteFill{} )
-                      .Texture( "u_AdaptedLuminance", adaptedLuminance, RDG::Access::SampledCompute,
-                                RDG::SubresourceRange::All() )
-                      .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                      .Storage( "u_Exposure", exposure, RDG::Access::StorageWrite, 0 );
+                      .Texture( UpscalerExposureShaderParameters::AdaptedLuminanceTexture, adaptedLuminance,
+                                RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                      .Sampler( UpscalerExposureShaderParameters::PointClampSampler,
+                                RDG::SamplerDesc::PointClamp() )
+                      .Storage( UpscalerExposureShaderParameters::ExposureTexture, exposure,
+                                RDG::Access::StorageWrite, 0 );
              },
              [holder]( RDG::PassContext& context ) -> Common::BoolResultStr
              {

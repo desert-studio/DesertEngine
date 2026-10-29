@@ -19,7 +19,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !logical )
             return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS build: no Vulkan device" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
-        if ( !functions.Complete() || input.Segments.empty() )
+        // Reaching here on a device without acceleration structures is a caller's bug (every caller reads the
+        // catalog first: MeshGpuUploader, RayTracingSceneRequired): an error, never a silent null BLAS.
+        if ( !functions.Complete() )
+            return Common::MakeError<std::shared_ptr<VulkanRayTracingGeometry>>(
+                 "BLAS build: the device has no acceleration structure functions (ray tracing off or hidden)" );
+        if ( input.Segments.empty() )
             return Common::MakeSuccess( std::shared_ptr<VulkanRayTracingGeometry>{} );
 
         const auto vertexBuffer = SP_CAST( VulkanVertexBuffer, input.Vertices );
@@ -32,8 +37,11 @@ namespace Desert::Graphic::API::Vulkan
 
         const VkDevice             device = logical->GetVulkanLogicalDevice();
         const VulkanBlasBuildInput buildInput =
-             TranslateBlasGeometry( segments, functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() ),
-                                    functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() ) );
+             TranslateBlasGeometry( segments,
+                                    functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() ) +
+                                         input.VertexByteOffset,
+                                    functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() ) +
+                                         input.IndexByteOffset );
         VkAccelerationStructureBuildGeometryInfoKHR build = MakeBlasBuildInfo( buildInput );
 
         VkAccelerationStructureBuildSizesInfoKHR sizes{
@@ -47,8 +55,8 @@ namespace Desert::Graphic::API::Vulkan
         auto geometry             = std::make_shared<VulkanRayTracingGeometry>();
         geometry->m_Destroy       = functions.DestroyAccelerationStructure;
         geometry->m_Segments      = segments;
-        geometry->m_VertexAddress = functions.BufferAddress( device, vertexBuffer->GetVulkanBuffer() );
-        geometry->m_IndexAddress  = functions.BufferAddress( device, indexBuffer->GetVulkanBuffer() );
+        geometry->m_Vertices      = VertexBufferRange{ input.Vertices, input.VertexByteOffset };
+        geometry->m_Indices       = IndexBufferRange{ input.Indices, input.IndexByteOffset };
 
         const auto storage = allocator->RT_AllocateBuffer(
              "BLAS",

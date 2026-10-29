@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 
-#include <Engine/Project/GameSettings.hpp>
-#include <Engine/Project/RendererSettings.hpp>
+#include <Projects/GameSettings.hpp>
+#include <Projects/RendererSettings.hpp>
 
 #include <string>
 

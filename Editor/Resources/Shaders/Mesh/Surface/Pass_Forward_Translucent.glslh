@@ -2,13 +2,14 @@
 // Translucent` template. It is drawn by MeshRenderer::RenderGlassManual over the composited opaque scene and
 // nowhere else: the renderer sends an object here because its material's TEMPLATE is translucent
 // (ShaderProgramMeta::Blend), never because of a parameter value. The surface is clear glass: the scene behind
-// it (u_SceneColor, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
+// it (SceneColorTexture, bent by the normal and s.Refraction) tinted by s.BaseColor, mixed by Schlick Fresnel into
 // the reflection (the front layer's traced one where this fragment is the front layer, elsewhere the view's
 // reflection environment: the captures over the sky, or over the radiance cache where the view traces GI -
-// Mesh/Surface/ViewIndirect.glslh), plus the sun's specular hotspot under the cloud shadow and, under Shadows
-// Stochastic, the local lights' hotspot from the MegaLights volume. Written opaque: the refracted scene already
-// carries the background; the highlight also loses the sun's contact shadow. It declares what it reads and nothing
-// else (no cascade maps, no light grid); the slots keep the numbers the rest of the mesh family uses.
+// Mesh/Surface/ViewIndirect.glslh), plus the specular hotspot of the sun (under the cloud shadow) and of the local
+// lights: under Shadows Stochastic the MegaLights volume's, otherwise every point and spot light of the pixel's
+// froxel under its shadow (Mesh/ForwardLocalLights.glslh), as the opaque forward cells shade them. Written opaque:
+// the refracted scene already carries the background; the highlights also lose their lights' contact shadows. It
+// declares no cascade maps; the slots keep the numbers the rest of the mesh family uses.
 DESERT_SURFACE_VARYINGS( in )
 
 layout( location = 0 ) out vec4 oColor;
@@ -19,22 +20,18 @@ layout( location = 0 ) out vec4 oColor;
 layout( location = 2 ) out vec4 oResponsiveAA;
 #endif
 
-struct DirectionLight
-{
-    vec4 Direction;      // xyz = normalized direction
-    vec4 ColorIntensity; // rgb = color, a = intensity
-};
-
-layout( binding = 3 ) uniform DirectionLightsUB
-{
-    DirectionLight directionLights;
-}
-directionLights;
+// The scene directional light (struct DirectionLight + DirectionLightsUB, binding 14): GENERATED from
+// Engine/Graphic/ShaderProtocols/DirectionLight.hpp by the shader includer.
+#include <Common/DirectionLightsUB.glslh>
 
 // Shared sampler states (UE's shared samplers): each scene input below is a separate texture read through one of
 // these, bound by the pass with the inputs; 13 and 14, as in Pass_Forward.glslh.
-layout( binding = 13 ) uniform sampler u_LinearRepeatSampler;
-layout( binding = 14 ) uniform sampler u_LinearClampSampler;
+// The repeat state is numbered by the program build (`Uniform sampler`, ShaderMapBuild AssignSharedSamplerBindings):
+// a fixed 13 collided with the grass blade path's GrassBladeShape (Vertex_GrassBlade.glslh) in GrassBlade.Forward.
+// The clamp state too: a fixed 14 collided with the generated DirectionLightsUB (Engine/Graphic/ShaderProtocols/
+// DirectionLight.hpp, kDirectionLightsUBBinding), which every lit program includes (TERRAIN-BIND14).
+Uniform sampler LinearRepeatSampler;
+Uniform sampler LinearClampSampler;
 // THE MEGALIGHTS TRANSLUCENCY VOLUME (UE MegaLights' translucency volume, Shadows Stochastic): the local lights'
 // highlights on the glass, shadowed by MegaLights' traced samples. Off (any other Shadows method) it reads as no
 // light: the glass has no other local light.
@@ -44,12 +41,12 @@ layout( binding = 14 ) uniform sampler u_LinearClampSampler;
 // DesertSampleViewAmbient): its sky remainder is the specular cube, and the captures over it are normalised by the
 // view's diffuse estimator - the irradiance cube where the view has no radiance cache. The BRDF LUT is read by the
 // same sampling call.
-layout( binding = 8 ) uniform textureCube u_EnvSpecularTex;
-#define u_EnvSpecularTex samplerCube(u_EnvSpecularTex, u_LinearClampSampler)
-layout( binding = 9 ) uniform textureCube u_EnvIrradianceTex;
-#define u_EnvIrradianceTex samplerCube(u_EnvIrradianceTex, u_LinearClampSampler)
-layout( binding = 10 ) uniform texture2D u_BRDFLUTTexture;
-#define u_BRDFLUTTexture sampler2D(u_BRDFLUTTexture, u_LinearClampSampler)
+layout( binding = 8 ) uniform textureCube EnvironmentSpecularTexture;
+#define EnvironmentSpecularTexture samplerCube(EnvironmentSpecularTexture, LinearClampSampler)
+layout( binding = 9 ) uniform textureCube EnvironmentIrradianceTexture;
+#define EnvironmentIrradianceTexture samplerCube(EnvironmentIrradianceTexture, LinearClampSampler)
+layout( binding = 10 ) uniform texture2D BrdfLutTexture;
+#define BrdfLutTexture sampler2D(BrdfLutTexture, LinearClampSampler)
 layout( binding = 22 ) uniform SkyLookUB
 {
     vec4 YawCosSin; // xy = (cos yaw, sin yaw) — Graphic::SkyLookGPU
@@ -59,8 +56,8 @@ skyLook;
 #include <Common/SkyLook.glslh>
 
 // A copy of the composited opaque scene, for refraction (bound by the translucency pass only).
-layout( binding = 19 ) uniform texture2D u_SceneColor;
-#define u_SceneColor sampler2D(u_SceneColor, u_LinearRepeatSampler)
+layout( binding = 19 ) uniform texture2D SceneColorTexture;
+#define SceneColorTexture sampler2D(SceneColorTexture, LinearRepeatSampler)
 
 // THE FRONT LAYER'S REFLECTION (UE FrontLayerTranslucencyShared.ush, Reflections.TranslucentFrontLayer): the nearest
 // translucent surface of each pixel wrote its normal, roughness and depth ("Translucency: Front Layer G-buffer"), and
@@ -68,48 +65,45 @@ layout( binding = 19 ) uniform texture2D u_SceneColor;
 // reflected radiance, a = how much of it the trace answered (the sky's cube fills the rest, as the deferred composite
 // fills SSR's, Mesh/AmbientIBL.glslh DesertComposeTracedReflection). Both are the graph's black texture when the
 // frame has no front layer: a = 0 and a depth that matches no surface, so the sky alone reflects.
-layout( binding = 11 ) uniform texture2D u_FrontLayerReflection;
-#define u_FrontLayerReflection sampler2D(u_FrontLayerReflection, u_LinearClampSampler)
-layout( binding = 12 ) uniform texture2D u_FrontLayerDepth;
-#define u_FrontLayerDepth sampler2D(u_FrontLayerDepth, u_LinearClampSampler)
+layout( binding = 11 ) uniform texture2D FrontLayerReflectionTexture;
+#define FrontLayerReflectionTexture sampler2D(FrontLayerReflectionTexture, LinearClampSampler)
+layout( binding = 12 ) uniform texture2D FrontLayerDepthTexture;
+#define FrontLayerDepthTexture sampler2D(FrontLayerDepthTexture, LinearClampSampler)
 // UE r.FrontLayerTranslucency.DepthThreshold: a fragment IS the front layer when its device depth is within this many
 // float ULPs of the front layer's - the two cells transform the same vertices in two programs, so the depths agree to
 // rounding, while a surface behind the front layer lies orders of magnitude more ULPs away.
 const int kFrontLayerDepthThresholdUlps = 1024;
 
 // The cloud layer's shadow on the world: it takes the sun's highlight away with it.
-layout( binding = 20 ) uniform texture2D u_CloudShadowMap;
-#define u_CloudShadowMap sampler2D(u_CloudShadowMap, u_LinearRepeatSampler)
+layout( binding = 20 ) uniform texture2D CloudShadowMapTexture;
+#define CloudShadowMapTexture sampler2D(CloudShadowMapTexture, LinearRepeatSampler)
 layout( binding = 21 ) uniform CloudShadowUB
 {
-    mat4 u_CloudShadowWorldToMap;
-    vec4 u_CloudShadowParams;
+    mat4 CloudShadowWorldToMap;
+    vec4 CloudShadowParams;
 };
 
 #include <Common/CloudShadowReceiver.glslh>
 
 // The sun's contact shadow takes its highlight away too (Common/ContactShadow.glslh, through the opaque scene depth,
-// u_SceneDepth of Mesh/Surface/SurfaceTypes.glslh). The block is the cascades' ShadowUB, declared whole because it
-// is one layout (SceneResources::ShadowUBData); the glass reads only its contact-shadow members.
-layout( binding = 7 ) uniform ShadowUB
-{
-    mat4 u_LightViewProj[4];
-    vec4 u_ShadowParams;
-    vec4 u_DebugParams;
-    vec4 u_CascadeTexelWorld;
-    vec4 u_CascadeDepthRange;
-    vec4 u_ContactShadowView; // x = contact shadow ray steps (0 = off), y = tan(fovY / 2), z = dither frame 0..7
-    vec4 u_SunContactShadow;  // x = the sun's ContactShadowLength, y = in world space (>0.5),
-                              // z = its Contact Shadow Casting Intensity, w = Non Casting Intensity
-    vec4 u_ShadowFilter;
-};
-// The hit texel's caster bit: the opaque scene's shading word (u_SceneShadingWord, SurfaceTypes.glslh).
+// SceneDepthTexture of Mesh/Surface/SurfaceTypes.glslh). The block is the view's one ShadowUB (Mesh/ShadowUB.glslh,
+// SceneResources::ShadowUBData); the glass reads only its contact-shadow members.
+#include <Mesh/ShadowUB.glslh> // the view's ShadowUB, binding 7 (SceneResources::ShadowUBData)
+// The hit texel's caster bit: the opaque scene's shading word (SceneShadingWordTexture, SurfaceTypes.glslh).
 #include <ShadingModels/ShadingModelContract.glslh>
-#define CONTACT_SHADOW_DEPTH        u_SceneDepth
+#define CONTACT_SHADOW_DEPTH        SceneDepthTexture
 #define CONTACT_SHADOW_VP           cameraUB.JitteredViewProjection
 #define CONTACT_SHADOW_INV_VP       cameraUB.InvJitteredViewProjection
-#define CONTACT_SHADOW_SHADING_WORD u_SceneShadingWord
+#define CONTACT_SHADOW_SHADING_WORD SceneShadingWordTexture
 #include <Common/ContactShadow.glslh>
+// The point and spot lights, through the same statement the opaque forward cells shade them with.
+#include <Mesh/ForwardLocalLights.glslh>
+
+// Glass is smooth: a light's specular is a tight hotspot.
+float GlassHotspot( vec3 N, vec3 V, vec3 L )
+{
+    return pow( max( dot( N, normalize( V + L ) ), 0.0 ), 128.0 );
+}
 
 #include <Mesh/Surface/ViewIndirect.glslh>
 // The split-sum's Fresnel (Mesh/AmbientIBL.glslh EvaluateAmbientIBL) is the BRDF's.
@@ -132,19 +126,29 @@ void main()
     const float fresnel = f0 + ( 1.0 - f0 ) * pow( 1.0 - max( dot( N, V ), 0.0 ), 5.0 );
 
     // Sun specular highlight (glass is smooth -> a tight hotspot).
-    const vec3  L    = normalize( -directionLights.directionLights.Direction.xyz );
-    const vec3  H    = normalize( V + L );
-    const float spec = pow( max( dot( N, H ), 0.0 ), 128.0 ) * directionLights.directionLights.ColorIntensity.a *
-                       CloudShadowFactor( v_Surface.WorldPosition ) *
-                       ContactShadowFactor( v_Surface.WorldPosition, N, L, u_SunContactShadow,
-                                            /*not a subsurface receiver*/ -1.0 );
+    const vec3 L    = normalize( -directionLights.directionLights.Direction.xyz );
+    vec3       spec = vec3( GlassHotspot( N, V, L ) * directionLights.directionLights.ColorIntensity.a *
+                            CloudShadowFactor( v_Surface.WorldPosition ) *
+                            ContactShadowFactor( v_Surface.WorldPosition, N, L, SunContactShadow,
+                                                 /*not a subsurface receiver*/ -1.0 ) );
+    // ...and each point and spot light's, by its radiance and its shadow.
+    // (Under Shadows Stochastic the MegaLights volume lights them instead, below.)
+    if ( !MegaLightsVolumeOn() )
+    {
+        const ForwardLightList lights = ForwardLightListAt( gl_FragCoord.xy, v_Surface.WorldPosition );
+        for ( uint j = 0u; j < lights.Count; j++ )
+        {
+            const DesertLight local = ForwardLocalLightAt( lights, j, v_Surface.WorldPosition, N, -1.0 );
+            spec += GlassHotspot( N, V, local.L ) * local.Radiance * local.Shadow;
+        }
+    }
 
     // Screen-space refraction: the composited scene behind the surface, bent by the normal (more for a higher
     // IOR) and tinted by the surface colour.
-    const vec2  screenUV  = gl_FragCoord.xy / vec2( textureSize( u_SceneColor, 0 ) );
+    const vec2  screenUV  = gl_FragCoord.xy / vec2( textureSize( SceneColorTexture, 0 ) );
     const float bendScale = ( 1.0 - 1.0 / ior ) * 0.35;
     const vec2  refractUV = clamp( screenUV + N.xy * bendScale, vec2( 0.001 ), vec2( 0.999 ) );
-    const vec3  refracted = texture( u_SceneColor, refractUV ).rgb * s.BaseColor;
+    const vec3  refracted = texture( SceneColorTexture, refractUV ).rgb * s.BaseColor;
 
     // The reflection at grazing edges, of clear glass (a mirror: roughness 0, which a capture never normalises);
     // Fresnel mixes refraction (centre) into reflection (edge).
@@ -155,22 +159,29 @@ void main()
     // layer, never a fetch out of bounds.
     const ivec2 frontTexel = ivec2( gl_FragCoord.xy );
     const bool  frontInside =
-         all( lessThan( frontTexel, textureSize( u_FrontLayerDepth, 0 ) ) ) &&
-         all( lessThan( frontTexel, textureSize( u_FrontLayerReflection, 0 ) ) );
-    const float frontDepth = frontInside ? texelFetch( u_FrontLayerDepth, frontTexel, 0 ).r : 0.0;
+         all( lessThan( frontTexel, textureSize( FrontLayerDepthTexture, 0 ) ) ) &&
+         all( lessThan( frontTexel, textureSize( FrontLayerReflectionTexture, 0 ) ) );
+    const float frontDepth = frontInside ? texelFetch( FrontLayerDepthTexture, frontTexel, 0 ).r : 0.0;
     if ( frontInside &&
          abs( floatBitsToInt( frontDepth ) - floatBitsToInt( gl_FragCoord.z ) ) <= kFrontLayerDepthThresholdUlps )
     {
-        const vec4 traced = texelFetch( u_FrontLayerReflection, frontTexel, 0 );
+        const vec4 traced = texelFetch( FrontLayerReflectionTexture, frontTexel, 0 );
         envRefl           = mix( envRefl, traced.rgb, traced.a );
     }
 
-    // The local lights' hotspot: the volume's dominant light with the same tight lobe as the sun's (its isotropic
-    // rest has no highlight to give clear glass).
-    const MegaLightsVolumeLighting local = MegaLightsVolumeLightingAt( gl_FragCoord.xy, v_Surface.WorldPosition, N );
-    const vec3 localSpec = pow( max( dot( N, normalize( V + local.L ) ), 0.0 ), 128.0 ) * local.Radiance;
+    // The local lights' hotspot under Shadows Stochastic: the volume's dominant light with the same tight lobe as the
+    // sun's (its isotropic rest has no highlight to give clear glass). Otherwise the froxel's lights are in `spec`.
+    vec3 localSpec = vec3( 0.0 );
+    if ( MegaLightsVolumeOn() )
+    {
+        const MegaLightsVolumeLighting local = MegaLightsVolumeLightingAt( gl_FragCoord.xy, v_Surface.WorldPosition, N );
+        localSpec = GlassHotspot( N, V, local.L ) * local.Radiance;
+    }
 
-    oColor = vec4( mix( refracted, envRefl, fresnel ) + vec3( spec ) + localSpec + s.Emissive, 1.0 );
+    // `refracted` is read from this frame's scene colour, already pre-exposed; only the terms lit here are scaled.
+    const float preExposure = cameraUB.PreExposure;
+    oColor = vec4( mix( refracted, envRefl * preExposure, fresnel ) + ( spec + localSpec + s.Emissive ) * preExposure,
+                   1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
 #endif

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 
@@ -9,6 +10,7 @@
 #include <cstddef>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace Desert::Graphic
 {
@@ -51,6 +53,12 @@ namespace Desert::Graphic
         // Supersample the downsample follows at Render).
         [[nodiscard]] RDG::Extent3D ResolveExtent( const ResolutionSplit& split ) const;
 
+        // The permutation of quality @p quality (TAA_QUALITY=<quality>), cooked: ShippedByCook - the one statement
+        // PipelineFor acquires and ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant QualityVariant( uint32_t quality );
+        // Every quality's permutation of "TemporalAA", cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants();
+
     private:
         // The pipeline of @p quality, created on first use (record time). Null with @p error set when the
         // variant does not compile or the pipeline is refused.
@@ -72,14 +80,19 @@ namespace Desert::Graphic
         glm::vec2 OutputSize;          // pixels
         glm::vec2 JitterUv;            // this frame's jitter in uv: JitterNdc * (0.5, -0.5)
         float     HistoryValid = 0.0f; // 1 when the history holds this view's previous frame
-        float     Pad          = 0.0f;
+        // ViewFrame::PreExposure / PrevPreExposure (UE HistoryPreExposureCorrection): the history was resolved
+        // from last frame's pre-exposed scene colour.
+        float HistoryPreExposureCorrection = 1.0f;
+        float PreExposure                  = 1.0f; // ViewFrame::PreExposure: the scene colour arrives x this
+        float Pad[3]                       = {};
     };
     static_assert( offsetof( TemporalAAParams, PrevViewProjection ) == 64 );
     static_assert( offsetof( TemporalAAParams, RenderSize ) == 128 );
     static_assert( offsetof( TemporalAAParams, OutputSize ) == 136 );
     static_assert( offsetof( TemporalAAParams, JitterUv ) == 144 );
     static_assert( offsetof( TemporalAAParams, HistoryValid ) == 152 );
-    static_assert( sizeof( TemporalAAParams ) == 160 );
+    static_assert( offsetof( TemporalAAParams, PreExposure ) == 160 );
+    static_assert( sizeof( TemporalAAParams ) == 176 );
 
     // The parameters of this frame's resolve (pure; the suite pins the values the shader relies on).
     [[nodiscard]] TemporalAAParams MakeTemporalAAParams( const ViewFrame& frame, RDG::Extent3D output );

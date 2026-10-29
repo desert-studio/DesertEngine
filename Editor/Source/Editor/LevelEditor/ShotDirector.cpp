@@ -7,7 +7,7 @@
 #include "Editor/LevelEditor/PlaySession.hpp"
 #include "Editor/LevelEditor/ProfilerWindow.hpp"
 #include "Editor/LevelEditor/SceneFiles.hpp"
-#include "Editor/LevelEditor/SceneMeshBounds.hpp"
+#include "Editor/LevelEditor/ScenePrimitiveBounds.hpp"
 #include "Editor/LevelEditor/SceneWorkspace.hpp"
 #include "Editor/LevelEditor/ViewportCapture.hpp"
 
@@ -169,12 +169,12 @@ namespace Desert::Editor
     {
         // Screenshot mode, FIRST HALF: place the camera for the frame that is about to be rendered.
         //
-        // Before the render and not after it, because the capture below reads back whatever the render
-        // produced: with the placement after it, the image written as frame N was rendered from the pose
-        // of frame N-2, and on a MOVING path that is not a bookkeeping detail — a 120-degree pan over 90
-        // frames puts the last captured frame 1.35 degrees, about 28 pixels, short of the endpoint the
-        // command line named. Frame N is rendered from pose N, and the final frame lands exactly on
-        // `--camera-to` / `--look-to`.
+        // Before the render, and the capture (EndFrame) only after this frame is SUBMITTED: the frame written
+        // as frame_N is placed here while m_ShotFrame is N - 1, at Parameter( N - 1 ), rendered, submitted by
+        // the present, and only then read back. Both halves matter on a MOVING path - placing after the
+        // render, or reading back before the submit (at the update's own end, where the scene image still
+        // holds the previous frame), each leaves the written image a frame behind its pose and the final
+        // frame short of `--camera-to` / `--look-to`. In this order the final frame lands on it.
         //
         // With `--camera-to` / `--look-to` the pose is re-placed EVERY frame, walking the path across
         // exactly the warm-up frames. Without them `HasMotion()` is false, the placement happens once at
@@ -234,13 +234,16 @@ namespace Desert::Editor
                        "orthographic; the camera stays where it is" );
             return;
         }
-        const SceneMeshBounds bounds = MeasureSceneMeshes( scene->GetRegistry(), &SharedPrimitiveSubmeshes );
+        const ScenePrimitiveBounds bounds =
+             MeasureScenePrimitives( scene->GetRegistry(), &SharedPrimitiveSubmeshes );
         if ( bounds.Missing > 0 )
-            LOG_WARN( "[Shot] framing: {} mesh(es) not parsed yet are outside the measured bounds",
-                      bounds.Missing );
+            LOG_WARN(
+                 "[Shot] framing: {} primitive(s) whose asset is not read yet are outside the measured bounds",
+                 bounds.Missing );
         if ( Geometry::IsEmpty( bounds.Box ) )
         {
-            LOG_ERROR( "[Shot] no --camera/--look and the scene has no measurable mesh to frame: the camera "
+            LOG_ERROR( "[Shot] no --camera/--look and the scene has no measurable primitive (mesh, foliage, "
+                       "landscape, effect) to frame: the camera "
                        "stays where it is" );
             return;
         }
@@ -253,10 +256,11 @@ namespace Desert::Editor
         cam->SetFar( view.Far );
         PlaceEditorCamera( *cam, view.Position, view.Forward );
         cam->SetInputEnabled( false );
-        LOG_INFO( "[Shot] framed {} mesh(es): box ({}, {}, {})..({}, {}, {}), camera ({}, {}, {}), near {} far {}",
-                  bounds.Meshes, bounds.Box.Min.x, bounds.Box.Min.y, bounds.Box.Min.z, bounds.Box.Max.x,
-                  bounds.Box.Max.y, bounds.Box.Max.z, view.Position.x, view.Position.y, view.Position.z, view.Near,
-                  view.Far );
+        LOG_INFO( "[Shot] framed {} mesh(es), {} instance(s), {} tile(s), {} effect(s): box ({}, {}, {})..({}, "
+                  "{}, {}), camera ({}, {}, {}), near {} far {}",
+                  bounds.Meshes, bounds.Instances, bounds.Tiles, bounds.Effects, bounds.Box.Min.x,
+                  bounds.Box.Min.y, bounds.Box.Min.z, bounds.Box.Max.x, bounds.Box.Max.y, bounds.Box.Max.z,
+                  view.Position.x, view.Position.y, view.Position.z, view.Near, view.Far );
     }
 
     bool ShotDirector::CountRenderedFrame( const bool recordedFrame )
@@ -298,6 +302,11 @@ namespace Desert::Editor
                     LOG_ERROR( "[Shot] the final frame was not captured to '{}'", shot.Output );
                     m_ShotFailed = true;
                 }
+                if ( !shot.HdrOutput.empty() && !m_Capture.WriteSceneColorPfm( shot.HdrOutput ) )
+                {
+                    LOG_ERROR( "[Shot] the final frame's HDR scene colour was not written to '{}'", shot.HdrOutput );
+                    m_ShotFailed = true;
+                }
                 return true;
             }
         }
@@ -326,14 +335,30 @@ namespace Desert::Editor
         // an exit code is that a script can trust it, and this one used to say "fine" either way.
         return m_ShotFailed ? 1 : 0;
     }
-    std::optional<int32_t> ShotDirector::EndFrame( bool recordedFrame, bool startupLoading, bool contentSettling,
-                                                   ProfilerWindow& profiler )
+    void ShotDirector::FrameRecorded( const bool recordedFrame, const bool startupLoading,
+                                      const bool contentSettling )
     {
+        m_PendingFrame = RecordedFrame{ recordedFrame, startupLoading, contentSettling };
+    }
+
+    std::optional<int32_t> ShotDirector::EndFrame( ProfilerWindow& profiler )
+    {
+        // AFTER THE SUBMIT, NOT AT THE END OF THE UPDATE. The update only RECORDS this frame's commands; they
+        // reach the queue in PresentFinalImage. A readback taken in the update - behind a device-idle wait
+        // that can only drain what was already submitted - copied the PREVIOUS frame's image, so the file
+        // written as frame N showed pose N-1 (measured 10-27: a pan8 sequence one step behind its path, the
+        // --shot PNG 7 px short of --camera-to). The control channel's shot is taken at this same instant.
+        if ( !m_PendingFrame )
+            return std::nullopt;
+        const RecordedFrame frame = *m_PendingFrame;
+        m_PendingFrame.reset();
+
         const auto& shot = ShotOptions::Get();
-        if ( shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() && !startupLoading &&
+        if ( shot.FlightRoute && m_Workspace.ActiveScene() && !m_SceneFiles.HasPendingLoad() &&
+             !frame.StartupLoading &&
              m_Workspace.ActiveScene()->GetState() == ::Desert::Core::Scene::SceneState::Play )
-            profiler.RecordFlightFrame( !contentSettling );
-        if ( !CountRenderedFrame( recordedFrame ) )
+            profiler.RecordFlightFrame( !frame.ContentSettling );
+        if ( !CountRenderedFrame( frame.Recorded ) )
             return std::nullopt;
         if ( shot.GpuProfile )
             ProfilerWindow::DumpProfilerToLog();

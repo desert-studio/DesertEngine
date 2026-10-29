@@ -3,8 +3,10 @@
 #include "System.hpp"
 #include "SystemRules.hpp"
 #include "FracturePieceDraw.hpp"
+#include "LandscapeSplineMeshDraw.hpp"
 #include "WindField.hpp"
 
+#include <Engine/Assets/Mesh/StaticMeshAsset.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/EntityVisibility.hpp>
 #include <Engine/ECS/MaterialSlotAdoption.hpp>
@@ -83,6 +85,25 @@ namespace Desert::ECS
             };
             const auto drawnAsPieces =
                  m_Pieces.Record( registry, renderCommandBuffer, materialsVersion, pieceServices );
+
+            /* =========================
+               LANDSCAPE SPLINE MESHES (L9-MESHES): each segment's meshes, bent along it, as static draws.
+               ========================= */
+            LandscapeSplineMeshDraw::Services splineServices;
+            splineServices.MeshAsset = []( const Common::UUID& id ) -> const Assets::StaticMeshAsset*
+            {
+                return dynamic_cast<const Assets::StaticMeshAsset*>(
+                     Runtime::ResourceRegistry::GetMeshService()->GetAsset(
+                          Assets::AssetHandle( static_cast<uint64_t>( id ) ) ) );
+            };
+            splineServices.Instance = []( const Common::UUID& id )
+            {
+                auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+                return materials->CreateRuntimeInstance( materials->GetAssetHandleByExternal( id ) );
+            };
+            splineServices.DefaultInstance = [this]()
+            { return DefaultInstance( Graphic::MeshVertexPath::Static ); };
+            m_SplineMeshes.Record( registry, renderCommandBuffer, materialsVersion, splineServices );
 
             /* =========================
                STATIC MESHES
@@ -187,6 +208,28 @@ namespace Desert::ECS
                              binding->Slots.reserve( binding->Owned.size() );
                              for ( const auto& inst : binding->Owned )
                                  binding->Slots.push_back( inst.get() );
+                             // A displaced mesh (Runtime or Baked, its import settings) draws its displaced
+                             // geometry with the displaced siblings of the same slots: base cells, so the
+                             // relief is not marched a second time over the triangles that carry it.
+                             if ( targetMesh->IsDisplaced() && !mesh.MaterialSlots.empty() )
+                             {
+                                 auto displaced = std::make_shared<Graphic::MaterialSlotBinding>();
+                                 for ( const auto& assetHandle : mesh.MaterialSlots )
+                                 {
+                                     auto inst = Runtime::ResourceRegistry::GetMaterialService()
+                                                      ->CreateRuntimeInstance(
+                                                           assetHandle, Graphic::MeshVertexPath::Static, true );
+                                     displaced->Owned.push_back(
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                 }
+                                 if ( displaced->Owned[0] )
+                                     for ( const auto& p : mesh.ScriptSlotParams )
+                                         displaced->Owned[0]->SetParamFromVec4( p.Name, p.Value );
+                                 for ( const auto& inst : displaced->Owned )
+                                     displaced->Slots.push_back( inst.get() );
+                                 binding->Displaced = std::move( displaced );
+                             }
                              mesh.RuntimeSlots = std::move( binding );
 
                              // The script's slot-0 overrides land on EVERY slot-0 instance built (UE: the
@@ -354,6 +397,18 @@ namespace Desert::ECS
                          if ( ism.RuntimeMaterialInstances.size() != slotCount )
                          {
                              ism.RuntimeMaterialInstances.clear();
+                             ism.RuntimeDisplacedInstances.clear();
+                             // A displaced mesh's twins draw with the displaced siblings (base cells).
+                             if ( targetMesh->IsDisplaced() )
+                                 for ( const auto& h : ism.MaterialSlots )
+                                 {
+                                     auto inst = Runtime::ResourceRegistry::GetMaterialService()
+                                                      ->CreateRuntimeInstance(
+                                                           h, Graphic::MeshVertexPath::Static, true );
+                                     ism.RuntimeDisplacedInstances.push_back(
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Static ) );
+                                 }
                              if ( ism.MaterialSlots.empty() )
                                  ism.RuntimeMaterialInstances.push_back(
                                       DefaultInstance( Graphic::MeshVertexPath::Static ) );
@@ -431,7 +486,10 @@ namespace Desert::ECS
                                   static_cast<uint32_t>( entity ), targetMesh,
                                   ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
                                   d.CastShadows, ism.CastContactShadow,
-                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind );
+                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind,
+                                  d.Slot < ism.RuntimeDisplacedInstances.size()
+                                       ? ism.RuntimeDisplacedInstances[d.Slot]
+                                       : Graphic::MaterialInstancePtr{} );
                      } );
             }
 
@@ -472,6 +530,7 @@ namespace Desert::ECS
                          if ( mesh.SeenMaterialsVersion != materialsVersion )
                          {
                              mesh.RuntimeMaterialInstances.clear();
+                             mesh.RuntimeDisplacedInstances.clear();
                              mesh.SeenMaterialsVersion = materialsVersion;
                          }
                          const size_t slotCount = mesh.MaterialSlots.empty() ? 1 : mesh.MaterialSlots.size();
@@ -509,6 +568,32 @@ namespace Desert::ECS
                          slots->Slots.reserve( slots->Owned.size() );
                          for ( const auto& inst : slots->Owned )
                              slots->Slots.push_back( inst.get() );
+                         // A displaced skinned mesh (Runtime, CONTRACT-DISPLACE §9.8) draws its twin with the
+                         // displaced siblings of the same slots: base cells, so the relief is not marched again
+                         // over the triangles that carry it (the static rule above).
+                         if ( skinnedMesh->IsDisplaced() && !mesh.MaterialSlots.empty() )
+                         {
+                             if ( mesh.RuntimeDisplacedInstances.size() != mesh.MaterialSlots.size() )
+                             {
+                                 mesh.RuntimeDisplacedInstances.clear();
+                                 for ( const auto& h : mesh.MaterialSlots )
+                                 {
+                                     auto inst =
+                                          Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
+                                               h, Graphic::MeshVertexPath::Skinned, true );
+                                     mesh.RuntimeDisplacedInstances.push_back(
+                                          inst ? std::move( inst )
+                                               : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
+                                 }
+                             }
+                             auto displaced   = std::make_shared<Graphic::MaterialSlotBinding>();
+                             displaced->Owned = mesh.RuntimeDisplacedInstances;
+                             for ( const auto& inst : displaced->Owned )
+                                 displaced->Slots.push_back( inst.get() );
+                             slots->Displaced = std::move( displaced );
+                         }
+                         else
+                             mesh.RuntimeDisplacedInstances.clear();
 
                          // Bone matrices: animated pose if an Animator exists, else bind pose (identity = the
                          // skeleton's rest shape, which stays correct after Phase-2 rest-pose edits since
@@ -580,6 +665,8 @@ namespace Desert::ECS
     private:
         // The pieces of fractured entities, drawn as static meshes (DST-06).
         FracturePieceDraw m_Pieces;
+        // The landscapes' spline meshes, drawn as static meshes (L9-MESHES).
+        LandscapeSplineMeshDraw m_SplineMeshes;
 
         // The material a slot instance draws with OFF the batched lit path: its parent when that is a
         // custom-shader material (a DataDrivenMaterial of a DSL surface's own cell), null when the batched path

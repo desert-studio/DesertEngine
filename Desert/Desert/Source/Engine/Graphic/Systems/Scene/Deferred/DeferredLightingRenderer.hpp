@@ -32,6 +32,37 @@
 
 namespace Desert::Graphic::System
 {
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct DeferredLightingWorldViewShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Texture, DeviceDepthTexture );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LightGridWorldViewUB );
+    };
+
+    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
+    struct DeferredLightingCompositeShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Texture, GBufferATexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferBTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferShadingWordTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferDepthTexture );
+        DESERT_SHADER_PARAMETER( Texture, GBufferEmissiveTexture );
+        DESERT_SHADER_PARAMETER( Texture, SsaoTexture );
+        DESERT_SHADER_PARAMETER( Texture, SsrTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiDiffuseTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiSpecularTexture );
+        DESERT_SHADER_PARAMETER( Texture, MegaLightsDiffuseTexture );
+        DESERT_SHADER_PARAMETER( Texture, MegaLightsSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, SubsurfaceDiffuseTexture );
+        DESERT_SHADER_PARAMETER( Texture, ScreenShadowMaskTexture );
+        DESERT_SHADER_PARAMETER( Texture, LocalShadowMasksTexture );
+        DESERT_SHADER_PARAMETER( Texture, GiBackfaceTexture );
+    };
+
     // The graph textures the deferred composite samples, as refs of THIS frame's graph that the Composite node
     // declared reads of. An input not produced this frame is the system texture neutral for it (UE
     // GSystemTextures): never an unbound slot, never a skipped draw.
@@ -53,9 +84,14 @@ namespace Desert::Graphic::System
         RDG::TextureRef GISpecular;
         // MegaLights' denoised, demodulated local lighting, diffuse and specular (System::MegaLightsRenderer), or
         // System.Black; bound by the MegaLights program only (DeferredShadowInput::MegaLightsLocalLights).
+        // "Shadows: Ray Traced Local" (a 2D array, one layer per ShadowMaskSlot); bound by its program only.
+        RDG::TextureRef LocalShadowMasks;
         RDG::TextureRef MegaLightsDiffuse;
         RDG::TextureRef MegaLightsSpecular;
-        RDG::TextureRef GIBackface; // irradiance from -N, the light through a two-sided leaf ("u_GIBackface")
+        RDG::TextureRef GIBackface; // irradiance from -N, the light through a two-sided leaf ("GiBackfaceTexture")
+        // SSS-PROFILE (CONTRACT §4): the demodulated diffuse of the screen-space scattered texels, written when the
+        // view scatters (DeferredGIInput::SubsurfaceSplit); a 1x1 transient nothing writes otherwise.
+        RDG::TextureRef SubsurfaceDiffuse;
         // The scene/view inputs (SceneViewInputsOf): cascades, environment cubes, BRDF LUT, cloud shadow map.
         SceneViewInputs View;
     };
@@ -67,9 +103,6 @@ namespace Desert::Graphic::System
         LightGridParamsPayload Grid;
     };
 
-    // The block name of the local shadow view table in the composite shader (Mesh/LocalLightShadow.glslh).
-    inline constexpr std::string_view kLocalShadowViewsBlockName = "LocalShadowViewsUB";
-
     // Deferred lighting + G-buffer debug pass. Fullscreen: reads the scene renderer's MRT G-buffer and writes
     // the shaded (or debug) result into the scene target framebuffer, which the post chain then tonemaps.
     // Runs in the manual chain (like Tonemap), only when RenderPath == Deferred.
@@ -78,73 +111,47 @@ namespace Desert::Graphic::System
     public:
         using RenderSystem::RenderSystem;
 
+        // The permutation of the composite program @p program (kScreenMaskSunProgram..kRayTracedLocalProgram; the
+        // cascades' program is the default one), cooked: ShippedByCook - the one statement Initialize acquires and
+        // ProgramVariants lists.
+        [[nodiscard]] static Core::ShaderVariant ProgramVariant( const std::size_t program )
+        {
+            Core::ShaderVariant variant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } };
+            if ( program == kMegaLightsProgram )
+                variant.Defines.emplace_back( kMegaLightsDefine );
+            if ( program == kRayTracedLocalProgram )
+                variant.Defines.emplace_back( kLocalShadowScreenMaskDefine );
+            variant.ShippedByCook = true;
+            return variant;
+        }
+
+        // Every permutation the renderer acquires, cooked by the package (PackageCook CookShaderVariants).
+        [[nodiscard]] static std::vector<Core::CookedProgramVariant> ProgramVariants()
+        {
+            std::vector<Core::CookedProgramVariant> variants;
+            for ( std::size_t index = kScreenMaskSunProgram; index < kProgramDebugNames.size(); ++index )
+                variants.push_back( { "DeferredLighting", ProgramVariant( index ) } );
+            return variants;
+        }
+
         virtual Common::BoolResultStr Initialize() override
         {
-            auto* const shaders                = Runtime::ResourceRegistry::GetShaderService();
-            m_Programs[kCascadeProgram].Shader = shaders->GetByName( "DeferredLighting" );
+            m_Programs[kCascadeProgram].Shader =
+                 Runtime::ResourceRegistry::GetShaderService()->GetByName( "DeferredLighting" );
             if ( !m_Programs[kCascadeProgram].Shader )
                 return Common::MakeError( "DeferredLighting shader not found" );
-            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): u_ScreenShadowMask in
-            // place of u_ShadowCascades.
-            m_Programs[kScreenMaskSunProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting",
-                 Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ) } } );
-            // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
-            // light-grid loop and its shadow maps.
-            m_Programs[kMegaLightsProgram].Shader = shaders->AcquireVariant(
-                 "DeferredLighting", Core::ShaderVariant{ .Defines = { std::string( kSunShadowScreenMaskDefine ),
-                                                                       std::string( kMegaLightsDefine ) } } );
-
-            const auto& target = m_TargetFramebuffer.lock();
-            if ( !target )
-                return Common::MakeError( "Deferred lighting target framebuffer missing" );
-
-            GraphicsPipelineSpecification spec;
-            spec.TargetLayout = SceneTargetLayout();
-            // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
-            // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
-            // preserved — the shader discards non-geometry texels so that scene shows through.
-            spec.DepthTestEnabled  = false;
-            spec.DepthWriteEnabled = false;
-            m_Refusals             = {};
+            m_Refusals = {};
             for ( std::size_t index = 0; index < m_Programs.size(); ++index )
             {
-                CompositeProgram& program = m_Programs[index];
-                // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
-                const std::string programName{ kProgramDebugNames[index] };
-                Common::BoolResultStr built = BOOLSUCCESS;
-                if ( !program.Shader )
-                    built =
-                         Common::MakeError( std::format( "the '{}' permutation did not compile", programName ) );
-                else
-                {
-                    spec.DebugName      = programName;
-                    spec.Shader         = program.Shader;
-                    const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
-                    if ( pipeline )
-                        program.Pipeline = pipeline.GetValue();
-                    else
-                        built = Common::MakeError( pipeline.GetError() );
-                }
+                const Common::BoolResultStr built = BuildProgram( index );
                 if ( built )
-                {
-                    program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
                     continue;
-                }
                 // The cascades' program draws CascadedMaps, the ladder's front: without it there is no deferred
                 // composite at all. Any other program serves only the Shadows methods it is named for: those are
                 // refused by name (ResolveRenderMethods walks on down the ladder), the composite keeps the rest.
-                const std::span<const Common::Scalability::ShadowMethod> methods = kProgramShadowMethods[index];
-                if ( methods.empty() )
+                if ( kProgramShadowMethods[index].empty() )
                     return Common::MakeError( std::format( "Deferred lighting: {}", built.GetError() ) );
-                program = CompositeProgram{};
-                for ( const Common::Scalability::ShadowMethod method : methods )
-                {
-                    m_Refusals.Shadows.push_back( { .Refused = method, .Program = kProgramDebugNames[index] } );
-                    LOG_ERROR( "[DeferredLighting] Shadows {} refused on this device: {}",
-                               Common::Scalability::kShadowMethodNames[static_cast<std::size_t>( method )],
-                               built.GetError() );
-                }
+                RefuseProgram( index, built.GetError() );
             }
 
             m_GridShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "LightGridBuild" );
@@ -167,6 +174,22 @@ namespace Desert::Graphic::System
         [[nodiscard]] const ProgramRefusals& Refusals() const
         {
             return m_Refusals;
+        }
+
+        // The programs refused at Initialize (or at the last retry) are acquired and built again - the shader
+        // service recompiled a program since (SceneRenderer::RetryRefusedProgramsAfterRecompile), so new bytes may
+        // build. Refusals() then holds exactly the programs that still do not, each with its current reason; the
+        // programs that built are left as they are. Says nothing: the scene renderer reports each refusal once.
+        void RetryRefusedPrograms()
+        {
+            m_Refusals = {};
+            for ( std::size_t index = kScreenMaskSunProgram; index < m_Programs.size(); ++index )
+            {
+                if ( m_Programs[index].Pipeline )
+                    continue;
+                if ( const Common::BoolResultStr built = BuildProgram( index ); !built )
+                    RefuseProgram( index, built.GetError() );
+            }
         }
 
         // The "Light Grid (World)" view mode's pipeline for a target of @p format at @p samples (the view's post
@@ -204,11 +227,14 @@ namespace Desert::Graphic::System
             if ( !m_WorldView )
                 return;
             pass.Bindings( m_WorldViewLayout.Get( m_WorldViewShader ), RDG::OtherRouteFill{} )
-                 .Texture( "u_Depth", depth, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Storage( "LightGridWorldViewUB", view, RDG::Access::StorageRead )
-                 .Storage( kLightGridParamsBlockName, lights.WorldGridParams, RDG::Access::StorageRead )
-                 .Storage( kLightGridWorldCellsBlockName, lights.WorldGridCells, RDG::Access::StorageRead );
+                 .Texture( DeferredLightingWorldViewShaderParameters::DeviceDepthTexture, depth,
+                           RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                 .Sampler( DeferredLightingWorldViewShaderParameters::LinearRepeatSampler,
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Storage( DeferredLightingWorldViewShaderParameters::LightGridWorldViewUB, view,
+                           RDG::Access::StorageRead )
+                 .Storage( kLightGridParamsBlock, lights.WorldGridParams, RDG::Access::StorageRead )
+                 .Storage( kLightGridWorldCellsBlock, lights.WorldGridCells, RDG::Access::StorageRead );
         }
 
         [[nodiscard]] Common::BoolResultStr RecordWorldView( const RDG::PassContext& context ) const
@@ -281,11 +307,11 @@ namespace Desert::Graphic::System
                 return;
             const bool world = layout == LightGridLayout::WorldClipmaps;
             pass.Bindings( m_GridLayout.Get( m_GridShader ), Renderer::GetPipelineRouteFill( *m_GridPipeline ) )
-                 .Storage( kLightGridParamsBlockName, world ? lights.WorldGridParams : lights.GridParams,
+                 .Storage( kLightGridParamsBlock, world ? lights.WorldGridParams : lights.GridParams,
                            RDG::Access::StorageRead )
-                 .Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                 .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                 .Storage( kLightGridCellsBlockName, world ? lights.WorldGridCells : lights.GridCells,
+                 .Storage( ShaderProtocols::PointLight::Parameter, lights.Point, RDG::Access::StorageRead )
+                 .Storage( ShaderProtocols::SpotLight::Parameter, lights.Spot, RDG::Access::StorageRead )
+                 .Storage( kLightGridCellsBlock, world ? lights.WorldGridCells : lights.GridCells,
                            RDG::Access::StorageWrite );
         }
 
@@ -307,7 +333,8 @@ namespace Desert::Graphic::System
         // = camera world position; debugMode selects a raw channel (0 = lit); gi.Mode picks the indirect-light
         // source (0 = off, 1 = screen-space, 2 = the traced final gather under SSAO, 3 = the traced final gather
         // occluded by its own short-range AO; 2 and 3 read GIDiffuse / GISpecular / GIBackface).
-        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& cameraPos,
+        void FillMaterial( const glm::vec4& lightDir, const glm::vec4& lightColor, const glm::vec4& light1Dir,
+                           const glm::vec4& light1Color, const glm::vec4& cameraPos,
                            const glm::mat4& invJitteredViewProjection, int debugMode, uint32_t pointCount,
                            uint32_t spotCount, const DeferredShadowInput& shadow, const DeferredGIInput& gi,
                            bool ssaoEnabled, const CloudShadowInput& cloudShadow,
@@ -315,12 +342,15 @@ namespace Desert::Graphic::System
         {
             // The sun's arm picks the program this frame's composite draws with; MegaLights' local lights pick
             // theirs (the sun is then the ray-traced mask: SceneRenderer resolves Stochastic's sun to it).
-            m_Active = shadow.MegaLightsLocalLights ? kMegaLightsProgram : shadow.Sun.index();
+            m_Active = shadow.MegaLightsLocalLights  ? kMegaLightsProgram
+                       : shadow.RayTracedLocalLights ? kRayTracedLocalProgram
+                                                     : shadow.Sun.index();
             const CompositeProgram& program = m_Programs[m_Active];
             if ( !program.Material )
                 return;
             ReportEnvironmentGap( environment );
-            program.Material->BindInputs( lightDir, lightColor, cameraPos, invJitteredViewProjection, debugMode,
+            program.Material->BindInputs( lightDir, lightColor, light1Dir, light1Color, cameraPos,
+                                          invJitteredViewProjection, debugMode,
                                           pointCount, spotCount, shadow, gi, ssaoEnabled, cloudShadow, environment,
                                           jitteredViewProjection );
         }
@@ -342,32 +372,51 @@ namespace Desert::Graphic::System
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const auto&                     layout = program.Layout.Get( program.Shader );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
-            block.Sampler( "u_LinearRepeatSampler", RDG::SamplerDesc::LinearRepeat() )
-                 .Sampler( "u_LinearClampSampler", RDG::SamplerDesc::LinearClamp() )
-                 .Sampler( "u_PointClampSampler", RDG::SamplerDesc::PointClamp() )
-                 .Texture( "u_GBufferA", inputs.GBufferA, kRead, kWhole )
-                 .Texture( "u_GBufferB", inputs.GBufferB, kRead, kWhole )
-                 .Texture( "u_GBufferShadingWord", inputs.GBufferShadingWord, kRead, kWhole )
-                 .Texture( "u_GBufferDepth", inputs.GBufferDepth, kRead, kWhole )
-                 .Texture( "u_GBufferEmissive", inputs.GBufferEmissive, kRead, kWhole )
-                 .Texture( "u_SSAO", inputs.SSAO, kRead, kWhole )
+            block.Sampler( DeferredLightingCompositeShaderParameters::LinearRepeatSampler,
+                           RDG::SamplerDesc::LinearRepeat() )
+                 .Sampler( DeferredLightingCompositeShaderParameters::LinearClampSampler,
+                           RDG::SamplerDesc::LinearClamp() )
+                 .Sampler( DeferredLightingCompositeShaderParameters::PointClampSampler,
+                           RDG::SamplerDesc::PointClamp() )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferATexture, inputs.GBufferA, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferBTexture, inputs.GBufferB, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferShadingWordTexture,
+                           inputs.GBufferShadingWord, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferDepthTexture, inputs.GBufferDepth,
+                           kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GBufferEmissiveTexture,
+                           inputs.GBufferEmissive, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::SsaoTexture, inputs.SSAO, kRead, kWhole )
                  // The resolved reflections, read through the clamped state (UE: the SSR composite input).
-                 .Texture( "u_SSR", inputs.SSR, kRead, kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::SsrTexture, inputs.SSR, kRead, kWhole )
                  // One texel per pixel, read through the point-clamped state like the depth.
-                 .Texture( "u_GIDiffuse", inputs.GIDiffuse, kRead, kWhole )
-                 .Texture( "u_GISpecular", inputs.GISpecular, kRead, kWhole )
-                 .Texture( "u_GIBackface", inputs.GIBackface, kRead, kWhole );
+                 .Texture( DeferredLightingCompositeShaderParameters::GiDiffuseTexture, inputs.GIDiffuse, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiSpecularTexture, inputs.GISpecular, kRead,
+                           kWhole )
+                 .Texture( DeferredLightingCompositeShaderParameters::GiBackfaceTexture, inputs.GIBackface, kRead,
+                           kWhole )
+                 .Storage( DeferredLightingCompositeShaderParameters::SubsurfaceDiffuseTexture,
+                           inputs.SubsurfaceDiffuse, RDG::Access::StorageWrite );
             // The light rows and their shadow views: the light-grid loop's. The MegaLights program reads
             // MegaLights' lighting instead.
             if ( m_Active == kMegaLightsProgram )
-                block.Texture( "u_MegaLightsDiffuse", inputs.MegaLightsDiffuse, kRead, kWhole )
-                     .Texture( "u_MegaLightsSpecular", inputs.MegaLightsSpecular, kRead, kWhole );
+                block.Texture( DeferredLightingCompositeShaderParameters::MegaLightsDiffuseTexture,
+                               inputs.MegaLightsDiffuse, kRead, kWhole )
+                     .Texture( DeferredLightingCompositeShaderParameters::MegaLightsSpecularTexture,
+                               inputs.MegaLightsSpecular, kRead, kWhole );
             else
-                block.Storage( ShaderProtocols::PointLight::Name, lights.Point, RDG::Access::StorageRead )
-                     .Storage( ShaderProtocols::SpotLight::Name, lights.Spot, RDG::Access::StorageRead )
-                     .Storage( kLocalShadowViewsBlockName, lights.ShadowViews, RDG::Access::StorageRead );
-            if ( m_Active == kScreenMaskSunProgram || m_Active == kMegaLightsProgram )
-                block.Texture( "u_ScreenShadowMask", inputs.SunShadowMask, kRead, kWhole );
+                block.Storage( ShaderProtocols::PointLight::Parameter, lights.Point, RDG::Access::StorageRead )
+                     .Storage( ShaderProtocols::SpotLight::Parameter, lights.Spot, RDG::Access::StorageRead );
+            if ( m_Active == kScreenMaskSunProgram || m_Active == kMegaLightsProgram ||
+                 m_Active == kRayTracedLocalProgram )
+                block.Texture( DeferredLightingCompositeShaderParameters::ScreenShadowMaskTexture,
+                               inputs.SunShadowMask, kRead, kWhole );
+            if ( m_Active == kRayTracedLocalProgram )
+                block.Texture( DeferredLightingCompositeShaderParameters::LocalShadowMasksTexture,
+                               inputs.LocalShadowMasks, kRead, kWhole );
             if ( layout )
                 BindSceneViewInputs( block, inputs.View, *layout );
         }
@@ -465,17 +514,77 @@ namespace Desert::Graphic::System
         static constexpr std::size_t kCascadeProgram       = 0; // DeferredCascadeShadow
         static constexpr std::size_t kScreenMaskSunProgram = 1; // DeferredScreenShadowMask
         static constexpr std::size_t kMegaLightsProgram    = 2; // DeferredShadowInput::MegaLightsLocalLights
-        static constexpr std::array<std::string_view, 3> kProgramDebugNames = {
-             "DeferredLighting", "DeferredLighting RayTracedSun", "DeferredLighting MegaLights" };
+        static constexpr std::size_t kRayTracedLocalProgram = 3; // DeferredShadowInput::RayTracedLocalLights
+        static constexpr std::array<std::string_view, 4> kProgramDebugNames = {
+             "DeferredLighting", "DeferredLighting RayTracedSun", "DeferredLighting MegaLights",
+             "DeferredLighting RayTracedLocal" };
         // The Shadows methods each program alone serves; empty = every method needs it (the cascades' program).
         // HardwareTraced and VirtualMaps read the screen mask; Stochastic draws its own MegaLights program.
         static constexpr std::array<Common::Scalability::ShadowMethod, 2> kScreenMaskSunMethods = {
              Common::Scalability::ShadowMethod::VirtualMaps, Common::Scalability::ShadowMethod::HardwareTraced };
         static constexpr std::array<Common::Scalability::ShadowMethod, 1> kMegaLightsMethods = {
              Common::Scalability::ShadowMethod::Stochastic };
-        static constexpr std::array<std::span<const Common::Scalability::ShadowMethod>, 3> kProgramShadowMethods =
-             { std::span<const Common::Scalability::ShadowMethod>{}, kScreenMaskSunMethods, kMegaLightsMethods };
-        std::array<CompositeProgram, 3> m_Programs;
+        static constexpr std::array<Common::Scalability::ShadowMethod, 1> kRayTracedLocalMethods = {
+             Common::Scalability::ShadowMethod::HardwareTraced };
+        static constexpr std::array<std::span<const Common::Scalability::ShadowMethod>, 4> kProgramShadowMethods =
+             { std::span<const Common::Scalability::ShadowMethod>{}, kScreenMaskSunMethods, kMegaLightsMethods,
+               kRayTracedLocalMethods };
+        // Program @p index made ready to draw: the permutation acquired from the shader service (the cascades'
+        // program keeps the shader Initialize looked up), its pipeline over the scene target and its material.
+        // On an error the program is left empty and the error is the reason it was refused.
+        Common::BoolResultStr BuildProgram( const std::size_t index )
+        {
+            CompositeProgram& program = m_Programs[index];
+            program                   = CompositeProgram{ .Shader = std::move( program.Shader ) };
+            // The screen-mask permutation (the ray-traced sun, the virtual shadow map): ScreenShadowMaskTexture in
+            // place of ShadowCascadesTexture.
+            // Shadows Stochastic: the ray-traced sun's mask, and the local lights from MegaLights in place of the
+            // light-grid loop and its shadow maps. Shadows HardwareTraced: the ray-traced sun's mask, and the
+            // local lights' ray-traced masks by slot. Each from the one list the cook ships (ProgramVariants).
+            if ( index != kCascadeProgram )
+            {
+                auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
+                     "DeferredLighting", ProgramVariant( index ) );
+                if ( !acquired )
+                {
+                    program = CompositeProgram{};
+                    return Common::MakeError( std::string( acquired.GetError() ) );
+                }
+                program.Shader = acquired.ExtractValue();
+            }
+            const auto& target = m_TargetFramebuffer.lock();
+            if ( !target )
+            {
+                program = CompositeProgram{};
+                return Common::MakeError( "Deferred lighting target framebuffer missing" );
+            }
+            GraphicsPipelineSpecification spec;
+            spec.TargetLayout = SceneTargetLayout();
+            // Fullscreen composite over the forward-rendered scene: no depth test/write (the quad has no
+            // meaningful depth), and LOAD the target so the real sky/grid drawn by the forward passes are
+            // preserved — the shader discards non-geometry texels so that scene shows through.
+            spec.DepthTestEnabled  = false;
+            spec.DepthWriteEnabled = false;
+            // Each permutation names its own pipeline, so a device-lost report says which sun arm drew.
+            spec.DebugName      = std::string( kProgramDebugNames[index] );
+            spec.Shader         = program.Shader;
+            const auto pipeline = Graphic::GraphicsPipeline::Create( spec );
+            if ( !pipeline )
+            {
+                program = CompositeProgram{};
+                return Common::MakeError( std::string( pipeline.GetError() ) );
+            }
+            program.Pipeline = pipeline.GetValue();
+            program.Material = std::make_unique<MaterialDeferredLighting>( program.Shader );
+            return BOOLSUCCESS;
+        }
+        // Each Shadows method program @p index alone serves is refused by its name for @p reason.
+        void RefuseProgram( const std::size_t index, const std::string_view reason )
+        {
+            for ( const Common::Scalability::ShadowMethod method : kProgramShadowMethods[index] )
+                AddRefusal( m_Refusals.Shadows, method, kProgramDebugNames[index], reason );
+        }
+        std::array<CompositeProgram, 4> m_Programs;
         ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
 

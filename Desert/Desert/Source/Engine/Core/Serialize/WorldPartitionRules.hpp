@@ -24,12 +24,13 @@
 //     new rule: `AttachmentSystem` already takes exactly that path for a target it cannot find, and
 //     `SocketAttachmentComponent::Target` is a `UUID` with a `Null()` for the purpose.
 //
-// ── A WIDE COMPOSITE GOES UP A LEVEL; THE CELL DOES NOT GROW (owner decision O1, 2026-09-23) ──────
+// ── A WIDE COMPOSITE GOES UP A LEVEL (owner decision O1, 2026-09-23; placement WP-FAR-6B 9g) ──────
 //
 // The grid has LEVELS. Level L is the same grid with cells CellSize·2^L wide, aligned on the origin, so
-// every level-L edge is also an edge of every level below it. A composite is put, whole, on the LOWEST
-// level at which its footprint lies inside exactly ONE cell; a composite that no level can hold that way
-// goes to the ALWAYS-LOADED set. The level is derived from the footprint and is never authored.
+// every level-L edge is also an edge of every level below it. A composite goes, whole, to the LOWEST
+// level whose cell is at least as wide as its footprint's larger side, and in that level to the cell its
+// footprint's CENTRE falls in. A composite wider than the top level can be goes to the ALWAYS-LOADED set.
+// The level is derived from the footprint and is never authored.
 //
 // This replaces WP1's growing cell, and the reason is what growth cost: a cell grown to reach one wide
 // thing dragged EVERY small thing in that cell out to the wide thing's loading distance. A level moves
@@ -37,12 +38,15 @@
 // FSquare2DGridHelper::GetPartitionedActors (UE:Engine/Source/Runtime/Engine/Private/WorldPartition/
 // RuntimeSpatialHash/RuntimeSpatialHashGridHelper.cpp:211-262), not its letter:
 //
-//   * UE's top level is ONE cell centred on the origin and as wide as the world, so nothing spatial ever
-//     misses it. Ours stays aligned on the origin to the top, so the top level has up to four cells and a
-//     composite straddling X = 0 or Z = 0 fits no level. That composite is ALWAYS-LOADED, which is what
-//     UE's world-sized top cell amounts to anyway — a cell containing every camera position there is.
+//   * Placement is UE's: the level by the footprint's SIZE, the cell by its CENTRE (FSquare2DGridHelper::
+//     GetCellCoords on the bounds' centre). A footprint therefore may reach past its cell's square by at
+//     most half its own extent, so a cell's STREAMING bounds (`PlannedCell::Bounds`) are its square grown by
+//     half the widest extent placed on its level: the loading range is measured to what the cell holds,
+//     not to its square. Before 9g a composite had to fit one origin-aligned cell whole, so everything
+//     straddling X = 0 or Z = 0 was always-loaded — on a world centred on the origin, almost everything.
 //   * UE sizes the level count from the world bounds; so does this: the top level is the first whose
-//     cell reaches the furthest footprint from the origin (`WorldPartitionPlan::LevelCount`).
+//     cell reaches the furthest footprint from the origin (`WorldPartitionPlan::LevelCount`), and never
+//     less than the level the widest composite needs.
 //
 // What WP1 called `MaxGrowth` is now `WorldPartitionPlan::MaxLevel`: the level the worst composite was
 // promoted to, and which composite it is.
@@ -133,6 +137,8 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
+#include <limits>
 #include <map>
 #include <optional>
 #include <span>
@@ -327,15 +333,31 @@ namespace Desert::Core::Rules
     // spill into the next cell. That is not a nicety: WorldGen's ground tile is exactly one cell wide and
     // sits exactly on the edges, and a closed interval would push every tile of a generated world up a
     // level. A zero-width footprint (one point) is in the cell of its minimum.
+    //
+    // AN EDGE WITHIN FLOAT ROUNDING OF A CELL BOUNDARY IS ON THAT BOUNDARY. Footprints are float and are
+    // built by arithmetic: a landscape root at -120 m with 255 quads of 23.529411 cm (a float) puts its
+    // third tile's edge at -0.0002 cm, not 0. Read literally that is a sliver in the cell before, and 0 is
+    // an edge at EVERY level, so the tile fitted no cell and fell to always-loaded (FIELD_Barn: 7 of 16
+    // tiles, a cross along x = 0 and z = 0). The tolerance is a few float epsilons of the edge's own
+    // magnitude, measured in cells — the error a float coordinate of that size carries, nothing coarser:
+    // a real overhang of a millimetre on a 128 m cell is still an overhang.
     [[nodiscard]] inline std::optional<CellCoord> SingleCellHolding( const CellBounds& footprint,
                                                                      double            levelCellSize )
     {
-        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies
-        // exactly on an edge, never before its first cell.
-        const auto last = []( float min, float max, double size )
+        // An edge in cell units, and the float rounding it may carry (in cells too).
+        constexpr double kRoundingEpsilons = 4.0 * static_cast<double>( std::numeric_limits<float>::epsilon() );
+        const auto       rounding          = []( float edge, double size )
+        { return kRoundingEpsilons * std::max( std::fabs( static_cast<double>( edge ) ), size ) / size; };
+
+        // The first cell the footprint touches: a minimum a rounding short of an edge is on it.
+        const auto first = [&]( float min, double size )
+        { return std::floor( static_cast<double>( min ) / size + rounding( min, size ) ); };
+        // The last cell the footprint touches: the one before its maximum's cell when the maximum lies on
+        // an edge (or a rounding past it), never before its first cell.
+        const auto last = [&]( float min, float max, double size )
         {
-            const double low = std::floor( static_cast<double>( min ) / size );
-            return std::max( low, std::ceil( static_cast<double>( max ) / size ) - 1.0 );
+            return std::max( first( min, size ),
+                             std::ceil( static_cast<double>( max ) / size - rounding( max, size ) ) - 1.0 );
         };
 
         // A coordinate whose cell index an int32 cannot hold (a corrupt 1e30, a NaN) fits no cell of this
@@ -346,10 +368,14 @@ namespace Desert::Core::Rules
                 return std::nullopt;
         }
 
-        const CellCoord cell = CellOf( footprint.MinX, footprint.MinZ, levelCellSize );
-        if ( static_cast<double>( cell.X ) != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
-             static_cast<double>( cell.Z ) != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
+        const double firstX = first( footprint.MinX, levelCellSize );
+        const double firstZ = first( footprint.MinZ, levelCellSize );
+        if ( firstX != last( footprint.MinX, footprint.MaxX, levelCellSize ) ||
+             firstZ != last( footprint.MinZ, footprint.MaxZ, levelCellSize ) )
             return std::nullopt;
+        CellCoord cell;
+        cell.X = static_cast<std::int32_t>( firstX );
+        cell.Z = static_cast<std::int32_t>( firstZ );
         return cell;
     }
 
@@ -360,7 +386,7 @@ namespace Desert::Core::Rules
         None,      // it is in a cell
         Author,    // a member carries the `AlwaysLoaded` marker
         Component, // a member carries a component `kComponentLoading` classifies Global
-        NoFit,     // no level has one cell holding its footprint (it straddles X = 0 or Z = 0)
+        NoFit,     // its footprint is wider than the top level a grid can have, or not a finite rectangle
         NoGrid,    // the world states no usable grid: no `Grids` entry, or a CellSize <= 0
     };
 
@@ -381,14 +407,17 @@ namespace Desert::Core::Rules
         std::size_t        Grid    = 0; // index into WorldPartitionSerialized::Grids (UE: the actor's RuntimeGrid)
     };
 
-    // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level: a cell
-    // never grows, so everything it holds lies inside it — the suite asserts exactly that over the corpus.
+    // ONE CELL OF ONE LEVEL THAT HOLDS SOMETHING. `Square` is the cell's own square at its level and holds
+    // the CENTRE of everything the cell holds. `Bounds` is the square grown on every side by half the widest
+    // footprint placed on that level of that grid (UE's loose cell bounds), so every footprint the cell
+    // holds lies inside it: the loading range is measured to `Bounds`.
     struct PlannedCell
     {
         std::size_t              Grid  = 0; // index into WorldPartitionSerialized::Grids
         int                      Level = 0;
         CellCoord                Cell;
         CellBounds               Square;
+        CellBounds               Bounds;
         std::vector<std::size_t> Composites; // indices into WorldPartitionPlan::Composites
     };
 
@@ -419,7 +448,8 @@ namespace Desert::Core::Rules
 
         // EVERY COMPONENT VALUE THE PLANNER READ AND FOUND OF THE WRONG TYPE, each with its full path
         // (`Entities[id=7].LandscapeTile.TileX`). The planner reads such a value as the loader does — the
-        // component's default is kept — and says so here instead of in silence; CookWorld logs the list.
+        // component's default is kept — and says so here instead of in silence; every place that plans a world
+        // to act on it (cook, Play, editor regions) names them through ReportPlanIssues.
         Common::Json::Issues Issues;
 
         // How many levels the grid has for THIS world: level LevelCount-1 is the first whose cell reaches
@@ -616,6 +646,7 @@ namespace Desert::Core::Rules
     // Author are both about it.
     inline constexpr std::string_view kAlwaysLoadedComponent = "AlwaysLoaded";
     inline constexpr std::string_view kRuntimeGridComponent  = "RuntimeGrid";
+    inline constexpr std::string_view kStreamingSourceComponent = "StreamingSource";
 
     // THE RECORD KINDS WHOSE CONTENTS ARE NOT A POINT AT THEIR OWN POSITION, by their names on disk. One
     // constant per name, so a suite can pin them: see "A COMPOSITE'S FOOTPRINT" at the top of this file.
@@ -632,12 +663,30 @@ namespace Desert::Core::Rules
     inline constexpr std::string_view kLandscapeRootComponent = "Landscape";
     inline constexpr std::string_view kLandscapeTileComponent = "LandscapeTile";
 
-    // THE MESH BLOCKS THAT NAME A MESH ASSET, and the two fields a reference is written as
-    // (StaticMeshComponentSer / SkinnedMeshComponentSer in PrefabData.hpp): the mesh's header GUID as text
-    // (SCNE 28), and the path beside it.
+    // THE MESH BLOCKS THAT NAME A MESH ASSET, and where each states its reference (PrefabData.hpp): the Static
+    // Mesh in its reflected `MeshHandle` object {Guid, Path} (asset references v1), the Skinned Mesh in the
+    // block's own MeshGuid / MeshPath (SCNE 28). The GUID is the header GUID as text, the path beside it.
     inline constexpr std::array<std::string_view, 2> kMeshAssetComponents = { "StaticMesh", "SkinnedMesh" };
-    inline constexpr std::string_view                kMeshHandleField     = "MeshGuid";
-    inline constexpr std::string_view                kMeshPathField       = "MeshPath";
+
+    // The node holding @p component's mesh reference, and its GUID / path field names; nullopt = none stated.
+    struct MeshReferenceNode
+    {
+        Common::Json::Node Node;
+        std::string_view   GuidField;
+        std::string_view   PathField;
+    };
+    [[nodiscard]] inline std::optional<MeshReferenceNode> MeshReferenceOf( const Common::Json::Node& block,
+                                                                           std::string_view          component )
+    {
+        if ( component == "StaticMesh" )
+        {
+            auto handle = block.Find( "MeshHandle" );
+            if ( !handle.has_value() )
+                return std::nullopt;
+            return MeshReferenceNode{ std::move( handle.value() ), "Guid", "Path" };
+        }
+        return MeshReferenceNode{ block, "MeshGuid", "MeshPath" };
+    }
 
     // WHAT THE PARTITIONER MAY KNOW FROM OUTSIDE THE FILE: a mesh asset's box around its own origin, asked
     // by the GUID its block names (null when it names none) and the path beside it.
@@ -935,12 +984,15 @@ namespace Desert::Core::Rules
 
             for ( const std::string_view key : kMeshAssetComponents )
             {
-                const auto mesh = BlockOf( record, key, issues );
+                const auto block = BlockOf( record, key, issues );
+                if ( !block.has_value() )
+                    continue;
+                const auto mesh = MeshReferenceOf( *block, key );
                 if ( !mesh.has_value() )
                     continue;
-                const Common::Content::AssetGuid guid = ReadGuid( *mesh, kMeshHandleField, issues );
+                const Common::Content::AssetGuid guid = ReadGuid( mesh->Node, mesh->GuidField, issues );
                 std::string                      text;
-                mesh->ReadInto( kMeshPathField, text, issues );
+                mesh->Node.ReadInto( mesh->PathField, text, issues );
                 if ( guid.IsNull() && text.empty() )
                     continue;
                 if ( const auto box = bounds( guid, text ); box.has_value() )
@@ -1152,6 +1204,10 @@ namespace Desert::Core::Rules
         std::optional<DescriptorLandscapeRoot> LandscapeRoot;
         // The RuntimeGrid block's grid name (WP22); absent = the world's first grid.
         std::optional<std::string> RuntimeGrid;
+        // The StreamingSource block's Target Grids (UE FWorldPartitionStreamingSource::TargetGrids); empty = every
+        // grid. Read here so the plan names a grid the world does not have
+        // (Entities[i].StreamingSource.TargetGrids).
+        std::vector<std::string> TargetGrids;
 
         // Every value read here and found of the wrong type, with its path: the planner reports them as its own.
         Common::Json::Issues Issues;
@@ -1189,12 +1245,15 @@ namespace Desert::Core::Rules
                                  [&]( const Common::Math::AABB& box ) { out.Boxes.push_back( box ); } );
         for ( const std::string_view key : kMeshAssetComponents )
         {
-            const auto mesh = Detail::BlockOf( record, key, issues );
+            const auto block = Detail::BlockOf( record, key, issues );
+            if ( !block.has_value() )
+                continue;
+            const auto mesh = MeshReferenceOf( *block, key );
             if ( !mesh.has_value() )
                 continue;
             DescriptorMesh                   named;
-            const Common::Content::AssetGuid guid = Detail::ReadGuid( *mesh, kMeshHandleField, issues );
-            mesh->ReadInto( kMeshPathField, named.Path, issues );
+            const Common::Content::AssetGuid guid = Detail::ReadGuid( mesh->Node, mesh->GuidField, issues );
+            mesh->Node.ReadInto( mesh->PathField, named.Path, issues );
             if ( guid.IsNull() && named.Path.empty() )
                 continue;
             if ( !guid.IsNull() )
@@ -1226,6 +1285,8 @@ namespace Desert::Core::Rules
             grid->ReadInto( "Grid", name, issues );
             out.RuntimeGrid = std::move( name );
         }
+        if ( const auto source = Detail::BlockOf( record, kStreamingSourceComponent, issues ); source.has_value() )
+            source->ReadInto( "TargetGrids", out.TargetGrids, issues );
 
         if ( const auto tile = Detail::BlockOf( record, kLandscapeTileComponent, issues ); tile.has_value() )
         {
@@ -1364,9 +1425,11 @@ namespace Desert::Core::Rules
     //      global member makes the whole composite global — the composite is never divided, and a
     //      camera parented to a character keeps the character with it.
     //
-    //   4. THE LEVEL COUNT, from the furthest footprint of a composite that still has to be placed.
+    //   4. THE LEVEL COUNT, from the furthest footprint of a composite that still has to be placed, and
+    //      the widest one.
     //
-    //   5. PLACEMENT: the lowest level with one cell holding the footprint, else always-loaded (NoFit).
+    //   5. PLACEMENT: the lowest level whose cell is as wide as the footprint, the cell of its centre;
+    //      wider than any level can be: always-loaded (NoFit).
     //
     // `bounds` answers for the one extent that lives in other files, a mesh asset's (AssetBoundsSource);
     // left empty, every mesh-asset record is its position and is counted as such.
@@ -1421,6 +1484,84 @@ namespace Desert::Core::Rules
             return World::Landscape::LandscapeTileBounds( root, tile.LandscapeTile->X, tile.LandscapeTile->Z );
         }
     } // namespace Detail
+
+    // THE ONE REPORT OF A PLAN'S ISSUES. Every caller that plans a world to act on it - the cook (WorldCells),
+    // Play (BeginWorldStreaming) and editor regions (EditorRegions) - names what the planner refused through
+    // this, so an Issue (an unknown StreamingSource.TargetGrids name, a RuntimeGrid.Grid the world lacks, ...)
+    // is never seen by one of them and dropped by another. Returns the logged text ("" when there is none).
+    inline std::string ReportPlanIssues( const WorldPartitionPlan& plan, std::string_view world )
+    {
+        return Common::Json::ReportIssues( plan.Issues, std::format( "the world partition plan of '{}'", world ) );
+    }
+
+    // THE GRID A RuntimeGrid NAME STREAMS ON (UE AActor::RuntimeGrid), the one rule the planner and every editor
+    // tool that files content by grid (the foliage brush, the procedural volume) read: absent = the world's
+    // first grid, UE's main grid; a name the world does not state = nullopt - never read as the first grid by a
+    // guess (the planner reports it as a MissingReference Issue with the record's path).
+    [[nodiscard]] inline std::optional<std::size_t> GridIndexOf( const WorldPartitionSerialized&   settings,
+                                                                 const std::optional<std::string>& wanted )
+    {
+        if ( settings.Grids.empty() )
+            return std::nullopt;
+        if ( !wanted.has_value() )
+            return std::size_t{ 0 };
+        const auto found =
+             std::find_if( settings.Grids.begin(), settings.Grids.end(),
+                           [&]( const WorldPartitionGridSerialized& grid ) { return grid.Name == *wanted; } );
+        if ( found == settings.Grids.end() )
+            return std::nullopt;
+        return static_cast<std::size_t>( found - settings.Grids.begin() );
+    }
+
+    // THE GRIDS A WORLD MAY STATE (WP22, UE FSpatialHashRuntimeGrid) - the one rule the planner (step 4a) and
+    // every editor edit of the block (EditWorldPartition: the panel's Runtime grids section, `desertctl set world
+    // WorldPartition...`) read, so the editor refuses exactly what the planner would. At least one grid; every
+    // grid named, once; a positive finite cell size; a positive finite loading range (a range of 0 is a grid
+    // that never streams anything in). `CellsUsable` is false when the CELLS cannot be made - no grid, a name
+    // missing or stated twice (which grid a record's name reaches would be a guess), a cell size that is not
+    // positive; a bad loading range is an Issue that leaves the cells as they are, because the partition does
+    // not read the range (WorldPartitionGridSerialized::LoadingRange).
+    struct RuntimeGridsCheck
+    {
+        Common::Json::Issues Issues;
+        bool                 CellsUsable = true;
+    };
+
+    [[nodiscard]] inline RuntimeGridsCheck CheckRuntimeGrids( const WorldPartitionSerialized& settings )
+    {
+        RuntimeGridsCheck check;
+        if ( settings.Grids.empty() )
+        {
+            check.Issues.push_back( { "WorldPartition.Grids", "at least one runtime grid", "none" } );
+            check.CellsUsable = false;
+        }
+        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
+        {
+            const WorldPartitionGridSerialized& grid  = settings.Grids[gridIndex];
+            const bool                          named = !grid.Name.empty();
+            const bool                          twice =
+                 named && std::any_of( settings.Grids.begin(),
+                                       settings.Grids.begin() + static_cast<std::ptrdiff_t>( gridIndex ),
+                                       [&]( const WorldPartitionGridSerialized& other )
+                                       { return other.Name == grid.Name; } );
+            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
+            {
+                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].CellSize", gridIndex ),
+                                          "a positive cell size", std::format( "{}", grid.CellSize ) } );
+                check.CellsUsable = false;
+            }
+            if ( !named || twice )
+            {
+                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].Name", gridIndex ),
+                                          "a name no other grid of the world states", grid.Name } );
+                check.CellsUsable = false;
+            }
+            if ( !( grid.LoadingRange > 0.0f ) || !std::isfinite( grid.LoadingRange ) )
+                check.Issues.push_back( { std::format( "WorldPartition.Grids[{}].LoadingRange", gridIndex ),
+                                          "a positive loading range", std::format( "{}", grid.LoadingRange ) } );
+        }
+        return check;
+    }
 
     // THE PLANNER, over descriptors (an index on disk, EntityDescriptorIndex.hpp, or DescribeEntities of a
     // scene in memory). Record `r` of the plan is descriptor `r`.
@@ -1608,30 +1749,13 @@ namespace Desert::Core::Rules
             }
         }
 
-        // ── 4a. The grids (WP22, UE FSpatialHashRuntimeGrid): every one named, once, with a real cell ────
+        // ── 4a. The grids (WP22, UE FSpatialHashRuntimeGrid): Rules::CheckRuntimeGrids ──────────────────
         // A grid with no name, a name two grids state, or a cell size that is not positive makes the grids
         // unusable AS A WHOLE: which grid a record's name reaches would otherwise be a guess.
-        bool gridsUsable = !settings.Grids.empty();
-        for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
-        {
-            const WorldPartitionGridSerialized& grid = settings.Grids[gridIndex];
-            if ( !( grid.CellSize > 0.0f ) || !std::isfinite( grid.CellSize ) )
-            {
-                plan.Issues.push_back( { std::format( "WorldPartition.Grids[{}].CellSize", gridIndex ),
-                                         "a positive cell size", std::format( "{}", grid.CellSize ) } );
-                gridsUsable = false;
-            }
-            const bool named = !grid.Name.empty();
-            const bool twice = named && std::any_of( settings.Grids.begin(), settings.Grids.begin() + gridIndex,
-                                                     [&]( const WorldPartitionGridSerialized& other )
-                                                     { return other.Name == grid.Name; } );
-            if ( !named || twice )
-            {
-                plan.Issues.push_back( { std::format( "WorldPartition.Grids[{}].Name", gridIndex ),
-                                         "a name no other grid of the world states", grid.Name } );
-                gridsUsable = false;
-            }
-        }
+        RuntimeGridsCheck gridCheck = CheckRuntimeGrids( settings );
+        plan.Issues.insert( plan.Issues.end(), std::make_move_iterator( gridCheck.Issues.begin() ),
+                            std::make_move_iterator( gridCheck.Issues.end() ) );
+        const bool gridsUsable = gridCheck.CellsUsable;
         plan.GridLevelCount.assign( settings.Grids.size(), 0 );
         if ( !gridsUsable )
         {
@@ -1652,19 +1776,28 @@ namespace Desert::Core::Rules
             const std::optional<std::string>& wanted = records[held.Anchor].RuntimeGrid;
             if ( !wanted.has_value() )
                 continue;
-            const auto found = std::find_if( settings.Grids.begin(), settings.Grids.end(),
-                                             [&]( const WorldPartitionGridSerialized& grid )
-                                             { return grid.Name == *wanted; } );
-            if ( found == settings.Grids.end() )
+            const std::optional<std::size_t> found = GridIndexOf( settings, wanted );
+            if ( !found.has_value() )
             {
                 plan.Issues.push_back( { std::format( "Entities[{}].{}.Grid", held.Anchor, kRuntimeGridComponent ),
-                                         "the name of one of the world's grids", *wanted } );
+                                         "grid", *wanted, Common::Json::IssueKind::MissingReference } );
                 if ( held.Reason == AlwaysLoadedReason::None )
                     held.Reason = AlwaysLoadedReason::NoGrid;
                 continue;
             }
-            held.Grid = static_cast<std::size_t>( found - settings.Grids.begin() );
+            held.Grid = *found;
         }
+
+        // A Streaming Source's Target Grids name the world does not state streams nothing (Rules::TargetsGrid):
+        // an Issue with the record's path, as a RuntimeGrid name is - never matched to a grid by a guess.
+        for ( std::size_t record = 0; record < records.size(); ++record )
+            for ( const std::string& name : records[record].TargetGrids )
+                if ( std::none_of( settings.Grids.begin(), settings.Grids.end(),
+                                   [&]( const WorldPartitionGridSerialized& grid )
+                                   { return grid.Name == name; } ) )
+                    plan.Issues.push_back(
+                         { std::format( "Entities[{}].{}.TargetGrids", record, kStreamingSourceComponent ), "grid",
+                           name, Common::Json::IssueKind::MissingReference } );
 
         // ── 4c. How many levels each grid has for this world ──────────────────────────────────────
         //
@@ -1674,7 +1807,14 @@ namespace Desert::Core::Rules
         // sun at 10 km does not widen any grid. The cap keeps a corrupt coordinate (1e30) from asking for a
         // level past what an int32 cell index can express at level 0; a footprint beyond it is NoFit.
         constexpr int       kMaxLevels = 31;
+        // A footprint's larger side: what its level is chosen by. Not finite = no level can hold it.
+        const auto extentOf = []( const CellBounds& box )
+        {
+            return std::max( static_cast<double>( box.MaxX ) - static_cast<double>( box.MinX ),
+                             static_cast<double>( box.MaxZ ) - static_cast<double>( box.MinZ ) );
+        };
         std::vector<double> furthest( settings.Grids.size(), 0.0 );
+        std::vector<double> widest( settings.Grids.size(), 0.0 );
         for ( const PlannedComposite& group : plan.Composites )
         {
             if ( group.Reason != AlwaysLoadedReason::None || !group.Footprint.has_value() )
@@ -1684,18 +1824,22 @@ namespace Desert::Core::Rules
                                                  std::fabs( static_cast<double>( box.MaxX ) ),
                                                  std::fabs( static_cast<double>( box.MinZ ) ),
                                                  std::fabs( static_cast<double>( box.MaxZ ) ) } );
+            const double extent    = extentOf( box );
+            if ( std::isfinite( extent ) )
+                widest[group.Grid] = std::max( widest[group.Grid], extent );
         }
         for ( std::size_t gridIndex = 0; gridIndex < settings.Grids.size(); ++gridIndex )
         {
             const float cellSize = settings.Grids[gridIndex].CellSize;
             int         levels   = 1;
-            while ( levels < kMaxLevels && LevelCellSize( cellSize, levels - 1 ) < furthest[gridIndex] )
+            while ( levels < kMaxLevels && ( LevelCellSize( cellSize, levels - 1 ) < furthest[gridIndex] ||
+                                             LevelCellSize( cellSize, levels - 1 ) < widest[gridIndex] ) )
                 ++levels;
             plan.GridLevelCount[gridIndex] = levels;
             plan.LevelCount                = std::max( plan.LevelCount, levels );
         }
 
-        // ── 5. Placement: the lowest level of ITS grid with ONE cell holding the whole footprint ──────
+        // ── 5. Placement (UE FSquare2DGridHelper): the level by the footprint's size, the cell by its centre ──
         for ( std::size_t group = 0; group < plan.Composites.size(); ++group )
         {
             PlannedComposite& held = plan.Composites[group];
@@ -1712,17 +1856,28 @@ namespace Desert::Core::Rules
             const CellBounds footprint = *held.Footprint;
             const float      cellSize  = settings.Grids[held.Grid].CellSize;
 
+            // The lowest level whose cell is at least as wide as the footprint's larger side; the cell of the
+            // footprint's centre in it. A centre whose cell index an int32 cannot hold (a corrupt 1e30, a
+            // NaN) is not converted - that conversion is undefined behaviour - and the composite is NoFit.
+            const double extent = extentOf( footprint );
+            const double centreX =
+                 ( static_cast<double>( footprint.MinX ) + static_cast<double>( footprint.MaxX ) ) * 0.5;
+            const double centreZ =
+                 ( static_cast<double>( footprint.MinZ ) + static_cast<double>( footprint.MaxZ ) ) * 0.5;
             bool placed = false;
-            for ( int level = 0; level < plan.GridLevelCount[held.Grid]; ++level )
+            for ( int level = 0; std::isfinite( extent ) && level < plan.GridLevelCount[held.Grid]; ++level )
             {
-                const auto cell = SingleCellHolding( footprint, LevelCellSize( cellSize, level ) );
-                if ( cell.has_value() )
-                {
-                    held.Level = level;
-                    held.Cell  = *cell;
-                    placed     = true;
+                const double size = LevelCellSize( cellSize, level );
+                if ( size < extent )
+                    continue;
+                if ( !( std::fabs( centreX / size ) < 2147483647.0 ) ||
+                     !( std::fabs( centreZ / size ) < 2147483647.0 ) )
                     break;
-                }
+                held.Level = level;
+                held.Cell  = CellCoord{ static_cast<std::int32_t>( std::floor( centreX / size ) ),
+                                       static_cast<std::int32_t>( std::floor( centreZ / size ) ) };
+                placed     = true;
+                break;
             }
             if ( !placed )
             {
@@ -1746,6 +1901,14 @@ namespace Desert::Core::Rules
             if ( held.Reason == AlwaysLoadedReason::None && held.Footprint.has_value() )
                 cells[std::make_tuple( held.Grid, held.Level, held.Cell.X, held.Cell.Z )].push_back( group );
         }
+        // Half the widest footprint each (grid, level) holds: how far past its square a cell of it may reach.
+        std::map<std::pair<std::size_t, int>, double> reach;
+        for ( const auto& [key, composites] : cells )
+        {
+            double& margin = reach[std::make_pair( std::get<0>( key ), std::get<1>( key ) )];
+            for ( const std::size_t group : composites )
+                margin = std::max( margin, extentOf( *plan.Composites[group].Footprint ) * 0.5 );
+        }
         for ( auto& [key, composites] : cells )
         {
             PlannedCell cell;
@@ -1754,6 +1917,11 @@ namespace Desert::Core::Rules
             cell.Cell.X     = std::get<2>( key );
             cell.Cell.Z     = std::get<3>( key );
             cell.Square     = GridSquareOf( cell.Cell, LevelCellSize( settings.Grids[cell.Grid].CellSize, cell.Level ) );
+            const double margin = reach.at( std::make_pair( cell.Grid, cell.Level ) );
+            cell.Bounds     = CellBounds{ static_cast<float>( static_cast<double>( cell.Square.MinX ) - margin ),
+                                      static_cast<float>( static_cast<double>( cell.Square.MinZ ) - margin ),
+                                      static_cast<float>( static_cast<double>( cell.Square.MaxX ) + margin ),
+                                      static_cast<float>( static_cast<double>( cell.Square.MaxZ ) + margin ) };
             cell.Composites = std::move( composites );
             plan.Cells.push_back( std::move( cell ) );
         }

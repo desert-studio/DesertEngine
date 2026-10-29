@@ -1,0 +1,51 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "d15c0de0a5713e5d15c0de0a5713e501",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "068d3a93b05e570b5640b4d82141834c", "1a0fef53f64bd32e72696c5d21656bbd", "d6abac9250c3740ef36bfe856cca56fb", "a5399d2d0de9e31199dca9dc912b2e6c"]
+    },
+    "Shader": {
+        "Guid": "4f1cac6af403a010c792d835dd6f7d44",
+        "Path": "engine:Shaders/Programs/Surface/StandardSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "UVTiling",
+            "Value": [2.0, 2.0, 0.0, 0.0]
+        },
+        {
+            "Name": "HeightScale",
+            "Value": [25.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "HeightCenter",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "AlbedoTexture",
+            "Guid": "068d3a93b05e570b5640b4d82141834c",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_Diffuse_2k.detex"
+        },
+        {
+            "Name": "NormalTexture",
+            "Guid": "1a0fef53f64bd32e72696c5d21656bbd",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_nor_gl_2k.detex"
+        },
+        {
+            "Name": "OrmTexture",
+            "Guid": "d6abac9250c3740ef36bfe856cca56fb",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_arm_2k.detex"
+        },
+        {
+            "Name": "Height",
+            "Guid": "a5399d2d0de9e31199dca9dc912b2e6c",
+            "Path": "assets:Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_disp_2k.detex"
+        }
+    ],
+    "CloudAssets": []
+}

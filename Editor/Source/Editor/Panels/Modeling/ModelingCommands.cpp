@@ -38,6 +38,20 @@ namespace Desert::Editor
         for ( const auto& shape : Editor::ModelingPanel::kCollisionShapes )
             commands.push_back( { "Modeling", std::string( "Mesh To Collision " ) + shape.Name, [&scene, &shape]
                                   { return Editor::ModelingPanel::MeshToCollision( scene, shape ); } } );
+        // UE's Mesh To Volume: the combo's New Volume Type and the button in one entry per type.
+        for ( const auto& type : Editor::ModelingPanel::kVolumeTypes )
+            commands.push_back( { "Modeling", std::string( "Mesh To Volume " ) + type.Name, [&scene, &type]
+                                  { return Editor::ModelingPanel::MeshToVolume( scene, type ); } } );
+    }
+
+    void AppendBakeCommands( std::vector<PaletteCommand>&                  commands,
+                             const std::shared_ptr<::Desert::Core::Scene>& scene,
+                             const std::shared_ptr<Assets::AssetManager>&  assets )
+    {
+        // UE's Bake Normal Map (Modeling panel, Bake palette): the button's own path on the selection, target
+        // first, with the palette's settings.
+        commands.push_back( { "Modeling", "Bake Normal Map",
+                              [&scene, &assets] { return Editor::ModelingPanel::BakeNormalMap( scene, assets ); } } );
     }
 
     void AppendSelectElementsCommand( std::vector<PaletteCommand>& commands )
@@ -77,6 +91,26 @@ namespace Desert::Editor
     void AppendModelingCommands( std::vector<PaletteCommand>&                  commands,
                                  const std::shared_ptr<::Desert::Core::Scene>& scene )
     {
+        // LOD MANAGER (Modeling -> LODs): open / leave the tab, and its preview radio buttons. The level entries
+        // run the panel's own PreviewLOD, so an out-of-chain level is refused with the chain's length.
+        commands.push_back( { "Modeling", "LOD Manager: open", []
+                              {
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  Core::ModelingState::Get().ReqLODManager = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "LOD Manager: close", []
+                              {
+                                  Core::ModelingState::Get().ReqLODManager = false;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "LOD Manager: preview Auto",
+                              [&scene] { return Editor::ModelingPanel::PreviewLOD( scene, -1 ); } } );
+        // Entries for more levels than a generated chain holds; one past the selection's chain is refused.
+        constexpr int kPreviewEntries = 8;
+        for ( int level = 0; level < kPreviewEntries; ++level )
+            commands.push_back( { "Modeling", std::format( "LOD Manager: preview LOD {}", level ), [&scene, level]
+                                  { return Editor::ModelingPanel::PreviewLOD( scene, level ); } } );
         for ( const Geometry::ElementMode mode :
               { Geometry::ElementMode::Vertex, Geometry::ElementMode::Edge, Geometry::ElementMode::Triangle,
                 Geometry::ElementMode::PolyGroup } )
@@ -104,30 +138,49 @@ namespace Desert::Editor
                                   std::string( "Mesh selection: " ) + Core::MeshElementSelection::ToString( op ),
                                   [op] { return Core::MeshElementSelection::Get().Apply( op ); } } );
         }
-        commands.push_back(
-             { "Modeling", "Mesh selection: pick at the viewport centre", [&scene]
-               {
-                   if ( Core::ModelingState::Get().ActiveTool != Core::ModelingState::Tool::ElementSelect )
-                       return PaletteCommandOutcome( false, "the Select Elements tool is not active" );
-                   // The tool's own target rule, not "the tracker has a mesh": the tracker only learns the mesh
-                   // on the tool's next frame, and a static mesh with no EditableMesh is a target too (P9c).
-                   const auto selected = Core::SelectionManager::GetSelected();
-                   if ( !scene || !selected.has_value() )
-                       return PaletteCommandOutcome( false, "no entity is selected" );
-                   auto ref = scene->FindEntityByID( *selected );
-                   if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                       return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
-                   auto target = Editor::GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() );
-                   if ( !target.IsSuccess() )
-                       return PaletteCommandOutcome( false, target.GetError() );
-                   Core::MeshElementSelection::Get().ReqPickCentre = true;
-                   return PaletteCommandDone();
-               } } );
+        // The plain pick replaces the selection (a click); "add" keeps it and adds (a Shift-click).
+        for ( const auto& [name, add] : { std::pair{ "Mesh selection: pick at the viewport centre", false },
+                                          std::pair{ "Mesh selection: add pick at the viewport centre", true } } )
+            commands.push_back(
+                 { "Modeling", name, [&scene, add]
+                   {
+                       // Edit Materials selects its triangles with the same element selection (ElementSelectTool).
+                       const auto tool = Core::ModelingState::Get().ActiveTool;
+                       if ( tool != Core::ModelingState::Tool::ElementSelect &&
+                            tool != Core::ModelingState::Tool::EditMaterials )
+                           return PaletteCommandOutcome( false,
+                                                         "neither Select Elements nor Edit Materials is active" );
+                       // The tool's own target rule, not "the tracker has a mesh": the tracker only learns the
+                       // mesh on the tool's next frame, and a static mesh with no EditableMesh is a target too
+                       // (P9c).
+                       const auto selected = Core::SelectionManager::GetSelected();
+                       if ( !scene || !selected.has_value() )
+                           return PaletteCommandOutcome( false, "no entity is selected" );
+                       auto ref = scene->FindEntityByID( *selected );
+                       if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
+                           return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
+                       auto target =
+                            Editor::GetToolTargetMesh( ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                       if ( !target.IsSuccess() )
+                           return PaletteCommandOutcome( false, target.GetError() );
+                       Core::MeshElementSelection::Get().ReqPickCentre    = true;
+                       Core::MeshElementSelection::Get().ReqPickCentreAdd = add;
+                       return PaletteCommandDone();
+                   } } );
         // UE's Accept on a static mesh (P9b): the selected entity's edit goes INTO its asset - an imported .fbx
         // mesh included - under the same GUID, so every scene and foliage type naming the mesh draws the edit.
         commands.push_back(
              { "Modeling", "Accept: write the edit into the static mesh asset", [&scene]
                {
+                   // An open tool's preview is not an edit yet: it has no undo step until the tool's own
+                   // Accept records one, so writing it into the asset would ship a change Undo cannot take
+                   // back (Undo then reverted the step BEFORE the tool - the Box's creation). UE's tools
+                   // commit through their own Accept too.
+                   const Tools::ActiveToolLabel open = Tools::LabelOf( Core::ModelingState::Get().ActiveTool );
+                   if ( open.Name != nullptr )
+                       return PaletteCommandOutcome(
+                            false, std::format( "{} is open: Accept or Cancel it first (\"Active tool: Accept\")",
+                                                open.Name ) );
                    const auto selected = Core::SelectionManager::GetSelected();
                    if ( !scene || !selected.has_value() )
                        return PaletteCommandOutcome( false, "no entity is selected" );
@@ -148,7 +201,7 @@ namespace Desert::Editor
                 Core::MeshOperation::Offset, Core::MeshOperation::Inset, Core::MeshOperation::Outset,
                 Core::MeshOperation::Bevel, Core::MeshOperation::InsertEdgeLoop, Core::MeshOperation::Clean,
                 Core::MeshOperation::Subdivide, Core::MeshOperation::Mirror, Core::MeshOperation::PlaneCut,
-                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Simplify } )
+                Core::MeshOperation::FillHole, Core::MeshOperation::WeldEdges, Core::MeshOperation::Disconnect } )
         {
             commands.push_back( { "Modeling", std::string( "Mesh operation: " ) + Core::ToString( op ),
                                   [&scene, op]
@@ -213,6 +266,44 @@ namespace Desert::Editor
                         : PaletteCommandOutcome( false, "the CubeGrid tool is not active ('CubeGrid tool')" );
         };
         modelingTool( "Modeling", "PolyEdit tool", MS::Tool::PolyEdit );
+        // UE's Deform palette Sculpt tool: the tool, its brush (UE's brush-type picker) and Invert (UE: Ctrl).
+        // Sculpt (UE UMeshVertexSculptTool) and Dynamic Sculpt (UE UDynamicMeshSculptTool): one viewport tool,
+        // the second remeshing the brush's region before each stamp (Refine / Collapse, Edge Length).
+        for ( const bool dynamic : { false, true } )
+            commands.push_back( { "Sculpt", dynamic ? "Dynamic Sculpt tool" : "Sculpt tool", [dynamic]
+                                  {
+                                      MS::Get().ActiveTool    = MS::Tool::Sculpt;
+                                      MS::Get().SculptDynamic = dynamic;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Sculpt", "Refine", []( MS& ms, bool on ) { ms.DynamicSculptTopology.Splits = on; } );
+        modelingOnOff( "Sculpt", "Collapse", []( MS& ms, bool on ) { ms.DynamicSculptTopology.Collapses = on; } );
+        // UE's MeshOps palette: Remesh (URemeshMeshTool, the MeshProcessingTool session: preview, Accept = one
+        // undo step) and its switches (URemeshMeshToolProperties); the numbers are ModelingState rows (Remesh.*).
+        commands.push_back( { "Modeling", "Mesh tool: Remesh", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Remesh;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        modelingOnOff( "Modeling", "Remesh: Use Target Edge Length",
+                       []( MS& ms, bool on ) { ms.MeshRemesh.UseTargetEdgeLength = on; } );
+        modelingOnOff( "Modeling", "Remesh: Flips", []( MS& ms, bool on ) { ms.MeshRemesh.Flips = on; } );
+        modelingOnOff( "Modeling", "Remesh: Splits", []( MS& ms, bool on ) { ms.MeshRemesh.Splits = on; } );
+        modelingOnOff( "Modeling", "Remesh: Collapses", []( MS& ms, bool on ) { ms.MeshRemesh.Collapses = on; } );
+        modelingOnOff( "Modeling", "Remesh: Reproject", []( MS& ms, bool on ) { ms.MeshRemesh.Reproject = on; } );
+        modelingOnOff( "Modeling", "Remesh: Preserve Sharp Edges",
+                       []( MS& ms, bool on ) { ms.MeshRemesh.PreserveSharpEdges = on; } );
+        modelingOnOff( "Modeling", "Remesh: Discard Attributes",
+                       []( MS& ms, bool on ) { ms.MeshRemesh.DiscardAttributes = on; } );
+        for ( const Geometry::SculptBrushType brush : Geometry::kSculptBrushTypes )
+            commands.push_back( { "Sculpt", std::string( "Brush: " ) + Geometry::ToString( brush ), [brush]
+                                  {
+                                      MS::Get().Sculpt.Brush = brush;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Sculpt", "Invert", []( MS& ms, bool on ) { ms.Sculpt.Invert = on; } );
         modelingTool( "CubeGrid", "CubeGrid tool", MS::Tool::CubeGrid );
         // Reopen CubeGrid on the selected blockout (UE: the tool takes the selected mesh as its target); the
         // tool refuses, with a toast naming why, anything that does not carry its voxels.
@@ -247,14 +338,14 @@ namespace Desert::Editor
                                       MS::Get().SetGridPower( power );
                                       return PaletteCommandDone();
                                   } } );
-        commands.push_back( { "CubeGrid", "Block Size /2", []
+        commands.push_back( { "CubeGrid", "Grid Power -1", []
                               {
-                                  MS::Get().HalveBlockSize();
+                                  MS::Get().GridPowerDown();
                                   return PaletteCommandDone();
                               } } );
-        commands.push_back( { "CubeGrid", "Block Size x2", []
+        commands.push_back( { "CubeGrid", "Grid Power +1", []
                               {
-                                  MS::Get().DoubleBlockSize();
+                                  MS::Get().GridPowerUp();
                                   return PaletteCommandDone();
                               } } );
         for ( const int div : { 2, 4, 10 } )
@@ -397,6 +488,14 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Create shape: Maintain Dimension",
                        []( MS& ms, bool on ) { ms.CreateShape.Rectangle.MaintainDimension = on; } );
+        modelingOnOff( "Modeling", "Create shape: Revolve Reverse Direction",
+                       []( MS& ms, bool on ) { ms.CreateShape.Revolve.ReverseDirection = on; } );
+        modelingOnOff( "Modeling", "Create shape: Revolve Profile At Midpoint",
+                       []( MS& ms, bool on ) { ms.CreateShape.Revolve.ProfileAtMidpoint = on; } );
+        modelingOnOff( "Modeling", "Create shape: Spiral Reverse Direction",
+                       []( MS& ms, bool on ) { ms.CreateShape.Spiral.ReverseDirection = on; } );
+        modelingOnOff( "Modeling", "Create shape: Spiral Profile At Midpoint",
+                       []( MS& ms, bool on ) { ms.CreateShape.Spiral.ProfileAtMidpoint = on; } );
         for ( const Geometry::ShapePivot pivot :
               { Geometry::ShapePivot::Base, Geometry::ShapePivot::Centre, Geometry::ShapePivot::Top } )
             commands.push_back( { "Modeling", std::string( "Create shape pivot: " ) + Geometry::ToString( pivot ),
@@ -446,17 +545,37 @@ namespace Desert::Editor
                                   } } );
         modelingOnOff( "Modeling", "Subdivide: New PolyGroups",
                        []( MS& ms, bool on ) { ms.ElementSubdivide.NewPolyGroups = on; } );
-        modelingOnOff( "Modeling", "Simplify: Preserve Sharp Edges",
-                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveSharpEdges = on; } );
-        for ( const auto target : { Geometry::SimplifyTarget::Percentage, Geometry::SimplifyTarget::VertexCount } )
+        // UE's MeshOps palette: Simplify (USimplifyMeshTool, the MeshProcessingTool session: preview, Accept = one
+        // undo step) and its switches (USimplifyMeshToolProperties); the numbers are ModelingState rows
+        // (Simplify.*).
+        commands.push_back( { "Modeling", "Mesh tool: Simplify", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Simplify;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // UE SimplifierType: Standard (QEM) or Attribute-Aware.
+        for ( const Geometry::SimplifierType type : Geometry::kSimplifierTypes )
+            commands.push_back( { "Modeling", std::string( "Simplify type: " ) + Geometry::ToString( type ), [type]
+                                  {
+                                      MS::Get().MeshSimplify.Simplifier = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::SimplifyTarget target : Geometry::kSimplifyTargets )
             commands.push_back( { "Modeling", std::string( "Simplify target: " ) + Geometry::ToString( target ),
                                   [target]
                                   {
-                                      MS::Get().ElementSimplify.Target = target;
+                                      MS::Get().MeshSimplify.Target = target;
                                       return PaletteCommandDone();
                                   } } );
+        modelingOnOff( "Modeling", "Simplify: Preserve Boundaries",
+                       []( MS& ms, bool on ) { ms.MeshSimplify.PreserveBoundaries = on; } );
         modelingOnOff( "Modeling", "Simplify: Preserve PolyGroups",
-                       []( MS& ms, bool on ) { ms.ElementSimplify.PreserveGroupBoundaries = on; } );
+                       []( MS& ms, bool on ) { ms.MeshSimplify.PreserveGroupBoundaries = on; } );
+        modelingOnOff( "Modeling", "Simplify: Preserve Sharp Edges",
+                       []( MS& ms, bool on ) { ms.MeshSimplify.PreserveSharpEdges = on; } );
+        modelingOnOff( "Modeling", "Simplify: Discard Attributes",
+                       []( MS& ms, bool on ) { ms.MeshSimplify.DiscardAttributes = on; } );
         static constexpr std::array<const char*, 3> kAxisNames = { "X", "Y", "Z" };
         for ( int axis = 0; axis < 3; ++axis )
         {
@@ -590,13 +709,376 @@ namespace Desert::Editor
               std::initializer_list<std::pair<const char*, MS::Tool>>{ { "AutoUV", MS::Tool::AutoUV },
                                                                        { "Project", MS::Tool::UVProject },
                                                                        { "Unwrap", MS::Tool::UVUnwrap },
-                                                                       { "Layout", MS::Tool::UVLayout } } )
+                                                                       { "Layout", MS::Tool::UVLayout },
+                                                                       { "Transform", MS::Tool::UVTransform } } )
             commands.push_back( { "Modeling", std::string( "UV tool: " ) + name, [tool]
                                   {
                                       MS::Get().ActiveTool = tool;
                                       Core::ViewportMode::Set( Core::EditorMode::Modeling );
                                       return PaletteCommandDone();
                                   } } );
+        // UE's Deform palette: Smooth, Offset and Warp (MeshProcessingTool), committed the same way as the UV tools.
+        for ( const auto& [name, tool] :
+              std::initializer_list<std::pair<const char*, MS::Tool>>{ { "Smooth", MS::Tool::Smooth },
+                                                                       { "Offset", MS::Tool::Offset },
+                                                                       { "Warp", MS::Tool::Warp },
+                                                                       { "Lattice", MS::Tool::Lattice } } )
+            commands.push_back( { "Modeling", std::string( "Deform tool: " ) + name, [tool]
+                                  {
+                                      MS::Get().ActiveTool = tool;
+                                      Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE's VoxOps palette: VoxWrap (MeshProcessingTool session).
+        commands.push_back( { "Modeling", "VoxOps tool: VoxWrap", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxWrap;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // VoxBoolean (UE UVoxelCSGMeshesTool): the tool on the two selected entities, its operation and what
+        // Accept does with the inputs.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxBoolean", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxBoolean;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxBooleanOperation op :
+              { Geometry::VoxBooleanOperation::DifferenceAB, Geometry::VoxBooleanOperation::DifferenceBA,
+                Geometry::VoxBooleanOperation::Intersect, Geometry::VoxBooleanOperation::Union } )
+            commands.push_back( { "Modeling", std::string( "VoxBoolean operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxBoolean.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxBoolean inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxBooleanInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
+        // VoxMorph (UE UVoxelMorphologyMeshesTool): the tool on the selected entity, its operation and what
+        // Accept does with the input.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxMorph", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxMorph;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxMorphOperation op :
+              { Geometry::VoxMorphOperation::Dilate, Geometry::VoxMorphOperation::Contract,
+                Geometry::VoxMorphOperation::Close, Geometry::VoxMorphOperation::Open } )
+            commands.push_back( { "Modeling", std::string( "VoxMorph operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxMorph.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxMorph inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxMorphInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
+        // VoxBlend (UE UVoxelBlendMeshesTool): the tool on the two selected entities, its operation and what
+        // Accept does with the inputs.
+        commands.push_back( { "Modeling", "VoxOps tool: VoxBlend", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::VoxBlend;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::VoxBlendOperation op :
+              { Geometry::VoxBlendOperation::Union, Geometry::VoxBlendOperation::Subtract } )
+            commands.push_back( { "Modeling", std::string( "VoxBlend operation: " ) + Geometry::ToString( op ),
+                                  [op]
+                                  {
+                                      MS::Get().VoxBlend.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Core::BooleanInputs in :
+              { Core::BooleanInputs::Delete, Core::BooleanInputs::Hide, Core::BooleanInputs::Keep } )
+            commands.push_back( { "Modeling", std::string( "VoxBlend inputs: " ) + Core::ToString( in ), [in]
+                                  {
+                                      MS::Get().VoxBlendInputs = in;
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE's Attributes palette: Normals (MeshProcessingTool session) and its closed choices / toggles.
+        commands.push_back( { "Modeling", "Attributes tool: Normals", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Normals;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::SplitNormalMethod split :
+              { Geometry::SplitNormalMethod::UseExistingTopology, Geometry::SplitNormalMethod::FaceNormalThreshold,
+                Geometry::SplitNormalMethod::FaceGroupID, Geometry::SplitNormalMethod::PerTriangle,
+                Geometry::SplitNormalMethod::PerVertex } )
+            commands.push_back( { "Modeling", std::string( "Normals split: " ) + Geometry::ToString( split ),
+                                  [split]
+                                  {
+                                      MS::Get().AttribNormals.SplitMethod = split;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::NormalCalculationMethod method :
+              { Geometry::NormalCalculationMethod::AreaWeighted, Geometry::NormalCalculationMethod::AngleWeighted,
+                Geometry::NormalCalculationMethod::AreaAngleWeighting } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Normals calculation: " ) + Geometry::ToString( method ), [method]
+                                  {
+                                      MS::Get().AttribNormals.CalculationMethod = method;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [name, member] :
+              std::initializer_list<std::pair<const char*, bool Geometry::NormalsSettings::*>>{
+                   { "Recompute Normals", &Geometry::NormalsSettings::RecomputeNormals },
+                   { "Allow Sharp Vertices", &Geometry::NormalsSettings::AllowSharpVertices },
+                   { "Fix Inconsistent Normals", &Geometry::NormalsSettings::FixInconsistentNormals },
+                   { "Invert Normals", &Geometry::NormalsSettings::InvertNormals } } )
+            commands.push_back( { "Modeling", std::string( "Normals toggle: " ) + name, [member]
+                                  {
+                                      bool& value = MS::Get().AttribNormals.*member;
+                                      value       = !value;
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE's Attributes palette: Edit Materials (UEditMeshMaterialsTool, EditMaterialsTool) and its actions.
+        commands.push_back( { "Modeling", "Attributes tool: Edit Materials", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::EditMaterials;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const auto& [name, member] : std::initializer_list<std::pair<const char*, bool MS::*>>{
+                   { "Assign Active Material", &MS::EditMaterialsReqAssign },
+                   { "Add Slot", &MS::EditMaterialsReqAddSlot },
+                   { "Remove Last Slot", &MS::EditMaterialsReqRemoveSlot } } )
+            commands.push_back( { "Modeling", std::string( "Edit Materials: " ) + name, [member]
+                                  {
+                                      MS::Get().*member = true;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( int slot = 0; slot < 8; ++slot )
+            commands.push_back( { "Modeling", std::format( "Edit Materials active slot: {}", slot ), [slot]
+                                  {
+                                      MS::Get().EditMaterialsActiveSlot = slot;
+                                      return PaletteCommandDone();
+                                  } } );
+        // The project's materials, by name, into the active slot (the panel's slot field, for the palette).
+        {
+            std::error_code ec;
+            for ( const auto& entry :
+                  std::filesystem::directory_iterator( Common::Constants::Path::MATERIAL_PATH, ec ) )
+                if ( entry.path().extension() == Common::Constants::Extensions::MATERIAL_EXTENSION )
+                    commands.push_back( { "Modeling",
+                                          "Edit Materials slot material: " + entry.path().stem().string(),
+                                          [path = entry.path().generic_string()]
+                                          {
+                                              MS::Get().EditMaterialsReqSlotMaterial = path;
+                                              return PaletteCommandDone();
+                                          } } );
+        }
+        // UE's Attributes palette: Paint PolyGroups (UMeshGroupPaintTool, PaintGroupsTool) and its choices.
+        commands.push_back( { "Modeling", "Attributes tool: Paint PolyGroups", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::PaintGroups;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Paint PolyGroups: New Group", []
+                              {
+                                  MS::Get().PaintGroupsReqNewGroup = true;
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const auto& [name, mode] : { std::pair{ "Brush", MS::PaintGroupsModeKind::Brush },
+                                           std::pair{ "Fill Connected", MS::PaintGroupsModeKind::Fill } } )
+            commands.push_back( { "Modeling", std::string( "Paint PolyGroups mode: " ) + name, [mode]
+                                  {
+                                      MS::Get().PaintGroupsMode = mode;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const int radius : { 10, 25, 50, 100, 200 } )
+            commands.push_back( { "Modeling", std::format( "Paint PolyGroups radius: {} cm", radius ), [radius]
+                                  {
+                                      MS::Get().PaintGroupsRadius = static_cast<float>( radius );
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE's MeshOps palette: Hole Fill (UHoleFillTool, the MeshProcessingTool session), its fill type and its
+        // Select All / Clear actions.
+        commands.push_back( { "Modeling", "Mesh tool: Hole Fill", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::HoleFill;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::HoleFillType type :
+              { Geometry::HoleFillType::Trivial, Geometry::HoleFillType::Minimal, Geometry::HoleFillType::Smooth } )
+            commands.push_back( { "Modeling", std::string( "Hole Fill type: " ) + Geometry::ToString( type ), [type]
+                                  {
+                                      MS::Get().MeshHoleFill.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        // UE's MeshOps palette: Jacket (URemoveOccludedTrianglesTool, the MeshProcessingTool session) and its
+        // closed choices.
+        commands.push_back( { "Modeling", "Mesh tool: Jacket", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Jacket;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // UE's MeshOps palette: Project (UProjectToTargetTool): the first selected mesh onto the second.
+        commands.push_back( { "Modeling", "Mesh tool: Project", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Project;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        // UE's MeshOps palette: Weld Edges (UWeldMeshEdgesTool) and its two options.
+        commands.push_back( { "Modeling", "Mesh tool: Weld Edges", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::WeldEdges;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        modelingOnOff( "Modeling", "Weld Edges: Only Unique Pairs",
+                       []( MS& ms, bool on ) { ms.MeshWeldEdges.OnlyUniquePairs = on; } );
+        modelingOnOff( "Modeling", "Weld Edges: Weld Attributes",
+                       []( MS& ms, bool on ) { ms.MeshWeldEdges.WeldAttributes = on; } );
+        for ( const Geometry::JacketOcclusionMode mode :
+              { Geometry::JacketOcclusionMode::WindingNumber, Geometry::JacketOcclusionMode::RaycastOcclusionSamples } )
+            commands.push_back( { "Modeling", std::string( "Jacket occlusion mode: " ) + Geometry::ToString( mode ),
+                                  [mode]
+                                  {
+                                      MS::Get().MeshJacket.OcclusionMode = mode;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::JacketTriangleSampling sampling :
+              { Geometry::JacketTriangleSampling::Vertices, Geometry::JacketTriangleSampling::VerticesAndCentroids } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Jacket triangle sampling: " ) + Geometry::ToString( sampling ),
+                                  [sampling]
+                                  {
+                                      MS::Get().MeshJacket.TriangleSampling = sampling;
+                                      return PaletteCommandDone();
+                                  } } );
+        commands.push_back( { "Modeling", "Hole Fill: Select All Holes", []
+                              {
+                                  MS::Get().HoleFillReqSelectAll = true;
+                                  return PaletteCommandDone();
+                              } } );
+        commands.push_back( { "Modeling", "Hole Fill: Clear Selection", []
+                              {
+                                  MS::Get().HoleFillReqClear = true;
+                                  return PaletteCommandDone();
+                              } } );
+        // UE's Attributes palette: Tangents (UMeshTangentsTool, the same session) and its choices / display.
+        commands.push_back( { "Modeling", "Attributes tool: Tangents", []
+                              {
+                                  MS::Get().ActiveTool = MS::Tool::Tangents;
+                                  Core::ViewportMode::Set( Core::EditorMode::Modeling );
+                                  return PaletteCommandDone();
+                              } } );
+        for ( const Geometry::TangentsMethod method : { Geometry::TangentsMethod::FastMikkTSpace,
+                                                        Geometry::TangentsMethod::MikkTSpace,
+                                                        Geometry::TangentsMethod::PerTriangle } )
+            commands.push_back( { "Modeling", std::string( "Tangents calculation: " ) + Geometry::ToString( method ),
+                                  [method]
+                                  {
+                                      MS::Get().AttribTangents.CalculationMethod = method;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const auto& [name, member] :
+              std::initializer_list<std::pair<const char*, bool Geometry::TangentsSettings::*>>{
+                   { "Show Tangents", &Geometry::TangentsSettings::ShowTangents },
+                   { "Show Normals", &Geometry::TangentsSettings::ShowNormals } } )
+            commands.push_back( { "Modeling", std::string( "Tangents toggle: " ) + name, [member]
+                                  {
+                                      bool& value = MS::Get().AttribTangents.*member;
+                                      value       = !value;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const float length : { 2.0f, 5.0f, 10.0f, 25.0f } )
+            commands.push_back( { "Modeling", std::format( "Tangents line length: {}", length ), [length]
+                                  {
+                                      MS::Get().AttribTangents.LineLength = length;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::SmoothWeightType type :
+              { Geometry::SmoothWeightType::Uniform, Geometry::SmoothWeightType::Cotan } )
+        {
+            commands.push_back( { "Modeling", std::string( "Smooth weight type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformSmooth.WeightType = type;
+                                      return PaletteCommandDone();
+                                  } } );
+            commands.push_back( { "Modeling", std::string( "Offset weight type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformOffset.WeightType = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        }
+        for ( const Geometry::SmoothType type : { Geometry::SmoothType::Iterative, Geometry::SmoothType::Implicit,
+                                                  Geometry::SmoothType::Diffusion } )
+            commands.push_back( { "Modeling", std::string( "Smoothing type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformSmooth.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::OffsetType type : { Geometry::OffsetType::Iterative, Geometry::OffsetType::Implicit } )
+            commands.push_back( { "Modeling", std::string( "Offset type: " ) + Geometry::ToString( type ),
+                                  [type]
+                                  {
+                                      MS::Get().DeformOffset.Type = type;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::WarpOperation op :
+              { Geometry::WarpOperation::Bend, Geometry::WarpOperation::Twist, Geometry::WarpOperation::Flare } )
+            commands.push_back( { "Modeling", std::string( "Warp operation: " ) + Geometry::ToString( op ), [op]
+                                  {
+                                      MS::Get().DeformWarp.Operation = op;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::FlareProfile profile :
+              { Geometry::FlareProfile::SinMode, Geometry::FlareProfile::SinSquared,
+                Geometry::FlareProfile::Triangle } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Warp flare profile: " ) + Geometry::ToString( profile ), [profile]
+                                  {
+                                      MS::Get().DeformWarp.Profile = profile;
+                                      return PaletteCommandDone();
+                                  } } );
+        for ( const Geometry::LatticeInterpolation interpolation :
+              { Geometry::LatticeInterpolation::Linear, Geometry::LatticeInterpolation::Cubic } )
+            commands.push_back( { "Modeling",
+                                  std::string( "Lattice interpolation: " ) + Geometry::ToString( interpolation ),
+                                  [interpolation]
+                                  {
+                                      MS::Get().DeformLattice.Interpolation = interpolation;
+                                      return PaletteCommandDone();
+                                  } } );
+        modelingOnOff( "Modeling", "Lattice: Soft Deformation",
+                       []( MS& ms, bool on ) { ms.DeformLattice.SoftDeformation = on; } );
+        modelingOnOff( "Modeling", "Warp: Lock Bottom", []( MS& ms, bool on ) { ms.DeformWarp.LockBottom = on; } );
+        modelingOnOff( "Modeling", "Warp: Lock X and Y Flaring",
+                       []( MS& ms, bool on ) { ms.DeformWarp.LockXAndYFlaring = on; } );
+        modelingOnOff( "Modeling", "Smooth: Smooth Boundary",
+                       []( MS& ms, bool on ) { ms.DeformSmooth.SmoothBoundary = on; } );
+        modelingOnOff( "Modeling", "Smooth: Pin UV Seams",
+                       []( MS& ms, bool on ) { ms.DeformSmooth.PinUVSeams = on; } );
+        modelingOnOff( "Modeling", "VoxWrap: Solid At Boundaries",
+                       []( MS& ms, bool on ) { ms.VoxWrap.SolidAtBoundaries = on; } );
+        modelingOnOff( "Modeling", "VoxWrap: Apply Thicken Shells",
+                       []( MS& ms, bool on ) { ms.VoxWrap.ThickenShells = on; } );
+        modelingOnOff( "Modeling", "Offset: Offset Boundary",
+                       []( MS& ms, bool on ) { ms.DeformOffset.OffsetBoundary = on; } );
+        modelingOnOff( "Modeling", "Offset: Pin UV Seams",
+                       []( MS& ms, bool on ) { ms.DeformOffset.PinUVSeams = on; } );
         modelingOnOff( "Modeling", "AutoUV: Respect PolyGroups",
                        []( MS& ms, bool on ) { ms.UVAuto.RespectPolygroups = on; } );
         modelingOnOff( "Modeling", "AutoUV: Auto Align", []( MS& ms, bool on ) { ms.UVAuto.AutoAlign = on; } );
@@ -647,5 +1129,14 @@ namespace Desert::Editor
                        []( MS& ms, bool on ) { ms.UVLayout.PreserveRotation = on; } );
         modelingOnOff( "Modeling", "UV Layout: Allow Flips",
                        []( MS& ms, bool on ) { ms.UVLayout.AllowFlips = on; } );
+        for ( const Geometry::UVTransformPivot pivot :
+              { Geometry::UVTransformPivot::Origin, Geometry::UVTransformPivot::IslandCenter,
+                Geometry::UVTransformPivot::SelectionCenter, Geometry::UVTransformPivot::Manual } )
+            commands.push_back( { "Modeling", std::string( "UV Transform pivot: " ) + Geometry::ToString( pivot ),
+                                  [pivot]
+                                  {
+                                      MS::Get().UVTransform.Pivot = pivot;
+                                      return PaletteCommandDone();
+                                  } } );
     }
 } // namespace Desert::Editor

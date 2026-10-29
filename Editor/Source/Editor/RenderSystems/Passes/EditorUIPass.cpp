@@ -192,7 +192,7 @@ namespace Desert::Editor::Render
                  wait != nullptr && wait->Assessment.Blocks() )
                 UI::DrawStreamingWaitOverlay( m_Render2D.GetDrawList(), w, h, wait->FramesWaiting );
             // Glass panels sample THIS VIEW's blurred scene snapshot, built just before this phase as a transient
-            // of this view's graph (ctx.Graph): each glass batch's block names it (u_Backdrop).
+            // of this view's graph (ctx.Graph): each glass batch's block names it (BackdropTexture).
             if ( ctx.Graph.Transients.BackdropBlur.IsValid() )
                 declared.Read( ctx.Graph.Transients.BackdropBlur, Graphic::RDG::Access::SampledGraphics,
                                Graphic::RDG::SubresourceRange::All() );

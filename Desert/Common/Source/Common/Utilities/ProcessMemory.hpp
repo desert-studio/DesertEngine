@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Common::Utils
 {
@@ -33,6 +34,11 @@ namespace Common::Utils
         bool     Known    = false;
         uint64_t Resident = 0; ///< bytes in physical RAM right now
         uint64_t Peak     = 0; ///< high-water mark of the same quantity since process start
+        /// What the OS charges the process for (macOS `phys_footprint`: dirty + compressed memory INCLUDING
+        /// the GPU allocations of unified memory, the number jetsam and run_capped kill on; Windows
+        /// `PrivateUsage`; Linux = `Resident`). `Resident` misses Metal device memory entirely, so a census
+        /// keyed on it never fires at a GPU-memory peak (BISTRO-MEM-2: resident 1.7 GB at a 6.4 GB kill).
+        uint64_t Physical = 0;
 
         /// One line for the log. Says "unknown" rather than "0" when `Known` is false.
         [[nodiscard]] std::string Describe() const;
@@ -47,5 +53,41 @@ namespace Common::Utils
      * this machine), so a per-frame caller is affordable and a caching one would be saving nothing.
      */
     [[nodiscard]] ProcessFootprint ReadProcessFootprint();
+
+    /**
+     * @brief WHERE THE PROCESS'S CHARGED MEMORY LIVES, by the kind of virtual memory region holding it.
+     *
+     * The device census accounts for every byte the GPU allocator holds, yet the footprint it is keyed on was
+     * 1.7 GB larger (PKG-RT-RES: footprint 5183 MB, driver usage 3412 MB) with nothing naming the rest. This walks
+     * the address space the way `footprint(1)` / `vmmap -summary` do and charges each region's dirty and
+     * compressed pages to its kind (the kernel's VM user tag): the malloc heaps, GPU driver mappings, stacks,
+     * the writable data of loaded images, and so on. What the walk cannot see (GPU memory of private storage,
+     * which is charged to the process but mapped nowhere in it) is the footprint minus the sum, printed as such.
+     */
+    struct FootprintKind
+    {
+        std::string Name;
+        uint64_t    Bytes   = 0; ///< dirty + compressed bytes of the regions of this kind
+        uint32_t    Regions = 0;
+    };
+
+    struct FootprintBreakdown
+    {
+        /// False where the platform has no region walk here (only macOS has one). Then Kinds is empty and a
+        /// report must say "unknown".
+        bool                       Known = false;
+        std::vector<FootprintKind> Kinds;      ///< largest first
+        uint64_t                   Walked = 0; ///< sum of Kinds
+        /// Bytes in use / reserved by every malloc zone (malloc_zone_statistics), the heap's own view of the
+        /// "malloc" kinds above: their difference is allocator slack.
+        uint64_t HeapInUse     = 0;
+        uint64_t HeapAllocated = 0;
+
+        /// Lines for the log, @p footprint the Physical footprint read at the same moment.
+        [[nodiscard]] std::string Describe( uint64_t footprint ) const;
+    };
+
+    /// Walks the whole address space: tens of milliseconds, for a census, never per frame.
+    [[nodiscard]] FootprintBreakdown ReadFootprintBreakdown();
 
 } // namespace Common::Utils

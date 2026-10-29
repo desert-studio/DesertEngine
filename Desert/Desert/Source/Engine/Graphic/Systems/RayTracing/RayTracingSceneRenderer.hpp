@@ -90,8 +90,9 @@ namespace Desert::Graphic::RayTracing
             const RayTracingInstance& instance = instances[i];
             std::byte* const          row      = bytes.data() + i * kInstanceRowBytes;
             std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
+            // The whole 24-bit field (kNoGpuSceneRow is its last value, and an instance with no row carries it).
             const uint32_t indexAndMask =
-                 ( instance.CustomIndex & kMaxGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
+                 ( instance.CustomIndex & kNoGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
             // Flags 0: culling is the ray's choice and opacity each segment's (RayTracingGeometrySegment::Opaque).
             const uint32_t sbtAndFlags = instance.FirstSegmentRecord & kMaxSegmentRecord;
             const uint64_t address =
@@ -102,6 +103,33 @@ namespace Desert::Graphic::RayTracing
         }
         return bytes;
     }
+
+    inline constexpr std::string_view kGpuInstancesPassName = "RayTracingScene.GpuInstances";
+
+    // THE GPU-WRITTEN TLAS ROWS (RayTracingGpuInstanceSource): after the CPU rows, each GPU-instanced primitive's
+    // reserved rows, written by "RayTracingScene.GpuInstances" between the instance upload and the TLAS build from
+    // the producer's transforms and drawn count. Device-free here; RayTracingSceneRenderer.cpp owns the program.
+    // Writing rows is not a BLAS build: it never sets RayTracingSceneFrame::DynamicGeometry (the path tracer's
+    // accumulation runs on over a still grass carpet).
+    class RayTracingGpuInstanceRows
+    {
+    public:
+        virtual ~RayTracingGpuInstanceRows() = default;
+        // This frame's sources: each traced source's rows counted in @p list.InstancesByKind (GpuInstanced), each
+        // one that cannot be traced counted in @p list.Skipped. Errors: the program could not be made.
+        [[nodiscard]] virtual Common::BoolResultStr Prepare( std::span<const RayTracingGpuInstanceSource> sources,
+                                                             std::span<const RayTracingPrimitive> primitives,
+                                                             RayTracingInstanceList&              list ) = 0;
+        // The rows the prepared sources take, after the CPU rows.
+        [[nodiscard]] virtual uint32_t GetRows() const = 0;
+        // What the rows trace, as a value comparable across frames (BLAS addresses, rows, records, masks): folded
+        // into RayTracingSceneFrame::InstanceHash. The instances themselves are the GPU's.
+        [[nodiscard]] virtual uint64_t GetKey() const = 0;
+        // Declares the pass writing the rows into @p instances from row @p firstRow on.
+        [[nodiscard]] virtual Common::BoolResultStr AddPass( RDG::Builder& graph, RDG::BufferRef instances,
+                                                             uint32_t firstRow ) = 0;
+    };
+    [[nodiscard]] std::unique_ptr<RayTracingGpuInstanceRows> CreateRayTracingGpuInstanceRows();
 
     // The rows of RayTracingScene.PrimitiveInstances: {FirstInstance, InstanceCount} per GPU-scene row, at least
     // one row (a graph buffer cannot be empty).
@@ -124,30 +152,44 @@ namespace Desert::Graphic::RayTracing
     // no TLAS, and a reader must not be declared). @p blasInputs: the BLASes this graph builds before the TLAS
     // (RayTracingScene.DynamicGeometry); the TLAS build reads them, which orders it after their builds.
     // @p blasBuiltInThisGraph: some of them were (re)built in this graph (RayTracingSceneFrame::DynamicGeometry).
+    // @p gpuRows: the GPU-written rows after @p list's (prepared for this frame), or null when there are none.
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
     AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
                             RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {},
-                            const bool blasBuiltInThisGraph = false )
+                            const bool blasBuiltInThisGraph = false, RayTracingGpuInstanceRows* gpuRows = nullptr )
     {
         RayTracingSceneFrame frame;
         if ( !required )
             return Common::MakeSuccess( frame );
 
-        frame.InstanceCount                           = static_cast<uint32_t>( list.Instances.size() );
+        const auto     cpuRows                        = static_cast<uint32_t>( list.Instances.size() );
+        const uint32_t gpuRowCount                    = gpuRows != nullptr ? gpuRows->GetRows() : 0u;
+        frame.InstanceCount                           = cpuRows + gpuRowCount;
         const Common::ResultStr<TlasBuildSizes> sizes = target.Prepare( frame.InstanceCount );
         if ( !sizes )
             return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kTlasPassName, sizes.GetError() );
 
-        const std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
-        frame.InstanceBytes               = rows.size();
-        frame.InstanceHash                = 14695981039346656037ull; // FNV-1a 64 offset basis
+        std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
+        frame.InstanceHash          = 14695981039346656037ull; // FNV-1a 64 offset basis
         for ( const std::byte b : rows )
             frame.InstanceHash = ( frame.InstanceHash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        if ( gpuRowCount > 0 )
+        {
+            frame.InstanceHash = ( frame.InstanceHash ^ gpuRows->GetKey() ) * 1099511628211ull;
+            // The GPU rows follow the CPU rows; the pass below writes every one of them.
+            rows.resize( static_cast<std::size_t>( frame.InstanceCount ) * kInstanceRowBytes );
+        }
+        frame.InstanceBytes = rows.size();
         // A BLAS BUILT in this graph, not one merely read: resident dynamic BLASes (landscape tiles, procedural meshes
         // built in an earlier frame) are blasInputs every frame without anything having changed.
         frame.DynamicGeometry = blasBuiltInThisGraph;
         frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
         graph.QueueBufferUpload( frame.Instances, rows );
+        if ( gpuRowCount > 0 )
+            if ( const Common::BoolResultStr written = gpuRows->AddPass( graph, frame.Instances, cpuRows );
+                 !written )
+                return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kGpuInstancesPassName,
+                                                                         written.GetError() );
         const std::vector<std::byte> ranges = EncodePrimitiveInstanceRows( list.Ranges );
         frame.PrimitiveInstanceBytes        = ranges.size();
         frame.PrimitiveInstances =
@@ -213,6 +255,14 @@ namespace Desert::Graphic::RayTracing
         uint64_t TlasScratchBytes        = 0; // this frame's TLAS build scratch (transient)
         uint64_t DynamicScratchBytes     = 0; // this frame's RayTracingScene.DynamicGeometry scratch (transient)
         uint32_t SkinCacheEntries        = 0; // the scene's skin-cache entries (skinned primitives it holds)
+        // The scene's displaced geometry (DisplacementCache, CONTRACT-DISPLACE §5): the twins' buffers, the
+        // topologies they read, and the pool's level lowerings - every one counted, none silent.
+        uint64_t DisplacedBufferBytes    = 0;
+        uint64_t DisplacedTopologyBytes  = 0;
+        uint32_t DisplacedEntries        = 0;
+        uint32_t DisplacedGeometries     = 0;
+        uint32_t DisplacedLevelsLowered  = 0; // this frame
+        uint32_t DisplacedLevelsHeld     = 0; // lowering steps still in force
         // Alpha-tested segments (Opaque = false) whose material has no opacity source in the ray-tracing
         // metadata yet: a ray query confirms their candidates as hits (RayTracingMetadataBuild).
         uint32_t SegmentsWithoutOpacity = 0;
@@ -252,8 +302,8 @@ namespace Desert::Graphic::RayTracing
     class RayTracingSceneRenderer
     {
     public:
-        // Called once per frame per view, after MeshRenderer::BuildObjectMotions (the rows are the instances'
-        // custom indices) and before any pass that reads the TLAS is declared.
+        // Called once per frame per view, after MeshRenderer::SyncGpuScene (the GpuScene instance indices are
+        // the instances' custom indices) and before any pass that reads the TLAS is declared.
         // @p viewOrigin (cm) and @p drawDistanceScale (Graphic::DrawDistanceScale of the lens) feed the ISM
         // distance cull only: the TLAS is never frustum-culled (RayTracingGather.hpp).
         // @p cache is the scene's (Core::Scene::GetRayTracingCache): skinned BLASes and variants shared by its
@@ -306,6 +356,7 @@ namespace Desert::Graphic::RayTracing
 
     private:
         std::unique_ptr<RayTracingSceneTarget>      m_Target;
+        std::unique_ptr<RayTracingGpuInstanceRows>  m_GpuInstanceRows; // made on the first frame with a source
         RayTracingGatherResult                      m_Gather;        // CPU scratch, capacity kept
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds

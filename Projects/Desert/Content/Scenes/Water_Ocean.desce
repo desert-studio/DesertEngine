@@ -3,13 +3,50 @@
         "Kind": "Scene",
         "Guid": "4bfb3eba91034778ae690c9988341395",
         "Versions": {
-            "SCNE": 66,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
-        "Dependencies": ["f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
+        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "95cdc28154e34f40b1ff8399d707b5b8", "c730e67be3da4598b852ba1021a94692", "cc91578c315f46bdacd58fde6183a144", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Water_Ocean",
     "Entities": [
+        {
+            "id": 371561652986549398,
+            "siblingIndex": 13,
+            "Tag": "Water Zone",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WaterZone": {
+                "ZoneExtent": [4096000.0, 4096000.0],
+                "TileSize": 2400.0,
+                "TessellationFactor": 6,
+                "LODScale": 1.0
+            }
+        },
+        {
+            "id": 2646278175089776126,
+            "siblingIndex": 12,
+            "Tag": "Ocean",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "WaterBody": {
+                "WaterWaves": {
+                    "Guid": "cc91578c315f46bdacd58fde6183a144",
+                    "Path": "assets:Water/Waves/ShoreSwell.dwaves"
+                },
+                "OceanExtents": [4096000.0, 4096000.0],
+                "TargetWaveMaskDepth": 2048.0,
+                "WaterMaterial": {
+                    "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
+                    "Path": "assets:Water/Materials/M_Water_Ocean.demat"
+                }
+            }
+        },
         {
             "id": 3541476290102148810,
             "siblingIndex": 1,
@@ -88,8 +125,8 @@
             "id": 3651295826201078030,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [0.15000000596046448, -0.3700000047683716, 0.9200000166893005],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-2.75921368598938, -0.15013019740581512, 0.7412042617797852],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -123,9 +160,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {
@@ -136,9 +181,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Prop.demat"],
-                "MaterialGuids": ["f6f923426f71eb4a270b1db46ebceeff"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f6f923426f71eb4a270b1db46ebceeff",
+                        "Path": "assets:Materials/Starter_Prop.demat"
+                    }
+                ]
             }
         },
         {
@@ -149,23 +202,108 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4.0, 4.0, 4.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/M_Dielectric_R0.demat"],
-                "MaterialGuids": ["f19593762f19be4d47cadcb269c4e878"],
-                "Primitive": "Sphere"
+                "Primitive": "Sphere",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "f19593762f19be4d47cadcb269c4e878",
+                        "Path": "assets:Materials/M_Dielectric_R0.demat"
+                    }
+                ]
             }
         },
         {
-            "id": 10144312751783984541,
-            "siblingIndex": 10,
-            "Tag": "Camera",
-            "Translation": [0.0, 200.0, 1500.0],
+            "id": 4200000000000000100,
+            "siblingIndex": 14,
+            "Tag": "Shore",
+            "Translation": [-6375.0, 0.0, -11000.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "AutoActivateForPlayer": true,
-                "FOV": 45.0,
-                "Near": 10.0,
-                "Far": 5000000.0
+            "Landscape": {
+                "QuadsPerTile": 255,
+                "SpacingCm": 25.0,
+                "ZScale": 4.0,
+                "EditLayers": [
+                    {
+                        "Guid": "4200000000000000199",
+                        "Name": "Base",
+                        "Visible": true,
+                        "Locked": false,
+                        "HeightAlpha": 1.0,
+                        "WeightAlpha": 1.0
+                    }
+                ],
+                "Layers": [
+                    {
+                        "Guid": "c730e67be3da4598b852ba1021a94692",
+                        "Path": "assets:Landscape/Layers/Shore/ShoreSand.delayerinfo"
+                    }
+                ]
+            },
+            "LandscapeMaterial": {
+                "Material": {
+                    "Guid": "95cdc28154e34f40b1ff8399d707b5b8",
+                    "Path": "assets:Environments/Shore/Materials/M_Shore_Landscape.demat"
+                }
+            }
+        },
+        {
+            "id": 4200000000000000101,
+            "siblingIndex": 15,
+            "Tag": "Shore Tile 0_0",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000101.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000102,
+            "siblingIndex": 16,
+            "Tag": "Shore Tile 1_0",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000102.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000103,
+            "siblingIndex": 17,
+            "Tag": "Shore Tile 0_1",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 0,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000103.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000104,
+            "siblingIndex": 18,
+            "Tag": "Shore Tile 1_1",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000104.dlht"
             }
         },
         {
@@ -199,6 +337,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": false,
                     "BloomThreshold": 2.0,
                     "BloomIntensity": 0.800000011920929,
@@ -225,35 +374,24 @@
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
             }
         },
         {
-            "id": 2646278175089776126,
-            "siblingIndex": 12,
-            "Tag": "Ocean",
-            "Translation": [0.0, 0.0, 0.0],
+            "id": 10144312751783984541,
+            "siblingIndex": 10,
+            "Tag": "Camera",
+            "Translation": [0.0, 200.0, 1500.0],
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [1.0, 1.0, 1.0],
-            "WaterBody": {
-                "WaterWaves": "",
-                "OceanExtents": [4096000.0, 4096000.0],
-                "TargetWaveMaskDepth": 2048.0
-            }
-        },
-        {
-            "id": 371561652986549398,
-            "siblingIndex": 13,
-            "Tag": "Water Zone",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "WaterZone": {
-                "ZoneExtent": [4096000.0, 4096000.0],
-                "TileSize": 2400.0,
-                "TessellationFactor": 6,
-                "LODScale": 1.0
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 45.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],

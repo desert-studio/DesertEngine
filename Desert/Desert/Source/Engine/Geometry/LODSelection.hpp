@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <optional>
 #include <span>
 #include <string>
@@ -122,10 +123,10 @@ namespace Desert::Geometry
         for ( std::size_t level = 0; level < sizes.size(); ++level )
         {
             if ( !std::isfinite( sizes[level] ) || sizes[level] <= 0.0f )
-                return "LOD " + std::to_string( level ) + "'s screen size is not a finite positive number";
+                return std::format( "LOD {}'s screen size is not a finite positive number", level );
             if ( level > 0 && sizes[level] > sizes[level - 1] )
-                return "LOD " + std::to_string( level ) + "'s screen size is larger than LOD " +
-                       std::to_string( level - 1 ) + "'s, so it could never be drawn";
+                return std::format( "LOD {}'s screen size is larger than LOD {}'s, so it could never be drawn",
+                                    level, level - 1 );
         }
         return {};
     }

@@ -3,9 +3,11 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Document.hpp>
+#include <Common/Json/Template.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 
 #include <algorithm>
+#include <array>
 #include <variant>
 #include <format>
 #include <iterator>
@@ -20,6 +22,9 @@ namespace Common::Settings
         // than inventing a location — a store with no path is not a store.
         std::filesystem::path s_File;
 
+        // Set by KeepInSession: Save() writes nothing for the rest of this process.
+        bool s_KeepInSession = false;
+
         // WHAT THIS PROCESS BELIEVES THE FILE HOLDS, in the canonical text Save() writes. Empty means
         // "there is no file" or "we cannot claim to know" (a failed read, a corrupt parse), in which case
         // the next write must happen unconditionally.
@@ -33,6 +38,9 @@ namespace Common::Settings
         // The Quality.Levels groups the last Load() refused (ScreenLevels). Read by the host through
         // MachineSettings::UnreadLevels() into StartFrom; a load-time fact about the file, never written.
         MachineSettings::LevelGroups s_UnreadLevels;
+
+        // The last Load() migrated Quality.Levels (MachineSettings::LevelsMigrated).
+        bool s_LevelsMigrated = false;
 
         // Which top-level keys differ between two serializations of this file, by name. The key list is
         // the UNION of what the two texts actually contain rather than the fields MachineSettings declares,
@@ -87,10 +95,7 @@ namespace Common::Settings
                 return "reserialized";
             }
 
-            std::string list = changed.front();
-            for ( std::size_t i = 1; i < changed.size(); ++i )
-                list += ", " + changed[i];
-            return list;
+            return Common::Text::Join( changed, ", " );
         }
 
         // ONE ENTRY OF THE FILE THAT WAS NOT TAKEN AS WRITTEN, as the sentence the log prints after the file name.
@@ -113,6 +118,10 @@ namespace Common::Settings
             std::vector<Rejection> Rejections;
             // The Quality.Levels groups whose element was refused (ScreenLevels); empty when Quality was refused.
             MachineSettings::LevelGroups UnreadLevels;
+            // WARN lines (a group the file does not name) and whether Quality.Levels was migrated to this build's
+            // form (the positional list, or a missing group): the host then writes the file back.
+            std::vector<std::string> Warnings;
+            bool                     LevelsMigrated = false;
         };
 
         constexpr std::string_view kOverrideForm =
@@ -173,49 +182,265 @@ namespace Common::Settings
             return Json::Value( std::move( kept ) );
         }
 
-        // Quality.Levels read PER GROUP: an element that is not a level name is refused by its group's name and
-        // marked in `unread`; MachineSettings::StartFrom gives that group the level this device starts on with no
-        // choice, so the other groups and the overrides stand. The marked element is written back as High only
-        // to keep the array readable — the mask, not that value, is what StartFrom reads. An array of the wrong
-        // length (or not an array) comes back as written and the member check refuses Quality whole: its
-        // elements cannot be matched to groups.
-        Json::Value ScreenLevels( const Json::Node& levels, std::vector<Rejection>& rejections,
-                                  MachineSettings::LevelGroups& unread )
+        // What ScreenLevels reports besides the screened value.
+        struct LevelsScreen
         {
-            const auto* array = std::get_if<Json::Value::Array>( &levels.Raw().variant() );
-            if ( array == nullptr || array->size() != Scalability::kGroupCount )
+            std::vector<Rejection>&       Rejections;
+            std::vector<std::string>&     Warnings;
+            MachineSettings::LevelGroups& Unread;
+            bool&                         Migrated;
+        };
+
+        std::optional<std::size_t> GroupIndex( std::string_view key )
+        {
+            for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
+                if ( Scalability::GroupKey( static_cast<Scalability::Group>( g ) ) == key )
+                    return g;
+            return std::nullopt;
+        }
+
+        // Quality.Levels read PER GROUP, BY GROUP NAME ({"Textures": "High", ...}, Scalability::GroupLevels):
+        //   - a name that is no group of this build is an ERROR and is dropped (the next write leaves it out);
+        //   - a value that is not a level name is an ERROR and marks the group in `unread`;
+        //   - a group the file does not name is a WARN and marks it in `unread` (a group this build added);
+        // MachineSettings::StartFrom gives an unread group the level this device starts on with no choice, so the
+        // other groups and the overrides stand. The marked group is written as High only to keep the object
+        // readable — the mask, not that value, is what StartFrom reads.
+        // THE FORMER POSITIONAL LIST (a level per group by enum position) is migrated here: element i is group i,
+        // a group past the list's end is missing as above, and the load is marked migrated so the host rewrites
+        // the file by name. A list longer than the group count cannot be matched to groups and comes back as
+        // written: the member check refuses Quality whole. Anything else also comes back as written.
+        Json::Value ScreenLevels( const Json::Node& levels, LevelsScreen out )
+        {
+            std::array<std::optional<Json::Value>, Scalability::kGroupCount> byGroup;
+            const auto readLevel = [&]( std::size_t g, const Json::Node& entry )
+            {
+                const std::string_view group = Scalability::GroupKey( static_cast<Scalability::Group>( g ) );
+                if ( entry.As<Scalability::Level>() )
+                {
+                    byGroup[g] = entry.Raw();
+                    return;
+                }
+                std::string names;
+                for ( std::size_t l = 0; l < Scalability::kLevelCount; ++l )
+                    std::format_to( std::back_inserter( names ), "{}{}", l == 0 ? "" : ", ",
+                                    Scalability::LevelKey( static_cast<Scalability::Level>( l ) ) );
+                out.Rejections.push_back( { std::format(
+                     "{}: the {} group's level {} is not a level ({}); the {} group runs at the level this "
+                     "device starts on with no choice (the benchmark's recommendation when it is valid "
+                     "for this device, else High), the other groups and the overrides stand",
+                     entry.Where().ToString(), group, Json::Write( entry.Raw() ), names, group ) } );
+                out.Unread.set( g );
+            };
+
+            if ( levels.GetKind() == Json::Kind::Array )
+            {
+                std::size_t elements = 0;
+                levels.ForEachElement( [&]( std::size_t, const Json::Node& ) { ++elements; } );
+                if ( elements > Scalability::kGroupCount )
+                    return levels.Raw();
+                out.Migrated = true;
+                levels.ForEachElement( readLevel );
+            }
+            else if ( levels.GetKind() == Json::Kind::Object )
+            {
+                levels.ForEachMember(
+                     [&]( std::string_view name, const Json::Node& entry )
+                     {
+                         if ( const std::optional<std::size_t> g = GroupIndex( name ) )
+                         {
+                             readLevel( *g, entry );
+                             return;
+                         }
+                         out.Rejections.push_back(
+                              { std::format( "{}: Quality.Levels names '{}', which is no quality group of this "
+                                             "build; it is ignored",
+                                             entry.Where().ToString(), name ) } );
+                     } );
+            }
+            else
                 return levels.Raw();
 
-            Json::Value::Array kept;
-            levels.ForEachElement(
-                 [&]( std::size_t g, const Json::Node& entry )
+            // SCAL-UX: PathTracing was split out of GlobalIllumination (its five rows followed the GI level). A file
+            // written before the split migrates once: PathTracing takes this machine's GI level, and the load is
+            // marked migrated so the host rewrites the file with it.
+            {
+                constexpr auto kGI = static_cast<std::size_t>( Scalability::Group::GlobalIllumination );
+                constexpr auto kPT = static_cast<std::size_t>( Scalability::Group::PathTracing );
+                if ( !byGroup[kPT] && !out.Unread.test( kPT ) && byGroup[kGI] )
+                {
+                    byGroup[kPT] = *byGroup[kGI];
+                    out.Migrated = true;
+                }
+            }
+            Json::ObjectBuilder rebuilt;
+            for ( std::size_t g = 0; g < Scalability::kGroupCount; ++g )
+            {
+                const std::string_view group = Scalability::GroupKey( static_cast<Scalability::Group>( g ) );
+                if ( !byGroup[g] && !out.Unread.test( g ) )
+                {
+                    out.Warnings.push_back(
+                         std::format( "Quality.Levels has no level for the {} group; it runs at the level this "
+                                      "device starts on with no choice and the file is rewritten with it",
+                                      group ) );
+                    out.Unread.set( g );
+                    out.Migrated = true;
+                }
+                rebuilt.Set( group, byGroup[g] ? *byGroup[g]
+                                               : Json::Value( std::string(
+                                                      Scalability::LevelKey( Scalability::Level::High ) ) ) );
+            }
+            return Json::Value( rebuilt.Build() );
+        }
+
+        // Recommended.Levels (the benchmark cache) in the former positional list form becomes the by-name object
+        // (element i is group i). A cache that misses a group then refuses at the member read and is measured
+        // again: it is a cache, the benchmark is its source.
+        Json::Value ScreenRecommended( const Json::Node& recommended, bool& migrated )
+        {
+            if ( recommended.GetKind() != Json::Kind::Object )
+                return recommended.Raw();
+            Json::ObjectBuilder rebuilt;
+            recommended.ForEachMember(
+                 [&]( std::string_view name, const Json::Node& member )
                  {
-                     if ( entry.As<Scalability::Level>() )
+                     std::size_t elements = 0;
+                     member.ForEachElement( [&]( std::size_t, const Json::Node& ) { ++elements; } );
+                     if ( name != "Levels" || member.GetKind() != Json::Kind::Array ||
+                          elements > Scalability::kGroupCount )
                      {
-                         kept.push_back( entry.Raw() );
+                         rebuilt.Set( name, member.Raw() );
                          return;
                      }
-                     const std::string_view group = Scalability::GroupKey( static_cast<Scalability::Group>( g ) );
-                     std::string            names;
-                     for ( std::size_t l = 0; l < Scalability::kLevelCount; ++l )
-                         std::format_to( std::back_inserter( names ), "{}{}", l == 0 ? "" : ", ",
-                                         Scalability::LevelKey( static_cast<Scalability::Level>( l ) ) );
-                     rejections.push_back( { std::format(
-                          "{}: the {} group's level {} is not a level ({}); the {} group runs at the level this "
-                          "device starts on with no choice (the benchmark's recommendation when it is valid "
-                          "for this device, else High), the other groups and the overrides stand",
-                          entry.Where().ToString(), group, Json::Write( entry.Raw() ), names, group ) } );
-                     unread.set( g );
-                     kept.push_back(
-                          Json::Value( std::string( Scalability::LevelKey( Scalability::Level::High ) ) ) );
+                     migrated = true;
+                     Json::ObjectBuilder levels;
+                     member.ForEachElement(
+                          [&]( std::size_t g, const Json::Node& entry )
+                          { levels.Set( Scalability::GroupKey( static_cast<Scalability::Group>( g ) ), entry.Raw() ); } );
+                     rebuilt.Set( name, Json::Value( levels.Build() ) );
                  } );
+            return Json::Value( rebuilt.Build() );
+        }
+
+        // THE ONE-TEMPORAL-METHOD MIGRATION (SCAL-TEMPORAL-ONE, owner 2026-10-27). An older build stored the
+        // temporal fact in two overrides: AntiAliasing.Method (TAA / FSRNative=5 / DLAA=6 at 100 %) and
+        // Resolution.Upscaler (below 100 %), plus AntiAliasing.TemporalUpscaler (TAAU / TSR) and the DLSS presets
+        // of the 100 % mode under "...DLAA" keys. A file is in that form iff it holds one of the retired keys; it
+        // is rewritten once (the host writes it back, `migrated`), and from then on a retired key is an override
+        // naming no parameter of this build (ScreenOverride), never mapped again:
+        //   Resolution.Upscaler FSR/DLSS/XeSS/MetalFX/TSR/RR -> AntiAliasing.Method = that method;
+        //   Resolution.Upscaler None/TAAU/Spatial            -> dropped (the method stands);
+        //   AntiAliasing.TemporalUpscaler TSR under TAA      -> AntiAliasing.Method TSR; dropped;
+        //   AntiAliasing.Method FSRNative(5)/DLAA(6), no vendor Upscaler
+        //                                                    -> FSR(5)/DLSS(6) at Resolution.Percent 100 (unless set);
+        //   AntiAliasing.DLSSPreset.DLAA / DLSSRRPreset.DLAA -> ...DLSSPreset.Native / ...DLSSRRPreset.Native.
+        // The retired integers are this function's own table (the enums they indexed no longer exist).
+        // Empty when the file is not in the retired form (the array is screened as written).
+        std::optional<Json::Value> MigrateTemporalOverrides( const Json::Node&         overrides,
+                                                             std::vector<std::string>& warnings, bool& migrated )
+        {
+            if ( overrides.GetKind() != Json::Kind::Array )
+                return std::nullopt;
+
+            constexpr std::string_view kMethodKey       = "AntiAliasing.Method";
+            constexpr std::string_view kPercentKey      = "Resolution.Percent";
+            constexpr std::string_view kOldUpscalerKey  = "Resolution.Upscaler";
+            constexpr std::string_view kOldEngineKey    = "AntiAliasing.TemporalUpscaler";
+            constexpr std::string_view kOldDlssPreset   = "AntiAliasing.DLSSPreset.DLAA";
+            constexpr std::string_view kOldDlssRRPreset = "AntiAliasing.DLSSRRPreset.DLAA";
+            // The retired Upscaler integers (None, TAAU, FSR, DLSS, XeSS, MetalFX, Spatial, TSR, RR) as methods;
+            // -1 = no method of its own (the method override stands).
+            using M                                      = Scalability::AntiAliasingMethod;
+            constexpr std::array<int, 9> kUpscalerMethod = { -1,
+                                                             -1,
+                                                             static_cast<int>( M::FSR ),
+                                                             static_cast<int>( M::DLSS ),
+                                                             static_cast<int>( M::XeSS ),
+                                                             static_cast<int>( M::MetalFX ),
+                                                             -1,
+                                                             static_cast<int>( M::TSR ),
+                                                             static_cast<int>( M::DLSSRayReconstruction ) };
+            constexpr int                kOldEngineTSR   = 1; // the retired EngineTemporalUpscaler { TAAU, TSR }
+
+            Json::Value::Array                          unread;
+            std::vector<Scalability::ParameterOverride> read;
+            bool                                        retired = false;
+            overrides.ForEachElement(
+                 [&]( std::size_t, const Json::Node& entry )
+                 {
+                     auto value = entry.As<Scalability::ParameterOverride>();
+                     if ( !value )
+                     {
+                         unread.push_back( entry.Raw() );
+                         return;
+                     }
+                     const std::string& key = value.GetValue().Key;
+                     retired                = retired || key == kOldUpscalerKey || key == kOldEngineKey ||
+                               key == kOldDlssPreset || key == kOldDlssRRPreset;
+                     read.push_back( value.ExtractValue() );
+                 } );
+            if ( !retired )
+                return std::nullopt;
+
+            const auto find = [&]( std::string_view key ) -> Scalability::ParameterOverride*
+            {
+                const auto it =
+                     std::find_if( read.begin(), read.end(),
+                                   [&]( const Scalability::ParameterOverride& o ) { return o.Key == key; } );
+                return it == read.end() ? nullptr : &*it;
+            };
+            std::optional<int> upscalerMethod;
+            if ( const auto* up = find( kOldUpscalerKey ) )
+                if ( up->Value >= 0 && up->Value < static_cast<int>( kUpscalerMethod.size() ) &&
+                     kUpscalerMethod[static_cast<std::size_t>( up->Value )] >= 0 )
+                    upscalerMethod = kUpscalerMethod[static_cast<std::size_t>( up->Value )];
+            const bool engineTSR = [&]
+            {
+                const auto* engine = find( kOldEngineKey );
+                return engine != nullptr && engine->Value == kOldEngineTSR;
+            }();
+
+            Scalability::ParameterOverride* method = find( kMethodKey );
+            const bool oldNative = method != nullptr && ( method->Value == static_cast<int>( M::FSR ) ||
+                                                          method->Value == static_cast<int>( M::DLSS ) );
+            if ( upscalerMethod )
+            {
+                if ( method != nullptr )
+                    method->Value = *upscalerMethod;
+                else
+                    read.push_back( { std::string( kMethodKey ), *upscalerMethod } );
+            }
+            else if ( engineTSR && method != nullptr && method->Value == static_cast<int>( M::TAA ) )
+                method->Value = static_cast<int>( M::TSR );
+            else if ( oldNative && find( kPercentKey ) == nullptr )
+                read.push_back( { std::string( kPercentKey ), 100 } );
+
+            std::erase_if( read, [&]( const Scalability::ParameterOverride& o )
+                           { return o.Key == kOldUpscalerKey || o.Key == kOldEngineKey; } );
+            for ( Scalability::ParameterOverride& o : read )
+            {
+                if ( o.Key == kOldDlssPreset )
+                    o.Key = "AntiAliasing.DLSSPreset.Native";
+                else if ( o.Key == kOldDlssRRPreset )
+                    o.Key = "AntiAliasing.DLSSRRPreset.Native";
+            }
+
+            Json::Value::Array kept = std::move( unread );
+            for ( const Scalability::ParameterOverride& o : read )
+                kept.push_back(
+                     Json::Value( Json::ObjectBuilder().Set( "Key", o.Key ).Set( "Value", o.Value ).Build() ) );
+            migrated = true;
+            warnings.push_back(
+                 "Quality.Overrides migrated to the one-temporal-method form (AntiAliasing.Method "
+                 "carries the temporal method, Resolution.Upscaler / AntiAliasing.TemporalUpscaler "
+                 "retired, DLSS presets of the 100 % mode under ...Native); the file is rewritten" );
             return Json::Value( std::move( kept ) );
         }
 
         // The Quality member with its Levels and Overrides screened. A Quality that is not an object comes back as
         // written: the member check refuses it whole.
         Json::Value ScreenQuality( const Json::Node& quality, std::vector<Rejection>& rejections,
-                                   MachineSettings::LevelGroups& unread )
+                                   LevelsScreen levelsOut )
         {
             if ( quality.GetKind() != Json::Kind::Object )
                 return quality.Raw();
@@ -225,9 +450,15 @@ namespace Common::Settings
                  [&]( std::string_view name, const Json::Node& member )
                  {
                      if ( name == "Levels" )
-                         rebuilt.Set( name, ScreenLevels( member, rejections, unread ) );
+                         rebuilt.Set( name, ScreenLevels( member, levelsOut ) );
                      else if ( name == "Overrides" )
-                         rebuilt.Set( name, ScreenOverrides( member, rejections ) );
+                     {
+                         const std::optional<Json::Value> migrated =
+                              MigrateTemporalOverrides( member, levelsOut.Warnings, levelsOut.Migrated );
+                         rebuilt.Set( name, migrated ? ScreenOverrides( Json::Root( *migrated, member.Where() ),
+                                                                        rejections )
+                                                     : ScreenOverrides( member, rejections ) );
+                     }
                      else
                          rebuilt.Set( name, member.Raw() );
                  } );
@@ -254,8 +485,11 @@ namespace Common::Settings
                  [&]( std::string_view name, const Json::Node& member )
                  {
                      const Json::Value value =
-                          name == "Quality" ? ScreenQuality( member, screened.Rejections, screened.UnreadLevels )
-                                            : member.Raw();
+                          name == "Quality"       ? ScreenQuality( member, screened.Rejections,
+                                                                   { screened.Rejections, screened.Warnings,
+                                                                     screened.UnreadLevels, screened.LevelsMigrated } )
+                          : name == "Recommended" ? ScreenRecommended( member, screened.LevelsMigrated )
+                                                  : member.Raw();
                      const Json::Value alone( Json::ObjectBuilder().Set( name, value ).Build() );
                      if ( auto read = Json::Root( alone ).As<MachineSettings>(); !read )
                      {
@@ -324,9 +558,12 @@ namespace Common::Settings
                 LOG_WARN( "[Machine] {} holds {} entr{} refused at load; a write now leaves {} out.",
                           s_File.string(), dropped, dropped == 1 ? "y" : "ies", dropped == 1 ? "it" : "them" );
 
-            MachineSettings fromDisk = std::move( parsed.ExtractValue().Settings );
+            ScreenedFile    screened = parsed.ExtractValue();
+            MachineSettings fromDisk = std::move( screened.Settings );
 
-            const std::string canonical        = Json::Write( fromDisk );
+            // A file whose Quality.Levels had to be MIGRATED (the former positional list, a missing group) does
+            // not say what its canonical form says: an empty memo, so the write-back is not skipped as a no-op.
+            const std::string canonical        = screened.LevelsMigrated ? std::string{} : Json::Write( fromDisk );
             MachineSettings::Get().UnknownKeys = std::move( fromDisk.UnknownKeys );
             return canonical;
         }
@@ -351,6 +588,7 @@ namespace Common::Settings
         // claim the disk agrees with us" and forces the next save to write. That is the safe direction.
         s_OnDisk.clear();
         s_UnreadLevels.reset();
+        s_LevelsMigrated = false;
 
         // This machine has never chosen anything: the defaults stand, and no error line — an absent file
         // is the expected first-run state, not a failure.
@@ -394,6 +632,9 @@ namespace Common::Settings
 
         ScreenedFile screened = parsed.ExtractValue();
         s_UnreadLevels        = screened.UnreadLevels;
+        s_LevelsMigrated      = screened.LevelsMigrated && screened.Settings.Quality.has_value();
+        for ( const std::string& warning : screened.Warnings )
+            LOG_WARN( "[Machine] {}: {}", s_File.string(), warning );
         for ( const Rejection& rejection : screened.Rejections )
             LOG_ERROR( "[Machine] {}: {}{}", s_File.string(), rejection.Problem,
                        rejection.Dropped ? " — the next saved change writes the file without it." : "." );
@@ -425,9 +666,8 @@ namespace Common::Settings
         // about whether to go and look for the build that wrote them.
         if ( !Get().UnknownKeys.empty() )
         {
-            std::string names = Get().UnknownKeys.begin()->first;
-            for ( auto it = std::next( Get().UnknownKeys.begin() ); it != Get().UnknownKeys.end(); ++it )
-                names += ", " + it->first;
+            const std::string names = Common::Text::Join( Get().UnknownKeys, ", ",
+                                                          []( const auto& unknown ) { return unknown.first; } );
 
             LOG_WARN( "[Machine] {} holds {} key(s) this build does not know ({}); they belong to another "
                       "build and are preserved on save, not dropped.",
@@ -459,6 +699,11 @@ namespace Common::Settings
         return s_UnreadLevels;
     }
 
+    bool MachineSettings::LevelsMigrated()
+    {
+        return s_LevelsMigrated;
+    }
+
     Scalability::QualitySelection MachineSettings::HighSelection()
     {
         Scalability::QualitySelection selection;
@@ -466,8 +711,18 @@ namespace Common::Settings
         return selection;
     }
 
+    void MachineSettings::KeepInSession( std::string_view why )
+    {
+        s_KeepInSession = true;
+        LOG_INFO( "[Machine] {}: machine settings change for this process only, {} is not written", why,
+                  s_File.string() );
+    }
+
     bool MachineSettings::Save()
     {
+        if ( s_KeepInSession )
+            return true; // the values live in Get() for this process (KeepInSession)
+
         if ( s_File.empty() )
         {
             LOG_ERROR( "[Machine] a quality change was not saved: this process never called "

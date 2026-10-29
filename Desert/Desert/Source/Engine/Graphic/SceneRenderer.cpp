@@ -1,4 +1,7 @@
+#include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SceneDepthResolveRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/GraphColorResolveRenderer.hpp>
@@ -23,7 +26,10 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Engine/Graphic/ViewBudgetGate.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
+#include <unordered_set>
 #include <mutex>
 #include <Common/Core/Units.hpp>
 
@@ -42,6 +48,7 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
@@ -369,11 +376,9 @@ namespace Desert::Graphic
             }
             case 5:
             {
-                const auto& jumpFloodSystem =
-                     SP_CAST( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] );
-                // Tonemap consumes the Jump Flood output (the outlined scene).
-                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this,
-                                                         jumpFloodSystem->GetSystemFramebuffer() );
+                // The tonemap reads the frame's post input, or the outline's transient output when something is
+                // outlined (AddFrameJumpFlood); its own image is sized from the scene target here.
+                RegisterSystem<System::TonemapRenderer>( "TonemapSystem", this, m_TargetFramebuffer );
                 const auto& tonemapSystem = SP_CAST( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] );
                 if ( !tonemapSystem->Initialize() )
                     LOG_ERROR(
@@ -551,7 +556,13 @@ namespace Desert::Graphic
                 if ( const auto deferredInit = deferred->Initialize(); !deferredInit )
                     LOG_WARN( "[SceneRenderer] Deferred lighting system unavailable: {}",
                               deferredInit.GetError() );
-                m_ProgramRefusals.Shadows = deferred->Refusals().Shadows;
+                RefuseShadowPrograms( deferred->Refusals() );
+                // The screen-space subsurface scatter (SSS-PROFILE): without it the profile materials shade unsplit.
+                RegisterSystem<System::SubsurfaceRenderer>( "SubsurfaceSystem", this, m_TargetFramebuffer );
+                if ( const auto subsurfaceInit =
+                          SP_CAST( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] )->Initialize();
+                     !subsurfaceInit )
+                    LOG_ERROR( "[SceneRenderer] Subsurface scattering unavailable: {}", subsurfaceInit.GetError() );
                 return "DeferredLighting";
             }
             case 20:
@@ -565,6 +576,12 @@ namespace Desert::Graphic
                     LOG_ERROR(
                          "[SceneRenderer] auto-exposure did not initialise; exposure stays at its default." );
                 tonemapSystem->SetAutoExposureImage( autoExposureSystem->GetAdaptedLuminanceImage() );
+                // Local exposure (UE Bilateral): grid + blurred log luminance the tonemap and the bloom read.
+                RegisterSystem<System::LocalExposureRenderer>( "LocalExposureSystem", this, m_TargetFramebuffer );
+                if ( const auto le =
+                          SP_CAST( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] )->Initialize();
+                     !le )
+                    LOG_ERROR( "[SceneRenderer] local exposure did not initialise: {}", le.GetError() );
                 return "AutoExposure";
             }
             case 21:
@@ -632,6 +649,25 @@ namespace Desert::Graphic
                   m_ViewResources.GetName(), m_RenderSystemOrder.size() );
     }
 
+    void SceneRenderer::ReleaseWorldResources()
+    {
+        const ActiveViewScope          viewScope( m_ViewResources );
+        const ResourceAttributionScope ledger = OpenViewLedgerScope();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
+        m_OwnSurfaceCache.reset();
+        m_RadianceCache.reset();
+        m_ScreenProbeGather.reset();
+        m_IrradianceFieldGather.reset();
+        m_GlobalDistanceFieldView.reset();
+        m_OwnGlobalDistanceField.reset();
+        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
+            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->ReleaseWorldCaches();
+        ResetTemporalHistory();
+        LOG_INFO( "[SceneRenderer] {}: the old world's view resources released (surface cache, radiance cache, "
+                  "probe gathers, global distance field, terrain materials).",
+                  m_ViewResources.GetName() );
+    }
+
     namespace
     {
         // A view's name: what kind of surface it is and a serial that is never reused, so two log lines
@@ -645,7 +681,7 @@ namespace Desert::Graphic
                 kind = "preview";
             else if ( profile == kThumbnailViewProfile )
                 kind = "thumbnail";
-            return std::string( kind ) + " #" + std::to_string( number );
+            return std::format( "{} #{}", kind, number );
         }
 
         // Every live renderer, so the view budget can name what each holds. Guarded: views are built and
@@ -720,9 +756,11 @@ namespace Desert::Graphic
             LOG_ERROR( "[Resources] {} closed but {} ledger rows ({} bytes) still carry it: a view member's "
                        "device object outlived the view.",
                        ResourceOwnerInstanceName( Instance ), left.Live, left.Bytes );
-            // Each by kind, claiming owner and size: the row names no object, these find its holder.
+            // Each by name (where its creator recorded one), kind, claiming owner and size: these find its holder.
             for ( const ResourceRowSummary& row : ResourceLedger::RowsOf( Instance ) )
-                LOG_ERROR( "[Resources]   row #{}: {} claimed by {}, {}", row.Id, ResourceKindName( row.Kind ),
+                LOG_ERROR( "[Resources]   row #{}: {} '{}' claimed by {}, {}", row.Id,
+                           ResourceKindName( row.Kind ),
+                           row.Name.empty() ? std::string_view( "unnamed" ) : std::string_view( row.Name ),
                            ResourceOwnerName( row.Owner ),
                            row.BytesKnown ? std::format( "{} bytes", row.Bytes ) : std::string( "size unknown" ) );
         }
@@ -830,12 +868,16 @@ namespace Desert::Graphic
         const ActiveViewScope viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
+        // The LOD preview lease (SetLODPreview) lapses unless the tool renewed it since the last frame.
+        if ( m_LODPreview.FramesLeft > 0 )
+            --m_LODPreview.FramesLeft;
+
         // HANDED IN, NOT READ OFF THE SCENE. This used to be `scene.GetMainCamera()`, which is the same
         // answer for every renderer of that scene — so a second view of one world rendered from the
         // first view's camera, and "several viewports" could only ever mean "several worlds". The scene
         // holds a LIST of views now and each one carries its own camera; the view says which.
         m_SceneInfo.ActiveCamera = camera;
-        // The world this frame draws and its clock (ViewInputs::SceneIdentity / TimeSeconds, OnUpdate).
+        // The world this frame draws and its clock (its generation keys CameraIdentity; TimeSeconds, OnUpdate).
         m_SceneGeneration  = scene.GetGeneration();
         m_SceneTimeSeconds = scene.GetWorldTime().GetGameTimeSeconds();
         // The world's parameters, snapshotted once for every pass of this view's frame (per-frame state).
@@ -848,7 +890,9 @@ namespace Desert::Graphic
         // The scene's one sky light: this view reads it, and captures it when it is the frame's first view.
         skyboxSystem->SetSceneSkyLight( scene.GetSkyLight() );
 
-        m_ScenePlaying = scene.IsPlaying(); // grid & other authoring aids hide while the game runs
+        // Grid & other authoring aids hide while the game runs - not while it is simulated (UE: Simulate In
+        // Editor keeps the editor's viewport and its overlays).
+        m_ScenePlaying = scene.IsPlaying() && !scene.IsSimulating();
         // The scene's extension passes, for AddExtensionPoint while OnUpdate builds this frame.
         m_FrameExtensions = &scene.GetExtensionPasses();
 #if DESERT_DEV_INSTRUMENTS
@@ -861,9 +905,13 @@ namespace Desert::Graphic
         m_FrameReflectionCaptures = &scene.GetReflectionCaptures();
         // The scene's ray-tracing geometry (skin cache, BLAS variants), shared by this frame's views.
         m_FrameRayTracingCache = &scene.GetRayTracingCache();
+        // The scene's GPU scene (primitives, instances, palettes), synced and read by this frame's views.
+        m_FrameGpuScene = &scene.GetGpuScene();
         m_SceneLedgerInstance  = scene.GetLedgerInstance();
         // The scene's local-light shadow cache, which this view's lights draw into and read (UpdateLocalShadows).
         m_FrameLocalShadows = &scene.GetLocalShadows();
+        // The scene's mesh distance fields, which this view's global distance field composites from.
+        m_FrameDistanceFields = &scene.GetDistanceFields();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -897,7 +945,7 @@ namespace Desert::Graphic
         // why turning it on in the default Deferred path did nothing at all.
         //
         // LightingDebug is the per-light attribution view, and it is a BRANCH IN THE Lit MESH SHADERS
-        // (u_DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / SkinnedMeshLit). The deferred
+        // (DebugParams.y, StaticMeshLit / StaticMeshLit_Instanced / StandardSurface's Vertex_Skinned cell). The deferred
         // lighting pass writes `DebugParams = vec4(0)` unconditionally — MaterialDeferredLighting's
         // UploadShadow — so the flag reaches no shader on that path. Forty-six of this repository's
         // forty-nine scenes state Deferred and the struct's default is Deferred, so WITHOUT this line the
@@ -928,6 +976,10 @@ namespace Desert::Graphic
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
+        // A shader recompiled since the standing program refusals were made: every refused method is resolved and
+        // asked for again this frame (a fixed program draws, one still broken is refused again without a new
+        // line).
+        RetryRefusedProgramsAfterRecompile();
         // The captures' programs serve every Reflections method that reads the captures: built here, before the
         // resolution, so one that did not build refuses those methods from this frame on (by its name).
         if ( !m_FrameReflectionCaptures->EnsurePipelines() )
@@ -947,23 +999,54 @@ namespace Desert::Graphic
         // A PATH-TRACED VIEW renders its own anti-aliasing: each path starts at a random point of its pixel and
         // the accumulation averages them (UE RenderPathTracing bypasses TAA/TSR the same way). No temporal method,
         // no FXAA/SMAA after it, no jitter; the view resolution is native (OnUpdate). The sample count stays the
-        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled.
-        if ( PathTraced( m_RenderMethods ) )
+        // scene path's one: PathTraced needs the G-buffer, and the deferred path is never multisampled. Except
+        // under PathTracing.Denoiser RR (System::PathTracer::KeepsDenoisingUpscaler): the view runs DLSS Ray
+        // Reconstruction whatever AntiAliasing.Method asks - the denoiser is the path tracer's setting, as UE's
+        // r.PathTracing.Denoiser is - the paths go to it raw through the jittered pixel centres, and it is the
+        // anti-aliasing.
+        if ( PathTraced( m_RenderMethods ) && System::PathTracer::KeepsDenoisingUpscaler( quality ) &&
+             !m_DebugView.WireframeMode )
+        {
+            m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::DLSSRayReconstruction;
+            m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.Reason      = "PathTracing.Denoiser RR: Ray Reconstruction denoises the paths";
+            m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
+        }
+        else if ( PathTraced( m_RenderMethods ) )
         {
             m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
             m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
             m_RenderedAntiAliasing.Reason      = "the path tracer averages its own sub-pixel paths";
             m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
         }
+        // THE WIREFRAME VIEW RENDERS NO ANTI-ALIASING (UE EngineShowFlagOverride: "Disable AA in full wireframe
+        // mode", AntiAliasing off for VMI_Wireframe). Its image is one-pixel lines over the background: a temporal
+        // method's neighbourhood clip cannot tell a stale line from a current one beside it, so the history of a
+        // mesh replaced in place (an Undo of a sculpt stroke: same entity, same transform, zero velocity) kept the
+        // old dense lines for dozens of frames, and the jitter only made every line shimmer. No temporal method,
+        // no FXAA/SMAA, no jitter, native resolution (OnUpdate), as for the path tracer above.
+        else if ( m_DebugView.WireframeMode )
+        {
+            m_RenderedAntiAliasing.Method      = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.PostProcess = Common::Scalability::AntiAliasingMethod::None;
+            m_RenderedAntiAliasing.Reason      = "the wireframe view draws one-pixel lines, unfiltered";
+            m_AAMode                           = Common::Scalability::AntiAliasingMethod::None;
+        }
         m_GIIntensity    = post.GIIntensity;
+        m_SubsurfaceScattering = post.SubsurfaceScattering;
+        m_SubsurfaceScale      = post.SubsurfaceScale;
         m_SSRIntensity   = post.SSRIntensity;
         m_SSRMaxDistance = post.SSRMaxDistance;
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
+        m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
+        m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
         m_ScreenProbeAdaptivePercent = quality.As<uint32_t>( Parameter::ScreenProbeAdaptiveAllocation );
         m_ScreenProbeShortRangeAO    = quality.As<int>( Parameter::ScreenProbeShortRangeAO ) != 0;
+        m_ScreenProbeDownsample      = quality.As<uint32_t>( Parameter::ScreenProbeDownsample );
+        m_ScreenProbeTracedTexels    = quality.As<uint32_t>( Parameter::ScreenProbeTracedTexels );
         m_ContactShadowSteps                  = quality.As<int>( Parameter::ShadowContactSteps );
         m_ParallaxQuality = ParallaxQuality{ .MinSteps    = quality.As<int>( Parameter::ShadingParallaxMinSteps ),
                                              .MaxSteps    = quality.As<int>( Parameter::ShadingParallaxMaxSteps ),
@@ -1007,11 +1090,18 @@ namespace Desert::Graphic
         // The view's memory census sizes the SSR trace from the profile, so the profile holds the factor.
         m_ViewProfile.ReflectionDownsampleFactor = quality.As<uint32_t>( Parameter::ReflectionDownsampleFactor );
         m_ScreenSpaceGISamples                = quality.As<int>( Parameter::ScreenSpaceGISamples );
-        m_PathTracingSettings                 = System::PathTracer::Settings{
-                             .SamplesPerPixel = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
-                             .PathsPerFrame   = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
-                             .MaxBounces      = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ) };
+        m_PathTracingSettings                    = System::PathTracer::Settings{
+                                .SamplesPerPixel  = quality.As<uint32_t>( Parameter::PathTracingSamplesPerPixel ),
+                                .PathsPerFrame    = quality.As<uint32_t>( Parameter::PathTracingPathsPerFrame ),
+                                .MaxBounces       = quality.As<uint32_t>( Parameter::PathTracingMaxBounces ),
+                                .MaxPathIntensity = quality.As<float>( Parameter::PathTracingMaxPathIntensity ),
+                                .Denoiser =
+                  quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
+                                .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
+                  quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
+        m_SunCastsShadows       = shadows.Enabled;
         m_SunContactShadowLength              = shadows.Enabled ? shadows.ContactShadowLength : 0.0f;
         m_SunContactShadowLengthInWorldSpace  = shadows.ContactShadowLengthInWorldSpace;
         m_SunContactShadowCastingIntensity    = shadows.ContactShadowCastingIntensity;
@@ -1023,15 +1113,48 @@ namespace Desert::Graphic
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
-        // THE SHADOW BUDGET is not taken here: it follows the FRAME's sun-shadow path, which OnUpdate decides
-        // after the view's TLAS (LowerShadowsForFrame) - RebudgetShadowsFor, called there before the maps are
-        // imported.
+        // THE SHADOW BUDGET is not taken here: OnUpdate takes it at the head of the frame, before the cascades are
+        // fitted (RebudgetShadowsFor), from the m_RenderMethods resolved above.
 
         // GPU particles: snapshot the scene's emitters (CPU) here; the compute sim is dispatched in OnUpdate
         // before the render graph, and the billboard pass draws in AddFrameTranslucency.
         // A reflection capture's face view neither draws nor simulates them (AddFrameParticlesSimulate).
         if ( !m_ViewProfile.SceneCapture )
+        {
+            // VFX-11: this view's origin and Effects particle rows go to the world's next scalability decision
+            // (VFXWorld::Tick) - the world decides once for all views, not here.
+            if ( const auto* cam = GetMainCamera() )
+            {
+                ::Desert::VFX::VFXViewReport report{
+                     .Origin          = cam->GetPosition(),
+                     .SpawnCountScale = quality.As<double>( Parameter::EffectsSpawnCountScalePercent ) / 100.0,
+                     .EffectsLevel    = quality.As<int>( Parameter::EffectsQualityLevel ),
+                     .MaxWorldParticles =
+                          static_cast<std::uint32_t>( quality.As<int>( Parameter::EffectsMaxWorldParticles ) ) };
+                // The view's frustum (Gribb-Hartmann on clip = P * V, depth 0..1): six inward planes, normalized;
+                // a degenerate plane (an infinite far plane) culls nothing.
+                const glm::mat4 clip = glm::mat4( cam->GetProjectionMatrix() ) * glm::mat4( cam->GetViewMatrix() );
+                const auto      row  = [&clip]( const int r )
+                { return glm::vec4( clip[0][r], clip[1][r], clip[2][r], clip[3][r] ); };
+                const std::array<glm::vec4, 6> planes = {
+                     row( 3 ) + row( 0 ), row( 3 ) - row( 0 ), row( 3 ) + row( 1 ), row( 3 ) - row( 1 ), row( 2 ),
+                     row( 3 ) - row( 2 ) };
+                for ( std::size_t i = 0; i < planes.size(); ++i )
+                {
+                    const float length = glm::length( glm::vec3( planes[i] ) );
+                    report.FrustumPlanes[i] =
+                         length > 1.0e-6f ? planes[i] / length : glm::vec4( 0.0f, 0.0f, 0.0f, 1.0f );
+                }
+                report.HasFrustum = true;
+                scene.GetVFXWorld().SubmitView( report );
+            }
             UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] )->PrepareFrame( scene );
+            // VFX-LIGHT (UE Niagara Light Renderer): the scene's particle lights join this view's local lights -
+            // the same light grid, composite and forward paths as a PointLightComponent's, casting no shadow.
+            for ( const ShaderProtocols::PointLightPayload& light :
+                  System::ParticleWorldGpu::Of( scene.GetVFXWorld() ).ParticleLights() )
+                AddPointLight( light, LocalLightShadowSettings{ .CastShadows = false } );
+        }
 
         // The rest of what reads time in a frame reads the SCENE'S clock (Core::WorldTime), handed over
         // here: the material Time uniform and the eye adaptation step.
@@ -1047,6 +1170,41 @@ namespace Desert::Graphic
         // The manual exposure as the scale the composite multiplies by (UE Manual metering, EV100).
         const float manualExposure = ManualExposureScale( post.ManualExposureEV100, post.AutoExposureKey );
         UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] )->SetParams( manualExposure );
+        // ScenePreExposure's source (UE FViewInfo::UpdatePreExposure): the exposure this view tonemaps with as the
+        // CPU knows it — manual: the scale above; auto: key / the adapted luminance read back FramesInFlight
+        // frames ago (0 until the first copy is written). A capture view keeps 0 -> 1.0: its output is stored
+        // absolute.
+        m_LastExposure = 0.0f;
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            if ( !post.AutoExposure )
+                m_LastExposure = manualExposure;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            else if ( auto* ae =
+                           UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            {
+                const float lum = ae->ReadBackAdaptedLuminance();
+                m_LastExposure  = lum > 0.0f ? post.AutoExposureKey / std::max( lum, 1e-4f ) : 0.0f;
+                LOG_TRACE( "[PreExposure] {}: read-back adapted luminance {} -> exposure {}",
+                           m_ViewResources.GetName(), lum, m_LastExposure );
+                // UE UpdatePreExposure x AverageLocalExposure (PostProcessEyeAdaptation.cpp:1559,1587): the
+                // tonemap scales the scene term by local exposure, so the stored range follows it.
+                m_LastAverageLocalExposure = ae->GetLastAverageLocalExposure();
+            }
+        }
+        if ( !post.AutoExposure || m_ViewProfile.SceneCapture )
+            m_LastAverageLocalExposure = 1.0f;
+        {
+            const LocalExposureParams localExposure = ResolveLocalExposure( post );
+            const float               logMiddleGrey = LocalExposureLogMiddleGrey(
+                 post.AutoExposureKey, localExposure.MiddleGreyBiasEV, !post.AutoExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+                le->SetParams( localExposure, logMiddleGrey, m_LastExposure > 0.0f ? m_LastExposure : manualExposure );
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* ae = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+                ae->SetLocalExposure( localExposure, logMiddleGrey, post.AutoExposureKey );
+        }
         // The physical sky's on-screen ceiling follows the LOWEST exposure this view can use — the manual scale,
         // or the meter clamped at Max EV100 — so a sky the exposure can show is never cut (SkyLuminanceCeiling).
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
@@ -1165,13 +1323,15 @@ namespace Desert::Graphic
         return BOOLSUCCESS;
     }
 
-    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE FRAME'S SUN PATH (UE re-creates its shadow depth targets
-    // on r.Shadow.*). Asked when the quality generation or the sun path the budget was taken for moved - a level
-    // change or a sun that starts/stops being ray traced, never per frame otherwise - and the maps are
-    // re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The profile is
-    // updated with them so the view's memory census keeps describing what is allocated. The sun path is part of
-    // the budget (ShadowQualityOf): a ray-traced sun keeps only the low-detail cascades; a frame that fell back to
-    // CascadedMaps gets the full ones.
+    // THE SHADOW BUDGET FOLLOWS THE SHADOWS LEVEL AND THE VIEW'S RESOLVED SUN PATH (UE re-creates its shadow depth
+    // targets on r.Shadow.*, never per frame). Asked when the quality generation or the resolved sun path the
+    // budget was taken for moved - a level change or a Shadows method that starts/stops being a screen mask - and
+    // the maps are re-allocated only when the budget really differs (ShadowReallocation, ViewMemory.hpp). The
+    // profile is updated with them so the view's memory census keeps describing what is allocated. The sun path is
+    // part of the budget (ShadowQualityOf): a screen-mask sun keeps only the low-detail cascades. A frame whose
+    // TLAS is not built draws those low-detail cascades for that frame (LowerShadowsForFrame) rather than
+    // re-allocating the maps twice around it. Called at the head of OnUpdate only, before any shadow view of the
+    // frame is planned.
     void SceneRenderer::RebudgetShadowsFor( const Common::Scalability::ResolvedQuality& quality,
                                             const bool                                  sunRayTraced )
     {
@@ -1203,6 +1363,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
         // is its OUTER-SPACE illuminance in the physical model; what reaches the ground has crossed the
@@ -1226,19 +1387,45 @@ namespace Desert::Graphic
             colorIntensity.y *= transmittance.y;
             colorIntensity.z *= transmittance.z;
         }
+        // Atmosphere light 1 (the moon) by the same law, through its own direction's factor.
+        if ( m_AtmosphereLight1 )
+        {
+            const glm::vec3 transmittance  = skyboxSystem->GetAtmosphere().Light1TransmittanceAtGround;
+            glm::vec4&      colorIntensity = m_AtmosphereLight1->Light.ColorIntensity;
+            colorIntensity.x *= transmittance.x;
+            colorIntensity.y *= transmittance.y;
+            colorIntensity.z *= transmittance.z;
+        }
 
         // Decide whether the procedural sky's light is (re)captured this frame and allocate the capture, before
         // the render graph is built: its passes are recorded by AddFrameSkyLight at the head of the graph.
         {
             DESERT_PROFILE_PASS( "Sky: EnsureProceduralEnv" );
+            // The sky block first, inside this view's scope: the capture and the graph below read it.
+            skyboxSystem->UploadFrameSkyParams();
             skyboxSystem->EnsureProceduralEnvironment( sceneRenderInfo.RealTimestep.GetSeconds() );
         }
+
+        // THE SHADOW BUDGET, AT THE FRAME BOUNDARY: taken before ANY shadow view of this frame is planned - the
+        // cascades below, the rain occlusion's view, the local lights' views, the VSM pages - from the Shadows
+        // method the view RESOLVED (BeginScene), not the per-frame TLAS fallback (LowerShadowsForFrame, later in
+        // this function). A re-budget drains the device and re-makes the maps and the local rows
+        // (MeshRenderer::RebudgetShadows); taken in the middle of the frame, it destroyed what that frame had
+        // already planned and the frame recorded it (SHADOW-CINE-ABORT: Shadows Cinematic switched on live, the
+        // rain occlusion's view drew through a null caster material and the editor aborted).
+        RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
 
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
         // nothing: its Declare and record only read the matrices).
         {
             DESERT_PROFILE_PASS( "Shadow: UpdateCascades" );
-            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->UpdateCascades();
+            auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            // The particles' Mesh rows submit their casters from the render graph, after this plan (VFX-09).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+            meshes->ExpectGpuInstancedCasters( !m_ViewProfile.SceneCapture && particles != nullptr &&
+                                               particles->HasMeshRows() );
+            meshes->UpdateCascades();
         }
         // The rain occlusion's box, and whether its map is redrawn this frame (the same boundary: its pass only
         // reads the matrix).
@@ -1259,6 +1446,10 @@ namespace Desert::Graphic
         // every barrier and layout transition. A pass this frame does not run is not added. The lambdas run inside
         // Execute, after the whole graph is built, so a value one pass hands a later one travels through `values`,
         // which outlives Execute; everything else they need is captured by value.
+        // Every CPU stage of the graph's build and execution is a row of its own, so the body has no time that
+        // no child scope accounts for.
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
 
@@ -1276,22 +1467,30 @@ namespace Desert::Graphic
             inputs.CameraIdentity = MakeViewCameraIdentity( m_SceneGeneration, cam->GetSourceId() );
         }
         inputs.CameraCut                         = m_CameraCutPending;
-        inputs.SceneIdentity                     = m_SceneGeneration;
         inputs.Output                            = m_ViewExtent;
-        // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and Upscaler,
-        // the method they select, clamped to a split the method's upscaler supports. Its refusal refuses the
-        // frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
+        // THE ONE PER-VIEW RESOLUTION (ResolveViewResolution): the resolved RenderScalePercent and AA method,
+        // the temporal method they select, clamped to a split the method's upscaler supports. Its refusal refuses
+        // the frame by name; a clamp is said. The view's temporal upscaler is made for the resolved method here.
         using Common::Scalability::Parameter;
         // A path-traced view traces every output pixel (UE: the path tracer renders at 100 %, no upscaler): its
         // accumulation is the image, and an upscaler's history would only blur the converging estimate.
         int                settingPercent  = m_Quality.As<int>( Parameter::RenderScalePercent );
         std::optional<int> overridePercent = m_DebugView.ScreenPercentage;
-        auto               upscaler        = m_Quality.As<Common::Scalability::Upscaler>( Parameter::Upscaler );
-        if ( PathTraced( m_RenderMethods ) )
+        // The wireframe view renders without anti-aliasing (BeginScene): no temporal method to reconstruct with. A
+        // path-traced view under PathTracing.Denoiser RR keeps Ray Reconstruction and the render scale, at most
+        // 100 %: the network takes no supersampled input (SupersampleRefusal), and a supersampled path-traced
+        // frame would only trace pixels the network discards (System::PathTracer::KeepsDenoisingUpscaler).
+        const bool pathTraced = PathTraced( m_RenderMethods );
+        if ( ( pathTraced && !System::PathTracer::KeepsDenoisingUpscaler( m_Quality ) ) || m_DebugView.WireframeMode )
         {
             settingPercent  = 100;
             overridePercent = std::nullopt;
-            upscaler        = Common::Scalability::Upscaler::None;
+        }
+        else if ( pathTraced )
+        {
+            settingPercent = std::min( settingPercent, 100 );
+            if ( overridePercent )
+                overridePercent = std::min( *overridePercent, 100 );
         }
         // A vendor method its runtime stopped offering (DLSS after an exception inside its evaluation) renders
         // with the engine's method instead, said once per reason; the frame never waits on a method that cannot
@@ -1299,7 +1498,7 @@ namespace Desert::Graphic
         // Ray Reconstruction is refused also by the VIEW: it denoises traced lighting, so a view that traces none
         // (or renders the forward path, which has no G-buffer for its guides) runs DLSS Super Resolution instead.
         const VendorMethodFallback vendor = ReplaceUnavailableVendorMethods(
-             m_RenderedAntiAliasing, upscaler,
+             m_RenderedAntiAliasing,
              [this]( const TemporalMethod method ) -> std::string
              {
                  if ( method == TemporalMethod::DLSSRR )
@@ -1318,14 +1517,13 @@ namespace Desert::Graphic
             m_VendorFallbackSaid = vendor.Why;
         }
         m_RenderedAntiAliasing                           = vendor.AntiAliasing;
-        const Common::ResultStr<ViewResolution> resolved = ResolveViewResolution(
-             m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing, vendor.Upscaler,
-             m_Quality.As<Common::Scalability::EngineTemporalUpscaler>( Parameter::TemporalUpscaler ),
-             [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
-             {
-                 EnsureTemporalUpscaler( method );
-                 return m_TemporalUpscaler.get();
-             } );
+        const Common::ResultStr<ViewResolution> resolved =
+             ResolveViewResolution( m_ViewExtent, settingPercent, overridePercent, m_RenderedAntiAliasing,
+                                    [this]( const TemporalMethod method ) -> const ITemporalUpscaler*
+                                    {
+                                        EnsureTemporalUpscaler( method );
+                                        return m_TemporalUpscaler.get();
+                                    } );
         if ( !resolved )
         {
             LOG_ERROR( "[SceneRenderer] {}: the view's resolution is refused, frame not drawn: {}",
@@ -1347,6 +1545,7 @@ namespace Desert::Graphic
                                    ? glm::vec3( 0.0f )
                                    : glm::normalize( -glm::vec3( m_DirectionLights.DirectionLights[0].Direction ) );
         m_LastRenderScalePercent                 = inputs.RenderScalePercent;
+        inputs.LastExposure                      = m_LastExposure * m_LastAverageLocalExposure;
         const Common::ResultStr<ViewFrame> begun = m_ViewState.BeginFrame( inputs, m_TemporalUpscaler.get() );
         if ( !begun )
         {
@@ -1356,6 +1555,23 @@ namespace Desert::Graphic
         }
         m_CameraCutPending     = false;
         const ViewFrame& frame = begun.GetValue();
+        // The scale this frame's scene colour is stored at: the readers that undo it (ViewFrame::PreExposure).
+        // A view without the post chain (a capture face) has neither system.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* tonemap = UNIQUE_GET_AS( System::TonemapRenderer, m_RenderSystems["TonemapSystem"] ) )
+            tonemap->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* autoExp = UNIQUE_GET_AS( System::AutoExposureRenderer, m_RenderSystems["AutoExposureSystem"] ) )
+            autoExp->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* le = UNIQUE_GET_AS( System::LocalExposureRenderer, m_RenderSystems["LocalExposureSystem"] ) )
+            le->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* bloom = UNIQUE_GET_AS( System::BloomRenderer, m_RenderSystems["BloomSystem"] ) )
+            bloom->SetPreExposure( frame.PreExposure );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* shafts = UNIQUE_GET_AS( System::LightShaftRenderer, m_RenderSystems["LightShaftSystem"] ) )
+            shafts->SetPreExposure( frame.PreExposure );
         // THE RENDER SET AT THE FRAME'S SPLIT (ViewTargetSet::Render): a scale change resizes the scene's targets
         // here, before any node reads them; the output set stays at m_ViewExtent (Resize).
         ResizeRenderTargets( frame.Split.Render );
@@ -1390,6 +1606,8 @@ namespace Desert::Graphic
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact
             // type
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast)
+            // The shadowed point/spot lights' draws and the scene's lit-material state follow UpdateLocalShadows
+            // below (PrepareLocalShadowViews, ApplySceneFrame): the lights' views do not exist yet here.
             UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->PrepareFrame( frame );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
@@ -1446,9 +1664,23 @@ namespace Desert::Graphic
         }
         const auto values = std::make_shared<FrameValues>();
 
-        // The view's per-primitive motion rows (current + previous world, both bone palettes) from the view's
-        // MotionHistory, built once before any pass is declared: every view pass of this frame reads the same
-        // rows.
+        // The landscape grass of this view, before every node that draws it (the cascades, the geometry) and
+        // before the view's TLAS, whose GPU-written grass rows read its transforms and drawn counts
+        // (RayTracingGpuInstanceSource). A face view grows none, as it simulates no particles. Before the GPU
+        // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
+        // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
+        // after it has no row in the scene material table and is refused at draw.
+        if ( !m_ViewProfile.SceneCapture )
+        {
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        }
+
+        // The scene's GPU scene (current + previous world, both bone palettes of every primitive this view
+        // queues), synced once before any pass is declared: every view pass of this frame reads the same rows.
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -1470,17 +1702,37 @@ namespace Desert::Graphic
                 m_FrameRayTracingCache->BeginViewFrame( frameNumber );
                 skinCache = &m_FrameRayTracingCache->GetSkinCache();
                 skinCache->SetEnabled( meshes->IsSkinCacheEnabled() );
+                skinCache->SetDisplacement( &m_FrameRayTracingCache->GetDisplacement() );
+                // Mesh displacement (DisplacementCache.hpp): this view's level requests, the frame's one
+                // displacement (first view), and the twins every pass of this view draws.
+                System::DisplacementCache& displacement = m_FrameRayTracingCache->GetDisplacement();
+                displacement.SetQuality( System::DisplacementQuality{
+                     .Enabled          = m_DisplacementDicingRate > 0,
+                     .DicingRatePixels = static_cast<float>( std::max( m_DisplacementDicingRate, 1 ) ),
+                     .PoolBytes        = static_cast<uint64_t>( m_DisplacementPoolMiB ) << 20u } );
+                if ( const auto* viewCamera = GetMainCamera(); viewCamera != nullptr )
+                    meshes->ApplyDisplacement(
+                         displacement,
+                         Geometry::LODView{ viewCamera->GetPosition(), viewCamera->GetProjectionMatrix() },
+                         static_cast<float>( m_ViewExtent.Height ), frameNumber, !m_ViewProfile.SceneCapture );
             }
-            if ( const Common::BoolResultStr rows = meshes->BuildObjectMotions(
-                      m_ViewState.Motion(), m_ScratchTileMotions, skinCache, frameNumber );
+            if ( m_FrameGpuScene == nullptr )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: no scene's GPU scene (BeginScene was not handed a scene); nothing "
+                           "is drawn this frame",
+                           m_ViewResources.GetName() );
+                return;
+            }
+            if ( const Common::BoolResultStr rows =
+                      meshes->SyncGpuScene( *m_FrameGpuScene, m_ScratchTileMotions, skinCache, frameNumber );
                  !rows )
             {
-                LOG_ERROR( "[SceneRenderer] {}: the view's motion rows could not be built; nothing is drawn this "
+                LOG_ERROR( "[SceneRenderer] {}: the scene's GPU scene could not be synced; nothing is drawn this "
                            "frame: {}",
                            m_ViewResources.GetName(), rows.GetError() );
                 return;
             }
-            // The skin step already ran in BuildObjectMotions (its own graph, submitted before this view graph):
+            // The skin step already ran in SyncGpuScene (its own graph, submitted before this view graph):
             // this graph only reads the streams, barriered by their carried state.
             meshes->SkinCacheReads().clear();
             if ( skinCache != nullptr )
@@ -1494,6 +1746,7 @@ namespace Desert::Graphic
                      "SceneColor" } } );
         };
 
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Grass, TLAS, shadow plan" );
         AddFrameClearMainFramebuffer( graph, textures );
 
         // The view's TLAS, before any pass that traces rays is declared (RayTracingSceneRenderer.hpp). A frame
@@ -1524,16 +1777,18 @@ namespace Desert::Graphic
             const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
             const std::span<const System::TerrainInstance> instances = terrain->GetFrameInstances();
-            const std::span<const glm::vec4>               tints     = terrain->GetFrameTints();
-            const std::span<const uint32_t>                rows      = meshes->GetOtherMotionRows();
-            // Parallel by construction (PrepareFrame packs one row per queued tile, BuildObjectMotions one motion
-            // row per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
+            const std::span<const System::TerrainFrameMaterial> materials = terrain->GetFrameMaterials();
+            const std::span<const uint32_t>                rows      = meshes->GetOtherGpuInstances();
+            // Parallel by construction (PrepareFrame packs one row per queued tile, SyncGpuScene one GpuScene
+            // instance per tile record); a mismatch is a broken invariant, said and not traced, never truncated.
             std::vector<RayTracing::LandscapeRayTracingTile> tiles;
-            if ( instances.size() != queue.size() || tints.size() != queue.size() || rows.size() != queue.size() )
+            if ( instances.size() != queue.size() || materials.size() != queue.size() ||
+                 rows.size() != queue.size() )
             {
-                LOG_ERROR( "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows, {} tints and {} "
-                           "GPU-scene rows; the landscape is not in this frame's TLAS",
-                           m_ViewResources.GetName(), queue.size(), instances.size(), tints.size(), rows.size() );
+                LOG_ERROR(
+                     "[SceneRenderer] {}: {} landscape tiles queued but {} terrain rows, {} materials and {} "
+                     "GPU-scene rows; the landscape is not in this frame's TLAS",
+                     m_ViewResources.GetName(), queue.size(), instances.size(), materials.size(), rows.size() );
                 queue = {};
             }
             tiles.reserve( queue.size() );
@@ -1548,7 +1803,7 @@ namespace Desert::Graphic
                                    .WeightRevision = draw.Weights.Revision,
                                    .Instance       = instances[i],
                                    .Weights        = draw.Weights,
-                                   .Tint           = tints[i] } );
+                                   .Material       = materials[i] } );
             }
             const Common::BoolResultStr landscape =
                  m_LandscapeRayTracing.AddPasses( graph, textures, required, tiles );
@@ -1560,11 +1815,31 @@ namespace Desert::Graphic
             }
             // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
-            RayTracing::RayTracingExternalPrimitives    external;
+            // The blade grass's level BLASes (GrassBladeRayTracing.hpp) join the same dynamic-geometry pass: their
+            // primitives are the grass sections the gather reads from the mesh renderer. A face view grew no grass
+            // this frame (above), so it hands none. The landscape stats stay the landscape's own.
+            std::vector<RayTracing::RayTracingDynamicGeometryBuild> builds;
+            std::vector<RDG::BufferRef>                             resident;
+            if ( landscape.IsSuccess() )
+            {
+                builds.assign( landscapeFrame.Builds.begin(), landscapeFrame.Builds.end() );
+                resident.assign( landscapeFrame.Resident.begin(), landscapeFrame.Resident.end() );
+            }
+            if ( !m_ViewProfile.SceneCapture )
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                const auto* const grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+                const std::span<const RayTracing::RayTracingDynamicGeometryBuild> bladeBuilds =
+                     grass->GetBladeRayTracing().GetBuilds();
+                const std::span<const RDG::BufferRef> bladeResident = grass->GetBladeRayTracing().GetResident();
+                builds.insert( builds.end(), bladeBuilds.begin(), bladeBuilds.end() );
+                resident.insert( resident.end(), bladeResident.begin(), bladeResident.end() );
+            }
+            RayTracing::RayTracingExternalPrimitives external{ .Builds = builds, .Resident = resident };
             if ( landscape.IsSuccess() )
                 external = { .Primitives       = landscapeFrame.Primitives,
-                             .Builds           = landscapeFrame.Builds,
-                             .Resident         = landscapeFrame.Resident,
+                             .Builds           = builds,
+                             .Resident         = resident,
                              .Built            = landscapeFrame.Built,
                              .Refit            = landscapeFrame.Refit,
                              .VertexBytes      = landscapeFrame.VertexBytes,
@@ -1630,51 +1905,88 @@ namespace Desert::Graphic
             // marked for this frame's graph (MeshRenderer::LocalShadowPasses). Under Stochastic MegaLights traces
             // the local lights: no map is drawn for any (UE: MegaLights lights render no shadow depths). A
             // path-traced frame draws none either: its paths trace every light's visibility through the TLAS.
+            // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
+            // the maps are drawn only while a queued forward draw in view samples them
+            // (LocalShadowMapsRead: meshes, forward terrain, particles) - no forward surface loses its shadows.
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
-                UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
-                     ->UpdateLocalShadows( m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights,
-                                           m_SpotLightShadows,
-                                           !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) );
+                System::MeshRenderer* const localShadowMeshes =
+                     UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+                localShadowMeshes->UpdateLocalShadows(
+                     m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
+                     !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
+                          ( !LocalShadowsAreRayTraced() || LocalShadowMapsRead() ) );
+                // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
+                // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
+                // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
+                // light's key failed - TERRAIN-LOCAL-SHADOW-LOG.
+                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                     ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights() );
+                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+                AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
+                // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
+                // lit-material state goes onto its forward program here (the meshes' forward snapshot).
+                // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
+                     ->ApplySceneFrame( localShadowMeshes->CaptureFrameState( &frame ) );
+                // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+                // The per-light denoisers' histories: a frame off HardwareTraced parks every one (a method that
+                // comes back starts new histories), and the retire queue is drained EVERY frame - a parked history
+                // is released once every frame in flight that read it completed, whatever the method is now.
+                const auto&    retireFrames      = Engine::FrameManager::GetInstance();
+                const uint64_t retireFrame = retireFrames.GetAbsoluteFrameCount();
+                if ( !LocalShadowsAreRayTraced() )
+                {
+                    for ( auto& [sourceId, denoiser] : m_LocalShadowDenoisers )
+                        if ( denoiser )
+                            m_RetiredLocalShadowDenoisers.Park( std::move( denoiser ), retireFrame );
+                    m_LocalShadowDenoisers.clear();
+                }
+                m_RetiredLocalShadowDenoisers.Collect( retireFrame, retireFrames.GetMaxFramesInFlight() );
             }
-            // The cascade budget follows the FRAME's answer: a frame that fell back to CascadedMaps draws the full
-            // ShadowQuality cascades, the low-detail Shadows.RayTracedTranslucency* ones only while the sun is
-            // ray traced. Then the maps are imported at that budget, before any pass reads them.
-            RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
+            // The maps are imported at the budget taken above, before any pass reads them.
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
-            // of this frame samples them (MeshRenderer::SunCascadeReadersQueued: blended draws whose program
-            // declares u_ShadowCascades - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
+            // of this frame samples them (SunCascadesRead: blended/glass mesh draws, forward terrain, particles,
+            // whose program
+            // declares ShadowCascadesTexture - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
             // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
             // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
             // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the
             // lit passes that sample the maps do not run.
-            m_FrameSunCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
-                                 ( !SunShadowIsScreenMask() || meshes->SunCascadeReadersQueued() );
-            if ( !m_FrameSunCascades )
+            // EVERY OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
+            // kShadowLightAtmosphere1: DeferredScreenShadowMask::Lights, the surface cache's cascade arm), so the
+            // array is drawn while any slot casts. The sun's own slot is dropped when nothing reads it
+            // (MeshRenderer::DropDirectionalShadow): its layers are not drawn for the moon's sake, and the receivers
+            // that pack DirectionalShadows() below (the composite, the surface cache) see it with no cascade.
+            const bool sunCascadesUnread = SunShadowIsScreenMask() && !SunCascadesRead();
+            if ( meshes != nullptr && sunCascadesUnread )
+                meshes->DropDirectionalShadow( SceneResources::kDirectionalShadowSun );
+            const auto anySlotCasts = [meshes]
+            {
+                for ( const SceneResources::DirectionalShadowView& light : meshes->DirectionalShadows() )
+                    if ( light.CastShadows && light.Count > 0 )
+                        return true;
+                return false;
+            };
+            m_FrameCascades = meshes != nullptr && !PathTraced( m_RenderMethods ) &&
+                              ( !sunCascadesUnread || anySlotCasts() );
+            if ( !m_FrameCascades )
                 textures.Transients.ShadowCascades = AddFrameNoSunCascades( graph );
-            else if ( !m_SunCascadesDrawnLastFrame )
+            else if ( !m_CascadesDrawnLastFrame )
                 meshes->InvalidateCascadeCaches();
-            m_SunCascadesDrawnLastFrame = m_FrameSunCascades;
+            m_CascadesDrawnLastFrame = m_FrameCascades;
         }
 
         // A face view draws no particles (UE: a capture's ShowFlags.Particles = 0, "usually dynamic, and can't be
         // captured well"), and simulates none: the face views render first in a frame, and the first view to
         // prepare the tick is the one that simulates it.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: Add passes" );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesSimulate( graph );
 
         AddFrameCloudShadowMap( graph, textures );
-
-        // The landscape grass of this view, before every node that draws it (the cascades, the geometry). A face
-        // view grows none, as it simulates no particles.
-        if ( !m_ViewProfile.SceneCapture )
-        {
-            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
-            UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
-                 ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) );
-            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        }
 
         // The opaque raster of the systems, in this order: the cascade depths (the geometry's shadow lookups read
         // them), the scene target's sky and geometry, the outline mask.
@@ -1779,20 +2091,42 @@ namespace Desert::Graphic
                 // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
                 // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
                 // "VSM: Project" likewise: the same mask, the same permutations.
+                m_FrameVsmPages.reset();
                 const RDG::TextureRef sunShadowMask =
                      SunShadowIsVirtual()
                           ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
+                // GPU-DRIVEN CULL validation: the GPU's visible sets beside the CPU's, after the VSM pages exist.
+                if ( m_DebugView.ValidateGpuCulling )
+                    AddFrameGpuCull( graph, textures, frame );
                 // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
                 // composite's MegaLights program reads in place of its light-grid loop.
                 const System::MegaLightsLighting megaLights =
                      LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
                                                 : System::MegaLightsLighting{};
-                AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, megaLights,
-                                   meshRenderer, lightDir, lightColor, frame );
-                AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask );
+                // Shadows HardwareTraced: the point/spot lights' ray-traced masks, one layer per ShadowMaskSlot.
+                const RDG::TextureRef localShadowMasks = LocalShadowsAreRayTraced()
+                                                              ? AddFrameRayTracedLocalShadows( graph, textures,
+                                                                                               gbuffer, frame )
+                                                              : RDG::TextureRef{};
+                // SSS-PROFILE: the composite splits the scattered texels' diffuse into this target when the view
+                // scatters; Burley + Recombine add it back BEFORE the forward meshes (AddFrameGeneric), which may
+                // stand in front of a scattered texel and must not receive its diffuse.
+                const RDG::TextureRef subsurfaceDiffuse =
+                     SubsurfaceRuns()
+                          ? graph.CreateTexture(
+                                 RDG::TextureDesc{ .Size   = { .Width  = m_TargetFramebuffer->GetFramebufferWidth(),
+                                                               .Height = m_TargetFramebuffer->GetFramebufferHeight() },
+                                                   .Format = ViewTargetFormats::kSubsurfaceDiffuse },
+                                 "SubsurfaceDiffuse" )
+                          : RDG::TextureRef{};
+                AddFrameComposite( graph, textures, gbuffer, ssrFrame.Resolved, sunShadowMask, localShadowMasks,
+                                   megaLights, meshRenderer, lightDir, lightColor, frame, subsurfaceDiffuse );
+                if ( subsurfaceDiffuse.IsValid() )
+                    AddFrameSubsurface( graph, textures, gbuffer, subsurfaceDiffuse, frame );
+                AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
@@ -1810,24 +2144,47 @@ namespace Desert::Graphic
                 const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
                      graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
 
-                // The water after the copy (the scene without water, which WATER-W7's refraction reads) and before
-                // the glass, which then refracts the water behind it.
-                AddFrameWater( graph, textures );
+                // The water after the copy (the scene without water, which its refraction reads) and before the
+                // glass.
+                AddFrameWater( graph, textures, sceneCopy );
                 AddFrameGlass( graph, textures, sceneCopy, meshRenderer, frontLayer );
             }
+        }
+        else
+        {
+            // FORWARD: the base pass drew the opaque scene (its translucent objects are the glass node's alone,
+            // MeshRenderer's opaque buckets skip them), so the glass composites over it through the same route
+            // as Deferred - the scene copy it refracts, then the glass node. No screen trace runs on this path:
+            // the copy is no scene history, and there is no front layer (the glass reads "the sky alone").
+            // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+            auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
+            // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
+            AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 
         AddFrameSceneDepthResolve( graph, textures );
         AddFrameSkyAtmosphereLuts( graph, textures );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
-        // editor's passes at the extension points still draw.
-        const bool pathTraced = PathTraced( m_RenderMethods );
-        if ( !pathTraced )
+        // editor's passes at the extension points still draw. The clouds reach its paths through the sky
+        // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
+        // which the capture marches through, is still written.
+        // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel)
+        // shows the stored surface value: no height fog or cloud layer is composited over it (GRASS-ASSET p5: the
+        // Albedo view read +0.08 fog blue on the far cover). The clouds' sky-occlusion volume is still written.
+        const DeferredDebugMode debugView   = m_DebugView.DeferredDebug;
+        const bool              gbufferView = ( debugView >= DeferredDebugMode::Albedo && debugView <= DeferredDebugMode::AO ) ||
+                                 debugView == DeferredDebugMode::ShadingModel ||
+                                 debugView == DeferredDebugMode::SunShadowReceive;
+        if ( !pathTraced && !gbufferView )
         {
             AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );
         }
+        else
+            AddFrameCloudSkyOcclusion( graph, textures );
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.
@@ -1943,15 +2300,19 @@ namespace Desert::Graphic
             // The UI canvas, last before the post chain.
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
 
-            AddFrameJumpFlood( graph, textures );
+            // The outline composites over the post input and hands the tonemap its result: the tonemap reading
+            // the post input directly left the composite's output unread, so no selection was ever outlined.
+            const RDG::TextureRef postSource = postInput.empty() ? RDG::TextureRef{} : postInput.front();
+            const RDG::TextureRef outlined   = AddFrameJumpFlood( graph, textures, postSource );
             AddFrameAutoExposure( graph, textures, postInput, exposurePrevious );
+            AddFrameLocalExposure( graph, textures, postInput );
             if ( m_BloomEnabled )
             {
                 AddFrameBloom( graph, textures, postInput );
             }
             AddFrameLightShafts( graph, textures, postInput, values );
             AddFrameLensFlare( graph, textures, postInput, values );
-            AddFrameTonemap( graph, textures, postInput.empty() ? RDG::TextureRef{} : postInput.front() );
+            AddFrameTonemap( graph, textures, outlined.IsValid() ? outlined : postSource );
 
             if ( m_AAMode == Common::Scalability::AntiAliasingMethod::FXAA )
             {
@@ -1982,8 +2343,15 @@ namespace Desert::Graphic
         // the final image black for this frame.
         // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
         // previous. A frame that executed commits as previous with what its report says it lost.
+        DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
+        {
             m_ViewState.EndFrame( graph.GetExecuteReport() );
+            // The scene's GPU scene keeps this frame's transforms: a frame no view executed is discarded by the
+            // next sync (GpuSceneRegistry::BeginFrame), as the view's own history ignores it.
+            if ( m_FrameGpuScene != nullptr )
+                m_FrameGpuScene->CommitFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        }
         textures.ResetInvalidatedHistories();
     }
 
@@ -2011,7 +2379,10 @@ namespace Desert::Graphic
 #endif
         m_FrameReflectionCaptures = nullptr;
         m_FrameRayTracingCache    = nullptr;
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ForgetGpuScene();
+        m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
+        m_FrameDistanceFields     = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -2033,6 +2404,95 @@ namespace Desert::Graphic
     bool SceneRenderer::LocalLightsAreStochastic() const
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic;
+    }
+
+    bool SceneRenderer::LocalShadowsAreRayTraced() const
+    {
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced &&
+               !PathTraced( m_RenderMethods );
+    }
+
+    namespace
+    {
+        // The forward readers of one shadow map name outside the mesh renderer: the forward terrain and the view's
+        // particle sprites (both prepared before OnUpdate's shadow gates).
+        template <typename Systems>
+        bool TerrainOrParticlesSample( const Systems& systems, const std::string_view mapName )
+        {
+            const auto terrain = systems.find( "TerrainSystem" );
+            if ( terrain != systems.end() && terrain->second &&
+                 static_cast<const System::TerrainRenderer*>( terrain->second.get() )->ForwardReadsTexture( mapName ) )
+                return true;
+            const auto particles = systems.find( "ParticleSystem" );
+            return particles != systems.end() && particles->second &&
+                   static_cast<const System::ParticleRenderer*>( particles->second.get() )
+                        ->ViewEmittersSample( mapName );
+        }
+    } // namespace
+
+    std::span<const System::ParticleViewEmitterCull> SceneRenderer::ParticleViewEmitterCulls() const
+    {
+        const auto particles = m_RenderSystems.find( "ParticleSystem" );
+        if ( particles == m_RenderSystems.end() || !particles->second )
+            return {};
+        return static_cast<const System::ParticleRenderer*>( particles->second.get() )->ViewEmitterCulls();
+    }
+
+    bool SceneRenderer::LocalShadowMapsRead() const
+    {
+        const auto meshes = m_RenderSystems.find( "MeshSystem" );
+        if ( meshes != m_RenderSystems.end() && meshes->second &&
+             static_cast<const System::MeshRenderer*>( meshes->second.get() )->LocalShadowMapReadersQueued() )
+            return true;
+        return TerrainOrParticlesSample( m_RenderSystems, kSceneViewLocalShadowAtlasName );
+    }
+
+    bool SceneRenderer::SunCascadesRead() const
+    {
+        const auto meshes = m_RenderSystems.find( "MeshSystem" );
+        if ( meshes != m_RenderSystems.end() && meshes->second &&
+             static_cast<const System::MeshRenderer*>( meshes->second.get() )->SunCascadeReadersQueued() )
+            return true;
+        return TerrainOrParticlesSample( m_RenderSystems, kSceneViewShadowCascadesName );
+    }
+
+    void SceneRenderer::AssignLocalShadowMaskSlots( const Core::Frustum& view )
+    {
+        // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
+        // draws shadows), whether or not a map was drawn for it.
+        m_LocalShadowMaskLights.clear();
+        const bool traced = LocalShadowsAreRayTraced();
+        int32_t    slot   = 0;
+        for ( std::size_t i = 0; i < m_PointLight.PointLights.size(); ++i )
+        {
+            auto& point          = m_PointLight.PointLights[i];
+            point.ShadowMaskSlot = -1;
+            // Per-light view cull (UE: a light whose bounds miss the view frustum renders no shadow): no pixel of
+            // the view is inside its attenuation sphere, so no slot, no trace, no pack.
+            if ( !traced || point.ShadowCaster == 0 || !view.IntersectsSphere( point.Position, point.Radius ) )
+                continue;
+            point.ShadowMaskSlot = slot++;
+            m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
+                 .Position          = point.Position,
+                 .AttenuationRadius = point.Radius,
+                 .SourceRadius      = point.SourceRadius,
+                 .SourceId          = i < m_PointLightShadows.size() ? m_PointLightShadows[i].SourceId : 0u } );
+        }
+        for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
+        {
+            auto& spot          = m_SpotLight.SpotLights[i];
+            spot.ShadowMaskSlot = -1;
+            if ( !traced || spot.ShadowCaster == 0 || !view.IntersectsSphere( spot.Position, spot.Range ) )
+                continue;
+            spot.ShadowMaskSlot = slot++;
+            m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
+                 .Position          = spot.Position,
+                 .AttenuationRadius = spot.Range,
+                 .SourceRadius      = spot.SourceRadius,
+                 .SpotDirection     = spot.Direction,
+                 .CosOuter          = spot.CosOuter,
+                 .SourceId          = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
+        }
     }
 
     bool SceneRenderer::EnsureMegaLightsResources()
@@ -2204,6 +2664,7 @@ namespace Desert::Graphic
                        pages.GetError() );
             return {};
         }
+        m_FrameVsmPages = pages.GetValue();
         // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
         // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
         // dark.
@@ -2238,6 +2699,8 @@ namespace Desert::Graphic
         Common::BoolResultStr initialized = m_RayTracedSunShadow.Initialize();
         if ( initialized )
             initialized = m_SunShadowDenoiser.Initialize();
+        if ( initialized )
+            initialized = m_RayTracedLocalShadow.Initialize();
         if ( !initialized )
         {
             LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Sun could not be created; the sun casts no shadow "
@@ -2300,6 +2763,119 @@ namespace Desert::Graphic
              frame, width, height );
     }
 
+    RDG::TextureRef SceneRenderer::AddFrameRayTracedLocalShadows( RDG::Builder& graph, FrameTextures& textures,
+                                                                  const std::vector<RDG::TextureRef>& gbuffer,
+                                                                  const ViewFrame&                    frame )
+    {
+        // As the sun: the frame resolved to HardwareTraced only with this frame's TLAS built and the renderers
+        // initialised (LowerShadowsForFrame, EnsureRayTracedShadowResources).
+        const RayTracing::RayTracingSceneFrame& scene  = m_RayTracingScene.GetFrame();
+        const uint32_t                          width  = frame.Split.Render.Width;
+        const uint32_t                          height = frame.Split.Render.Height;
+        const RDG::TextureRef                   depth  = textures.Depth( m_GBuffer, "GBuffer" );
+        const RDG::TextureRef                   white  = textures.GraphRefs().System.White;
+        const RDG::TextureRef                   velocity = textures.Transients.Velocity;
+        const System::ScreenShadowMaskInputs    inputs{ .Depth    = depth,
+                                                        .Normal   = gbuffer[1],
+                                                        .Tlas     = scene.Tlas,
+                                                        .Metadata = scene.Metadata,
+                                                        .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                                                        .Width  = width,
+                                                        .Height = height };
+        const auto            count = static_cast<uint32_t>( m_LocalShadowMaskLights.size() );
+        const RDG::TextureRef masks = System::RayTracedLocalShadowRenderer::CreateMasks( graph, width, height, count );
+        std::unordered_set<uint32_t> live;
+        for ( uint32_t slot = 0; slot < std::max( count, 1u ); ++slot )
+        {
+            RDG::TextureRef visibility = white; // no slot at all: layer 0 lit, never unwritten
+            if ( slot < count )
+            {
+                const System::RayTracedLocalShadowLight& light = m_LocalShadowMaskLights[slot];
+                const Common::ResultStr<System::RayTracedSunShadowOutputs> traced = m_RayTracedLocalShadow.AddTracePass(
+                     graph, inputs, light, m_RayTracedShadowSamples, frame.FrameIndex );
+                if ( !traced )
+                {
+                    LOG_ERROR( "[SceneRenderer] {}: {}; local light slot {} casts no shadow this frame",
+                               m_ViewResources.GetName(), traced.GetError(), slot );
+                }
+                else
+                    visibility = traced.GetValue().Mask;
+                // A point emitter (SourceRadius 0) casts a hard shadow from one ray: nothing to denoise. A light
+                // with no identity (SourceId 0) has no history to keep: its mask is shaded as traced.
+                if ( traced && light.SourceRadius > 0.0f && light.SourceId != 0 )
+                {
+                    if ( !velocity.IsValid() )
+                    {
+                        LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Local: the denoiser reprojects its "
+                                   "history through the view's velocity, the frame has none; the undenoised mask "
+                                   "is shaded",
+                                   m_ViewResources.GetName() );
+                    }
+                    else
+                    {
+                        live.insert( light.SourceId );
+                        std::unique_ptr<System::ScreenSpaceDenoiser>& denoiser =
+                             m_LocalShadowDenoisers[light.SourceId];
+                        if ( !denoiser )
+                        {
+                            denoiser = std::make_unique<System::ScreenSpaceDenoiser>(
+                                 System::DenoiserSignal::ShadowVisibility );
+                            const Common::BoolResultStr initialized = denoiser->Initialize();
+                            if ( !initialized )
+                            {
+                                LOG_ERROR( "[SceneRenderer] {}: Shadows: Ray Traced Local: the light's denoiser "
+                                           "could not be created; its undenoised mask is shaded: {}",
+                                           m_ViewResources.GetName(), initialized.GetError() );
+                                denoiser.reset();
+                            }
+                        }
+                        if ( denoiser )
+                        {
+                            const RDG::TextureRef denoised = denoiser->DenoiseShadowVisibility(
+                                 graph,
+                                 System::ShadowVisibilityDenoiserInputs{
+                                      .Mask                 = traced.GetValue().Mask,
+                                      .ClosestOccluder      = traced.GetValue().ClosestOccluder,
+                                      .LocalLight           = glm::vec4( light.Position, light.SourceRadius ),
+                                      .ReconstructionRadius = m_ShadowDenoiserRadius },
+                                 System::DenoiserSceneTextures{ .GBufferNormal = gbuffer[1],
+                                                                .GBufferDepth  = depth,
+                                                                .Velocity      = velocity,
+                                                                .Black         = textures.GraphRefs().System.Black },
+                                 frame, width, height );
+                            if ( denoised.IsValid() )
+                                visibility = denoised;
+                        }
+                    }
+                }
+            }
+            const Common::BoolResultStr packed =
+                 m_RayTracedLocalShadow.AddPackPass( graph, visibility, masks, slot, width, height );
+            if ( !packed )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; the local lights read their shadow maps (or none) this frame",
+                           m_ViewResources.GetName(), packed.GetError() );
+                return {};
+            }
+        }
+        // The histories of lights that left the frame go with them (a light that comes back starts a new one),
+        // through the frame-retire path: parked at this frame, released after every frame in flight completed.
+        const auto&    frames      = Engine::FrameManager::GetInstance();
+        const uint64_t frameNumber = frames.GetAbsoluteFrameCount();
+        for ( auto it = m_LocalShadowDenoisers.begin(); it != m_LocalShadowDenoisers.end(); )
+        {
+            if ( live.contains( it->first ) )
+            {
+                ++it;
+                continue;
+            }
+            if ( it->second )
+                m_RetiredLocalShadowDenoisers.Park( std::move( it->second ), frameNumber );
+            it = m_LocalShadowDenoisers.erase( it );
+        }
+        return masks;
+    }
+
     bool SceneRenderer::EnsureSSRResources()
     {
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
@@ -2330,13 +2906,17 @@ namespace Desert::Graphic
 
     namespace
     {
+        // @p retried: the refusals that stood before the last recompile - the same one again is not said again.
         template <typename Method, std::size_t N>
-        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals, const std::span<const Method> methods,
-                            const std::string_view axis, const std::array<std::string_view, N>& names,
-                            const std::string_view program, const std::string_view error )
+        void RefuseMethods( std::vector<MethodRefusal<Method>>&       refusals,
+                            const std::vector<MethodRefusal<Method>>& retried,
+                            const std::span<const Method> methods, const std::string_view axis,
+                            const std::array<std::string_view, N>& names, const std::string_view program,
+                            const std::string_view error )
         {
             for ( const Method method : methods )
-                if ( AddRefusal( refusals, method, program ) )
+                if ( AddRefusal( refusals, method, program, error ) &&
+                     !HoldsRefusal( retried, method, program, error ) )
                     LOG_ERROR( "[SceneRenderer] {} {} refused on this device: its program '{}' did not build: {}",
                                axis, names[static_cast<std::size_t>( method )], program, error );
         }
@@ -2345,15 +2925,74 @@ namespace Desert::Graphic
     void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::GIMethod> methods,
                                               const std::string_view program, const std::string_view error )
     {
-        RefuseMethods( m_ProgramRefusals.GlobalIllumination, methods, "GI", Common::Scalability::kGIMethodNames,
-                       program, error );
+        RefuseMethods( m_ProgramRefusals.GlobalIllumination, m_RetriedProgramRefusals.GlobalIllumination, methods,
+                       "GI", Common::Scalability::kGIMethodNames, program, error );
     }
 
     void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ReflectionMethod> methods,
                                               const std::string_view program, const std::string_view error )
     {
-        RefuseMethods( m_ProgramRefusals.Reflections, methods, "Reflections",
+        RefuseMethods( m_ProgramRefusals.Reflections, m_RetriedProgramRefusals.Reflections, methods, "Reflections",
                        Common::Scalability::kReflectionMethodNames, program, error );
+    }
+
+    void SceneRenderer::RefuseProgramMethods( const std::span<const Common::Scalability::ShadowMethod> methods,
+                                              const std::string_view program, const std::string_view error )
+    {
+        RefuseMethods( m_ProgramRefusals.Shadows, m_RetriedProgramRefusals.Shadows, methods, "Shadows",
+                       Common::Scalability::kShadowMethodNames, program, error );
+    }
+
+    void SceneRenderer::RefuseShadowPrograms( const ProgramRefusals& deferred )
+    {
+        for ( const MethodRefusal<Common::Scalability::ShadowMethod>& refusal : deferred.Shadows )
+            RefuseProgramMethods( std::span<const Common::Scalability::ShadowMethod>( &refusal.Refused, 1 ),
+                                  refusal.Program, refusal.Reason );
+    }
+
+    void SceneRenderer::RefusePathTracer( const std::string_view program, const std::string_view error )
+    {
+        using Common::Scalability::GIMethod;
+        using Common::Scalability::ReflectionMethod;
+        // One integrator for both axes: both are refused, and the refusal is said once, by the path tracer's name.
+        const bool added =
+             AddRefusal( m_ProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error );
+        AddRefusal( m_ProgramRefusals.Reflections, ReflectionMethod::PathTraced, program, error );
+        if ( added &&
+             !HoldsRefusal( m_RetriedProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error ) )
+            LOG_ERROR(
+                 "[SceneRenderer] {}: GI and Reflections PathTraced refused on this device: '{}' could not be "
+                 "brought up: {}",
+                 m_ViewResources.GetName(), program, error );
+    }
+
+    void SceneRenderer::RetryRefusedProgramsAfterRecompile()
+    {
+        const std::uint64_t generation = Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration();
+        if ( generation == m_ProgramRefusalsGeneration )
+            return;
+        m_ProgramRefusalsGeneration = generation;
+        // Only the refusals of the generation just ended are remembered: a method that drew after a fix and breaks
+        // again with the old reason is a new failure, and is said again.
+        m_RetriedProgramRefusals.GlobalIllumination = std::exchange( m_ProgramRefusals.GlobalIllumination, {} );
+        m_RetriedProgramRefusals.Reflections        = std::exchange( m_ProgramRefusals.Reflections, {} );
+        m_RetriedProgramRefusals.Shadows            = std::exchange( m_ProgramRefusals.Shadows, {} );
+        // The deferred composite's refused permutations are acquired and built again now (they are not made
+        // lazily on use): the ones still refused are refused again, said only when the reason changed.
+        const auto deferredSystem = m_RenderSystems.find( "DeferredLightingSystem" );
+        if ( auto* const deferred =
+                  deferredSystem == m_RenderSystems.end()
+                       ? nullptr
+                       : dynamic_cast<System::DeferredLightingRenderer*>( deferredSystem->second.get() ) )
+        {
+            deferred->RetryRefusedPrograms();
+            RefuseShadowPrograms( deferred->Refusals() );
+        }
+        // The renderers latched as failed with those refusals are brought up again on their next use (the GI
+        // renderers are not latched: a failed one was never kept, AddFrameTracedGI makes it again; the path tracer
+        // is brought up again by EnsurePathTracerResources once PathTraced resolves again).
+        m_SSRResourcesFailed         = false;
+        m_ScreenTraceResourcesFailed = false;
     }
 
     bool SceneRenderer::EnsurePathTracerResources()
@@ -2361,27 +3000,22 @@ namespace Desert::Graphic
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
         if ( m_PathTracerReady )
             return true;
-        if ( m_PathTracerFailed )
-            return false;
 
         Renderer::GetInstance().WaitDeviceIdle();
 
         RegisterSystem<System::PathTracer>( "PathTracerSystem", this, m_TargetFramebuffer );
         const auto& pathTracer = SP_CAST( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
+        // A refusal holds PathTraced off both axes from the next BeginScene (this frame LowerPathTracingForFrame
+        // renders HardwareTraced) until the shader service recompiles a program
+        // (RetryRefusedProgramsAfterRecompile).
         if ( const Common::BoolResultStr initialized = pathTracer->Initialize(); !initialized )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the path tracer could not be brought up; the view renders "
-                       "HardwareTraced GI and reflections instead: {}",
-                       m_ViewResources.GetName(), initialized.GetError() );
-            m_PathTracerFailed = true;
+            RefusePathTracer( "PathTracer", initialized.GetError() );
             return false;
         }
         if ( const Common::BoolResultStr emissive = m_EmissiveLights.Initialize(); !emissive )
         {
-            LOG_ERROR( "[SceneRenderer] {}: the emissive light list could not be brought up; the view renders "
-                       "HardwareTraced GI and reflections instead: {}",
-                       m_ViewResources.GetName(), emissive.GetError() );
-            m_PathTracerFailed = true;
+            RefusePathTracer( "EmissiveLightList", emissive.GetError() );
             return false;
         }
         m_PathTracerReady = true;
@@ -2503,9 +3137,7 @@ namespace Desert::Graphic
             overdrawFb->Resize( width, height );
 #endif
 
-        // The outline's composite reads the scene target: the scene's extent.
-        UNIQUE_GET_AS( System::JumpFloodOutlineRenderer, m_RenderSystems["JumpFloodSystem"] )
-             ->OnResize( width, height );
+        // The outline keeps no image: its seeds and output are the frame's transients at the scene's extent.
     }
 
     namespace
@@ -2518,9 +3150,51 @@ namespace Desert::Graphic
             if ( const auto uploaded = mesh.EnsureGpuResources(); !uploaded.IsSuccess() )
                 LOG_ERROR( "[SceneRenderer] a mesh could not be uploaded and is not drawn: {}",
                            uploaded.GetError() );
-            return mesh.GetVertexBuffer() != nullptr;
+            return mesh.GetGeometry().IsResident();
         }
     } // namespace
+
+    namespace
+    {
+        // TEX-STREAMING: a draw's world bounding sphere (the LOD rule's: box centre, half-diagonal x largest
+        // scale) through @p transform.
+        std::pair<glm::vec3, float> WorldSphere( const Common::Math::AABB& local, const glm::mat4& transform )
+        {
+            const float scale = glm::max(
+                 glm::length( glm::vec3( transform[0] ) ),
+                 glm::max( glm::length( glm::vec3( transform[1] ) ), glm::length( glm::vec3( transform[2] ) ) ) );
+            return { glm::vec3( transform * glm::vec4( 0.5f * ( local.Min + local.Max ), 1.0f ) ),
+                     glm::length( local.Max - local.Min ) * 0.5f * scale };
+        }
+    } // namespace
+
+    float SceneRenderer::NoteTextureDemand( const Mesh& mesh, const std::span<const glm::mat4> transforms,
+                                            const std::span<const Material* const> materials,
+                                            const MaterialOverrides*               overrides ) const
+    {
+        const auto* camera = GetMainCamera();
+        if ( camera == nullptr || transforms.empty() || GetViewExtent().Height == 0 )
+            return 0.0f;
+        const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+        if ( Geometry::IsEmpty( local ) )
+            return 0.0f;
+        const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+        // The largest any instance covers: the nearest instance decides what the shared textures must hold.
+        float pixels = 0.0f;
+        for ( const glm::mat4& transform : transforms )
+        {
+            const auto [center, radius] = WorldSphere( local, transform );
+            pixels                      = std::max(
+                 pixels, TextureStreamingDemand::ScreenPixels( center, radius, view, GetViewExtent().Height ) );
+        }
+        auto& demand = TextureStreamingDemand::Get();
+        for ( const Material* material : materials )
+            demand.Note( material, pixels );
+        if ( overrides != nullptr )
+            for ( const auto& [slot, asset] : overrides->Textures )
+                demand.NoteAsset( Common::AssetHandle( asset ), pixels );
+        return pixels;
+    }
 
     bool SceneRenderer::IsWithinMaxDrawDistance( const Mesh* mesh, const glm::mat4& transform,
                                                  float maxDrawDistance ) const
@@ -2530,6 +3204,24 @@ namespace Desert::Graphic
             return true;
         return IsWithinDrawDistance( Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() },
                                      transform, Geometry::LocalBounds( mesh->GetSubmeshes() ), maxDrawDistance );
+    }
+
+    void SceneRenderer::SetLODPreview( const uint32_t entity, const int level )
+    {
+        if ( level < 0 )
+        {
+            m_LODPreview = {};
+            return;
+        }
+        // Two frames: the renewal and the frame's BeginScene may come in either order within one frame.
+        m_LODPreview = { .Entity = entity, .Level = level, .FramesLeft = 2 };
+    }
+
+    int SceneRenderer::LODPreviewFor( const uint32_t entity, const int authoredForcedLOD ) const
+    {
+        if ( m_LODPreview.FramesLeft > 0 && m_LODPreview.Level >= 0 && m_LODPreview.Entity == entity )
+            return m_LODPreview.Level;
+        return authoredForcedLOD;
     }
 
     void SceneRenderer::SubmitMesh( const Mesh* mesh, const MaterialSlotBindingPtr& materialSlots,
@@ -2545,6 +3237,14 @@ namespace Desert::Graphic
         auto* drawnMesh = const_cast<Mesh*>( mesh );
         if ( !ReadyForDraw( *drawnMesh ) )
             return;
+        {
+            // Main thread only (the submit path): one scratch list of the slots' parents, reused per draw.
+            static std::vector<const Material*> parents;
+            parents.clear();
+            for ( const MaterialInstance* slot : materialSlots->Slots )
+                parents.push_back( slot != nullptr ? slot->GetParentMaterial() : nullptr );
+            NoteTextureDemand( *drawnMesh, std::span<const glm::mat4>( &transform, 1 ), parents );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitMesh( { .Entity                   = extra.Entity,
                              .MotionPart               = extra.MotionPart,
@@ -2557,7 +3257,7 @@ namespace Desert::Graphic
                              .MorphRevision            = extra.MorphRevision,
                              .Outlined                 = extra.Outlined,
                              .HiddenSubmeshes          = extra.HiddenSubmeshes,
-                             .ForcedLOD                = extra.ForcedLOD,
+                             .ForcedLOD                = LODPreviewFor( extra.Entity, extra.ForcedLOD ),
                              .LODBias                  = extra.LODBias,
                              .CastShadows              = extra.CastShadows,
                              .ReceiveShadows           = extra.ReceiveShadows,
@@ -2570,6 +3270,24 @@ namespace Desert::Graphic
                                              const MaterialOverrides&           overrides,
                                              const System::LandscapeWeightDraw& weights )
     {
+        // TEX-STREAMING: the tile's layer textures are asked for at the size the tile covers; its sphere spans the
+        // tile's square around its base height, so a camera over the tile asks for everything.
+        if ( const auto* camera = GetMainCamera(); camera != nullptr && GetViewExtent().Height != 0 )
+        {
+            const float     side   = static_cast<float>( tile.QuadsPerTile ) * tile.SpacingCm;
+            const glm::vec3 center = { tile.OriginX + ( static_cast<float>( tile.FirstSampleX ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm,
+                                       tile.BaseY,
+                                       tile.OriginZ + ( static_cast<float>( tile.FirstSampleZ ) +
+                                                        0.5f * static_cast<float>( tile.QuadsPerTile ) ) *
+                                                           tile.SpacingCm };
+            const float     pixels = TextureStreamingDemand::ScreenPixels(
+                 center, side * 0.70710678f, { camera->GetPosition(), camera->GetProjectionMatrix() },
+                 GetViewExtent().Height );
+            for ( const auto& [slot, asset] : overrides.Textures )
+                TextureStreamingDemand::Get().NoteAsset( Common::AssetHandle( asset ), pixels );
+        }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )
              ->Submit( { .Heightmap = heightmap, .Landscape = tile, .Weights = weights, .Overrides = overrides } );
@@ -2591,10 +3309,15 @@ namespace Desert::Graphic
                                            const std::string& shaderName, const MaterialOverrides& overrides,
                                            bool outlined, Image2D* directTexture,
                                            const std::string& directTextureSampler, bool castShadows,
-                                           bool visibleInRayTracing )
+                                           bool                                    visibleInRayTracing,
+                                           const RayTracing::RayTracingProgramHit& rayHit )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( const float pixels =
+                  NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), {}, &overrides );
+             directTexture != nullptr )
+            TextureStreamingDemand::Get().NoteAsset( directTexture->GetOwningAsset(), pixels );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity               = entity,
                                     .Mesh                 = mesh,
@@ -2605,7 +3328,8 @@ namespace Desert::Graphic
                                     .CastShadows          = castShadows,
                                     .VisibleInRayTracing  = visibleInRayTracing,
                                     .DirectTexture        = directTexture,
-                                    .DirectTextureSampler = directTextureSampler } );
+                                    .DirectTextureSampler = directTextureSampler,
+                                    .RayHit               = rayHit } );
     }
 
     void SceneRenderer::SubmitSlotMaterialMesh( const uint32_t entity, Mesh* mesh, const glm::mat4& transform,
@@ -2614,6 +3338,10 @@ namespace Desert::Graphic
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        {
+            const Material* const drawn[] = { material };
+            NoteTextureDemand( *mesh, std::span<const glm::mat4>( &transform, 1 ), drawn );
+        }
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SubmitGenericMesh( { .Entity      = entity,
                                     .MotionPart  = motionPart,
@@ -2635,14 +3363,38 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
+    uint32_t SceneRenderer::GetStandInDraws() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetStandInDraws();
+    }
+
+    uint64_t SceneRenderer::GetViewTrianglesDrawn() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return 0;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+    }
+
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
                                              const MaterialInstancePtr& material, uint64_t hiddenSubmeshes,
                                              const std::shared_ptr<const std::vector<glm::mat4>>& transforms,
                                              bool castShadows, bool castContactShadow,
-                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind )
+                                             const InstanceCullDistance& cullDistance, const InstanceWind& wind,
+                                             const MaterialInstancePtr& displacedMaterial )
     {
         if ( mesh == nullptr || !ReadyForDraw( *mesh ) )
             return;
+        if ( transforms )
+        {
+            const Material* const drawn[] = { material ? material->GetParentMaterial() : nullptr,
+                                              displacedMaterial ? displacedMaterial->GetParentMaterial()
+                                                                : nullptr };
+            NoteTextureDemand( *mesh, *transforms, drawn );
+        }
         // NO CAST, AND THAT IS THE POINT. This used to read
         // `static_cast<Desert::StaticMesh*>( const_cast<Mesh*>( mesh ) )`, and the downcast was a lie
         // the type told: an ISM's mesh is very often a DynamicMesh — every primitive one is, and the
@@ -2653,6 +3405,7 @@ namespace Desert::Graphic
              ->SubmitInstancedMesh( { .Entity            = entity,
                                       .Mesh              = mesh,
                                       .Material          = material,
+                                      .DisplacedMaterial = displacedMaterial,
                                       .HiddenSubmeshes   = hiddenSubmeshes,
                                       .Transforms        = transforms,
                                       .CastShadows       = castShadows,
@@ -2678,11 +3431,12 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::SetProceduralSky( bool enabled, const glm::vec3& sunDir, bool bakeNow,
-                                          const SkySettings& sky, const SunLightFx& fx )
+                                          const SkySettings& sky, const SunLightFx& fx,
+                                          const AtmosphereLight1& light1 )
     {
         m_SunLightFx = fx;
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx );
+             ->SetProceduralSky( enabled, sunDir, bakeNow, sky, fx, light1 );
     }
 
     const AtmosphereEnv& SceneRenderer::GetAtmosphere() const
@@ -2726,6 +3480,16 @@ namespace Desert::Graphic
         return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
     }
 
+    bool SceneRenderer::SkyLightRecapturesFor( const glm::vec3& sunDir ) const
+    {
+        const auto it = m_RenderSystems.find( "SkyboxSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+
+        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        return sky && sky->SkyLightRecapturesFor( sunDir );
+    }
+
     float SceneRenderer::CloudVolumeBakeProgress() const
     {
         const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
@@ -2746,6 +3510,16 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
              ->BorrowEnvironment( std::move( environment ) );
+    }
+
+    void SceneRenderer::ShareGlobalDistanceField( DistanceField::GlobalDistanceField* field )
+    {
+        m_SharedGlobalDistanceField = field;
+    }
+
+    void SceneRenderer::ShareSurfaceCache( SurfaceCache::SurfaceCacheRenderer* cache )
+    {
+        m_SharedSurfaceCache = cache;
     }
 
     std::shared_ptr<Image2D> SceneRenderer::GetShadowCascadeCacheImage( uint32_t cascade )
@@ -2827,6 +3601,7 @@ namespace Desert::Graphic
              .GBufferNormal = m_GBuffer ? textures.Colors( m_GBuffer, "GBuffer" )[1] : RDG::TextureRef{},
              .BrdfLut       = textures.Transients.BrdfLut,
              .ReflectionRay = textures.Transients.ReflectionRay,
+             .PathGuides    = textures.Transients.PathGuides,
              .History              = histories,
              .PrevHistory          = temporal ? m_ViewState.UpscalerHistory() : nullptr,
              .Quality              = &m_Quality };
@@ -2935,9 +3710,13 @@ namespace Desert::Graphic
     bool SceneRenderer::ReadsReflectionCaptures() const
     {
         // The profile admits captures for the view; the resolved method decides whether this view reflects them
-        // (Off is the sky's environment only - ReflectionMethod).
+        // (Off is the sky's environment only - ReflectionMethod). A path-traced view reads none: its reflections are
+        // the tracer's own bounces (UE RenderPathTracing never samples a reflection capture), so it neither drives
+        // the scene's captures nor holds a capture's start on their first fill (ReflectionCaptureRenderer::
+        // FirstFillPending) - a fill its frame never measures (AddFrameReflectionCaptureUpdate is not on its path).
         return m_ViewProfile.ReflectionCaptures &&
-               m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off;
+               m_RenderMethods.Reflections.Effective != Common::Scalability::ReflectionMethod::Off &&
+               !PathTraced( m_RenderMethods );
     }
 
     uint64_t SceneRenderer::GetEnvironmentIdentity()
@@ -2948,6 +3727,15 @@ namespace Desert::Graphic
     std::shared_ptr<Image2D> SceneRenderer::GetSceneColorImage() const
     {
         return m_TargetFramebuffer ? m_TargetFramebuffer->GetColorAttachmentImage( 0 ) : nullptr;
+    }
+
+    std::shared_ptr<Image2D> SceneRenderer::GetHdrRenditionImage() const
+    {
+        const auto it = m_RenderSystems.find( "TonemapSystem" );
+        if ( it == m_RenderSystems.end() || !it->second )
+            return nullptr;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return static_cast<const System::TonemapRenderer*>( it->second.get() )->GetHdrRenditionImage();
     }
 
     const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
@@ -3029,9 +3817,11 @@ namespace Desert::Graphic
     SceneResources::ContactShadowSettings SceneRenderer::GetContactShadowSettings( const ViewFrame& frame,
                                                                                    bool hasOpaqueDepth ) const
     {
-        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip.
+        // The projection's [1][1] is 1 / tan(fovY / 2), signed by the Y flip. The view's PostProcess Contact
+        // Shadows (m_RenderMethods.ContactShadows) gates the march for every light, as UE's r.ContactShadows does;
+        // each light's ContactShadowLength then says how far it reaches (0 = none).
         return SceneResources::ContactShadowSettings{
-             .Steps                  = hasOpaqueDepth ? m_ContactShadowSteps : 0,
+             .Steps                  = hasOpaqueDepth && m_RenderMethods.ContactShadows ? m_ContactShadowSteps : 0,
              .TanHalfFovY            = 1.0f / std::max( std::abs( frame.Projection[1][1] ), 1e-6f ),
              .DitherFrame            = static_cast<uint32_t>( frame.FrameIndex % 8u ),
              .SunLength              = m_SunContactShadowLength,

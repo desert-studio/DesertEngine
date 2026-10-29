@@ -1,0 +1,16 @@
+# VFX-PORT-1: VFX modules as `.dfxmod` assets (VFXS 4 stack rows {Guid, Path}; the defaults of every module, CPU
+# ones included, live in the `.dfxmod` alone). SLICE-02's WallDust.dfx (BreakDust, BreakSmoke, BreakSparks,
+# LandingDust) was raised to VFXS 4 and now resolves its modules through the registry (RegistryVFXModuleResolver);
+# its SpawnFromChannel rows are read by VFXEmitterSpawn's C++. Camera as SLICE-02.scn. The scenario does not save
+# the scene.
+Дано run Scene "Open Scene SLICE-02.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -800,190,-60
+Дано --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда run Action Simulate
+Когда advance 0.3
+Когда run Action "Fire Field 'WallBlast'"
+Когда advance 1.0
+Когда advance 1.0
+Тогда-вид walldust_modules WallDust's dust and smoke visible over the broken wall as before the port (SLICE-02 2_settle: grey smoke over a tan dust cloud, the sparks gone); editor.log has 0 [error] lines (no module that does not resolve, no refused stack row)
+Когда run Action Stop

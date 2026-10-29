@@ -1,4 +1,5 @@
 #include <Common/Core/DevInstruments.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Graphic/Environment/SkyLook.hpp>
 #include <Engine/Graphic/ReflectionCaptures/ReflectionCaptureRenderer.hpp>
@@ -160,6 +161,8 @@ namespace Desert::Graphic
             {
                 view.SkyTransmittanceLut = textures.Import( sky->GetTransmittanceLut(), "Sky.TransmittanceLut" );
                 view.SkyViewLut          = textures.Import( sky->GetSkyViewLut(), "Sky.SkyViewLut" );
+                if ( sky->SkyPassSamplesLight1Lut() )
+                    view.SkyViewLut1 = textures.Import( sky->GetSkyViewLut1(), "Sky.SkyViewLut1" );
             }
         // THE NEUTRAL RADIANCE CACHE (FrameTransients::RadianceCache*): a zeroed params block (no clipmap, so
         // every read answers "past the coarsest clipmap" and touches neither the indirection nor the probes, which
@@ -348,7 +351,7 @@ namespace Desert::Graphic
         graph.SetFaultDefault( ao, RDG::FaultDefault::White );
         const RDG::TextureRef depth    = textures.Depth( m_GBuffer, "GBuffer" ); // world position reconstructed
         const RDG::TextureRef normal   = gbuffer[1]; // GBufferB
-        textures.Transients.SSAO       = ao;         // -> Deferred: Composite (u_SSAO)
+        textures.Transients.SSAO       = ao;         // -> Deferred: Composite (SsaoTexture)
         graph.AddPass(
              "Deferred: SSAO", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
@@ -444,12 +447,20 @@ namespace Desert::Graphic
     {
         if ( !RadianceCacheRuns() )
             return;
+        // A frame whose GI could not be recorded (an input missing, a pass refused) says so once per distinct
+        // reason, not every frame; a frame that records it again forgets the reason, so a later failure is said.
+        const auto refuse = [this]( std::string message )
+        {
+            if ( m_TracedGIRefusal.Claim( std::move( message ) ) )
+                LOG_ERROR( "[SceneRenderer] {}", m_TracedGIRefusal.Last() );
+        };
         FrameTransients& t = textures.Transients;
         if ( gbuffer.size() < 4 || !m_GBuffer || !t.Lights.WorldGridCells.IsValid() )
         {
-            LOG_ERROR( "[SceneRenderer] RadianceCache: not updated: {}",
-                       gbuffer.size() < 4 ? "the G-buffer has fewer than 4 colours"
-                                          : "the world light grid was not built" );
+            const std::string_view missing = gbuffer.size() < 4 ? "the G-buffer has fewer than 4 colours"
+                                             : !m_GBuffer       ? "the view has no G-buffer"
+                                                                : "the world light grid was not built";
+            refuse( std::format( "RadianceCache: not updated: {}", missing ) );
             return;
         }
         if ( !m_RadianceCache )
@@ -493,6 +504,21 @@ namespace Desert::Graphic
                                   TraceProgramName( m_GIPipeline, false ), traced.GetError() );
             return;
         }
+        // THE SCREEN-PROBE LAYOUT, validated here - where the method is chosen and before the trace legs compile
+        // under it - and not per frame in the gather: a layout the shaders do not compile, or a layout program the
+        // shader service refused, is said ONCE (ScreenProbeGather::ClaimLayoutRefusalReport, the shader service's
+        // refusal memory for a refused program), and the GI is not gathered while it stands. A recompile of the
+        // fixed shader (ShaderService::Recompile) forgets the refusal, so the next frame gathers.
+        if ( m_GIPipeline.ScreenProbes )
+            if ( const auto layout = m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample,
+                                                                                m_ScreenProbeTracedTexels );
+                 !layout )
+            {
+                if ( m_ScreenProbeGather->ClaimLayoutRefusalReport() )
+                    LOG_ERROR( "[SceneRenderer] ScreenProbes: not gathered while its layout is refused: {}",
+                               layout.GetError() );
+                return;
+            }
         if ( m_GIPipeline.ScreenProbes )
             if ( const auto traced = m_ScreenProbeGather->EnsureTraceProgram( m_GIPipeline ); !traced )
             {
@@ -504,7 +530,7 @@ namespace Desert::Graphic
         const auto            desc  = graph.GetTextureDesc( depth );
         if ( !desc )
         {
-            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", desc.GetError() );
+            refuse( std::format( "RadianceCache: {}", desc.GetError() ) );
             return;
         }
         const FrameGraphRefs                          refs = textures.GraphRefs();
@@ -524,6 +550,7 @@ namespace Desert::Graphic
         inputs.WorldGridParams = t.Lights.WorldGridParams;
         inputs.WorldGridCells  = t.Lights.WorldGridCells;
         inputs.CameraPosition  = frame.CameraPosition;
+        inputs.Lighting        = GetFrameDirectionalLighting();
         // The captures' points are readers of this cache too: their stored diffuse is measured from it.
         if ( m_FrameReflectionCaptures && ReadsReflectionCaptures() )
             inputs.MarkPoints = m_FrameReflectionCaptures->CapturePoints();
@@ -537,7 +564,7 @@ namespace Desert::Graphic
         const auto cache = m_RadianceCache->AddUpdatePasses( graph, import, m_RadianceCacheInputs, inputs );
         if ( !cache )
         {
-            LOG_ERROR( "[SceneRenderer] RadianceCache: {}", cache.GetError() );
+            refuse( std::format( "RadianceCache: {}", cache.GetError() ) );
             return;
         }
         m_TracedFrameShared.RadianceCache = cache.GetValue();
@@ -548,19 +575,37 @@ namespace Desert::Graphic
         textures.Transients.RadianceCacheIrradiance  = cache.GetValue().Irradiance;
         textures.Transients.RadianceCacheDepth       = cache.GetValue().Depth;
 
-        // The cards' indirect light off this update (the radiosity slot): the frame's relit pages.
-        if ( m_SurfaceCache && m_SurfaceCacheFrame )
+        // The cards' radiosity (UE LumenRadiosity, this frame's tracer): the frame's relit pages - by the view
+        // that updated the cache this frame (a lent cache already updated this frame is read, not relit).
+        SurfaceCache::SurfaceCacheRenderer* const surfaceCache = ReadSurfaceCache();
+        if ( surfaceCache != nullptr && m_SurfaceCacheFrame && m_SurfaceCacheFrame->Updated )
         {
             const GlobalIllumination::RadianceCacheFrame& rc = cache.GetValue();
-            if ( const auto lit = m_SurfaceCache->AddIndirectLightingPass(
+            if ( const auto lit = surfaceCache->AddIndirectLightingPass(
                       graph, import, m_SurfaceCacheFrame->Scene, m_SurfaceCacheFrame->Buffers,
-                      { .Params      = rc.Params,
-                        .Indirection = rc.Indirection,
-                        .Probes      = rc.Probes,
-                        .Irradiance  = rc.Irradiance,
-                        .Depth       = rc.Depth } );
+                      { .Params          = rc.Params,
+                        .Indirection     = rc.Indirection,
+                        .Probes          = rc.Probes,
+                        .Irradiance      = rc.Irradiance,
+                        .Depth           = rc.Depth,
+                        .Tracer          = inputs.Tracer,
+                        .Hits            = inputs.SurfaceCache,
+                        .GIFrame         = inputs.GIFrame,
+                        .PointLights     = inputs.PointLights,
+                        .SpotLights      = inputs.SpotLights,
+                        .WorldGridParams = inputs.WorldGridParams,
+                        .WorldGridCells  = inputs.WorldGridCells,
+                        .EnvSpecular     = inputs.EnvSpecular,
+                        .GBufferDepth    = inputs.GBufferDepth,
+                        .GBufferA        = inputs.GBufferA,
+                        .GBufferEmissive = inputs.GBufferEmissive } );
                  !lit )
-                LOG_ERROR( "[SceneRenderer] Surface Cache: {}", lit.GetError() );
+            {
+                if ( m_TracedGICardLightingRefusal.Claim( lit.GetError() ) )
+                    LOG_ERROR( "[SceneRenderer] Surface Cache: {}", lit.GetError() );
+            }
+            else
+                m_TracedGICardLightingRefusal.Clear();
         }
 
         // ProbeVolume (UE Lumen's irradiance field gather): the cache IS the final gather, read per pixel.
@@ -574,9 +619,10 @@ namespace Desert::Graphic
             const auto gathered = m_IrradianceFieldGather->AddPasses( graph, import, field );
             if ( !gathered )
             {
-                LOG_ERROR( "[SceneRenderer] IrradianceField: {}", gathered.GetError() );
+                refuse( std::format( "IrradianceField: {}", gathered.GetError() ) );
                 return;
             }
+            m_TracedGIRefusal.Clear();
             t.GIDiffuse  = gathered.GetValue().Diffuse;
             t.GISpecular = gathered.GetValue().Specular;
             t.GIBackface = gathered.GetValue().Backface;
@@ -601,8 +647,11 @@ namespace Desert::Graphic
         gather.Extent             = inputs.Extent;
         gather.AdaptiveProbePercent = m_ScreenProbeAdaptivePercent;
         gather.ShortRangeAO         = m_ScreenProbeShortRangeAO;
+        gather.Downsample           = m_ScreenProbeDownsample;
+        gather.TracedTexels         = m_ScreenProbeTracedTexels;
         gather.PrevViewProjection = frame.PrevViewProjection;
         gather.PrevCameraPosition = frame.PrevCameraPosition;
+        gather.PrevPreExposure      = frame.PrevPreExposure;
         // The screen leg (UE ScreenProbeTraceScreenTextures): the view's HZB and scene colour history, or the
         // system black texture with the leg off when the view has no screen trace.
         gather.HZB = screenTrace.HZB.IsValid() ? screenTrace.HZB : refs.System.Black;
@@ -624,9 +673,10 @@ namespace Desert::Graphic
              m_ScreenProbeGather->AddPasses( graph, import, gather, m_ViewState.ScreenProbeGather() );
         if ( !gathered )
         {
-            LOG_ERROR( "[SceneRenderer] ScreenProbes: {}", gathered.GetError() );
+            refuse( std::format( "ScreenProbes: {}", gathered.GetError() ) );
             return;
         }
+        m_TracedGIRefusal.Clear();
         t.GIDiffuse  = gathered.GetValue().Diffuse;
         t.GISpecular = gathered.GetValue().Specular;
         t.GIBackface = gathered.GetValue().Backface;
@@ -679,11 +729,13 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameComposite( RDG::Builder& graph, FrameTextures& textures,
                                            const std::vector<RDG::TextureRef>& gbuffer, RDG::TextureRef ssr,
                                            const RDG::TextureRef             sunShadowMask,
+                                           const RDG::TextureRef             localShadowMasks,
                                            const System::MegaLightsLighting& megaLights,
                                            System::MeshRenderer* meshRenderer, const glm::vec4& lightDir,
-                                           const glm::vec4& lightColor, const ViewFrame& frame )
+                                           const glm::vec4& lightColor, const ViewFrame& frame,
+                                           const RDG::TextureRef subsurfaceDiffuse )
     {
-        // w: what u_SSR holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
+        // w: what SsrTexture holds (DeferredLighting.shader REFLECTION_INPUT_*): 0 nothing, 1 the screen trace, 2 the
         // traced reflection, which the composite fades into the traced GI's rough specular past
         // MaxRoughnessToTrace (UE MixSpecularAndRoughReflections).
         constexpr float kReflectionInputNone = 0.0f, kReflectionInputScreen = 1.0f, kReflectionInputTraced = 2.0f;
@@ -691,6 +743,22 @@ namespace Desert::Graphic
                                           : ReflectionsTraced() ? kReflectionInputTraced
                                                                 : kReflectionInputScreen;
         const glm::vec4 cameraPos( frame.CameraPosition, reflectionInput );
+        // The Reflections view shows the traced reflection alone (DeferredLighting.shader, mode 18): a view whose
+        // reflections are not traced has none to show, and the screen trace is no stand-in for it.
+        if ( m_DebugView.DeferredDebug == DeferredDebugMode::Reflections )
+        {
+            if ( !ReflectionsTraced() )
+            {
+                LOG_ERROR( "[SceneRenderer] Reflections view: reflections are not traced (ReflectionsMethod {}); "
+                           "the view shows SoftwareTraced / HardwareTraced only",
+                           static_cast<int>( m_RenderMethods.Reflections.Effective ) );
+            }
+            else if ( !ssr.IsValid() )
+            {
+                LOG_ERROR(
+                     "[SceneRenderer] Reflections view: the traced reflections were not produced this frame" );
+            }
+        }
         // LOAD/STORE on every scene-target attachment. The depth is declared written because the passes after
         // this one that are not graph nodes yet (forward meshes, glass, fog, clouds, overlays) begin their own
         // render passes on it in the depth-attachment layout, and DepthResolve left it a transfer destination.
@@ -732,25 +800,37 @@ namespace Desert::Graphic
         // CPU state of this frame, gathered at graph build: the material is filled in the node's setup, where the
         // pass validation reads its route fill (lead decision B), never in the exec.
         DeferredShadowInput shadow;
+        shadow.Debug = m_DebugView.ShadowDebug;
         if ( SunShadowIsScreenMask() )
         {
             // AddFrameRayTracedSunShadow logged why a mask is missing; the sun is then unshadowed (System.White),
             // never shadowed by cascades no pass drew.
             inputs.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : refs.System.White;
-            shadow.Sun           = DeferredScreenShadowMask{ .Mask = inputs.SunShadowMask };
+            // The sun is the mask's; every other shadowed directional light keeps its cascades under it.
+            shadow.Sun = DeferredScreenShadowMask{ .Mask   = inputs.SunShadowMask,
+                                                   .Lights = meshRenderer != nullptr
+                                                                  ? meshRenderer->DirectionalShadows()
+                                                                  : SceneResources::DirectionalShadowViews{} };
             // Shadows Stochastic: MegaLights' local lighting (AddFrameMegaLights logged why one is missing; a view
             // without local lights has none to add): black adds no local light, never the unshadowed grid loop.
             shadow.MegaLightsLocalLights = LocalLightsAreStochastic();
+            // Shadows HardwareTraced: the lights with a ShadowMaskSlot read the ray-traced masks
+            // (AddFrameRayTracedLocalShadows logged why they are missing; the sun-mask program then reads the
+            // lights' shadow views - their maps where drawn, otherwise unshadowed).
+            shadow.RayTracedLocalLights = LocalShadowsAreRayTraced() && localShadowMasks.IsValid();
+            inputs.LocalShadowMasks     = localShadowMasks;
         }
         else if ( meshRenderer != nullptr )
-            shadow.Sun = DeferredCascadeShadow{ .CascadeVP            = meshRenderer->GetCascadeViewProj(),
-                                                .Count                = meshRenderer->GetValidCascadeCount(),
-                                                .Enabled              = meshRenderer->AreShadowsEnabled(),
-                                                .CascadeWorldPerTexel = meshRenderer->GetCascadeWorldPerTexel(),
-                                                .CascadeDepthRange    = meshRenderer->GetCascadeDepthRange(),
-                                                .SourceTanHalf        = meshRenderer->GetSunSourceTanHalf() };
+            shadow.Sun = DeferredCascadeShadow{ .Lights = meshRenderer->DirectionalShadows() };
         inputs.MegaLightsDiffuse  = megaLights.Diffuse.IsValid() ? megaLights.Diffuse : refs.System.Black;
         inputs.MegaLightsSpecular = megaLights.Specular.IsValid() ? megaLights.Specular : refs.System.Black;
+        // SSS-PROFILE: the split's target, or a 1x1 transient the composite never writes (SubsurfaceSplit off).
+        inputs.SubsurfaceDiffuse =
+             subsurfaceDiffuse.IsValid()
+                  ? subsurfaceDiffuse
+                  : graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width = 1u, .Height = 1u },
+                                                           .Format = ViewTargetFormats::kSubsurfaceDiffuse },
+                                         "SubsurfaceDiffuse (unsplit)" );
         // The composite marches the G-buffer depth, so its view always has one (GetContactShadowSettings).
         shadow.Contact                       = GetContactShadowSettings( frame, true );
         shadow.Filter                        = GetShadowFilterSettings();
@@ -773,7 +853,7 @@ namespace Desert::Graphic
                  brdf && brdf->GetImageHandle().IsValid() )
                 environment.BrdfLut = dynamic_cast<Image2D*>( imageService->Resolve( brdf->GetImageHandle() ) );
         }
-        // The composite's GI branch (DeferredLighting.shader u_Params.w): 0 none, 1 the screen-space gather inside
+        // The composite's GI branch (DeferredLighting.shader Params.w): 0 none, 1 the screen-space gather inside
         // this pass, 2 the traced final gather's diffuse and specular in place of the sky's (SSAO occludes it), 3
         // the same gather occluded by its own short-range AO (the material AO alone left to apply). Spelled here,
         // not cast from the enum, whose numbering is the method ladder's (Common/Settings/RenderMethods.hpp).
@@ -785,7 +865,9 @@ namespace Desert::Graphic
                                                                                      : 0;
         const DeferredGIInput compositeGI{ .Mode      = giMode,
                                            .Intensity = gi == GIMethod::ScreenSpace ? m_GIIntensity : 0.0f,
-                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples };
+                                           .ScreenSpaceSamples = m_ScreenSpaceGISamples,
+                                           .PreExposure        = frame.PreExposure,
+                                           .SubsurfaceSplit    = subsurfaceDiffuse.IsValid() };
 
         auto* const deferred =
              dynamic_cast<System::DeferredLightingRenderer*>( m_RenderSystems["DeferredLightingSystem"].get() );
@@ -803,8 +885,14 @@ namespace Desert::Graphic
              "Deferred: Composite", RDG::PassFlags::Raster,
              [&]( RDG::PassBuilder& pass )
              {
-                 deferred->FillMaterial( lightDir, lightColor, cameraPos, frame.InvJitteredViewProjection,
-                                         static_cast<int>( m_DebugView.DeferredDebug ), pointCount, spotCount,
+                 // Atmosphere light 1 (the moon): zero colour/intensity when the scene has none — the shader skips it.
+                 const FrameSun light1 = GetFrameLight1();
+                 deferred->FillMaterial( lightDir, lightColor, light1.Direction, light1.ColorIntensity, cameraPos,
+                                         frame.InvJitteredViewProjection,
+                                         m_DebugView.DeferredDebug == DeferredDebugMode::LocalExposure
+                                              ? 0 // a post view mode: the lighting draws Lit
+                                              : static_cast<int>( m_DebugView.DeferredDebug ),
+                                         pointCount, spotCount,
                                          shadow, compositeGI, m_EnableSSAO, cloudShadow, environment,
                                          frame.JitteredViewProjection );
                  deferred->DeclareCompositeBindings( pass, inputs, lights );
@@ -814,12 +902,91 @@ namespace Desert::Graphic
              { return deferred->Record( context ); } );
     }
 
+    bool SceneRenderer::SubsurfaceRuns() const
+    {
+        if ( !m_SubsurfaceScattering || m_SubsurfaceScale <= 0.0f )
+            return false;
+        // The debug channels return before the split: only the Lit view (and the post view modes drawn Lit).
+        if ( static_cast<int>( m_DebugView.DeferredDebug ) != 0 &&
+             m_DebugView.DeferredDebug != DeferredDebugMode::LocalExposure )
+            return false;
+        // The shadow views write a grey occlusion / a cascade-tinted colour: no scattered texel to split off.
+        if ( m_DebugView.ShadowDebug != ShadowDebugMode::Off )
+            return false;
+        const auto it = m_RenderSystems.find( "SubsurfaceSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const subsurface = static_cast<const System::SubsurfaceRenderer*>( it->second.get() );
+        auto* const       profiles   = Runtime::ResourceRegistry::GetSubsurfaceProfileService();
+        return subsurface->IsReady() && profiles != nullptr && profiles->Registry().Count() > 0u;
+    }
+
+    bool SceneRenderer::GrassInstancesSettling() const
+    {
+        const auto it = m_RenderSystems.find( "GrassSystem" );
+        if ( it == m_RenderSystems.end() || IsSceneCapture() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        return static_cast<const System::GrassRenderer*>( it->second.get() )->InstancesSettling();
+    }
+
+    bool SceneRenderer::SubsurfaceHistoryConverging() const
+    {
+        if ( !SubsurfaceRuns() )
+            return false;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* const subsurface =
+             static_cast<const System::SubsurfaceRenderer*>( m_RenderSystems.at( "SubsurfaceSystem" ).get() );
+        return subsurface->HistoryConverging();
+    }
+
+    void SceneRenderer::AddFrameSubsurface( RDG::Builder& graph, FrameTextures& textures,
+                                            const std::vector<RDG::TextureRef>& gbuffer,
+                                            const RDG::TextureRef subsurfaceDiffuse, const ViewFrame& frame )
+    {
+        if ( gbuffer.size() < 2 )
+            return;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const subsurface = UNIQUE_GET_AS( System::SubsurfaceRenderer, m_RenderSystems["SubsurfaceSystem"] );
+        const System::SubsurfaceInputs inputs{ .SubsurfaceDiffuse = subsurfaceDiffuse,
+                                               .GBufferA          = gbuffer[0],
+                                               .GBufferB          = gbuffer[1],
+                                               .Depth             = textures.Depth( m_GBuffer, "GBuffer" ) };
+        const System::SubsurfaceSettings settings{ .Scale = m_SubsurfaceScale };
+        const System::SubsurfaceScatter  scatter = subsurface->AddScatter(
+             graph, Runtime::ResourceRegistry::GetSubsurfaceProfileService()->Registry(), inputs, settings, frame,
+             m_TargetFramebuffer->GetFramebufferWidth(), m_TargetFramebuffer->GetFramebufferHeight() );
+        if ( !scatter.Scattered.IsValid() )
+        {
+            LOG_ERROR( "[SceneRenderer] Subsurface: Burley was not added (no atlas rows or no pipeline)" );
+            return;
+        }
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Subsurface: Recombine" );
+        if ( !targets )
+            return;
+        const RDG::ImportedFramebuffer& target = *targets;
+        const std::vector<RDG::LoadOp>  loads  = textures.ColorLoads( *targets, RDG::LoadOp::Load() );
+        graph.AddPass(
+             "Subsurface: Recombine", RDG::PassFlags::Raster,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 subsurface->DeclareRecombineBindings( pass, inputs, scatter );
+                 DeferredFrameNodes::LoadTarget( pass, target, loads );
+             },
+             [subsurface]( RDG::PassContext& context ) -> Common::BoolResultStr
+             { return subsurface->RecordRecombine( context ); } );
+    }
+
     bool SceneRenderer::GlobalDistanceFieldRead() const
     {
         if ( RadianceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( m_GIPipeline ) )
             return true;
         // The surface cache's shadow rays off the view's maps.
         if ( SurfaceCacheRuns() && GlobalIllumination::TracerReadsGlobalDistanceField( SurfaceCacheTracer() ) )
+            return true;
+        // The traced reflections' own rays: SoftwareTraced walks the field whatever GI's method is.
+        if ( ReflectionsTraced() && GlobalIllumination::TracerReadsGlobalDistanceField( ReflectionsTracer() ) )
             return true;
 #if DESERT_DEV_INSTRUMENTS
         return m_RenderPath == Core::RenderPath::Deferred &&
@@ -840,15 +1007,36 @@ namespace Desert::Graphic
             LOG_ERROR( "[SceneRenderer] Global Distance Field: no MeshSystem" );
             return;
         }
-        if ( !m_GlobalDistanceField )
+        if ( m_FrameDistanceFields == nullptr )
         {
-            auto field = std::make_unique<DistanceField::GlobalDistanceField>();
-            if ( const auto initialized = field->Initialize(); !initialized )
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: no scene's distance fields (outside BeginScene)" );
+            return;
+        }
+        // The field this view reads: the one lent to it (ShareGlobalDistanceField: a reflection capture's face
+        // views share their capture's), else its own, made on first use.
+        DistanceField::GlobalDistanceField* globalField = m_SharedGlobalDistanceField;
+        if ( globalField == nullptr )
+        {
+            if ( !m_OwnGlobalDistanceField )
+                m_OwnGlobalDistanceField =
+                     std::make_unique<DistanceField::GlobalDistanceField>( m_LedgerView.Instance );
+            globalField = m_OwnGlobalDistanceField.get();
+        }
+        if ( !globalField->IsInitialized() )
+            if ( const auto initialized = globalField->Initialize(); !initialized )
             {
                 LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", initialized.GetError() );
                 return;
             }
-            m_GlobalDistanceField = std::move( field );
+        if ( !m_GlobalDistanceFieldView )
+        {
+            auto view = std::make_unique<DistanceField::GlobalDistanceFieldView>();
+            if ( const auto initialized = view->Initialize(); !initialized )
+            {
+                LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", initialized.GetError() );
+                return;
+            }
+            m_GlobalDistanceFieldView = std::move( view );
         }
 
         // Every static and instanced mesh of the frame that carries a field, whole - the field holds what is
@@ -858,15 +1046,16 @@ namespace Desert::Graphic
         // lists (UE: the object's GPUSceneInstanceIndex). The cache updates after the field in the frame, so these
         // are the last update's rows; a row is stable while its instance lives, and a new one recomposites the
         // object the frame it appears (GlobalDistanceField: the row is part of the object's identity).
-        const std::unordered_map<uint64_t, uint32_t> rows = m_SurfaceCache
-                                                                 ? m_SurfaceCache->GetScene().RowsByPlacement()
+        SurfaceCache::SurfaceCacheRenderer* const   surfaceCache = ReadSurfaceCache();
+        const std::unordered_map<uint64_t, uint32_t> rows = surfaceCache != nullptr
+                                                                 ? surfaceCache->GetScene().RowsByPlacement()
                                                                  : std::unordered_map<uint64_t, uint32_t>{};
         // One object per volume of the mesh's field, each owning the whole field (an aliasing pointer: the
         // volume lives as long as the field it belongs to). A mesh whose field is still being derived (the
         // asynchronous queue) is not in it yet.
         // Each object also carries where the view drew it last frame (UE: the instance's PrevLocalToWorld, which
-        // a near-field hit's velocity reads): a static draw's motion row (BuildObjectMotions ran before any pass);
-        // an instanced batch's instances have no motion record of their own and did not move.
+        // a near-field hit's velocity reads): a static draw's GpuScene row (SyncGpuScene ran before any pass);
+        // an instanced batch's instances have no previous transform of their own and did not move.
         const auto place = [&objects, &rows]( const void*                                                 mesh,
                                               const std::shared_ptr<const Assets::MeshDistanceFieldData>& field,
                                               const glm::mat4& world, const glm::mat4& prevWorld,
@@ -882,11 +1071,13 @@ namespace Desert::Graphic
                      .Row            = row,
                      .MostlyTwoSided = mostlyTwoSided } );
         };
-        const auto& motionRows = meshRenderer->GetObjectMotionRows().Rows;
+        // The previous world of each primitive is its GpuScene row's (MeshRenderer::SyncGpuScene ran this frame
+        // before any pass was declared: OnUpdate draws nothing without it).
+        const GpuDriven::GpuScene& gpuScene = *meshRenderer->GetGpuScene();
         for ( const auto& draw : meshRenderer->GetStaticQueue() )
             if ( draw.Mesh != nullptr )
                 if ( const auto field = draw.Mesh->GetDistanceField() )
-                    place( draw.Mesh, field, draw.Transform, motionRows[draw.MotionRow].PrevWorld,
+                    place( draw.Mesh, field, draw.Transform, GpuDriven::UnpackAffine( gpuScene.Primitive( draw.GpuPrimitive ).PrevLocalToWorld ),
                            draw.Mesh->IsDistanceFieldMostlyTwoSided() );
         for ( const auto& ism : meshRenderer->GetInstancedQueue() )
             if ( ism.Mesh != nullptr && ism.Transforms )
@@ -897,30 +1088,25 @@ namespace Desert::Graphic
         const auto import = [&textures]( const std::shared_ptr<Image>& image, const std::string_view name )
         { return textures.Import( image, name ); };
         // The view's camera (ViewFrame; SceneRenderer.hpp: a pass that reads a camera position takes the
-        // ViewFrame)
-        // - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the frame's.
-        const auto field = m_GlobalDistanceField->AddUpdatePasses( graph, import, frame.CameraPosition, objects,
-                                                                   m_DistanceFieldPoolMiB );
-        if ( !field )
-        {
-            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
-            return;
-        }
-        DistanceField::GlobalDistanceField::FrameField fieldFrame = field.GetValue();
-        // The near field's froxel grid over this view (the GI tracer's first metres).
-        const DistanceField::GlobalDistanceField::NearFieldView nearView{
+        // ViewFrame) - not m_SceneInfo.ActiveCamera's, which would frame the field from another camera than the
+        // frame's. The field is brought up to it (once per frame, whichever view of the field asks first), then
+        // this view's near-field froxel grid (the GI tracer's first metres) is culled over it.
+        const DistanceField::GlobalDistanceFieldView::NearFieldView nearView{
              .ViewProjection    = frame.ViewProjection,
              .InvViewProjection = frame.InvViewProjection,
              .Projection        = frame.Projection,
              .CameraPosition    = frame.CameraPosition,
              .Forward           = -glm::normalize( glm::vec3( frame.InvView[2] ) ),
              .Extent            = glm::uvec2( frame.Split.Render.Width, frame.Split.Render.Height ) };
-        if ( const auto culled = m_GlobalDistanceField->AddNearFieldCullPasses( graph, fieldFrame, nearView );
-             !culled )
+        const auto field = m_GlobalDistanceFieldView->AddFramePasses(
+             graph, *globalField, import, objects, *m_FrameDistanceFields,
+             Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(), m_DistanceFieldPoolMiB, nearView );
+        if ( !field )
         {
-            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", culled.GetError() );
+            LOG_ERROR( "[SceneRenderer] Global Distance Field: {}", field.GetError() );
             return;
         }
+        const DistanceField::GlobalDistanceField::FrameField& fieldFrame = field.GetValue();
         textures.Transients.GlobalDistanceField           = fieldFrame.Clipmaps;
         textures.Transients.GlobalDistanceFieldLevels     = fieldFrame.Levels;
         textures.Transients.MeshDistanceFields            = fieldFrame.MeshFields;
@@ -1018,7 +1204,7 @@ namespace Desert::Graphic
              m_RenderPath != Core::RenderPath::Deferred )
             return;
         const FrameTransients& t = textures.Transients;
-        if ( !m_GlobalDistanceField || !t.GlobalDistanceField[0].IsValid() || !target.IsValid() )
+        if ( !m_GlobalDistanceFieldView || !t.GlobalDistanceField[0].IsValid() || !target.IsValid() )
         {
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field not drawn: {}",
                        !target.IsValid() ? "the frame has no post input"
@@ -1029,7 +1215,7 @@ namespace Desert::Graphic
         field.Clipmaps = t.GlobalDistanceField;
         field.Levels   = t.GlobalDistanceFieldLevels;
         // The view's matrices, unjittered (ViewFrame, as every overlay reads them).
-        if ( const auto drawn = m_GlobalDistanceField->AddDebugViewPass( graph, field, target, EngineClearColor(),
+        if ( const auto drawn = m_GlobalDistanceFieldView->AddDebugViewPass( graph, field, target, EngineClearColor(),
                                                                          frame.InvViewProjection );
              !drawn )
             LOG_ERROR( "[SceneRenderer] Debug: Global Distance Field: {}", drawn.GetError() );
@@ -1060,7 +1246,7 @@ namespace Desert::Graphic
         const RDG::TextureRef sceneCopy    = into.IsValid() ? into : graph.CreateTexture( copyDesc, "SceneCopy" );
         const RDG::TextureRef source       = sceneColor.front();
         // -> Deferred: Glass, Water; and, as the view's scene colour history, next frame's screen traces
-        // (Deferred: SSR's u_SceneColor, ScreenProbes: Trace's u_SceneColorHistory).
+        // (Deferred: SSR's SceneColorTexture, ScreenProbes: Trace's SceneColorHistoryTexture).
         textures.Transients.SceneColorCopy = sceneCopy;
         graph.AddPass(
              "Deferred: SceneCopy", RDG::PassFlags::Raster,
@@ -1137,7 +1323,16 @@ namespace Desert::Graphic
         payload.Camera            = glm::vec4( frame.CameraPosition, 1.0f );
         const bool hasSun         = !m_DirectionLights.DirectionLights.empty();
         payload.SunTravel         = glm::vec4( glm::normalize( glm::vec3( lightDir ) ), hasSun ? 1.0f : 0.0f );
-        payload.SunRadiance       = glm::vec4( glm::vec3( lightColor ) * lightColor.w, 0.0f );
+        // w: the sun's CastShadows (ViewShadowSettings::Enabled), as light 1's below - off, no ray of it is occluded.
+        payload.SunRadiance = glm::vec4( glm::vec3( lightColor ) * lightColor.w, m_SunCastsShadows ? 1.0f : 0.0f );
+        // Atmosphere light 1 (the moon), as the deferred pass shades it (OnUpdate applied its transmittance).
+        if ( m_AtmosphereLight1 )
+        {
+            const ShaderProtocols::DirectionLightPayload& light1 = m_AtmosphereLight1->Light;
+            payload.Light1Travel   = glm::vec4( glm::normalize( glm::vec3( light1.Direction ) ), 1.0f );
+            payload.Light1Radiance = glm::vec4( glm::vec3( light1.ColorIntensity ) * light1.ColorIntensity.w,
+                                                m_AtmosphereLight1->CastShadows ? 1.0f : 0.0f );
+        }
         if ( const auto& env = GetEnvironment(); env.has_value() )
         {
             const SkyLookGPU look = ToGPU( env->Look );
@@ -1149,15 +1344,29 @@ namespace Desert::Graphic
     }
 
     uint64_t SceneRenderer::PathTracingSceneHash( const GlobalIllumination::GIFramePayload& giFrame,
-                                                  const uint64_t environment, const uint64_t emissive ) const
+                                                  const uint64_t environment, const uint64_t emissive,
+                                                  const CloudShadowUniforms& cloudShadow ) const
     {
         System::PathTracer::SceneHasher         hash;
         const RayTracing::RayTracingSceneFrame& rt = m_RayTracingScene.GetFrame();
         hash.Value( rt.InstanceHash );
         hash.Values( std::span<const ShaderProtocols::PointLightPayload>( GetPointLights().PointLights ) );
         hash.Values( std::span<const ShaderProtocols::SpotLightPayload>( GetSpotLights().SpotLights ) );
-        // The record's sun, sky look and extent (its camera rows restart through the ViewProjection test as well).
-        hash.Value( giFrame );
+        // The record's sun, atmosphere light 1, sky look and extent, and the two lights' discs, which the trace
+        // push carries beside it. NOT its camera rows (ViewProjection, InvViewProjection, Camera): the camera's
+        // motion is PathTracer::AddPasses' own test (ViewProjection != PrevViewProjection), the one restart the
+        // denoiser's history carries across - hashed here they made every moving frame a scene change, which
+        // emptied the history (PT-DENOISE-11: pan8 = 4 paths of this frame alone, history length 4.00 at every
+        // pixel).
+        hash.Value( giFrame.SunTravel );
+        hash.Value( giFrame.SunRadiance );
+        hash.Value( giFrame.Light1Travel );
+        hash.Value( giFrame.Light1Radiance );
+        hash.Value( giFrame.SkyYawCosSin );
+        hash.Value( giFrame.SkyGain );
+        hash.Value( giFrame.Screen );
+        hash.Value( m_SunSourceAngleDegrees );
+        hash.Value( m_AtmosphereLight1 ? m_AtmosphereLight1->SourceAngleDegrees : 0.0f );
         hash.Value( environment );
         for ( const std::string& name : m_ReflectionHitGroups.Templates )
             hash.Bytes( std::as_bytes( std::span<const char>( name.data(), name.size() ) ) );
@@ -1178,6 +1387,8 @@ namespace Desert::Graphic
         hash.Values( std::span<const glm::vec4>( m_ReflectionHitGroups.Rows ) );
         hash.Value( Runtime::ResourceRegistry::GetMaterialService()->GetInvalidationVersion() );
         hash.Value( emissive );
+        // The cloud shadow's placement and strength (the sun's transmittance through the clouds).
+        hash.Value( cloudShadow );
         return hash.Get();
     }
 
@@ -1267,6 +1478,13 @@ namespace Desert::Graphic
         inputs.PointLightCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         inputs.SpotLightCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
         inputs.EnvSpecular     = SceneViewInputsOf( textures.GraphRefs() ).EnvSpecular;
+        // The sun's way through the cloud layer: the map the lit passes read (Common/CloudShadowReceiver.glslh).
+        const CloudShadowUniforms cloudShadow = CloudShadowPackUniforms( GetCloudShadowInput() );
+        inputs.CloudShadowMap                 = SceneViewInputsOf( textures.GraphRefs() ).CloudShadowMap;
+        inputs.CloudShadow =
+             graph.CreateBuffer( RDG::BufferDesc{ sizeof( cloudShadow ) }, "PathTracing.CloudShadowUB" );
+        graph.QueueBufferUpload( inputs.CloudShadow,
+                                 std::as_bytes( std::span<const CloudShadowUniforms>( &cloudShadow, 1 ) ) );
         inputs.HitGroups       = &m_ReflectionHitGroups;
         auto emissive          = AddFrameEmissiveLights( graph );
         if ( !emissive )
@@ -1274,11 +1492,28 @@ namespace Desert::Graphic
         inputs.Emissive = emissive.GetValue();
         // The sun's disc (UE: the directional light's SourceAngle is its full angular diameter).
         inputs.SunSinHalfAngle = std::sin( glm::radians( m_SunSourceAngleDegrees ) * 0.5f );
+        // Atmosphere light 1's disc by the same law, from its own light's SourceAngle.
+        inputs.Light1SinHalfAngle =
+             m_AtmosphereLight1 ? std::sin( glm::radians( m_AtmosphereLight1->SourceAngleDegrees ) * 0.5f ) : 0.0f;
         // The angle one pixel subtends at the centre of the view: the camera ray's cone (ray cone LOD).
         inputs.PixelSpread     = std::atan( 2.0f / ( frame.Projection[1][1] * static_cast<float>( extent.y ) ) );
-        inputs.SceneHash       = PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash );
+        inputs.SceneHash =
+             PathTracingSceneHash( giFrame, GetEnvironmentIdentity(), inputs.Emissive.Hash, cloudShadow );
         inputs.DynamicGeometry = rt.DynamicGeometry;
-        return pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
+        // PathTracing.Denoiser RR and the upscaler this frame resolves with denoises: the paths go to it raw
+        // (System::PathTracer, THE DENOISER). Asked of the upscaler that was made too: a runtime refusal reaches
+        // Resolve at the next frame's start (VulkanPhysicalDevice::RefreshRuntimeOffers), and the frame in between
+        // must not hand raw paths to an upscaler that does not denoise.
+        inputs.RawToUpscaler =
+             m_PathTracingSettings.Denoiser == Common::Scalability::PathTracingDenoiserMethod::RR &&
+             m_TemporalUpscaler != nullptr && m_TemporalUpscaler->TakesRawLightingSignals();
+        const Common::ResultStr<PathTracedGuides> traced =
+             pathTracer->AddPasses( graph, sceneColor, frame, inputs, m_PathTracingSettings );
+        if ( !traced )
+            return Common::MakeError( traced.GetError() );
+        // The paths' guides replace the G-buffer's in the upscaler's inputs (TemporalUpscalerInputs::PathGuides).
+        textures.Transients.PathGuides = traced.GetValue();
+        return BOOLSUCCESS;
     }
 
     bool SceneRenderer::ReflectionsTraced() const
@@ -1350,6 +1585,15 @@ namespace Desert::Graphic
                     surface.Row      = RayTracing::LandscapeRayHitRow( landscape[segment.LandscapeTile] );
                 }
                 return surface; // past the tile list: a broken invariant, the default surface, counted
+            }
+            // A generic record with its own hit group (3D text: TextRayHit) is shaded by it from its own row (UE:
+            // the proxy's ray tracing material); a template that did not compile takes the default surface,
+            // counted.
+            if ( segment.ProgramHit != nullptr )
+            {
+                surface.Template = segment.ProgramHit->Template;
+                surface.Row      = segment.ProgramHit->Row;
+                return surface;
             }
             const auto* material = dynamic_cast<const DataDrivenMaterial*>( segment.SurfaceMaterial );
             if ( material == nullptr )
@@ -1560,6 +1804,7 @@ namespace Desert::Graphic
         settings.Intensity    = m_SSRIntensity;
         settings.Thickness    = Common::Units::Metres( 0.5f ); // literature: 0.5 m
         settings.DownsampleFactor = traceTargets->DownsampleFactor;
+        settings.InvPrevPreExposure = 1.0f / std::max( frame.PrevPreExposure, 1e-30f );
         // SoftwareTraced / HardwareTraced: the rays the screen does not answer go on through the reflections'
         // tracer (ReflectionsTracer, TracedReads).
         std::optional<System::SSRRenderer::TracedReads> traced;

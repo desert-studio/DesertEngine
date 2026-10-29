@@ -8,6 +8,7 @@
 #include "Engine/Geometry/MeshCore/IndexUtil.hpp"
 
 #include <algorithm>
+#include <format>
 
 using namespace Desert::Geometry;
 
@@ -165,9 +166,9 @@ bool MeshRegionBoundaryLoops::Compute()
             if ( BdryNbrs != 2 )
             {
                 m_bFailed       = true;
-                m_FailureReason = "region boundary vertex " + std::to_string( CurB ) + " has " +
-                                  std::to_string( BdryNbrs ) +
-                                  " region-boundary edges (2 expected; bowties are refused)";
+                m_FailureReason = std::format(
+                     "region boundary vertex {} has {} region-boundary edges (2 expected; bowties are refused)",
+                     CurB, BdryNbrs );
                 return false;
             }
             const int ENext = ( E0 == ECur ) ? E1 : E0;

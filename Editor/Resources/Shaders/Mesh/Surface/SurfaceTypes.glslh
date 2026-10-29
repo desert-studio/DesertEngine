@@ -35,7 +35,7 @@ vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
     return SampleBindless( materialTexture, uv );
 }
 #else
-// A material texture is its row slot (u_Material.<name>, a BindlessTexture), read through the bindless table.
+// A material texture is its row slot (Material.<name>, a BindlessTexture), read through the bindless table.
 vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
 {
     return SampleBindlessBias( materialTexture, uv, cameraUB.MaterialMipBias );
@@ -114,25 +114,31 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
 // SceneViewInputs::SceneDepth, the opaque G-buffer depth, or a black texture where the view has none). A separate
 // texture read through the point-clamped shared state (ParticleRenderer / Graphic::BindSceneViewInputs bind both),
 // numbered by the program build (SharedSamplerBinding.hpp).
-#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&      ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) || defined( DESERT_SURFACE_PASS_Forward ) )
-Uniform sampler u_PointClampSampler;
-layout( binding = 27 ) uniform texture2D u_SceneDepth; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
-#define u_SceneDepth sampler2D(u_SceneDepth, u_PointClampSampler)
+// A sprite cell declares it only when its surface calls DesertDepthFade (DESERT_SURFACE_DEPTH_FADE, defined by the
+// parser like UE's material compiler noting a scene-depth read): an unread shared sampler is refused by the build.
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                                                                    \
+     ( ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_DEPTH_FADE ) ) ||                      \
+       ( defined( DESERT_SURFACE_PASS_Forward ) && !defined( DESERT_SURFACE_PARTICLE_SPRITE ) ) )
+Uniform sampler PointClampSampler;
+layout( binding = 27 ) uniform texture2D SceneDepthTexture; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+#define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
 #endif
 // THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
 // bit (UE CastContactShadow( GBuffer ); SceneViewInputs::SceneShadingWord, the G-buffer's, or an integer zero). Read
 // with texelFetch through the same point-clamped state.
-#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward )
-layout( binding = 28 ) uniform utexture2D u_SceneShadingWord; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
-#define u_SceneShadingWord usampler2D(u_SceneShadingWord, u_PointClampSampler)
+#if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward ) &&                          \
+     !defined( DESERT_SURFACE_PARTICLE_SPRITE )
+layout( binding = 28 ) uniform utexture2D SceneShadingWordTexture; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+#define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
 #endif
 
-#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+#if defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL ) &&                     \
+     defined( DESERT_SURFACE_DEPTH_FADE )
 #include <Common/ReconstructPosition.glslh>
 float DesertDepthFade( vec3 worldPosition, float opacity, float fadeDistance )
 {
-    const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( u_SceneDepth, 0 ) );
-    const float depth  = texture( u_SceneDepth, uv ).r;
+    const vec2  uv     = gl_FragCoord.xy / vec2( textureSize( SceneDepthTexture, 0 ) );
+    const float depth  = texture( SceneDepthTexture, uv ).r;
     // Common/ReconstructPosition.glslh: (0,0) is the top-left pixel and NDC +y is up - the one convention.
     const vec3  scene  = ReconstructWorldPosition( uv, depth, cameraUB.InvJitteredViewProjection );
     const float behind = -( cameraUB.View * vec4( scene, 1.0 ) ).z;
@@ -159,7 +165,7 @@ struct SurfaceOutput
     vec3  Normal;    // TANGENT space, as UE's Normal pin: (0,0,1) is the geometric normal
     float AmbientOcclusion;
     // The sun-shadow receive half the material owns (the renderer zeroes a mesh's row value when its Receive
-    // Shadows toggle is off; a template that exposes it forwards u_Material.ReceiveSunShadows here). < 0.5 =
+    // Shadows toggle is off; a template that exposes it forwards Material.ReceiveSunShadows here). < 0.5 =
     // the cascades do not shadow this surface.
     float ReceiveSunShadows;
     // The material-complexity proxy the deferred debug view heat-maps (G-buffer C.w): real textures sampled.
@@ -179,6 +185,27 @@ struct SurfaceOutput
     // The relief's own shadow from the main directional light (1 = lit), multiplied into the sun's shadow by the
     // forward pass and, through the G-buffer shading word's SUN_SELF_SHADOW field, by the deferred composite.
     float SunSelfShadow;
+};
+
+// UE's Single Layer Water material output (the SingleLayerWaterMaterialOutput node): the water VOLUME under a
+// `ShadingModel SingleLayerWater` surface, returned by the template's EvaluateSingleLayerWater and read by
+// Pass_SingleLayerWater.glslh alone. Coefficients per METRE, as UE states them.
+struct SingleLayerWaterOutput
+{
+    vec3  ScatteringCoefficients; // 1/m
+    vec3  AbsorptionCoefficients; // 1/m
+    float PhaseG;                 // Henyey-Greenstein anisotropy of the in-scatter
+    vec3  ColorScaleBehindWater;  // tints the scene seen through the water before the absorption
+    float RefractionOffset;       // cm the scene behind shifts per unit of the normal's horizontal tilt
+    // THE FOAM (UE's water material Foam inputs): where it forms is physics (Pass_SingleLayerWater.glslh: the waves'
+    // Jacobian at the crests, the breaker depth at the shore); what it looks like and its thresholds are the
+    // material's.
+    vec3  FoamAlbedo;             // the foam's diffuse colour (its texture times its tint)
+    float FoamCoverage;           // 0..1 the foam texture's structure at this point: where a forming sheet shows
+    float FoamJacobianThreshold;  // whitecaps form where the surface's Jacobian falls below this (1 = still)
+    float FoamJacobianSoftness;   // the Jacobian range over which the whitecap fades in
+    float FoamDecaySeconds;       // e-folding time of foam left behind on the water particle that broke
+    float FoamBreakerIndex;       // gamma = H / d at which a wave breaks on the shallows (McCowan 0.78)
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -247,6 +274,7 @@ SurfaceOutput DefaultSurfaceOutput()
         vec4 VertexColor; \
         vec4 Clip; \
         vec4 PrevClip; \
+        flat float ObjectMoved; \
     } v_Surface;
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -291,10 +319,31 @@ vec3 DesertSurfaceWorldNormal( SurfaceInput i, SurfaceOutput s )
 // that line (DShaderParser OpacityMaskFunction) between the surface block and the pass header. Every cell clips
 // with it, BEFORE evaluating the surface; ray tracing reads the same line from ShaderProgramMeta::OpacityMask.
 // A hit cell clips in its any-hit stage (ignoreIntersectionEXT), never in closest hit: a hit has no discard.
+// UE's Dither Opacity Mask (MaterialTemplate.ush GetMaterialCoverageAndClipping, MATERIAL_DITHER_OPACITY_MASK): the
+// 5-value screen dither plus noise, stepped by View.StateFrameIndexMod8 so TAA integrates it. Returned in [0, 1).
+float DesertOpacityMaskDither( const vec2 svPosition, const float frameIndexMod8 )
+{
+    const float dither5 = fract( ( svPosition.x + svPosition.y * 2.0 - 1.5 + frameIndexMod8 ) / 5.0 );
+    const float noise   = fract( dot( vec2( 171.0, 231.0 ) / 71.0, svPosition ) );
+    return ( dither5 * 5.0 + noise ) * ( 1.0 / 6.0 );
+}
+
 #if defined( DESERT_SURFACE_MASKED ) && !defined( DESERT_SURFACE_PASS_Hit )
+#if defined( DESERT_SURFACE_OPACITY_DITHER )
+// A dithering material (DESERT_SURFACE_OPACITY_DITHER > 0.5) cuts below 1 - dither: a pixel is kept with
+// probability = mask, so a mip texel holding the MEAN coverage of leaves smaller than itself keeps their share of
+// the pixel (UE's spelling clips mask - clip + dither - 1; ours drops the clip so a fully opaque texel always stays
+// and the kept share is the mask itself, Wyman & McGuire's hashed alpha test). The clip value is unused then.
 #define DESERT_SURFACE_CLIP( i ) \
-    if ( DesertSurfaceOpacityMask( i ) < u_Material.OpacityMaskClipValue ) \
+    if ( DesertSurfaceOpacityMask( i ) < ( DESERT_SURFACE_OPACITY_DITHER > 0.5 \
+                                               ? 1.0 - DesertOpacityMaskDither( gl_FragCoord.xy, cameraUB.FrameIndexMod8 ) \
+                                               : Material.OpacityMaskClipValue ) ) \
         discard
+#else
+#define DESERT_SURFACE_CLIP( i ) \
+    if ( DesertSurfaceOpacityMask( i ) < Material.OpacityMaskClipValue ) \
+        discard
+#endif
 #else
 #define DESERT_SURFACE_CLIP( i )
 #endif

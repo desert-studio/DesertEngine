@@ -43,7 +43,7 @@ namespace Desert::Graphic
         float AzimuthDeg     = 0.0f;
         float DeclinationDeg = 0.0f;
         // The direction the sunlight TRAVELS (sun -> scene) at the CORRECTED elevation, after NorthOffsetDeg:
-        // exactly what a directional light's TransformComponent::Translation encodes.
+        // the light's forward axis, which ECS::AimDirectionalLight turns into the sun entity's Rotation.
         glm::vec3 Travel = glm::vec3( 0.0f, -1.0f, 0.0f );
     };
 

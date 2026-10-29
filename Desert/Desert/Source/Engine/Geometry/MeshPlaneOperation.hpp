@@ -84,8 +84,8 @@ namespace Desert::Geometry
     // UVs projected at 1 / the bounds' largest dimension on every UV layer, colours from the rim). A closed mesh
     // stays closed.
     // Refused: a zero normal; a plane that does not cross the mesh (named with the signed distance range); the
-    // cut loops not extractable; while filling, a section with a hole (a tube cut across) - a limitation of this
-    // port (v1), lifted by P14b. An open mesh (a sheet, a mesh whose own border crosses the plane) is cut: only
+    // cut loops not extractable. A section with holes (a tube cut across) is capped as a ring: the loops are nested
+    // into outer + holes and triangulated by the constrained Delaunay fill. An open mesh (a sheet, a mesh whose own border crosses the plane) is cut: only
     // its closed loops are capped, as UE does with bFillSpans off, and the open spans are counted in the outcome
     // and named in its Report - not left silently.
     [[nodiscard]] Common::ResultStr<PlaneCutOutcome>

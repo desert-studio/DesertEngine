@@ -3,10 +3,12 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <atomic>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Desert::Assets
 {
@@ -85,6 +87,19 @@ namespace Desert::Editor
         Common::BoolResultStr CreateNewWorldParameters( const DirectoryInformation* folder );
         // UE's new UNiagaraDataChannel, with the Position field every channel spawn binds first.
         Common::BoolResultStr CreateNewVFXDataChannel( const DirectoryInformation* folder );
+        /// UE Niagara's "New System from Template": the engine's VFX system templates, DATA in the engine
+        /// content (`<EngineContentDir>/VFX/Templates/*.dfx`), listed by file — a new template is a new file,
+        /// never new code. Sorted by name; empty when the folder holds none.
+        [[nodiscard]] static std::vector<std::filesystem::path> VFXSystemTemplates();
+        /// A COPY of @p templateFile in @p folder under the template's own name (made unique), with a fresh
+        /// GUID: the template is parsed against the project's category register, its header dropped so the
+        /// writer mints a new identity, and written through VFXSystemAsset::Save. Selected once listed. The ONE
+        /// creation route of the context menu and the palette's "Assets / New VFX System from Template: <name>".
+        Common::BoolResultStr CreateVFXSystemFromTemplate( const DirectoryInformation*  folder,
+                                                           const std::filesystem::path& templateFile );
+        // UE's new Niagara module script: one Float input, a Module() that does nothing yet, Stage ParticleUpdate,
+        // under a fresh GUID.
+        Common::BoolResultStr CreateNewVFXModule( const DirectoryInformation* folder );
         /// One cloud asset in @p folder under a unique name, its document opened; the two volume formats are
         /// generated on a worker (see m_Bake).
         void CreateNewCloudAsset( const DirectoryInformation& folder, CloudAssetKind kind );

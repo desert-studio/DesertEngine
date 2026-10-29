@@ -3,6 +3,8 @@
 #include <Engine/ECS/Entity.hpp>
 #include <Editor/Panels/PropertyEditor/PropertyEditorBuilder.hpp>
 
+#include <Common/Core/ResultStr.hpp>
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -77,6 +79,11 @@ namespace Desert::Editor
         // simply not having them.
         std::string                          ReflectedTypeName;
         std::function<void*( ECS::Entity& )> DataPtr;
+
+        // REFLECTED components with a PostEditChangeProperty (`postEdit` below): runs `edit` on the data block
+        // and then postEdit(before, after), as the Details draw does — the control channel's `set` comes here so
+        // a written field re-states its dependants. Empty = none; DataPtr is then the whole route.
+        std::function<void( ECS::Entity&, const std::function<void( void* )>& )> EditData;
     };
 
     // The registered name of the cloud layer's component editor. Stated ONCE because it now has two
@@ -123,9 +130,13 @@ namespace Desert::Editor
     // the Details "Add Component" popup AND the scene-outliner context menu, so the buckets live in one place.
     void DrawAddComponentMenu( ECS::Entity& entity, ImGuiTextFilter& filter );
 
+    // Details' Add Component, the one undoable path (the menu above and `desertctl add-component`): refused when
+    // the entry cannot be added or the entity already has it; otherwise one history entry (MutateEntityUndoable).
+    Common::BoolResultStr AddComponentUndoable( ECS::Entity& entity, const ComponentEditorEntry& entry );
+
     // The registrations below run from static initialisers in files nothing else references. They reach the
-    // binary because every binary that links EditorCore links it WHOLE (DesertPlatform.LinkWholeArchive in
-    // BuildScripts/Platform.lua); a new registering file needs nothing named anywhere.
+    // binary because every binary that links the editor libraries links them WHOLE (DesertEditorLibs.Link in
+    // BuildScripts/EditorLibs.lua); a new registering file needs nothing named anywhere.
 
     // Reflected component: ZERO UI code — the panel is auto-built from the data block's REFLECT() metadata.
     // When several entities are selected, edits broadcast to all of them (multi-select Details).
@@ -148,6 +159,14 @@ namespace Desert::Editor
         e.Add               = []( ECS::Entity& en ) { en.AddComponent<ComponentT>(); };
         e.Remove            = []( ECS::Entity& en ) { en.RemoveComponent<ComponentT>(); };
         e.DataPtr = [member]( ECS::Entity& en ) -> void* { return &( en.GetComponent<ComponentT>().*member ); };
+        if ( postEdit )
+            e.EditData = [member, postEdit]( ECS::Entity& en, const std::function<void( void* )>& edit )
+            {
+                DataT&      data   = en.GetComponent<ComponentT>().*member;
+                const DataT before = data;
+                edit( &data );
+                postEdit( before, data );
+            };
         e.Draw              = [member, dataTypeName, postEdit]( ECS::Entity& en, ::Desert::Core::Scene* scene,
                                                    const ComponentEditContext& ctx )
         {

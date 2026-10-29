@@ -23,16 +23,18 @@ namespace Desert::Graphic::Render
         bool        BakeNow; // one-shot: the editor's Bake button requested an IBL rebuild this frame
         SkySettings Sky;
         SunLightFx  Fx;
+        // The second atmosphere light (the moon): scattered by the same sky, its own disc.
+        AtmosphereLight1 Light1;
 
         ProceduralSkyCommand( bool enabled, const glm::vec3& sunDir, bool bakeNow, const SkySettings& sky,
-                              const SunLightFx& fx )
-             : Enabled( enabled ), SunDir( sunDir ), BakeNow( bakeNow ), Sky( sky ), Fx( fx )
+                              const SunLightFx& fx, const AtmosphereLight1& light1 )
+             : Enabled( enabled ), SunDir( sunDir ), BakeNow( bakeNow ), Sky( sky ), Fx( fx ), Light1( light1 )
         {
         }
 
         void Execute( SceneRenderer& renderer ) override
         {
-            renderer.SetProceduralSky( Enabled, SunDir, BakeNow, Sky, Fx );
+            renderer.SetProceduralSky( Enabled, SunDir, BakeNow, Sky, Fx, Light1 );
         }
     };
 } // namespace Desert::Graphic::Render

@@ -1,0 +1,91 @@
+// WHERE A GRASS BLADE IS - one statement shared by the raster's GrassBlade vertex path (Vertex_GrassBlade.glslh)
+// and the ray-tracing blade compute (Programs/Grass/GrassBladeRayTracingVertices.shader), so the blade a ray hits
+// is the blade the camera drew (as Programs/Terrain/LandscapeVertexEval.glslh is the landscape's). Ghost of
+// Tsushima (GDC 2021 "Procedural Grass in Ghost of Tsushima"): the blade is a curve built from a few numbers.
+#ifndef GRASS_BLADE_GLSLH
+#define GRASS_BLADE_GLSLH
+
+#include <Common/FoliageWind.glslh>
+
+// The most cards a blade variety draws from (Assets::Serialization::kGrassBladeMaxCards).
+#define GRASS_BLADE_MAX_CARDS 8
+
+// Mirrors Graphic::System::GrassBladeShapeGpu (GrassBladeRayTracing.hpp), std430: a variety's shape. The blade's
+// look is its material's (a scanned blade atlas: albedo, normal, ORM, opacity); the shape carries only where on
+// that atlas each of its cards is and how the strip stands, bends and sways.
+struct GrassBladeShapeData
+{
+    vec4 Size;                         // Height cm, Stiffness, Curvature, card count
+    vec4 Bend;                         // CurvatureSpread, BendSpread
+    vec4 Cards[GRASS_BLADE_MAX_CARDS]; // atlas rect: u0, v tip, u1, v root (texture space, v down the image)
+};
+
+// The card a blade draws: its colour draw (instance column 0's w) picks one of the variety's cards, uniformly.
+vec4 BladeCard( GrassBladeShapeData shape, float draw )
+{
+    const uint count = max( uint( shape.Size.w ), 1u );
+    return shape.Cards[min( uint( draw * float( count ) ), count - 1u )];
+}
+
+// The card's texture coordinate at @p side across (-1..1) and height share @p t (0 root, 1 tip).
+vec2 BladeCardUV( vec4 card, float side, float t )
+{
+    return vec2( mix( card.x, card.z, 0.5 + 0.5 * side ), mix( card.w, card.y, t ) );
+}
+
+struct BladePoint
+{
+    vec3 Position;
+    vec3 Along; // d(position)/dt, up the blade
+    vec3 Right; // unit, across the blade
+};
+
+// The blade of @p shape at height share @p t, @p side across, for the instance matrix @p model (GrassGenerate:
+// root in column 3, the width axis in column 0 scaled by the width multiplier, the up and forward axes in columns
+// 1 and 2 scaled by the height multiplier, the per-blade draws in the columns' w): a curve from the root whose tip
+// leans forward by the curvature and sways with the wind, its upright reach shortened so the blade keeps its
+// length as it bends. The lean grows as t^bend: 2 is an even arc, a larger power a straight stalk that bends near
+// its tip (GoT's per-blade bend). Without wind the position is affine in the matrix's columns: the blade of an
+// identity matrix, transformed by the matrix, is the blade of that matrix (the ray tracer's shared BLAS).
+BladePoint BladeAt( GrassBladeShapeData shape, mat4 model, float side, float t, vec4 windA, vec4 windB )
+{
+    const vec3  root    = vec3( model[3] );
+    const float heightK = length( model[1].xyz );
+    const vec3  up      = model[1].xyz / max( heightK, 1e-6 );
+    const vec3  right   = model[0].xyz / max( length( model[0].xyz ), 1e-6 );
+    const vec3  forward = model[2].xyz / max( length( model[2].xyz ), 1e-6 );
+    const float height  = shape.Size.x * heightK;
+    // The strip is as wide as its card is, at the blade's height: the scan keeps its proportions, and the
+    // card's opacity cuts the blade's outline (its taper, its ragged edge) out of the strip.
+    const vec4  card    = BladeCard( shape, model[0].w );
+    const float width   = shape.Size.x * ( card.z - card.x ) / max( card.w - card.y, 1e-4 ) * length( model[0].xyz );
+
+    // The rest lean: the variety's curvature, varied per blade by CurvatureSpread either way. The bend's power
+    // draws from the curvature draw's low 16 bits (it is a 24-bit fraction, so they are independent of the
+    // top bits the lean mostly reads).
+    const float lean = shape.Size.z * ( 1.0 + shape.Bend.x * ( 2.0 * model[1].w - 1.0 ) );
+    const float bend = 2.0 + 3.0 * shape.Bend.y * fract( model[1].w * 256.0 );
+    vec3        tip  = forward * ( height * lean );
+    // The wind at the tip, as a mesh vertex at the blade's height would sway, less what the stiffness resists.
+    tip += FoliageWindOffset( vec3( 0.0, height, 0.0 ), root, windA, windB ) * ( 1.0 - shape.Size.y );
+    const float reach = min( length( tip ) / max( height, 1e-3 ), 0.95 );
+    const float rise  = height * sqrt( 1.0 - reach * reach );
+
+    BladePoint p;
+    p.Right    = right;
+    p.Position = root + up * ( rise * t ) + tip * pow( t, bend ) +
+                 right * ( 0.5 * width * side );
+    p.Along    = up * rise + tip * ( bend * pow( t, bend - 1.0 ) );
+    return p;
+}
+
+// The blade's shading normal at @p side: its face normal, tilted across its width so the flat strip shades as a
+// rounded blade (GoT).
+vec3 BladeNormal( BladePoint blade, float side )
+{
+    const vec3 along = normalize( blade.Along );
+    const vec3 face  = normalize( cross( blade.Right, along ) );
+    return normalize( face + blade.Right * ( 0.45 * side ) );
+}
+
+#endif

@@ -178,6 +178,10 @@ namespace Desert::World::Landscape
                  static_cast<uint64_t>( target.Layer ), target.Stack.Layers.size() );
         if ( layer->Locked )
             return Common::MakeFormattedError<bool>( "Landscape edit layer '{}' is locked", layer->Name );
+        if ( layer->Kind == LandscapeEditLayerKind::Splines )
+            return Common::MakeFormattedError<bool>( "Landscape edit layer '{}' is the procedural Splines layer: "
+                                                     "the landscape's splines write it, brushes do not",
+                                                     layer->Name );
         return Common::MakeSuccess( true );
     }
 

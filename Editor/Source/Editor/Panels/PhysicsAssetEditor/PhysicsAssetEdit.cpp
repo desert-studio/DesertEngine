@@ -4,6 +4,7 @@
 #include <Engine/Animation/Pose.hpp>
 #include <Engine/Animation/Skeleton.hpp>
 #include <Engine/Assets/PhysicsAsset.hpp>
+#include <Engine/Physics/RagdollDescBuilder.hpp>
 #include <Engine/Physics/RagdollPose.hpp>
 
 #include <algorithm>

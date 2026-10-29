@@ -15,7 +15,7 @@ Shader "TSRSpatialAntiAliasing"
         // TSR_SPATIAL_AA_ITERATIONS (r.TSR.RejectionAntiAliasingQuality; UE DIM_QUALITY_PRESET 1 -> 3, 2 -> 8
         // CONFIG_ITERATIONS): 0 writes the encoded zero offset everywhere (quality 0: UE adds no pass and
         // UpdateHistory reads no offset; here the pass stays so UpdateHistory's bindings never change).
-        // u_AntiAliasing: bits 0..7 the encoded offset, bits 8..15 round(NoiseFiltering * 255) (UE ushort2).
+        // AntiAliasingTexture: bits 0..7 the encoded offset, bits 8..15 round(NoiseFiltering * 255) (UE ushort2).
         #ifndef TSR_SPATIAL_AA_ITERATIONS
         #define TSR_SPATIAL_AA_ITERATIONS 3
         #endif
@@ -26,21 +26,21 @@ Shader "TSRSpatialAntiAliasing"
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
-        Uniform(3) sampler u_LinearClampSampler;
-        Uniform(1) texture2D u_AntiAliasInput; // TSR.RejectShading: x LDR luma (UE InputSceneColorLdrLuma), y mask
-        #define u_AntiAliasInput sampler2D(u_AntiAliasInput, u_LinearClampSampler)
-        layout(binding = 2, r32ui) restrict writeonly uniform uimage2D u_AntiAliasing;
+        Uniform(3) sampler LinearClampSampler;
+        Uniform(1) texture2D AntiAliasInputTexture; // TSR.RejectShading: x LDR luma (UE InputSceneColorLdrLuma), y mask
+        #define AntiAliasInputTexture sampler2D(AntiAliasInputTexture, LinearClampSampler)
+        layout(binding = 2, r32ui) restrict writeonly uniform uimage2D AntiAliasingTexture;
 
         float LumaAt(ivec2 p)
         {
-            return texelFetch(u_AntiAliasInput, TsrClampRender(p), 0).x;
+            return texelFetch(AntiAliasInputTexture, TsrClampRender(p), 0).x;
         }
 
         // UE BilinearSampleAAInput: the bilinear luma, clamped to the bilinear viewport.
         float BilinearLuma(vec2 position)
         {
-            const vec2 p = clamp(position, vec2(0.5), u_RenderSize - 0.5);
-            return textureLod(u_AntiAliasInput, p / u_RenderSize, 0.0).x;
+            const vec2 p = clamp(position, vec2(0.5), RenderSize - 0.5);
+            return textureLod(AntiAliasInputTexture, p / RenderSize, 0.0).x;
         }
         #define TSR_BROWSE_SAMPLE(position) BilinearLuma(position)
         #include <Common/TSRSpatialAntiAliasing.glslh>
@@ -48,13 +48,13 @@ Shader "TSRSpatialAntiAliasing"
         void main()
         {
             const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-            if (any(greaterThanEqual(pixel, ivec2(u_RenderSize))))
+            if (any(greaterThanEqual(pixel, ivec2(RenderSize))))
                 return;
 
             vec2  texelOffset    = vec2(0.0);
             float noiseFiltering = 0.0;
         #if TSR_SPATIAL_AA_ITERATIONS > 0
-            const bool antiAlias = texelFetch(u_AntiAliasInput, pixel, 0).y > 0.5;
+            const bool antiAlias = texelFetch(AntiAliasInputTexture, pixel, 0).y > 0.5;
             if (antiAlias)
             {
                 const float c  = LumaAt(pixel);
@@ -93,7 +93,7 @@ Shader "TSRSpatialAntiAliasing"
         #endif
             const uint encoded = EncodeSpatialAntiAliasingOffset(texelOffset) |
                                  (uint(round(noiseFiltering * 255.0)) << 8u);
-            imageStore(u_AntiAliasing, pixel, uvec4(encoded));
+            imageStore(AntiAliasingTexture, pixel, uvec4(encoded));
         }
     }
 }

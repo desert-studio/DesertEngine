@@ -295,7 +295,7 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
 
 // EVERY PROGRAM THE ENGINE SHIPS COMPILES, built through the very call BootContent makes at a cold start.
 //
-// WHY THIS SUITE AND NOT THE CLOUD ONES. FARWX-b2 read u_CloudWeather inside Common/CloudField.glslh, which every
+// WHY THIS SUITE AND NOT THE CLOUD ONES. FARWX-b2 read CloudWeather inside Common/CloudField.glslh, which every
 // cloud pass includes BEFORE Common/CloudParams.glslh declares the block — and GLSL declares no variable forward.
 // CloudRaymarch, CloudShadowMap, CloudSkyOcclusionVolume and BakeProceduralSky lost every stage, the sky drew no
 // cloud, and every cloud suite stayed green: they compile the headers as C++, where the seam's macros are the
@@ -304,9 +304,9 @@ TEST_F( ShaderMapBuildFixture, TextThatIsNotAShaderIsAnErrorNamingTheFile )
 // each for stages — the editor's own answer to "did it compile", logged as "registered but has no compiled
 // stages".
 //
-// MUTATION: restore `#define CLOUD_WEATHER u_CloudWeather` in Programs/Clouds/CloudRaymarch.shader and read it
+// MUTATION: restore `#define CLOUD_WEATHER CloudWeather` in Programs/Clouds/CloudRaymarch.shader and read it
 // as `vec4 weather = CLOUD_WEATHER;` in Common/CloudField.glslh's producer — CloudRaymarch goes red here, naming
-// CloudField.glslh:<line>: 'u_CloudWeather' : undeclared identifier.
+// CloudField.glslh:<line>: 'CloudWeather' : undeclared identifier.
 TEST_F( ShaderMapBuildFixture, EveryShippedProgramCompilesToStages )
 {
     const auto root = Common::Constants::Path::ShaderDir() / "Programs";
@@ -368,17 +368,17 @@ TEST_F( ShaderMapBuildFixture, ARayQueryShaderCompilesForTheShaderTarget )
          "#version 460\n"
          "#extension GL_EXT_ray_query : require\n"
          "layout( local_size_x = 8, local_size_y = 8 ) in;\n"
-         "layout( set = 0, binding = 0 ) uniform accelerationStructureEXT u_Scene;\n"
-         "layout( set = 0, binding = 1, r32f ) uniform writeonly image2D u_Visibility;\n"
+         "layout( set = 0, binding = 0 ) uniform accelerationStructureEXT SceneColorTexture;\n"
+         "layout( set = 0, binding = 1, r32f ) uniform writeonly image2D VisibilityTexture;\n"
          "void main()\n"
          "{\n"
          "    rayQueryEXT query;\n"
-         "    rayQueryInitializeEXT( query, u_Scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,\n"
+         "    rayQueryInitializeEXT( query, SceneColorTexture, gl_RayFlagsTerminateOnFirstHitEXT, 0xFFu,\n"
          "                           vec3( 0.0 ), 0.0, vec3( 0.0, 0.0, -1.0 ), 1000.0 );\n"
          "    while ( rayQueryProceedEXT( query ) ) {}\n"
          "    const bool hit = rayQueryGetIntersectionTypeEXT( query, true ) !=\n"
          "                     gl_RayQueryCommittedIntersectionNoneEXT;\n"
-         "    imageStore( u_Visibility, ivec2( gl_GlobalInvocationID.xy ), vec4( hit ? 0.0 : 1.0 ) );\n"
+         "    imageStore( VisibilityTexture, ivec2( gl_GlobalInvocationID.xy ), vec4( hit ? 0.0 : 1.0 ) );\n"
          "}\n";
          const auto compiled =
               Desert::Core::ShaderCompiler::CompileGLSLToSPIRV( Desert::Core::Formats::ShaderStage::Compute,

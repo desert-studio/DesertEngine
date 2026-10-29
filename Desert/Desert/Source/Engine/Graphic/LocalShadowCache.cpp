@@ -7,7 +7,7 @@
 
 namespace Desert::Graphic
 {
-    LocalShadowCache::LocalShadowCache()  = default;
+    LocalShadowCache::LocalShadowCache( const ResourceOwnerInstance scene ) : m_LedgerInstance( scene ) {}
     LocalShadowCache::~LocalShadowCache() = default;
 
     uint32_t LocalShadowCache::BeginView( const uint32_t viewSide, const bool primary )
@@ -51,6 +51,10 @@ namespace Desert::Graphic
 
     void LocalShadowCache::Create( const uint32_t side )
     {
+        // THE SCENE'S ROWS. Create runs inside the asking view's ledger scope (BeginView from the view's
+        // UpdateLocalShadows), so without this the atlas carried that view's instance and outlived its close as
+        // the view's rows. Nested: the view's scope is restored when this one closes.
+        const ResourceAttributionScope sceneRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         m_Lights.clear();
         FramebufferSpecification spec;
         spec.DebugName = "LocalShadowAtlas";

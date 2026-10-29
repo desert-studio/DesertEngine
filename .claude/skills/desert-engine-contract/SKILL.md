@@ -10,6 +10,9 @@ description: >
   serialized format, or working alongside other people on the same repo.
 ---
 
+**Владелец 10-29 — два параметра всегда: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, код — только размещение/LOD** (DEV_CONTRACT §00b).
+
+
 # The delivery contract
 
 **This applies to the whole repository, not to one programme.** The rules were first written down
@@ -290,6 +293,7 @@ is deleted, not kept "in case we roll back". Rolling back is called `git revert`
 
 ## 5. Working in parallel
 
+- **Land before the next step** (owner, 2026-10-29: «почему так много неслитых веток??»). A branch is in dev within a day; a branch older than that gets no new feature step — only the work that lands it. Steps stacked on an unlanded branch make every other branch merge against it, and the integration build then finds one error per round. Each changed translation unit is compiled on its own before the push, so the one full build passes the first time.
 - **The shared backbone goes first, by one person** — component structures, serialization, editor
   registration. Nobody else starts until it exists, or three people edit one header at once.
 - **After the backbone, work on non-overlapping files.** Shaders, the render pass, the editor UI.

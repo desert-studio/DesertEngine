@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -109,6 +111,19 @@ namespace Common::Content
     // an edit before any registry is at hand, so both refuse with one text.
     BoolResultStr ValidateChunkScheme( const ChunkScheme& scheme );
 
+    // ONE COOKED WORLD'S CHUNKS (WP23), derived by the packager from the world's layout
+    // (WorldCells::ChunkLayoutOf), never authored: a Shared chunk (index, always-loaded cells, HLODs) mounted at
+    // start, and one ON-DEMAND chunk per region, mounted when a cell of the region streams in. Each region rule's
+    // roots are the assets its cells need; `SharedRoots` the always-loaded units' and HLODs' assets. `Files` maps
+    // an archive key (the world's cooked files) to the chunk it ships in, whatever its stable key says.
+    struct RegionChunkGroup
+    {
+        std::string                                  Shared;
+        std::vector<std::string>                     SharedRoots;
+        std::vector<ChunkRule>                       Regions;
+        std::unordered_map<std::string, std::string> Files;
+    };
+
     // THE ANSWER: a total function from a stable key to the archive it ships in.
     class ChunkPlan
     {
@@ -133,11 +148,22 @@ namespace Common::Content
         // small and look exactly like a correct one.
         [[nodiscard]] const std::vector<uint64_t>& UnresolvedEdges() const;
 
+        // The chunk a world's cooked file ships in, by its ARCHIVE key (RegionChunkGroup::Files); nullopt for
+        // every other file, which goes through ChunkFor.
+        [[nodiscard]] std::optional<std::size_t> FileChunk( std::string_view archiveKey ) const;
+
+        // True for a region chunk: listed in the manifest as on-demand, so the runtime registers it and mounts
+        // it when a cell of the region loads rather than at start.
+        [[nodiscard]] bool OnDemand( std::size_t chunk ) const;
+
     private:
-        friend ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry&, const ChunkScheme& );
+        friend ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry&, const ChunkScheme&,
+                                                    std::span<const RegionChunkGroup> );
 
         std::vector<std::string>                     m_Names{ std::string( BASE_CHUNK_NAME ) };
+        std::vector<bool>                            m_OnDemand{ false };
         std::unordered_map<std::string, std::size_t> m_Placed;
+        std::unordered_map<std::string, std::size_t> m_FileChunk;
         std::vector<uint64_t>                        m_Unresolved;
     };
 
@@ -153,6 +179,14 @@ namespace Common::Content
     // derived rule, not a choice: duplicating it ships the bytes twice and, worse, makes "which copy
     // did the player get" depend on mount order for a file nobody meant to override.
     ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry& registry, const ChunkScheme& scheme );
+
+    // The same plan with the chunks of every cooked world appended after the scheme's (each group's Shared,
+    // then its regions). AN ASSET REACHED BY SEVERAL CHUNKS OF ONE GROUP GOES TO THAT GROUP'S SHARED chunk (it
+    // is the world's, mounted whenever the world plays); reached across groups or from a scheme chunk, the base
+    // rule above applies. A region rule may have no roots (a cell of no assets still ships its file). Refused,
+    // by name: any chunk name the scheme check refuses, a name used twice across scheme and groups.
+    ResultStr<ChunkPlan> BuildChunkPlan( const Utils::AssetRegistry& registry, const ChunkScheme& scheme,
+                                         std::span<const RegionChunkGroup> worlds );
 
     // Writes an EDITED scheme over @p path, atomically and in the canonical layout. Refuses — writing
     // nothing — whatever BuildChunkPlan would refuse against @p registry, so a scheme the editor saved
@@ -215,8 +249,33 @@ namespace Common::Content
                       const std::vector<std::pair<std::string, std::filesystem::path>>& files,
                       const std::vector<std::pair<std::string, std::string>>&           baseBlobs = {} );
 
-    // The chunk names the manifest text lists, in mount order. Base is NOT in it — the base is the
-    // archive the manifest was read out of.
-    ResultStr<std::vector<std::string>> ParseChunkManifest( std::string_view text );
-    std::string                         WriteChunkManifest( const ChunkPlan& plan );
+    // The chunk names the manifest text lists. Base is NOT in it — the base is the archive the
+    // manifest was read out of. A plain line is a chunk mounted at start, in mount order; a line
+    // `OnDemand <name>` is a region chunk the runtime registers and mounts when needed (WP23).
+    struct ChunkManifest
+    {
+        std::vector<std::string> Mounted;
+        std::vector<std::string> OnDemand;
+    };
+    ResultStr<ChunkManifest> ParseChunkManifest( std::string_view text );
+    std::string              WriteChunkManifest( const ChunkPlan& plan );
+
+    // Registers every on-demand chunk of @p baseArchive's manifest with the VFS (VFS::DeferPak), and remembers
+    // the list. Called once by the runtime after the base is mounted.
+    void RegisterOnDemandChunks( const std::filesystem::path& baseArchive, std::span<const std::string> names );
+
+    // Mounts on-demand chunk @p name if it is not yet mounted; thread-safe, once. SUCCEEDS DOING NOTHING when
+    // no base registered chunks (the editor, loose cooked files): there is nothing to mount and the file is on
+    // disk. With a base registered, a name its manifest does not list is a refusal naming it.
+    // A read of a file of chunk @p name refuses while no loaded cell holds the chunk (only a cancelled load reads
+    // so): a chunk mounted with no holder would stay mounted for good.
+    BoolResultStr MountChunkOnDemand( std::string_view name );
+
+    // THE CHUNK STAYS MOUNTED WHILE A LOADED CELL OF ITS REGION REMAINS (UE: an IoStore container unmounted when
+    // the last streaming level reading it goes). Each cell load holds its region's chunk from the moment it is
+    // started until its records are unloaded (or the load is cancelled or fails); the last release of a mounted
+    // chunk unmounts it back to on-demand (VFS::ReturnToDeferred), and the next hold + read mounts it anew.
+    // Both succeed doing nothing when no base registered chunks; a release with no hold is a refusal.
+    BoolResultStr HoldChunkOnDemand( std::string_view name );
+    BoolResultStr ReleaseChunkOnDemand( std::string_view name );
 } // namespace Common::Content

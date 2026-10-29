@@ -3,7 +3,7 @@
         "Kind": "Material",
         "Guid": "cadb04bde225c774a2597971f3d3a5db",
         "Versions": {
-            "MATL": 5
+            "MATL": 7
         },
         "Dependencies": ["4f1cac6af403a010c792d835dd6f7d44", "f06911aaa40ebbaf3bc8060b5a796bc9", "c68d6424c3aa50cbe0c4f143c8ef42a9", "d7a843c9edfba0f56b5732184e8f93f3"]
     },
@@ -35,17 +35,17 @@
     ],
     "Textures": [
         {
-            "Name": "u_AlbedoTexture",
+            "Name": "AlbedoTexture",
             "Guid": "f06911aaa40ebbaf3bc8060b5a796bc9",
             "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_diff_2k.detex"
         },
         {
-            "Name": "u_ORMTexture",
+            "Name": "OrmTexture",
             "Guid": "c68d6424c3aa50cbe0c4f143c8ef42a9",
             "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_arm_2k_ORMTexture.detex"
         },
         {
-            "Name": "u_NormalTexture",
+            "Name": "NormalTexture",
             "Guid": "d7a843c9edfba0f56b5732184e8f93f3",
             "Path": "assets:Environments/FieldBarn/Meshes/island_tree_01/textures/island_tree_01_nor_gl_2k.detex"
         }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IPanel.hpp"
+#include <Editor/Core/IPanel.hpp>
 #include "CloudStages.hpp"
 
 #include <memory>

@@ -328,7 +328,8 @@ namespace Desert::Graphic
         dispatch.enableSharpening = false;
         dispatch.sharpness        = 0.0f;
         dispatch.frameTimeDelta   = frame.DeltaSeconds * 1000.0f;
-        dispatch.preExposure      = 1.0f;
+        // The scene colour's pre-exposure: FSR divides it out before ExposureTexture and puts it back on the output.
+        dispatch.preExposure      = frame.PreExposure;
         dispatch.reset            = !frame.HistoryValid() || recreated;
         // Inverted depth: FSR's "near" is the plane at depth 1 — the far plane under reversed Z.
         dispatch.cameraNear              = std::isinf( frame.FarPlane ) ? FLT_MAX : frame.FarPlane;

@@ -79,20 +79,20 @@ namespace
          PathOnlyRow{ ContentKind::Animation, "no header format: an .anim states no GUID (AF4 mesh programme)" },
          PathOnlyRow{ ContentKind::CloudNoiseVolume, "raw DCNV file, no DAST envelope: states no GUID (AF10e)" },
          PathOnlyRow{ ContentKind::CloudModellingVolume,
-                      "raw DCMV file, no DAST envelope; StoredFormFor(CloudModellingVolumeAsset) = AssetsRelative "
+                      "raw DCMV file, no DAST envelope; StoredFormFor(CloudModellingVolumeAsset) = StableKey "
                       "path (AF10e)" },
          PathOnlyRow{
               ContentKind::UITheme,
-              "header states a GUID but StoredFormFor(UIThemeAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(UIThemeAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{
               ContentKind::ControlRig,
-              "header states a GUID but StoredFormFor(ControlRigAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(ControlRigAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{
               ContentKind::AnimGraph,
-              "header states a GUID but StoredFormFor(AnimGraphAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(AnimGraphAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{
               ContentKind::Retarget,
-              "header states a GUID but StoredFormFor(RetargetAsset) writes AssetsRelative path only (AF10f)" },
+              "header states a GUID but StoredFormFor(RetargetAsset) writes StableKey path only (AF10f)" },
          PathOnlyRow{ ContentKind::Prefab,
                       "header states a GUID but PrefabComponent writes PrefabPath only (PrefabData.hpp) (AF10f)" },
          PathOnlyRow{ ContentKind::VFXSystem,
@@ -112,7 +112,7 @@ namespace
                       "input component)" },
          PathOnlyRow{
               ContentKind::PhysicsAsset,
-              "RagdollData::PhysicsAsset refers by AssetHandle, stored AssetsRelative like the .dfrac above "
+              "RagdollData::PhysicsAsset refers by AssetHandle, stored StableKey like the .dfrac above "
               "(StoredAssetForm.cpp); no {Guid, Path} referrer yet" },
          PathOnlyRow{ ContentKind::WorldCell,
                       "envelope states a GUID but the index names cells by file name (AF10f, with WP)" },
@@ -142,8 +142,11 @@ namespace
          // (ComponentRegistry.cpp's LevelSequence serializer, CreateFromRegistryGuid).
          ContentKind::LevelSequence,
          // An Audio Source states its `.desound` as {Guid, Path} and ResolveGuidRef reads the GUID first
-         // (ComponentRegistry.cpp's SoundAsset branch, the AssetsRelative form in StoredAssetForm.cpp).
-         ContentKind::Sound };
+         // (ComponentRegistry.cpp's SoundAsset branch, the StableKey form in StoredAssetForm.cpp).
+         ContentKind::Sound,
+         // VFXS 4 (VFX-PORT-1): a .dfx stack row states its module as {Guid, Path} and the stack compiler
+         // resolves the GUID through the registry (Assets::RegistryVFXModuleResolver); the path is for the reader.
+         ContentKind::VFXModule };
 
     template <class Array>
     bool Contains( const Array& kinds, ContentKind kind )
@@ -327,6 +330,21 @@ namespace
                      R"({{"Header":{{"Kind":"VFXDataChannel","Guid":"{}","Versions":{{"VFXD":1}},"Dependencies":[]}}}})"
                      "\n",
                      Common::Content::AssetGuidToText( guid ) );
+                return { text.begin(), text.end() };
+            }
+            case ContentKind::VFXModule:
+            {
+                // The `.dfxmod` header is its first line's comment, as a shader's; the body is the least
+                // ParseVFXModule accepts (a CPU-stage module declares no GLSL).
+                const std::array versions{ Common::Content::SubsystemVersion{ Common::Content::FourCC( "VFXM" ), 1u } };
+                const std::string text =
+                     Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader( kind, guid, versions ) ) +
+                     "Module \"AF10a_Probe\"
+{
+    Stage EmitterUpdate
+    Category Spawn
+}
+";
                 return { text.begin(), text.end() };
             }
             case ContentKind::Sound:

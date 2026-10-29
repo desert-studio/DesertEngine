@@ -1,0 +1,32 @@
+#ifndef TEXT_RAY_HIT_GLSLH
+#define TEXT_RAY_HIT_GLSLH
+
+// What the 3D text's hit group (Programs/Text/TextRayHit.shader) knows at a hit: the label's row, read through the
+// hit record's MaterialRow address, and the glyph atlas through the bindless table. The coverage is
+// Common/SdfText.glslh's, the raster's own (Programs/Text/TextSDF.shader).
+
+#include <Common/BindlessTextures.glslh>
+#include <Common/RayTracingHitTriangle.glslh>
+#include <Common/SdfText.glslh>
+
+// The label's hit-group row. C++ twin: Graphic/Systems/RayTracing/TextRayTracing.hpp TextRayHit
+// (kTextRayHitRowSlots).
+layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer TextRayHitRowRef
+{
+    vec4  TextColor;         // TextSDF's TextColor the raster drew the label with
+    vec4  EmissiveIntensity; // x = TextSDF's EmissiveIntensity
+    uvec4 Atlas;             // x = bindless slot of the font's SDF atlas, y = its bindless sampler slot
+};
+
+// THE GLYPH'S COVERAGE at the hit as a mask (UE: a masked material's any-hit at its OpacityMaskClipValue 0.5): the
+// raster's coverage is 0.5 exactly on the outline whatever its ramp width (SdfTextAlpha), and it blends coverage x
+// TextColor.a - so a hit is inside where the median distance passes the outline on a label whose alpha passes 0.5
+// (C++ TextRayOpaque; the inline test, Common/RayQueryVisibility.glslh, holds the same). Level 0: a hit has no
+// derivatives, and the atlas is read at its own resolution.
+bool TextRayHitCovered( TextRayHitRowRef row, vec2 uv )
+{
+    const vec3 msd = SampleBindless( row.Atlas.x, row.Atlas.y, uv, 0.0 ).rgb;
+    return row.TextColor.a >= 0.5 && SdfTextMedian( msd ) >= 0.5;
+}
+
+#endif // TEXT_RAY_HIT_GLSLH

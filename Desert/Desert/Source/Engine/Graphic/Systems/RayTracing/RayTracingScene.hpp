@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Settings/RenderMethods.hpp>
+#include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingGeometry.hpp>
 
@@ -18,9 +19,9 @@
 // the scene's primitives). Device-free: this file decides WHICH instances, with which transform, mask and
 // GPU-scene row; the Vulkan pass turns the list into VkAccelerationStructureInstanceKHR rows and builds.
 //
-// ONE GATHER. The candidates are the primitives MeshRenderer already queued and gave a row in the view's
-// ObjectMotions buffer (BuildObjectMotions) — UE's GPUScene primitive data: World, PrevWorld, bone offsets. An
-// instance's custom index IS that row, so a hit shader and a raster pass read the same primitive data by the same
+// ONE GATHER. The candidates are the primitives MeshRenderer already queued and gave a GpuScene instance
+// (MeshRenderer::SyncGpuScene) — UE's GPUScene primitive/instance data: World, PrevWorld, bone offsets. An
+// instance's custom index IS that GpuScene instance index, so a hit shader and a raster pass read the same primitive data by the same
 // number; nothing is gathered twice and no second per-instance table exists.
 //
 // GATED BY THE METHODS. A frame builds a TLAS only when one of its three resolved methods traces hardware rays
@@ -42,9 +43,26 @@ namespace Desert::Graphic::RayTracing
     inline constexpr uint8_t kMaskOpaque       = 1u << 0; // every traced primitive (reflections, GI, path tracer)
     inline constexpr uint8_t kMaskShadowCaster = 1u
                                                  << 1; // primitives with CastShadows (RT-SHADOWS traces this bit)
+    // Primitives drawn only by BlendMode Translucent / Additive sections (UE RAY_TRACING_MASK_TRANSLUCENT): such a
+    // primitive carries THIS bit (plus kMaskTranslucentShadowCaster below) and no other, so the opaque and
+    // shadow-caster rays (reflections, GI, RT shadows, the path tracer's opaque light-ray leg) pass it, as the
+    // raster's opaque passes and shadow maps do; the path tracer's material rays (cull mask 0xFF) meet it.
+    inline constexpr uint8_t kMaskTranslucent = 1u << 2;
+    // A translucent primitive with CastShadows (UE PATHTRACER_MASK_SHADOW on a translucent instance): the path
+    // tracer's light rays walk THIS bit for transmittance (PathTracer.shader PathTracingTransmittance), as its
+    // opaque leg traces kMaskShadowCaster - a primitive with CastShadows off never shadows a path-traced light,
+    // exactly as it never enters a shadow map.
+    inline constexpr uint8_t kMaskTranslucentShadowCaster = 1u << 3;
 
-    // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits.
-    inline constexpr uint32_t kMaxGpuSceneRow = ( 1u << 24 ) - 1u;
+    struct RayTracingProgramHit; // RayTracingProgramHit.hpp
+
+    // VkAccelerationStructureInstanceKHR::instanceCustomIndex is 24 bits. Its last value is no row:
+    // kNoGpuSceneRow is the custom index of an instance with no GPU-scene row (the GPU-written grass instances,
+    // RayTracingGpuInstanceSource). Every reader of the custom index takes it as "no row": the GI tracer's card
+    // table (GISurfaceCacheRowForInstance) is never that long, so such a hit reads GI_NO_INSTANCE and is lit in
+    // place, as a landscape tile's is.
+    inline constexpr uint32_t kNoGpuSceneRow  = ( 1u << 24 ) - 1u;
+    inline constexpr uint32_t kMaxGpuSceneRow = kNoGpuSceneRow - 1u;
     // VkAccelerationStructureInstanceKHR::instanceShaderBindingTableRecordOffset is 24 bits too.
     inline constexpr uint32_t kMaxSegmentRecord = ( 1u << 24 ) - 1u;
     // RayTracingSegmentRecord::LandscapeTile of a segment that is not a landscape tile's.
@@ -78,6 +96,9 @@ namespace Desert::Graphic::RayTracing
         // the ground is at a hit (the TerrainRayHit hit group) and where its holes are (the alpha test).
         // kNoLandscapeTile for every mesh segment.
         uint32_t LandscapeTile = kNoLandscapeTile;
+        // A generic record's own hit group (RayTracingProgramHit.hpp: 3D text's TextRayHit): what the segment's
+        // hit runs and its alpha test, the record's for the frame. Null for every other segment.
+        const RayTracingProgramHit* ProgramHit = nullptr;
 
         bool operator==( const RayTracingSegmentRecord& ) const = default;
     };
@@ -93,6 +114,10 @@ namespace Desert::Graphic::RayTracing
         Landscape,  // one landscape tile at the view's LOD
         Skinned,    // a deformed mesh, traced through its per-frame BLAS
         Procedural, // a static/generic row whose mesh has no uploader BLAS (DynamicMesh): built in the graph
+        // A section whose instances the GPU wrote this frame (the landscape grass, GpuInstances.hpp): ONE
+        // primitive per producer holds the BLAS and the segment run; its TLAS rows are written on the GPU
+        // (RayTracingGpuInstanceSource), not by BuildRayTracingInstances. Counted by the rows reserved for it.
+        GpuInstanced,
         Count
     };
 
@@ -107,8 +132,10 @@ namespace Desert::Graphic::RayTracing
     {
         const void* Geometry    = nullptr;
         glm::mat4   World       = glm::mat4( 1.0f ); // centimetres, like every world transform
-        uint32_t    GpuSceneRow = 0;                 // the primitive's ObjectMotions row (MotionRow)
+        uint32_t    GpuSceneRow = 0;                 // the primitive's GpuScene instance (GpuInstance)
         bool        CastShadows = true;
+        // Every section the primitive draws is BlendMode Translucent / Additive: kMaskTranslucent alone.
+        bool Translucent = false;
         // Hidden: bit i = submesh i hidden, Geometry already leaves it out. NonOpaque: submesh i's section
         // material is Masked, Geometry's segment is not opaque. Both are the BLAS key (RayTracingSubmeshMasks).
         RayTracingSubmeshMasks Submeshes;
@@ -193,6 +220,8 @@ namespace Desert::Graphic::RayTracing
                 return "Skinned";
             case RayTracingPrimitiveKind::Procedural:
                 return "Procedural";
+            case RayTracingPrimitiveKind::GpuInstanced:
+                return "GPU instanced";
             case RayTracingPrimitiveKind::Count:
                 break;
         }
@@ -237,17 +266,33 @@ namespace Desert::Graphic::RayTracing
     };
 
     // What GatherRayTracingPrimitives (RayTracingGather.hpp) produced this frame.
+    // THE TLAS ROWS OF A GPU-INSTANCED PRIMITIVE (UE: the GPU-scene instances whose FRayTracingInstance
+    // descriptors a compute pass writes into the instance buffer, RayTracingInstanceBufferUtil): the producer's
+    // transform and argument buffers (the very ones the raster's indirect draw reads), the rows reserved for it
+    // after the CPU rows (its instance capacity, known on the CPU) and the indexed-indirect record whose count and
+    // first instance it traces. "RayTracingScene.GpuInstances" writes one row per reserved slot: an instance the
+    // GPU generated, or an inactive row (mask 0, no BLAS) past the drawn count.
+    struct RayTracingGpuInstanceSource
+    {
+        uint32_t Primitive            = 0; // RayTracingGatherResult::Primitives index: BLAS, segment run, shadows
+        const GpuInstanceRefs* Refs   = nullptr;
+        uint32_t               Rows   = 0; // reserved rows: the producer's instance capacity
+        uint32_t               Record = 0; // the indexed-indirect record (submesh) that states count and first
+    };
+
     struct RayTracingGatherResult
     {
         std::vector<RayTracingPrimitive>                                        Primitives;
         std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )> Skipped{}; // decided by the gather
         std::vector<std::string> Errors; // one line per variant build that failed this frame
         // Every primitive's per-segment material run (RayTracingSegmentRecord), indexed by FirstSegmentRecord.
-        std::vector<RayTracingSegmentRecord> SegmentRecords;
+        std::vector<RayTracingSegmentRecord>     SegmentRecords;
+        std::vector<RayTracingGpuInstanceSource> GpuInstanced; // the GpuInstanced primitives' TLAS rows
 
         void Clear()
         {
             Primitives.clear();
+            GpuInstanced.clear();
             Skipped = {};
             Errors.clear();
             SegmentRecords.clear();
@@ -307,6 +352,9 @@ namespace Desert::Graphic::RayTracing
         for ( std::size_t i = 0; i < primitives.size(); ++i )
         {
             const RayTracingPrimitive& primitive = primitives[i];
+            // Its rows are the GPU's (RayTracingGpuInstanceSource): none on the CPU, nothing skipped here.
+            if ( primitive.Kind == RayTracingPrimitiveKind::GpuInstanced )
+                continue;
             if ( primitive.Kind == RayTracingPrimitiveKind::Skinned && primitive.Geometry == nullptr )
             {
                 skip( RayTracingSkip::Skinned );
@@ -358,7 +406,10 @@ namespace Desert::Graphic::RayTracing
             instance.CustomIndex                 = row;
             instance.FirstSegmentRecord          = primitive.FirstSegmentRecord;
             instance.Mask =
-                 static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
+                 primitive.Translucent
+                      ? static_cast<uint8_t>( kMaskTranslucent |
+                                              ( primitive.CastShadows ? kMaskTranslucentShadowCaster : 0u ) )
+                      : static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];
         }
         return list;

@@ -1,7 +1,7 @@
 // TAA1 step 3 — THE CAMERA BLOCK IS THE SHADER VIEW OF THE ViewFrame.
 //
 // (1) C++ <-> GLSL twin: ShaderProtocols::Camera has, member for member, the std140 offsets of the CameraUB block
-//     parsed from Editor/Resources/Shaders/Common/CameraUB.glslh, and sizeof equals the block size (so a writer
+//     generated for Common/CameraUB.glslh (ShaderProtocols::CameraUBGlsl), and sizeof equals the block size (so a writer
 //     uploading sizeof never runs past the reflected buffer).
 //     Mutations: reordering / dropping a member on either side; removing the explicit tail pads.
 // (2) MakeCameraUB is a field-for-field copy of the ViewFrame (jittered vs unjittered not swapped, Prev* from
@@ -114,9 +114,8 @@ namespace
 
 TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
 {
-    const Std140Block block =
-         ParseCameraBlock( ReadText( Desert::TestSupport::RepositoryRoot() / "Editor" / "Resources" / "Shaders" /
-                                     "Common" / "CameraUB.glslh" ) );
+    // The block the includer serves for Common/CameraUB.glslh — generated from the struct, no file on disk.
+    const Std140Block block = ParseCameraBlock( Desert::Graphic::ShaderProtocols::CameraUBGlsl() );
 
     const std::vector<BlockMember> cpp = {
          { "Projection", offsetof( Camera, Projection ) },
@@ -138,9 +137,9 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "SunDirection", offsetof( Camera, SunDirection ) },
          { "ParallaxMaxSteps", offsetof( Camera, ParallaxMaxSteps ) },
          { "ParallaxShadowSteps", offsetof( Camera, ParallaxShadowSteps ) },
-         { "CameraPad0", offsetof( Camera, Pad0 ) },
-         { "CameraPad1", offsetof( Camera, Pad1 ) },
-         { "CameraPad2", offsetof( Camera, Pad2 ) },
+         { "PreExposure", offsetof( Camera, PreExposure ) },
+         { "PrevPreExposure", offsetof( Camera, PrevPreExposure ) },
+         { "FrameIndexMod8", offsetof( Camera, FrameIndexMod8 ) },
     };
 
     ASSERT_EQ( block.Members.size(), cpp.size() )

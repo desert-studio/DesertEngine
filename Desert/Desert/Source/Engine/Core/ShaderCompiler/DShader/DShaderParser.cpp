@@ -5,6 +5,7 @@
 #include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
+#include <Engine/Core/TextTemplate.hpp>
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,22 @@ namespace Desert::Core::Preprocess
 
     namespace
     {
+        // The legal default-texture names as one comma-separated list, for the refusal of an unknown one.
+        // Built from kAllDefaultTextureKinds, so a name added to the enum joins the message by itself.
+        std::string DefaultTextureKindList()
+        {
+            static const TextTemplate kList(
+                 "DefaultTextureKindList",
+                 R"({% for kind in kinds %}{% if not loop.first %}, {% endif %}"{{ kind }}"{% endfor %})" );
+            Common::Json::Value::Array kinds;
+            for ( const DefaultTextureKind kind : kAllDefaultTextureKinds )
+                kinds.emplace_back( std::string( DefaultTextureKindName( kind ) ) );
+            return kList.RenderOrLog(
+                 Common::Json::Value( Common::Json::ObjectBuilder()
+                                           .Set( "kinds", Common::Json::Value( std::move( kinds ) ) )
+                                           .Build() ) );
+        }
+
         // ─── Cursor: char-by-char scanner with line tracking ────────────────────────
 
         struct Cursor
@@ -490,8 +507,9 @@ namespace Desert::Core::Preprocess
                          intent == ::Desert::Core::Formats::TextureIntent::Unspecified )
                     {
                         err = { c.Line,
-                                std::format( "Intent({}) on '{}': expected Colour, NormalMap, Mask or Data", word,
-                                             param.Name ) };
+                                std::format(
+                                     "Intent({}) on '{}': expected Colour, NormalMap, Mask, Data or PackedMasks",
+                                     word, param.Name ) };
                         return false;
                     }
                     param.SlotIntent = intent;
@@ -540,8 +558,9 @@ namespace Desert::Core::Preprocess
                 const auto kind = ParseDefaultTextureKind( name );
                 if ( !kind )
                 {
-                    err = { line, "unknown default texture '" + name + "' for property '" + param.Name +
-                                       "' (expected one of " + DefaultTextureKindList() + ")" };
+                    err = { line,
+                            std::format( "unknown default texture '{}' for property '{}' (expected one of {})",
+                                         name, param.Name, DefaultTextureKindList() ) };
                     return false;
                 }
                 param.DefaultTexture = *kind;
@@ -1097,7 +1116,7 @@ namespace Desert::Core::Preprocess
         // `uniform MaterialUB` — a block per material, which IS the parameters, so a material could hold
         // exactly one set of values and several objects sharing a shader all rendered the first one's
         // (Core/Formats/MaterialParamRow.hpp names the probe scene and the measurement). Nothing about a
-        // shader's source had to change for the swap: both spellings answer to `u_Material.<Name>`, and
+        // shader's source had to change for the swap: both spellings answer to `Material.<Name>`, and
         // the difference is only whether that name resolves to a block or to a row.
         //
         // The push constant carrying the row index is an INCLUDE and not text emitted here, because it is
@@ -1111,7 +1130,7 @@ namespace Desert::Core::Preprocess
         // A RAY TRACING HIT CELL (kSurfaceRayHitPath) has no draw and so no push constant and no bound row: its
         // row travels in the hit group's shader record (Common/RayTracingHitRecord.glslh), UE's
         // FRayTracingMeshCommand loose parameters. @p rowByShaderRecord declares the same MaterialParams struct
-        // and names `u_Material` through the record's device address instead of a Materials[] binding. Bound
+        // and names `Material` through the record's device address instead of a Materials[] binding. Bound
         // (non-row) textures have no place in a record; the parser gives a template with any no hit cell
         // (SurfaceTemplateInfo::RayHitRefusal).
         std::string BuildAutoDeclarations( const MaterialLayout& layout, const bool rowByShaderRecord = false )
@@ -1140,7 +1159,7 @@ namespace Desert::Core::Preprocess
                     out << "};\n";
                     out << "layout( buffer_reference, std430, buffer_reference_align = 16 ) readonly buffer "
                            "DesertMaterialRowRef\n{\n    MaterialParams Row;\n};\n";
-                    out << "#define u_Material DesertMaterialRowRef( u_RayHitRecord.MaterialRow ).Row\n";
+                    out << "#define Material DesertMaterialRowRef( RayHitRecord.MaterialRow ).Row\n";
                 }
                 return out.str();
             }
@@ -1166,8 +1185,8 @@ namespace Desert::Core::Preprocess
                 }
                 out << "};\n";
                 out << "layout( std430, binding = " << *layout.RowBinding << " ) readonly buffer Materials\n"
-                    << "{\n    MaterialParams u_Materials[];\n};\n";
-                out << "#define u_Material u_Materials[m_PushConstants.MaterialIndex]\n";
+                    << "{\n    MaterialParams MaterialRows[];\n};\n";
+                out << "#define Material MaterialRows[m_PushConstants.MaterialIndex]\n";
             }
 
             // A bound texture is a separate texture plus its own sampler state; the define keeps every read in
@@ -1381,6 +1400,24 @@ namespace Desert::Core::Preprocess
             return present;
         }
 
+        // The names of the stage inputs @p src declares in code (comments skipped): `In(N) <type> <name>;`,
+        // `In <type> <name>;` and `layout( ... location ... ) in [flat] <type> <name>;`.
+        std::vector<std::string> InputDeclarationNames( const std::string& src )
+        {
+            static const std::regex kInput(
+                 R"((?:\bIn\s*\(\s*\d+\s*\)|\bIn\b|\blayout\s*\([^)]*\blocation\b[^)]*\)\s*in\b)\s+(?:(?:flat|smooth|noperspective)\s+)?\w+\s+(\w+)\s*;)" );
+            std::vector<std::string> names;
+            for ( const SourceRun& run : SplitCodeAndComments( src ) )
+            {
+                if ( !run.IsCode )
+                    continue;
+                for ( auto it = std::sregex_iterator( run.Text.begin(), run.Text.end(), kInput );
+                      it != std::sregex_iterator(); ++it )
+                    names.push_back( ( *it )[1].str() );
+            }
+            return names;
+        }
+
         std::string TranslateLayoutSugar( const std::string& src )
         {
             std::vector<SourceRun> runs = SplitCodeAndComments( src );
@@ -1405,7 +1442,7 @@ namespace Desert::Core::Preprocess
                    "layout(std430, binding = $1) writeonly buffer" },
                  { KwBuffer, std::regex( R"(\bBuffer\s*\(\s*(\d+)\s*\))" ),
                    "layout(std430, binding = $1) buffer" },
-                 { KwLocalSize, std::regex( R"(\bLocalSize\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\))" ),
+                 { KwLocalSize, std::regex( R"(\bLocalSize\s*\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\))" ),
                    "layout(local_size_x = $1, local_size_y = $2, local_size_z = $3) in" },
                  { KwPushConstant, std::regex( R"(\bPushConstant\b)" ), "layout(push_constant) uniform" },
             };
@@ -1493,14 +1530,11 @@ namespace Desert::Core::Preprocess
                 if ( run.IsCode )
                 {
                     if ( autoIn )
-                        replaceFirst( run.Text, kAutoIn,
-                                      [&]( const std::smatch& ) {
-                                          return "layout(location = " + std::to_string( alloc( usedIn ) ) + ") in";
-                                      } );
+                        replaceFirst( run.Text, kAutoIn, [&]( const std::smatch& )
+                                      { return std::format( "layout(location = {}) in", alloc( usedIn ) ); } );
                     if ( autoOut )
-                        replaceFirst(
-                             run.Text, kAutoOut, [&]( const std::smatch& )
-                             { return "layout(location = " + std::to_string( alloc( usedOut ) ) + ") out"; } );
+                        replaceFirst( run.Text, kAutoOut, [&]( const std::smatch& )
+                                      { return std::format( "layout(location = {}) out", alloc( usedOut ) ); } );
                     if ( autoBind )
                         replaceFirst( run.Text, kAutoBinding,
                                       [&]( const std::smatch& m )
@@ -1513,14 +1547,14 @@ namespace Desert::Core::Preprocess
                                                                   kAutoSamplerBinding );
                                           const int n = alloc( usedBind );
                                           if ( kw == "Uniform" )
-                                              return "layout(binding = " + std::to_string( n ) + ") uniform";
+                                              return std::format( "layout(binding = {}) uniform", n );
                                           if ( kw == "ReadBuffer" )
-                                              return "layout(std430, binding = " + std::to_string( n ) +
-                                                     ") readonly buffer";
+                                              return std::format( "layout(std430, binding = {}) readonly buffer",
+                                                                  n );
                                           if ( kw == "WriteBuffer" )
-                                              return "layout(std430, binding = " + std::to_string( n ) +
-                                                     ") writeonly buffer";
-                                          return "layout(std430, binding = " + std::to_string( n ) + ") buffer";
+                                              return std::format( "layout(std430, binding = {}) writeonly buffer",
+                                                                  n );
+                                          return std::format( "layout(std430, binding = {}) buffer", n );
                                       } );
                 }
                 out += run.Text;
@@ -1667,26 +1701,26 @@ namespace Desert::Core::Preprocess
             std::string transform;
             if ( !height.TilingParam.empty() )
             {
-                transform = std::format( "    vec2 tiling = u_Material.{};\n"
+                transform = std::format( "    vec2 tiling = Material.{};\n"
                                          "    if ( tiling.x <= 0.0 ) tiling.x = 1.0;\n"
                                          "    if ( tiling.y <= 0.0 ) tiling.y = 1.0;\n",
                                          height.TilingParam );
-                uv        = std::format( "SurfaceTransformUV( {}, u_Material.{}, tiling, u_Material.{} )", uv,
+                uv        = std::format( "SurfaceTransformUV( {}, Material.{}, tiling, Material.{} )", uv,
                                          height.OffsetParam, height.RotationParam );
             }
             const std::string channel =
                  height.ChannelParam.empty()
                       ? std::to_string( height.Channel )
-                      : std::format( "clamp( int( u_Material.{} ), 0, 3 )", height.ChannelParam );
+                      : std::format( "clamp( int( Material.{} ), 0, 3 )", height.ChannelParam );
             const std::string center =
                  height.CenterParam.empty() ? std::string( "0.0" )
-                                            : std::format( "clamp( u_Material.{}, 0.0, 1.0 )", height.CenterParam );
+                                            : std::format( "clamp( Material.{}, 0.0, 1.0 )", height.CenterParam );
             return std::format( "vec2 DesertSurfaceHeightUV( SurfaceInput i )\n{{\n{}    return {};\n}}\n"
                                 "#ifndef DESERT_RAY_TRACING_STAGE\n"
                                 "float DesertSurfaceHeightGrad( vec2 uv, vec2 dUVdx, vec2 dUVdy )\n{{\n"
-                                "    return SampleBindlessGrad( u_Material.{}, uv, dUVdx, dUVdy )[{}];\n}}\n"
+                                "    return SampleBindlessGrad( Material.{}, uv, dUVdx, dUVdy )[{}];\n}}\n"
                                 "#endif\n"
-                                "float DesertSurfaceHeightScale()\n{{\n    return u_Material.{};\n}}\n"
+                                "float DesertSurfaceHeightScale()\n{{\n    return Material.{};\n}}\n"
                                 "float DesertSurfaceHeightCenter()\n{{\n    return {};\n}}\n",
                                 transform, uv, height.Texture, channel, height.ScaleParam, center );
         }
@@ -1702,20 +1736,27 @@ namespace Desert::Core::Preprocess
             std::string transform;
             if ( !mask.TilingParam.empty() )
             {
-                transform = std::format( "    vec2 tiling = u_Material.{};\n"
+                transform = std::format( "    vec2 tiling = Material.{};\n"
                                          "    if ( tiling.x <= 0.0 ) tiling.x = 1.0;\n"
                                          "    if ( tiling.y <= 0.0 ) tiling.y = 1.0;\n",
                                          mask.TilingParam );
-                uv        = std::format( "SurfaceTransformUV( {}, u_Material.{}, tiling, u_Material.{} )", uv,
+                uv        = std::format( "SurfaceTransformUV( {}, Material.{}, tiling, Material.{} )", uv,
                                          mask.OffsetParam, mask.RotationParam );
             }
             const std::string channel =
                  mask.ChannelParam.empty()
                       ? std::to_string( mask.Channel )
-                      : std::format( "clamp( int( u_Material.{} ), 0, 3 )", mask.ChannelParam );
-            return std::format( "float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
-                                "    return SurfaceSampleMaterial( u_Material.{}, {} )[{}];\n}}\n",
-                                transform, mask.Texture, uv, channel );
+                      : std::format( "clamp( int( Material.{} ), 0, 3 )", mask.ChannelParam );
+            // The dither switch is a macro, not a function: DESERT_SURFACE_CLIP reads gl_FragCoord and the view
+            // block at its own (fragment) call site, and a function using either would not compile in a vertex
+            // stage.
+            const std::string dither =
+                 mask.DitherParam.empty()
+                      ? std::string()
+                      : std::format( "#define DESERT_SURFACE_OPACITY_DITHER Material.{}\n", mask.DitherParam );
+            return std::format( "{}float DesertSurfaceOpacityMask( SurfaceInput i )\n{{\n{}"
+                                "    return SurfaceSampleMaterial( Material.{}, {} )[{}];\n}}\n",
+                                dither, transform, mask.Texture, uv, channel );
         }
 
         // A SURFACE READS A WORLD PARAMETER BY NAME — `WorldParameter( "Wetness" )`, the one spelling a
@@ -1792,6 +1833,20 @@ namespace Desert::Core::Preprocess
             return out;
         }
 
+        // Whether @p content names @p identifier as a whole word (not as part of a longer identifier).
+        bool NamesIdentifier( const std::string_view content, const std::string_view identifier )
+        {
+            for ( size_t found = content.find( identifier ); found != std::string_view::npos;
+                  found        = content.find( identifier, found + 1 ) )
+            {
+                const size_t end = found + identifier.size();
+                if ( ( found == 0 || !IsIdentChar( content[found - 1] ) ) &&
+                     ( end >= content.size() || !IsIdentChar( content[end] ) ) )
+                    return true;
+            }
+            return false;
+        }
+
         // One stage of one surface CELL. The vertex stage is the path's engine header alone (a surface
         // function does not move vertices yet); the fragment stage is the author's surface function between
         // the shared types and the pass's engine header, which owns main(). `#line` puts glslang's errors in
@@ -1806,7 +1861,7 @@ namespace Desert::Core::Preprocess
                                               const std::string& heightFunctions, const bool weather )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
-            const bool        particle = path == kSurfaceParticleSpritePath;
+            const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
             const std::string defines  = std::format(
                  "#define DESERT_SURFACE_PASS_{} 1\n{}{}{}{}{}{}#define {} {}\n", pass,
                  // The hit cell's two stages share one pass header; the any-hit stage is told which it is.
@@ -1849,13 +1904,16 @@ namespace Desert::Core::Preprocess
             {
                 bool              readsWorld = false;
                 const std::string lowered    = LowerWorldParameterReads( surface.Content, readsWorld );
+                const bool fades = particle && NamesIdentifier( surface.Content, kSurfaceDepthFadeFunction );
                 code.Content =
                      // Only a stage that evaluates the surface fetches material textures: it alone declares the
                      // biased fetch (Mesh/Surface/SurfaceTypes.glslh SurfaceSampleMaterial) and the camera block.
                      // The world's parameters are declared only into a cell whose surface reads one: reflection
                      // keeps a declared buffer, and every other surface must not ask its renderer to bind it.
-                     std::format( "{}{}#define {} 1\n#include <{}>\n{}{}#line {}\n{}\n{}#include <{}>\n", defines,
-                                  weatherDefines, kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
+                     std::format( "{}{}{}#define {} 1\n#include <{}>\n{}{}#line {}\n{}\n{}#include <{}>\n",
+                                  defines, weatherDefines,
+                                  fades ? std::format( "#define {} 1\n", kSurfaceDepthFadeDefine ) : std::string(),
+                                  kSurfaceSamplesMaterialDefine, kSurfaceTypesInclude,
                                   readsWorld || wets ? std::format( "#include <{}>\n", kWorldParametersInclude )
                                                      : std::string(),
                                   heightFunctions, surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
@@ -1976,16 +2034,24 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceTranslucentPassInclude );
         includes.emplace_back( kSurfaceFrontLayerPassInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceParticleSpritePath ) );
+        includes.push_back( SurfaceVertexInclude( kSurfaceParticleRibbonPath ) );
         includes.emplace_back( kSurfaceParticleSpritePassInclude );
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceGrassBladePath ) );
+        includes.push_back( SurfaceVertexInclude( kSurfaceWaterMeshPath ) );
+        includes.emplace_back( kSurfaceSingleLayerWaterPassInclude );
         return includes;
     }
 
     std::string DShaderParser::TranslateSugar( const std::string& source )
     {
         return TranslateLayoutSugar( source );
+    }
+
+    std::vector<std::string> DShaderParser::DeclaredInputNames( const std::string& source )
+    {
+        return InputDeclarationNames( source );
     }
 
     Common::ResultStr<DShaderParseResult> DShaderParser::Parse( const std::string& source )
@@ -2058,6 +2124,21 @@ namespace Desert::Core::Preprocess
                         "stage blocks must not declare #version — the compiler emits the header" };
                 return false;
             }
+            // A VERTEX STAGE DECLARES NO INPUT OF ITS OWN: its inputs are generated from the C++ vertex format
+            // (Graphic/ShaderProtocols/VertexInputs.hpp) and included (Mesh/MeshVertexInputs.glslh,
+            // Common/UIVertexInputs.glslh). A hand-written `In(N)` here would be the second spelling of the
+            // layout that used to drift from it unchecked.
+            if ( stage == ShaderStage::Vertex )
+                if ( const std::vector<std::string> inputs = InputDeclarationNames( block.Content ); !inputs.empty() )
+                {
+                    err = { block.StartLine,
+                            std::format( "the Vertex stage declares the input '{}' by hand; vertex inputs are "
+                                         "generated from the C++ vertex format — #include "
+                                         "<Mesh/MeshVertexInputs.glslh>, <Mesh/MeshVertexInputsSkinned.glslh> "
+                                         "or <Common/UIVertexInputs.glslh> instead",
+                                         inputs.front() ) };
+                    return false;
+                }
             pass.Blocks.emplace( stage, std::move( block ) );
             return true;
         };
@@ -2268,12 +2349,19 @@ namespace Desert::Core::Preprocess
                 const std::string stated = ReadIdent( c );
                 if ( Lower( stated ) == "particlesprites" )
                     result.Surface.UsedWithParticleSprites = true;
+                else if ( Lower( stated ) == "particleribbons" )
+                    result.Surface.UsedWithParticleRibbons = true;
                 else if ( Lower( stated ) == "grassblades" )
                     result.Surface.UsedWithGrassBlades = true;
+                else if ( Lower( stated ) == "watermesh" )
+                    result.Surface.UsedWithWaterMesh = true;
                 else
                 {
                     // The author's spelling, not the folded one the comparison used.
-                    err = { line, std::format( "unknown Usage '{}' (ParticleSprites, GrassBlades)", stated ) };
+                    err = { line,
+                            std::format(
+                                 "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades, WaterMesh)",
+                                 stated ) };
                     return fail();
                 }
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -2673,12 +2761,12 @@ namespace Desert::Core::Preprocess
         result.Meta.LayoutBindings  = MaterialLayoutBindings{ propInfo.UBBinding, propInfo.TextureBinding };
         result.Layout               = BuildMaterialLayout( result.Meta );
         // The reserved scene-read range (Core::kSceneReadBindingFirst, ShaderGraphBindings.hpp) is declared into
-        // every view-pass cell by Common/ObjectMotion.glslh; a material row or texture numbered into it would
+        // every view-pass cell by Common/GpuScene.glslh; a material row or texture numbered into it would
         // share a descriptor slot with the view's motion rows, which GLSL accepts without a word.
         if ( result.Layout.RowBinding && Core::IsSceneReadBinding( *result.Layout.RowBinding ) )
         {
             err = { c.Line, std::format( "Properties Binding({}) is inside the reserved scene-read range [{}, {}) "
-                                         "(ObjectMotions / ObjectBones); number the material row elsewhere",
+                                         "(GpuScenePrimitives / ObjectBones); number the material row elsewhere",
                                          *result.Layout.RowBinding, Core::kSceneReadBindingFirst,
                                          Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
             return fail();
@@ -2690,7 +2778,7 @@ namespace Desert::Core::Preprocess
                     err = { c.Line,
                             std::format(
                                  "texture property '{}' (or its sampler state) lands on binding {}, inside "
-                                 "the reserved scene-read range [{}, {}) (ObjectMotions / ObjectBones); move "
+                                 "the reserved scene-read range [{}, {}) (GpuScenePrimitives / ObjectBones); move "
                                  "TextureBinding() so the run of textures and their samplers stays clear of it",
                                  texture.Name, binding, Core::kSceneReadBindingFirst,
                                  Core::kSceneReadBindingFirst + Core::kSceneReadBindingCount ) };
@@ -2754,6 +2842,19 @@ namespace Desert::Core::Preprocess
             result.Surface.ShadingModel          = model->Manifest.Guid;
             const std::string shadingModelDefine = ShadingModels::ShadingModelIndexDefine( model->Manifest.Name );
             result.Meta.Blend = result.Surface.Blend;
+            if ( result.Surface.UsedWithWaterMesh != ( model->Manifest.Name == kSingleLayerWaterShadingModel ) )
+            {
+                err = {
+                     surfaceSettingLine != 0 ? surfaceSettingLine : 1,
+                     result.Surface.UsedWithWaterMesh
+                          ? std::format( "Usage WaterMesh draws the single layer water pass, which only "
+                                         "ShadingModel {} shades (this template's is {})",
+                                         kSingleLayerWaterShadingModel, model->Manifest.Name )
+                          : std::format( "ShadingModel {} is drawn by the water mesh's single layer water pass: "
+                                         "declare Usage WaterMesh",
+                                         kSingleLayerWaterShadingModel ) };
+                return fail();
+            }
             if ( result.Surface.ResponsiveAA && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
             {
                 err = { responsiveLine,
@@ -2788,6 +2889,20 @@ namespace Desert::Core::Preprocess
                 {
                     err = { opacityMaskLine, bad };
                     return fail();
+                }
+                const auto dither =
+                     std::find_if( result.Meta.Params.begin(), result.Meta.Params.end(),
+                                   []( const ShaderParam& p ) { return p.Name == kSurfaceMaskDitherParam; } );
+                if ( dither != result.Meta.Params.end() )
+                {
+                    if ( dither->IsTexture || dither->Type != ShaderValueType::Float )
+                    {
+                        err = { opacityMaskLine,
+                                std::format( "'{}' (the dithered opacity mask switch) must be a Float",
+                                             kSurfaceMaskDitherParam ) };
+                        return fail();
+                    }
+                    result.Meta.OpacityMask->DitherParam = std::string( kSurfaceMaskDitherParam );
                 }
             }
             else if ( result.Meta.OpacityMask )
@@ -2824,9 +2939,16 @@ namespace Desert::Core::Preprocess
                 cellOverride.Cull = StateCull::None;
             const ShaderRenderState cellState = MergeState( defaultPass.State, cellOverride );
 
+            // A SingleLayerWater template (`Usage WaterMesh`) is drawn by its own pass alone, as UE renders
+            // MSM_SingleLayerWater in the single layer water pass and never through the base pass, the deferred
+            // lighting, the shadow depths or a ray tracing hit group: no mesh, front layer, hit or parallax cell.
+            const bool meshCells = !result.Surface.UsedWithWaterMesh;
+
             for ( const std::string_view path : kSurfaceVertexPaths )
                 for ( const std::string_view pass : kSurfaceCellPasses )
                 {
+                    if ( !meshCells )
+                        break;
                     if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
                         continue;
                     DShaderPass cell;
@@ -2845,7 +2967,7 @@ namespace Desert::Core::Preprocess
 
             // THE TRANSLUCENT FRONT LAYER CELL (kSurfaceFrontLayerPass): a Translucent template's surface into the
             // front layer's G-buffer, after its Forward cells (their order is unchanged).
-            if ( result.Surface.Blend == SurfaceBlendMode::Translucent )
+            if ( meshCells && result.Surface.Blend == SurfaceBlendMode::Translucent )
             {
                 DShaderPass cell;
                 cell.Name  = SurfaceCellName( kSurfaceFrontLayerPath, kSurfaceFrontLayerPass );
@@ -2865,11 +2987,13 @@ namespace Desert::Core::Preprocess
             // THE RAY TRACING HIT CELL (UE: the material's ray tracing hit group, FRayTracingMeshCommand's
             // closest-hit / any-hit shaders), after the mesh cells: the same surface function between the shared
             // types and Mesh/Surface/Pass_RayHit.glslh. Closest hit evaluates the surface into the ray's payload;
-            // a Masked template adds the any-hit stage, its OpacityMask test. Opaque and Masked templates only: a
-            // translucent surface is not a ray tracing occluder (UE skips it in the ray tracing scene too). A
-            // template that binds a texture outside its row has nothing to put in a shader record: no cell, and
-            // the reason is kept for the pipeline that asks for it.
-            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+            // a Masked template adds the any-hit stage, its OpacityMask test. A Translucent template's closest hit
+            // also writes the payload's transmission and IOR (Pass_RayHit.glslh under DESERT_SURFACE_TRANSLUCENT):
+            // its primitives carry the translucent instance mask alone (RayTracingScene.hpp kMaskTranslucent), so
+            // only the path tracer's rays meet them (UE: the path tracer's translucent hit shaders). Additive has
+            // no transmission to give and no cell. A template that binds a texture outside its row has nothing to
+            // put in a shader record: no cell, and the reason is kept for the pipeline that asks for it.
+            if ( meshCells && result.Surface.Blend != SurfaceBlendMode::Additive )
             {
                 if ( !result.Layout.Textures.empty() )
                     result.Surface.RayHitRefusal = std::format(
@@ -2909,12 +3033,28 @@ namespace Desert::Core::Preprocess
                 cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceParticleSpritePath,
-                                                          kSurfaceParticleSpritePass, *surfaceBlock, includeBlock,
-                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
-                                                          false, heightFunctions, false ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
+
+            // `Usage ParticleRibbons`: the ribbon cell, after the sprite cell (same pass, same particle header).
+            if ( result.Surface.UsedWithParticleRibbons )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
@@ -2941,10 +3081,27 @@ namespace Desert::Core::Preprocess
                     result.Passes.push_back( std::move( cell ) );
                 }
 
+            // `Usage WaterMesh`: the single layer water cell, after the blade cells.
+            if ( result.Surface.UsedWithWaterMesh )
+            {
+                DShaderPass cell;
+                cell.Name  = SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass );
+                cell.State = cellState;
+                for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
+                result.Meta.PassNames.push_back( cell.Name );
+                result.Surface.Cells.push_back( cell.Name );
+                result.Passes.push_back( std::move( cell ) );
+            }
+
             // `Height <Texture2D> ... Scale(<Float>)`: every mesh cell again as its `.Parallax` permutation, after every other cell
             // (the base cells' order is unchanged). The ray tracing hit and the sprite have no screen derivatives
             // to size a march with (or no depth to offset) and stay single.
-            if ( result.Meta.Height )
+            if ( meshCells && result.Meta.Height )
                 for ( const std::string_view path : kSurfaceVertexPaths )
                     for ( const std::string_view pass : kSurfaceCellPasses )
                     {
@@ -2997,13 +3154,18 @@ namespace Desert::Core::Preprocess
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.
         if ( !result.Surface.Cells.empty() )
         {
-            const DShaderPass* defaultCell = result.FindPass( std::string( kSurfaceDefaultCell ) );
+            // A SingleLayerWater template has no mesh cells (`meshCells` above): its one drawn cell is its default.
+            const std::string defaultCellName =
+                 result.Surface.UsedWithWaterMesh
+                      ? SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass )
+                      : std::string( kSurfaceDefaultCell );
+            const DShaderPass* defaultCell = result.FindPass( defaultCellName );
             if ( defaultCell == nullptr )
                 return Common::MakeFormattedError<DShaderParseResult>(
-                     "DShader '{}': surface template has no default cell '{}'", result.Name, kSurfaceDefaultCell );
+                     "DShader '{}': surface template has no default cell '{}'", result.Name, defaultCellName );
             result.Meta.State           = defaultCell->State;
             result.Stages               = defaultCell->Stages;
-            result.Meta.DefaultPassName = std::string( kSurfaceDefaultCell );
+            result.Meta.DefaultPassName = defaultCellName;
         }
         // Guarded, because a medium-only shader has no passes at all and `front()` on an empty vector is
         // the kind of crash that reads as a corrupt file rather than as a missing branch.

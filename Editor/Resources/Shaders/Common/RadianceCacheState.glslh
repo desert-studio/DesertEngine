@@ -44,14 +44,15 @@ Buffer(5) RadianceCacheScheduleUB
 
 PushConstant RadianceCachePush
 {
-    uint  u_FrameIndex;       // 1, 2, ... (0 = never)
-    uint  u_Reset;            // 1: the state is (re)initialised this frame
-    uint  u_MaxProbes;        // probe slots
-    uint  u_UnusedFrames;     // RadianceCache::kProbeUnusedFramesBeforeFree
-    uint  u_Width;            // G-buffer extent
-    uint  u_Height;
-    float u_History;          // RadianceCache::kHistoryWeight
-    float u_DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
+    uint  FrameIndex;       // 1, 2, ... (0 = never)
+    uint  Reset;            // 1: the state is (re)initialised this frame
+    uint  MaxProbes;        // probe slots
+    uint  UnusedFrames;     // RadianceCache::kProbeUnusedFramesBeforeFree
+    uint  Width;            // G-buffer extent
+    uint  Height;
+    float HistoryWeight;          // RadianceCache::kHistoryWeight
+    float DirtyHistory;     // RadianceCache::kDirtyHistoryWeight
+    uint  LightingFrame;    // the frame of the last full update: a probe last traced before it has no history
 };
 
 #endif // RADIANCE_CACHE_STATE_GLSLH

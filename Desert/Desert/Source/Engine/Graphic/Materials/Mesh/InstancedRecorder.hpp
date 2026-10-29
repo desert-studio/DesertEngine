@@ -22,7 +22,7 @@ namespace Desert::Graphic
     // The consequence is a texture channel that is loaded, resident and drawn by nothing:
     //
     //   * on the 50 179-entity world scene, whose floor is 1024 cubes sharing `M_CheckerFloor.demat`,
-    //     swapping that material's `u_AlbedoTexture` for a completely different image moved 0 of
+    //     swapping that material's `AlbedoTexture` for a completely different image moved 0 of
     //     560 560 pixels, at all three elevations;
     //   * `UVTiling` 500 -> 1 moved 0 pixels too, because tiling the lookup of a 1x1 image is a no-op;
     //   * `AlbedoColor` -> red moved 77.78 % of the frame, because a colour rides the Materials[] row

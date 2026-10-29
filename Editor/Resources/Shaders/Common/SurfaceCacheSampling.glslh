@@ -53,19 +53,31 @@ layout( std430, binding = GI_SURFACE_CACHE_BINDING + 3 ) readonly buffer Surface
     SurfaceCacheInstance surfaceCacheInstances[];
 };
 // The atlas layers are separate textures read through the includer's point-clamped shared state (UE shared
-// samplers; DeclareSurfaceCacheReads binds u_PointClampSampler with them): the includer declares
-// u_PointClampSampler, as every tracer program does for its G-buffer reads.
-layout( binding = GI_SURFACE_CACHE_BINDING + 4 ) uniform texture2D u_SurfaceCacheFinalLighting;
-#define u_SurfaceCacheFinalLighting sampler2D(u_SurfaceCacheFinalLighting, u_PointClampSampler)
-layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform texture2D u_SurfaceCacheDepth;
-#define u_SurfaceCacheDepth sampler2D(u_SurfaceCacheDepth, u_PointClampSampler)
-layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform texture2D u_SurfaceCacheOpacity;
-#define u_SurfaceCacheOpacity sampler2D(u_SurfaceCacheOpacity, u_PointClampSampler)
+// samplers; DeclareSurfaceCacheReads binds PointClampSampler with them): the includer declares
+// PointClampSampler, as every tracer program does for its G-buffer reads.
+layout( binding = GI_SURFACE_CACHE_BINDING + 4 ) uniform texture2D SurfaceCacheFinalLightingTexture;
+#define SurfaceCacheFinalLightingTexture sampler2D(SurfaceCacheFinalLightingTexture, PointClampSampler)
+layout( binding = GI_SURFACE_CACHE_BINDING + 5 ) uniform texture2D SurfaceCacheDepthTexture;
+#define SurfaceCacheDepthTexture sampler2D(SurfaceCacheDepthTexture, PointClampSampler)
+layout( binding = GI_SURFACE_CACHE_BINDING + 6 ) uniform texture2D SurfaceCacheOpacityTexture;
+#define SurfaceCacheOpacityTexture sampler2D(SurfaceCacheOpacityTexture, PointClampSampler)
 // Below this summed weight the cards hold too little of the hit to stand for it (UE: bValid needs a weight).
 #define SURFACE_CACHE_MIN_HIT_WEIGHT 0.05
 // From this summed weight on the rows read so far hold the hit: the farther rows are not read (UE
 // EvaluateGlobalDistanceFieldHit: SampleWeightSum >= 0.9).
 #define SURFACE_CACHE_ENOUGH_HIT_WEIGHT 0.9
+
+// A mostly two-sided mesh's cards are captured from both faces of thin geometry, so a hit on either face lies far
+// from the depth one card captured: its bias grows by 50 cm (UE SampleLumenMeshCards, bMostlyTwoSided).
+#define SURFACE_CACHE_TWO_SIDED_EXTRA_BIAS 50.0
+
+// The bias a hit on the cards of @p meshCardsIndex is read with: the tracer's @p bias, grown for a mostly two-sided
+// mesh (UE: SurfaceCacheBias += 50 for bMostlyTwoSided).
+float SurfaceCacheMeshCardsBias( uint meshCardsIndex, float bias )
+{
+    return MeshCardsMostlyTwoSided( surfaceMeshCards[meshCardsIndex] ) ? bias + SURFACE_CACHE_TWO_SIDED_EXTRA_BIAS
+                                                                         : bias;
+}
 
 struct SurfaceCacheHitSample {
     vec3  lighting; // weighted FinalLighting
@@ -142,7 +154,7 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
     // The hit normal in the mesh's frame: its axes pick the card directions.
     const vec3 localNormal = vec3( dot( mesh.worldToLocal[0].xyz, normal ), dot( mesh.worldToLocal[1].xyz, normal ),
                                    dot( mesh.worldToLocal[2].xyz, normal ) );
-    const vec2 atlasSize = vec2( textureSize( u_SurfaceCacheFinalLighting, 0 ) );
+    const vec2 atlasSize = vec2( textureSize( SurfaceCacheFinalLightingTexture, 0 ) );
     for ( uint axis = 0u; axis < 3u; ++axis )
     {
         const float axisWeight = localNormal[axis] * localNormal[axis];
@@ -165,14 +177,14 @@ void SurfaceCacheSampleMeshCards( uint meshCardsIndex, vec3 position, vec3 norma
             {
                 ivec2       atlasTexel;
                 const float bilinear = SurfaceCardFootprintTexel( fp, k, atlasTexel );
-                if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
+                if ( bilinear <= 0.0 || texelFetch( SurfaceCacheOpacityTexture, atlasTexel, 0 ).r < 0.5 )
                     continue;
-                const float captured   = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
+                const float captured   = texelFetch( SurfaceCacheDepthTexture, atlasTexel, 0 ).r;
                 const float visibility = 1.0 - clamp( ( abs( fp.hitDepth - captured ) - fp.threshold ) / fp.falloff, 0.0, 1.0 );
                 const float w          = bilinear * visibility;
                 if ( w <= 0.0 )
                     continue;
-                lighting += texelFetch( u_SurfaceCacheFinalLighting, atlasTexel, 0 ).rgb * w;
+                lighting += texelFetch( SurfaceCacheFinalLightingTexture, atlasTexel, 0 ).rgb * w;
                 weightSum += w;
             }
             if ( weightSum <= 0.0 )
@@ -195,7 +207,7 @@ float SurfaceCacheBackFaceMeshCards( uint meshCardsIndex, vec3 position, vec3 no
     const MeshCards mesh        = surfaceMeshCards[meshCardsIndex];
     const vec3      localNormal = vec3( dot( mesh.worldToLocal[0].xyz, normal ), dot( mesh.worldToLocal[1].xyz, normal ),
                                         dot( mesh.worldToLocal[2].xyz, normal ) );
-    const vec2      atlasSize   = vec2( textureSize( u_SurfaceCacheFinalLighting, 0 ) );
+    const vec2      atlasSize   = vec2( textureSize( SurfaceCacheFinalLightingTexture, 0 ) );
     float           weight      = 0.0;
     for ( uint axis = 0u; axis < 3u; ++axis )
     {
@@ -217,9 +229,9 @@ float SurfaceCacheBackFaceMeshCards( uint meshCardsIndex, vec3 position, vec3 no
             {
                 ivec2       atlasTexel;
                 const float bilinear = SurfaceCardFootprintTexel( fp, k, atlasTexel );
-                if ( bilinear <= 0.0 || texelFetch( u_SurfaceCacheOpacity, atlasTexel, 0 ).r < 0.5 )
+                if ( bilinear <= 0.0 || texelFetch( SurfaceCacheOpacityTexture, atlasTexel, 0 ).r < 0.5 )
                     continue;
-                const float captured = texelFetch( u_SurfaceCacheDepth, atlasTexel, 0 ).r;
+                const float captured = texelFetch( SurfaceCacheDepthTexture, atlasTexel, 0 ).r;
                 behindSum += bilinear * clamp( ( fp.hitDepth - captured - fp.threshold ) / fp.falloff, 0.0, 1.0 );
             }
             weight += axisWeight * behindSum;
@@ -233,20 +245,23 @@ void SurfaceCacheSampleRow( uint row, vec3 position, vec3 normal, float bias, in
     const SurfaceCacheInstance instance = surfaceCacheInstances[row];
     if ( instance.cards.x == GI_NO_MESH_CARDS )
         return;
-    if ( any( lessThan( position, instance.boundsMin.xyz - bias ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + bias ) ) )
+    const float meshBias = SurfaceCacheMeshCardsBias( instance.cards.x, bias );
+    if ( any( lessThan( position, instance.boundsMin.xyz - meshBias ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + meshBias ) ) )
         return;
-    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, bias, acc );
+    SurfaceCacheSampleMeshCards( instance.cards.x, position, normal, meshBias, acc );
 }
 
 float SurfaceCacheBackFaceRow( uint row, vec3 position, vec3 normal, float bias )
 {
     const SurfaceCacheInstance instance = surfaceCacheInstances[row];
-    if ( instance.cards.x == GI_NO_MESH_CARDS ||
-         any( lessThan( position, instance.boundsMin.xyz - bias ) ) ||
-         any( greaterThan( position, instance.boundsMax.xyz + bias ) ) )
+    if ( instance.cards.x == GI_NO_MESH_CARDS )
         return 0.0;
-    return SurfaceCacheBackFaceMeshCards( instance.cards.x, position, normal, bias );
+    const float meshBias = SurfaceCacheMeshCardsBias( instance.cards.x, bias );
+    if ( any( lessThan( position, instance.boundsMin.xyz - meshBias ) ) ||
+         any( greaterThan( position, instance.boundsMax.xyz + meshBias ) ) )
+        return 0.0;
+    return SurfaceCacheBackFaceMeshCards( instance.cards.x, position, normal, meshBias );
 }
 
 // What the surface cache says of a hit (SurfaceCacheHitLighting).

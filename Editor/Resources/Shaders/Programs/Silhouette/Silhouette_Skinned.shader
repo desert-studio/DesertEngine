@@ -6,13 +6,8 @@ Shader "Silhouette_Skinned"
 
     Vertex
     {
-        In(0) vec3 a_Position;
-        In(1) vec3 a_Normal;
-        In(2) vec3 a_Tangent;
-        In(3) vec3 a_Bitangent;
-        In(4) vec2 a_TextureCoord;
-        In(5) ivec4 a_BoneIndices;
-        In(6) vec4  a_BoneWeights;
+        // Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
+        #include <Mesh/MeshVertexInputsSkinned.glslh>
 
         #include <Common/CameraUB.glslh>
         #include <Common/SkinCacheStreams.glslh>
@@ -33,12 +28,9 @@ Shader "Silhouette_Skinned"
         } m_PushConstants;
 
         // Same bone matrices the skinned mesh is rendered with, so the silhouette (hence the outline) matches the
-        // posed/animated mesh exactly. Binding 1 mirrors Skinned.glsl.vert.
-        // raw-glsl: implicit (shared) layout kept — std430 would change the bone matrix offsets.
-        layout(binding = 1) readonly buffer Bones
-        {
-            mat4 BoneMatrices[];
-        } bones;
+        // posed/animated mesh exactly: the light views' Bones buffer (binding 1), generated from
+        // ShaderProtocols/SkinnedMaterialUB.hpp.
+        #include <Mesh/SkinnedBones.glslh>
 
         void main()
         {
@@ -55,10 +47,10 @@ Shader "Silhouette_Skinned"
             {
                 // int, not uint: a_BoneIndices is ivec4 and GLSL will not mix the two silently.
                 int b = int(m_PushConstants.BoneOffset);
-                mat4 skin = bones.BoneMatrices[b + a_BoneIndices.x] * a_BoneWeights.x +
-                            bones.BoneMatrices[b + a_BoneIndices.y] * a_BoneWeights.y +
-                            bones.BoneMatrices[b + a_BoneIndices.z] * a_BoneWeights.z +
-                            bones.BoneMatrices[b + a_BoneIndices.w] * a_BoneWeights.w;
+                mat4 skin = bones.BoneMatrices[b + a_BoneIndices.x].Matrix * a_BoneWeights.x +
+                            bones.BoneMatrices[b + a_BoneIndices.y].Matrix * a_BoneWeights.y +
+                            bones.BoneMatrices[b + a_BoneIndices.z].Matrix * a_BoneWeights.z +
+                            bones.BoneMatrices[b + a_BoneIndices.w].Matrix * a_BoneWeights.w;
                 posed = (skin * vec4(a_Position, 1.0)).xyz;
             }
 

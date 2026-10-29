@@ -167,6 +167,12 @@ namespace Desert::Runtime
         return &weatherPresetService;
     }
 
+    SubsurfaceProfileService* ResourceRegistry::GetSubsurfaceProfileService()
+    {
+        static SubsurfaceProfileService subsurfaceProfileService;
+        return &subsurfaceProfileService;
+    }
+
     void ResourceRegistry::BindOnDemandAssets( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         GetCloudNoiseService()->BindAssetManager( assets );
@@ -187,6 +193,7 @@ namespace Desert::Runtime
         GetVFXSystemService()->BindAssetManager( assets );
         GetWorldParametersService()->BindAssetManager( assets );
         GetWeatherPresetService()->BindAssetManager( assets );
+        GetSubsurfaceProfileService()->BindAssetManager( assets );
     }
 
     void ResourceRegistry::ClearAll()
@@ -196,6 +203,7 @@ namespace Desert::Runtime
         GetMaterialService()->Clear();
         GetWorldParametersService()->Clear();
         GetWeatherPresetService()->Clear();
+        GetSubsurfaceProfileService()->Clear();
         GetMeshService()->Clear();
         GetSkyboxService()->Clear();
         GetTextureService()->Clear();

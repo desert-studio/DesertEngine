@@ -19,21 +19,29 @@ namespace Desert::Core
 #endif
     } // namespace
 
-    std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion )
+    std::string RefuseSceneVersion( std::string_view source, int foundSceneVersion, int foundUnitVersion,
+                                    int foundWorldPartitionVersion, int foundAssetRefVersion,
+                                    int foundLightVersion )
     {
         return fmt::format(
-             "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2}, and this engine loads "
-             "scene schema v{3} / world units v{4} only. NOTHING WAS LOADED - no entity, no setting and no "
-             "scene name was taken from this file, and the scene is exactly as it was. The engine does not "
-             "convert old scenes any more; Tools/SceneMigrator does, once, and writes the file back. Run:  "
-             "{5} \"{0}\"",
-             source, foundSceneVersion, foundUnitVersion, kSceneVersion, kUnitVersion, kMigratorPath );
+             "[SceneSerializer] '{0}' is at scene schema v{1} / world units v{2} / world partition v{3} / asset references "
+             "v{8} / lights v{10}, and this engine loads scene schema v{4} / world units v{5} / world partition v{6} / "
+             "asset references v{9} / lights v{11} only. NOTHING WAS "
+             "LOADED - no entity, no setting and no scene name was taken from this file, and the scene is exactly "
+             "as it was. The engine does not convert old scenes any more; Tools/SceneMigrator does, once, and "
+             "writes the file back. Run:  {7} \"{0}\"",
+             source, foundSceneVersion, foundUnitVersion, foundWorldPartitionVersion, kSceneVersion, kUnitVersion,
+             kWorldPartitionVersion, kMigratorPath, foundAssetRefVersion, kAssetRefVersion, foundLightVersion,
+             kLightVersion );
     }
 
     std::string RefuseSceneVersion( std::string_view source, const SceneSerialized& scene )
     {
         return RefuseSceneVersion( source, Assets::StatedVersion( scene.Header, Assets::kSceneSchemaTag ),
-                                   Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ) );
+                                   Assets::StatedVersion( scene.Header, Assets::kUnitSchemaTag ),
+                                   Assets::StatedVersion( scene.Header, Assets::kWorldPartitionSchemaTag ),
+                                   Assets::StatedVersion( scene.Header, Assets::kAssetRefSchemaTag ),
+                                   Assets::StatedVersion( scene.Header, Assets::kLightSchemaTag ) );
     }
 
     Common::ResultStr<LoadableScene> ParseLoadableScene( std::string_view source, const std::string& json )
@@ -90,7 +98,8 @@ namespace Desert::Core
 
     Common::ResultStr<Common::Json::TextDocument>
     ComposeSceneDocument( const SceneSerialized& fresh, const std::optional<Common::Json::TextDocument>& loaded,
-                          const Serialize::KeyIsOurs& entityKeyIsOurs )
+                          const Serialize::KeyIsOurs&          entityKeyIsOurs,
+                          const Common::Json::MemberKeyIsOurs& componentKeyIsOurs )
     {
         auto written = Common::Json::TextDocument::Parse( Common::Json::Write( fresh ) );
         if ( !written )
@@ -100,7 +109,7 @@ namespace Desert::Core
         if ( !loaded.has_value() )
             return written;
         return Common::MakeSuccess(
-             Serialize::MergeSceneDocument( written.GetValue(), *loaded, entityKeyIsOurs ) );
+             Serialize::MergeSceneDocument( written.GetValue(), *loaded, entityKeyIsOurs, componentKeyIsOurs ) );
     }
 
 } // namespace Desert::Core

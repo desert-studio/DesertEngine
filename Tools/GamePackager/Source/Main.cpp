@@ -32,14 +32,12 @@
 
 #include <Common/Core/CrashHandler.hpp>
 #include <ToolMain.hpp>
-#include <ToolEngineDir.hpp>
+#include <ToolProject.hpp>
 
+#include <Editor/Core/TextList.hpp>
 #include <Editor/Packaging/GamePackager.hpp>
 
 #include <Engine/Assets/ContentRegistry.hpp>
-#include <Engine/Project/ProjectContext.hpp>
-
-#include <Common/Core/Logger.hpp>
 
 #include <cstdio>
 #include <cstring>
@@ -99,14 +97,7 @@ namespace
 
     std::string KnownConfigs()
     {
-        std::string all;
-        for ( const char* known : Desert::Editor::kPackageConfigs )
-        {
-            if ( !all.empty() )
-                all += ", ";
-            all += known;
-        }
-        return all;
+        return Desert::Editor::TextTemplates::JoinList( Desert::Editor::kPackageConfigs, ", " );
     }
 } // namespace
 
@@ -172,29 +163,16 @@ int main( int argc, char** argv )
                  }
              }
 
-             std::error_code ec;
-             const fs::path  deproj = fs::absolute( descriptor, ec );
-             if ( ec || !fs::is_regular_file( deproj, ec ) )
-                 return Fail( "'" + descriptor + "' is not a .deproj file this process can read" );
-
              // THE ENGINE DIRECTORY, NOT THE WORKING DIRECTORY (ToolEngineDir.hpp). PackageGame finds the
              // Runtime binary beside EngineDir() and every engine resource under it, and the project's
-             // content off the descriptor's folder, so the packager reads the same files from any shell.
-             if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( engineDirOverride );
-                  !refused.empty() )
-                 return Fail( refused );
-
-             Common::Logger::LogInit();
-             // engine_log.txt in <ProjectDir>/Saved/Logs, which is where the incomplete-cook message below sends
-             // the reader — not in whatever folder the shell happened to be in.
-             Common::Logger::RelocateLogFile( deproj.parent_path() / "Saved" / "Logs" );
-
-             // NOT in the recent-projects registry: a build machine opening a project is not a person
-             // opening one, and every CI run would otherwise file its checkout at the top of somebody's
-             // list. Same rule, same reason, as the editor's own unattended runs.
-             if ( !Desert::Project::ProjectContext::Open( deproj.string(),
-                                                          Desert::Project::ProjectContext::RecordInRecent::No ) )
-                 return Fail( "could not open '" + deproj.string() + "' (missing or corrupt .deproj)" );
+             // content off the descriptor's folder, so the packager reads the same files from any shell. The
+             // log goes to <ProjectDir>/Saved/Logs, which is where the incomplete-cook message below sends the
+             // reader. One call for every tool that opens a project (ToolProject.hpp).
+             const Desert::Tools::OpenedToolProject opened =
+                  Desert::Tools::OpenToolProject( descriptor, engineDirOverride );
+             if ( !opened.Refused.empty() )
+                 return Fail( opened.Refused );
+             const fs::path& deproj = opened.Descriptor;
 
              if ( outputDir.empty() )
                  outputDir = ( deproj.parent_path() / "Build" / "Output" ).string();

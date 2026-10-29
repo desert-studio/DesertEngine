@@ -75,8 +75,8 @@ namespace Desert::Editor::Core
                 return "Fill Hole";
             case MeshOperation::WeldEdges:
                 return "Weld Edges";
-            case MeshOperation::Simplify:
-                return "Simplify";
+            case MeshOperation::Disconnect:
+                return "Disconnect";
         }
         return "Unknown";
     }
@@ -157,7 +157,7 @@ namespace Desert::Editor::Core
             case MeshOperation::PlaneCut:
             case MeshOperation::FillHole:
             case MeshOperation::WeldEdges:
-            case MeshOperation::Simplify:
+            case MeshOperation::Disconnect:
                 return false;
             case MeshOperation::Extrude:
             case MeshOperation::PushPull:
@@ -178,7 +178,6 @@ namespace Desert::Editor::Core
         args.LoopPosition  = ms.ElementLoopPosition;
         args.WeldTolerance = ms.ElementWeldTolerance;
         args.Subdivide            = ms.ElementSubdivide;
-        args.Simplify             = ms.ElementSimplify;
         args.MirrorAxis         = ms.ElementMirrorAxis;
         args.MirrorWorld        = ms.ElementMirrorWorld;
         args.MirrorKeepNegative = ms.ElementMirrorKeepNegative;
@@ -235,15 +234,12 @@ namespace Desert::Editor::Core
             outcome.Selection            = std::move( done.Selection );
         }
         else if ( operation == MeshOperation::FillHole || operation == MeshOperation::WeldEdges ||
-                  operation == MeshOperation::InsertEdgeLoop || operation == MeshOperation::Subdivide ||
-                  operation == MeshOperation::Simplify )
+                  operation == MeshOperation::InsertEdgeLoop || operation == MeshOperation::Subdivide )
         {
             const auto repair = [&]
             {
                 if ( operation == MeshOperation::Subdivide )
                     return Geometry::SubdivideMesh( *before, args.Subdivide, selection.Mode() );
-                if ( operation == MeshOperation::Simplify )
-                    return Geometry::SimplifyMesh( *before, args.Simplify, selection.Mode() );
                 if ( operation == MeshOperation::FillHole )
                     return Geometry::FillHoles( *before, selection );
                 if ( operation == MeshOperation::WeldEdges )
@@ -295,6 +291,8 @@ namespace Desert::Editor::Core
                 {
                     case MeshOperation::Delete:
                         return Geometry::DeleteSelection( *before, selection );
+                    case MeshOperation::Disconnect:
+                        return Geometry::DisconnectSelection( *before, selection );
                     case MeshOperation::Offset:
                         return Geometry::OffsetSelection( *before, selection, distance );
                     case MeshOperation::Bevel:
@@ -332,10 +330,6 @@ namespace Desert::Editor::Core
         else if ( operation == MeshOperation::Subdivide )
             label = fmt::format( "Mesh {} {} x{}", ToString( operation ),
                                  Geometry::ToString( args.Subdivide.Scheme ), args.Subdivide.Level );
-        else if ( operation == MeshOperation::Simplify )
-            label = args.Simplify.Target == Geometry::SimplifyTarget::Percentage
-                         ? fmt::format( "Mesh {} {:.0f} %", ToString( operation ), args.Simplify.Percentage )
-                         : fmt::format( "Mesh {} {} vertices", ToString( operation ), args.Simplify.VertexCount );
         else if ( operation == MeshOperation::Mirror )
             label = fmt::format( "Mesh {} {} {}{}", ToString( operation ), Geometry::ToString( args.MirrorMode ),
                                  args.MirrorWorld ? "world " : "", "XYZ"[args.MirrorAxis] );

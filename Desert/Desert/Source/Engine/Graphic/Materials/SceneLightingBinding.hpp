@@ -50,6 +50,12 @@ namespace Desert::Graphic
     // waiting for the first material without it — and the first material without it is every unlit
     // generic shader the moment it is handed the same snapshot.
     //
+    // WHICH LOOKUP IS WHICH. SceneFrameBinding::ApplyTo calls a writer only for a group the template reads
+    // (SceneResources::Table). A block that is its group's only name (CameraUB, TimeUB) is then certainly
+    // declared and goes through Material::Get, which names a miss; a block that shares its group with other
+    // names (the four light payloads, ShadowUB beside the cascade map, SkyLookUB beside the cubes) may be
+    // absent from a shader that entered the group by another name, and goes through Material::Find.
+    //
     // The BLOCK LAYOUT and the block NAMES are not restated here; they are SceneResources', which is
     // where Desert/Tests/Engine/SceneFrameBinding asserts them against the reflected GLSL. One mirror, so a
     // writer and a test cannot end up describing two different ShadowUBs.
@@ -64,7 +70,7 @@ namespace Desert::Graphic
         if ( material == nullptr )
             return;
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Name ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::Camera::Parameter ) )
         {
             const auto data  = ShaderProtocols::MakeCameraUB( frame );
             const auto bytes = std::as_bytes( std::span{ &data, 1 } );
@@ -78,7 +84,7 @@ namespace Desert::Graphic
     {
         if ( !material )
             return;
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kTimeBlockName ) )
+        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kTimeBlock ) )
         {
             const glm::vec4 data( seconds, 0.0f, 0.0f, 0.0f );
             const size_t    size = std::min( sizeof( data ), static_cast<size_t>( ub->GetUniform()->GetSize() ) );
@@ -100,20 +106,23 @@ namespace Desert::Graphic
         // loops 0..count with the count below, so the row is never read; skipping the write instead left the
         // buffer unfilled by either route, and a lit forward pass with no point light in the scene
         // (the skinned forward draw over StandardSurface/Skinned.Forward) was refused at setup.
-        if ( auto* sb =
-                  material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::PointLight::Name ) )
+        // Find, not Get, for all four: the Lights group is entered by ANY of its four names, so a shader that
+        // reads only the sun (DirectionLightsUB) or only the counts legitimately lacks the rest.
+        if ( auto* sb = material->Find<StorageBufferProperty>(
+                  Desert::Graphic::ShaderProtocols::PointLight::Parameter ) )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( point.PointLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
-        if ( auto* sb = material->Get<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::SpotLight::Name ) )
+        if ( auto* sb =
+                  material->Find<StorageBufferProperty>( Desert::Graphic::ShaderProtocols::SpotLight::Parameter ) )
         {
             const auto bytes = ShaderProtocols::LightPayloadBytes( spot.SpotLights );
             sb->SetRawData( bytes.data(), static_cast<uint32_t>( bytes.size() ) );
         }
 
         if ( !dir.DirectionLights.empty() )
-            if ( auto* ub = material->Get<UniformBufferProperty>( dir.Name ) )
+            if ( auto* ub = material->Find<UniformBufferProperty>( ShaderProtocols::DirectionLight::Parameter ) )
             {
                 const size_t size =
                      std::min( dir.DirectionLights.size() * sizeof( ShaderProtocols::DirectionLightPayload ),
@@ -125,47 +134,39 @@ namespace Desert::Graphic
              .DirectionLightsCount = static_cast<uint32_t>( dir.DirectionLights.size() ),
              .PointLightsCount     = static_cast<uint32_t>( point.PointLights.size() ),
              .SpotLightsCount      = static_cast<uint32_t>( spot.SpotLights.size() ) };
-        if ( auto* ub = material->Get<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Name ) )
+        if ( auto* ub = material->Find<UniformBufferProperty>( ShaderProtocols::LightsMetadata::Parameter ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &counts ), sizeof( counts ) );
     }
 
-    /// The cascaded directional shadow maps (D32F light-space depth) and their per-cascade light
-    /// view-projections, enable flag and debug switches — the `ShadowUB` block plus the u_ShadowCascades array. No
-    /// depth bias: the casters wrote it into the maps (Graphic::CascadeCasterBias). Params.x is the sun's
-    /// tan(SourceAngle / 2) and CascadeDepthRange each cascade's depth span: the soft shadow's penumbra
-    /// (Mesh/CascadedShadow.glslh). The same block carries the view's contact shadows
+    /// The cascaded directional shadow maps (D32F light-space depth) of every shadowed directional light and their
+    /// per-cascade light view-projections, debug switches — the `ShadowUB` block plus the ShadowCascadesTexture
+    /// array (slot s's cascade c at layer FirstLayer + c). No depth bias: the casters wrote it into the maps
+    /// (Graphic::CascadeCasterBias). Each slot's tan(SourceAngle / 2) and CascadeDepthRange are its soft shadow's
+    /// penumbra (Mesh/CascadedShadow.glslh). The same block carries the view's contact shadows
     /// (Common/ContactShadow.glslh).
-    inline void SceneShadowBind( Material* material, const glm::mat4* cascadeViewProj, uint32_t numCascades,
-                                 bool enabled, int debugMode, bool showNormals,
-                                 const glm::vec4& cascadeWorldPerTexel, const glm::vec4& cascadeDepthRange,
-                                 float sourceTanHalf, bool lightingDebug,
+    inline void SceneShadowBind( Material* material, const SceneResources::DirectionalShadowViews& lights,
+                                 int debugMode, bool showNormals, bool lightingDebug,
                                  const SceneResources::ContactShadowSettings& contact,
                                  const SceneResources::ShadowFilterSettings&  filter )
     {
-        if ( material == nullptr || cascadeViewProj == nullptr )
+        if ( material == nullptr )
             return;
 
-        // The block's layout and its cascade count are NOT restated here. They are one mirror
-        // (SceneResources::ShadowUBData / ::kMaxCascades), and the reason is the defect shape this whole
+        // The block's layout and its cascade counts are NOT restated here. They are one mirror
+        // (SceneResources::ShadowUBData / PackDirectionalShadows), and the reason is the defect shape this whole
         // seam exists to remove: a second declaration of one layout is a disagreement waiting to happen,
         // and Desert/Tests/Engine/SceneFrameBinding asserts that mirror against the reflected GLSL block —
         // an assertion a private copy here would quietly stop covering.
-        constexpr uint32_t kMaxCascades = SceneResources::kMaxCascades;
-
         SceneResources::ShadowUBData data{};
-
-        const uint32_t n = numCascades < kMaxCascades ? numCascades : kMaxCascades;
-        for ( uint32_t i = 0; i < kMaxCascades; ++i )
-            data.LightViewProj[i] = ( i < n ) ? cascadeViewProj[i] : glm::mat4( 1.0f );
-        data.Params            = glm::vec4( sourceTanHalf, enabled ? 1.0f : 0.0f, static_cast<float>( debugMode ),
-                                            static_cast<float>( n ) );
-        data.DebugParams       = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f, 0.0f, 0.0f );
-        data.CascadeTexelWorld = cascadeWorldPerTexel;
-        data.CascadeDepthRange = cascadeDepthRange;
+        SceneResources::PackDirectionalShadows( data, lights );
+        data.DebugParams = glm::vec4( showNormals ? 1.0f : 0.0f, lightingDebug ? 1.0f : 0.0f,
+                                      static_cast<float>( debugMode ), 0.0f );
         SceneResources::PackContactShadow( data, contact );
         SceneResources::PackShadowFilter( data, filter );
 
-        if ( auto* ub = material->Get<UniformBufferProperty>( SceneResources::kShadowBlockName ) )
+        // Find: the Shadow group is entered by ShadowCascadesTexture as well, so a reader of the map alone has no
+        // block.
+        if ( auto* ub = material->Find<UniformBufferProperty>( SceneResources::kShadowBlock ) )
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
     }
 
@@ -178,7 +179,9 @@ namespace Desert::Graphic
     {
         if ( material == nullptr )
             return;
-        if ( auto* ub = material->Get<UniformBufferProperty>( kSkyLookBlockName ) )
+        // Find: the Environment group is entered by the cubes and the BRDF LUT as well, so a reader of those alone
+        // has no SkyLookUB.
+        if ( auto* ub = material->Find<UniformBufferProperty>( kSkyLookBlock ) )
         {
             const SkyLookGPU data = ToGPU( look );
             ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );

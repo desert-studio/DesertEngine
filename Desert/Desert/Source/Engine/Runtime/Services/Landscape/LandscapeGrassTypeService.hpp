@@ -1,8 +1,7 @@
 #pragma once
 
-#include <Engine/Assets/AssetManager.hpp>
-#include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <Engine/Assets/LandscapeGrassTypeAsset.hpp>
+#include <Engine/Runtime/Services/OnDemandAssets.hpp>
 
 #include <memory>
 #include <string>
@@ -16,18 +15,14 @@ namespace Desert::Runtime
      * A layer info names its grass types by GUID (LandscapeLayerInfoData::GrassTypes). The first reader that asks
      * for a handle creates the asset from its registry row and requests the read through the AsyncAssetLoader;
      * until it lands the type is Pending and grows nothing. A type that failed stays Failed for the session and
-     * says why once in the log. The service holds the ASSET, so a hot reload re-read into it is what every reader
-     * sees on the next ask (AssetHotReload::PollLandscapeGrassTypes).
+     * says why once in the log. A type an eviction sweep released is read again into the same shell on the next
+     * ask (OnDemandAssets, the rule every type service shares). The service holds the ASSET, so a hot reload
+     * re-read into it is what every reader sees on the next ask (AssetHotReload::PollLandscapeGrassTypes).
      */
     class LandscapeGrassTypeService
     {
     public:
-        enum class State
-        {
-            Pending, // requested, not read yet
-            Ready,
-            Failed // ErrorOf() says why; said once in the log
-        };
+        using State = OnDemandAssets<Assets::LandscapeGrassTypeAsset>::State;
 
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
@@ -43,11 +38,8 @@ namespace Desert::Runtime
         void Clear();
 
     private:
-        void Request( const Assets::AssetHandle& handle );
-
-        std::weak_ptr<Assets::AssetManager>                                                     m_Assets;
-        std::unordered_map<Assets::AssetHandle, Assets::LoadRequest>                            m_Requests;
-        std::unordered_map<Assets::AssetHandle, Assets::Asset<Assets::LandscapeGrassTypeAsset>> m_Ready;
-        std::unordered_map<Assets::AssetHandle, std::string>                                    m_Failed;
+        OnDemandAssets<Assets::LandscapeGrassTypeAsset> m_Types{
+             Common::Content::ContentKind::LandscapeGrassType, "[Landscape] Grass type",
+             "the layers naming it do not grow it", "the layer info names no grass type asset" };
     };
 } // namespace Desert::Runtime

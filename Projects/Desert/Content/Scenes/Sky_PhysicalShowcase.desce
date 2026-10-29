@@ -3,8 +3,11 @@
         "Kind": "Scene",
         "Guid": "cc502b887e2379e9375a4adfdd6c90ba",
         "Versions": {
-            "SCNE": 66,
-            "UNIT": 1
+            "AREF": 1,
+            "LGHT": 1,
+            "SCNE": 70,
+            "UNIT": 1,
+            "WPAR": 1
         },
         "Dependencies": ["b33524f57b8f411039fb457c1c34be51"]
     },
@@ -18,9 +21,17 @@
             "Rotation": [0.0, 0.0, 0.0],
             "Scale": [4000.0, 0.20000000298023224, 4000.0],
             "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         },
         {
@@ -101,8 +112,8 @@
             "id": 3852173717021806005,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [-30.0, -75.0, -55.0],
-            "Rotation": [0.0, 0.0, 0.0],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.9380475282669067, 0.312025249004364, -0.1590743213891983],
             "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
                 "Color": [1.0, 1.0, 1.0],
@@ -126,71 +137,6 @@
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
                 "ContactShadowNonCastingIntensity": 0.0
-            }
-        },
-        {
-            "id": 7100000000000000001,
-            "siblingIndex": 3,
-            "Tag": "Block_100m",
-            "Translation": [-1400.0, 300.0, -10000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [6.0, 6.0, 6.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 7100000000000000002,
-            "siblingIndex": 4,
-            "Tag": "Block_250m",
-            "Translation": [2600.0, 750.0, -25000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [15.0, 15.0, 15.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 7100000000000000003,
-            "siblingIndex": 5,
-            "Tag": "Block_450m",
-            "Translation": [-5500.0, 1350.0, -45000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [27.0, 27.0, 27.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 7100000000000000004,
-            "siblingIndex": 6,
-            "Tag": "Block_700m",
-            "Translation": [8000.0, 2100.0, -70000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [42.0, 42.0, 42.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
-            }
-        },
-        {
-            "id": 7100000000000000005,
-            "siblingIndex": 7,
-            "Tag": "Block_950m",
-            "Translation": [-11000.0, 2850.0, -95000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [57.0, 57.0, 57.0],
-            "StaticMesh": {
-                "MaterialPaths": ["Materials/Starter_Ground.demat"],
-                "MaterialGuids": ["b33524f57b8f411039fb457c1c34be51"],
-                "Primitive": "Cube"
             }
         },
         {
@@ -224,6 +170,17 @@
                     "AutoExposureSpeed": 1.5,
                     "AutoExposureMinEV100": -2.6438562870025635,
                     "AutoExposureMaxEV100": 6.0,
+                    "LocalExposureMethod": 0,
+                    "LocalExposureHighlightContrastScale": 1.0,
+                    "LocalExposureShadowContrastScale": 1.0,
+                    "LocalExposureDetailStrength": 1.0,
+                    "LocalExposureBlurredLuminanceBlend": 0.6000000238418579,
+                    "LocalExposureBlurredLuminanceKernelSizePercent": 50.0,
+                    "LocalExposureMiddleGreyBias": 0.0,
+                    "LocalExposureHighlightThreshold": 0.0,
+                    "LocalExposureShadowThreshold": 0.0,
+                    "LocalExposureHighlightThresholdStrength": 1.0,
+                    "LocalExposureShadowThresholdStrength": 1.0,
                     "EnableBloom": true,
                     "BloomThreshold": 2.5,
                     "BloomIntensity": 0.3499999940395355,
@@ -252,6 +209,111 @@
                     "LensFlareStreakAngle": 0.0,
                     "LensFlareChromaShift": 0.15000000596046448
                 }
+            }
+        },
+        {
+            "id": 7100000000000000001,
+            "siblingIndex": 3,
+            "Tag": "Block_100m",
+            "Translation": [-1400.0, 300.0, -10000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [6.0, 6.0, 6.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7100000000000000002,
+            "siblingIndex": 4,
+            "Tag": "Block_250m",
+            "Translation": [2600.0, 750.0, -25000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [15.0, 15.0, 15.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7100000000000000003,
+            "siblingIndex": 5,
+            "Tag": "Block_450m",
+            "Translation": [-5500.0, 1350.0, -45000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [27.0, 27.0, 27.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7100000000000000004,
+            "siblingIndex": 6,
+            "Tag": "Block_700m",
+            "Translation": [8000.0, 2100.0, -70000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [42.0, 42.0, 42.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 7100000000000000005,
+            "siblingIndex": 7,
+            "Tag": "Block_950m",
+            "Translation": [-11000.0, 2850.0, -95000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [57.0, 57.0, 57.0],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "b33524f57b8f411039fb457c1c34be51",
+                        "Path": "assets:Materials/Starter_Ground.demat"
+                    }
+                ]
             }
         }
     ],

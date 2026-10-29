@@ -1,0 +1,68 @@
+# M26 Bake Normal Map: a large detail with SLOPED walls on a dense Lat Long sphere reads on a coarse Lat Long sphere
+# High: Lat Long 128x128, a triangle patch (1 picked + 10 grows) raised by eight 1 cm Offsets, the selection grown by
+# one ring between them: a plateau 8 cm high whose rim is an ~8-ring ramp the -N rays see (an Extrude's walls
+# are parallel to the rays and bake to a 1-texel line; Inset of a region with interior vertices is not ported).
+# Low: Lat Long 32x32 at the same place. Bake low <- high; the low is then moved aside.
+# The map is checked as the PNG the bake writes beside the .detex (the BC5 viewer shows RG only).
+Дано run Panel "Open Modeling"
+Дано --subject viewport set Camera.Position 0,250,-400
+Дано --subject viewport set Camera.Direction 0,-0.5,0.866
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 128
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 128
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,60,0
+Дано --subject viewport set Camera.Position 0,110,-170
+Дано --subject viewport set Camera.Direction 0,0,1
+Когда run Modeling "Select Elements tool"
+Когда run Modeling "Mesh selection mode: Triangle"
+Когда run Modeling "Mesh selection: pick at the viewport centre"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда --subject modeling set Element.Distance 1
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Mesh selection: Grow Selection"
+Когда run Modeling "Mesh operation: Offset"
+Когда run Modeling "Accept: write the edit into the static mesh asset"
+Тогда-вид 0_high the high sphere with a large raised plateau with sloped walls in the middle of the frame
+Дано run Modeling "Create shape tool: Sphere"
+Дано run Modeling "Create shape sphere: Lat Long"
+Дано --subject modeling set CreateShape.Sphere.HorizontalSlices 32
+Дано --subject modeling set CreateShape.Sphere.VerticalSlices 32
+Дано --subject viewport set Camera.Position 0,250,-400
+Дано --subject viewport set Camera.Direction 0,-0.5,0.866
+Дано run Modeling "Create shape: place at the viewport centre"
+Дано --subject selection set Translation 0,60,0
+Когда run Entity "Add to selection Sphere"
+Когда --subject modeling set Bake.ProjectionDistance 12
+Когда run Modeling "Bake Normal Map"
+Когда run Entity Sphere2
+Когда --subject selection set Translation 130,60,0
+Когда --subject viewport set Camera.Position 65,125,-230
+Когда --subject viewport set Camera.Direction 0,-0.1,1
+Когда run Panel "Open Logs"
+Тогда-вид 1_pair low (RIGHT, Sphere2 32x32 at x=130, baked map) shows the outline and slopes of the high's plateau (left, x=0) as light and shade
+Тогда 1_pair_window the same with Details naming Sphere2 (the low) at 130,60,0 and the bake line in the log
+Когда run Open "Textures/Baked/Sphere2_Normal.detex"
+Тогда 2_map the baked map in the texture viewer (BC5: RG only)

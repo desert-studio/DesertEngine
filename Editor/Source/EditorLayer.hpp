@@ -7,7 +7,7 @@
 #include <Engine/Assets/AsyncAssetLoader.hpp>
 #include <ImGui/imgui.h>
 #include "Editor/Widgets/UIHelper/ImGuiUI.hpp"
-#include "Editor/Panels/IPanel.hpp"
+#include "Editor/Core/IPanel.hpp"
 #include "Editor/Core/PlayWorldCommands.hpp"
 #include "Editor/Core/SceneViewIdentity.hpp"
 #include "Editor/Core/Selection/AuthoringContext.hpp"
@@ -94,6 +94,9 @@ namespace Desert::Editor
         // This frame's capture verdict (ShotDirector::AdmitFrame) from the layer's own state; false outside a
         // headless capture.
         bool AdmitShotFrame();
+        // What was still outstanding when this frame was made, for the control channel's reply gate: the
+        // start-up and content settle, plus what the --shot gate also waits for (ShotFrameConditions).
+        void SampleControlQuiescence();
 
         // Runs one render frame for a scene (outline aid + Begin/RegistryRender/OnUpdate/End). Called for
         // every open document each frame so all viewports stay live.
@@ -226,6 +229,10 @@ namespace Desert::Editor
         // QualityBoot::Start's answer, taken in the constructor (before the workspace's first renderer) and
         // returned by OnAttach.
         Common::BoolResultStr m_QualityStart = Common::MakeSuccess( true );
+        // An unattended run's machine.json, byte for byte, as it was before the quality started (empty path:
+        // an attended run, which saves its changes). OnDetach compares and logs: the run left it untouched.
+        std::filesystem::path m_UnattendedMachineJson;
+        std::string           m_UnattendedMachineBytes;
         // Set by the first OnUIRender that draws the editor rather than a loading frame.
         bool m_RealFrameDrawn = false;
         // The staged boot, the splash and its hand-over, the content settle (UE: FEditorLoadingScreen), after

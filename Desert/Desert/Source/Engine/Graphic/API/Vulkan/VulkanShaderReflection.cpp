@@ -2,6 +2,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanBindlessTextureTable.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Core/ShaderCompiler/SharedSamplerBinding.hpp>
+#include <Engine/Graphic/GpuDriven/GpuSceneLayout.hpp>
 
 #include <algorithm>
 #include <array>
@@ -91,50 +92,50 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         const auto& image = type.image;
 
         // SPIR-V's `sampled`: 1 = read through a sampler, 2 = read/written as a storage image.
-        std::string described = image.sampled == 2 ? "image" : "sampler";
-
+        std::string dim;
         switch ( image.dim )
         {
             case spv::Dim1D:
-                described += "1D";
+                dim = "1D";
                 break;
             case spv::Dim2D:
-                described += "2D";
+                dim = "2D";
                 break;
             case spv::Dim3D:
-                described += "3D";
+                dim = "3D";
                 break;
             case spv::DimCube:
-                described += "Cube";
+                dim = "Cube";
                 break;
             case spv::DimRect:
-                described += "2DRect";
+                dim = "2DRect";
                 break;
             case spv::DimBuffer:
-                described += "Buffer";
+                dim = "Buffer";
                 break;
             case spv::DimSubpassData:
-                described += "SubpassData";
+                dim = "SubpassData";
                 break;
             default:
-                described += std::format( "<dim {}>", (int)image.dim );
+                dim = std::format( "<dim {}>", (int)image.dim );
                 break;
         }
 
-        if ( image.ms )
-        {
-            described += "MS";
-        }
-        if ( image.arrayed )
-        {
-            described += "Array";
-        }
-
-        return described;
+        return std::format( "{}{}{}{}", image.sampled == 2 ? "image" : "sampler", dim, image.ms ? "MS" : "",
+                            image.arrayed ? "Array" : "" );
     }
 
+    // A FUNCTION-TRY-BLOCK, because SPIRV-Cross reports a module it cannot take by THROWING
+    // (spirv_cross::CompilerError, a std::runtime_error), from the parse in the constructor below and from any
+    // query after it. An escaped one ended the editor: the SDK 1.3.296 parser has no SPV_KHR_cooperative_matrix,
+    // and the NN layer's coopmat_fp16 kernels threw "Currently no block to insert opcode." out of
+    // ShaderService::AcquireVariant (NN-RUNTIME step 5). Caught here it is one more refusal, through the channel
+    // every refused resource already takes: VulkanShader::Reflect names the shader and stage, the compile fails,
+    // the variant is refused by name. `data` may hold part of this stage; the caller reflects into a scratch
+    // copy and drops it on any refusal, so nothing half-reflected survives.
     std::vector<std::string> ReflectStage( const std::vector<uint32_t>& spirv, Core::Formats::ShaderStage stage,
                                            ShaderResource::ReflectionData& data )
+    try
     {
         std::vector<std::string> diagnostics;
 
@@ -348,8 +349,8 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
 
         // SEPARATE SAMPLERS AND TEXTURES. In the bindless set they exist only as Common/BindlessTextures.glslh
-        // declares them — u_BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the
-        // runtime array u_BindlessTextures[] at kBindlessTextureBinding. Recognised by set, binding and type (not
+        // declares them — BindlessSamplers[kBindlessSamplerStateCount] at kBindlessSamplerBinding and the
+        // runtime array BindlessTextures[] at kBindlessTextureBinding. Recognised by set, binding and type (not
         // by name); VulkanShader then takes the table's own layout for that set, and anything else there is
         // refused by name. In every other set they are a pass's own inputs, UE's way: a `texture2D` (or a fixed
         // array of them, textureCube, textureCubeArray) is a SAMPLED_IMAGE slot and a `sampler` a SAMPLER slot,
@@ -488,11 +489,22 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         }
 
         if ( stage == Core::Formats::ShaderStage::Vertex )
+        {
             data.VertexInputLocations = ReflectVertexInputLocations( spirv );
+            data.VertexInputs         = ReflectVertexInputs( spirv );
+        }
         if ( stage == Core::Formats::ShaderStage::Fragment )
             data.FragmentOutputLocations = ReflectFragmentOutputLocations( spirv );
 
         return diagnostics;
+    }
+    catch ( const spirv_cross::CompilerError& error )
+    {
+        return { std::format( "SPIRV-Cross cannot reflect this stage's SPIR-V: {}", error.what() ) };
+    }
+    catch ( const std::exception& error )
+    {
+        return { std::format( "reflecting this stage's SPIR-V failed: {}", error.what() ) };
     }
 
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )
@@ -514,6 +526,37 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
         std::sort( locations.begin(), locations.end() );
         locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
         return locations;
+    }
+
+    std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>
+    ReflectVertexInputs( const std::vector<uint32_t>& spirv )
+    {
+        const spirv_cross::Compiler        compiler( spirv );
+        const spirv_cross::ShaderResources resources = compiler.get_shader_resources();
+
+        std::vector<ShaderResource::ReflectionData::VertexInputDeclaration> inputs;
+        for ( const auto& input : resources.stage_inputs )
+        {
+            const auto&       type   = compiler.get_type( input.type_id );
+            const bool        isInt  = type.basetype == spirv_cross::SPIRType::Int;
+            const bool        isUInt = type.basetype == spirv_cross::SPIRType::UInt;
+            const bool        isFlt  = type.basetype == spirv_cross::SPIRType::Float;
+            const char* const scalar = isFlt ? "float" : isInt ? "int" : isUInt ? "uint" : "?";
+            const char* const vector = isFlt ? "vec" : isInt ? "ivec" : isUInt ? "uvec" : "?vec";
+            std::string       glsl;
+            if ( type.columns > 1 )
+                glsl = std::format( "mat{}x{}", type.columns, type.vecsize );
+            else if ( type.vecsize > 1 )
+                glsl = std::format( "{}{}", vector, type.vecsize );
+            else
+                glsl = scalar;
+            for ( const uint32_t length : type.array )
+                glsl += std::format( "[{}]", length );
+            inputs.push_back( { compiler.get_decoration( input.id, spv::DecorationLocation ),
+                                compiler.get_name( input.id ), std::move( glsl ) } );
+        }
+        std::ranges::sort( inputs, {}, &ShaderResource::ReflectionData::VertexInputDeclaration::Location );
+        return inputs;
     }
 
     namespace
@@ -725,12 +768,58 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             state.Bindings.push_back(
                  { .binding = 1, .stride = layout.GetStreamStride(), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX } );
 
+        // Binding 2, the binned draw's instance id stream (decision 10-27, Common/GpuScene.glslh a_VisibleRow): one
+        // uint per instance, its row of the pass's VisibleInstances[], fed to every mesh layout whose stage reads
+        // it. Instance rate, so firstInstance offsets it the same way on every driver.
+        if ( consumed( GpuDriven::kVisibleRowVertexLocation ) )
+        {
+            fed.push_back( GpuDriven::kVisibleRowVertexLocation );
+            state.Bindings.push_back( { .binding   = GpuDriven::kVisibleRowVertexBinding,
+                                        .stride    = static_cast<uint32_t>( sizeof( uint32_t ) ),
+                                        .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE } );
+            state.Attributes.push_back( { .location = GpuDriven::kVisibleRowVertexLocation,
+                                          .binding  = GpuDriven::kVisibleRowVertexBinding,
+                                          .format   = VK_FORMAT_R32_UINT,
+                                          .offset   = 0 } );
+        }
+
         for ( const uint32_t location : consumedLocations )
         {
             if ( std::ranges::find( fed, location ) == fed.end() )
                 state.Errors.push_back( std::format(
                      "the vertex stage reads location {}, which the vertex layout does not feed", location ) );
         }
+        return state;
+    }
+
+    VertexInputState
+    BuildVertexInput( const VertexBufferLayout&                                                  layout,
+                      const std::vector<ShaderResource::ReflectionData::VertexInputDeclaration>& inputs )
+    {
+        std::vector<uint32_t> locations;
+        for ( const auto& input : inputs )
+            locations.push_back( input.Location );
+        std::sort( locations.begin(), locations.end() );
+        locations.erase( std::unique( locations.begin(), locations.end() ), locations.end() );
+        VertexInputState state = BuildVertexInput( layout, locations );
+
+        const auto check = [&]( const VertexBufferElement& element, const uint32_t location )
+        {
+            for ( const auto& input : inputs )
+            {
+                if ( input.Location != location )
+                    continue;
+                const std::string_view expected = ShaderProtocols::VertexInputGlsl( element.Type );
+                if ( input.Name != element.Name || input.Glsl != expected )
+                    state.Errors.push_back( std::format(
+                         "the vertex stage reads location {} as '{} {}', the layout feeds '{} {}' there", location,
+                         input.Glsl, input.Name, expected, element.Name ) );
+            }
+        };
+        for ( uint32_t location = 0; const auto& element : layout )
+            check( element, location++ );
+        for ( uint32_t location = layout.GetStreamFirstLocation(); const auto& element : layout.GetStreamElements() )
+            check( element, location++ );
         return state;
     }
 

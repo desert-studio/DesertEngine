@@ -1,6 +1,7 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
-//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]
+//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>]
+//               [--dilate-under <mask.detex> <channel 0-3> <threshold>] <source> [<source> ...]
 //   TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>
 //
 // `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
@@ -11,21 +12,33 @@
 // lands where the editor would put it: the `.detex` asset beside the source, its platform data in the DDC. The
 // cook is `TextureImporter::Cook` itself, so an up-to-date `.tex` is reported Fresh and not rewritten.
 //
-// `--intent` is what the texture IS (Core::Formats::kTextureIntentNames: Colour, NormalMap, Mask, Data), the
+// `--intent` is what the texture IS (Core::Formats::kTextureIntentNames: Colour, NormalMap, Mask, Data, PackedMasks), the
 // word a material slot gives an image imported for it (TextureImporter::ImportSourceAsset). Written on a FIRST
 // import only — an existing asset keeps its settings, as in the editor. Without it a loose image is
 // Unspecified (sRGB), which is wrong for a normal or data map imported outside a mesh.
+//
+// `--alpha-coverage` writes the asset's AlphaCoverageThresholds (UE AlphaCoverageThresholds; > 0 = that channel keeps
+// level 0's share of texels at or above the threshold in every mip, the clip value of a masked material) into every
+// named asset before it is cooked; `0,0,0,0` clears them. The material importer sets it on its own; this is the
+// spelling for assets imported before it did (FOLIAGE-ALPHA-MIPS).
+//
+// `--dilate-under` writes the asset's ColorDilationMask (GRASS-ASSET p5): the colour is padded under the cut-away of
+// <mask.detex>'s channel (texels below <threshold>) before the mip chain, so the matte black of a foliage atlas whose
+// opacity is a separate image never reaches a mip. Threshold 0 clears it.
 //
 // Exit status: 0 when every source ends with a correct `.tex` on the disk (Cooked or Fresh), 1 when any
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
 
 #include <ToolMain.hpp>
-#include <ToolEngineDir.hpp>
+#include <ToolProject.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
-#include <Engine/Project/ProjectContext.hpp>
+#include <Projects/RendererSettings.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
 
-#include <Common/Core/Logger.hpp>
+#include <array>
+#include <optional>
 
 #include <cstdio>
 #include <filesystem>
@@ -40,7 +53,8 @@ namespace
     {
         std::fprintf(
              stderr,
-             "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]\n"
+             "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>] "
+             "[--dilate-under <mask.detex> <channel> <threshold>] <source> [<source> ...]\n"
              "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
              "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
              "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n"
@@ -74,17 +88,7 @@ int main( int argc, char** argv )
              if ( count < 3 )
                  return Usage();
 
-             std::error_code ec;
-             const fs::path  deproj = fs::absolute( args[1], ec );
-             if ( ec || !fs::is_regular_file( deproj, ec ) )
-             {
-                 std::fprintf( stderr, "TextureCook: '%s' is not a .deproj file this process can read\n",
-                               args[1] );
-                 return 2;
-             }
-
-             // The engine directory from the executable (or --engine-dir), never from the working
-             // directory: the process stays where the shell started it (ToolEngineDir.hpp).
+             // --engine-dir, when given, overrides the engine directory found from the executable.
              int      first = 2;
              fs::path engineDirOverride;
              if ( std::string( args[first] ) == "--engine-dir" )
@@ -94,23 +98,17 @@ int main( int argc, char** argv )
                  engineDirOverride = args[first + 1];
                  first += 2;
              }
-             if ( const std::string refused = Desert::Tools::SetEngineDirFromExecutable( engineDirOverride );
-                  !refused.empty() )
+             // The engine directory from the executable (or --engine-dir), the log in the project's
+             // Saved/Logs, the project opened outside the recent list: one call for every tool that opens a
+             // project (ToolProject.hpp).
+             const Desert::Tools::OpenedToolProject opened =
+                  Desert::Tools::OpenToolProject( args[1], engineDirOverride );
+             if ( !opened.Refused.empty() )
              {
-                 std::fprintf( stderr, "TextureCook: %s\n", refused.c_str() );
+                 std::fprintf( stderr, "TextureCook: %s\n", opened.Refused.c_str() );
                  return 2;
              }
-
-             Common::Logger::LogInit();
-             Common::Logger::RelocateLogFile( deproj.parent_path() / "Saved" / "Logs" );
-
-             if ( !Desert::Project::ProjectContext::Open( deproj.string(),
-                                                          Desert::Project::ProjectContext::RecordInRecent::No ) )
-             {
-                 std::fprintf( stderr, "TextureCook: could not open '%s' (missing or corrupt .deproj)\n",
-                               deproj.string().c_str() );
-                 return 2;
-             }
+             const fs::path& deproj = opened.Descriptor;
 
              // Project-relative, as the usage states (UE: FPaths::ConvertRelativePathToFull off ProjectDir).
              const auto InProject = []( const char* path ) { return Common::Constants::Path::FullPath( path ); };
@@ -156,11 +154,58 @@ int main( int argc, char** argv )
                  first += 2;
              }
 
-             Desert::Editor::TextureImporter importer;
+             std::optional<std::array<float, 4>> coverage;
+             if ( count > first && std::string( args[first] ) == "--alpha-coverage" )
+             {
+                 if ( count < first + 3 )
+                     return Usage();
+                 std::array<float, 4> thresholds{};
+                 if ( std::sscanf( args[first + 1], "%f,%f,%f,%f", &thresholds[0], &thresholds[1], &thresholds[2],
+                                   &thresholds[3] ) != 4 )
+                 {
+                     std::fprintf( stderr, "TextureCook: '%s' is not four thresholds r,g,b,a\n", args[first + 1] );
+                     return 2;
+                 }
+                 coverage = thresholds;
+                 first += 2;
+             }
+
+             std::optional<Desert::Assets::TextureDilationMask> dilation;
+             if ( count > first && std::string( args[first] ) == "--dilate-under" )
+             {
+                 if ( count < first + 5 )
+                     return Usage();
+                 const auto mask = Desert::Assets::ReadTextureSourceAssetFile( InProject( args[first + 1] ) );
+                 if ( !mask.IsSuccess() )
+                 {
+                     std::fprintf( stderr, "TextureCook: --dilate-under %s: %s\n", args[first + 1],
+                                   mask.GetError().c_str() );
+                     return 2;
+                 }
+                 // The cook resolves the mask by GUID through the content registry, as the editor's does;
+                 // this tool gathers no content roots, so the one file it names enters the registry here.
+                 Desert::Assets::ContentRegistry::NoteFile( InProject( args[first + 1] ) );
+                 Desert::Assets::TextureDilationMask set;
+                 set.Texture = mask.GetValue().Guid;
+                 if ( std::sscanf( args[first + 2], "%u", &set.Channel ) != 1 ||
+                      std::sscanf( args[first + 3], "%f", &set.Threshold ) != 1 )
+                 {
+                     std::fprintf( stderr, "TextureCook: --dilate-under wants <mask.detex> <channel> <threshold>\n" );
+                     return 2;
+                 }
+                 dilation = set;
+                 first += 4;
+             }
+
+             // The cook builds what ships: the project's final effort (Config/Engine.json, Texture Encoding).
+             Desert::Assets::SetTextureEncodingSource(
+                  [] { return Desert::Project::CurrentRendererSettings().TextureEncoding; } );
+             Desert::Editor::TextureImporter importer{ Desert::Assets::TextureEncodeRole::Cook };
              int                             status = 0;
              for ( int i = first; i < count; ++i )
              {
-                 const fs::path source = InProject( args[i] );
+                 const fs::path  source = InProject( args[i] );
+                 std::error_code ec;
                  if ( !fs::is_regular_file( source, ec ) )
                  {
                      std::fprintf( stderr, "TextureCook: '%s' is not a file under '%s'\n", args[i],
@@ -181,6 +226,24 @@ int main( int argc, char** argv )
                          continue;
                      }
                      asset = imported.GetValue();
+                 }
+                 if ( coverage )
+                 {
+                     if ( const auto set = Desert::Assets::SetTextureAlphaCoverage( asset, *coverage ); !set )
+                     {
+                         std::fprintf( stderr, "TextureCook: %s: %s\n", args[i], set.GetError().c_str() );
+                         status = 1;
+                         continue;
+                     }
+                 }
+                 if ( dilation )
+                 {
+                     if ( const auto set = Desert::Assets::SetTextureColorDilationMask( asset, *dilation ); !set )
+                     {
+                         std::fprintf( stderr, "TextureCook: %s: %s\n", args[i], set.GetError().c_str() );
+                         status = 1;
+                         continue;
+                     }
                  }
                  const auto result = importer.Cook( asset );
                  const bool ok     = result.Outcome == Desert::Editor::TextureCookOutcome::Cooked ||

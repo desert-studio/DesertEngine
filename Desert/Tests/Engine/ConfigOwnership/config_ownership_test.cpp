@@ -390,6 +390,7 @@ namespace
          { "ShowSkyBackdrop", Owner::Machine },
          // RDG-CULL: the render graph's pass-culling debug switch, one person's diagnostic view.
          { "DisablePassCulling", Owner::Machine },
+         { "ValidateGpuCulling", Owner::Machine },
          // The viewport's own Screen Percentage override (UE's per-viewport r.ScreenPercentage): one view's
          // render scale, never the game config.
          { "ScreenPercentage", Owner::Machine },
@@ -427,6 +428,8 @@ namespace
          { "Display", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
          // AF5: which disk holds the rebuildable cache is a machine's answer, never the project's.
          { "DerivedDataCachePath", Owner::Machine, "Desert/Common/Source/Common/Content/DerivedDataCache.cpp" },
+         // NO-RT: the device is probed as one without ray tracing; read once, when the device is created.
+         { "HideRayTracing", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -435,7 +438,7 @@ namespace
     // Four Project fields, one FileMeta, and one that is in the wrong file (EngineVersion).
     // ------------------------------------------------------------------------------------------------
 
-    constexpr const char* kProjectContext = "Desert/Desert/Source/Engine/Project/ProjectContext.cpp";
+    constexpr const char* kProjectContext = "Desert/Projects/Source/Projects/ProjectContext.cpp";
 
     // THE CONSUMER OF THREE OF THESE FIELDS LEFT THIS REPOSITORY (Л3). `FileVersion`, `Description` and
     // `EngineVersion` are written and read by the LAUNCHER, which now lives in `desert-launcher` — so
@@ -1349,7 +1352,11 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     // QualityBoot::Start is the one host start: it loads the store and hands the selection to QualityState.
     const std::string boot = StripCommentsAndLiterals(
          ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
-    EXPECT_TRUE( CallsFunction( boot, "MachineSettings", "Load" ) );
+    EXPECT_FALSE( CallsFunction( boot, "MachineSettings", "Load" ) )
+         << "the store is loaded by the Application before the device (HideRayTracing), never a second time";
+    const std::string app = StripCommentsAndLiterals(
+         ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Core/Application.cpp" ) );
+    EXPECT_TRUE( CallsFunction( app, "MachineSettings", "Load" ) );
     EXPECT_TRUE( CallsFunction( boot, "QualityState", "Initialize" ) );
 
     // And the game hands them on, or the file is read and thrown away. The editor's own push is covered
