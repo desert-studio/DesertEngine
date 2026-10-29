@@ -31,6 +31,7 @@ namespace Desert::Engine::Neural
         constexpr uint32_t kForward    = 0;
         constexpr uint32_t kBackward   = 1;
         constexpr uint32_t kWeightGrad = 2;
+        constexpr uint32_t kInference  = 3;
 
         // The shader's slots (NeuralFusedMlp.shader), spelled once. Each kernel variant declares only the ones it
         // touches: forward NnWeights NnInput -> NnOutput NnActivations; backward NnWeights NnOutputGrad
@@ -237,6 +238,10 @@ namespace Desert::Engine::Neural
                 expected = { Graphic::RDG::Erase( Slots::NnWeights ), Graphic::RDG::Erase( Slots::NnOutputGrad ),
                              Graphic::RDG::Erase( Slots::NnActivations ), Graphic::RDG::Erase( Slots::NnGrads ) };
                 break;
+            case kInference:
+                expected = { Graphic::RDG::Erase( Slots::NnWeights ), Graphic::RDG::Erase( Slots::NnInput ),
+                             Graphic::RDG::Erase( Slots::NnOutput ) };
+                break;
             default:
                 expected = { Graphic::RDG::Erase( Slots::NnActivations ), Graphic::RDG::Erase( Slots::NnGrads ),
                              Graphic::RDG::Erase( Slots::NnWeightGrad ) };
@@ -255,65 +260,68 @@ namespace Desert::Engine::Neural
         return Common::MakeSuccess( KernelResult{ &kept } );
     }
 
-    Common::ResultStr<FusedMlpGraphOutputs> FusedMlpCompute::AddTrainingPasses( Graphic::RDG::Builder&     graph,
-                                                                               const FusedMlpGraphInputs& inputs,
-                                                                               const NeuralKernelPath     path )
+    namespace
     {
-        namespace RDG = Graphic::RDG;
-
-        if ( const auto resolved = ResolveNeuralKernelPath( m_Caps, path ); !resolved )
-            return Common::MakeError<FusedMlpGraphOutputs>( resolved.GetError() );
-        if ( const std::string invalid = ValidateFusedMlp( inputs.Shape, inputs.Batch ); !invalid.empty() )
-            return Common::MakeFormattedError<FusedMlpGraphOutputs>( "fused MLP problem refused: {}", invalid );
-        if ( !inputs.Weights.IsValid() || !inputs.Input.IsValid() || !inputs.OutputGrad.IsValid() )
-            return Common::MakeFormattedError<FusedMlpGraphOutputs>(
-                 "fused MLP passes refused: an input handle is invalid (weights {}, input {}, output grad {})",
-                 inputs.Weights.IsValid(), inputs.Input.IsValid(), inputs.OutputGrad.IsValid() );
-
-        Kernel* kernels[3] = {};
-        for ( const uint32_t kernel : { kForward, kBackward, kWeightGrad } )
-        {
-            auto acquired = AcquireKernel( kernel, path );
-            if ( !acquired )
-                return Common::MakeFormattedError<FusedMlpGraphOutputs>(
-                     "NN {} kernel {}: {}", NeuralKernelPathName( path ), kernel, acquired.GetError() );
-            kernels[kernel] = acquired.GetValue();
-        }
-
-        const uint32_t L             = inputs.Shape.MatrixCount();
-        const uint32_t batch         = inputs.Batch;
-        const uint64_t ioBytes       = uint64_t( batch ) * W * sizeof( float );
-        const uint64_t weightBytes   = uint64_t( L ) * W * W * sizeof( float );
-        const uint64_t perLayerBytes = uint64_t( L ) * batch * W * FusedMlpStoredElementBytes( path );
-
-        FusedMlpGraphOutputs out;
-        out.Output      = graph.CreateBuffer( RDG::BufferDesc{ ioBytes }, "NeuralFusedMlp.Output" );
-        out.Activations = graph.CreateBuffer( RDG::BufferDesc{ perLayerBytes }, "NeuralFusedMlp.Activations" );
-        out.Grads       = graph.CreateBuffer( RDG::BufferDesc{ perLayerBytes }, "NeuralFusedMlp.Grads" );
-        out.WeightGrad  = graph.CreateBuffer( RDG::BufferDesc{ weightBytes }, "NeuralFusedMlp.WeightGrad" );
-
-        const NeuralMlpPush push{ .Batch = batch, .MatrixCount = L };
-        const uint32_t      blocks = batch / kFusedMlpBatchGranularity;
-        // Weight gradient: scalar 16 groups of 4 rows per matrix; coopmat one group per matrix, its subgroups
-        // walking the tiles.
-        const uint32_t weightGradGroups = path == NeuralKernelPath::CoopMatFp16 ? 1u : W / 4u;
-
-        // The exec of one pass: its block's bindings, the push, one dispatch. Barriers are the graph's.
-        const auto record = []( std::shared_ptr<Graphic::ComputePipeline> pipeline, const NeuralMlpPush values,
-                                const uint32_t groupsX, const uint32_t groupsY )
+        // The exec of one NN pass: its block's bindings, the push, one dispatch. Barriers are the graph's.
+        Graphic::RDG::Builder::ExecFunction RecordNnDispatch( std::shared_ptr<Graphic::ComputePipeline> pipeline,
+                                                              const NeuralMlpPush values, const uint32_t groupsX,
+                                                              const uint32_t groupsY )
         {
             return [pipeline = std::move( pipeline ), values, groupsX,
-                    groupsY]( RDG::PassContext& context ) -> Common::BoolResultStr
+                    groupsY]( Graphic::RDG::PassContext& context ) -> Common::BoolResultStr
             {
-                RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                Graphic::RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                 bindings.PushConstants( &values, sizeof( values ) );
                 return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
             };
-        };
+        }
+    } // namespace
 
-        Kernel& forward    = *kernels[kForward];
-        Kernel& backward   = *kernels[kBackward];
-        Kernel& weightGrad = *kernels[kWeightGrad];
+    Common::BoolResultStr FusedMlpCompute::ValidatePasses( const FusedMlpGraphInputs& inputs,
+                                                           const NeuralKernelPath     path,
+                                                           const bool                 needsOutputGrad ) const
+    {
+        if ( const auto resolved = ResolveNeuralKernelPath( m_Caps, path ); !resolved )
+            return Common::MakeError( resolved.GetError() );
+        if ( const std::string invalid = ValidateFusedMlp( inputs.Shape, inputs.Batch ); !invalid.empty() )
+            return Common::MakeFormattedError( "fused MLP problem refused: {}", invalid );
+        if ( !inputs.Weights.IsValid() || !inputs.Input.IsValid() ||
+             ( needsOutputGrad && !inputs.OutputGrad.IsValid() ) )
+            return Common::MakeFormattedError(
+                 "fused MLP passes refused: an input handle is invalid (weights {}, input {}, output grad {})",
+                 inputs.Weights.IsValid(), inputs.Input.IsValid(), inputs.OutputGrad.IsValid() );
+        return BOOLSUCCESS;
+    }
+
+    Common::ResultStr<FusedMlpCompute::Kernel*> FusedMlpCompute::AcquireNamedKernel( const uint32_t         kernel,
+                                                                                    const NeuralKernelPath path )
+    {
+        auto acquired = AcquireKernel( kernel, path );
+        if ( !acquired )
+            return Common::MakeFormattedError<Kernel*>( "NN {} kernel {}: {}", NeuralKernelPathName( path ), kernel,
+                                                        acquired.GetError() );
+        return acquired;
+    }
+
+    Common::ResultStr<FusedMlpGraphOutputs> FusedMlpCompute::AddForwardPass( Graphic::RDG::Builder&     graph,
+                                                                            const FusedMlpGraphInputs& inputs,
+                                                                            const NeuralKernelPath     path )
+    {
+        namespace RDG = Graphic::RDG;
+        if ( const auto valid = ValidatePasses( inputs, path, false ); !valid )
+            return Common::MakeError<FusedMlpGraphOutputs>( valid.GetError() );
+        auto acquired = AcquireNamedKernel( kForward, path );
+        if ( !acquired )
+            return Common::MakeError<FusedMlpGraphOutputs>( acquired.GetError() );
+        Kernel& forward = *acquired.GetValue();
+
+        const uint32_t       L = inputs.Shape.MatrixCount();
+        FusedMlpGraphOutputs out;
+        out.Output      = graph.CreateBuffer( RDG::BufferDesc{ uint64_t( inputs.Batch ) * W * sizeof( float ) },
+                                              "NeuralFusedMlp.Output" );
+        out.Activations = graph.CreateBuffer(
+             RDG::BufferDesc{ uint64_t( L ) * inputs.Batch * W * FusedMlpStoredElementBytes( path ) },
+             "NeuralFusedMlp.Activations" );
 
         // Forward: h_0 = input, h_{l+1} = ReLU(W_l h_l), y = W_last h_last.
         graph.AddPass(
@@ -328,7 +336,75 @@ namespace Desert::Engine::Neural
                       .Storage( Slots::NnActivations, out.Activations, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             record( forward.Pipeline, push, blocks, 1 ) );
+             RecordNnDispatch( forward.Pipeline, NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = L },
+                               inputs.Batch / kFusedMlpBatchGranularity, 1 ) );
+        return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::ResultStr<Graphic::RDG::BufferRef> FusedMlpCompute::AddInferencePass( Graphic::RDG::Builder&     graph,
+                                                                                 const FusedMlpGraphInputs& inputs,
+                                                                                 const NeuralKernelPath     path )
+    {
+        namespace RDG = Graphic::RDG;
+        if ( const auto valid = ValidatePasses( inputs, path, false ); !valid )
+            return Common::MakeError<RDG::BufferRef>( valid.GetError() );
+        auto acquired = AcquireNamedKernel( kInference, path );
+        if ( !acquired )
+            return Common::MakeError<RDG::BufferRef>( acquired.GetError() );
+        Kernel& inference = *acquired.GetValue();
+
+        const RDG::BufferRef output = graph.CreateBuffer(
+             RDG::BufferDesc{ uint64_t( inputs.Batch ) * W * sizeof( float ) }, "NeuralFusedMlp.InferenceOutput" );
+        graph.AddPass(
+             "NN: Inference", RDG::PassFlags::Compute,
+             [&]( RDG::PassBuilder& pass )
+             {
+                 pass.Bindings( inference.Layout.Get( inference.Pipeline->GetSpecification().Shader ),
+                                Graphic::Renderer::GetPipelineRouteFill( *inference.Pipeline ) )
+                      .Storage( Slots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
+                      .Storage( Slots::NnInput, inputs.Input, RDG::Access::StorageRead )
+                      .Storage( Slots::NnOutput, output, RDG::Access::StorageWrite )
+                      .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
+             },
+             RecordNnDispatch( inference.Pipeline,
+                               NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = inputs.Shape.MatrixCount() },
+                               inputs.Batch / kFusedMlpBatchGranularity, 1 ) );
+        return Common::MakeSuccess( output );
+    }
+
+    Common::ResultStr<FusedMlpGraphOutputs> FusedMlpCompute::AddBackwardPasses( Graphic::RDG::Builder&      graph,
+                                                                               const FusedMlpGraphInputs&  inputs,
+                                                                               const FusedMlpGraphOutputs& forward,
+                                                                               const NeuralKernelPath      path )
+    {
+        namespace RDG = Graphic::RDG;
+        if ( const auto valid = ValidatePasses( inputs, path, true ); !valid )
+            return Common::MakeError<FusedMlpGraphOutputs>( valid.GetError() );
+        if ( !forward.Activations.IsValid() )
+            return Common::MakeFormattedError<FusedMlpGraphOutputs>(
+                 "fused MLP backward refused: the forward's activations handle is invalid" );
+        auto backwardKernel = AcquireNamedKernel( kBackward, path );
+        if ( !backwardKernel )
+            return Common::MakeError<FusedMlpGraphOutputs>( backwardKernel.GetError() );
+        auto weightGradKernel = AcquireNamedKernel( kWeightGrad, path );
+        if ( !weightGradKernel )
+            return Common::MakeError<FusedMlpGraphOutputs>( weightGradKernel.GetError() );
+        Kernel& backward   = *backwardKernel.GetValue();
+        Kernel& weightGrad = *weightGradKernel.GetValue();
+
+        const uint32_t       L     = inputs.Shape.MatrixCount();
+        const uint32_t       batch = inputs.Batch;
+        FusedMlpGraphOutputs out   = forward;
+        out.Grads                  = graph.CreateBuffer(
+             RDG::BufferDesc{ uint64_t( L ) * batch * W * FusedMlpStoredElementBytes( path ) },
+             "NeuralFusedMlp.Grads" );
+        out.WeightGrad = graph.CreateBuffer( RDG::BufferDesc{ uint64_t( L ) * W * W * sizeof( float ) },
+                                             "NeuralFusedMlp.WeightGrad" );
+
+        const NeuralMlpPush push{ .Batch = batch, .MatrixCount = L };
+        // Weight gradient: scalar 16 groups of 4 rows per matrix; coopmat one group per matrix, its subgroups
+        // walking the tiles.
+        const uint32_t weightGradGroups = path == NeuralKernelPath::CoopMatFp16 ? 1u : W / 4u;
 
         // Backward: g_last = dL/dy, g_{l-1} = (W_l^T g_l) * [h_l > 0], after the forward wrote every h_l.
         graph.AddPass(
@@ -343,7 +419,7 @@ namespace Desert::Engine::Neural
                       .Storage( Slots::NnGrads, out.Grads, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             record( backward.Pipeline, push, blocks, 1 ) );
+             RecordNnDispatch( backward.Pipeline, push, batch / kFusedMlpBatchGranularity, 1 ) );
 
         // Weight gradient: dW_l = sum_b g_l (x) h_l, after the backward wrote every g_l.
         graph.AddPass(
@@ -357,9 +433,25 @@ namespace Desert::Engine::Neural
                       .Storage( Slots::NnWeightGrad, out.WeightGrad, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
-             record( weightGrad.Pipeline, push, weightGradGroups, L ) );
-
+             RecordNnDispatch( weightGrad.Pipeline, push, weightGradGroups, L ) );
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    Common::ResultStr<FusedMlpGraphOutputs> FusedMlpCompute::AddTrainingPasses( Graphic::RDG::Builder&     graph,
+                                                                               const FusedMlpGraphInputs& inputs,
+                                                                               const NeuralKernelPath     path )
+    {
+        // Every refusal before anything is added: the backward's checks are the forward's plus the gradient, and
+        // all three kernels are built first so a refused one leaves the graph untouched.
+        if ( const auto valid = ValidatePasses( inputs, path, true ); !valid )
+            return Common::MakeError<FusedMlpGraphOutputs>( valid.GetError() );
+        for ( const uint32_t kernel : { kForward, kBackward, kWeightGrad } )
+            if ( auto acquired = AcquireNamedKernel( kernel, path ); !acquired )
+                return Common::MakeError<FusedMlpGraphOutputs>( acquired.GetError() );
+        auto forward = AddForwardPass( graph, inputs, path );
+        if ( !forward )
+            return forward;
+        return AddBackwardPasses( graph, inputs, forward.GetValue(), path );
     }
 
     Common::ResultStr<std::unique_ptr<FusedMlpCheckRun>>

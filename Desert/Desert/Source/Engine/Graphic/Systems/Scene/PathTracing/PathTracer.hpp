@@ -3,7 +3,10 @@
 #include <Common/Core/Profiler.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/Graphic/Neural/NeuralRadianceCache.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
@@ -81,6 +84,11 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
         DESERT_SHADER_PARAMETER( UniformBuffer, CloudShadowUB );
+        // PATH_TRACING_NRC=1 only (Engine/Graphic/Neural/NeuralRadianceCache.hpp).
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcQueriesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcTrainingSamplesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcSelfQueriesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcCountersUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -252,6 +260,13 @@ namespace Desert::Graphic::System
     // radiance with guides from the paths themselves (glass looked through, sub-pixel averaged), as UE keeps its
     // path tracer's denoiser apart from the screen-space one.
     //
+    // THE NEURAL RADIANCE CACHE (PathTracing.RadianceCache Nrc; Engine/Graphic/Neural/NeuralRadianceCache.hpp is
+    // the contract): the trace runs PathTracer.shader "PathTracing" built with PATH_TRACING_NRC=1, whose paths end
+    // in the cache once their footprint has spread (the paper's heuristic) and whose training paths feed it; the
+    // cache's passes then add the cached radiance into the sums and train it, before the denoiser and the resolve.
+    // The cache changes every frame it trains, so under Nrc the sum holds this frame's paths only (it restarts
+    // every frame, and with it the denoiser's history: REMAINDER - a history carried across that restart).
+    //
     // Not here (each is UE's and a task of its own): UE's offline denoiser plugin (OIDN), rough glass (the
     // raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel filters other than a
     // box.
@@ -282,6 +297,9 @@ namespace Desert::Graphic::System
             // a-trous (PathTracerDenoise.shader). It reads the integrated signal only, so the sum and the history
             // are the same with it on or off and a change restarts nothing.
             bool AntiFirefly = true;
+            // PathTracing.RadianceCache (THE NEURAL RADIANCE CACHE above).
+            Common::Scalability::PathTracingRadianceCacheMethod RadianceCache =
+                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
         };
 
         // Whether a path-traced view renders under DLSS Ray Reconstruction to hand the paths to it raw: the
@@ -445,10 +463,52 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
+        // THE NEURAL RADIANCE CACHE'S PIECES, made on the first Nrc frame: the cache (its programs, the NN layer's
+        // kernel path) and the trace built with PATH_TRACING_NRC=1 over the same hit groups as EnsurePipeline's.
+        [[nodiscard]] Common::BoolResultStr EnsureRadianceCache()
+        {
+            if ( !m_RadianceCache )
+            {
+                auto cache = std::make_unique<Engine::Neural::NeuralRadianceCache>(
+                     ::Desert::EngineContext::GetInstance().GetCapabilities().Neural );
+                if ( const auto made = cache->Initialize(); !made )
+                    return made;
+                m_RadianceCache = std::move( cache );
+            }
+            if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
+                return BOOLSUCCESS;
+            auto*                 shaders = Runtime::ResourceRegistry::GetShaderService();
+            Core::ShaderVariant   variant;
+            variant.Defines = { "PATH_TRACING_NRC=1" };
+            m_TraceShaderNrc = shaders->AcquireVariant( "PathTracer/PathTracing", variant );
+            if ( !m_TraceShaderNrc )
+                return Common::MakeError( "PathTracer: the radiance-cache trace ('PathTracer/PathTracing' with "
+                                          "PATH_TRACING_NRC=1) did not compile or is not registered" );
+            RayTracingPipelineSpecification spec{
+                 .Program = m_TraceShaderNrc, .HitGroups = {}, .DebugName = "PathTracerNrc" };
+            for ( const std::string& name : m_PipelineTemplates )
+            {
+                auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", name ) );
+                if ( !hit || !hit->IsCompiled() )
+                    return Common::MakeFormattedError(
+                         "PathTracer: the hit group of surface template '{}' is not compiled", name );
+                spec.HitGroups.push_back( std::move( hit ) );
+            }
+            auto pipeline = RayTracingPipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError( pipeline.GetError() );
+            m_TracePipelineNrc     = pipeline.GetValue();
+            m_PipelineTemplatesNrc = m_PipelineTemplates;
+            return BOOLSUCCESS;
+        }
+
         // A new world: nothing summed belongs to it (IRenderSystem::OnSceneReplaced).
         void OnSceneReplaced() override
         {
             Restart();
+            // What the cache learned is the old world's light.
+            if ( m_RadianceCache )
+                m_RadianceCache->Reset();
         }
 
         // A camera cut (IRenderSystem::OnTemporalHistoryReset).
@@ -492,6 +552,11 @@ namespace Desert::Graphic::System
                 return Common::MakeFormattedError<Refused>( "{}", envDesc.GetError() );
 
             m_TraceFailed = false;
+            // THE NEURAL RADIANCE CACHE: made on the first Nrc frame; a cache that cannot run refuses the frame.
+            const bool nrc = settings.RadianceCache == Common::Scalability::PathTracingRadianceCacheMethod::Nrc;
+            if ( nrc )
+                if ( const auto ready = EnsureRadianceCache(); !ready )
+                    return Common::MakeFormattedError<Refused>( "PathTracer: {}", ready.GetError() );
             const bool resized =
                  !m_Accumulation.Built || m_Accumulation.Width != width || m_Accumulation.Height != height;
             const bool exposureLeft =
@@ -502,7 +567,7 @@ namespace Desert::Graphic::System
             const bool sumKept = !resized && m_Stamp.ReadableIn( frame ) && settings.MaxBounces == m_MaxBounces &&
                                  inputs.SceneHash == m_SceneHash && !inputs.DynamicGeometry &&
                                  settings.MaxPathIntensity == m_MaxPathIntensity && !exposureLeft &&
-                                 !inputs.RawToUpscaler && !m_RawToUpscaler;
+                                 !inputs.RawToUpscaler && !m_RawToUpscaler && !nrc && !m_Nrc;
             const bool cameraMoved = frame.ViewProjection != frame.PrevViewProjection;
             const bool restart     = !sumKept || cameraMoved;
             const bool denoise     = settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::Off &&
@@ -523,6 +588,7 @@ namespace Desert::Graphic::System
             m_MaxPathIntensity                 = settings.MaxPathIntensity;
             m_SceneHash                        = inputs.SceneHash;
             m_RawToUpscaler                     = inputs.RawToUpscaler;
+            m_Nrc                               = nrc;
             const AccumulationRefs accumulation = AcquireAccumulation( graph, width, height );
             const HistoryRefs      history = denoise ? AcquireHistory( graph, width, height ) : HistoryRefs{};
             const SnapshotRefs     snapshot =
@@ -533,7 +599,23 @@ namespace Desert::Graphic::System
             if ( traced > 0u )
             {
                 const SkyTargets sky = AddSkyPasses( graph, inputs, envDesc.GetValue().Size.Width );
-                AddTracePass( graph, accumulation, sky, inputs, width, height, traced );
+                if ( nrc )
+                {
+                    auto targets =
+                         m_RadianceCache->AddTraceTargets( graph, width, height, traced, m_NrcFrames++ );
+                    if ( !targets )
+                        return Common::MakeFormattedError<Refused>( "PathTracer: {}", targets.GetError() );
+                    AddTracePass( graph, accumulation, sky, inputs, width, height, traced, &targets.GetValue() );
+                    const Engine::Neural::NrcCompositeTargets composite{
+                         .Radiance            = accumulation.Radiance,
+                         .DemodulatedDiffuse  = accumulation.DemodulatedDiffuse,
+                         .DemodulatedSpecular = accumulation.DemodulatedSpecular };
+                    if ( const auto cached = m_RadianceCache->AddCachePasses( graph, targets.GetValue(), composite );
+                         !cached )
+                        return Common::MakeFormattedError<Refused>( "PathTracer: {}", cached.GetError() );
+                }
+                else
+                    AddTracePass( graph, accumulation, sky, inputs, width, height, traced, nullptr );
                 m_Summed += traced;
             }
             if ( reproject )
@@ -561,6 +643,12 @@ namespace Desert::Graphic::System
             return m_Summed;
         }
 
+        // The neural radiance cache's read-back (DesertCtl state "nrc"); nullptr while no Nrc frame made one.
+        [[nodiscard]] const Engine::Neural::NrcStats* GetRadianceCacheStats() const
+        {
+            return m_RadianceCache ? &m_RadianceCache->GetStats() : nullptr;
+        }
+
     private:
         // PathTracerResolve.shader "ResolvePush".
         struct ResolvePush
@@ -577,7 +665,11 @@ namespace Desert::Graphic::System
             glm::uvec4 Emissive;        // EmissiveLightsFrame::StaticParams
             glm::uvec4 EmissiveDynamic; // EmissiveLightsFrame::DynamicParams
             glm::uvec4 Camera; // 1: camera rays through the pixel centre (FrameInputs::RawToUpscaler), unused x3
+            // NeuralRadianceCache.hpp NrcTraceParams (zero without the cache).
+            glm::uvec4 NrcParams;
+            glm::vec4  NrcSpread;
         };
+        static_assert( sizeof( TracePush ) == 128, "the Vulkan guaranteed push-constant size" );
         struct SkyPush
         {
             glm::uvec4 Sky; // side S; Reduce: the level written
@@ -837,10 +929,14 @@ namespace Desert::Graphic::System
         }
 
         // "PathTracing: Trace": @p traced paths per pixel added to the accumulation (one launch per pixel).
+        // @p nrc: this frame's cache targets (the PATH_TRACING_NRC=1 trace writes them), or nullptr.
         void AddTracePass( RDG::Builder& graph, const AccumulationRefs& accumulation, const SkyTargets& sky,
                            const FrameInputs& inputs, const uint32_t width, const uint32_t height,
-                           const uint32_t traced )
+                           const uint32_t traced, const Engine::Neural::NrcTraceTargets* nrc )
         {
+            const std::shared_ptr<Shader>&             shader   = nrc ? m_TraceShaderNrc : m_TraceShader;
+            const std::shared_ptr<RayTracingPipeline>& pipeline = nrc ? m_TracePipelineNrc : m_TracePipeline;
+            ShaderBindingLayoutCache&                  layout   = nrc ? m_TraceLayoutNrc : m_TraceLayout;
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
@@ -848,13 +944,25 @@ namespace Desert::Graphic::System
                             m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure : 0.0f ),
                  inputs.Emissive.StaticParams(),
                  inputs.Emissive.DynamicParams(),
-                 glm::uvec4( inputs.RawToUpscaler ? 1u : 0u, 0u, 0u, 0u ) };
+                 glm::uvec4( inputs.RawToUpscaler ? 1u : 0u, 0u, 0u, 0u ),
+                 nrc ? nrc->Push.Params : glm::uvec4( 0u ),
+                 nrc ? nrc->Push.Spread : glm::vec4( 0.0f ) };
             graph.AddPass(
                  "PathTracing: Trace", RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& pass )
                  {
                      constexpr RDG::Access kR = RDG::Access::StorageRead;
-                     pass.Bindings( m_TraceLayout.Get( m_TraceShader ), RDG::OtherRouteFill{} )
+                     auto&& block = pass.Bindings( layout.Get( shader ), RDG::OtherRouteFill{} );
+                     if ( nrc )
+                         block.Storage( PathTracingTraceShaderParameters::NrcQueriesUB, nrc->Queries,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcTrainingSamplesUB, nrc->TrainingSamples,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcSelfQueriesUB, nrc->SelfQueries,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcCountersUB, nrc->Counters,
+                                        RDG::Access::StorageWrite );
+                     block
                           .Uniform( PathTracingTraceShaderParameters::CameraUB, inputs.Camera )
                           .AccelerationStructure( PathTracingTraceShaderParameters::SceneTlas, inputs.Tlas )
                           .Storage( PathTracingTraceShaderParameters::AccumulationTexture, accumulation.Radiance,
@@ -901,14 +1009,14 @@ namespace Desert::Graphic::System
                           .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
                  },
-                 [this, push, hits = inputs.HitGroups, width,
+                 [this, push, pipeline, hits = inputs.HitGroups, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Trace" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      Common::BoolResultStr traced =
-                          Renderer::TraceRays( bindings, *m_TracePipeline, *hits, width, height );
+                          Renderer::TraceRays( bindings, *pipeline, *hits, width, height );
                      // The sum no longer holds what m_Summed counts: the resolve does not stamp it, so the next
                      // frame restarts (PassHistoryStamp not readable).
                      if ( !traced )
@@ -1206,5 +1314,13 @@ namespace Desert::Graphic::System
         uint32_t           m_Restarts    = 0;     // the random sequence's seed: each restart draws new paths
         bool               m_TraceFailed = false; // this frame's trace was refused (set at execution)
         bool m_RawToUpscaler = false; // the sum holds one frame's pixel-centre paths for the upscaler
+        // THE NEURAL RADIANCE CACHE: the cache, the PATH_TRACING_NRC=1 trace and its hit groups' templates.
+        bool                                                  m_Nrc       = false; // the sum's frame ran the cache
+        uint32_t                                              m_NrcFrames = 0;     // the training offset's seed
+        std::unique_ptr<Engine::Neural::NeuralRadianceCache> m_RadianceCache;
+        std::shared_ptr<Shader>                               m_TraceShaderNrc;
+        std::shared_ptr<RayTracingPipeline>                   m_TracePipelineNrc;
+        std::vector<std::string>                              m_PipelineTemplatesNrc;
+        mutable ShaderBindingLayoutCache                      m_TraceLayoutNrc;
     };
 } // namespace Desert::Graphic::System
