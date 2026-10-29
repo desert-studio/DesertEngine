@@ -25,6 +25,7 @@ project "WorldCook"
         "Source/**.cpp",
     }
 
+    includedirs(DesertModuleLibs.IncludeDirs())
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
     }

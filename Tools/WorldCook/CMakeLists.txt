@@ -3,6 +3,7 @@
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(WorldCook FOLDER Tools SOURCES ${_sources})
 target_include_directories(WorldCook PRIVATE "${DESERT_ROOT}/Tools/Shared")
+desert_engine_includes(WorldCook)
 desert_external_includes(WorldCook ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 desert_config_platform_defines(WorldCook)
 target_link_libraries(WorldCook PRIVATE GLFW Optick MeshOptimizer Voro OpenSubdiv Embree OpenEXRCore Dav1d Opus)
