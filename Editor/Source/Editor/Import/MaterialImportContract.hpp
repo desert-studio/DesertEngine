@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
@@ -62,6 +63,10 @@ namespace Desert::Editor
         // writes into a texture asset it creates for that slot (UE: the sampler type sets TC_Normalmap).
         std::map<std::string, ::Desert::Core::Formats::TextureIntent, std::less<>> TextureIntents;
         std::string                        Guid;    // the shader's header GUID (the .demat's Shader reference)
+        // The template's `BlendMode` (the DSL parser's, ShaderProgramMeta::Blend): what a material made from it
+        // draws as. The import reads it to refuse Virtual Geometry for a Masked / Translucent mesh
+        // (VirtualGeometryGate.hpp).
+        ::Desert::Core::Formats::SurfaceBlendMode Blend = ::Desert::Core::Formats::SurfaceBlendMode::Opaque;
         std::string                        Locator; // "engine:Shaders/..." — the reference's Path half
     };
 

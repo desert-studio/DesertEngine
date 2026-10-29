@@ -395,6 +395,43 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
+        // THE MATERIALS ARE WRITTEN BEFORE THE MESHES: the import judges a mesh's Virtual Geometry flag by the
+        // .demat each submesh draws (VirtualGeometryGate.hpp), so that file must already be the one the project
+        // holds - written here, or adopted above.
+        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
+        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
+        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
+        // thumbnails.
+        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap), or, by
+        // default (FromImage), what its texels say (ResolveFbxSpecularMap); the template's rows then route it like
+        // any other key. Every map's meaning read from its image is logged with the material.
+        for ( const auto& material : resolved.Materials )
+        {
+            const auto meaning = ResolveFbxSpecularMap( material.Source, settings.SpecularMap );
+            if ( !meaning )
+            {
+                record( Common::MakeError<bool>( meaning.GetError() ) );
+                continue;
+            }
+            if ( settings.SpecularMap == Assets::FbxSpecularMap::FromImage &&
+                 material.Source.Has( kFbxSpecularMapKey ) )
+                LOG_INFO( "[Import] '{}' material '{}': FBX Specular map read from its texels as {}{}",
+                          sourcePath.filename().string(), material.Source.Name,
+                          Assets::FbxSpecularMapName( meaning.GetValue() ),
+                          meaning.GetValue() == Assets::FbxSpecularMap::RoughnessMetallic
+                               ? " (R is 0 on every texel, G/B carry data: roughness G, metalness B)"
+                               : " (R carries data: FBX's specular colour)" );
+            ImportedMaterial stated = material;
+            auto             routed = WithFbxSpecularMap( std::move( stated.Source ), meaning.GetValue() );
+            if ( !routed )
+            {
+                record( Common::MakeError<bool>( routed.GetError() ) );
+                continue;
+            }
+            stated.Source = routed.ExtractValue();
+            record( SerializeMaterialAsset( stated, sourcePath, pass ) );
+        }
+
         // IMPORT OPTIONS REACH EVERY MESH OF THE FILE (UE FBX Import Options): a static mesh carries them in its
         // source and the deriver applies them; a skinned mesh, its skeleton and its clips are written in render
         // form, so Uniform Scale / Up Axis are baked into all three here (SourceToEngine.hpp) and LOD Generate
@@ -559,40 +596,6 @@ namespace Desert::Editor
                           resolved.Lights.size() );
         }
 
-        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
-        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
-        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
-        // thumbnails.
-        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap), or, by
-        // default (FromImage), what its texels say (ResolveFbxSpecularMap); the template's rows then route it like
-        // any other key. Every map's meaning read from its image is logged with the material.
-        for ( const auto& material : resolved.Materials )
-        {
-            const auto meaning = ResolveFbxSpecularMap( material.Source, settings.SpecularMap );
-            if ( !meaning )
-            {
-                record( Common::MakeError<bool>( meaning.GetError() ) );
-                continue;
-            }
-            if ( settings.SpecularMap == Assets::FbxSpecularMap::FromImage &&
-                 material.Source.Has( kFbxSpecularMapKey ) )
-                LOG_INFO( "[Import] '{}' material '{}': FBX Specular map read from its texels as {}{}",
-                          sourcePath.filename().string(), material.Source.Name,
-                          Assets::FbxSpecularMapName( meaning.GetValue() ),
-                          meaning.GetValue() == Assets::FbxSpecularMap::RoughnessMetallic
-                               ? " (R is 0 on every texel, G/B carry data: roughness G, metalness B)"
-                               : " (R carries data: FBX's specular colour)" );
-            ImportedMaterial stated = material;
-            auto             routed = WithFbxSpecularMap( std::move( stated.Source ), meaning.GetValue() );
-            if ( !routed )
-            {
-                record( Common::MakeError<bool>( routed.GetError() ) );
-                continue;
-            }
-            stated.Source = routed.ExtractValue();
-            record( SerializeMaterialAsset( stated, sourcePath, pass ) );
-        }
-
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
         // THE IMPORT IS COMPLETE: its record states the bytes it read (SkinnedImportIsFresh reads them back). Only
@@ -724,6 +727,19 @@ namespace Desert::Editor
                 templates.push_back( read.ExtractValue() );
         }
         return PublishImportTemplates( std::move( templates ) );
+    }
+
+    std::optional<::Desert::Core::Formats::SurfaceBlendMode>
+    ImportManager::PublishedTemplateBlend( const Common::Content::AssetGuid& shader )
+    {
+        const auto published = ImportTemplates();
+        if ( !published || shader.IsNull() )
+            return std::nullopt;
+        for ( const ImportTemplate& candidate : *published )
+            if ( const auto guid = Common::Content::AssetGuidFromText( candidate.Guid );
+                 guid && guid.GetValue() == shader )
+                return candidate.Blend;
+        return std::nullopt;
     }
 
     std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )

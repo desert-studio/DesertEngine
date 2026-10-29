@@ -3,6 +3,7 @@
 
 #include "CookPaths.hpp"
 #include "ImportedMeshAsset.hpp"
+#include "VirtualGeometryGate.hpp"
 #include <Editor/Core/StaticMeshOutput.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -185,7 +186,10 @@ namespace Desert::Editor
         asset.Name              = path.stem().string();
         asset.Import.SourceFile = Common::AssetHandle::StableKeyForPath( source );
         asset.Import.SourceHash = hash.GetValue();
-        asset.Import.Settings   = settings.GetValue().Mesh;
+        // The record states what the user asked for; this node stores the import's verdict on it
+        // (VirtualGeometryGate.hpp): a node that draws a Masked material stores Virtual Geometry off.
+        asset.Import.Settings =
+             GateVirtualGeometry( settings.GetValue().Mesh, node.Mesh, named, source, path.generic_string() );
         asset.Source            = std::move( sourceData.ExtractValue().Source );
         if ( auto written = Assets::WriteMeshSourceAssetFile( path, asset ); !written )
             return Common::MakeFormattedError<Result>( "'{}' could not be written: {}", path.generic_string(),

@@ -326,8 +326,38 @@ namespace Desert::Editor::ImportOptions
             return Common::MakeFormattedError<bool>(
                  "Displacement {}: a skeletal mesh is displaced None or Runtime",
                  Assets::MeshDisplacementModeName( mode ) );
+        if ( settings.Mesh.VirtualGeometry && mode == Assets::MeshDisplacementMode::Runtime )
+            return Common::MakeError<bool>( "Displacement Runtime: the mesh is Virtual Geometry, whose clusters are "
+                                            "cooked once; a surface diced per frame has none (turn Virtual "
+                                            "Geometry off first)" );
         settings.Mesh.Displacement = mode;
         return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetVirtualGeometry( Assets::SourceImportSettings& settings, const bool on,
+                                              const ImportContentKind kind )
+    {
+        if ( on && kind == ImportContentKind::SkeletalMesh )
+            return Common::MakeError<bool>( "Virtual Geometry: a skeletal mesh is drawn by the binned path (its "
+                                            "clusters would be one pose)" );
+        if ( on && settings.Mesh.Displacement == Assets::MeshDisplacementMode::Runtime )
+            return Common::MakeError<bool>( "Virtual Geometry: Displacement Runtime dices the surface per frame, "
+                                            "so it has no cooked clusters (choose None or Baked first)" );
+        settings.Mesh.VirtualGeometry = on;
+        return BOOLSUCCESS;
+    }
+
+    Common::BoolResultStr SetShownVirtualGeometry( const bool on )
+    {
+        const auto shown = ShownSettings();
+        if ( !shown )
+            return Common::MakeError<bool>( shown.GetError() );
+        QueuedSource& source = Window().Queue.front(); // the shown one (DrawWindow shows the queue's front)
+        if ( !source.Kind )
+            source.Kind = SharedImporter().ProbeContent( source.Source );
+        if ( !*source.Kind )
+            return Common::MakeError<bool>( source.Kind->GetError() );
+        return SetVirtualGeometry( *shown.GetValue(), on, source.Kind->GetValue() );
     }
 
     Common::BoolResultStr SetShownDisplacement( const Assets::MeshDisplacementMode mode )
@@ -525,6 +555,25 @@ namespace Desert::Editor::ImportOptions
             changed                 = true;
         }
         UI::EndPropertyRow();
+
+        // VIRT-GEOM (contract §1, §6): a static mesh only. The import refuses it, naming the reason in the log, for
+        // a mesh that draws a Masked / Translucent / Additive material (VirtualGeometryGate.hpp).
+        if ( kind == ImportContentKind::StaticMesh )
+        {
+            UI::BeginPropertyRow( "Virtual Geometry",
+                                  "On: the mesh cooks a cluster DAG (128-triangle clusters, continuous LOD); its "
+                                  "LODs are cuts of that DAG. Refused for Displacement Runtime, and by the "
+                                  "import for a mesh whose material is Masked or Translucent." );
+            bool virtualGeometry = settings.Mesh.VirtualGeometry;
+            if ( ImGui::Checkbox( "##VirtualGeometry", &virtualGeometry ) )
+            {
+                if ( const auto set = SetVirtualGeometry( settings, virtualGeometry, kind ); !set )
+                    ImGui::SetTooltip( "%s", set.GetError().c_str() );
+                else
+                    changed = true;
+            }
+            UI::EndPropertyRow();
+        }
 
         // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings. A skeletal
         // mesh offers None/Runtime only (§9.8: displaced over the skin cache each frame; a bake would be one pose)

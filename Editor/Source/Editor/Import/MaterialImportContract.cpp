@@ -100,6 +100,7 @@ namespace Desert::Editor
         const auto parsed = ::Desert::Core::Preprocess::DShaderParser::Parse( std::string( source ) );
         if ( !parsed )
             return Common::MakeError<ImportTemplate>( std::format( "'{}': {}", out.Locator, parsed.GetError() ) );
+        out.Blend = parsed.GetValue().Meta.Blend;
         for ( const auto& param : parsed.GetValue().Meta.Params )
             if ( param.IsTexture )
             {
