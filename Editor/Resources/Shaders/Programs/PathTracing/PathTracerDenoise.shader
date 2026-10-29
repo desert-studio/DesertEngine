@@ -932,7 +932,7 @@ Shader "PathTracerDenoise"
         }
     }
 
-    // PATH TRACING DENOISER OIDN (System::PathTracer::AddOidnPackPass): the converged sum handed to Intel Open Image
+    // PATH TRACING DENOISER OIDN (System::PathTracer::AddOidnPackPass): the final estimate handed to Intel Open Image
     // Denoise (Graphic/Denoise/OidnDenoiser) as three planes of tightly packed float3, row-major from the top row -
     // the beauty, the albedo guide, the normal guide - in one buffer the host reads back:
     //   color  = sum / count (the radiance the resolve would show, not pre-exposed: OIDN's hdr mode is

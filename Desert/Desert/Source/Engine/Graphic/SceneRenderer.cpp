@@ -2579,11 +2579,7 @@ namespace Desert::Graphic
 
     bool SceneRenderer::LocalLightsReadVirtualPages() const
     {
-        // Shadows Stochastic: the lights whose own source resolved to vsm+screen (AssignLocalShadowMaskSlots) get
-        // virtual pages (marked from the G-buffer, or the forward prepass) for MegaLights' trace and volume.
-        return LocalShadowsAreVirtual() ||
-               m_StochasticSourceLights[static_cast<std::size_t>(
-                    Common::Scalability::StochasticVisibility::VirtualMapsAndScreen )] > 0;
+        return m_LocalLightsVirtualPages;
     }
 
     bool SceneRenderer::LocalShadowsAreScreenMask() const
@@ -2725,6 +2721,13 @@ namespace Desert::Graphic
                  .CosOuter          = spot.CosOuter,
                  .SourceId          = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
         }
+        // The frame's one answer to "the local lights have virtual pages" (RenderMethods' rule over this view's
+        // lights): every page reader of the frame - the page passes, MegaLights, the surface cache's cards - reads
+        // it.
+        constexpr std::size_t kVirtualMapsSource =
+             static_cast<std::size_t>( StochasticVisibility::VirtualMapsAndScreen );
+        m_LocalLightsVirtualPages =
+             LocalLightsVirtualPages( m_RenderMethods, m_StochasticSourceLights[kVirtualMapsSource] );
     }
 
     bool SceneRenderer::EnsureMegaLightsResources()

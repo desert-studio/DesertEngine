@@ -346,11 +346,10 @@ namespace Desert::Graphic::SurfaceCache
             tracer        = GlobalIllumination::Pipeline{};
             tracer.Traced = true;
         }
-        m_FrameViews = FrameViews{ .Frame               = engineFrame,
-                                   .Origins             = std::move( origins ),
-                                   .Budget              = MakeSurfaceCacheBudget( quality ),
-                                   .Tracer              = tracer,
-                                   .VirtualLocalShadows = LocalLightsVirtualPages( methods ) };
+        m_FrameViews = FrameViews{ .Frame   = engineFrame,
+                                   .Origins = std::move( origins ),
+                                   .Budget  = MakeSurfaceCacheBudget( quality ),
+                                   .Tracer  = tracer };
     }
 
     void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer )
@@ -716,9 +715,9 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( frame.LightingPages.empty() )
             return BOOLSUCCESS;
-        // The cache's local shadow kind, stated with its frame (FrameViews::VirtualLocalShadows), not read off the
-        // updating view: under VirtualMaps the lights read the view's virtual shadow map (AddFrameVirtualShadows ran
-        // before this), and the atlas's view table is not this program's.
+        // The updating view's local shadow kind (DirectLightingInputs::VirtualLocalShadows, the value its page
+        // passes were built by): virtual, the lights read the view's virtual shadow map (AddFrameVirtualShadows
+        // ran before this), and the atlas's view table is not this program's.
         const bool virtualLocalShadows = inputs.VirtualLocalShadows;
         if ( virtualLocalShadows && !inputs.View.Vsm.IsValid() )
             return Common::MakeError<bool>( "surface cache direct lighting: the cache's lights read virtual shadow "

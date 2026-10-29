@@ -108,8 +108,10 @@ namespace Desert::Graphic::SurfaceCache
             // The indirect lighting runs this frame (AddIndirectLightingPass after the radiance cache update): a
             // page's FinalLighting keeps the IndirectLighting it last received; otherwise it is direct only.
             bool IndirectLighting = false;
-            // The cache's local shadow kind (FrameViews::VirtualLocalShadows): true = the lights read View.Vsm
-            // through the DESERT_LOCAL_SHADOW_VSM program, false = the atlas's view table (Lights.ShadowViews).
+            // The local lights' shadows the cards are lit through: the updating view's frame value
+            // (SceneRenderer::LocalLightsReadVirtualPages, the one its page passes were built by): true = the
+            // lights read View.Vsm through the DESERT_LOCAL_SHADOW_VSM program, false = the atlas's view table
+            // (Lights.ShadowViews).
             bool VirtualLocalShadows = false;
         };
         // What the radiosity (UE LumenRadiosity) is traced and integrated with: the frame's tracer and the GI ray
@@ -163,11 +165,6 @@ namespace Desert::Graphic::SurfaceCache
             // process settings under the machine's ceiling and the device - when traced, else the software walk
             // every device runs. The updating view records the lighting with it and builds what it reads.
             GlobalIllumination::Pipeline Tracer;
-            // The local lights' shadows the cards are lit through (LocalLightsVirtualPages of the scene's resolved methods):
-            // true = their virtual maps (the DESERT_LOCAL_SHADOW_VSM lighting program), false = the local shadow
-            // atlas. The cache's, not the updating view's: the view that records the frame's lighting must have
-            // built the same kind of local shadows, else AddDirectLightingPass refuses it by name.
-            bool VirtualLocalShadows = false;
         };
         // States @p origins of engine frame @p engineFrame and resolves the budget and the card tracer from the
         // scene: @p registry's unbound post-process volumes (ResolveViewSettings without a view position) and

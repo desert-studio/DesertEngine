@@ -726,9 +726,11 @@ namespace Desert::Graphic
         // traced): "VSM: Project Local" per slot, read by the same RayTracedLocal programs, and every forward
         // reader (the mesh cells, the forward terrain) reads the virtual map in place of the atlas.
         [[nodiscard]] bool LocalShadowsAreVirtual() const;
-        // This frame's point/spot lights have virtual-shadow-map pages: LocalShadowsAreVirtual, or Shadows Stochastic
-        // whose visibility source is vsm+screen (MegaLights' trace and volume read the pages by ShadowMaskSlot). The
-        // one test every page reader asks: the page passes' local lights, the surface cache's cards.
+        // This frame's point/spot lights have virtual-shadow-map pages (m_LocalLightsVirtualPages, resolved once
+        // per frame by AssignLocalShadowMaskSlots through RenderMethods' LocalLightsVirtualPages):
+        // LocalShadowsAreVirtual, or Shadows Stochastic with a light of the view on vsm+screen (MegaLights' trace
+        // and volume read the pages by ShadowMaskSlot). The one value every page reader of the frame takes: the
+        // page passes' local lights, MegaLights, and the surface cache's cards when this view updates them.
         [[nodiscard]] bool LocalLightsReadVirtualPages() const;
         // The visibility sources MegaLights' trace and volume run this frame: one per source a casting light of
         // the view resolved to (m_StochasticSourceLights, AssignLocalShadowMaskSlots), so each light is tested by
@@ -1856,6 +1858,7 @@ namespace Desert::Graphic
         // (StochasticVisibility order), the non-Auto lights' methods, and the (SourceId, method) pairs whose clamp
         // was logged (once per light and method).
         std::array<uint32_t, 3>            m_StochasticSourceLights{};
+        bool                               m_LocalLightsVirtualPages = false; // LocalLightsReadVirtualPages
         std::vector<StochasticLightMethod> m_StochasticLightMethods;
         std::unordered_set<uint64_t>       m_ReportedLightMethodClamps;
         std::unordered_map<uint32_t, std::unique_ptr<System::ScreenSpaceDenoiser>> m_LocalShadowDenoisers;

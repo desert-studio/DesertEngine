@@ -168,12 +168,13 @@ namespace Desert::Graphic
     // false = they read the local shadow atlas. PURE.
     [[nodiscard]] bool LocalShadowsVirtual( const RenderMethods& methods );
 
-    // THE LOCAL LIGHTS HAVE VIRTUAL-SHADOW-MAP PAGES this frame, by the methods alone: LocalShadowsVirtual, or Shadows
-    // Stochastic (not path traced) whose frame Visibility is vsm+screen - the source every Auto light resolves to
-    // (ResolveLightVisibility). The surface cache states its cards' local shadow kind by it (SurfaceCacheRenderer::
-    // FrameViews::VirtualLocalShadows); a view's own answer counts its lights' sources (SceneRenderer::
-    // LocalLightsReadVirtualPages) and must agree with the cache's to record the cards' lighting. PURE.
-    [[nodiscard]] bool LocalLightsVirtualPages( const RenderMethods& methods );
+    // THE LOCAL LIGHTS HAVE VIRTUAL-SHADOW-MAP PAGES this frame: LocalShadowsVirtual, or Shadows Stochastic (not
+    // path traced) with @p lightsOnVirtualMaps > 0 casting lights whose own source resolved to vsm+screen
+    // (ResolveLightVisibility). Resolved once per view frame (SceneRenderer::AssignLocalShadowMaskSlots) into the
+    // one value both the view's page passes and the surface cache's cards read (SceneRenderer::
+    // LocalLightsReadVirtualPages), so the cards are lit through exactly the local shadows the updating view
+    // built. PURE.
+    [[nodiscard]] bool LocalLightsVirtualPages( const RenderMethods& methods, uint32_t lightsOnVirtualMaps );
 
     // WHETHER THIS DEVICE CAN PATH-TRACE AT ALL, whatever a view requests: empty when it can, else the reason a
     // PathTraced request is refused - the same walk and the same words as ResolveRenderMethods' Device /

@@ -273,11 +273,10 @@ namespace Desert::Graphic
         return methods.Shadows.Effective == ShadowMethod::VirtualMaps && !PathTraced( methods );
     }
 
-    bool LocalLightsVirtualPages( const RenderMethods& methods )
+    bool LocalLightsVirtualPages( const RenderMethods& methods, const uint32_t lightsOnVirtualMaps )
     {
-        return LocalShadowsVirtual( methods ) ||
-               ( methods.Shadows.Effective == ShadowMethod::Stochastic && !PathTraced( methods ) &&
-                 methods.Visibility == StochasticVisibility::VirtualMapsAndScreen );
+        return LocalShadowsVirtual( methods ) || ( methods.Shadows.Effective == ShadowMethod::Stochastic &&
+                                                   !PathTraced( methods ) && lightsOnVirtualMaps > 0u );
     }
 
     std::string_view PathTracingRefusal( const CapabilityCatalog& catalog )
