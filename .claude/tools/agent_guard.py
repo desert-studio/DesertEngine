@@ -462,7 +462,7 @@ def self_check():
 import datetime as _dt
 # Owner 10-12: «в рамках текущего контекста снимаю лимит на агентов. Запускай 20 штук» — lifted for 10-12.
 NIGHT_MAX_WORKING_AGENTS = 3  # owner 10-22
-MAX_WORKING_AGENTS = 4  # owner 2026-10-16 evening: «Поднимаем» to 4 (the 4th slot is for merging); was 3 earlier on 10-16, 7 from 10-12
+MAX_WORKING_AGENTS = 5  # owner 10-29 «минимум 3, а максимум 5» (floor in board_guard)
 # Owner 10-15: «уберу лимит агентов до понедельника» — no count cap through Monday 2026-10-19, then back to 7 by
 # itself. The real ceiling is the disk (10-15: 5.3 GB free; a tree + build is several GB), so a launch is refused
 # below MIN_FREE_DISK_GB whatever the count.
