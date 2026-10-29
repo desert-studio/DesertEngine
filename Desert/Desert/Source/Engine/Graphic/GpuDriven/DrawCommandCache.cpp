@@ -112,8 +112,8 @@ namespace Desert::Graphic::GpuDriven
         return "Unknown";
     }
 
-    DrawCommandCache::DrawCommandCache( PassPipelineResolver resolver )
-         : m_Resolver( std::move( resolver ) ), m_TransformTable( MakeTable( "SubmeshTransforms" ) )
+    DrawCommandCache::DrawCommandCache( PassPipelineResolver resolver, GroupPipelineResolver vgResolver )
+         : m_Resolver( std::move( resolver ) ), m_VgResolver( std::move( vgResolver ) ), m_TransformTable( MakeTable( "SubmeshTransforms" ) )
     {
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
             for ( size_t table = 0; table < kPassTableNames.size(); ++table )
@@ -296,6 +296,13 @@ namespace Desert::Graphic::GpuDriven
                 if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] )
                     m_Dirty[pass] = true;
         }
+        // The groups' VG twins are asked again too (a dirty pass re-asks them when it is rebuilt).
+        if ( m_VgResolver )
+            for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
+                for ( IndirectGroup& group : m_Passes[pass].Groups )
+                    group.VirtualGeometryPipeline =
+                         group.Pipeline != nullptr ? m_VgResolver( static_cast<MeshPass>( pass ), *group.Pipeline )
+                                                   : nullptr;
     }
 
     bool DrawCommandCache::NeedsRebuild() const
@@ -430,7 +437,13 @@ namespace Desert::Graphic::GpuDriven
             if ( table.Groups.empty() || table.Groups.back().Pipeline != draft.Pipeline ||
                  table.Groups.back().Binding != draft.Binding )
                 table.Groups.push_back( IndirectGroup{
-                     .Pipeline = draft.Pipeline, .Binding = draft.Binding, .FirstBin = row, .BinCount = 0 } );
+                     .Pipeline                = draft.Pipeline,
+                     .Binding                 = draft.Binding,
+                     .VirtualGeometryPipeline = m_VgResolver && draft.Pipeline != nullptr
+                                                     ? m_VgResolver( pass, *draft.Pipeline )
+                                                     : nullptr,
+                     .FirstBin                = row,
+                     .BinCount                = 0 } );
             ++table.Groups.back().BinCount;
             draft.Row.Group        = static_cast<uint32_t>( table.Groups.size() - 1u );
             draft.Row.FirstVisible = static_cast<uint32_t>( visible );

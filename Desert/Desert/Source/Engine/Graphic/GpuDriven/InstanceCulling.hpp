@@ -92,7 +92,7 @@ namespace Desert::Graphic::GpuDriven
     // cluster-cut view, appends one GpuClusterCandidate (VirtualGeometryLayout.hpp) per DAG row of its primitive.
     // The test is the same frustum / caster / distance test as the bins'; the previous-frame HZB does not hold a
     // VG instance back (the cluster cut owns VG occlusion: per-cluster HZB + its own carry), so an occluded VG
-    // instance still appends. Its bins are drawn as before until the VG raster replaces them.
+    // instance still appends. It goes into no bin of that view: the VG raster draws its clusters.
     // Invalid PrimitiveDags = no VG this frame (nothing bound past dummies, nothing appended).
     // Bytes of one candidate row (VirtualGeometry::GpuClusterCandidate, static_asserted in
     // VirtualGeometryRenderer.cpp; the shader's VgClusterCandidate).

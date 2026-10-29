@@ -15,7 +15,11 @@ Shader "InstanceCull"
     //                 the HZB-rejected are appended to Occluded for step 2. Writes Visibility[view, instance].
     //                 VIRTUAL GEOMETRY (Params3.x != 0): an instance past the frustum test whose primitive has DAG
     //                 rows (VgPrimitiveDags) in a view with a cluster-cut view (VgCutViewOf) appends one
-    //                 VgClusterCandidate per DAG row BEFORE the HZB test - the cluster cut owns VG occlusion.
+    //                 VgClusterCandidate per DAG row BEFORE the HZB test - the cluster cut owns VG occlusion -
+    //                 and goes into NO bin of that view (the VG raster draws its clusters; MeshRenderer's
+    //                 VirtualGeometryIssue): it is not held back for step 2 either. A VG instance that still reaches
+    //                 a bin of a view with a cut view counts into VgBinnedInstances (must stay 0; the cut's Status
+    //                 carries it to DesertCtl `state views.virtualGeometry.binnedVgInstances`).
     //  2 POST         one thread per occluded entry (indirect, sized by step 3): this frame's furthest HZB through
     //                 ViewProjection; the newly visible go into this phase's bins.
     //  3 ARGS         one thread: the occluded count -> step 2's VkDispatchIndirectCommand.
@@ -128,7 +132,8 @@ Shader "InstanceCull"
         };
         Buffer(21) GpuCullVgCandidateCount
         {
-            uint VgCandidateCount; // may pass Params3.y: the cluster cut clamps
+            uint VgCandidateCount;  // may pass Params3.y: the cluster cut clamps
+            uint VgBinnedInstances; // VG instances binned in a view with a cut view (an invariant: 0)
         };
 
         Uniform sampler PointClampSampler;
@@ -295,6 +300,9 @@ Shader "InstanceCull"
             const GpuPrimitivePassDraws pd = PrimitiveDraws[primitiveRow];
             if ( pd.SubmeshCount == 0u || pd.LodCount == 0u )
                 return;
+            if ( Params3.x != 0u && primitiveRow < Params3.x && VgPrimitiveDags[primitiveRow].y != 0u &&
+                 VgCutViewOf[Views[Params.w + localView].ViewIndex] != DESERT_GPU_INVALID_INDEX )
+                atomicAdd( VgBinnedInstances, 1u );
             const uint level = min( lod, pd.LodCount - 1u );
             for ( uint s = 0u; s < pd.SubmeshCount; ++s )
             {
@@ -307,15 +315,19 @@ Shader "InstanceCull"
             }
         }
 
-        // One VgClusterCandidate per DAG row of the instance's primitive, for the view's cluster-cut view.
-        void AppendVgCandidates( uint viewIndex, uint instanceRow, uint primitiveRow )
+        // One VgClusterCandidate per DAG row of the instance's primitive, for the view's cluster-cut view. True when
+        // the instance is the cut's in this view (appended, even past the capacity): it is drawn by the VG raster,
+        // never by the view's bins.
+        bool AppendVgCandidates( uint viewIndex, uint instanceRow, uint primitiveRow )
         {
             if ( primitiveRow >= Params3.x )
-                return;
+                return false;
             const uint cutView = VgCutViewOf[viewIndex];
             if ( cutView == DESERT_GPU_INVALID_INDEX )
-                return;
+                return false;
             const uvec2 range = VgPrimitiveDags[primitiveRow];
+            if ( range.y == 0u )
+                return false;
             for ( uint k = 0u; k < range.y; ++k )
             {
                 const uvec2 entry = VgDagEntries[range.x + k];
@@ -323,6 +335,7 @@ Shader "InstanceCull"
                 if ( slot < Params3.y )
                     VgCandidates[slot] = VgClusterCandidate( instanceRow, entry.x, entry.y, cutView );
             }
+            return true;
         }
 
         void InitDraws()
@@ -384,8 +397,11 @@ Shader "InstanceCull"
             }
             const uint lod  = SelectLod( view, primitive, world, empty );
             const uint word = DESERT_GPU_CULL_VISIBILITY_IN_VIEW | min( lod, DESERT_GPU_CULL_VISIBILITY_LOD_MASK );
-            if ( Params3.x != 0u )
-                AppendVgCandidates( view.ViewIndex, instanceRow, instance.Primitive );
+            if ( Params3.x != 0u && AppendVgCandidates( view.ViewIndex, instanceRow, instance.Primitive ) )
+            {
+                Visibility[cell] = word; // in view; the cluster cut tests its occlusion per node / cluster
+                return;
+            }
 
             if ( !empty && Params2.w != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
                  ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u &&

@@ -88,6 +88,11 @@ namespace Desert::Graphic::GpuDriven
     {
         const GraphicsPipeline* Pipeline = nullptr; // owned by the SceneRenderer's PipelineCache
         MeshGeometryBinding     Binding;            // the vertex / stream / index buffers the group binds
+        // The group's VIRTUAL-GEOMETRY TWIN: Pipeline's pass state with the `.VirtualGeometry` permutation of its
+        // cell (MeshVertexPath VirtualGeometryCellOf), what the VG raster draws the clusters binned into this group
+        // with (VirtualGeometry::RasterBins). Null: the cell has none (a non-Static path, a template without the
+        // permutation) or it is still compiling (GroupPipelineResolver).
+        const GraphicsPipeline* VirtualGeometryPipeline = nullptr;
         uint32_t                FirstBin = 0;
         uint32_t                BinCount = 0;
     };
@@ -163,6 +168,9 @@ namespace Desert::Graphic::GpuDriven
     // opaque passes); with a fallback = it draws there on the CPU path, for that reason. Called from AddPrimitive and InvalidatePipelines only, never per frame.
     using PassPipelineResolver = std::function<PassPipelineResolution(
          MeshPass pass, PrimitiveIndex primitive, const Mesh& mesh, uint32_t submesh, uint32_t materialRow )>;
+    // How the cache learns a group's VG twin (IndirectGroup::VirtualGeometryPipeline) from the group's PSO: asked
+    // when a pass's groups are rebuilt and by InvalidatePipelines (a twin that finished compiling). Empty: no twins.
+    using GroupPipelineResolver = std::function<const GraphicsPipeline*( MeshPass pass, const GraphicsPipeline& group )>;
 
     // What a primitive hands the cache: its mesh, the scene material table row of each material slot
     // (GpuSceneRegistry::SyncMaterialRow; mesh section i draws with MaterialRows[SectionMaterialSlot( i, size )],
@@ -183,7 +191,7 @@ namespace Desert::Graphic::GpuDriven
     class DrawCommandCache
     {
     public:
-        explicit DrawCommandCache( PassPipelineResolver resolver );
+        explicit DrawCommandCache( PassPipelineResolver resolver, GroupPipelineResolver vgResolver = {} );
         ~DrawCommandCache();
         DrawCommandCache( const DrawCommandCache& )            = delete;
         DrawCommandCache& operator=( const DrawCommandCache& ) = delete;
@@ -260,6 +268,7 @@ namespace Desert::Graphic::GpuDriven
         void RebuildPass( MeshPass pass );
 
         PassPipelineResolver                               m_Resolver;
+        GroupPipelineResolver                              m_VgResolver;
         std::vector<std::optional<PrimitiveRecord>>        m_Primitives; // indexed by PrimitiveIndex
         std::unordered_map<const Mesh*, MeshTransformRows> m_MeshTransforms;
         std::vector<glm::mat4>                             m_SubmeshTransforms;

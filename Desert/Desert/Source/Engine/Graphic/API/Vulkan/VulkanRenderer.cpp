@@ -1146,6 +1146,53 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr VulkanRendererAPI::RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
+                                                                         const GraphicsPipeline&         pipeline,
+                                                                         const ClusterIndirectGroupDraw& draw )
+    {
+        DESERT_PROFILE_FUNC();
+        const RDG::PassContext& context = bindings.GetContext();
+        const std::string_view  pass    = context.GetPassName();
+        if ( draw.ArgsOffset % 4u != 0u )
+            return Common::MakeFormattedError( "{}: cluster group arguments at byte {}: not a multiple of four", pass,
+                                               draw.ArgsOffset );
+        const auto declared = context.GetBuffer( draw.Args, RDG::Access::IndirectArgs );
+        if ( !declared )
+            return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, declared.GetError() );
+        if ( draw.ArgsOffset + sizeof( VkDrawIndirectCommand ) > declared.GetValue().Desc->Bytes )
+            return Common::MakeFormattedError( "{}: cluster group arguments at byte {} pass the end of '{}' ({} bytes)",
+                                               pass, draw.ArgsOffset, declared.GetValue().Name,
+                                               declared.GetValue().Desc->Bytes );
+        const auto args = VulkanRdgBackend::BufferOf( declared.GetValue() );
+        if ( !args )
+            return Common::MakeFormattedError( "{}: cluster group arguments: {}", pass, args.GetError() );
+        const auto rowsDeclared = context.GetBuffer( draw.Rows, RDG::Access::VertexIndex );
+        if ( !rowsDeclared )
+            return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rowsDeclared.GetError() );
+        const auto rows = VulkanRdgBackend::BufferOf( rowsDeclared.GetValue() );
+        if ( !rows )
+            return Common::MakeFormattedError( "{}: cluster group rows: {}", pass, rows.GetError() );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
+        if ( !static_cast<const VulkanPipeline*>( &pipeline )->ReadsVisibleRow() )
+            return Common::MakeFormattedError( "{}: pipeline '{}' does not read the instance id stream: not a "
+                                               "`.VirtualGeometry` cell",
+                                               pass, pipeline.GetSpecification().DebugName );
+
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material );
+             !bound || !bound.GetValue() )
+            return bound;
+        // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is consumed,
+        // VulkanShaderReflection feeds the consumed locations only), so the bind-skip key of the meshes'
+        // buffers (m_BoundGeometry) is untouched; the next mesh draw binds binding 2 itself.
+        const VkBuffer     rowBuffer = rows.GetValue()->GetBuffer();
+        const VkDeviceSize zero      = 0;
+        vkCmdBindVertexBuffers( m_CurrentCommandBuffer, GpuDriven::kVisibleRowVertexBinding, 1, &rowBuffer, &zero );
+        DrawCounter::RecordBins( 1u, 1u );
+        vkCmdDrawIndirect( m_CurrentCommandBuffer, args.GetValue()->GetBuffer(), draw.ArgsOffset, 1,
+                           static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                                     const GraphicsPipeline&  pipeline,
                                                                     const MaterialExecutor*  material )

@@ -433,6 +433,8 @@ namespace Desert::Graphic
             uint32_t ClustersVisible  = 0;
             uint32_t Overflow         = 0;
             uint32_t OccludedClusters = 0;
+            // VG instances still drawn by the main view's bins (must be 0: the cluster raster draws them).
+            uint32_t BinnedVgInstances = 0;
         };
         [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const;
         /// The mesh passes' cached draw commands (MeshRenderer::GetDrawCommandCache): bins, slots and the CPU

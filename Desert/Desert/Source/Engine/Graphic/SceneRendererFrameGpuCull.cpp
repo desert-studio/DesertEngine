@@ -531,10 +531,12 @@ namespace Desert::Graphic
                                                              .Count           = bins.VgCandidates.Count,
                                                              .Capacity        = bins.VgCandidates.Capacity,
                                                              .VisibleCapacity = bins.VgVisibleCapacity };
-        const auto culled = m_VirtualGeometry->AddClusterCull(
-             graph, GpuDriven::CullPhase::Main, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
-             meshes->GetDrawCommandCache()->Passes()[pass], bins.Upload.Passes[pass], bins.Upload.SubmeshTransforms,
-             candidates, std::span( &view, 1 ), bins.NeutralHzb );
+        const VirtualGeometry::VirtualMeshBuffers vgMeshes  = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+        const GpuDriven::PassDrawTable&           passTable = meshes->GetDrawCommandCache()->Passes()[pass];
+        const auto culled = m_VirtualGeometry->AddClusterCull( graph, GpuDriven::CullPhase::Main, bins.Scene, vgMeshes,
+                                                               passTable, bins.Upload.Passes[pass],
+                                                               bins.Upload.SubmeshTransforms, candidates,
+                                                               std::span( &view, 1 ), bins.NeutralHzb );
         if ( !culled )
         {
             m_ClusterCutCounts->Forget();
@@ -545,6 +547,29 @@ namespace Desert::Graphic
             return;
         }
         m_ClusterCutCounts->AddFrame( graph, frame.FrameIndex, culled.GetValue() );
+        // THE RASTER (VIRT-GEOM step 11/12): the cut's HW clusters sorted into the main pass's material groups, drawn
+        // by that pass's mesh list after its bins (MeshRenderer::SetFrameVirtualGeometry) with each group's
+        // `.VirtualGeometry` cell into the same G-buffer / forward targets and depth. The VG instances are not in
+        // the main view's bins (InstanceCull.shader: a view with a cut view appends instead of binning).
+        const auto rasterBins = m_VirtualGeometry->AddRasterBinning( graph, bins.Scene, vgMeshes, passTable,
+                                                                     bins.Upload.Passes[pass], culled.GetValue() );
+        if ( !rasterBins )
+        {
+            if ( rasterBins.GetError() != m_VirtualGeometryLastError )
+                LOG_ERROR( "[SceneRenderer] {}: {}; the cut's clusters are not drawn this frame",
+                           m_ViewResources.GetName(), rasterBins.GetError() );
+            m_VirtualGeometryLastError = rasterBins.GetError();
+            return;
+        }
+        (void)meshes->SetFrameVirtualGeometry(
+             static_cast<GpuDriven::MeshPass>( pass ), System::MeshRenderer::kBinnedMainView,
+             System::MeshRendererDetail::VirtualGeometryIssue{ .GroupArgs       = rasterBins.GetValue().GroupArgs,
+                                                       .Rows            = rasterBins.GetValue().Rows,
+                                                       .VisibleClusters = rasterBins.GetValue().VisibleClusters,
+                                                       .Clusters        = vgMeshes.Clusters,
+                                                       .Dags            = vgMeshes.Dags,
+                                                       .PrimitiveDraws  = bins.Upload.Passes[pass].PrimitiveDraws,
+                                                       .GroupCount      = rasterBins.GetValue().GroupCount } );
         m_FrameVirtualGeometry     = FrameVirtualGeometry{ .VisibleClusters = culled.GetValue().VisibleClusters,
                                                            .RasterArgs      = culled.GetValue().RasterArgs,
                                                            .VisibleCapacity = culled.GetValue().VisibleCapacity,
@@ -561,6 +586,7 @@ namespace Desert::Graphic
         return { .Instances        = m_VirtualGeometryInstances,
                  .ClustersVisible  = last.ClustersVisible,
                  .Overflow         = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
-                 .OccludedClusters = last.Status.OccludedClusters };
+                 .OccludedClusters  = last.Status.OccludedClusters,
+                 .BinnedVgInstances = last.Status.BinnedVgInstances };
     }
 } // namespace Desert::Graphic

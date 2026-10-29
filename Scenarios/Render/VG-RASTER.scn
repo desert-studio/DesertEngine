@@ -1,0 +1,19 @@
+# VG-RASTER (VIRT-GEOM step 12): the cluster cut's clusters are HARDWARE-rastered through the material cells (each
+# opaque Static group's `.Binned.VirtualGeometry` permutation) into the main pass, and the VG instances are out of the
+# main view's bins. Project: F:/BistroFoliageProj. UNVERIFIED (written unbuilt): the lantern import repeats
+# VIRT-GEOM-COOK.scn's first steps; the camera is VIRT-GEOM-COOK's [vg_cut] near position.
+# The "bins-only" reference frame: the same steps on the parent commit 92fbdd55d (VG instances drawn by the bins).
+Дано run Scene "Open Scene Bistro.desce"
+Когда run Assets "Drop into the viewport: Meshes/Bistro/Bistro_Exterior_Lantern.fbx"
+Когда run Assets "Import Options: Virtual Geometry On"
+Когда run Assets "Import Options: Import"
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position -800,190,-60
+Когда --subject viewport set Camera.Direction 0.6,-0.17,0.78
+Когда 120 frames render
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_raster] views.virtualGeometry.instances >= 1, binnedVgInstances == 0, clustersVisible > 0 (the clusters drawn: every HW cluster of the cut is binned into its group and drawn), overflow 0
+Тогда [vg_raster] editor.log: 0 VUID, no "[MeshRenderer] ... has no `.VirtualGeometry` pipeline" for the lantern's cell, no "the view draws no virtual geometry this frame"
+Тогда-вид [vg_raster] the lit frame shows the lantern shaded as in the bins-only frame: frame mean within 1% of the bins-only frame of the same camera (pixel diff, not thumbnails)
+Когда run View "View mode: Virtual Geometry Clusters"
+Тогда-вид [vg_raster] the lantern shows per-cluster colours on the same silhouette as the lit frame

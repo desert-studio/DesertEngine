@@ -19,33 +19,33 @@ namespace Desert::Graphic::RDG
 }
 
 // VIRT-GEOM contract: THE VIRTUAL-GEOMETRY FRAME (UE Nanite::FRenderer: InstanceHierarchyCull/NodeAndClusterCull,
-// RasterBinning + HW/SW raster, EmitDepthTargets, ShadeBinning + material compute shading). Compute + indirect,
-// no mesh shaders (decision 10-28). Contract page: Notion Wiki «VIRT-GEOM — контракт».
+// RasterBinning, HW raster). Compute + indirect, no mesh shaders (decision 10-28). Contract page: Notion Wiki
+// «VIRT-GEOM — контракт».
 //
-// RDG ORDER (SceneRenderer::AddFrameVirtualGeometry, after AddFrameGpuCull's instance phase 1):
-//  1. instance cull       InstanceCulling (GPU-DRIVEN, unchanged owner): a kVirtualGeometry primitive's surviving
-//                         instances go to ClusterCandidates (one per (instance, submesh DAG root, view)) instead
-//                         of bins. Same frustum / caster / distance / two-phase HZB code, no second instance
-//                         culler.
-//  2. cluster cull (Main) "VirtualGeometry: Cluster Cull": persistent-thread BVH traversal; per node / cluster:
+// DECISION 10-29 (step 11): the clusters are HARDWARE-rastered THROUGH THE MATERIAL CELLS - a `.VirtualGeometry`
+// permutation of each opaque Static `.Binned` cell, drawn per material group into the same depth + G-buffer /
+// forward targets as the bins. UE rasters into a 64-bit visibility buffer and shades with ShadeBinning + one compute
+// material pass per material; here every material pixel shader is reused unchanged (no compute twin per material),
+// no int64 atomics are required, and HZB / velocity / stencil come from the normal raster. The visibility buffer
+// stays the route of the SW raster of sub-pixel triangles (not built).
+//
+// RDG ORDER (SceneRenderer::AddFrameVirtualGeometry, after AddFrameDrawBins' instance phase 1):
+//  1. instance cull       InstanceCulling (GPU-DRIVEN, unchanged owner): a VG primitive's instance that survives the
+//                         frustum / caster / distance test in a view with a cut view appends one ClusterCandidate per
+//                         DAG row and goes into NO bin of that view (nor its occlusion carry). Other views (shadow
+//                         cascades today) still bin it.
+//  2. cluster cull (Main) "VirtualGeometry: Cluster Cut": persistent-thread BVH traversal; per node / cluster:
 //                         frustum, previous-frame furthest HZB, LOD (Project(LodBounds, error) vs
-//                         MaxPixelsPerEdge), HW/SW split (kSwRasterMaxEdgePixels). Rejected-by-HZB go to the
-//                         carry.
-//  3. raster (Main)       "VirtualGeometry: SW Raster" (compute, one workgroup per cluster) and
-//                         "VirtualGeometry: HW Raster" (indirect draw, no depth target: 64-bit atomicMax in the
-//                         fragment) both into the visibility buffer.
-//  4. HZB                 HZBRenderer::AddPasses( Furthest ) over the depth step 3 wrote (EmitDepth's depth).
-//  5. Post phase          instance phase 2 + cluster cull of the carry against this HZB, raster again.
-//  6. emit depth          "VirtualGeometry: Emit Depth": visibility buffer -> scene depth + velocity + stencil
-//                         (the non-VG binned passes then depth-test against it).
-//  7. material resolve    "VirtualGeometry: Shade Binning" (pixels -> one bin per GBuffer draw slot's material
-//                         pipeline) then one indirect compute dispatch per material pipeline writing the G-buffer
-//                         targets of SceneRenderer::AddFrameGBuffer ("VirtualGeometry: Shade <material>"). The
-//                         binned "Deferred: GBuffer" pass draws the non-VG meshes after it, depth-equal.
-// SHADOW VIEWS: each CSM cascade and VSM level is a GpuCullView of steps 1-3 (no HZB phase, depth only): the
-// cascade rasters into an R32_UINT image copied into its depth layer ("VirtualGeometry: Emit Shadow Depth"), the
-// VSM level rasters straight into VirtualShadowMapFrame::PhysicalPool (R32_UINT atomic max) through the page
-// table.
+//                         MaxPixelsPerEdge). Occluded nodes / clusters are counted and dropped (no post carry yet).
+//  3. raster binning      "VirtualGeometry: Raster Binning" (AddRasterBinning): the cut's HW clusters -> one
+//                         VkDrawIndirectCommand per IndirectGroup of the main view's pass + the instance id rows.
+//  4. raster              the main pass's mesh list (MeshRenderer::SetFrameVirtualGeometry), after its bins: per
+//                         group IndirectGroup::VirtualGeometryPipeline, RendererAPI::RenderClusterIndirectGroup.
+//                         Depth, G-buffer / forward colour, velocity as any binned draw; the HZB of the frame
+//                         (AddFrameDrawBinsPostOcclusion) therefore holds the clusters.
+// NOT YET: the post phase (phase-1-occluded clusters re-tested against this frame's HZB, binned and drawn by the
+// GBuffer post pass), the shadow views (a cut per cascade view, its raster in the cascade's static layer), the SW
+// raster.
 namespace Desert::Graphic::VirtualGeometry
 {
     // One view the cluster cull serves: the instance cull's view (same GpuCullView, same frustum, same HZBs).
@@ -95,27 +95,6 @@ namespace Desert::Graphic::VirtualGeometry
     };
     inline constexpr uint32_t kRasterBinsArgsStride = 16u; // sizeof( VkDrawIndirectCommand )
 
-    // Where a raster writes. Exactly one of the three is valid.
-    struct RasterTarget
-    {
-        RDG::BufferRef  VisibilityBuffer; // uint64[width * height] (VirtualGeometryLayout.hpp PackVisibility)
-        RDG::TextureRef ShadowDepth;      // R32_UINT cascade image
-        RDG::TextureRef VsmPhysicalPool;  // VirtualShadowMapFrame::PhysicalPool (+ its page table, VsmPageTable)
-        RDG::BufferRef  VsmPageTable;
-        uint32_t        Width  = 0;
-        uint32_t        Height = 0;
-    };
-
-    struct MaterialResolveTargets
-    {
-        // The G-buffer AddFrameGBuffer writes (DeferredLightingRenderer.hpp inputs), as storage images.
-        RDG::TextureRef GBufferA;
-        RDG::TextureRef GBufferB;
-        RDG::TextureRef ShadingWord;
-        RDG::TextureRef Emissive;
-        RDG::TextureRef Velocity;
-    };
-
     class VirtualGeometryRenderer
     {
     public:
@@ -147,32 +126,6 @@ namespace Desert::Graphic::VirtualGeometry
                           const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
                           const GpuDriven::PassDrawBuffers& passSlots, const ClusterCullResult& culled ) const;
 
-        // Step 3/5: SW then HW raster of @p culled into @p target.
-        [[nodiscard]] Common::BoolResultStr
-        AddRaster( RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene, const VirtualMeshBuffers& meshes,
-                   const ClusterCullResult& culled, const RasterTarget& target ) const;
-
-        // Step 6: depth (+ velocity) from the visibility buffer. Returns the scene depth it wrote.
-        [[nodiscard]] Common::ResultStr<RDG::TextureRef>
-        AddEmitDepth( RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene,
-                      const VirtualMeshBuffers& meshes, RDG::BufferRef visibilityBuffer,
-                      RDG::TextureRef sceneDepth, RDG::TextureRef velocity, uint32_t width,
-                      uint32_t height ) const;
-
-        // Step 7: shade binning + one compute dispatch per GBuffer material pipeline. @p gbufferPass: the GBuffer
-        // pass's draw tables (its GpuDrawSlot::MaterialRow and pipeline per (primitive, submesh)).
-        [[nodiscard]] Common::BoolResultStr
-        AddMaterialResolve( RDG::Builder& graph, const GpuDriven::GpuSceneBuffers& scene,
-                            const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& gbufferTable,
-                            const GpuDriven::PassDrawBuffers& gbufferPass, RDG::BufferRef visibilityBuffer,
-                            const ClusterCullResult& mainCulled, const ClusterCullResult& postCulled,
-                            const MaterialResolveTargets& targets, uint32_t width, uint32_t height ) const;
-
-        // Shadow cascade: the R32_UINT image a cascade's AddRaster wrote -> the cascade's depth layer.
-        [[nodiscard]] Common::BoolResultStr AddEmitShadowDepth( RDG::Builder& graph, RDG::TextureRef shadowDepth,
-                                                                RDG::TextureRef cascadeDepth,
-                                                                uint32_t        cascadeLayer ) const;
-
         struct Programs;
 
     private:
@@ -191,8 +144,12 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t VisibleOverflowDag = 0xFFFFFFFFu;
         uint32_t OccludedNodes      = 0; // node children the previous-frame HZB hid (not a failure)
         uint32_t OccludedClusters   = 0; // clusters the previous-frame HZB hid (not a failure)
+        // VG instances InstanceCull still put into a bin of a view the cut serves (an invariant: 0; the raster
+        // draws them), copied from the candidates' count block.
+        uint32_t BinnedVgInstances = 0;
+        uint32_t Pad               = 0;
     };
-    static_assert( sizeof( ClusterCutStatus ) == 32, "std430 twin: ClusterCut.shader ClusterCutStatus" );
+    static_assert( sizeof( ClusterCutStatus ) == 40, "std430 twin: ClusterCut.shader ClusterCutStatus" );
 
     struct ClusterCutCount
     {

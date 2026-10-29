@@ -1402,7 +1402,8 @@ namespace Desert::Editor
                 snapshot.VirtualGeometry = VirtualGeometrySnapshot{ .Instances        = vg.Instances,
                                                                     .ClustersVisible  = vg.ClustersVisible,
                                                                     .Overflow         = vg.Overflow,
-                                                                    .OccludedClusters = vg.OccludedClusters };
+                                                                    .OccludedClusters = vg.OccludedClusters,
+                                                                    .BinnedVgInstances = vg.BinnedVgInstances };
             }
         }
 

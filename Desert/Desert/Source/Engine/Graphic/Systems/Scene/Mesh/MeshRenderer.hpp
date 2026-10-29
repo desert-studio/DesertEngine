@@ -125,6 +125,23 @@ namespace Desert::Graphic::System
         // SubmitDrawCommands): one view's CulledDraws of one pass's table, the scene / pass tables the binned vertex
         // stage reads by name (Common/GpuScene.glslh 41-44), the device's submission mode, and per IndirectGroup the
         // view's carrier of the scene blocks (null for an empty group).
+        // THE VIRTUAL-GEOMETRY RASTER of one (pass, view) (SceneRenderer::AddFrameVirtualGeometry ->
+        // MeshRenderer::SetFrameVirtualGeometry): the cluster cut's HW clusters binned into the pass table's groups
+        // (VirtualGeometry::RasterBins), drawn after the bins, one vkCmdDrawIndirect per group whose
+        // IndirectGroup::VirtualGeometryPipeline exists, with the tables that cell reads by name (Common/GpuScene.glslh
+        // 50-53) and per group the view's carrier of that cell's shader.
+        struct VirtualGeometryIssue
+        {
+            RDG::BufferRef GroupArgs;       // VkDrawIndirectCommand[GroupCount] (RasterBins::GroupArgs)
+            RDG::BufferRef Rows;            // uint32 instance id stream (RasterBins::Rows)
+            RDG::BufferRef VisibleClusters; // the cut's VgVisibleCluster[] (binding 52)
+            RDG::BufferRef Clusters;        // VirtualMeshBuffers::Clusters (binding 50)
+            RDG::BufferRef Dags;            // VirtualMeshBuffers::Dags (binding 51)
+            RDG::BufferRef PrimitiveDraws;  // the pass's PassDrawBuffers::PrimitiveDraws (binding 53)
+            uint32_t       GroupCount = 0;
+            std::vector<const MaterialExecutor*> GroupCarriers; // per Table->Groups; null = the group draws no cluster
+        };
+
         struct BinnedIssue
         {
             const GpuDriven::PassDrawTable*      Table = nullptr;
@@ -134,6 +151,7 @@ namespace Desert::Graphic::System
             RDG::BufferRef                       SubmeshTransforms; // DrawCommandBuffers::SubmeshTransforms
             GpuDriven::IndirectSubmissionMode    Mode;
             std::vector<const MaterialExecutor*> GroupCarriers; // per Table->Groups
+            std::optional<VirtualGeometryIssue>  VirtualGeometry; // drawn after the bins (phase 1 only)
         };
 
         class MeshDrawList
@@ -210,6 +228,7 @@ namespace Desert::Graphic::System
                 const MaterialExecutor* Material = nullptr;
                 const GraphicsPipeline* Pipeline = nullptr;
                 bool                    Binned   = false; // declares the binned tables (SetBinned)
+                bool                    VirtualGeometry = false; // declares the VG raster's tables (50-53)
             };
 
             template <typename Declaration, typename PerBlock>
@@ -224,6 +243,7 @@ namespace Desert::Graphic::System
             std::vector<uint32_t>        m_FirstRecords;
             std::optional<BinnedIssue>   m_Binned;     // SetBinned
             std::vector<uint32_t>        m_GroupBlock; // per group of m_Binned: its block (kInvalidBlock: empty)
+            std::vector<uint32_t>        m_VgGroupBlock; // per group of m_Binned->VirtualGeometry: its block
             uint64_t                     m_Triangles = 0; // Add's count of the commands' triangles (Triangles)
             // Kept across frames (Clear drops only the layouts of destroyed shaders). Mutable: Declare is const.
             mutable ShaderBindingLayoutSet m_Layouts;
@@ -589,6 +609,13 @@ namespace Desert::Graphic::System
         // indirect args. False (nothing to draw) when (pass, view) has no phase-1 issue this frame: its CPU lists
         // then draw every record, phase 2 has nothing it held back.
         bool SetFramePostOcclusion( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled );
+        // THE VIRTUAL-GEOMETRY RASTER of (pass, view) (MeshRendererDetail::VirtualGeometryIssue): attached to its
+        // phase-1 issue (SetFrameBinned first), the carriers of the groups' `.VirtualGeometry` cells made here.
+        // False (logged once per message, nothing attached) without a phase-1 issue, for bins of another group
+        // count or when a carrier cannot be made. A group whose cell has no VG twin draws none of its clusters:
+        // logged once per cell.
+        bool SetFrameVirtualGeometry( GpuDriven::MeshPass pass, uint32_t viewKey,
+                                      MeshRendererDetail::VirtualGeometryIssue issue );
 
         // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
         // runs before the sync (the terrain's, SceneRenderer::OnUpdate) then finds none instead of the previous
@@ -1934,6 +1961,14 @@ namespace Desert::Graphic::System
                                                                  uint32_t                  materialRow );
         const GraphicsPipeline* BinnedCellPipeline( const std::string& cellShader, const GraphicsPipeline* passState,
                                                     bool twoSided );
+        // DrawCommandCache's GroupPipelineResolver: @p group's PSO with the `.VirtualGeometry` permutation of its
+        // Static `.Binned` cell (GBuffer / Forward / ShadowCascade), null when the cell has none registered (another
+        // path, a masked or translucent template) or it is still compiling.
+        const GraphicsPipeline* ResolveVirtualGeometryPipeline( GpuDriven::MeshPass pass, const GraphicsPipeline& group );
+        // The view's carrier of @p shader's scene blocks (m_BinnedCarriers), written for this frame; null + @p error
+        // when it has no material table.
+        const MaterialExecutor* PrepareBinnedCarrier( const std::shared_ptr<Shader>& shader, uint32_t viewKey,
+                                                      const SceneFrameBinding& frameState, std::string& error );
         std::unordered_set<const void*> m_MissingMaterialRowReported; // a template whose miss was said once
         // The row of (@p material, @p instance) with ReceiveSunShadows zeroed unless @p receiveSunShadows: added
         // or refreshed in @p registry the first time this frame asks, then the frame's index.

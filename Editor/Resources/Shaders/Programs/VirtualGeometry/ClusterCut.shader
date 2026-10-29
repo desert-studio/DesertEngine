@@ -82,7 +82,8 @@ Shader "ClusterCut"
         };
         ReadBuffer(11) ClusterCutCandidateCount
         {
-            uint CandidateCount; // the producer's append count (may pass Params.w: clamped)
+            uint CandidateCount;    // the producer's append count (may pass Params.w: clamped)
+            uint CandidateBinnedVg; // InstanceCull's VgBinnedInstances (0 = no VG instance in the view's bins)
         };
         Buffer(12) ClusterCutVisibleClusters
         {
@@ -102,6 +103,8 @@ Shader "ClusterCut"
             uint VisibleOverflowDag;
             uint OccludedNodes;    // node children the previous-frame HZB hid (their subtree not visited)
             uint OccludedClusters; // clusters of the cut the previous-frame HZB hid
+            uint BinnedVgInstances; // copied from the candidates' count block (WriteDispatchArgs), for the readback
+            uint StatusPad;
         };
         Buffer(15) ClusterCutDispatchArgs
         {
@@ -319,6 +322,7 @@ Shader "ClusterCut"
             DispatchY         = groups == 0u ? 1u : ( groups + 65534u ) / 65535u;
             DispatchZ         = groups == 0u ? 0u : 1u;
             DispatchPad       = 0u;
+            BinnedVgInstances = CandidateBinnedVg;
         }
 
         void main()

@@ -104,6 +104,7 @@ namespace Desert::Editor::Control
         uint32_t ClustersVisible  = 0;
         uint32_t Overflow         = 0;
         uint32_t OccludedClusters = 0;
+        uint32_t BinnedVgInstances = 0; // VG instances the main view's bins still drew (must be 0)
     };
 
     struct EntitySnapshot
@@ -413,6 +414,7 @@ namespace Desert::Editor::Control
             virtualGeometry["clustersVisible"]  = Num( snapshot.VirtualGeometry.ClustersVisible );
             virtualGeometry["overflow"]         = Num( snapshot.VirtualGeometry.Overflow );
             virtualGeometry["occludedClusters"] = Num( snapshot.VirtualGeometry.OccludedClusters );
+            virtualGeometry["binnedVgInstances"] = Num( snapshot.VirtualGeometry.BinnedVgInstances );
             views["virtualGeometry"]            = Common::Json::Value( virtualGeometry );
             root["views"]         = Common::Json::Value( views );
         }

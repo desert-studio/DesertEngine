@@ -8,6 +8,8 @@
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/RendererAPI.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -277,6 +279,7 @@ namespace Desert::Graphic::System
             m_FirstRecords.clear();
             m_Binned.reset();
             m_GroupBlock.clear();
+            m_VgGroupBlock.clear();
             m_Layouts.DropExpired();
         }
 
@@ -319,6 +322,38 @@ namespace Desert::Graphic::System
                     m_Blocks.push_back( Block{ carrier, indirect.Pipeline, true } );
                 else
                     known->Binned = true;
+            }
+            // The VG raster's groups: one block per distinct (carrier, `.VirtualGeometry` cell shader), declaring
+            // the binned tables its cell reads (41 / 43 / 44) and the raster's (50-53).
+            m_VgGroupBlock.assign( issue.Table->Groups.size(), kInvalidBlock );
+            if ( issue.VirtualGeometry )
+            {
+                const VirtualGeometryIssue& vg = *issue.VirtualGeometry;
+                if ( vg.GroupCount != issue.Table->Groups.size() || vg.GroupCarriers.size() != vg.GroupCount ||
+                     !vg.GroupArgs.IsValid() || !vg.Rows.IsValid() )
+                {
+                    Fail( std::format( "virtual geometry raster: {} bins and {} carriers for {} groups", vg.GroupCount,
+                                       vg.GroupCarriers.size(), issue.Table->Groups.size() ) );
+                    return;
+                }
+                for ( size_t group = 0; group < issue.Table->Groups.size(); ++group )
+                {
+                    const GraphicsPipeline* pipeline = issue.Table->Groups[group].VirtualGeometryPipeline;
+                    const MaterialExecutor* carrier  = vg.GroupCarriers[group];
+                    if ( pipeline == nullptr || carrier == nullptr )
+                        continue; // SetFrameVirtualGeometry said why
+                    const Shader* recordedWith = pipeline->GetSpecification().Shader.get();
+                    const auto    known        = std::find_if( m_Blocks.begin(), m_Blocks.end(),
+                                                               [&]( const Block& block )
+                                                               {
+                                                                   return block.Material == carrier &&
+                                                                          block.Pipeline->GetSpecification()
+                                                                                    .Shader.get() == recordedWith;
+                                                               } );
+                    m_VgGroupBlock[group] = static_cast<uint32_t>( known - m_Blocks.begin() );
+                    if ( known == m_Blocks.end() )
+                        m_Blocks.push_back( Block{ carrier, pipeline, true, true } );
+                }
             }
             m_Binned = std::move( issue );
         }
@@ -426,10 +461,26 @@ namespace Desert::Graphic::System
                         if ( SceneViewDetail::LayoutReadsBuffer( *layout, name.Name ) )
                             block.Storage( name, buffer, RDG::Access::StorageRead );
                 }
+                if ( declared.VirtualGeometry && m_Binned && m_Binned->VirtualGeometry )
+                {
+                    const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
+                    for ( const auto& [name, buffer] :
+                          { std::pair{ SceneResources::kVgRasterClusters, vg.Clusters },
+                            std::pair{ SceneResources::kVgRasterDags, vg.Dags },
+                            std::pair{ SceneResources::kVgRasterVisibleClusters, vg.VisibleClusters },
+                            std::pair{ SceneResources::kVgRasterPrimitiveDraws, vg.PrimitiveDraws } } )
+                        if ( SceneViewDetail::LayoutReadsBuffer( *layout, name.Name ) )
+                            block.Storage( name, buffer, RDG::Access::StorageRead );
+                }
                 perBlock( block, *layout );
             }
             if ( m_Binned )
                 declaration.Read( m_Binned->Culled.IndirectDraws, RDG::Access::IndirectArgs );
+            if ( m_Binned && m_Binned->VirtualGeometry )
+            {
+                declaration.Read( m_Binned->VirtualGeometry->GroupArgs, RDG::Access::IndirectArgs );
+                declaration.Read( m_Binned->VirtualGeometry->Rows, RDG::Access::VertexIndex );
+            }
             // A GPU-instanced draw's buffers: the graph places the compute-write -> vertex / indirect barrier from
             // these (its material binds the transforms; the record reads the arguments). Each buffer once.
             std::vector<RDG::BufferRef> read;
@@ -519,9 +570,33 @@ namespace Desert::Graphic::System
                 for ( size_t group = 0; group < groupBindings.size(); ++group )
                     if ( m_GroupBlock[group] < blocks.size() )
                         groupBindings[group] = blocks[m_GroupBlock[group]].get();
-                return GpuDriven::RecordIndirectGroups( *Renderer::GetInstance().GetRendererAPI(), groupBindings,
-                                                        m_Binned->GroupCarriers, m_Binned->Mode, *m_Binned->Table,
-                                                        m_Binned->Culled );
+                RendererAPI& api = *Renderer::GetInstance().GetRendererAPI();
+                if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings, m_Binned->GroupCarriers,
+                                                                      m_Binned->Mode, *m_Binned->Table,
+                                                                      m_Binned->Culled );
+                     !recorded )
+                    return recorded;
+                // The VG raster after the bins: per group its clusters' one indirect draw (an empty group draws
+                // zero instances; the arguments are the GPU's).
+                if ( m_Binned->VirtualGeometry )
+                {
+                    const VirtualGeometryIssue& vg = *m_Binned->VirtualGeometry;
+                    for ( size_t group = 0; group < m_VgGroupBlock.size(); ++group )
+                    {
+                        if ( m_VgGroupBlock[group] >= blocks.size() )
+                            continue;
+                        const GraphicsPipeline& pipeline = *m_Binned->Table->Groups[group].VirtualGeometryPipeline;
+                        const ClusterIndirectGroupDraw draw{
+                             .Args       = vg.GroupArgs,
+                             .ArgsOffset = uint64_t{ group } * VirtualGeometry::kRasterBinsArgsStride,
+                             .Rows       = vg.Rows,
+                             .Material   = vg.GroupCarriers[group] };
+                        if ( auto drawn =
+                                  api.RenderClusterIndirectGroup( *blocks[m_VgGroupBlock[group]], pipeline, draw );
+                             !drawn )
+                            return drawn;
+                    }
+                }
             }
             return BOOLSUCCESS;
         }
@@ -710,7 +785,9 @@ namespace Desert::Graphic::System
             m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
                  [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh&,
                          uint32_t, const uint32_t materialRow ) -> GpuDriven::PassPipelineResolution
-                 { return ResolveBinnedPipeline( pass, primitive, materialRow ); } );
+                 { return ResolveBinnedPipeline( pass, primitive, materialRow ); },
+                 [this]( const GpuDriven::MeshPass pass, const GraphicsPipeline& group ) -> const GraphicsPipeline*
+                 { return ResolveVirtualGeometryPipeline( pass, group ); } );
         // Answers resolved before a recompile or a wireframe toggle are stale: a reload can add or drop a cell
         // (PipelineCache's InvalidateByShader point, Graphic::PipelineRebuildEpoch), and the Forward pass state is
         // the line twin while the Wireframe view is on.
@@ -906,24 +983,104 @@ namespace Desert::Graphic::System
                                      static_cast<uint32_t>( pass ) ) );
                 return;
             }
-            BinnedCarrier& carrier = m_BinnedCarriers[{ shader.get(), viewKey }];
-            if ( !carrier.Material || carrier.Program.lock() != shader )
+            std::string error;
+            issue.GroupCarriers[group] = PrepareBinnedCarrier( shader, viewKey, frameState, error );
+            if ( issue.GroupCarriers[group] == nullptr )
             {
-                carrier.Program  = shader;
-                carrier.Material = std::make_unique<DataDrivenMaterial>( shader );
-            }
-            frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
-            if ( viewKey != kBinnedMainView )
-                WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
-                                  m_CascadeCasterBias[viewKey], m_ParallaxQuality );
-            if ( !LendMaterialTable( *carrier.Material ) )
-            {
-                refuse( std::format( "binned carrier '{}' has no material table", shader->GetName() ) );
+                refuse( std::move( error ) );
                 return;
             }
-            issue.GroupCarriers[group] = carrier.Material->GetMaterialExecutor();
         }
         m_FrameBinned.push_back( FrameBinnedView{ pass, viewKey, std::move( issue ) } );
+    }
+
+    const MaterialExecutor* MeshRenderer::PrepareBinnedCarrier( const std::shared_ptr<Shader>& shader,
+                                                                const uint32_t                 viewKey,
+                                                                const SceneFrameBinding&       frameState,
+                                                                std::string&                   error )
+    {
+        BinnedCarrier& carrier = m_BinnedCarriers[{ shader.get(), viewKey }];
+        if ( !carrier.Material || carrier.Program.lock() != shader )
+        {
+            carrier.Program  = shader;
+            carrier.Material = std::make_unique<DataDrivenMaterial>( shader );
+        }
+        frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
+        if ( viewKey != kBinnedMainView )
+            WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
+                              m_CascadeCasterBias[viewKey], m_ParallaxQuality );
+        if ( !LendMaterialTable( *carrier.Material ) )
+        {
+            error = std::format( "binned carrier '{}' has no material table", shader->GetName() );
+            return nullptr;
+        }
+        return carrier.Material->GetMaterialExecutor();
+    }
+
+    bool MeshRenderer::SetFrameVirtualGeometry( const GpuDriven::MeshPass pass, const uint32_t viewKey,
+                                                MeshRendererDetail::VirtualGeometryIssue issue )
+    {
+        const auto refuse = [this]( std::string message )
+        {
+            if ( message != m_BinnedLastError )
+                LOG_ERROR( "[MeshRenderer] {}; the view draws no virtual geometry this frame", message );
+            m_BinnedLastError = std::move( message );
+            return false;
+        };
+        FrameBinnedView* view = nullptr;
+        for ( FrameBinnedView& candidate : m_FrameBinned )
+            if ( candidate.Pass == pass && candidate.ViewKey == viewKey )
+                view = &candidate;
+        if ( view == nullptr || m_SceneRenderer == nullptr )
+            return refuse( std::format( "virtual geometry raster of pass {}: the view issues no bins",
+                                        static_cast<uint32_t>( pass ) ) );
+        const GpuDriven::PassDrawTable& table = *view->Issue.Table;
+        if ( issue.GroupCount != table.Groups.size() )
+            return refuse( std::format( "virtual geometry raster of pass {}: {} bins for {} groups",
+                                        static_cast<uint32_t>( pass ), issue.GroupCount, table.Groups.size() ) );
+        issue.GroupCarriers.assign( table.Groups.size(), nullptr );
+        const SceneFrameBinding frameState = CaptureFrameState( m_SceneRenderer->GetViewFrame() );
+        for ( size_t group = 0; group < table.Groups.size(); ++group )
+        {
+            const GpuDriven::IndirectGroup& indirect = table.Groups[group];
+            if ( indirect.BinCount == 0u || indirect.Pipeline == nullptr )
+                continue;
+            if ( indirect.VirtualGeometryPipeline == nullptr )
+            {
+                // The binning still places a VG cluster of this group here: it is not drawn.
+                const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
+                if ( m_BinnedRefused.insert( cell + "|vg" ).second )
+                    LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` pipeline (no such cell, or it is "
+                                 "compiling): virtual-geometry clusters drawn with it are not rastered",
+                                 cell );
+                continue;
+            }
+            std::string error;
+            issue.GroupCarriers[group] = PrepareBinnedCarrier(
+                 indirect.VirtualGeometryPipeline->GetSpecification().Shader, viewKey, frameState, error );
+            if ( issue.GroupCarriers[group] == nullptr )
+                return refuse( std::move( error ) );
+        }
+        view->Issue.VirtualGeometry = std::move( issue );
+        return true;
+    }
+
+    const GraphicsPipeline* MeshRenderer::ResolveVirtualGeometryPipeline( const GpuDriven::MeshPass pass,
+                                                                         const GraphicsPipeline&   group )
+    {
+        if ( pass != GpuDriven::MeshPass::GBuffer && pass != GpuDriven::MeshPass::Forward &&
+             pass != GpuDriven::MeshPass::ShadowCascade )
+            return nullptr;
+        const std::shared_ptr<Shader>& shader = group.GetSpecification().Shader;
+        if ( !shader || !IsBinnedCell( shader->GetName() ) ||
+             MeshCellPath( shader->GetName() ) != MeshVertexPath::Static )
+            return nullptr;
+        const std::string cell = VirtualGeometryCellOf( shader->GetName() );
+        // Only opaque templates emit the permutation (DShaderParser): a missing one is not an error here.
+        if ( !Runtime::ResourceRegistry::GetShaderService()->GetByName( cell ) )
+            return nullptr;
+        // The group's own state (its two-sided cull mode included), the cell swapped.
+        return BinnedCellPipeline( cell, &group, false );
     }
 
     bool MeshRenderer::SetFramePostOcclusion( const GpuDriven::MeshPass pass, const uint32_t viewKey,
@@ -935,6 +1092,7 @@ namespace Desert::Graphic::System
                 continue;
             MeshRendererDetail::BinnedIssue issue = view.Issue;
             issue.Culled                          = culled;
+            issue.VirtualGeometry.reset(); // phase 2 rasters no clusters yet (the cut has no post phase)
             view.PostOcclusion                    = std::move( issue );
             return true;
         }

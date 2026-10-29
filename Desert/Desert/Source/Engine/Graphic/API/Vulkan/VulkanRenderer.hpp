@@ -101,6 +101,9 @@ namespace Desert::Graphic::API::Vulkan
                                                        const GraphicsPipeline&      pipeline,
                                                        const MeshGeometryBinding&   geometry,
                                                        const MeshIndirectGroupDraw& draw ) override;
+        Common::BoolResultStr RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
+                                                          const GraphicsPipeline&         pipeline,
+                                                          const ClusterIndirectGroupDraw& draw ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
