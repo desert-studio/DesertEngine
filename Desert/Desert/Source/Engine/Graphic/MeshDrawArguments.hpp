@@ -30,8 +30,8 @@ namespace Desert::Graphic
 
     // The submeshes a mesh draw hides, for a mesh of ANY submesh count: bit i of Low = submesh i (i < 64), bit
     // (i - 64) % 64 of High[(i - 64) / 64] = submesh i past it; a word past High hides nothing. High is a view of
-    // words its producer keeps alive until the draw is recorded (a VSM level's clustered submeshes,
-    // MeshRenderer::VsmWalkHidden: interned per frame, so equal masks share one view). Built implicitly from a
+    // words its producer keeps alive until the draw is recorded (a cascade's or VSM level's clustered submeshes,
+    // MeshRenderer::ClusterWalkHidden: interned per frame, so equal masks share one view). Built implicitly from a
     // 64-bit mask, which every producer of a mesh with at most 64 submeshes still is.
     struct SubmeshMask
     {

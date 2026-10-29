@@ -127,8 +127,10 @@
 Когда set 18368481599785693751 StaticMeshComponent.CastShadows false
 Тогда [vg_masked] editor.log: "[Import] '...BistroExterior_Lantern_Wind_2N.stmesh': Virtual Geometry off" for N = 1..5 (the Bistro repo's files back to no clusters; the lanterns' CastShadows back to false)
 # Step 24 [vg_ism] (UE: Nanite instanced static meshes): a still ISM on a VG .stmesh is drawn ONCE into the VSM - by
-# the cluster raster; the levels' CPU walk hides the field's clustered submeshes (VsmWalkHidden over the field's
-# primitive). B16 has no ISM and one entity per mesh, so the field is made here: the table (step 21's) is duplicated
+# the cluster raster; the levels' CPU walk hides the field's clustered submeshes (ClusterWalkHidden over the field's
+# primitive). Step 25: the sun cascades follow the same rule (MeshRenderer::ClusterWalkHidden, ShadowCascade pass):
+# the field's cascade walk hides exactly its clustered submeshes and walks the rest - none twice, none lost.
+# B16 has no ISM and one entity per mesh, so the field is made here: the table (step 21's) is duplicated
 # in place ("Entity" "Duplicate selection", Ctrl+D's palette twin), both copies selected by mesh and collapsed into one
 # ISM of two coincident instances (same depth as the one table, so VG off vs on compares like for like). The scene is
 # not saved; the flag is turned off at the end.
@@ -153,7 +155,7 @@
 Когда shot viewport "vg_ism_on_csm.png"
 Когда DesertCtl state views.virtualGeometry
 Тогда [vg_ism] views.virtualGeometry.instances >= 2 (the field's instances are candidates), binnedVgInstances == 0, clustersDrawn > 0, shadowClustersDrawn > 0, overflow 0
-Тогда-вид [vg_ism] vg_ism_on_csm.png vs vg_ism_off_csm.png: pixel diff < 0.5% of pixels (numeric diff, not thumbnails)
+Тогда-вид [vg_ism] vg_ism_on_csm.png vs vg_ism_off_csm.png: pixel diff < 0.5% of pixels (numeric diff, not thumbnails; the field's cascade shadow drawn once - clusters, its CPU walk dropped by ClusterWalkHidden, step 25)
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
 Когда 120 frames render
 Когда shot viewport "vg_ism_on_vsm.png"

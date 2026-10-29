@@ -891,30 +891,52 @@ namespace Desert::Graphic::System
         { return binnedLayer && SkipsBinned( GpuDriven::MeshPass::ShadowCascade, c, primitive, hidden ); };
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
-        // A VSM level while the levels' cluster raster is issued this frame (SetVirtualShadowGeometry): the
-        // submeshes whose clusters it draws (VsmWalkHidden, every submesh of the mesh) are rastered into the
-        // level's pages as clusters, never also by this walk; the entry's other submeshes are walked as before.
-        const bool clustersDrawn = IsVirtualShadowView( c ) && m_VsmGeometry.has_value();
+        // THE CLUSTER RASTER of this view, one rule for a sun cascade's static layer (its bins' VG issue,
+        // SetFrameVirtualGeometry, attached to the list with them) and a VSM level (SetVirtualShadowGeometry): a
+        // VG primitive's instances are cut candidates there, never in the view's bins, so its record's walk
+        // (ClusterWalkHidden) hides exactly the submeshes whose clusters a twin draws and draws every other shown
+        // one - none drawn twice, none lost (a submesh in a group with no twin). A record that is not the raster's
+        // falls to the bins' rule (heldByBins: all its shown submeshes binned, or none of it is dropped).
+        const bool                vsmView     = IsVirtualShadowView( c );
+        const GpuDriven::MeshPass clusterPass = vsmView ? GpuDriven::MeshPass::VirtualShadow
+                                                        : GpuDriven::MeshPass::ShadowCascade;
+        bool clustersDrawn = vsmView && m_VsmGeometry.has_value();
+        if ( !vsmView && binnedLayer )
+            if ( const FrameBinnedView* binned = FrameBinned( GpuDriven::MeshPass::ShadowCascade, c ) )
+                clustersDrawn = binned->Issue.VirtualGeometry.has_value();
+        // The submeshes the CPU walk hides of a record (static entry or ISM / foliage field); empty: the walk
+        // draws none of it (the bins or the clusters hold every submesh it shows).
+        const auto walkHidden = [&]( const Desert::StaticMesh* mesh, const std::size_t submeshes,
+                                     const GpuDriven::PrimitiveIndex primitive,
+                                     const uint64_t hidden ) -> std::optional<SubmeshMask>
+        {
+            if ( const std::optional<SubmeshMask> walk =
+                      ClusterWalkHidden( clusterPass, clustersDrawn, mesh, primitive, hidden ) )
+            {
+                std::size_t shown = 0;
+                while ( shown < submeshes && walk->Hides( shown ) )
+                    ++shown;
+                if ( shown == submeshes )
+                    return std::nullopt; // every submesh it shows is drawn as clusters
+                return walk;
+            }
+            if ( heldByBins( primitive, hidden ) )
+                return std::nullopt;
+            return SubmeshMask{ hidden };
+        };
         for ( const auto& rd : m_StaticQueue )
         {
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows ||
                  !IsVisibleInView( cascadeFrustum, rd.Transform,
-                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) ||
-                 heldByBins( rd.GpuPrimitive, rd.HiddenSubmeshes ) )
+                                   Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
             {
                 continue;
             }
-            SubmeshMask hidden{ rd.HiddenSubmeshes };
-            if ( clustersDrawn )
-            {
-                hidden                  = VsmWalkHidden( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes );
-                const std::size_t count = rd.Mesh->GetSubmeshes().size();
-                std::size_t       shown = 0;
-                while ( shown < count && hidden.Hides( shown ) )
-                    ++shown;
-                if ( shown == count )
-                    continue; // every submesh it shows is drawn as clusters
-            }
+            const std::optional<SubmeshMask> walk =
+                 walkHidden( rd.Mesh, rd.Mesh->GetSubmeshes().size(), rd.GpuPrimitive, rd.HiddenSubmeshes );
+            if ( !walk )
+                continue;
+            const SubmeshMask hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
             // material (Rules::SplitMeshSlotDraws), shaded by SectionSurface, casting only its own submeshes - so
             // a masked section takes the masked route and an opaque one the opaque route.
@@ -1017,24 +1039,20 @@ namespace Desert::Graphic::System
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
                      !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
                     continue;
-                const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
-                if ( field < m_FieldPrimitives.size() &&
-                     heldByBins( m_FieldPrimitives[field], ism.HiddenSubmeshes ) )
-                    continue;
-                // A VSM level while the cluster raster is issued: the field's submeshes whose clusters it draws
-                // (VsmWalkHidden over the field's primitive, the rule the static loop above reads) are never also
-                // walked here; a field with every shown submesh clustered is skipped.
+                // The field's walk (walkHidden over its primitive, the rule the static loop above reads): a still
+                // VG field in a cascade or a VSM level hides exactly its clustered submeshes; a field the bins or
+                // the clusters hold whole is skipped.
                 SubmeshMask ismHidden{ ism.HiddenSubmeshes };
-                if ( clustersDrawn && field < m_FieldPrimitives.size() )
+                if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                     field < m_FieldPrimitives.size() )
                 {
-                    ismHidden               = VsmWalkHidden( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ),
-                                                             m_FieldPrimitives[field], ism.HiddenSubmeshes );
-                    const std::size_t count = ism.Mesh->GetSubmeshes().size();
-                    std::size_t       shown = 0;
-                    while ( shown < count && ismHidden.Hides( shown ) )
-                        ++shown;
-                    if ( shown == count )
-                        continue; // every submesh it shows is drawn as clusters
+                    const auto*       fieldMesh = dynamic_cast<const Desert::StaticMesh*>( ism.Mesh );
+                    const std::size_t submeshes = ism.Mesh->GetSubmeshes().size();
+                    const std::optional<SubmeshMask> walk =
+                         walkHidden( fieldMesh, submeshes, m_FieldPrimitives[field], ism.HiddenSubmeshes );
+                    if ( !walk )
+                        continue;
+                    ismHidden = *walk;
                 }
 
                 // Per-instance, against this cascade. A cascade covers a slice of the view,

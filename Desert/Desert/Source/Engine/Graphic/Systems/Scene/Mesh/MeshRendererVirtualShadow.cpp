@@ -211,15 +211,17 @@ namespace Desert::Graphic::System
             hash.Add( rd.SectionSlot );
             hash.Add( shading.Surface );
             hash.Add( shading.Instance );
-            // Its clustered set (VsmClusteredSubmeshes): the clusters' depth is the cut's, the walk's the mesh LOD's,
-            // so a submesh moving between them redraws its pages. The set is this frame's clusterable submeshes
-            // under LAST frame's issue (this frame's cut is made after the pages, from their dirty mask): a twin's
-            // pipeline or a DAG upload redraws in the frame it lands, a refused or returning cut one frame later.
+            // Its clustered set (ClusterableSubmeshes): the clusters' depth is the cut's, the walk's the mesh
+            // LOD's, so a submesh moving between them redraws its pages. The set is this frame's clusterable
+            // submeshes under LAST frame's issue (this frame's cut is made after the pages, from their dirty
+            // mask): a twin's pipeline or a DAG upload redraws in the frame it lands, a refused or returning cut
+            // one frame later.
             hash.Add( m_VsmClusteredLastFrame );
             if ( m_VsmClusteredLastFrame )
             {
-                VsmClusterableSubmeshes( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes, m_VsmClusteredScratch );
-                for ( const uint64_t word : m_VsmClusteredScratch )
+                ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow, rd.Mesh, rd.GpuPrimitive,
+                                      rd.HiddenSubmeshes, m_ClusterWalkScratch );
+                for ( const uint64_t word : m_ClusterWalkScratch )
                     hash.Add( word );
             }
             addStill( hash.Value,
@@ -272,9 +274,10 @@ namespace Desert::Graphic::System
             if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
                  m_VsmClusteredLastFrame && field < m_FieldPrimitives.size() )
             {
-                VsmClusterableSubmeshes( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ), m_FieldPrimitives[field],
-                                         ism.HiddenSubmeshes, m_VsmClusteredScratch );
-                for ( const uint64_t word : m_VsmClusteredScratch )
+                ClusterableSubmeshes( GpuDriven::MeshPass::VirtualShadow,
+                                      dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ),
+                                      m_FieldPrimitives[field], ism.HiddenSubmeshes, m_ClusterWalkScratch );
+                for ( const uint64_t word : m_ClusterWalkScratch )
                     hash.Add( word );
             }
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
@@ -364,7 +367,7 @@ namespace Desert::Graphic::System
     {
         // Per static queue entry (one per section material: Rules::SplitMeshSlotDraws) and per ISM / foliage field
         // (its m_FieldPrimitives row), each VG submesh it shows that the VirtualShadow table bins at lod 0 into a
-        // fallback group - the lookup VsmClusteredSubmeshes reads its twin through, so clustered, fallback and
+        // fallback group - the lookup ClusterableSubmeshes reads its twin through, so clustered, fallback and
         // refused partition an entry's VG submeshes.
         uint32_t   count = 0;
         const auto countOf =
@@ -401,17 +404,9 @@ namespace Desert::Graphic::System
         return count;
     }
 
-    void MeshRenderer::VsmClusteredSubmeshes( const Desert::StaticMesh* mesh, const GpuDriven::PrimitiveIndex primitive,
-                                              const uint64_t hidden, std::vector<uint64_t>& words ) const
-    {
-        words.clear();
-        if ( m_VsmGeometry )
-            VsmClusterableSubmeshes( mesh, primitive, hidden, words );
-    }
-
-    void MeshRenderer::VsmClusterableSubmeshes( const Desert::StaticMesh*       mesh,
-                                                const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden,
-                                                std::vector<uint64_t>& words ) const
+    void MeshRenderer::ClusterableSubmeshes( const GpuDriven::MeshPass pass, const Desert::StaticMesh* mesh,
+                                             const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden,
+                                             std::vector<uint64_t>& words ) const
     {
         words.clear();
         if ( !m_DrawCommandCache || mesh == nullptr )
@@ -419,29 +414,38 @@ namespace Desert::Graphic::System
         const auto* registration = mesh->GetVirtualMesh();
         if ( registration == nullptr || !*registration )
             return;
+        // No uploaded DAG rows: no candidate this frame (MakeVirtualGeometryCandidates reads the same spans), so
+        // not a VG primitive - words stay empty.
+        const std::vector<VirtualGeometry::VirtualMeshDagSpan> spans =
+             VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() );
+        if ( spans.empty() )
+            return;
         const std::size_t submeshes = mesh->GetSubmeshes().size();
         words.assign( ( submeshes + 63u ) / 64u, uint64_t{ 0 } );
         const SubmeshMask own{ hidden }; // the entry's hidden sections
-        for ( const VirtualGeometry::VirtualMeshDagSpan& span :
-              VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
+        for ( const VirtualGeometry::VirtualMeshDagSpan& span : spans )
         {
             if ( span.Submesh >= submeshes || own.Hides( span.Submesh ) )
                 continue;
-            // A submesh whose group has no twin (a held refusal, SetVirtualShadowGeometry) stays walked, so its
-            // shadow is never lost.
-            if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( GpuDriven::MeshPass::VirtualShadow, primitive,
-                                                                     span.Submesh ) != nullptr )
+            // A submesh whose group has no twin (a fallback, a held refusal) is never rastered as clusters, so the
+            // walk keeps it and its shadow is never lost.
+            if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( pass, primitive, span.Submesh ) != nullptr )
                 words[span.Submesh / 64u] |= uint64_t{ 1 } << ( span.Submesh % 64u );
         }
     }
 
-    SubmeshMask MeshRenderer::VsmWalkHidden( const Desert::StaticMesh* mesh, const GpuDriven::PrimitiveIndex primitive,
-                                             const uint64_t hidden )
+    std::optional<SubmeshMask> MeshRenderer::ClusterWalkHidden( const GpuDriven::MeshPass       pass,
+                                                                const bool                      rasterIssued,
+                                                                const Desert::StaticMesh*       mesh,
+                                                                const GpuDriven::PrimitiveIndex primitive,
+                                                                const uint64_t                  hidden )
     {
-        std::vector<uint64_t>& words = m_VsmClusteredScratch;
-        VsmClusteredSubmeshes( mesh, primitive, hidden, words );
+        if ( !rasterIssued )
+            return std::nullopt;
+        std::vector<uint64_t>& words = m_ClusterWalkScratch;
+        ClusterableSubmeshes( pass, mesh, primitive, hidden, words );
         if ( words.empty() )
-            return SubmeshMask{ hidden };
+            return std::nullopt; // not a VG primitive: the caller's rule (a cascade's bins)
         const uint64_t low = hidden | words.front();
         // The words past submesh 63, without trailing zero words: equal sets intern to one element.
         std::size_t end = words.size();
@@ -449,8 +453,9 @@ namespace Desert::Graphic::System
             --end;
         if ( end <= 1u )
             return SubmeshMask{ low };
-        const auto interned =
-             m_VsmHiddenWords.emplace( words.begin() + 1, words.begin() + static_cast<std::ptrdiff_t>( end ) ).first;
+        const auto first    = words.begin() + 1;
+        const auto last     = words.begin() + static_cast<std::ptrdiff_t>( end );
+        const auto interned = m_ClusterWalkWords.emplace( first, last ).first;
         return SubmeshMask{ low, std::span<const uint64_t>( *interned ) };
     }
 
@@ -460,7 +465,7 @@ namespace Desert::Graphic::System
         m_VsmGeometry.reset();
         m_VsmRefusedGroups     = 0;
         m_VsmFallbackSubmeshes = 0;
-        m_VsmHiddenWords.clear();
+        m_ClusterWalkWords.clear();
     }
 
     Common::ResultStr<std::vector<uint8_t>>
