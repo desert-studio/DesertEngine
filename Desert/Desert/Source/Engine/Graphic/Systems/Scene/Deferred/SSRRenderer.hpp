@@ -165,15 +165,20 @@ namespace Desert::Graphic::System
 
         virtual Common::BoolResultStr Initialize() override
         {
-            m_TraceShader = m_Surface == ReflectingSurface::TranslucentFrontLayer
-                                 ? Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-                                        "SSR", FrontLayerVariant() )
-                                 : Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
+            if ( m_Surface == ReflectingSurface::TranslucentFrontLayer )
+            {
+                auto frontLayer =
+                     Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", FrontLayerVariant() );
+                if ( !frontLayer )
+                    return Common::MakeFormattedError<bool>(
+                         "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) was refused: {}",
+                         frontLayer.GetError() );
+                m_TraceShader = frontLayer.ExtractValue();
+            }
+            else
+                m_TraceShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "SSR" );
             if ( !m_TraceShader )
-                return Common::MakeError( m_Surface == ReflectingSurface::TranslucentFrontLayer
-                                               ? "SSR: the front layer's program (SSR, DESERT_REFLECTIONS_FRONT_LAYER) "
-                                                 "did not compile"
-                                               : "SSR shader not found (SSR)" );
+                return Common::MakeError( "SSR shader not found (SSR)" );
 
             const auto tracePipeline =
                  ComputePipeline::Create( { .Shader = m_TraceShader, .DebugName = "SSRTrace" } );
@@ -261,12 +266,13 @@ namespace Desert::Graphic::System
             if ( m_TracedPipeline && pipeline == m_TracedFor && hitLighting == m_TracedHitLit )
                 return BOOLSUCCESS;
             Core::ShaderVariant variant = TracedVariant( pipeline, hitLighting, m_Surface );
-            auto shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
-            if ( !shader )
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( "SSR", variant );
+            if ( !acquired )
                 return Common::MakeFormattedError<bool>(
-                     "SSR: the traced reflections' program ({}, {}) did not compile",
+                     "SSR: the traced reflections' program ({}, {}) was refused: {}",
                      GlobalIllumination::TracerDefine( pipeline.Tracer ),
-                     GlobalIllumination::HitLightingDefine( pipeline.Hits ) );
+                     GlobalIllumination::HitLightingDefine( pipeline.Hits ), acquired.GetError() );
+            auto shader = acquired.ExtractValue();
             const auto compute = ComputePipeline::Create(
                  { .Shader = shader,
                    .DebugName =
@@ -296,10 +302,11 @@ namespace Desert::Graphic::System
                  m_HitLightingFor == m_TracedVariant.Hash() )
                 return BOOLSUCCESS;
             auto* shaders = Runtime::ResourceRegistry::GetShaderService();
-            auto  program = shaders->AcquireVariant( "SSR/HitLighting", m_TracedVariant );
-            if ( !program )
-                return Common::MakeError( "SSR: the hit-lit ray generation ('SSR/HitLighting') did not compile or "
-                                          "is not registered on this device" );
+            auto  acquired = shaders->AcquireVariant( "SSR/HitLighting", m_TracedVariant );
+            if ( !acquired )
+                return Common::MakeFormattedError<bool>(
+                     "SSR: the hit-lit ray generation ('SSR/HitLighting') was refused: {}", acquired.GetError() );
+            auto program = acquired.ExtractValue();
             RayTracingPipelineSpecification spec{
                  .Program = program, .HitGroups = {}, .DebugName = "SSRHitLighting" };
             for ( const std::string& name : templates )

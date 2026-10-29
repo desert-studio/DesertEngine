@@ -1,0 +1,7 @@
+# PT-RESTIR-1: the path tracer's light choice through a world light grid (PathTracing.LightSampling 1, NVIDIA RTXDI ReGIR: per-cell light reservoirs built by "PathTracing: Light Grid" each traced frame, a few resampled at each vertex by f * cos) instead of every light's estimate at every vertex (0, UE EstimateLight). Both unbiased: the same image in the limit, less noise at the lamps with the grid.
+# Headless shots (the project is outside the repo), F:/BistroFoliageProj, GI PathTraced (6), Reflections PathTraced (5), PathTracing.Denoiser 0 (the raw sum: noise measured on the estimator, not on the filter), 120 paths.
+Дано: F:/BistroFoliageProj, GI_Bistro_Night, GlobalIllumination.Method 6, Reflections.Method 5, PathTracing.Denoiser 0, PathTracing.SamplesPerPixel 120, Lit, camera on the street under the lamps.
+Когда: run Quality "Quality: PathTracing.LightSampling 0"; shoot after 120 paths (SamplesPerPixel reached).
+Тогда 0_night_all_120 the all-lights baseline; 0 errors / 0 VUID in engine_log
+Когда: run Quality "Quality: PathTracing.LightSampling 1"; shoot after 120 paths.
+Тогда [restir_night] 1_night_grid_120: mean brightness within 2 % of 0_night_all_120 (unbiased); local std (the 5 x 5 neighbourhood std of luminance, mean over the lamp-lit pavement and facades) lower than 0_night_all_120's; 0 errors / 0 VUID in engine_log

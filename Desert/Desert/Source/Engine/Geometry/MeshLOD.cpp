@@ -6,13 +6,6 @@
 
 namespace Desert::Geometry
 {
-    namespace
-    {
-        // Ratios for the auto LOD chain (LOD0 = original). A level that cannot beat the previous one yields an
-        // empty set so the assembler reuses that range, keeping LOD selection monotonic.
-        constexpr float kLODRatios[] = { 0.5f, 0.25f, 0.1f };
-    } // namespace
-
     std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
                                                        const std::vector<Index>& localTris,
                                                        const float*              attributes )

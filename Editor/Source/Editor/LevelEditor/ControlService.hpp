@@ -26,7 +26,10 @@
 
 #include <Engine/Desert.hpp>
 
+#include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
+
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -89,9 +92,12 @@ namespace Desert::Editor
         // its way (DisplacementStats::Unsettled, read after the frame's EndFrame).
         // @p materialPipelinesCompiling: the presented frame drew a default-surface stand-in for a material
         // whose own pipeline was on a worker (SceneWorkspace::MaterialPipelinesCompiling).
+        // @p grassInstancesSettling: the presented frame drew grass whose instance buffers may be truncated
+        // (SceneWorkspace::GrassInstancesSettling).
         [[nodiscard]] std::optional<int32_t> OnFramePresented( bool displacementUnsettled,
                                                                bool subsurfaceHistoryConverging,
-                                                               bool materialPipelinesCompiling );
+                                                               bool materialPipelinesCompiling,
+                                                               bool grassInstancesSettling );
 
         // OnDetach: abandon a request still in flight (logged, never answered) and remove the socket file.
         void Close();
@@ -106,6 +112,16 @@ namespace Desert::Editor
         [[nodiscard]] bool AbandonControlRequestIfItsAskerIsGone();
         // Runs one request against the live editor. Never throws, always answers.
         [[nodiscard]] Control::Response ExecuteControlRequest( const Control::Request& request );
+        // nn-check: the NN layer's fused MLP on the GPU against its CPU reference (see the definition).
+        // nn-check: records every path's run into this frame's graph and holds the reply (nullopt) until that
+        // frame completes on the GPU. A path the device cannot run, or whose kernels are refused (the shader's
+        // compile/reflect reason from ShaderService::AcquireVariant), is reported refused WITH that reason beside
+        // the paths that ran; only a missing NN layer is a reply returned now.
+        [[nodiscard]] std::optional<Control::Response> SubmitNnCheck( int64_t id );
+        // Top of ServiceChannel: sends the held nn-check reply once its frame completed. True while one is held
+        // (the channel reads nothing else meanwhile, so the ordering guarantee holds).
+        bool                            ServiceNnCheck();
+        [[nodiscard]] Control::Response CompleteNnCheck();
         // The palette's dictionary, built from the CommandRegistry the palette reads (one list, two readers).
         [[nodiscard]] std::vector<PaletteCommand> BuildDictionary() const;
         // The `set` for the channel's second subject — the editor's own view. See
@@ -144,6 +160,27 @@ namespace Desert::Editor
         // request parked without its reply would have to be re-run to produce one.
         std::optional<Control::Request>  m_ControlInFlight;
         std::optional<Control::Response> m_ControlPendingReply;
+
+        struct PendingNnCheck
+        {
+            int64_t                                                       Id = 0;
+            std::string                                                   Forced;
+            std::vector<std::unique_ptr<Engine::Neural::FusedMlpCheckRun>> Runs;
+            /// A path that did not run. DeviceLacksIt: the resolver refused it because the device does not
+            /// expose what it needs - an expected answer. Otherwise the device claims the path and the kernel,
+            /// its pipeline or its readback refused - a defect, and the check fails on it.
+            struct Refusal
+            {
+                std::string Path;
+                std::string Reason;
+                bool        DeviceLacksIt = false;
+            };
+            std::vector<Refusal> Refused;
+        };
+        /// DeviceSnapshot::NnLastCheck: the last completed nn-check's (path, verdict), every asked path once.
+        std::vector<std::pair<std::string, std::string>> m_NnLastCheck;
+        std::unique_ptr<Engine::Neural::FusedMlpCompute> m_NnCompute; ///< the NN pipelines, kept across checks
+        std::optional<PendingNnCheck>                    m_NnCheck;
 
         // WHICH CONNECTION asked for it. Not "was somebody connected": the editor notices a disconnect and
         // accepts the next client in the SAME service call, so a request parked across that gap would have

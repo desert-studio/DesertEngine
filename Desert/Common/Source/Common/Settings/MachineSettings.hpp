@@ -11,6 +11,7 @@
 // The unknown-key carrier below is a FIELD of the struct, so its type has to be visible here.
 #include <Common/Json/Json.hpp>
 #include <Common/Settings/DisplaySettings.hpp>
+#include <Common/Settings/NeuralKernelPath.hpp>
 #include <Common/Settings/RecommendedQuality.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -126,6 +127,13 @@ namespace Common::Settings
         // once, when the Vulkan device is created (VulkanLogicalDevice::Create); a change takes effect on the next
         // start.
         bool HideRayTracing = false;
+
+        // THE NN LAYER'S KERNEL PATH, FORCED on this machine (NN-RUNTIME step 2; UE keeps such a switch as a
+        // console variable). Absent = the path the device selects (NeuralComputeCaps::Path). A forced path the
+        // device cannot run is refused by the NN layer naming what is missing, never replaced by another
+        // (Neural::ResolveNeuralKernelPath). Written by the palette's "Neural: Kernel path ..." commands, so one
+        // GPU runs all three paths (DesertCtl nn-check).
+        std::optional<NeuralKernelPath> ForcedNeuralKernelPath;
 
         // --- EVERY OTHER KEY THE FILE HAPPENS TO CONTAIN -------------------------------------------
         // NOT A SETTING AND NOT A KEY OF ITS OWN. Json::CarriedKeys is spread flat at this struct's own

@@ -117,6 +117,11 @@ namespace Desert::Graphic::API::Vulkan
              // Tensor cores / WMMA / XMX. Never core in 1.3. Its shapes are listed by the probe.
              { C::CooperativeMatrix, "cooperative_matrix", N::Optional, 0,
                VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME },
+             // Every cooperative-matrix SPIR-V module glslang emits is declared under the Vulkan memory model
+             // (Shaders/Programs/Compute/NeuralFusedMlp.shader), so the coopmat path needs it. Optional: only that
+             // path reads it (SelectNeuralKernelPath).
+             { C::VulkanMemoryModel, "vulkanMemoryModel", N::Optional, V12,
+               VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every

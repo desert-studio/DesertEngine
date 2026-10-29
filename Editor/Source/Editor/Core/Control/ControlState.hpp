@@ -111,6 +111,7 @@ namespace Desert::Editor::Control
         bool NnSubgroupSizeControl         = false;
         bool NnCooperativeMatrix           = false;
         bool NnCooperativeMatrixCompute    = false;
+        bool NnVulkanMemoryModel           = false;
         bool NnComputeRequiredSubgroupSize = false;
 
         uint32_t NnSubgroupSize               = 0;
@@ -136,6 +137,11 @@ namespace Desert::Editor::Control
         std::string              GIMethod;
         std::string              ReflectionsMethod;
         std::string              ShadowsMethod;
+
+        /// The last nn-check's verdict per path it was asked for, in its order: (path, "pass" | "fail: <errors>" |
+        /// "refused: <reason>"). Empty until the first nn-check completes. Every asked path has an entry, so a path
+        /// that is silently missing from a check is visible as missing here.
+        std::vector<std::pair<std::string, std::string>> NnLastCheck;
     };
 
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
@@ -393,6 +399,7 @@ namespace Desert::Editor::Control
             nn["subgroupSizeControl"]         = Common::Json::Value( device.NnSubgroupSizeControl );
             nn["cooperativeMatrix"]           = Common::Json::Value( device.NnCooperativeMatrix );
             nn["cooperativeMatrixCompute"]    = Common::Json::Value( device.NnCooperativeMatrixCompute );
+            nn["vulkanMemoryModel"]           = Common::Json::Value( device.NnVulkanMemoryModel );
             nn["computeRequiredSubgroupSize"] = Common::Json::Value( device.NnComputeRequiredSubgroupSize );
             nn["subgroupSize"]                = Num( device.NnSubgroupSize );
             nn["minSubgroupSize"]             = Num( device.NnMinSubgroupSize );
@@ -400,6 +407,15 @@ namespace Desert::Editor::Control
             nn["maxPushConstantsSize"]        = Num( device.NnMaxPushConstantsSize );
             nn["maxComputeSharedMemorySize"]  = Num( device.NnMaxComputeSharedMemorySize );
             nn["cooperativeMatrixShapes"]     = Common::Json::Value( shapes );
+            Common::Json::Value::Array lastCheck;
+            for ( const auto& [path, verdict] : device.NnLastCheck )
+            {
+                Common::Json::Object entry;
+                entry["path"]    = Str( path );
+                entry["verdict"] = Str( verdict );
+                lastCheck.push_back( Common::Json::Value( entry ) );
+            }
+            nn["lastCheck"] = Common::Json::Value( lastCheck );
 
             Common::Json::Value::Array modes;
             for ( const std::string& mode : device.RtModes )

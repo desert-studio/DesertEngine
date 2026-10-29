@@ -5,7 +5,8 @@ local baseDir = "%{_MAIN_SCRIPT_DIR}/ThirdParty"
 -- Returns a table { include = <dir>, lib = <dir> } or nil.
 --   Windows: LunarG SDK layout  <sdk>/Include, <sdk>/Lib
 --   macOS:   LunarG SDK layout  $VULKAN_SDK/include, $VULKAN_SDK/lib
---            or Homebrew (vulkan-headers + vulkan-loader + molten-vk + shaderc + spirv-cross)
+--            or Homebrew (vulkan-headers + vulkan-loader + molten-vk + shaderc)
+--   SPIRV-Cross is never the SDK's: the vendored ThirdParty/SPIRV-Cross (BuildScripts/ThirdParty/SPIRVCross.lua).
 --   Linux:   /usr/local/vulkan fallback
 -- ============================================================================
 local function findVulkanSDK()
@@ -83,10 +84,10 @@ local vulkan = findVulkanSDK()
 if not vulkan then
     error( "Vulkan SDK not found.\n" ..
            "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n" ..
-           "           shaderc + spirv-cross), or install the LunarG SDK into ~/VulkanSDK.\n" ..
+           "           shaderc), or install the LunarG SDK into ~/VulkanSDK.\n" ..
            "  Windows: run scripts\\Windows\\Setup.bat, which installs the pinned LunarG SDK and sets\n" ..
            "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n" ..
-           "           and spirv-cross-*.lib out of the SDK's Lib directory." )
+           "           out of the SDK's Lib directory (SPIRV-Cross is vendored)." )
 end
 
 -- Shader-toolchain + Vulkan libraries the engine links against.
@@ -108,8 +109,8 @@ local function getVulkanLibs(config)
         table.insert(libs, vulkan.lib .. "/shaderc_combined" .. suffix .. ".lib")
         table.insert(libs, vulkan.lib .. "/shaderc_util" .. suffix .. ".lib")
 
-        table.insert(libs, vulkan.lib .. "/spirv-cross-core" .. suffix .. ".lib")
-        table.insert(libs, vulkan.lib .. "/spirv-cross-glsl" .. suffix .. ".lib")
+        -- spirv-cross is NOT the SDK's: the vendored project (BuildScripts/ThirdParty/SPIRVCross.lua), linked by name
+        -- in Libraries below — the 1.3.296 SDK parser has no SPV_KHR_cooperative_matrix.
 
         -- shaderc_shared.lib is deliberately NOT here either: it is the IMPORT library of
         -- shaderc_shared.dll, and a static library (Desert) that merges it can hand the linker an
@@ -126,8 +127,6 @@ local function getVulkanLibs(config)
         -- No debug-suffixed binaries on unix-likes: same set in both configs.
         table.insert(libs, "vulkan")
         table.insert(libs, "shaderc_combined")   -- shaderc + glslang + SPIRV-Tools in one archive
-        table.insert(libs, "spirv-cross-glsl")
-        table.insert(libs, "spirv-cross-core")
     end
 
     return libs
@@ -290,15 +289,19 @@ Dependencies = {
             lua = baseDir .. "/lua",
             Vulkan = vulkan and vulkan.include or nil,
             shaderc = vulkan and (vulkan.include .. "/shaderc") or nil,
-            spirv_cross = vulkan and (vulkan.include .. "/spirv_cross") or nil,
+            -- The vendored SPIRV-Cross (BuildScripts/ThirdParty/SPIRVCross.lua), included FLAT (<spirv_glsl.hpp>): the
+            -- SDK's include dir carries its own older spirv_cross/ and comes first, so <spirv_cross/...> would pick it.
+            spirv_cross = baseDir .. "/SPIRV-Cross",
         },
         Libraries = {
             Debug = {
                 reflect_cpp = getReflectCppLib("Debug"),
+                spirv_cross = "SPIRVCross",
                 getVulkanLibs("Debug")
             },
             Release = {
                 reflect_cpp = getReflectCppLib("Release"),
+                spirv_cross = "SPIRVCross",
                 getVulkanLibs("Release")
             }
         },

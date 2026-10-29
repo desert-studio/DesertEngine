@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <optional>
 
 // THE SCREEN PROBE GATHER (GI-FINAL-GATHER) — the final gather of the traced GI methods, ported from UE Lumen's
 // LumenScreenProbeGather.cpp / LumenScreenProbeTracing.usf / LumenScreenProbeFiltering.usf /
@@ -295,6 +296,19 @@ namespace Desert::Graphic::GlobalIllumination
         // (SceneRenderer::AddFrameTracedGI); AddPasses asks again (cached).
         [[nodiscard]] Common::BoolResultStr EnsureTraceProgram( const Pipeline& pipeline );
 
+        // Every program under the layout permutation of @p downsample / @p tracedTexels (rebuilt on a change;
+        // the trace legs re-acquired by EnsureTraceProgram). Public so the view validates the layout ONCE, when
+        // it chooses the screen-probe method and before the trace legs are compiled under it
+        // (SceneRenderer::AddFrameTracedGI); AddPasses asks again (cached). A refusal is remembered
+        // (ClaimLayoutRefusalReport), so asking again every frame never re-logs it.
+        [[nodiscard]] Common::BoolResultStr EnsureLayoutPrograms( uint32_t downsample, uint32_t tracedTexels );
+        // Whether the caller holding EnsureLayoutPrograms' refusal is the one to report it: true once per refusal.
+        // A program the shader service refused is answered by ShaderService::ClaimRefusalReport of that program
+        // under the layout variant (the one memory, keyed by shader + variant: a recompile of the fixed shader
+        // forgets it, and a refusal that remains is reported again with its new reason); a layout the shaders do
+        // not compile, or a pipeline that did not build, once per (layout, program).
+        [[nodiscard]] bool ClaimLayoutRefusalReport();
+
         // Every program variant the gather can acquire under the layout @p downsample / @p tracedTexels
         // (ScreenProbeLayoutSupported): the layout-only programs, and Trace's near- and far-field legs under each
         // tracer permutation a Pipeline resolves to (software + surface cache, hardware + surface cache, hardware
@@ -328,14 +342,25 @@ namespace Desert::Graphic::GlobalIllumination
         };
 
         [[nodiscard]] Common::BoolResultStr EnsureImages( glm::uvec2 extent, const ScreenProbeLayout& layout );
-        // Every program under the layout permutation of @p downsample / @p tracedTexels (rebuilt on a change;
-        // the trace legs re-acquired by EnsureTraceProgram).
-        [[nodiscard]] Common::BoolResultStr EnsureLayoutPrograms( uint32_t downsample, uint32_t tracedTexels );
+
+        // EnsureLayoutPrograms' standing refusal (ClaimLayoutRefusalReport); none after a success.
+        struct LayoutRefusal
+        {
+            uint32_t    Downsample   = 0;
+            uint32_t    TracedTexels = 0;
+            std::string Program;          // the refused program; empty: the layout itself was refused
+            bool        Service  = false; // AcquireVariant refused Program (the service's memory answers the report)
+            bool        Reported = false; // a refusal that is not the service's was reported
+        };
+        // Record the refusal of (@p downsample, @p tracedTexels) and return @p error as EnsureLayoutPrograms'.
+        [[nodiscard]] Common::BoolResultStr RefuseLayout( uint32_t downsample, uint32_t tracedTexels,
+                                                          std::string program, bool service, std::string error );
 
         std::array<std::shared_ptr<Shader>, ProgramCount>          m_Shaders;
         std::array<std::shared_ptr<ComputePipeline>, ProgramCount> m_Pipelines;
         mutable std::array<ShaderBindingLayoutCache, ProgramCount> m_Layouts;
         Pipeline                                                   m_TraceProgramFor{};
+        std::optional<LayoutRefusal> m_LayoutRefusal;
         uint32_t m_ProgramDownsample   = 0; // the layout the programs are compiled under (0 = none yet)
         uint32_t m_ProgramTracedTexels = 0;
         uint32_t m_TraceProgramDownsample   = 0; // the layout the trace legs are compiled under

@@ -1,6 +1,7 @@
 #include <Engine/Assets/AssetEviction.hpp>
 #include <Engine/Assets/EvictionDeadline.hpp>
 
+#include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -100,6 +101,10 @@ namespace Desert::Assets
             // roots. That distinction is the whole reason the outcome carries counts rather than a bool.
             LOG_INFO( "[Assets] eviction ({}): {}", why, outcome.Describe() );
         }
+
+        // The meshes this sweep dropped release their pool spans frames later (the mesh retire queue, then the
+        // pool's own retire margin); the pool frees the pages they leave empty as they come back (FIELD-MEM).
+        Graphic::GeometryPool::Get().RequestReleaseEmptyPages();
     }
 
 } // namespace Desert::Assets
