@@ -33,6 +33,7 @@
 #include <ToolProject.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
 #include <array>
@@ -180,6 +181,9 @@ int main( int argc, char** argv )
                                    mask.GetError().c_str() );
                      return 2;
                  }
+                 // The cook resolves the mask by GUID through the content registry, as the editor's does;
+                 // this tool gathers no content roots, so the one file it names enters the registry here.
+                 Desert::Assets::ContentRegistry::NoteFile( InProject( args[first + 1] ) );
                  Desert::Assets::TextureDilationMask set;
                  set.Texture = mask.GetValue().Guid;
                  if ( std::sscanf( args[first + 2], "%u", &set.Channel ) != 1 ||
