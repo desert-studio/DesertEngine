@@ -658,7 +658,63 @@ namespace Desert::Graphic::API::Vulkan
         // round to f, which is the point at which the GPU has demonstrably finished with it.
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
         (void)DestroyQueued( [frameIndex]( uint32_t queued ) { return queued == frameIndex; } );
+#if DESERT_DEV_INSTRUMENTS
+        SampleSceneOpen();
+#endif
         LogCensusIfDue();
+    }
+
+    std::size_t VulkanAllocator::OwedBytes() const
+    {
+        std::size_t owed = 0;
+        for ( const BufferDeletionEntry& entry : m_BufferDeletionQueue )
+            owed += AllocationSize( entry.Allocation );
+        for ( const ImageDeletionEntry& entry : m_ImageDeletionQueue )
+            owed += AllocationSize( entry.Allocation );
+        return owed;
+    }
+
+    void VulkanAllocator::LogSceneOpenPeak( std::string_view when ) const
+    {
+        constexpr double MB = 1024.0 * 1024.0;
+        LOG_INFO( "[Memory] scene open #{} '{}' peak {:.0f} MB, owed {:.1f} MB{}", m_SceneOpenIndex, m_SceneOpenName,
+                  static_cast<double>( m_SceneOpenPeak ) / MB, static_cast<double>( m_SceneOpenOwedAtPeak ) / MB,
+                  when );
+    }
+
+    void VulkanAllocator::BeginSceneOpen( std::string_view scene )
+    {
+        if ( m_SceneOpenIndex > 0 )
+            LogSceneOpenPeak( " (window closed: the next open starts)" );
+        const uint64_t now      = Common::Utils::ReadProcessFootprint().Physical;
+        ++m_SceneOpenIndex;
+        m_SceneOpenName       = std::string( scene );
+        m_SceneOpenPeak       = now;
+        m_SceneOpenOwedAtPeak = OwedBytes();
+        m_SceneOpenPeakLogged = now;
+        // The full subsystem census reports again from here: a second open below the run's first peak is
+        // otherwise never written (FIELD-MEM p3).
+        m_CensusPeakReported = now;
+        LogSceneOpenPeak( " (window opened)" );
+    }
+
+    void VulkanAllocator::SampleSceneOpen()
+    {
+        if ( m_SceneOpenIndex == 0 || s_VmaAllocator == VK_NULL_HANDLE )
+            return;
+        const uint64_t now = Common::Utils::ReadProcessFootprint().Physical;
+        if ( now <= m_SceneOpenPeak )
+            return;
+        m_SceneOpenPeak       = now;
+        m_SceneOpenOwedAtPeak = OwedBytes();
+        // One line per 16 MB of climb: the last line of a window is its peak to within one step, and the
+        // closing line (next BeginSceneOpen) carries the exact value.
+        constexpr uint64_t kStep = 16ull * 1024ull * 1024ull;
+        if ( now >= m_SceneOpenPeakLogged + kStep )
+        {
+            m_SceneOpenPeakLogged = now;
+            LogSceneOpenPeak( "" );
+        }
     }
 
     std::size_t VulkanAllocator::DrainDeletionQueue()
