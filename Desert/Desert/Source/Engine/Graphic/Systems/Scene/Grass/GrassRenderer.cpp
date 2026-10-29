@@ -337,7 +337,7 @@ namespace Desert::Graphic::System
             const uint32_t bound  = needed;
             const uint32_t target = fedBack ? std::min( bound, counted[b] + counted[b] / 4u + 64u ) : 0u;
             const uint32_t step = CapacityStep( target );
-            const uint32_t held = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
+            const uint32_t held   = gpu.BucketCapacities.size() == buckets ? gpu.BucketCapacities[b] : 0u;
             if ( step >= held || held > CapacityStep( bound ) )
             {
                 capacities[b]    = step;

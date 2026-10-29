@@ -20,7 +20,6 @@ namespace Desert::Graphic::API::Vulkan
     class VulkanSwapChain final : public SwapChain
     {
     public:
-
         VulkanSwapChain( const GLFWwindow* window );
         ~VulkanSwapChain() override;
 

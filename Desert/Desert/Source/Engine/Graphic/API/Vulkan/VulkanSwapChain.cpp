@@ -155,9 +155,10 @@ namespace Desert::Graphic::API::Vulkan
              Graphic::ViewExtent{ *width, *height } );
 
         // REFUSED BEFORE ANYTHING IS CREATED. A 0-pixel extent reached an image creation below, which
-        // refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that refusal goes through VK_CHECK_RESULT, which breaks into the debugger. That was the reported crash on
-        // minimising the editor on Windows. Rebuild() already declines to get this far, so reaching here means
-        // the surface lost its area between that check and this one; the frame loop retries.
+        // refuses it with VK_ERROR_INITIALIZATION_FAILED -- and that refusal goes through VK_CHECK_RESULT, which
+        // breaks into the debugger. That was the reported crash on minimising the editor on Windows. Rebuild()
+        // already declines to get this far, so reaching here means the surface lost its area between that check
+        // and this one; the frame loop retries.
         if ( !Graphic::IsUsableViewExtent( resolved ) )
             return Common::MakeFormattedError<bool>(
                  "the surface reports a {}x{} extent, which no swapchain image can be created at (a minimised "
