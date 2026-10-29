@@ -79,7 +79,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                           const std::span<const SystemRasterPass> passes, const bool clearFirst,
-                                          const OverlayTargets& overlay )
+                                          const OverlayTargets& overlay, const bool clearDepth )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
         // every colour, the depth, and at MSAA the resolve images), its reads are what its Declare names. The
@@ -106,8 +106,9 @@ namespace Desert::Graphic
                  clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
                         : RDG::LoadOp::Load();
             const RDG::LoadOp depth =
-                 clears ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
-                        : RDG::LoadOp::Load();
+                 clears && clearDepth
+                      ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
+                      : RDG::LoadOp::Load();
             AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
         }
     }
@@ -170,9 +171,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
     {
-        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour and depth),
-        // then the meshes, then the terrain, both LOADING and sharing the depth so they resolve against each
-        // other.
+        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour - and the depth
+        // on the deferred path; the forward path's depth is its depth prepass's, LOADED), then the meshes, then the
+        // terrain, both LOADING and sharing the depth (forward: CloserOrEqual against the prepass, no write).
         std::vector<SystemRasterPass> passes;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
@@ -183,7 +184,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
-        AddSystemRasters( graph, textures, passes, true );
+        const bool forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
+        AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
     }
 
     void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
@@ -330,22 +332,31 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
-    std::vector<RDG::TextureRef> SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph,
-                                                                             FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
     {
-        // THE FORWARD PATH'S DEPTH PREPASS under Shadows.Method VirtualMaps: the deferred path's own depth
-        // writers - the G-buffer node (static, instanced, skinned, surface generics), the terrain's and the
-        // generic opaque Depth/Normal prepass - into the view's G-buffer (allocated on both paths), so the VSM
-        // marks the local lights' pages from every opaque pixel's depth as on the deferred path. The forward
-        // base pass keeps its own depth (the sky clears it); nothing else reads these targets on this path.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* const meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( !m_GBuffer || meshRenderer == nullptr )
+        // THE FORWARD PATH'S DEPTH PREPASS (UE: the forward renderer's full DepthPass; FDepthPassMeshProcessor):
+        // into the scene target's depth ALONE - no colour attachment, no shading. The meshes' node CLEARS it and
+        // draws every opaque mesh the base pass shades (static, instanced, skinned, the opaque generics through
+        // their DepthNormal program - MeshRenderer::DeclareDepthPrepassDraws); the terrain's LOADS it. The base
+        // pass (AddFrameBasePass) then clears only colour, tests CloserOrEqual and writes no depth, and the
+        // virtual shadow map marks the local lights' pages from this depth.
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Forward: Depth Prepass" );
+        if ( !targets || !targets->Depth.IsValid() )
             return {};
-        AddFrameGBuffer( graph, textures, meshRenderer );
-        AddFrameTerrainGBuffer( graph, textures );
-        AddFrameForwardDepthNormal( graph, textures, meshRenderer );
-        return textures.Colors( m_GBuffer, "GBuffer" );
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        // WIP (VSM-LOCAL step 9, REMAINDER): the meshes' node ("Forward: Depth Prepass", CLEARING, before the
+        // terrain's) lands with MeshRenderer::DeclareDepthPrepassDraws; until then the terrain's node clears.
+        if ( terrain != nullptr )
+            AddRaster(
+                 graph, "Forward: Terrain Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ),
+                 {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+        return depthOnly.Depth;
     }
 
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,

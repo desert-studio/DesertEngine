@@ -109,6 +109,13 @@ namespace Desert::Graphic::System
         void                                DeclareGBufferDraws( RDG::PassBuilder& pass );
         [[nodiscard]] Common::BoolResultStr RenderGBufferManual( const RDG::PassContext& context );
 
+        // Forward path: the frame's terrain into the scene DEPTH alone, before the base pass (UE: the DepthPass;
+        // SceneRenderer::AddFrameForwardDepthPrepass), through TerrainDepth.shader - the base pass's vertex stage,
+        // the hole discard, no shading. SETUP: one binding block per Depth material of the frame's groups (no
+        // scene/view input); the exec records through them. "TerrainPass" then tests CloserOrEqual, writes none.
+        void                                DeclareDepthDraws( RDG::PassBuilder& pass );
+        [[nodiscard]] Common::BoolResultStr RenderDepthManual( const RDG::PassContext& context );
+
         [[nodiscard]] bool CastsShadowThisFrame() const override
         {
             return !m_Queue.empty();
@@ -178,6 +185,8 @@ namespace Desert::Graphic::System
             // map in place of the atlas), made on the first frame that draws with it.
             std::unique_ptr<DataDrivenMaterial> ForwardVsm;
             std::unique_ptr<DataDrivenMaterial> GBuffer;
+            // TerrainDepth.shader: the forward view's depth prepass (the same vertex stage as Forward).
+            std::unique_ptr<DataDrivenMaterial> Depth;
             std::unique_ptr<DataDrivenMaterial> Shadow;
             // TerrainVirtualShadow.shader: the virtual shadow map's caster (the same vertex stage as Shadow).
             std::unique_ptr<DataDrivenMaterial> VirtualShadow;
@@ -251,6 +260,7 @@ namespace Desert::Graphic::System
             return m_ForwardVirtual ? m_PipelineVsm : m_Pipeline;
         }
         std::shared_ptr<GraphicsPipeline> m_GBufferPipeline;
+        std::shared_ptr<GraphicsPipeline> m_DepthPipeline; // the forward depth prepass's (SceneDepthLayout)
         std::shared_ptr<GraphicsPipeline> m_ShadowPipeline;
         // The virtual shadow map's caster: no attachment, no depth test, depth clamp (the mesh renderer's VSM
         // casters' state). Built on the first level that draws the terrain; a refusal is logged once and kept.
@@ -264,6 +274,7 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache m_ForwardLayout;
         ShaderBindingLayoutCache m_ForwardVsmLayout;
         ShaderBindingLayoutCache m_GBufferLayout;
+        ShaderBindingLayoutCache m_DepthLayout;
         ShaderBindingLayoutCache m_ShadowLayout;
 
         std::unordered_map<std::string, ProgramMaterials> m_Materials;

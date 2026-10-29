@@ -976,9 +976,11 @@ namespace Desert::Graphic
         // instead of it (colour 0, the velocity slot and the depth replaced, no resolves; same formats and one
         // sample, so the render pass stays compatible with the one their pipelines were built against) - the
         // overlays after the temporal resolve.
+        // @p clearDepth false: that first node clears colour only and LOADS the depth (the forward base pass over
+        // its depth prepass).
         void AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                std::span<const SystemRasterPass> passes, bool clearFirst,
-                               const OverlayTargets& overlay = {} );
+                               const OverlayTargets& overlay = {}, bool clearDepth = true );
         // The systems' opaque raster, called in this order by OnUpdate: the mesh renderer's cascade depths (each
         // clears its cascade), the scene target's sky + mesh geometry + terrain (the sky clears, the rest load),
         // the outline mask (clears).
@@ -1058,10 +1060,13 @@ namespace Desert::Graphic
             RDG::TextureRef SunMask;
             RDG::TextureRef LocalMasks;
         };
-        // @p gbuffer empty: the forward shading path, before its base pass - no sun pages and no masks (its forward
-        // cells read the map itself, DESERT_LOCAL_SHADOW_VSM), the local lights' pages from @p receiverDepths and
-        // their coarse mips. @p receiverDepths: the forward receivers' device depths (the translucent front layer).
+        // @p viewDepth: the view's reversed-Z opaque depth the local lights' pages are marked from - the G-buffer's,
+        // or the forward depth prepass's (AddFrameForwardDepthPrepass). @p gbuffer empty: the forward shading path,
+        // before its base pass - no sun pages and no masks (its forward cells read the map itself,
+        // DESERT_LOCAL_SHADOW_VSM), the local lights' pages from @p viewDepth, @p receiverDepths and their coarse
+        // mips. @p receiverDepths: the forward receivers' device depths (the translucent front layer).
         FrameVirtualShadows AddFrameVirtualShadows( RDG::Builder& graph, FrameTextures& textures,
+                                                    RDG::TextureRef                     viewDepth,
                                                     const std::vector<RDG::TextureRef>& gbuffer,
                                                     const glm::vec3& directionToSun, const ViewFrame& frame,
                                                     std::span<const RDG::TextureRef> receiverDepths );
@@ -1073,9 +1078,11 @@ namespace Desert::Graphic
         // the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
-        // The forward path's depth prepass under Shadows VirtualMaps (the deferred G-buffer depth writers into the
-        // view's G-buffer); the G-buffer's colour refs for AddFrameVirtualShadows, empty without one.
-        std::vector<RDG::TextureRef> AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
+        // THE FORWARD PATH'S DEPTH PREPASS (UE: the full DepthPass of the forward renderer), every forward frame:
+        // the opaque meshes and the terrain into the scene target's depth ALONE, cleared here; the base pass
+        // (AddFrameBasePass) then loads it, tests CloserOrEqual and writes none. The scene depth it wrote, for
+        // AddFrameVirtualShadows' view depth; invalid without a scene target.
+        RDG::TextureRef AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures );
         // One raster node for @p pass on @p target (its whole attachment set, or @p overlay's), with the pass's
         // declared reads; @p color / @p depth are the loads of the node's targets.
