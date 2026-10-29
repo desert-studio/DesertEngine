@@ -110,6 +110,14 @@ namespace Desert::Graphic
         RDG::TextureRef SceneShadingWord;
         RDG::TextureRef BackdropBlur;   // BackdropBlurRenderer pyramid (all mips) -> UI glass (Render2D)
         RDG::TextureRef HeightFog;      // HeightFogRenderer evaluation (RGBA16F) -> HeightFogApply
+        // The frame's fog as every TRANSLUCENT surface evaluates it at its own depth (Common/ViewFog.glslh): the
+        // FogParams block (graph buffer, uploaded every frame - gates 0 when there is no fog), the sky's aerial
+        // perspective volume and distant sky light, and the volumetric fog's integrated froxels (each the engine's
+        // fallback when absent). Set by SceneRenderer::AddFrameAtmosphericFog, before any translucent draw.
+        RDG::BufferRef  FogParams;
+        RDG::TextureRef FogAerialPerspective;
+        RDG::TextureRef FogDistantSkyLight;
+        RDG::TextureRef FogVolume;
         // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult: transients
         // the view extracts as its history, SceneViewState::Clouds); invalid when the frame has none ->
         // CloudComposite
@@ -273,6 +281,12 @@ namespace Desert::Graphic
         // layout reads them (the forward and translucent cells, Common/MegaLightsVolume.glslh).
         MegaLightsVolumeRefs MegaLightsVolume;
         RDG::TextureRef RainOcclusionMap; // the view's map, or System.White (depth 1: nothing overhead)
+        // The fog a translucent surface applies at its own depth (FrameTransients::FogParams and its three
+        // images).
+        RDG::BufferRef  FogParams;
+        RDG::TextureRef FogAerialPerspective;
+        RDG::TextureRef FogDistantSkyLight;
+        RDG::TextureRef FogVolume;
 
         // Each distinct texture once (System.White fills several slots): what the node declares as read.
         [[nodiscard]] std::vector<RDG::TextureRef> Refs() const
@@ -287,7 +301,7 @@ namespace Desert::Graphic
             for ( const RDG::TextureRef ref :
                   { EnvIrradiance, EnvSpecular, BrdfLut, CloudShadowMap, ReflectionCaptureCubes, LocalShadowAtlas,
                     SceneDepth, SceneShadingWord, SunShadowMask, LocalShadowMasks, RadianceCacheIrradiance, RadianceCacheDepth,
-                    RainOcclusionMap } )
+                    RainOcclusionMap, FogAerialPerspective, FogDistantSkyLight, FogVolume } )
                 add( ref );
             for ( const RDG::TextureRef ref : MegaLightsVolume.Lighting )
                 add( ref );
@@ -352,6 +366,12 @@ namespace Desert::Graphic
     inline constexpr std::string_view                kMegaLightsVolumeBlockName = "MegaLightsVolumeUB";
     inline constexpr std::array<std::string_view, 3> kMegaLightsVolumeNames     = {
          "MegaLightsVolumeRTexture", "MegaLightsVolumeGTexture", "MegaLightsVolumeBTexture" };
+    // Mesh/Surface/SceneFog.glslh (and Programs/Water/WaterSurface.shader through it): the fog block and its
+    // images, each a separate texture read through the pass's LinearClampSampler.
+    inline constexpr std::string_view kSceneFogParamsBlockName       = "FogParamsBuffer";
+    inline constexpr std::string_view kSceneFogAerialPerspectiveName = "SceneFogAerialPerspectiveTexture";
+    inline constexpr std::string_view kSceneFogDistantSkyLightName   = "SceneFogDistantSkyLightTexture";
+    inline constexpr std::string_view kSceneFogVolumeName            = "SceneFogVolumeTexture";
     // The same names as the parameters a block binds them through (RDGShaderParameters.hpp): the string spelling
     // above stays the one source, these are its binding form.
     inline constexpr RDG::TextureParameter       kSceneViewShadowCascadesTexture{ kSceneViewShadowCascadesName };
@@ -389,6 +409,10 @@ namespace Desert::Graphic
     inline constexpr std::array<RDG::TextureParameter, 3> kMegaLightsVolumeTextures{
          RDG::TextureParameter( kMegaLightsVolumeNames[0] ), RDG::TextureParameter( kMegaLightsVolumeNames[1] ),
          RDG::TextureParameter( kMegaLightsVolumeNames[2] ) };
+    inline constexpr RDG::StorageBufferParameter kSceneFogParamsBlock{ kSceneFogParamsBlockName };
+    inline constexpr RDG::TextureParameter       kSceneFogAerialPerspective{ kSceneFogAerialPerspectiveName };
+    inline constexpr RDG::TextureParameter       kSceneFogDistantSkyLight{ kSceneFogDistantSkyLightName };
+    inline constexpr RDG::TextureParameter       kSceneFogVolume{ kSceneFogVolumeName };
 
     [[nodiscard]] inline SceneViewInputs SceneViewInputsOf( const FrameGraphRefs& refs )
     {
@@ -409,6 +433,10 @@ namespace Desert::Graphic
         inputs.LightGridCells         = t.Lights.GridCells;
         inputs.LocalShadowViews       = t.Lights.ShadowViews;
         inputs.Vsm                    = t.Vsm;
+        inputs.FogParams              = t.FogParams;
+        inputs.FogAerialPerspective   = t.FogAerialPerspective;
+        inputs.FogDistantSkyLight     = t.FogDistantSkyLight;
+        inputs.FogVolume              = t.FogVolume;
         inputs.RadianceCacheParams      = t.RadianceCacheParams;
         inputs.RadianceCacheIndirection = t.RadianceCacheIndirection;
         inputs.RadianceCacheProbes      = t.RadianceCacheProbes;
@@ -501,7 +529,7 @@ namespace Desert::Graphic
         for ( std::string_view name :
               { kSceneViewShadowCascadesName, kSceneViewEnvIrradianceName, kSceneViewEnvSpecularName,
                 kSceneViewBrdfLutName, kSceneViewCloudShadowMapName, kSceneViewLocalShadowAtlasName,
-                kSceneViewRainOcclusionMapName } )
+                kSceneViewRainOcclusionMapName, kSceneFogVolumeName } )
             if ( SceneViewDetail::LayoutSamples( layout, name ) )
                 return true;
         return false;
@@ -533,6 +561,26 @@ namespace Desert::Graphic
     // @p layout has a sampled slot for, so a shader that samples no cascade (the glass) is never handed one - the
     // block would fault the pass in ValidatePassBindings ("'ShadowCascadesTexture' is not a resource of shader ...").
     // A block entry IS the read: the node does not also declare inputs.Refs().
+    // The fog a translucent surface applies at its own depth, where the layout declares it
+    // (Mesh/Surface/SceneFog.glslh): the block and its three images, each read trilinear and clamped through the
+    // pass's LinearClampSampler. Called by BindSceneViewInputs, and on its own by the passes that bind the rest of
+    // their view inputs themselves (the particle sprites, the water). A layout that declares the slots in a frame
+    // with no fog renderer has nothing to bind them to: that is a registration fault, and the pass faults by name
+    // in ValidatePassBindings exactly as any other missing scene input does.
+    template <typename Block>
+    void BindSceneFogInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
+    {
+        if ( inputs.FogParams.IsValid() && SceneViewDetail::LayoutReadsBuffer( layout, kSceneFogParamsBlockName ) )
+            block.Storage( kSceneFogParamsBlock, inputs.FogParams, RDG::Access::StorageRead );
+        for ( const auto& [name, texture] :
+              { std::pair{ kSceneFogAerialPerspective, inputs.FogAerialPerspective },
+                std::pair{ kSceneFogDistantSkyLight, inputs.FogDistantSkyLight },
+                std::pair{ kSceneFogVolume, inputs.FogVolume } } )
+            if ( texture.IsValid() && SceneViewDetail::LayoutSamples( layout, name.Name ) )
+                block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+                     .Sampler( RDG::SamplerParameter( "LinearClampSampler" ), RDG::SamplerDesc::LinearClamp() );
+    }
+
     template <typename Block>
     void BindSceneViewInputs( Block& block, const SceneViewInputs& inputs, const RDG::ShaderBindingLayout& layout )
     {
@@ -572,5 +620,6 @@ namespace Desert::Graphic
             if ( SceneViewDetail::LayoutSamples( layout, name.Name ) )
                 block.Texture( name, texture, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
                      .Sampler( RDG::SamplerParameter( "LinearClampSampler" ), RDG::SamplerDesc::LinearClamp() );
+        BindSceneFogInputs( block, inputs, layout );
     }
 } // namespace Desert::Graphic

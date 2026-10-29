@@ -45,9 +45,10 @@
     /* Full intensity within this distance (cm), the falloff measured from it (BISTRO-LIGHTS). */                 \
     FIELD( float, MinRadius, minRadius, { 0.0f } ) /* 84 */                                                       \
     /* std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches. */        \
-    /* The light's layer in the view's ray-traced local shadow masks, or -1 (PointLight.hpp says how). */          \
-    FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 88 */                                              \
-    FIELD( float, Pad2, pad2, { 0.0f } ) /* -> 96 */
+    /* The light's layer in the view's ray-traced local shadow masks, or -1 (PointLight.hpp says how). */         \
+    FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 88 */                                             \
+    /* UE ULightComponent::VolumetricScatteringIntensity (PointLight.hpp says how). */                            \
+    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 92 -> 96 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
