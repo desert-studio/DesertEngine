@@ -7,6 +7,7 @@
 // draws, the deferred main view in two phases around this frame's furthest HZB.
 #include <Engine/Core/Camera.hpp>
 #include <Engine/Core/Frustum.hpp>
+#include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -14,12 +15,20 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/HZBRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryLayout.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
+
+#include <Common/Core/Logger.hpp>
 
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cstdint>
 #include <format>
+#include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -44,6 +53,95 @@ namespace Desert::Graphic
             input.View.Flags              = flags;
             input.Frustum                 = frustum;
             return input;
+        }
+
+        // The VG candidate tables of one frame (InstanceCulling's VirtualGeometryCandidateInput) and their exact
+        // bounds. No tables (invalid Input.PrimitiveDags) when no queued mesh has uploaded DAG rows.
+        struct VirtualGeometryCandidateTables
+        {
+            GpuDriven::VirtualGeometryCandidateInput Input;
+            uint32_t                                 Instances       = 0;
+            uint32_t                                 VisibleCapacity = 0;
+        };
+
+        // From the static queue: per primitive row, the DAG rows of every submesh one of its queue entries shows
+        // (one entry per material slot: their union), appended for cull view 0 (the main view) only, as cut view
+        // 0. Capacity = instances x DAGs; VisibleCapacity = instances x the DAGs' ClusterCount (a cut never draws
+        // more clusters than its DAG holds). Refused when that bound passes the visible-list index range.
+        Common::ResultStr<VirtualGeometryCandidateTables>
+        MakeVirtualGeometryCandidates( RDG::Builder& graph, System::MeshRenderer& meshes,
+                                       const GpuDriven::GpuScene& gpuScene, const uint32_t primitiveRows,
+                                       const uint32_t viewCount )
+        {
+            using Result = VirtualGeometryCandidateTables;
+            const VirtualGeometry::VirtualMeshTable& table = VirtualGeometry::VirtualMeshTable::Get();
+            std::map<uint32_t, std::vector<VirtualGeometry::VirtualMeshDagSpan>> byPrimitive;
+            for ( const auto& rd : meshes.GetStaticQueue() )
+            {
+                if ( rd.Mesh == nullptr || rd.GpuPrimitive >= primitiveRows )
+                    continue;
+                const auto* registration = rd.Mesh->GetVirtualMesh();
+                if ( registration == nullptr || !*registration )
+                    continue;
+                const size_t submeshes = rd.Mesh->GetSubmeshes().size();
+                for ( const VirtualGeometry::VirtualMeshDagSpan& span : table.DescribeUploaded( registration->Index() ) )
+                {
+                    if ( span.Submesh >= submeshes ||
+                         ( span.Submesh < 64u && ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u ) )
+                        continue;
+                    auto& spans = byPrimitive[rd.GpuPrimitive];
+                    if ( std::ranges::none_of( spans, [&span]( const VirtualGeometry::VirtualMeshDagSpan& known )
+                                               { return known.Dag == span.Dag; } ) )
+                        spans.push_back( span );
+                }
+            }
+            Result out;
+            if ( byPrimitive.empty() )
+                return Common::MakeSuccess( std::move( out ) );
+
+            std::vector<glm::uvec2> primitiveDags( primitiveRows, glm::uvec2( 0u ) );
+            std::vector<glm::uvec2> entries;
+            uint64_t                capacity       = 0;
+            uint64_t                visible        = 0;
+            uint64_t                instancesTotal = 0;
+            for ( const auto& [primitive, spans] : byPrimitive )
+            {
+                const uint64_t instances = gpuScene.Primitive( primitive ).InstanceCount;
+                primitiveDags[primitive] =
+                     glm::uvec2( static_cast<uint32_t>( entries.size() ), static_cast<uint32_t>( spans.size() ) );
+                for ( const VirtualGeometry::VirtualMeshDagSpan& span : spans )
+                {
+                    entries.emplace_back( span.Dag, span.RootNode );
+                    visible += instances * span.ClusterCount;
+                }
+                capacity += instances * spans.size();
+                instancesTotal += instances;
+            }
+            if ( visible > VirtualGeometry::kMaxVisibleClusters || capacity > UINT32_MAX )
+                return Common::MakeError<Result>( std::format(
+                     "VirtualGeometry: {} drawn VG instances hold {} clusters / {} candidates, past the visible-list "
+                     "index range {}",
+                     instancesTotal, visible, capacity, VirtualGeometry::kMaxVisibleClusters ) );
+            if ( capacity == 0u || visible == 0u )
+                return Common::MakeSuccess( std::move( out ) );
+
+            std::vector<uint32_t> cutViewOf( std::max( viewCount, 1u ), GpuDriven::kInvalidIndex );
+            cutViewOf[0] = 0u; // the main view is cull view 0 (AddFrameDrawBins) and the cut's only view
+
+            const auto upload = [&graph]( const std::string& name, const std::span<const std::byte> bytes )
+            {
+                const RDG::BufferRef buffer = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = bytes.size() }, name );
+                graph.QueueBufferUpload( buffer, bytes );
+                return buffer;
+            };
+            out.Input.PrimitiveDags = upload( "GPUDriven.VgPrimitiveDags", std::as_bytes( std::span( primitiveDags ) ) );
+            out.Input.DagEntries    = upload( "GPUDriven.VgDagEntries", std::as_bytes( std::span( entries ) ) );
+            out.Input.CutViewOf     = upload( "GPUDriven.VgCutViewOf", std::as_bytes( std::span( cutViewOf ) ) );
+            out.Input.PrimitiveRows = primitiveRows;
+            out.Input.Capacity      = static_cast<uint32_t>( capacity );
+            out.Instances           = static_cast<uint32_t>( std::min<uint64_t>( instancesTotal, UINT32_MAX ) );
+            out.VisibleCapacity     = static_cast<uint32_t>( visible );
+            return Common::MakeSuccess( std::move( out ) );
         }
     } // namespace
 
@@ -145,8 +243,23 @@ namespace Desert::Graphic
             }
         }
 
+        // VIRT-GEOM: the main view's VG candidates ride phase 1 (AddFrameVirtualGeometry cuts them). A refusal is
+        // logged once per message and the frame cuts nothing; the bins draw as before.
+        VirtualGeometryCandidateTables vgTables;
+        if ( auto made = MakeVirtualGeometryCandidates( graph, *meshes, *gpuScene, scene.GetValue().PrimitiveCount,
+                                                        static_cast<uint32_t>( views.size() ) );
+             made )
+            vgTables = std::move( made.GetValue() );
+        else if ( made.GetError() != m_VirtualGeometryLastError )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}; no cluster cut this frame", m_ViewResources.GetName(),
+                       made.GetError() );
+            m_VirtualGeometryLastError = made.GetError();
+        }
+
         const Common::ResultStr<GpuDriven::MainPhaseResult> culled = m_GpuCull.AddMainPhase(
-             graph, scene.GetValue(), meshes->GetDrawCommandCache()->Passes(), upload.GetValue().Passes, views, textures.GraphRefs().System.Black );
+             graph, scene.GetValue(), meshes->GetDrawCommandCache()->Passes(), upload.GetValue().Passes, views,
+             textures.GraphRefs().System.Black, vgTables.Input );
         if ( !culled )
         {
             refuse( culled.GetError() );
@@ -158,6 +271,9 @@ namespace Desert::Graphic
         bins.Carry      = culled.GetValue().Carry;
         bins.Upload     = upload.GetValue();
         bins.Scene      = scene.GetValue();
+        bins.VgCandidates      = culled.GetValue().VirtualGeometry;
+        bins.VgVisibleCapacity = vgTables.VisibleCapacity;
+        bins.VgInstances       = vgTables.Instances;
         // A forward main view has no phase 2 (AddFrameDrawBinsPostOcclusion runs on the deferred path only): its
         // counts are handed here.
         if ( mainPass != GpuDriven::MeshPass::GBuffer )
@@ -342,7 +458,8 @@ namespace Desert::Graphic
         const RDG::TextureRef neutralHzb = textures.GraphRefs().System.Black;
 
         const Common::ResultStr<GpuDriven::MainPhaseResult> mainPhase =
-             m_GpuCull.AddMainPhase( graph, scene.GetValue(), tables, passes, views, neutralHzb );
+             m_GpuCull.AddMainPhase( graph, scene.GetValue(), tables, passes, views, neutralHzb,
+                                     GpuDriven::VirtualGeometryCandidateInput{} ); // the validation cuts nothing
         if ( !mainPhase )
         {
             refuse( mainPhase.GetError() );
@@ -378,5 +495,66 @@ namespace Desert::Graphic
         m_GpuCullValidation.AddFrame( graph, frame.FrameIndex, *gpuScene, views, viewNames, mainPhase.GetValue().Carry,
                                       vsmDirtyMask );
         m_GpuCullLastError.clear();
+    }
+} // namespace Desert::Graphic
+
+namespace Desert::Graphic
+{
+    void SceneRenderer::AddFrameVirtualGeometry( RDG::Builder& graph, const ViewFrame& frame )
+    {
+        m_FrameVirtualGeometry.reset();
+        m_VirtualGeometryInstances = 0;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( !m_FrameDrawBins || !m_FrameDrawBins->VgCandidates.Rows.IsValid() || meshes == nullptr ||
+             meshes->GetDrawCommandCache() == nullptr )
+        {
+            if ( m_ClusterCutCounts )
+                m_ClusterCutCounts->Forget();
+            return; // no VG instance drawn this frame
+        }
+        const FrameDrawBins& bins = *m_FrameDrawBins;
+        if ( !m_VirtualGeometry )
+            m_VirtualGeometry = std::make_unique<VirtualGeometry::VirtualGeometryRenderer>();
+        if ( !m_ClusterCutCounts )
+            m_ClusterCutCounts = std::make_unique<VirtualGeometry::ClusterCutCounts>();
+
+        // The cut's one view: the draw bins' main view (cull view 0, cut view 0 of the candidates).
+        const GpuDriven::CullViewInput&        main = bins.Views.front();
+        const uint32_t                         pass = main.View.Pass;
+        const VirtualGeometry::ClusterCullView view{ .Instance         = main,
+                                                     .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                                                     .ViewWidth        = frame.Split.Render.Width,
+                                                     .ViewHeight       = frame.Split.Render.Height };
+        const VirtualGeometry::ClusterCandidates candidates{ .Rows            = bins.VgCandidates.Rows,
+                                                             .Count           = bins.VgCandidates.Count,
+                                                             .Capacity        = bins.VgCandidates.Capacity,
+                                                             .VisibleCapacity = bins.VgVisibleCapacity };
+        const auto culled = m_VirtualGeometry->AddClusterCull(
+             graph, GpuDriven::CullPhase::Main, bins.Scene, VirtualGeometry::VirtualMeshTable::Get().Import( graph ),
+             meshes->GetDrawCommandCache()->Passes()[pass], bins.Upload.Passes[pass], bins.Upload.SubmeshTransforms,
+             candidates, std::span( &view, 1 ) );
+        if ( !culled )
+        {
+            m_ClusterCutCounts->Forget();
+            if ( culled.GetError() != m_VirtualGeometryLastError )
+                LOG_ERROR( "[SceneRenderer] {}: {}; no cluster cut this frame", m_ViewResources.GetName(),
+                           culled.GetError() );
+            m_VirtualGeometryLastError = culled.GetError();
+            return;
+        }
+        m_ClusterCutCounts->AddFrame( graph, frame.FrameIndex, culled.GetValue() );
+        m_FrameVirtualGeometry     = FrameVirtualGeometry{ .VisibleClusters = culled.GetValue().VisibleClusters,
+                                                           .RasterArgs      = culled.GetValue().RasterArgs,
+                                                           .VisibleCapacity = culled.GetValue().VisibleCapacity,
+                                                           .Pass            = pass };
+        m_VirtualGeometryInstances = bins.VgInstances;
+        m_VirtualGeometryLastError.clear();
+    }
+
+    SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
+    {
+        return { .Instances       = m_VirtualGeometryInstances,
+                 .ClustersVisible = m_ClusterCutCounts ? m_ClusterCutCounts->LastCount().ClustersVisible : 0u };
     }
 } // namespace Desert::Graphic

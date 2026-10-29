@@ -508,7 +508,8 @@ namespace Desert::Graphic::VirtualGeometry
             spans.push_back( { .Dag          = d,
                                .Submesh      = dag.Submesh,
                                .FirstCluster = dag.FirstCluster,
-                               .ClusterCount = dag.ClusterCount } );
+                               .ClusterCount = dag.ClusterCount,
+                               .RootNode     = dag.RootNode } );
         }
         return spans;
     }

@@ -64,6 +64,7 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t Submesh      = 0;
         uint32_t FirstCluster = 0; // Clusters[FirstCluster, +ClusterCount)
         uint32_t ClusterCount = 0;
+        uint32_t RootNode     = 0; // Hierarchy[] row the cut starts at (GpuClusterDag::RootNode)
     };
 
     class VirtualMeshTable;

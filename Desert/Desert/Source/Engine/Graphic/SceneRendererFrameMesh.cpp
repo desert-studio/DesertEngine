@@ -507,44 +507,31 @@ namespace Desert::Graphic
     }
     void SceneRenderer::AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures )
     {
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshRenderer   = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        // This frame's cluster cut (AddFrameVirtualGeometry): nothing to draw without one.
         const ViewFrame* view = GetViewFrame();
-        if ( meshRenderer == nullptr || view == nullptr )
+        if ( view == nullptr || !m_FrameVirtualGeometry || !m_FrameDrawBins )
             return;
         if ( !m_VirtualGeometryClusterView )
             m_VirtualGeometryClusterView = std::make_unique<VirtualGeometry::ClusterView>();
         if ( !m_VirtualGeometryClusterView->Ensure() )
             return;
-        // The static queue the scene drew this frame: every entry whose mesh has uploaded table rows, each of its
-        // shown submeshes at the transform its draw used (primitive world * submesh transform, VulkanRenderer).
-        const VirtualGeometry::VirtualMeshTable&      table = VirtualGeometry::VirtualMeshTable::Get();
-        std::vector<VirtualGeometry::ClusterViewDraw> draws;
-        for ( const auto& rd : meshRenderer->GetStaticQueue() )
-        {
-            if ( rd.Mesh == nullptr )
-                continue;
-            const auto* registration = rd.Mesh->GetVirtualMesh();
-            if ( registration == nullptr || !*registration )
-                continue;
-            const auto& submeshes = rd.Mesh->GetSubmeshes();
-            for ( const VirtualGeometry::VirtualMeshDagSpan& span : table.DescribeUploaded( registration->Index() ) )
-            {
-                if ( span.Submesh >= submeshes.size() ||
-                     ( span.Submesh < 64u && ( ( rd.HiddenSubmeshes >> span.Submesh ) & 1u ) != 0u ) )
-                    continue;
-                draws.push_back( { .WorldViewProjection =
-                                        view->JitteredViewProjection * rd.Transform * submeshes[span.Submesh].Transform,
-                                   .FirstCluster = span.FirstCluster,
-                                   .ClusterCount = span.ClusterCount } );
-            }
-        }
-        if ( draws.empty() )
-            return;
-        const VirtualGeometry::VirtualMeshBuffers buffers = table.Import( graph );
+        const VirtualGeometry::VirtualMeshBuffers buffers = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
         const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Virtual Geometry Clusters" );
-        if ( !scene || !buffers.Clusters.IsValid() || !buffers.Dags.IsValid() )
+        if ( !scene )
             return;
+        const FrameDrawBins&                  bins = *m_FrameDrawBins;
+        const FrameVirtualGeometry&           cut  = *m_FrameVirtualGeometry;
+        const VirtualGeometry::ClusterViewDraw draw{ .Clusters          = buffers.Clusters,
+                                                     .Dags              = buffers.Dags,
+                                                     .Primitives        = bins.Scene.Primitives,
+                                                     .Instances         = bins.Scene.Instances,
+                                                     .PrimitiveDraws    = bins.Upload.Passes[cut.Pass].PrimitiveDraws,
+                                                     .DrawSlots         = bins.Upload.Passes[cut.Pass].DrawSlots,
+                                                     .SubmeshTransforms = bins.Upload.SubmeshTransforms,
+                                                     .VisibleClusters   = cut.VisibleClusters,
+                                                     .RasterArgs        = cut.RasterArgs,
+                                                     .VisibleCapacity   = cut.VisibleCapacity,
+                                                     .ViewProjection    = view->JitteredViewProjection };
         // LOAD colour and depth: the clusters are depth-tested against the composited scene and write no depth.
         VirtualGeometry::ClusterView* const clusterView = m_VirtualGeometryClusterView.get();
         AddRaster(
@@ -552,9 +539,7 @@ namespace Desert::Graphic
              RDG::LoadOp::Load(), {},
              [clusterView]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return clusterView->Record( context ); },
-             [clusterView, clusters = buffers.Clusters, dags = buffers.Dags,
-              draws = std::move( draws )]( RDG::PassBuilder& pass )
-             { clusterView->Declare( pass, clusters, dags, draws ); } );
+             [clusterView, draw]( RDG::PassBuilder& pass ) { clusterView->Declare( pass, draw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

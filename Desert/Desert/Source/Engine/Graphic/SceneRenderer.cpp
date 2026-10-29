@@ -1,5 +1,6 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
@@ -1034,6 +1035,9 @@ namespace Desert::Graphic
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
+        // Tenths of a pixel (Scalability.cpp row) -> pixels per edge.
+        m_VirtualGeometryMaxPixelsPerEdge =
+             static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) / 10.0f;
         m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
         m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
@@ -1989,6 +1993,7 @@ namespace Desert::Graphic
         // frame's graph is not a handle in this one.
         m_TracedFrameShared = {};
         AddFrameDrawBins( graph, textures, frame );
+        AddFrameVirtualGeometry( graph, frame );
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).

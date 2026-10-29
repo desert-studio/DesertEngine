@@ -13,6 +13,9 @@ Shader "InstanceCull"
     //                 VSM level's drawn-page mask), LOD (the twin of Geometry::SelectLODFromBounds), then the
     //                 PREVIOUS frame's furthest HZB through PrevViewProjection. Survivors go into their LOD's bins;
     //                 the HZB-rejected are appended to Occluded for step 2. Writes Visibility[view, instance].
+    //                 VIRTUAL GEOMETRY (Params3.x != 0): an instance past the frustum test whose primitive has DAG
+    //                 rows (VgPrimitiveDags) in a view with a cluster-cut view (VgCutViewOf) appends one
+    //                 VgClusterCandidate per DAG row BEFORE the HZB test - the cluster cut owns VG occlusion.
     //  2 POST         one thread per occluded entry (indirect, sized by step 3): this frame's furthest HZB through
     //                 ViewProjection; the newly visible go into this phase's bins.
     //  3 ARGS         one thread: the occluded count -> step 2's VkDispatchIndirectCommand.
@@ -28,6 +31,7 @@ Shader "InstanceCull"
 
         #include <Common/GpuScene.glslh>
         #include <Common/VirtualShadowMap.glslh>
+        #include <Common/VirtualGeometry.glslh>
 
         ReadBuffer(0) GpuCullPrimitives
         {
@@ -104,6 +108,28 @@ Shader "InstanceCull"
             uint VisibleInstanceIds[];
         };
 
+        // THE VG CANDIDATE APPEND (GpuDriven::VirtualGeometryCandidateInput / Output).
+        ReadBuffer(17) GpuCullVgPrimitiveDags
+        {
+            uvec2 VgPrimitiveDags[]; // per primitive row: (first VgDagEntries row, DAG count)
+        };
+        ReadBuffer(18) GpuCullVgDagEntries
+        {
+            uvec2 VgDagEntries[]; // (Dags[] row, its RootNode)
+        };
+        ReadBuffer(19) GpuCullVgCutViewOf
+        {
+            uint VgCutViewOf[]; // by the caller's view index: the candidate's View, DESERT_GPU_INVALID_INDEX = none
+        };
+        Buffer(20) GpuCullVgCandidates
+        {
+            VgClusterCandidate VgCandidates[];
+        };
+        Buffer(21) GpuCullVgCandidateCount
+        {
+            uint VgCandidateCount; // may pass Params3.y: the cluster cut clamps
+        };
+
         Uniform sampler PointClampSampler;
         Uniform(15) texture2D GpuCullHzbTexture; // the furthest HZB of the dispatch's HZB view (last frame's in step 1)
         #define GpuCullHzb sampler2D(GpuCullHzbTexture, PointClampSampler)
@@ -113,6 +139,7 @@ Shader "InstanceCull"
             uvec4 Params;  // x = step, y = instance rows, z = views of this dispatch, w = first view in Views[]
             uvec4 Params2; // x = bins of the pass, y = visible capacity per view, z = primitive rows of the pass
                            // table, w = 1 when a HZB is bound
+            uvec4 Params3; // x = VG primitive rows (0 = no candidate append), y = VG candidate capacity
         };
 
         uint ThreadIndex()
@@ -332,6 +359,24 @@ Shader "InstanceCull"
             }
         }
 
+        // One VgClusterCandidate per DAG row of the instance's primitive, for the view's cluster-cut view.
+        void AppendVgCandidates( uint viewIndex, uint instanceRow, uint primitiveRow )
+        {
+            if ( primitiveRow >= Params3.x )
+                return;
+            const uint cutView = VgCutViewOf[viewIndex];
+            if ( cutView == DESERT_GPU_INVALID_INDEX )
+                return;
+            const uvec2 range = VgPrimitiveDags[primitiveRow];
+            for ( uint k = 0u; k < range.y; ++k )
+            {
+                const uvec2 entry = VgDagEntries[range.x + k];
+                const uint  slot  = atomicAdd( VgCandidateCount, 1u );
+                if ( slot < Params3.y )
+                    VgCandidates[slot] = VgClusterCandidate( instanceRow, entry.x, entry.y, cutView );
+            }
+        }
+
         void InitDraws()
         {
             const uint i = ThreadIndex();
@@ -391,6 +436,8 @@ Shader "InstanceCull"
             }
             const uint lod  = SelectLod( view, primitive, world, empty );
             const uint word = DESERT_GPU_CULL_VISIBILITY_IN_VIEW | min( lod, DESERT_GPU_CULL_VISIBILITY_LOD_MASK );
+            if ( Params3.x != 0u )
+                AppendVgCandidates( view.ViewIndex, instanceRow, instance.Primitive );
 
             if ( !empty && Params2.w != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
                  ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u &&

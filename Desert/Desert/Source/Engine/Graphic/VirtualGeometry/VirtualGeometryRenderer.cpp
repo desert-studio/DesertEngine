@@ -23,6 +23,9 @@
 
 namespace Desert::Graphic::VirtualGeometry
 {
+    static_assert( sizeof( GpuClusterCandidate ) == GpuDriven::kVirtualGeometryCandidateBytes,
+                   "InstanceCulling sizes the candidate rows it appends by kVirtualGeometryCandidateBytes" );
+
     namespace
     {
         // The slot names of Programs/VirtualGeometry/ClusterCut.shader, spelled once (RDGShaderParameters.hpp).
