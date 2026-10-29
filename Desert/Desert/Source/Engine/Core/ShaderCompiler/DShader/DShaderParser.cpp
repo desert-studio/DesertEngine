@@ -1871,13 +1871,11 @@ namespace Desert::Core::Preprocess
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
                  kSurfaceShadingModelDefine, shadingModelDefine ) +
-                 ( binned ? std::format( "#define {} 1
-", kSurfaceBinnedDefine ) : std::string() );
+                 ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() );
             // A binned cell's fragment `Material` reads the row its vertex stage resolved (kSurfaceMaterialRowMacro):
             // named ahead of the generated declarations, which default it to the push block's.
             const std::string cellDecls =
-                 binned ? std::format( "#define {} g_SurfaceMaterialRow
-{}", kSurfaceMaterialRowMacro, autoDecls )
+                 binned ? std::format( "#define {} g_SurfaceMaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls )
                         : autoDecls;
             // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
             const bool wets =
