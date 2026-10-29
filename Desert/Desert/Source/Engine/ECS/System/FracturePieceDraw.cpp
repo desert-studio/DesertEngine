@@ -17,7 +17,8 @@
 
 #include <algorithm>
 #include <format>
-#include <span>
+#include <span>
+
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
 namespace Desert::ECS
@@ -153,7 +154,7 @@ namespace Desert::ECS
             // overrides are what the level shows), else the source mesh asset's.
             std::vector<Assets::AssetHandle> slots;
             if ( registry.has<StaticMeshComponent>( entity ) )
-                slots = registry.get<StaticMeshComponent>( entity ).MaterialSlots;
+                slots = registry.get<StaticMeshComponent>( entity ).GetMaterialSlots();
             if ( slots.empty() )
                 slots = services.SourceSlots( Assets::AssetHandle(
                      static_cast<uint64_t>( Common::Content::HandleForGuid( fracture->SourceMesh ) ) ) );

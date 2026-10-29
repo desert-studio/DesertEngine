@@ -227,7 +227,7 @@ namespace Desert::Core::Serialize
             return s;
         }
 
-        // A component whose ENTIRE state is one bool (VisibilityComponent::Visible). It gets its own maker
+        // A component whose ENTIRE state is one bool (VisibilityComponent: IsVisible / ECS::SetVisible). It gets its own maker
         // rather than reusing MakeMarker above, because MakeMarker WOULD COMPILE AND WOULD BE WRONG: it
         // writes an empty object and re-adds the component on load, so the value comes back at the
         // struct's default. `Visible = false` would round-trip to `true` — the presence would survive and
@@ -237,23 +237,26 @@ namespace Desert::Core::Serialize
         // A record that carries the component but not its field is REPORTED and left at the default: an
         // entity is drawn either way, so a silent choice here is a scene that renders differently from
         // the file it claims to be.
+        // The value is read through `get` and written through `set`, the component's one writer (ECS::SetVisible),
+        // so a loaded flag reaches the render-state dirty set like any other write.
         template <class TComponent>
-        ComponentSerializer MakeFlag( std::string key, std::string field, bool TComponent::*member )
+        ComponentSerializer MakeFlag( std::string key, std::string field, bool ( TComponent::*get )() const,
+                                      bool ( *set )( entt::registry&, entt::entity, bool ) )
         {
             ComponentSerializer s;
             s.Key       = std::move( key );
             s.Has       = []( ECS::Entity e ) { return e.HasComponent<TComponent>(); };
-            s.Serialize = [field, member]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
+            s.Serialize = [field, get]( ECS::Entity e, const Assets::AssetManager& ) -> Common::Json::Value
             {
                 Common::Json::Object object;
-                object[field] = Common::Json::Value( e.GetComponent<TComponent>().*member );
+                object[field] = Common::Json::Value( ( e.GetComponent<TComponent>().*get )() );
                 return { object };
             };
-            s.Deserialize = [field, member]( ECS::Entity e, const Common::Json::Node&           g,
-                                             const Assets::AssetManager&, Common::Json::Issues& issues )
+            s.Deserialize = [field, set]( ECS::Entity e, const Common::Json::Node& g, const Assets::AssetManager&,
+                                          Common::Json::Issues& issues )
             {
-                auto& comp =
-                     e.HasComponent<TComponent>() ? e.GetComponent<TComponent>() : e.AddComponent<TComponent>();
+                if ( !e.HasComponent<TComponent>() )
+                    e.AddComponent<TComponent>();
 
                 if ( !g.ExpectKind( Common::Json::Kind::Object, issues ) )
                     return;
@@ -264,7 +267,9 @@ namespace Desert::Core::Serialize
                          { g.Where().Key( field ).ToString(), "bool", "nothing (the member is absent)" } );
                     return;
                 }
-                value->ReadValue( comp.*member, issues );
+                bool flag = ( e.GetComponent<TComponent>().*get )();
+                value->ReadValue( flag, issues );
+                set( *e.GetRegistry(), e.GetHandle(), flag );
             };
             return s;
         }
@@ -1411,31 +1416,31 @@ namespace Desert::Core::Serialize
                 }
                 auto                 resolver = MakeAssetResolver( assetManager );
                 Common::Json::Object out      = Reflection::SerializeReflected( *type, &smc, &resolver );
-                meshSer.Primitive = smc.Primitive;
+                meshSer.Primitive = smc.GetPrimitive();
 
                 // Rendering controls: write only non-default values (absent = default on load).
-                if ( smc.OutlineDraw )
-                    meshSer.OutlineDraw = smc.OutlineDraw;
-                if ( smc.ForcedLOD >= 0 )
-                    meshSer.ForcedLOD = smc.ForcedLOD;
-                if ( smc.LODBias != 0 )
-                    meshSer.LODBias = smc.LODBias;
-                if ( !smc.CastShadows )
-                    meshSer.CastShadows = smc.CastShadows;
-                if ( !smc.ReceiveShadows )
-                    meshSer.ReceiveShadows = smc.ReceiveShadows;
-                if ( !smc.CastContactShadow )
-                    meshSer.CastContactShadow = smc.CastContactShadow;
-                if ( smc.TranslucencySortPriority != 0 )
-                    meshSer.TranslucencySortPriority = smc.TranslucencySortPriority;
-                if ( smc.MaxDrawDistance > 0.0f )
-                    meshSer.MaxDrawDistance = smc.MaxDrawDistance;
-                if ( smc.HiddenSubmeshes != 0 )
-                    meshSer.HiddenSubmeshes = smc.HiddenSubmeshes;
+                if ( smc.GetOutlineDraw() )
+                    meshSer.OutlineDraw = smc.GetOutlineDraw();
+                if ( smc.GetForcedLOD() >= 0 )
+                    meshSer.ForcedLOD = smc.GetForcedLOD();
+                if ( smc.GetLODBias() != 0 )
+                    meshSer.LODBias = smc.GetLODBias();
+                if ( !smc.GetCastShadows() )
+                    meshSer.CastShadows = smc.GetCastShadows();
+                if ( !smc.GetReceiveShadows() )
+                    meshSer.ReceiveShadows = smc.GetReceiveShadows();
+                if ( !smc.GetCastContactShadow() )
+                    meshSer.CastContactShadow = smc.GetCastContactShadow();
+                if ( smc.GetTranslucencySortPriority() != 0 )
+                    meshSer.TranslucencySortPriority = smc.GetTranslucencySortPriority();
+                if ( smc.GetMaxDrawDistance() > 0.0f )
+                    meshSer.MaxDrawDistance = smc.GetMaxDrawDistance();
+                if ( smc.GetHiddenSubmeshes() != 0 )
+                    meshSer.HiddenSubmeshes = smc.GetHiddenSubmeshes();
 
                 // The SOURCE is saved, never the render mesh derived from it (see EditableMesh.hpp).
-                if ( smc.EditableMesh )
-                    meshSer.EditMesh = Geometry::ToSerialized( *smc.EditableMesh );
+                if ( smc.GetEditableMesh() )
+                    meshSer.EditMesh = Geometry::ToSerialized( *smc.GetEditableMesh() );
 
                 const Common::Json::Value rest = Common::Json::FromStruct( meshSer );
                 if ( const auto* fields = std::get_if<Common::Json::Object>( &rest.variant() ) )
@@ -1464,18 +1469,20 @@ namespace Desert::Core::Serialize
                 auto  resolver = MakeAssetResolver( assetManager );
                 // MeshHandle / MaterialSlots: the reflected fields, read by reflection ({Guid, Path} each).
                 Reflection::DeserializeReflected( *type, &smc, g, issues, &resolver );
-                smc.Primitive = meshData.Primitive;
+                // The rest of the value is built on a copy and stated once through the writer below.
+                ECS::StaticMeshDesc desc = smc.GetDesc();
+                desc.Primitive           = meshData.Primitive;
 
-                smc.OutlineDraw     = meshData.OutlineDraw.value_or( smc.OutlineDraw );
-                smc.ForcedLOD       = meshData.ForcedLOD.value_or( smc.ForcedLOD );
-                smc.LODBias         = meshData.LODBias.value_or( smc.LODBias );
-                smc.CastShadows     = meshData.CastShadows.value_or( smc.CastShadows );
-                smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.ReceiveShadows );
-                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.CastContactShadow );
-                smc.TranslucencySortPriority =
-                     meshData.TranslucencySortPriority.value_or( smc.TranslucencySortPriority );
-                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.MaxDrawDistance );
-                smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.HiddenSubmeshes );
+                desc.OutlineDraw       = meshData.OutlineDraw.value_or( desc.OutlineDraw );
+                desc.ForcedLOD         = meshData.ForcedLOD.value_or( desc.ForcedLOD );
+                desc.LODBias           = meshData.LODBias.value_or( desc.LODBias );
+                desc.CastShadows       = meshData.CastShadows.value_or( desc.CastShadows );
+                desc.ReceiveShadows    = meshData.ReceiveShadows.value_or( desc.ReceiveShadows );
+                desc.CastContactShadow = meshData.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.TranslucencySortPriority =
+                     meshData.TranslucencySortPriority.value_or( desc.TranslucencySortPriority );
+                desc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( desc.MaxDrawDistance );
+                desc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( desc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )
                 {
@@ -1492,7 +1499,7 @@ namespace Desert::Core::Serialize
                                    tag, loaded.GetError() );
                     }
                     else if ( auto set = ECS::SetEditableMesh(
-                                   smc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
+                                   desc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
                               !set.IsSuccess() )
                     {
                         LOG_ERROR(
@@ -1500,6 +1507,7 @@ namespace Desert::Core::Serialize
                              tag, set.GetError() );
                     }
                 }
+                ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1518,20 +1526,20 @@ namespace Desert::Core::Serialize
                 Assets::InstancedStaticMeshComponentSer ser;
 
                 auto resolver = MakeAssetResolver( assetManager );
-                if ( ism.MeshHandle )
+                if ( ism.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
+                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                          !p.empty() )
                         ser.MeshPath = p;
                     ser.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( ism.MeshHandle ), "StaticMeshAsset" );
+                         MeshGuidText( resolver, static_cast<uint64_t>( ism.GetMeshHandle() ), "StaticMeshAsset" );
                 }
 
-                if ( !ism.MaterialSlots.empty() )
+                if ( !ism.GetMaterialSlots().empty() )
                 {
                     ser.MaterialPaths = std::vector<std::string>{};
                     ser.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : ism.MaterialSlots )
+                    for ( auto handle : ism.GetMaterialSlots() )
                     {
                         ser.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
@@ -1539,18 +1547,18 @@ namespace Desert::Core::Serialize
                              resolver.ToGuid( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
                     }
                 }
-                ser.Primitive = ism.Primitive;
-                if ( !ism.CastShadows )
-                    ser.CastShadows = ism.CastShadows;
-                if ( !ism.CastContactShadow )
-                    ser.CastContactShadow = ism.CastContactShadow;
-                if ( ism.MaxDrawDistance > 0.0f )
-                    ser.MaxDrawDistance = ism.MaxDrawDistance;
-                if ( !ism.InstanceTransforms.empty() )
+                ser.Primitive = ism.GetPrimitive();
+                if ( !ism.GetCastShadows() )
+                    ser.CastShadows = ism.GetCastShadows();
+                if ( !ism.GetCastContactShadow() )
+                    ser.CastContactShadow = ism.GetCastContactShadow();
+                if ( ism.GetMaxDrawDistance() > 0.0f )
+                    ser.MaxDrawDistance = ism.GetMaxDrawDistance();
+                if ( !ism.GetInstanceTransforms().empty() )
                 {
                     std::vector<std::array<float, 16>> flat;
-                    flat.reserve( ism.InstanceTransforms.size() );
-                    for ( const auto& m : ism.InstanceTransforms )
+                    flat.reserve( ism.GetInstanceTransforms().size() );
+                    for ( const auto& m : ism.GetInstanceTransforms() )
                     {
                         std::array<float, 16> a{};
                         std::memcpy( a.data(), &m[0][0], sizeof( float ) * 16 );
@@ -1570,14 +1578,14 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& ism      = entity.AddComponent<ECS::InstancedStaticMeshComponent>();
-                auto  resolver = MakeAssetResolver( assetManager );
+                ECS::InstancedStaticMeshDesc desc;
+                auto                         resolver = MakeAssetResolver( assetManager );
 
                 const uint64_t meshHandle =
                      ResolveMeshRef( resolver, data.MeshGuid, data.MeshPath, "StaticMeshAsset" );
                 if ( meshHandle != 0 )
                 {
-                    ism.MeshHandle = Common::UUID( meshHandle );
+                    desc.MeshHandle = Common::UUID( meshHandle );
                 }
 
                 size_t slotCount = 0;
@@ -1591,28 +1599,28 @@ namespace Desert::Core::Serialize
                 }
                 if ( slotCount > 0 )
                 {
-                    ism.MaterialSlots.clear();
+                    desc.MaterialSlots.reserve( slotCount );
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        ism.MaterialSlots.emplace_back(
+                        desc.MaterialSlots.emplace_back(
                              ResolveSlotRef( resolver, data.MaterialGuids, data.MaterialPaths, i ) );
                     }
                 }
-                ism.Primitive   = data.Primitive;
-                ism.CastShadows     = data.CastShadows.value_or( ism.CastShadows );
-                ism.CastContactShadow = data.CastContactShadow.value_or( ism.CastContactShadow );
-                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.MaxDrawDistance );
+                desc.Primitive         = data.Primitive;
+                desc.CastShadows       = data.CastShadows.value_or( desc.CastShadows );
+                desc.CastContactShadow = data.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.MaxDrawDistance   = data.MaxDrawDistance.value_or( desc.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {
-                    ism.InstanceTransforms.clear();
-                    ism.InstanceTransforms.reserve( data.InstanceTransforms->size() );
+                    desc.InstanceTransforms.reserve( data.InstanceTransforms->size() );
                     for ( const auto& a : *data.InstanceTransforms )
                     {
                         glm::mat4 m( 1.0f );
                         std::memcpy( &m[0][0], a.data(), sizeof( float ) * 16 );
-                        ism.InstanceTransforms.push_back( m );
+                        desc.InstanceTransforms.push_back( m );
                     }
                 }
+                ECS::SetInstancedStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1629,33 +1637,33 @@ namespace Desert::Core::Serialize
             {
                 const auto&                  mc = entity.GetComponent<ECS::MaterialComponent>();
                 Assets::MaterialComponentSer ser;
-                if ( !mc.ShaderName.empty() )
+                if ( !mc.GetShaderName().empty() )
                 {
                     // BY GUID (SCNE 31): the runtime binds by name, the file names the shader's identity.
                     const std::string context = EntityContext( entity );
-                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.ShaderName,
+                    if ( auto ref = Assets::FindShaderRefByName( assetManager, mc.GetShaderName(),
                                                                  { "shader", "Material.Shader", context } ) )
                         ser.Shader = ref.ExtractValue();
                     else
                         LOG_ERROR( "[Scene] {} - the shader slot is written EMPTY", ref.GetError() );
                 }
 
-                if ( !mc.Params.empty() )
+                if ( !mc.GetParams().empty() )
                 {
                     std::vector<Assets::MaterialParamSer> ps;
-                    for ( const auto& p : mc.Params )
+                    for ( const auto& p : mc.GetParams() )
                         ps.push_back( { p.Name, p.Value } );
                     ser.Params = std::move( ps );
                 }
 
-                if ( !mc.Textures.empty() )
+                if ( !mc.GetTextures().empty() )
                 {
                     // The handle alone (DC §4.2). This used to write the resolved path AND the handle into
                     // every entry; see MaterialTextureSer for why that pairing is worse than either half.
                     const auto                              resolver = MakeAssetResolver( assetManager );
                     std::vector<Assets::MaterialTextureSer> ts;
-                    ts.reserve( mc.Textures.size() );
-                    for ( const auto& t : mc.Textures )
+                    ts.reserve( mc.GetTextures().size() );
+                    for ( const auto& t : mc.GetTextures() )
                         ts.push_back( { t.Name, resolver.ToGuid( t.TextureHandle, "TextureAsset" ),
                                         resolver.ToPath( t.TextureHandle, "TextureAsset" ) } );
                     ser.Textures = std::move( ts );
@@ -1672,7 +1680,8 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& mc = entity.AddComponent<ECS::MaterialComponent>();
+                // Built as a value and written once, through ECS::SetMaterial (the component's one writer).
+                ECS::MaterialDesc mc;
                 if ( data.Shader.has_value() )
                 {
                     const std::string context = EntityContext( entity );
@@ -1705,8 +1714,8 @@ namespace Desert::Core::Serialize
                          "[Scene] {}: Material.Params/Textures with no Shader - parameters belong to a Shader "
                          "Override, a lit mesh's values are its material slots'; the values are not loaded",
                          EntityContext( entity ) );
-                    if ( !data.Shader.has_value() )
-                        entity.RemoveComponent<ECS::MaterialComponent>();
+                    if ( data.Shader.has_value() )
+                        ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), mc );
                     return;
                 }
 
@@ -1730,6 +1739,7 @@ namespace Desert::Core::Serialize
                                                                          "material texture '" + t.Name + "'" ) } );
                     }
                 }
+                ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), mc );
             };
 
             Register( std::move( s ) );
@@ -1748,20 +1758,20 @@ namespace Desert::Core::Serialize
                 Assets::SkinnedMeshComponentSer meshSer;
 
                 auto resolver = MakeAssetResolver( assetManager );
-                if ( smc.MeshHandle )
+                if ( smc.GetMeshHandle() )
                 {
-                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
+                    if ( auto p = resolver.ToPath( static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                          !p.empty() )
                         meshSer.MeshPath = p;
                     meshSer.MeshGuid =
-                         MeshGuidText( resolver, static_cast<uint64_t>( smc.MeshHandle ), "SkinnedMeshAsset" );
+                         MeshGuidText( resolver, static_cast<uint64_t>( smc.GetMeshHandle() ), "SkinnedMeshAsset" );
                 }
 
-                if ( !smc.MaterialSlots.empty() )
+                if ( !smc.GetMaterialSlots().empty() )
                 {
                     meshSer.MaterialPaths = std::vector<std::string>{};
                     meshSer.MaterialGuids = std::vector<std::string>{};
-                    for ( auto handle : smc.MaterialSlots )
+                    for ( auto handle : smc.GetMaterialSlots() )
                     {
                         meshSer.MaterialPaths->push_back(
                              resolver.ToPath( static_cast<uint64_t>( handle ), "MaterialAsset" ) );
@@ -1772,8 +1782,8 @@ namespace Desert::Core::Serialize
 
                 // Rendering controls: write only non-default values (absent = default on load), exactly
                 // like the static mesh above.
-                if ( !smc.CastShadows )
-                    meshSer.CastShadows = smc.CastShadows;
+                if ( !smc.GetCastShadows() )
+                    meshSer.CastShadows = smc.GetCastShadows();
 
                 return Common::Json::FromStruct( meshSer );
             };
@@ -1786,28 +1796,29 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& meshData = parsed.value();
 
-                auto& smc      = entity.AddComponent<ECS::SkinnedMeshComponent>();
-                auto  resolver = MakeAssetResolver( assetManager );
+                ECS::SkinnedMeshDesc desc;
+                auto                 resolver = MakeAssetResolver( assetManager );
 
                 const uint64_t meshHandle =
                      ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "SkinnedMeshAsset" );
                 if ( meshHandle != 0 )
-                    smc.MeshHandle = Common::UUID( meshHandle );
+                    desc.MeshHandle = Common::UUID( meshHandle );
 
                 const size_t slotCount = meshData.MaterialGuids
                                               ? meshData.MaterialGuids->size()
                                               : ( meshData.MaterialPaths ? meshData.MaterialPaths->size() : 0 );
                 if ( slotCount > 0 )
                 {
-                    smc.MaterialSlots.clear();
+                    desc.MaterialSlots.reserve( slotCount );
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        smc.MaterialSlots.push_back( Common::UUID(
+                        desc.MaterialSlots.push_back( Common::UUID(
                              ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
                     }
                 }
 
-                smc.CastShadows = meshData.CastShadows.value_or( smc.CastShadows );
+                desc.CastShadows = meshData.CastShadows.value_or( desc.CastShadows );
+                ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -2126,7 +2137,8 @@ namespace Desert::Core::Serialize
         // says so — the entity simply reappears. It was the lock's defect, already live for visibility,
         // in the same panel and one row up. No version bump: an added key is what ForeignKeys is for.
         Register(
-             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::Visible ) );
+             MakeFlag<ECS::VisibilityComponent>( "Visibility", "Visible", &ECS::VisibilityComponent::IsVisible,
+                                                &ECS::SetVisible ) );
 
         // ---- Level sequence actor: the `.dseq` it plays + playback settings + binding overrides (I11) ----
         // {SequenceGuid, SequencePath, Loop, AutoPlay, BindingOverrides[{Binding, Entity}]}: the Foliage shape

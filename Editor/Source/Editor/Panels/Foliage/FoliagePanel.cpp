@@ -535,7 +535,7 @@ namespace Desert::Editor::Tools
                     const auto& ism    = field.GetComponent<ECS::InstancedStaticMeshComponent>();
                     const bool  hidden = !field.HasComponent<ECS::VisibilityComponent>()
                                               ? false
-                                              : !field.GetComponent<ECS::VisibilityComponent>().Visible;
+                                              : !field.GetComponent<ECS::VisibilityComponent>().IsVisible();
                     const auto  type =
                          manager ? ResolveType( *manager, field.GetComponent<ECS::FoliageComponent>().FoliageType )
                                   : nullptr;
@@ -544,7 +544,7 @@ namespace Desert::Editor::Tools
                     const auto cost      = Foliage::MeasureFoliageTypeCost(
                          instances,
                          type ? type->GetData().CullDistance : Assets::Serialization::FoliageFloatInterval{},
-                         Core::FoliagePaint::ViewPosition(), TrianglesOf( ism.MeshHandle ), hidden );
+                         Core::FoliagePaint::ViewPosition(), TrianglesOf( ism.GetMeshHandle() ), hidden );
 
                     ImGui::PushID( static_cast<int>( static_cast<uint64_t>( uuid ) ) );
                     ImGui::TableNextRow();
@@ -598,7 +598,7 @@ namespace Desert::Editor::Tools
                     rowMenu( uuid );
                     ImDrawList* dl = ImGui::GetWindowDrawList();
                     dl->AddRectFilled( at, ImVec2( at.x + tile, at.y + tile ), IM_COL32( 36, 36, 36, 255 ), 3.0f );
-                    if ( const void* tex = ThumbnailOf( assetManager, uiHelper, ism.MeshHandle ) )
+                    if ( const void* tex = ThumbnailOf( assetManager, uiHelper, ism.GetMeshHandle() ) )
                         dl->AddImageRounded( reinterpret_cast<ImTextureID>( const_cast<void*>( tex ) ),
                                              ImVec2( at.x + 2, at.y + 2 ),
                                              ImVec2( at.x + tile - 2, at.y + tile - 2 ), ImVec2( 0, 0 ),
@@ -677,8 +677,14 @@ namespace Desert::Editor::Tools
                         ImGui::TextDisabled( "The field's type does not load (the log says why)." );
                     // The field's own switch (the ISM's), beside the type's numbers: UE's CastShadow row.
                     Row::BeginPropertyRow( "Cast Shadows", "This field's instances in the shadow cascades" );
-                    ImGui::Checkbox( "##CastShadows",
-                                     &field.GetComponent<ECS::InstancedStaticMeshComponent>().CastShadows );
+                    const auto& fieldMesh   = field.GetComponent<ECS::InstancedStaticMeshComponent>();
+                    bool        castShadows = fieldMesh.GetCastShadows();
+                    if ( ImGui::Checkbox( "##CastShadows", &castShadows ) )
+                    {
+                        ECS::InstancedStaticMeshDesc ism = fieldMesh.GetDesc();
+                        ism.CastShadows                  = castShadows;
+                        ECS::SetInstancedStaticMesh( *field.GetRegistry(), field.GetHandle(), ism );
+                    }
                     Row::EndPropertyRow();
                 }
             }

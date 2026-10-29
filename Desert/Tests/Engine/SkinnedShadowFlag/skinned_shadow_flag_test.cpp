@@ -99,8 +99,8 @@ namespace
 
 TEST( SkinnedShadowFlag, TheComponentAndItsStaticTwinAgreeOnTheDefault )
 {
-    EXPECT_TRUE( Desert::ECS::SkinnedMeshComponent{}.CastShadows );
-    EXPECT_TRUE( Desert::ECS::StaticMeshComponent{}.CastShadows );
+    EXPECT_TRUE( Desert::ECS::SkinnedMeshComponent{}.GetCastShadows() );
+    EXPECT_TRUE( Desert::ECS::StaticMeshComponent{}.GetCastShadows() );
 }
 
 // The submission extra's default is asserted from the text (SceneRenderer.hpp cannot compile without the

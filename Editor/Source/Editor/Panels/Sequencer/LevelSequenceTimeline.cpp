@@ -237,7 +237,7 @@ namespace Desert::Editor
         // What the actor shows now is the track's first key (UE keys the current value when a property track
         // is added); an entity with no VisibilityComponent renders, so it is visible.
         const bool current = !entity || !entity->HasComponent<ECS::VisibilityComponent>() ||
-                             entity->GetComponent<ECS::VisibilityComponent>().Visible;
+                             entity->GetComponent<ECS::VisibilityComponent>().IsVisible();
         const ScopedSequenceEdit undoStep( m_LevelEdit, LevelOwner() );
         if ( const auto added = ECS::AddVisibilityTrack( sequence, binding, current ); !added.IsSuccess() )
             ToastManager::Push( std::format( "+ Track → Visibility refused: {}", added.GetError() ),
@@ -535,7 +535,7 @@ namespace Desert::Editor
         // The SAME skeleton identity the skeletal timeline's clip picker lists by: a clip is offered only where
         // it plays on this mesh's skeleton.
         return m_Library->GetForMesh(
-             m_Library->IdentifyMeshHandle( entity->GetComponent<ECS::SkinnedMeshComponent>().MeshHandle ) );
+             m_Library->IdentifyMeshHandle( entity->GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle() ) );
     }
 
     void SequencerPanel::AddLevelAnimation( const LevelTL::BindingGuid&                    binding,

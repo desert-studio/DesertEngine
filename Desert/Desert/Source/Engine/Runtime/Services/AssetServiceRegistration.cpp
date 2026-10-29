@@ -130,20 +130,20 @@ namespace Desert::Runtime
         scene.view<const ECS::StaticMeshComponent>().each(
              [&]( const ECS::StaticMeshComponent& mesh )
              {
-                 note( mesh.MeshHandle, ContentKind::StaticMesh );
-                 slots( mesh.MaterialSlots );
+                 note( mesh.GetMeshHandle(), ContentKind::StaticMesh );
+                 slots( mesh.GetMaterialSlots() );
              } );
         scene.view<const ECS::SkinnedMeshComponent>().each(
              [&]( const ECS::SkinnedMeshComponent& mesh )
              {
-                 note( mesh.MeshHandle, ContentKind::SkinnedMesh );
-                 slots( mesh.MaterialSlots );
+                 note( mesh.GetMeshHandle(), ContentKind::SkinnedMesh );
+                 slots( mesh.GetMaterialSlots() );
              } );
         scene.view<const ECS::InstancedStaticMeshComponent>().each(
              [&]( const ECS::InstancedStaticMeshComponent& mesh )
              {
-                 note( mesh.MeshHandle, ContentKind::StaticMesh );
-                 slots( mesh.MaterialSlots );
+                 note( mesh.GetMeshHandle(), ContentKind::StaticMesh );
+                 slots( mesh.GetMaterialSlots() );
              } );
         scene.view<const ECS::VolumetricCloudComponent>().each(
              [&note]( const ECS::VolumetricCloudComponent& cloud )

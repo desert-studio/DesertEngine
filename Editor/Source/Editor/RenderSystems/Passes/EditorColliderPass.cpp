@@ -138,11 +138,11 @@ namespace Desert::Editor::Render
             const auto& collider  = view.get<ECS::ColliderComponent>( entity ).Data;
             const auto& transform = view.get<ECS::TransformComponent>( entity );
 
-            const glm::mat3 R      = glm::mat3_cast( glm::quat( transform.Rotation ) );
+            const glm::mat3 R      = glm::mat3_cast( glm::quat( transform.GetRotation() ) );
             const glm::vec3 axisX  = R[0];
             const glm::vec3 axisY  = R[1];
             const glm::vec3 axisZ  = R[2];
-            const glm::vec3 center = transform.Translation + R * collider.Center;
+            const glm::vec3 center = transform.GetTranslation() + R * collider.Center;
 
             switch ( collider.Shape )
             {
@@ -185,7 +185,7 @@ namespace Desert::Editor::Render
                     const size_t corners = ECS::VolumeCornerCount( volume->Data );
                     const auto&  indices = volume->Data.HullIndices;
                     const auto   world   = [&]( uint32_t i )
-                    { return transform.Translation + R * ( ECS::VolumeCorner( volume->Data, i ) * transform.Scale ); };
+                    { return transform.GetTranslation() + R * ( ECS::VolumeCorner( volume->Data, i ) * transform.GetScale() ); };
                     std::unordered_set<uint64_t> drawn;
                     const auto edge = [&]( uint32_t a, uint32_t b )
                     {

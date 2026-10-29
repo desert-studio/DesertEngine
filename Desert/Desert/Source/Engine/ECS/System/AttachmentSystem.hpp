@@ -112,10 +112,8 @@ namespace Desert::ECS
 
                 const Rules::DecomposedTransform decomposed = Rules::DecomposeTransform( local );
 
-                auto& tc       = view.get<TransformComponent>( entity );
-                tc.Translation = decomposed.Translation;
-                tc.Rotation    = decomposed.Rotation;
-                tc.Scale       = decomposed.Scale;
+                SetLocalTransform( registry, entity,
+                                   LocalTransform{ decomposed.Translation, decomposed.Rotation, decomposed.Scale } );
             }
         }
 

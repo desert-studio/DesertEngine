@@ -1742,10 +1742,7 @@ namespace Desert::Editor
              id, name,
              [&]( ECS::Entity& volume )
              {
-                 auto& transform       = volume.GetComponent<ECS::TransformComponent>();
-                 transform.Translation = world.Translation;
-                 transform.Rotation    = world.Rotation;
-                 transform.Scale       = glm::vec3( 1.0f );
+                 volume.SetLocalTransform( ECS::LocalTransform{ world.Translation, world.Rotation, glm::vec3( 1.0f ) } );
 
                  ECS::VolumeComponent component;
                  component.Data.Type        = type.Type;
@@ -2426,9 +2423,9 @@ namespace Desert::Editor
             LODTarget   t;
             t.Id         = ids.front();
             t.DrawEntity = static_cast<uint32_t>( entity.GetHandle() );
-            t.MeshHandle = c.MeshHandle;
-            t.Mesh       = c.RuntimeMesh ? static_cast<::Desert::Mesh*>( c.RuntimeMesh.get() )
-                                         : Runtime::ResourceRegistry::GetMeshService()->Get( c.MeshHandle );
+            t.MeshHandle = c.GetMeshHandle();
+            t.Mesh       = c.GetRuntimeMesh() ? static_cast<::Desert::Mesh*>( c.GetRuntimeMesh().get() )
+                                         : Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
             if ( !t.Mesh )
                 return Common::MakeFormattedError<LODTarget>( "entity {}: its mesh is not loaded",
                                                               static_cast<uint64_t>( ids.front() ) );
@@ -2498,7 +2495,7 @@ namespace Desert::Editor
         {
             ECS::Entity e = live->get();
             const auto& c = e.GetComponent<ECS::StaticMeshComponent>();
-            drawing       = MeshLODRows::DrawingLevel( m_Scene.get(), e, *t.Mesh, c.ForcedLOD, c.LODBias );
+            drawing       = MeshLODRows::DrawingLevel( m_Scene.get(), e, *t.Mesh, c.GetForcedLOD(), c.GetLODBias() );
         }
         MeshLODRows::DrawLevels( *t.Mesh, drawing, ms.LODPreviewLevel >= 0 ? "Previewing" : "Drawing" );
 

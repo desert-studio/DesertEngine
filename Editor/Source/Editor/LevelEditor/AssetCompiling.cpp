@@ -55,9 +55,9 @@ namespace Desert::Editor
         {
             auto& reg = activeScene->GetRegistry();
             reg.view<ECS::StaticMeshComponent>().each( []( auto, ECS::StaticMeshComponent& c )
-                                                       { c.RuntimeMaterialInstances.clear(); } );
+                                                       { c.RuntimeMaterialInstances().clear(); } );
             reg.view<ECS::SkinnedMeshComponent>().each( []( auto, ECS::SkinnedMeshComponent& c )
-                                                        { c.RuntimeMaterialInstances.clear(); } );
+                                                        { c.RuntimeMaterialInstances().clear(); } );
         }
 
         if ( fileExplorer != nullptr )
