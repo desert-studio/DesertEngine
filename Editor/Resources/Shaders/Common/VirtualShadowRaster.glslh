@@ -17,21 +17,21 @@
 
 #include <Common/VirtualShadowMap.glslh>
 
-layout( std430, binding = 45 ) restrict readonly buffer VsmFrameData
+layout( std430, binding = 49 ) restrict readonly buffer VsmFrameData
 {
     VsmFrame Frame;
     VsmLevel Levels[];
 };
-layout( std430, binding = 46 ) restrict readonly buffer VsmPageTable
+layout( std430, binding = 50 ) restrict readonly buffer VsmPageTable
 {
     VsmPageEntry Entries[];
 };
-layout( binding = 47, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
+layout( binding = 51, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
 // The level this fragment rasterizes: the draw's (VirtualShadowMapFrame::RasterLevel, x = level index), unless the
 // includer names it per primitive first (VSM_RASTER_LEVEL: the cluster raster of every level in one pass,
 // Mesh/Surface/Pass_VirtualShadowDepth.glslh).
 #ifndef VSM_RASTER_LEVEL
-layout( std430, binding = 48 ) restrict readonly buffer VsmRasterLevel
+layout( std430, binding = 52 ) restrict readonly buffer VsmRasterLevel
 {
     uvec4 RasterLevel;
 };

@@ -54,6 +54,9 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture;
 // After the lighting half of Mesh/AmbientIBL.glslh: this header includes the generated models, whose own
 // include of AmbientIBL would otherwise take its sampler-less half first (as Pass_Forward.glslh orders it).
 #include <Common/ThinGeometryCoverage.glslh>
+// The view's fog at the surface's own depth (VOLFOG): the opaque scene behind - and so its copy refracted here - was
+// fogged before the copy (SceneRenderer::AddFrameOpaqueFog); the water's own light is fogged here.
+#include <Mesh/Surface/SceneFog.glslh>
 
 const float kWaterPi = 3.14159265;
 
@@ -116,7 +119,6 @@ void main()
     const vec3  skyIrr = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
     const float phase  = WaterHenyeyGreenstein( dot( -V, L ), w.PhaseG );
     const vec3  inscat = ( sun * max( L.y, 0.0 ) * phase + skyIrr / ( 4.0 * kWaterPi ) ) * albedo * ( 1.0 - trans );
-    const vec3  volume = behind * w.ColorScaleBehindWater * trans + inscat * exposure;
 
     // --- The interface, through the shading model: the sun's specular and the environment's reflection (the
     // reflection of a surface seen from above is of the upper hemisphere).
@@ -146,7 +148,14 @@ void main()
     const vec3 F0      = DesertSpecularF0( S );
     const vec3 through = vec3( 1.0 ) - ( F0 * A.SpecularBRDF.x + A.SpecularBRDF.y );
 
-    oColor                = vec4( volume * through + ( direct + reflected ) * exposure, 1.0 );
+    // Fogged at the surface's own depth (as the glass, Pass_Forward_Translucent.glslh): the scene seen through the
+    // water is the fogged copy (its fog to the camera already in it), so only the light the water adds - its
+    // in-scattering and the interface's - is attenuated by the fog in front, and the fog's own inscattering fills
+    // what the water hides of the scene behind.
+    const vec4 fog    = DesertSceneFog( i.WorldPosition );
+    const vec3 seen   = trans * w.ColorScaleBehindWater * through; // the share of the fogged scene behind that reaches the eye
+    const vec3 own    = inscat * exposure * through + ( direct + reflected ) * exposure;
+    oColor            = vec4( behind * seen + own * fog.a + fog.rgb * clamp( vec3( 1.0 ) - seen, 0.0, 1.0 ), 1.0 );
     oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );
     oThinGeometryCoverage = kThinGeometryCoverageSurface;
 }

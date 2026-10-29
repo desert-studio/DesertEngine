@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -8,7 +9,6 @@
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/FrameGraphRefs.hpp>
 
 #include <glm/glm.hpp>
 
@@ -60,7 +60,8 @@ namespace Desert::Graphic::System
 
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
-        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes).
+        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes, the
+        // view's fog).
         void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
                            const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );

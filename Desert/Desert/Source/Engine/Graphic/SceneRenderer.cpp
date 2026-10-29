@@ -512,14 +512,21 @@ namespace Desert::Graphic
             case 16:
             {
                 // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
-                // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
-                // translucency, below the particles by the order of AddFrameTranslucency's calls.
+                // compute evaluation of the opaque depth and its apply, once the opaque scene is complete and
+                // before every translucent draw, which fogs itself from the parameter block this system publishes.
                 // Non-fatal: neither must ever take a scene down.
                 RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer );
                 if ( const auto fogInit =
                           SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
                      !fogInit )
                     LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
+                // The volumetric fog (froxel grid) the height fog composes; non-fatal like it.
+                RegisterSystem<System::VolumetricFogRenderer>( "VolumetricFogSystem", this, m_TargetFramebuffer );
+                if ( const auto volumeInit =
+                          SP_CAST( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
+                               ->Initialize();
+                     !volumeInit )
+                    LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
                 return "HeightFog";
             }
             case 17:
@@ -1115,6 +1122,15 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        // The volumetric fog's ceiling and grid (Scalability Effects.VolumetricFog*), handed to its system each
+        // BeginScene like the knobs above.
+        if ( const auto it = m_RenderSystems.find( "VolumetricFogSystem" ); it != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::VolumetricFogRenderer, it->second )
+                 ->SetQuality( VolumetricFogQuality{
+                      .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
+                      .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
+                      .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
@@ -1368,6 +1384,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_SunVolumetricScatteringIntensity = sceneRenderInfo.SunVolumetricScatteringIntensity;
         m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
@@ -2145,6 +2162,11 @@ namespace Desert::Graphic
                     AddFrameSubsurface( graph, textures, gbuffer, subsurfaceDiffuse, frame );
                 AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
 
+                // The opaque scene is complete: its fog (and the fog volumes the translucency below reads) BEFORE
+                // the scene copy, so the refraction sees the fogged scene, and before every translucent draw, which
+                // fogs itself at its own depth rather than being fogged by the opaque depth behind it (UE's order).
+                AddFrameOpaqueFog( graph, textures, frame );
+
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
                 // With a screen trace on, the copy IS the view's scene colour history (what next frame's traces
@@ -2177,24 +2199,28 @@ namespace Desert::Graphic
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
+            AddFrameOpaqueFog( graph, textures, frame );
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 
+        // The water writes the scene depth: the clouds and the particles after it read the resolve again.
         AddFrameSceneDepthResolve( graph, textures );
-        AddFrameSkyAtmosphereLuts( graph, textures );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
+        // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
+        // scene copy (AddFrameOpaqueFog); a path-traced frame added none, so its sky LUTs are added here.
         if ( !pathTraced )
-        {
-            AddFrameAtmosphericFog( graph, textures );
             AddFrameVolumetricClouds( graph, textures, frame );
-        }
         else
+        {
+            AddFrameSkyAtmosphereLuts( graph, textures );
             AddFrameCloudSkyOcclusion( graph, textures );
+        }
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.
@@ -3823,6 +3849,9 @@ namespace Desert::Graphic
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
     {
         UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )
+             ->SetFogSettings( present, data, fogHeightY );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
              ->SetFogSettings( present, data, fogHeightY );
     }
 

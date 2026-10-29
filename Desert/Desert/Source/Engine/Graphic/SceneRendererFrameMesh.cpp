@@ -203,16 +203,11 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
     {
         // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
-        // numeric placement. The height fog apply first: it modifies the OPAQUE scene itself (every pixel gains
-        // the fog between it and the camera), so everything composited after lands over the fogged world. Then
-        // the far field, the cloud composite: everything after it is nearer the camera and paints over it.
+        // numeric placement. The height fog's apply is NOT here: it fogs the OPAQUE scene and ran before the scene
+        // copy and the first translucent draw; what is drawn here fogs itself at its own depth.
+        // First the far field, the cloud composite: everything after it is nearer the camera and paints over it.
         // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
-        // grid). All on the scene target: the graph merges them into
-        // one render pass.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddSystemRaster(
-             graph, textures,
-             UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->ApplyPass() );
+        // grid). All on the scene target: the graph merges them into one render pass.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         AddSystemRaster( graph, textures,
                          UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
@@ -470,7 +465,9 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the fog and the particles after it see the surface. It samples the opaque scene's
+        // depth, so the glass, the clouds and the particles after it see the surface. It fogs itself at its own
+        // depth (the opaque fog was applied before the copy; its inputs come with the view's, BindSceneViewInputs).
+        // It samples the opaque scene's
         // copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image
         // from the scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );

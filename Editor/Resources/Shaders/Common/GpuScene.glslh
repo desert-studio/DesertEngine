@@ -292,29 +292,29 @@ DesertMeshDraw DesertResolveMeshDraw()
     return DesertResolveDrawOf( gpuSceneVisible.VisibleInstances[a_VisibleRow] );
 }
 #else
-// THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; Core::kVgRaster*Binding 50-53): the
+// THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; Core::kVgRaster*Binding 54-57): the
 // instance id names a row of the cluster cut's VisibleClusters (written per material group by "VirtualGeometry:
 // Raster Binning", Programs/VirtualGeometry/RasterBinning.shader), i.e. (instance, cluster); the draw slot is the
 // pass's lod-0 slot of the cluster's DAG submesh - the very slot the cut took the submesh transform from
 // (ClusterCut.shader) and the binning took the material group from. A draw instance is one cluster: vertex =
 // triangle x 3 + corner of it (Common/VirtualGeometry.glslh).
 #include <Common/VirtualGeometry.glslh>
-layout( std430, binding = 50 ) readonly buffer VgRasterClusters
+layout( std430, binding = 54 ) readonly buffer VgRasterClusters
 {
     VgCluster Clusters[];
 }
 vgRasterClusters;
-layout( std430, binding = 51 ) readonly buffer VgRasterDags
+layout( std430, binding = 55 ) readonly buffer VgRasterDags
 {
     VgClusterDag Dags[];
 }
 vgRasterDags;
-layout( std430, binding = 52 ) readonly buffer VgRasterVisibleClusters
+layout( std430, binding = 56 ) readonly buffer VgRasterVisibleClusters
 {
     VgVisibleCluster VisibleClusters[];
 }
 vgRasterVisible;
-layout( std430, binding = 53 ) readonly buffer VgRasterPrimitiveDraws
+layout( std430, binding = 57 ) readonly buffer VgRasterPrimitiveDraws
 {
     GpuPrimitivePassDraws PrimitiveDraws[];
 }
