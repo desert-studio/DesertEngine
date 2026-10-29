@@ -127,8 +127,8 @@ namespace Desert::Graphic::API::Vulkan
                               VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &built, 0, nullptr, 0, nullptr );
         const VmaAllocation scratchAllocation = scratchMemory.GetValue();
         const auto          submitted         = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
-             cmd, [allocator, scratch, scratchAllocation]
-             { allocator->RT_ReleaseStaging( scratch, scratchAllocation, Common::MakeSuccess( VK_SUCCESS ) ); } );
+             cmd, [alloc = allocator.get(), scratch, scratchAllocation]
+             { alloc->RT_ReleaseStaging( scratch, scratchAllocation, Common::MakeSuccess( VK_SUCCESS ) ); } );
         if ( !submitted.IsSuccess() )
             return Common::MakeFormattedError<std::shared_ptr<VulkanRayTracingGeometry>>( "BLAS build submit: {}",
                                                                                           submitted.GetError() );
