@@ -45,7 +45,7 @@
         },
         {
             "Name": "MacroHueStrength",
-            "Value": [0.35, 0.0, 0.0, 0.0]
+            "Value": [0.6, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Layer0Blend",
