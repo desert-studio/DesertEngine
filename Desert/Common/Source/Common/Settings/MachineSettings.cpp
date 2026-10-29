@@ -22,6 +22,9 @@ namespace Common::Settings
         // than inventing a location — a store with no path is not a store.
         std::filesystem::path s_File;
 
+        // Set by KeepInSession: Save() writes nothing for the rest of this process.
+        bool s_KeepInSession = false;
+
         // WHAT THIS PROCESS BELIEVES THE FILE HOLDS, in the canonical text Save() writes. Empty means
         // "there is no file" or "we cannot claim to know" (a failed read, a corrupt parse), in which case
         // the next write must happen unconditionally.
@@ -708,8 +711,18 @@ namespace Common::Settings
         return selection;
     }
 
+    void MachineSettings::KeepInSession( std::string_view why )
+    {
+        s_KeepInSession = true;
+        LOG_INFO( "[Machine] {}: machine settings change for this process only, {} is not written", why,
+                  s_File.string() );
+    }
+
     bool MachineSettings::Save()
     {
+        if ( s_KeepInSession )
+            return true; // the values live in Get() for this process (KeepInSession)
+
         if ( s_File.empty() )
         {
             LOG_ERROR( "[Machine] a quality change was not saved: this process never called "

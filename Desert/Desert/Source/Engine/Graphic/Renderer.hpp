@@ -145,16 +145,10 @@ namespace Desert::Graphic
         // first mat4, as RenderMesh does, and it supplies uniform values / asset textures; a @p bindings with push
         // constants of its own is refused (the block is the transform's). Same contract as DrawFullscreen
         // otherwise. The first refused submesh ends the draw.
-        // @p submeshFirstRows: a BINNED cell's draw (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS reads a_VisibleRow),
-        // one entry per submesh of the mesh вЂ” the firstInstance of that submesh's draw, its base on the pass's
-        // unculled VisibleInstances list (GpuDriven::DrawCommandCache::UnculledFirstVisible), kInvalidIndex for a
-        // submesh with no cached draw there (refused if drawn); the identity id stream is bound at binding 2 and
-        // @p firstInstance is unused. Empty: a cell that reads no id stream (refused for one that does).
         [[nodiscard]] static Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel,
-                    std::span<const uint32_t> submeshFirstRows = {} );
+                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel );
         // RenderMesh whose counts the GPU wrote: the same walk, each drawn submesh one indirect draw of a
         // kMeshDrawArgumentsBytes record of @p args (Graphic/MeshDrawArguments.hpp), which the pass declares
         // Access::IndirectArgs. The record of the k-th drawn submesh si is at @p offset + k *

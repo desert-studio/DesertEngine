@@ -40,6 +40,10 @@ namespace Desert::Graphic::GpuDriven
         // Exempt from the HZB test (editor gizmo-like or always-visible primitives); frustum culling still
         // applies.
         inline constexpr uint32_t kSkipOcclusion = 1u << 4;
+        // Moves by itself every frame (a skinned pose, a swaying foliage field): a caster of the cascade cache's
+        // MOVABLE layer, drawn over the copied static cache each frame, never into the cache (UE's cached shadow
+        // maps: movable primitives go to the dynamic depths). The cull's layer flags below split on it.
+        inline constexpr uint32_t kMovableCaster = 1u << 5;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
@@ -267,6 +271,10 @@ namespace Desert::Graphic::GpuDriven
         inline constexpr uint32_t kShadowCaster  = 1u << 2; // only kCastsShadow primitives
         inline constexpr uint32_t kLodDisabled   = 1u << 3; // MeshRenderer::IsLODEnabled() == false: auto LOD is 0
         inline constexpr uint32_t kVsmPageMask   = 1u << 4; // VSM level: also the "VSM: Dirty Mask" cell test
+        // A cached cascade's layers (MeshRenderer::PlanCascadeCache): the static layer takes only primitives
+        // without PrimitiveFlags::kMovableCaster, the movable layer only those with it. Neither: every caster.
+        inline constexpr uint32_t kCasterStaticLayer  = 1u << 5;
+        inline constexpr uint32_t kCasterMovableLayer = 1u << 6;
     } // namespace CullViewFlags
 
     // One word per (view, instance) the cull writes (InstanceCull.shader Visibility[]; GLSL

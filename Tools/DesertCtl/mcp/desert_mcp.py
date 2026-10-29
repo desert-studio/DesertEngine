@@ -215,6 +215,19 @@ TOOLS = [
         },
     },
     {
+        "name": "nn_check",
+        "description": (
+            "Run the NN layer's fused MLP (forward + backward + weight gradient) on the GPU against its CPU "
+            "reference on a fixed seeded batch: machine.json's forced kernel path (palette group Neural, "
+            "'Neural: Kernel path Fp32|Fp16|CoopMatFp16|Auto'), or every path the device runs. Returns per path "
+            "max abs / rel error of outputs and weight gradients and the ReLU mask-flip count, or 'refused' with the reason (device cannot run it, or the kernel's "
+            "compile/reflect error). An error when a path the device claims is refused (compile, pipeline, "
+            "readback), when an unforced check ran no path, or when a path is out of tolerance (1e-5 fp32, "
+            "1e-2 fp16); a FORCED path the device lacks is the expected answer: ok, listed 'refused'."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "get_state",
         "description": (
             "The editor's state as JSON. Sections: scene, selection, documents (open in most-recently-"
@@ -260,6 +273,8 @@ TOOLS = [
 def dispatch(channel: Channel, name: str, arguments: dict) -> dict:
     if name == "list_commands":
         return channel.call("commands", wait=120)
+    if name == "nn_check":
+        return channel.call("nn-check", wait=120)
     if name == "run_command":
         group = arguments.get("group", "")
         label = arguments.get("label", "")

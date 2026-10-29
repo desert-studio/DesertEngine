@@ -984,44 +984,17 @@ namespace Desert::Graphic::API::Vulkan
                                                          const glm::mat4&        transform,
                                                          const MaterialExecutor& material, uint32_t instanceCount,
                                                          uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
-                                                         uint32_t                        lodLevel,
-                                                         const std::span<const uint32_t> submeshFirstRows )
+                                                         uint32_t lodLevel )
     {
         DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
         if ( instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
-        // A binned cell's draw (Common/GpuScene.glslh DESERT_GPU_SCENE_DRAWS): submesh si instances the rows
-        // [submeshFirstRows[si], +instanceCount) of its pass's unculled VisibleInstances list through the identity
-        // id stream, so its firstInstance is that base (DrawCommandCache::UnculledFirstVisible). kInvalidIndex =
-        // the submesh has no cached draw in the pass: refused when it is drawn.
-        VkBuffer visibleRows = VK_NULL_HANDLE;
-        if ( !submeshFirstRows.empty() )
-        {
-            if ( submeshFirstRows.size() != mesh.GetSubmeshes().size() )
-                return Common::MakeFormattedError( "{}: {} binned rows for a mesh of {} submeshes", pass,
-                                                   submeshFirstRows.size(), mesh.GetSubmeshes().size() );
-            uint64_t end = 1;
-            for ( const uint32_t first : submeshFirstRows )
-                if ( first != GpuDriven::kInvalidIndex )
-                    end = std::max( end, uint64_t{ first } + instanceCount );
-            if ( end > UINT32_MAX )
-                return Common::MakeFormattedError( "{}: binned rows end past 2^32 ({})", pass, end );
-            visibleRows = VisibleRowIdentity( static_cast<uint32_t>( end ) );
-        }
         return WalkMeshSubmeshes(
-             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask, visibleRows,
+             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask, VK_NULL_HANDLE,
              [&]( uint32_t, const size_t si, const Submesh& submesh,
                   const uint32_t indexCount ) -> Common::BoolResultStr
              {
-                 if ( !submeshFirstRows.empty() )
-                 {
-                     if ( submeshFirstRows[si] == GpuDriven::kInvalidIndex )
-                         return Common::MakeFormattedError(
-                              "{}: submesh {} is drawn but has no cached draw in this pass (DrawCommandCache)",
-                              pass, si );
-                     firstInstance = submeshFirstRows[si];
-                 }
                  if ( indexCount == 0u )
                  {
                      DrawCounted( submesh.VertexCount, instanceCount, submesh.VertexOffset, firstInstance );

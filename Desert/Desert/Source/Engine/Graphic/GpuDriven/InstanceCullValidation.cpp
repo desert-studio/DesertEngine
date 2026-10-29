@@ -221,6 +221,11 @@ namespace Desert::Graphic::GpuDriven
                     if ( ( view.Gpu.Flags & CullViewFlags::kShadowCaster ) != 0u &&
                          ( primitive.Flags & PrimitiveFlags::kCastsShadow ) == 0u )
                         return 0u;
+                    // InstanceCull.shader's cascade-cache layer split.
+                    const bool movableCaster = ( primitive.Flags & PrimitiveFlags::kMovableCaster ) != 0u;
+                    if ( ( ( view.Gpu.Flags & CullViewFlags::kCasterStaticLayer ) != 0u && movableCaster ) ||
+                         ( ( view.Gpu.Flags & CullViewFlags::kCasterMovableLayer ) != 0u && !movableCaster ) )
+                        return 0u;
 
                     const glm::mat4            world = UnpackAffine( primitive.LocalToWorld ) * UnpackAffine( instance.InstanceToPrimitive );
                     const InstanceCullDistance cull  = ScaledByLens(

@@ -46,11 +46,14 @@
 #include <Engine/ECS/System/SystemRules.hpp>
 #include <Engine/ECS/System/PhysicsECSSystem.hpp>
 #include <PhysicsCore/PhysicsWorld.hpp>
+#include <Engine/Graphic/Neural/FusedMlpCompute.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 #include <Engine/Graphic/ViewBudgetGate.hpp>
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
@@ -306,6 +309,10 @@ namespace Desert::Editor
         if ( !m_ControlSocket.IsListening() )
             return;
 
+        // A held nn-check reply goes out the frame its graph completed in; until then nothing else is read.
+        if ( ServiceNnCheck() )
+            return;
+
         // A request whose reply has not gone out yet holds the channel. Reading a second one here would
         // hand the ordering guarantee to whoever wrote the client: two commands in flight cannot both be
         // "the command the next settled frame proves".
@@ -387,6 +394,15 @@ namespace Desert::Editor
     // Two execution sites for one thing is the shape this codebase spends its days removing.
     void ControlService::RunControlRequest( const Control::Request& request )
     {
+        // nn-check is answered when the frame its graph was recorded into has completed on the GPU, not by a
+        // presented frame: its reply is held by ServiceNnCheck, a refusal goes out now.
+        if ( request.Operation == Control::Op::NnCheck )
+        {
+            if ( const std::optional<Control::Response> refused = SubmitNnCheck( request.Id ) )
+                m_ControlSocket.SendResponseLine( Control::FormatResponse( *refused ) );
+            return;
+        }
+
         Control::Response response = ExecuteControlRequest( request );
 
         // READS ANSWER NOW; ANYTHING THAT CAN CHANGE THE PICTURE WAITS FOR ONE.
@@ -676,6 +692,200 @@ namespace Desert::Editor
         m_ControlInFlight.reset();
         m_ControlPendingReply.reset();
         return std::nullopt;
+    }
+
+    // nn-check (NN-RUNTIME step 4): the fused MLP's training step as render-graph passes against its CPU
+    // reference, on the seeded nn-check problem. machine.json ForcedNeuralKernelPath set = that one path (refused,
+    // naming what the device lacks, when it cannot run); absent = every path, a path the device cannot run
+    // reported with why and not run. Every run is recorded into THIS frame's graph; the reply waits until that
+    // frame has completed on the GPU (ServiceNnCheck), then is a success only when every path that ran is within
+    // its tolerance.
+    std::optional<Control::Response> ControlService::SubmitNnCheck( const int64_t id )
+    {
+        namespace Neural = Engine::Neural;
+        using Engine::NeuralKernelPath;
+        const Engine::NeuralComputeCaps&      caps = EngineContext::GetInstance().GetCapabilities().Neural;
+        const std::optional<NeuralKernelPath> forced =
+             Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath;
+
+        // A forced path the device cannot run is not a failed request: it is reported refused, with the
+        // resolver's reason, like any other path (the loop below asks the same resolver).
+        std::vector<NeuralKernelPath> paths;
+        if ( forced )
+            paths.push_back( *forced );
+        else
+            paths = { NeuralKernelPath::Fp32, NeuralKernelPath::Fp16, NeuralKernelPath::CoopMatFp16 };
+
+        if ( !m_NnCompute )
+            m_NnCompute = std::make_unique<Neural::FusedMlpCompute>( caps );
+
+        PendingNnCheck pending;
+        pending.Id     = id;
+        pending.Forced = forced ? Engine::NeuralKernelPathName( *forced ) : "auto";
+        for ( const NeuralKernelPath path : paths )
+        {
+            const char* name = Engine::NeuralKernelPathName( path );
+            if ( const auto runnable = Neural::ResolveNeuralKernelPath( caps, path ); !runnable )
+            {
+                LOG_INFO( "[nn_check] path={} not run: {}", name, runnable.GetError() );
+                pending.Refused.push_back( { name, runnable.GetError(), true } );
+                continue;
+            }
+            // A refused kernel (ShaderService::AcquireVariant's compile/reflect reason, a pipeline refusal) is
+            // this path's verdict, not the whole check's: the other paths still run and report.
+            auto submitted = Neural::FusedMlpCheckRun::Submit( *m_NnCompute, caps, path );
+            if ( !submitted )
+            {
+                LOG_ERROR( "[nn_check] path={} refused: {}", name, submitted.GetError() );
+                pending.Refused.push_back( { name, submitted.GetError(), false } );
+                continue;
+            }
+            pending.Runs.push_back( submitted.ExtractValue() );
+        }
+        // Held even with no run: ServiceNnCheck completes it on its next call, and the report names every
+        // path's refusal instead of a bare "ran nothing".
+        m_NnCheck = std::move( pending );
+        return std::nullopt;
+    }
+
+    bool ControlService::ServiceNnCheck()
+    {
+        if ( !m_NnCheck )
+            return false;
+        // The channel is held (nothing else is read) until the frame that recorded the runs has completed.
+        for ( const auto& run : m_NnCheck->Runs )
+            if ( !run->IsComplete() )
+                return true;
+        m_ControlSocket.SendResponseLine( Control::FormatResponse( CompleteNnCheck() ) );
+        m_NnCheck.reset();
+        return true;
+    }
+
+    Control::Response ControlService::CompleteNnCheck()
+    {
+        namespace Neural                                    = Engine::Neural;
+        const int64_t                                    id = m_NnCheck->Id;
+        Common::Json::Value::Array                       runs;
+        std::vector<std::pair<std::string, std::string>> verdicts;
+        std::string                                      summary;
+        const auto                                       appendSummary = [&summary]( const std::string& line )
+        {
+            if ( !summary.empty() )
+                summary += "; ";
+            summary += line;
+        };
+        const auto refuse = [&]( const std::string& name, const std::string& reason )
+        {
+            Common::Json::Object run;
+            run["path"]    = Control::StateDetail::Str( name );
+            run["refused"] = Control::StateDetail::Str( reason );
+            runs.push_back( Common::Json::Value( run ) );
+            verdicts.emplace_back( name, std::format( "refused: {}", reason ) );
+            const std::string line = std::format( "path={} REFUSED: {}", name, reason );
+            LOG_INFO( "[nn_check6] {}", line );
+            appendSummary( line );
+        };
+        bool deviceRefused = false; // a path the device claims and the kernel/pipeline/readback refused
+        for ( const auto& refusal : m_NnCheck->Refused )
+        {
+            refuse( refusal.Path, refusal.Reason );
+            deviceRefused = deviceRefused || !refusal.DeviceLacksIt;
+        }
+
+        bool pass = true;
+        bool ran  = false;
+        for ( const auto& pendingRun : m_NnCheck->Runs )
+        {
+            const char* name    = Engine::NeuralKernelPathName( pendingRun->GetPath() );
+            const auto  checked = pendingRun->Complete();
+            if ( !checked )
+            {
+                refuse( name, checked.GetError() );
+                deviceRefused = true;
+                continue;
+            }
+            ran                                    = true;
+            const Neural::FusedMlpPathCheck& check = checked.GetValue();
+            pass                                   = pass && check.Pass;
+
+            const auto errorJson = []( const Neural::FusedMlpError& error )
+            {
+                Common::Json::Object object;
+                object["maxAbs"] = Control::StateDetail::Num( error.MaxAbs );
+                object["maxRef"] = Control::StateDetail::Num( error.MaxRef );
+                object["rel"]    = Control::StateDetail::Num( error.Rel );
+                if ( error.Worst.Valid )
+                {
+                    Common::Json::Object worst;
+                    worst["matrix"]    = Control::StateDetail::Num( error.Worst.Matrix );
+                    worst["j"]         = Control::StateDetail::Num( error.Worst.Row );
+                    worst["k"]         = Control::StateDetail::Num( error.Worst.Column );
+                    worst["gpu"]       = Control::StateDetail::Num( error.Worst.Gpu );
+                    worst["ref"]       = Control::StateDetail::Num( error.Worst.Reference );
+                    worst["magnitude"] = Control::StateDetail::Num( error.Worst.Magnitude );
+                    object["worst"]    = Common::Json::Value( worst );
+                }
+                return Common::Json::Value( object );
+            };
+            Common::Json::Object run;
+            run["path"]              = Control::StateDetail::Str( name );
+            run["tile"]              = Control::StateDetail::Str( check.Tile );
+            run["output"]            = errorJson( check.Output );
+            run["weightGrad"]        = errorJson( check.WeightGrad );
+            run["maskFlips"]         = Control::StateDetail::Num( static_cast<double>( check.MaskFlips ) );
+            run["tolerance"]         = Control::StateDetail::Num( check.Tolerance );
+            run["gradientTolerance"] = Control::StateDetail::Num( check.GradientTolerance );
+            run["pass"]              = Common::Json::Value( check.Pass );
+            runs.push_back( Common::Json::Value( run ) );
+
+            const char*                           tileLabel = check.Tile.empty() ? "" : " tile=";
+            const char*                           verdict   = check.Pass ? "PASS" : "FAIL";
+            const Neural::FusedMlpError::Element& worst     = check.WeightGrad.Worst;
+            const std::string                     worstText =
+                 std::format( "worst dW[{}][{}][{}] gpu={:.6e} ref={:.6e} magnitude={:.6e}", worst.Matrix,
+                              worst.Row, worst.Column, worst.Gpu, worst.Reference, worst.Magnitude );
+            const std::string line = std::format(
+                 "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} {} | maskFlips={} | "
+                 "tolerance={:.0e} gradientTolerance={:.2e} {}",
+                 name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel, check.WeightGrad.MaxAbs,
+                 check.WeightGrad.Rel, worstText, check.MaskFlips, check.Tolerance, check.GradientTolerance,
+                 verdict );
+            LOG_INFO( "[nn_check6] {}", line );
+            appendSummary( line );
+            verdicts.emplace_back(
+                 name, check.Pass ? std::string( "pass" )
+                                  : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} ({}) "
+                                                 "maskFlips={} tolerance={:.0e} gradientTolerance={:.2e}",
+                                                 check.Output.Rel, check.WeightGrad.Rel, worstText,
+                                                 check.MaskFlips, check.Tolerance, check.GradientTolerance ) );
+        }
+        m_NnLastCheck = std::move( verdicts );
+        // A path the DEVICE LACKS is reported, not failed: a device without coopmat_fp16 still passes on the paths
+        // it can, and a forced path it lacks is the expected answer to that request (reply ok, the path listed
+        // "refused" with the resolver's reason, DesertCtl exit 0). A refusal on a path the device CLAIMS (the
+        // kernel did not compile/reflect, the pipeline or the readback failed) is a defect and fails the check,
+        // as does an unforced check where nothing ran or a path out of tolerance - the text lists every path.
+        if ( deviceRefused )
+            return Control::Response::Failure(
+                 id, std::format( "nn-check refused a path the device claims: {}", summary ) );
+        const bool expectedRefusal = !ran && m_NnCheck->Forced != "auto";
+        if ( !ran && !expectedRefusal )
+            return Control::Response::Failure( id, std::format( "nn-check ran no path: {}", summary ) );
+        if ( !pass )
+            return Control::Response::Failure( id, std::format( "nn-check out of tolerance: {}", summary ) );
+
+        const Neural::FusedMlpShape& shape = Neural::kFusedMlpCheckShape;
+        Common::Json::Object         payload;
+        payload["forced"] = Control::StateDetail::Str( m_NnCheck->Forced );
+        payload["shape"] =
+             Control::StateDetail::Str( std::format( "{} -> {} x {} -> {}", shape.InputDims, shape.HiddenLayers,
+                                                     Neural::kFusedMlpWidth, shape.OutputDims ) );
+        payload["batch"] = Control::StateDetail::Num( Neural::kFusedMlpCheckBatch );
+        payload["runs"]  = Common::Json::Value( runs );
+        payload["pass"]  = Common::Json::Value( pass && ran );
+        if ( expectedRefusal )
+            payload["refused"] = Control::StateDetail::Str( summary );
+        return Control::Response::Success( id, std::move( payload ) );
     }
 
     Control::Response ControlService::ExecuteControlRequest( const Control::Request& request )
@@ -1024,6 +1234,11 @@ namespace Desert::Editor
                     return Control::Response::Failure( request.Id, saved.GetError() );
                 return Control::Response::Success( request.Id );
             }
+
+            case Control::Op::NnCheck:
+                return Control::Response::Failure(
+                     request.Id, "nn-check reached ExecuteControlRequest; it is submitted by RunControlRequest "
+                                 "(SubmitNnCheck) and answered by ServiceNnCheck: a control-channel defect" );
 
             case Control::Op::State:
             {
@@ -1439,6 +1654,7 @@ namespace Desert::Editor
                                                                   ? Engine::FormatCooperativeMatrixShape( neural.Tile )
                                                                   : std::string{};
             device.NnReason                                = neural.Reason;
+            device.NnLastCheck                             = m_NnLastCheck;
             device.NnShaderFloat16                         = neural.ShaderFloat16;
             device.NnShaderInt8                            = neural.ShaderInt8;
             device.NnStorageBuffer16BitAccess              = neural.StorageBuffer16BitAccess;
@@ -1446,6 +1662,7 @@ namespace Desert::Editor
             device.NnSubgroupSizeControl                   = neural.SubgroupSizeControl;
             device.NnCooperativeMatrix                     = neural.CooperativeMatrix;
             device.NnCooperativeMatrixCompute              = neural.CooperativeMatrixInCompute;
+            device.NnVulkanMemoryModel                     = neural.VulkanMemoryModel;
             device.NnComputeRequiredSubgroupSize           = neural.ComputeSubgroupSizeRequirable;
             device.NnSubgroupSize                          = neural.SubgroupSize;
             device.NnMinSubgroupSize                       = neural.MinSubgroupSize;
@@ -1454,6 +1671,32 @@ namespace Desert::Editor
             device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
+
+            // Ray tracing: the catalog's modes (what every RT consumer branches on), why rt is off, and what the
+            // main viewport resolved to - its SceneRenderer's RenderMethods, the rows its overlay and the log
+            // print.
+            const Common::Scalability::CapabilityCatalog& catalog = capabilities.Catalog;
+            const bool rtOffered = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                                []( Common::Scalability::RayTracingMode m )
+                                                { return m != Common::Scalability::RayTracingMode::None; } );
+            device.Rt            = rtOffered ? "on" : ( capabilities.RayTracingHidden ? "hidden" : "off" );
+            for ( const Common::Scalability::RayTracingMode mode : catalog.RayTracingModes )
+                device.RtModes.emplace_back(
+                     Common::Scalability::kRayTracingModeNames[static_cast<std::size_t>( mode )] );
+            device.PathTracingRefusal = std::string( Graphic::PathTracingRefusal( catalog ) );
+            if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
+            {
+                const Graphic::RenderMethods& methods = renderer->GetRenderMethods();
+                device.MethodRows                     = Graphic::FormatRenderMethods( methods );
+                device.PathTracingActive              = Graphic::PathTraced( methods );
+                const auto name                       = []( const auto& names, const auto method )
+                { return std::string( names[static_cast<std::size_t>( method )] ); };
+                device.GIMethod =
+                     name( Common::Scalability::kGIMethodNames, methods.GlobalIllumination.Effective );
+                device.ReflectionsMethod =
+                     name( Common::Scalability::kReflectionMethodNames, methods.Reflections.Effective );
+                device.ShadowsMethod = name( Common::Scalability::kShadowMethodNames, methods.Shadows.Effective );
+            }
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

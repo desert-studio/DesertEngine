@@ -219,15 +219,16 @@ namespace Desert::Graphic::System
             // the engine's Mesh/Surface/Vertex_<Path>.glslh, which transforms a_Position and nothing else, and
             // Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in the tree. The
             // day a vertex-offset node exists, that census goes red before this does.
-            if ( g.Mesh != nullptr &&
-                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
-                continue;
-            // A surface override held by the view's GPU-culled bins (AttachBinned) is issued from them.
+            // A surface override held by the view's GPU-culled bins (AttachBinned) is issued from them (asked
+            // before the CPU frustum test: the cull decides it).
             if ( ( slice == GenericSlice::DeferredSurfaceGBuffer || slice == GenericSlice::Forward ) &&
                  !CpuWalkHidden( BinnedWalkView( slice == GenericSlice::Forward ? GpuDriven::MeshPass::Forward
                                                                                 : GpuDriven::MeshPass::GBuffer,
                                                  kBinnedMainView ),
                                  g.Mesh, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                continue;
+            if ( g.Mesh != nullptr &&
+                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
 
             // Per-slot draws carry their own material (asset params already applied at build);
@@ -379,10 +380,22 @@ namespace Desert::Graphic::System
             const bool                    ownProgram     = programName != shaderName || !permutation.IsDefault();
             if ( ownProgram )
             {
-                shader = permutation.IsDefault() ? shaders->GetByName( programName )
-                                                 : shaders->AcquireVariant( programName, permutation );
+                if ( permutation.IsDefault() )
+                    shader = shaders->GetByName( programName );
+                else
+                {
+                    auto acquired = shaders->AcquireVariant( programName, permutation );
+                    if ( !acquired )
+                    {
+                        if ( shaders->ClaimRefusalReport( programName, permutation ) )
+                            LOG_ERROR( "[MeshRenderer] forward program '{}' not drawn: {}", programName,
+                                       acquired.GetError() );
+                        continue;
+                    }
+                    shader = acquired.ExtractValue();
+                }
                 if ( !shader || !shader->IsCompiled() )
-                    continue; // ShaderService named the program and its compile error once
+                    continue; // a registered program that failed its compile was named at registration
             }
             // The pipeline tracker's and the shared material's name of this program: the permutation is part of
             // it.
@@ -467,6 +480,12 @@ namespace Desert::Graphic::System
                                                        m_GenericPrepassLocalShadowMasks ) )
                         continue;
                     m_GenericPrepassed.insert( &g );
+                    // Admitted, so "Deferred: Generic" shades it; its depth and normal come from the DepthPrepass
+                    // bins (the "depthPrepass" cull view, AttachBinned) when they hold every visible submesh - the
+                    // view's CPU walk rule (CpuWalkHidden; a VG candidate is in no bin and no raster here: walked).
+                    if ( !CpuWalkHidden( BinnedWalkView( GpuDriven::MeshPass::DepthPrepass, kBinnedMainView ), g.Mesh,
+                                         g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                        continue;
                 }
                 if ( choice.UseOwnPipeline )
                 {
@@ -770,9 +789,16 @@ namespace Desert::Graphic::System
         const Core::ShaderVariant permutation = ForwardShadowMaskVariant( *shader, rayTracedSun, localShadowMasks );
         if ( !permutation.IsDefault() )
         {
-            program = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( shaderName, permutation );
-            if ( !program || !program->IsCompiled() )
-                return false; // ShaderService named the program and its compile error once
+            Runtime::ShaderService* shaders  = Runtime::ResourceRegistry::GetShaderService();
+            auto                    acquired = shaders->AcquireVariant( shaderName, permutation );
+            if ( !acquired )
+            {
+                if ( shaders->ClaimRefusalReport( shaderName, permutation ) )
+                    LOG_ERROR( "[MeshRenderer] generic forward pipeline of '{}' not ready: {}", shaderName,
+                               acquired.GetError() );
+                return false;
+            }
+            program = acquired.ExtractValue();
             for ( const auto& define : permutation.Defines )
                 std::format_to( std::back_inserter( programKey ), "|{}", define );
         }
@@ -1274,11 +1300,13 @@ namespace Desert::Graphic::System
             if ( data.Mesh == nullptr || !data.MaterialSlots )
                 continue;
 
-            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
-                continue;
+            // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
+            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
                  CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
             if ( !walk )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
             if ( !( *walk == SubmeshMask{ data.HiddenSubmeshes } ) )
                 walked.emplace( &data, *walk );

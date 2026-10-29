@@ -23,6 +23,7 @@
 #define DESERT_GPU_PRIMITIVE_SKINNED             4u
 #define DESERT_GPU_PRIMITIVE_NO_CONTACT_SHADOW   8u
 #define DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION      16u
+#define DESERT_GPU_PRIMITIVE_MOVABLE_CASTER      32u
 
 // GpuDriven::CullViewFlags
 #define DESERT_GPU_CULL_VIEW_ORTHOGRAPHIC  1u
@@ -30,6 +31,8 @@
 #define DESERT_GPU_CULL_VIEW_SHADOW_CASTER 4u
 #define DESERT_GPU_CULL_VIEW_LOD_DISABLED  8u
 #define DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK 16u
+#define DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER  32u
+#define DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER 64u
 
 // GpuDriven::CullVisibility (one word per view x instance of the cull's Visibility[])
 #define DESERT_GPU_CULL_VISIBILITY_LOD_MASK     0xFFu
@@ -221,8 +224,7 @@ objectBones;
 // instance (-> its primitive) and the cached draw slot (-> material row, submesh transform), so a draw pushes nothing.
 // THE ID IS A PER-INSTANCE VERTEX STREAM (decision 10-27, UE5's instance id stream): a_VisibleRow, 4 bytes at
 // VK_VERTEX_INPUT_RATE_INSTANCE (GpuDriven::kVisibleRowVertexBinding / kVisibleRowVertexLocation), written by the
-// cull's compaction or, until PASSES, by the CPU loop from the DrawCommandCache's unculled list
-// (DrawCommandCache::UnculledFirstVisible). Never gl_InstanceIndex: whether it includes firstInstance differs
+// cull's compaction (InstanceCulling) and bound by RenderMeshIndirectGroup. Never gl_InstanceIndex: whether it includes firstInstance differs
 // across drivers (MoltenVK), an instance-rate attribute does not. Transforms never ride a vertex stream.
 // UE: GetSceneDataIntermediates through the instance id stream (SceneData.ush). Needs DESERT_GPU_SCENE_PRIMITIVES.
 #ifdef DESERT_GPU_SCENE_DRAWS

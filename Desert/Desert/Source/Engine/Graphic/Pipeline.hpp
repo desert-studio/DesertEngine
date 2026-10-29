@@ -451,6 +451,14 @@ namespace Desert::Graphic
     {
         std::shared_ptr<Shader> Shader;
         std::string             DebugName;
+        // Subgroup control of the compute stage (VK_EXT_subgroup_size_control, core in Vulkan 1.3; the device
+        // features subgroupSizeControl + computeFullSubgroups, NeuralComputeCaps::SubgroupSizeControl). A kernel
+        // whose subgroup operations need every lane present (cooperative-matrix tiles) sets RequireFullSubgroups;
+        // one built for one subgroup width (a driver's coopmat shapes are listed for its subgroupSize) sets
+        // RequiredSubgroupSize. 0 / false = the driver's choice. The caller asks the device first: a request the
+        // device cannot honour is a validation error, never silently dropped here.
+        uint32_t RequiredSubgroupSize = 0;
+        bool     RequireFullSubgroups = false;
     };
 
     /**

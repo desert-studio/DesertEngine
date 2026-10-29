@@ -47,8 +47,6 @@ namespace Desert::Editor
             return ICON_MDI_LINK_VARIANT;
         if ( name == "Scene Validation" )
             return ICON_MDI_CLIPBOARD_CHECK_OUTLINE;
-        if ( name == "Shader Library" )
-            return ICON_MDI_PALETTE;
         return ICON_MDI_VIEW_DASHBOARD; // sensible default for any future panel
     }
 

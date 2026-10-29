@@ -434,6 +434,8 @@ namespace
          { "Display", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },
          // AF5: which disk holds the rebuildable cache is a machine's answer, never the project's.
          { "DerivedDataCachePath", Owner::Machine, "Desert/Common/Source/Common/Content/DerivedDataCache.cpp" },
+         // NO-RT: the device is probed as one without ray tracing; read once, when the device is created.
+         { "HideRayTracing", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanDevice.cpp" },
     };
 
     // ------------------------------------------------------------------------------------------------
@@ -1356,7 +1358,11 @@ TEST( ConfigOwnership, BothHostsOpenTheMachineStoreAndTheGameOpensItsOwnDirector
     // QualityBoot::Start is the one host start: it loads the store and hands the selection to QualityState.
     const std::string boot = StripCommentsAndLiterals(
          ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" ) );
-    EXPECT_TRUE( CallsFunction( boot, "MachineSettings", "Load" ) );
+    EXPECT_FALSE( CallsFunction( boot, "MachineSettings", "Load" ) )
+         << "the store is loaded by the Application before the device (HideRayTracing), never a second time";
+    const std::string app = StripCommentsAndLiterals(
+         ReadAll( std::filesystem::path( root ) / "Desert/Desert/Source/Engine/Core/Application.cpp" ) );
+    EXPECT_TRUE( CallsFunction( app, "MachineSettings", "Load" ) );
     EXPECT_TRUE( CallsFunction( boot, "QualityState", "Initialize" ) );
 
     // And the game hands them on, or the file is read and thrown away. The editor's own push is covered

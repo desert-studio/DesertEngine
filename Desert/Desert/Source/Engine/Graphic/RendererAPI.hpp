@@ -212,8 +212,7 @@ namespace Desert::Graphic
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                     const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel,
-                    std::span<const uint32_t> submeshFirstRows ) = 0;
+                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel ) = 0;
         // RenderMesh with its counts in a graph buffer (see Renderer::RenderMeshIndirect).
         [[nodiscard]] virtual Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,

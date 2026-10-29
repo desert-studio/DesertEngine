@@ -10,6 +10,8 @@
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -562,8 +564,7 @@ namespace Desert::Graphic::System
                 }
                 if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel,
-                          draw.SubmeshFirstRows );
+                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
                      !drawn.IsSuccess() )
                     return drawn;
             }
@@ -827,9 +828,7 @@ namespace Desert::Graphic::System
         const auto claim = [&feed, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
                                             const MeshVertexPath path, const uint32_t firstInstance,
                                             const uint32_t instanceCount, const uint64_t hidden, const uint32_t row,
-                                            const bool                   generic  = false,
-                                            const GpuDriven::BinFallback fallback = GpuDriven::BinFallback::None,
-                                            const bool                   sways    = false )
+                                            const bool generic = false, const bool genericProgram = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -849,10 +848,8 @@ namespace Desert::Graphic::System
             }
             // A primitive shared by a generic record and a batched one (one per entity slot) takes the generic's
             // rules: it cannot be half binned through two vertex contracts.
-            f.Generic = f.Generic || generic;
-            f.Sways   = f.Sways || sways;
-            if ( fallback != GpuDriven::BinFallback::None )
-                f.Fallback = fallback;
+            f.Generic        = f.Generic || generic;
+            f.GenericProgram = f.GenericProgram || genericProgram;
             f.HiddenSubmeshMask &= hidden;
             for ( size_t s = 0; s < submeshes && s < 64; ++s )
                 if ( ( hidden & ( 1ull << s ) ) == 0 )
@@ -872,8 +869,7 @@ namespace Desert::Graphic::System
                 continue;
             if ( const auto row = FindMaterialRow( mat, data.Material.get(), true ) )
                 claim( rows.FieldPrimitives[f], data.Mesh, MeshVertexPath::Instanced, rows.FieldInstances[f],
-                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row, false,
-                       GpuDriven::BinFallback::None, data.Wind.Sways() );
+                       static_cast<uint32_t>( data.Transforms->size() ), data.HiddenSubmeshes, *row );
         }
         // The CPU ISM loops find an entry's primitive here (CpuWalkHidden): the queue's order is the rows' order.
         m_FieldPrimitives.assign( rows.FieldPrimitives.begin(), rows.FieldPrimitives.end() );
@@ -887,7 +883,8 @@ namespace Desert::Graphic::System
         // The generic queue (Shader Override and custom-program slot draws), as UE caches every mesh batch a pass
         // processor accepts: a Shader Override naming a SURFACE template draws in the G-buffer through its
         // (Static x GBuffer) cell (BuildGenericDraws' surfaceOverride), so its `.Binned` twin is its bin; any other
-        // program shades forward through its own passes (GenericProgram) and casts through the shared caster.
+        // program (GenericProgram) shades forward through its own passes, whose opaque ones have `.Binned` twins
+        // (Forward.Binned, DepthNormal.Binned: ResolveGenericProgramBinned), and casts through the shared caster.
         {
             auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
             const auto  isRegistered = [shaders]( std::string_view name )
@@ -901,8 +898,7 @@ namespace Desert::Graphic::System
                      TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
                           .has_value();
                 claim( g.GpuPrimitive, g.Mesh, MeshVertexPath::Static, g.GpuInstance, 1, ~g.VisibleSubmeshMask,
-                       *g.MaterialRow, true,
-                       surfaceOverride ? GpuDriven::BinFallback::None : GpuDriven::BinFallback::GenericProgram );
+                       *g.MaterialRow, true, !surfaceOverride );
             }
         }
 
@@ -956,6 +952,15 @@ namespace Desert::Graphic::System
                m_CascadeCache[view].Rebuild && m_CascadeCache[view].RedrawStatic;
     }
 
+    bool MeshRenderer::CascadeMovableBinsDrawn( const uint32_t view ) const
+    {
+        // The sun's cascade whose movable layer ShadowCascadePasses draws this frame (state.Rebuild && Movable).
+        return view < kCascadeViews && view < m_CascadeSlots * kMaxCascades &&
+               view / kMaxCascades == SceneResources::kDirectionalShadowSun &&
+               view % kMaxCascades < m_Shadow.CascadeCount && m_ShadowPipeline && m_CascadeStaticFB[view] &&
+               m_CascadeCache[view].Rebuild && m_CascadeCache[view].Movable;
+    }
+
     bool MeshRenderer::SetFrameBinned( const GpuDriven::MeshPass pass, const uint32_t viewKey,
                                        const GpuDriven::CulledDraws& culled, const GpuDriven::DrawCommandBuffers& upload,
                                        const GpuDriven::GpuSceneBuffers& scene )
@@ -967,8 +972,11 @@ namespace Desert::Graphic::System
             m_BinnedLastError = std::move( message );
             return false;
         };
-        if ( !m_DrawCommandCache || m_SceneRenderer == nullptr ||
-             ( viewKey != kBinnedMainView && ( pass != GpuDriven::MeshPass::ShadowCascade || !CascadeBinsDrawn( viewKey ) ) ) )
+        const bool casterLayer =
+             pass == GpuDriven::MeshPass::ShadowCascade &&
+             ( CascadeBinsDrawn( viewKey ) ||
+               ( viewKey >= kCascadeMovableViewBase && CascadeMovableBinsDrawn( viewKey - kCascadeMovableViewBase ) ) );
+        if ( !m_DrawCommandCache || m_SceneRenderer == nullptr || ( viewKey != kBinnedMainView && !casterLayer ) )
             return false;
         const GpuDriven::PassDrawTable& table = m_DrawCommandCache->Pass( pass );
         MeshRendererDetail::BinnedIssue issue;
@@ -1178,16 +1186,26 @@ namespace Desert::Graphic::System
     {
         if ( passState == nullptr )
             return nullptr;
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        const std::shared_ptr<Shader> shader = BinnedCellShader( cellShader );
         if ( !shader )
-        {
-            if ( m_BinnedRefused.insert( cellShader ).second )
-                LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.", cellShader );
             return nullptr;
-        }
         GraphicsPipelineSpecification spec = passState->GetSpecification();
         spec.Shader                        = shader;
         spec.DebugName                     = std::format( "{} {}", spec.DebugName, cellShader );
+        return BinnedSpecPipeline( cellShader, std::move( spec ), twoSided );
+    }
+
+    std::shared_ptr<Shader> MeshRenderer::BinnedCellShader( const std::string& cellShader )
+    {
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        if ( !shader && m_BinnedRefused.insert( cellShader ).second )
+            LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.", cellShader );
+        return shader;
+    }
+
+    const GraphicsPipeline* MeshRenderer::BinnedSpecPipeline( const std::string&            cellShader,
+                                                              GraphicsPipelineSpecification spec, const bool twoSided )
+    {
         if ( twoSided )
             spec.CullMode = CullMode::None; // CullPermutation's rule
         const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
@@ -1263,10 +1281,10 @@ namespace Desert::Graphic::System
             return binned(
                  BinnedCellPipeline( BinnedCellOf( *defaultCell ), vsm ? vsmStates[0] : casterStates[0], false ) );
         }
+        if ( feed->GenericProgram )
+            return ResolveGenericProgramBinned( pass, row );
         if ( IsTranslucentSurface( row.Surface ) )
             return {}; // translucency is sorted per view, never binned
-        if ( feed->Fallback != BinFallback::None )
-            return fallback( feed->Fallback );
         // A bin's draws share one PSO and one descriptor set: a texture bound per material (a TextureBinding) would
         // be the first draw's for all of them. Row textures (BindlessTexture slots) travel with the material row.
         if ( !row.Surface->GetMaterialLayout().Textures.empty() )
@@ -1316,10 +1334,8 @@ namespace Desert::Graphic::System
             }
             case GpuDriven::MeshPass::ShadowCascade:
             {
-                // Binned casters are issued only into the cascade's cached static layer (SetFrameBinned): what
-                // moves by itself is drawn over the copied cache every frame, on the CPU.
-                if ( path == MeshVertexPath::Skinned || feed->Sways )
-                    return fallback( BinFallback::MovableCaster );
+                // Static and movable casters share the pass's bins; the cull splits them into the cascade cache's
+                // layers by PrimitiveFlags::kMovableCaster (skinned, swaying), SyncGpuScene's bit.
                 const auto defaultCell = MeshRendererDetail::DefaultSurfaceShaderName( path, MeshPass::ShadowDepth );
                 if ( !defaultCell )
                     return fallback( BinFallback::NoBinnedCell );
@@ -1333,15 +1349,15 @@ namespace Desert::Graphic::System
                 return binned( BinnedCellPipeline( BinnedCellOf( *cell ), casterStates[pathIndex], false ) );
             }
             case GpuDriven::MeshPass::DepthPrepass:
-                // Draws only generic programs' DepthNormal today (BuildGenericDraws), which answered GenericProgram
-                // above: a surface is not in this pass.
-                return {};
+                return {}; // a surface is in the G-buffer; this pass holds the generic programs (above)
             case GpuDriven::MeshPass::VirtualShadow:
             {
                 // The VSM's own table (UE: the VSM mesh pass's cached commands): the cascade rule with the VSM cell.
                 // Its bins are not issued yet - the levels' CPU walk draws every non-cluster caster through its
                 // per-page remap ("VSM: Cull Casters"); the table is what the clusters of every level are binned
                 // into and rastered by ("VSM: Raster VirtualGeometry", MeshRenderer::SetVirtualShadowGeometry).
+                // A movable caster (skinned, swaying) stays out of it: the cluster raster draws rest-pose geometry
+                // into cached pages, so its clusters would cast the unanimated shape; the CPU walk redraws it.
                 if ( path == MeshVertexPath::Skinned || feed->Sways )
                     return fallback( BinFallback::MovableCaster );
                 const auto defaultCell =
@@ -1360,6 +1376,55 @@ namespace Desert::Graphic::System
                 break;
         }
         return {};
+    }
+
+    GpuDriven::PassPipelineResolution MeshRenderer::ResolveGenericProgramBinned( const GpuDriven::MeshPass pass,
+                                                                                 const RowSurface&         row )
+    {
+        using GpuDriven::BinFallback;
+        const auto fallback = []( const BinFallback reason )
+        { return GpuDriven::PassPipelineResolution{ nullptr, reason }; };
+        // A program without a Surface block draws in two view passes (its casters answered in the caller): the
+        // forward path's Forward and the deferred path's depth prepass ("Deferred: Forward Depth/Normal"; the CPU
+        // list then shades it forward over the composite at CloserOrEqual against that depth). Its blending is the
+        // PROGRAM's State, not a Surface schema: a blended or depth-less one is sorted per view (text), never
+        // binned - the parser gives it no `.Binned` twins.
+        const bool forward = pass == GpuDriven::MeshPass::Forward;
+        if ( !forward && pass != GpuDriven::MeshPass::DepthPrepass )
+            return {};
+        const std::string& program = row.Surface->GetShaderName();
+        const auto         shader  = Runtime::ResourceRegistry::GetShaderService()->GetByName( program );
+        if ( !shader || !shader->IsCompiled() )
+            return fallback( BinFallback::PipelineUnavailable ); // its compile error was named at registration
+        const auto& state = shader->GetProgramMeta().State;
+        if ( state.Blend.value_or( false ) || !state.DepthWrite.value_or( true ) )
+            return {};
+        if ( !row.Surface->GetMaterialLayout().Textures.empty() )
+        {
+            if ( m_BinnedRefused.insert( program + "|bound" ).second )
+                LOG_ERROR( "[MeshRenderer] '{}' binds {} texture(s) per material (TextureBinding); its draws stay on "
+                           "the CPU path. Its textures belong in the material row (BindlessTexture).",
+                           program, row.Surface->GetMaterialLayout().Textures.size() );
+            return fallback( BinFallback::BoundTextures );
+        }
+        const std::string cell = std::format( "{}/{}", program,
+                                              forward ? Core::Preprocess::kGenericForwardBinnedPass
+                                                      : Core::Preprocess::kGenericDepthNormalBinnedPass );
+        const std::shared_ptr<Shader> cellShader = BinnedCellShader( cell );
+        if ( !cellShader )
+            return fallback( BinFallback::NoBinnedCell );
+        // The CPU list's state for the same program (BuildGenericDraws): GenericPipelineSpec, and for the
+        // prepass the G-buffer's targets at CloserOrEqual.
+        GraphicsPipelineSpecification spec = GenericPipelineSpec( cellShader );
+        if ( !forward )
+        {
+            spec.TargetLayout   = GBufferLayout();
+            spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+        }
+        const bool twoSided = row.Instance != nullptr ? row.Instance->IsTwoSided() : row.Surface->IsTwoSided();
+        const GraphicsPipeline* const pipeline = BinnedSpecPipeline( cell, std::move( spec ), twoSided );
+        return GpuDriven::PassPipelineResolution{ pipeline, pipeline != nullptr ? BinFallback::None
+                                                                                : BinFallback::PipelineUnavailable };
     }
 
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
@@ -1406,7 +1471,8 @@ namespace Desert::Graphic::System
                                  .World  = data.Transform,
                                  .Bones  = data.BoneMatrices,
                                  .Mesh   = data.Mesh,
-                                 .Flags  = Flags::kSkinned | rigidFlags( data.CastShadows, true ) } );
+                                 .Flags  = Flags::kSkinned | Flags::kMovableCaster |
+                                          rigidFlags( data.CastShadows, true ) } );
 
         // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway), which
         // the binned instanced vertex stage reads from the row instead of the push block.
@@ -1430,7 +1496,8 @@ namespace Desert::Graphic::System
                                 .Transforms        = *data.Transforms,
                                 .CullDistanceStart = data.CullDistance.Min,
                                 .CullDistanceEnd   = data.CullDistance.Max,
-                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ),
+                                .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ) |
+                                         ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                 .BoundsPad         = WindBoundsPad( data.Wind ),
                                 .Wind              = primitiveWind( data.Wind ) } );
 

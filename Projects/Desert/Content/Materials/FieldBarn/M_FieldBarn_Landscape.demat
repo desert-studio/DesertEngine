@@ -48,6 +48,22 @@
             "Value": [0.6, 0.0, 0.0, 0.0]
         },
         {
+            "Name": "DisplacementMagnitude",
+            "Value": [20.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DisplacementCenter",
+            "Value": [0.5, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DisplacementFadeStart",
+            "Value": [800.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DisplacementFadeEnd",
+            "Value": [1500.0, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "Layer0Blend",
             "Value": [1.0, 0.0, 0.0, 0.0]
         },

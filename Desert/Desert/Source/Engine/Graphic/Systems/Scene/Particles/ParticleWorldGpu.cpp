@@ -177,12 +177,14 @@ namespace Desert::Graphic::System
             return nullptr;
         Core::ShaderVariant variant;
         variant.VirtualSources.push_back( { "Generated/VFXEmitterStack.glslh", hostSource } );
-        const auto shader = shaders->AcquireVariant( "ParticleSimulate", variant );
-        if ( !shader )
+        auto acquired = shaders->AcquireVariant( "ParticleSimulate", variant );
+        if ( !acquired )
         {
-            LOG_ERROR( "[VFX] stack {} has no host program: ParticleSimulate is not registered", name );
+            if ( shaders->ClaimRefusalReport( "ParticleSimulate", variant ) )
+                LOG_ERROR( "[VFX] stack {} has no host program: {}", name, acquired.GetError() );
             return nullptr;
         }
+        const auto shader = acquired.ExtractValue();
         const auto made = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
         if ( !made )
         {

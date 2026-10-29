@@ -305,6 +305,9 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // application: the device reads it while it is being created.
     Desert::Graphic::PipelineCacheFile::DeclareHost( Desert::Graphic::PipelineCacheFile::Host::Editor );
     appInfo.Title = "Desert Engine — " + Desert::Editor::ProjectContext::Current().Name;
+    // The machine store beside editor.json, loaded before the device (EditorLayer starts the quality from it).
+    appInfo.MachineSettingsFile =
+         std::filesystem::path( Desert::Editor::ProjectContext::ConfigDirectory() ) / "machine.json";
     // HIDDEN UNTIL THE EDITOR IS READY: the splash is what is on screen until then, and EditorLayer shows
     // the window on its first real frame (RevealWhenReady).
     appInfo.Visible = false;

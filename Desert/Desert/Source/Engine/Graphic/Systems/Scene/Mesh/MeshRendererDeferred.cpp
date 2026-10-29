@@ -54,8 +54,8 @@ namespace Desert::Graphic::System
         return m_GBufferPostDraws.Record( context );
     }
 
-    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,
-                                                       const bool localShadowMasks )
+    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                       const bool rayTracedSun, const bool localShadowMasks )
     {
         m_DepthNormalDraws.Clear();
         // This frame's admissions start empty here, whatever returns below: "Deferred: Generic" reads only a set
@@ -68,10 +68,12 @@ namespace Desert::Graphic::System
         const auto& gbuffer          = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
             return;
-        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The depth-normal programs
-        // sample no scene/view input: the camera and the material row are the material's own blocks.
+        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The unbinned draws carry the
+        // camera and the material row in their own blocks; the binned ones (the DepthPrepass bins, culled by the
+        // "depthPrepass" view) read the GPU scene's primitive rows, the view input bound here.
         BuildGenericDraws( m_DepthNormalDraws, GenericSlice::DeferredDepthNormal );
-        m_DepthNormalDraws.Declare( pass, std::nullopt );
+        AttachBinned( m_DepthNormalDraws, GpuDriven::MeshPass::DepthPrepass, kBinnedMainView );
+        m_DepthNormalDraws.Declare( pass, view );
     }
 
     Common::BoolResultStr MeshRenderer::RenderForwardDepthNormalManual( const RDG::PassContext& context ) const

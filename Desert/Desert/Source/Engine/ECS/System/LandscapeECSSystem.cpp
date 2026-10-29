@@ -14,6 +14,7 @@
 #include <Engine/ECS/System/WindField.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Mesh/MeshService.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
@@ -319,6 +320,17 @@ namespace Desert::ECS
                 weights.Colors     = channels.Colors;
                 weights.AlphaBlend = Landscape::LandscapeAlphaBlendPages( channels );
                 weights.LayerNames      = channels.Names;
+                // GRASS-FIELD: each grass layer's far cover, by name (EmitGrass of the frame before).
+                if ( const auto cover = m_GrassCover.find( static_cast<uint64_t>( tileComp.Landscape ) );
+                     cover != m_GrassCover.end() )
+                    for ( size_t c = 0; c < channels.Names.size(); ++c )
+                        if ( const auto layer = cover->second.find( channels.Names[c] );
+                             layer != cover->second.end() )
+                        {
+                            weights.GrassCover[c]      = layer->second.Cover;
+                            weights.GrassCoverLight[c] = layer->second.Light;
+                            weights.GrassCoverRange[c] = layer->second.Range;
+                        }
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
                      m_WarnedWeights.insert( d.Entity ).second )
@@ -406,8 +418,21 @@ namespace Desert::ECS
         for ( const auto& layer : layers )
             if ( !layer.GrassTypes.empty() )
                 grassLayers.push_back( &layer );
+        auto& covers = m_GrassCover[rootId];
+        covers.clear();
         if ( grassLayers.empty() || tiles.empty() )
             return;
+
+        // GRASS-FIELD: what each grass layer's varieties add up to as a cover, once the blades are thinned out
+        // with distance - the leaf area they stand for per m2 of ground (a variety's Density per 100 m2 times one
+        // instance's leaf area), and the look of that leaf area from the assets: the blade shape's colours and
+        // its material's tint, subsurface colour and roughness. Weighted by leaf area across the varieties.
+        struct CoverSum
+        {
+            float     Lai = 0.0f, ColourLai = 0.0f, Start = 0.0f, End = 0.0f, Roughness = 0.0f, MinWeight = 1.0f;
+            glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
+        };
+        std::vector<CoverSum> coverSums( grassLayers.size() );
 
         // The field: rebuilt when a tile's heights or weights changed, or the tile set or the grass layers did.
         const uint32_t quads     = root.QuadsPerTile;
@@ -626,12 +651,75 @@ namespace Desert::ECS
                     p.RandomRotation            = v.RandomRotation;
                     p.AlignToSurface            = v.AlignToSurface;
                     p.CastDynamicShadow         = v.CastDynamicShadow;
+                    {
+                        // One instance's leaf area (cm2): a blade's strip (its taper narrows it to the tip), a
+                        // mesh's footprint (a tuft covers the ground under it once), at the variety's mean scale.
+                        const float meanX   = 0.5f * ( v.ScaleX.Min + v.ScaleX.Max );
+                        const float meanY   = 0.5f * ( v.ScaleY.Min + v.ScaleY.Max );
+                        const float meanUp  = 0.5f * ( v.ScaleZ.Min + v.ScaleZ.Max );
+                        const bool  uniform = p.Scaling == 0u;
+                        float       area    = 0.0f;
+                        if ( blade )
+                            area = v.Blade->Height * v.Blade->Width * ( 1.0f - 0.5f * v.Blade->Taper ) *
+                                   ( uniform ? meanX * meanX : meanX * meanUp ) *
+                                   ( 1.0f - 0.5f * v.Blade->Patchiness );
+                        else
+                        {
+                            const Common::Math::AABB bounds = Geometry::LocalBounds( mesh->GetSubmeshes() );
+                            area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) *
+                                   ( p.Scaling == 1u ? meanX * meanY : meanX * meanX );
+                        }
+                        const float lai = std::max( v.Density, 0.0f ) * std::max( area, 0.0f ) * 1.0e-6f;
+                        CoverSum&   sum = coverSums[k];
+                        sum.Lai += lai;
+                        sum.Start += lai * v.StartCullDistance;
+                        sum.End += lai * v.EndCullDistance;
+                        sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
+                        if ( blade && !sections.Sections.empty() && sections.Sections.front().Material )
+                        {
+                            // The blade's mean colour over its area: root to tip (the vertex stage's mix by
+                            // height, weighted by the tapering width), then the dry tip's share on DryTipShare of
+                            // them.
+                            const auto&     b    = *v.Blade;
+                            const glm::vec3 base = glm::vec3( b.BaseColor[0], b.BaseColor[1], b.BaseColor[2] );
+                            const glm::vec3 tip  = glm::vec3( b.TipColor[0], b.TipColor[1], b.TipColor[2] );
+                            const glm::vec3 dry =
+                                 glm::vec3( b.DryTipColor[0], b.DryTipColor[1], b.DryTipColor[2] );
+                            const float taper = std::clamp( b.Taper, 0.0f, 1.0f );
+                            const float meanT =
+                                 ( 0.5f - ( taper / 3.0f ) ) / std::max( 1.0f - ( 0.5f * taper ), 1.0e-3f );
+                            const float len = std::clamp( b.DryTipLength, 0.0f, 1.0f );
+                            // Width-weighted share of the top `len` of the strip, half of it dry (the smoothstep).
+                            const float topArea = len * ( 1.0f - taper * ( 1.0f - 0.5f * len ) );
+                            const float dryArea = 0.5f * topArea / std::max( 1.0f - ( 0.5f * taper ), 1.0e-3f );
+                            glm::vec3   colour  = glm::mix( glm::mix( base, tip, meanT ), dry,
+                                                            std::clamp( b.DryTipShare, 0.0f, 1.0f ) * dryArea );
+                            const auto& m       = *sections.Sections.front().Material;
+                            colour *= glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) );
+                            sum.ColourLai += lai;
+                            sum.Albedo += lai * colour;
+                            sum.Subsurface += lai * glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
+                            sum.Roughness += lai * m.GetFloat( "RoughnessFactor", 1.0f );
+                        }
+                    }
                     variety.Wind =
                          Graphic::MakeInstanceWind( v.Wind.Strength, v.Wind.Speed, v.Wind.Height,
                                                     glm::vec2( air.x, air.z ), m_WindSeconds, m_PrevWindSeconds );
                     draw.Varieties.push_back( std::move( variety ) );
                 }
             }
+        for ( size_t k = 0; k < grassLayers.size(); ++k )
+        {
+            const CoverSum& sum = coverSums[k];
+            // A layer with no blade variety has no colour of its own to cover the ground with (a mesh's look is
+            // its textures', GRASS-ASSET): it keeps its meshes only.
+            if ( sum.Lai <= 0.0f || sum.ColourLai <= 0.0f )
+                continue;
+            GrassCoverValues& c = covers[grassLayers[k]->LayerName];
+            c.Cover             = glm::vec4( sum.Albedo / sum.ColourLai, sum.Lai );
+            c.Light             = glm::vec4( sum.Subsurface / sum.ColourLai, sum.Roughness / sum.ColourLai );
+            c.Range             = glm::vec4( sum.Start / sum.Lai, sum.End / sum.Lai, sum.MinWeight, 0.0f );
+        }
         if ( !draw.Varieties.empty() )
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );
     }

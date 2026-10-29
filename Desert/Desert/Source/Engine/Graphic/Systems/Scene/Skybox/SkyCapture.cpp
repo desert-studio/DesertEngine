@@ -186,12 +186,16 @@ namespace Desert::Graphic::System
         std::shared_ptr<Shader> shader;
         if ( clouds.Medium && !clouds.Medium->IsDefault() )
         {
-            shader = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( kCloudSkyBakeShaderName,
-                                                                                    *clouds.Medium );
-            if ( !shader )
+            auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant( kCloudSkyBakeShaderName,
+                                                                                           *clouds.Medium );
+            if ( acquired )
+                shader = acquired.ExtractValue();
+            else if ( Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport( kCloudSkyBakeShaderName,
+                                                                                         *clouds.Medium ) )
                 LOG_ERROR( "[SkyCapture] the authored cloud medium could not be compiled into BakeProceduralSky "
                            "-- the sky light of this scene uses the shipped medium, so the world is lit "
-                           "by a different sky than the one on screen." );
+                           "by a different sky than the one on screen: {}",
+                           acquired.GetError() );
         }
         if ( !shader )
             shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( kCloudSkyBakeShaderName );
