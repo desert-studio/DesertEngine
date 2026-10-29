@@ -286,7 +286,9 @@ namespace Desert::Libraries
                               name ) );
             return;
         }
-        UpsertParam( smc->GetScriptSlotParams(), name, value );
+        ECS::StaticMeshDesc desc = smc->GetDesc();
+        UpsertParam( desc.ScriptSlotParams, name, value );
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
         if ( !smc->RuntimeMaterialInstances().empty() && smc->RuntimeMaterialInstances()[0] )
             smc->RuntimeMaterialInstances()[0]->SetParamFromVec4( name, value );
     }
