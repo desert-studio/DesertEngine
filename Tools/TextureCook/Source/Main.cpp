@@ -1,6 +1,6 @@
 // TextureCook — cook named texture sources into a project's Cooked/ tree.
 //
-//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]
+//   TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>] <source> [<source> ...]
 //   TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>
 //
 // `--emit` writes an asset's platform data (its DDC entry, derived first if absent) to a file. It exists for
@@ -16,6 +16,11 @@
 // import only — an existing asset keeps its settings, as in the editor. Without it a loose image is
 // Unspecified (sRGB), which is wrong for a normal or data map imported outside a mesh.
 //
+// `--alpha-coverage` writes the asset's AlphaCoverageThresholds (UE AlphaCoverageThresholds; > 0 = that channel keeps
+// level 0's share of texels at or above the threshold in every mip, the clip value of a masked material) into every
+// named asset before it is cooked; `0,0,0,0` clears them. The material importer sets it on its own; this is the
+// spelling for assets imported before it did (FOLIAGE-ALPHA-MIPS).
+//
 // Exit status: 0 when every source ends with a correct `.tex` on the disk (Cooked or Fresh), 1 when any
 // did not, 2 for a command line it cannot act on. Every source gets one line on stdout saying which.
 
@@ -23,6 +28,10 @@
 #include <ToolProject.hpp>
 
 #include <Editor/Import/TextureImporter.hpp>
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
+#include <array>
+#include <optional>
 
 #include <cstdio>
 #include <filesystem>
@@ -37,7 +46,8 @@ namespace
     {
         std::fprintf(
              stderr,
-             "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] <source> [<source> ...]\n"
+             "usage: TextureCook <project.deproj> [--engine-dir <dir>] [--intent <name>] [--alpha-coverage <r,g,b,a>] "
+             "<source> [<source> ...]\n"
              "       TextureCook <project.deproj> [--engine-dir <dir>] --emit <asset.detex> <out.tex>\n"
              "  paths are relative to the project's folder, e.g. Resources/Splash/Splash.detex\n"
              "  --engine-dir: the folder holding the engine's Resources/ (default: from this binary)\n"
@@ -137,6 +147,22 @@ int main( int argc, char** argv )
                  first += 2;
              }
 
+             std::optional<std::array<float, 4>> coverage;
+             if ( count > first && std::string( args[first] ) == "--alpha-coverage" )
+             {
+                 if ( count < first + 3 )
+                     return Usage();
+                 std::array<float, 4> thresholds{};
+                 if ( std::sscanf( args[first + 1], "%f,%f,%f,%f", &thresholds[0], &thresholds[1], &thresholds[2],
+                                   &thresholds[3] ) != 4 )
+                 {
+                     std::fprintf( stderr, "TextureCook: '%s' is not four thresholds r,g,b,a\n", args[first + 1] );
+                     return 2;
+                 }
+                 coverage = thresholds;
+                 first += 2;
+             }
+
              Desert::Editor::TextureImporter importer;
              int                             status = 0;
              for ( int i = first; i < count; ++i )
@@ -163,6 +189,15 @@ int main( int argc, char** argv )
                          continue;
                      }
                      asset = imported.GetValue();
+                 }
+                 if ( coverage )
+                 {
+                     if ( const auto set = Desert::Assets::SetTextureAlphaCoverage( asset, *coverage ); !set )
+                     {
+                         std::fprintf( stderr, "TextureCook: %s: %s\n", args[i], set.GetError().c_str() );
+                         status = 1;
+                         continue;
+                     }
                  }
                  const auto result = importer.Cook( asset );
                  const bool ok     = result.Outcome == Desert::Editor::TextureCookOutcome::Cooked ||

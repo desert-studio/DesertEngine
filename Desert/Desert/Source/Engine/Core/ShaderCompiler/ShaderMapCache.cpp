@@ -79,9 +79,9 @@ namespace Desert::Core
             requires std::is_same_v<std::remove_const_t<Self>, Formats::SurfaceOpacityMask>
         void VisitFields( Self& m, Fn&& fn )
         {
-            auto& [texture, channelParam, channel, uvSet, tiling, offset, rotation, clip] = m;
+            auto& [texture, channelParam, channel, uvSet, tiling, offset, rotation, clip, dither] = m;
             fn( texture ), fn( channelParam ), fn( channel ), fn( uvSet ), fn( tiling ), fn( offset ),
-                 fn( rotation ), fn( clip );
+                 fn( rotation ), fn( clip ), fn( dither );
         }
 
         template <class Self, class Fn>

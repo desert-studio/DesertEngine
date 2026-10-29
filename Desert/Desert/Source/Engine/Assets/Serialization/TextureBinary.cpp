@@ -295,6 +295,102 @@ namespace Desert::Assets::Serialization
                 }
             }
         }
+
+        // ── PRESERVED ALPHA COVERAGE (UE TextureCompressorModule: bPreserveAlphaCoverage / AlphaCoverageThresholds,
+        // ComputeAlphaCoverage + ComputeAlphaScale). A masked material keeps a texel where its opacity >= the clip
+        // value. A box filter averages a thin leaf with the sky around it, so a distant level has FEWER texels above
+        // the clip than level 0 and the crown dissolves with distance. Each level's channel is scaled so the share
+        // of texels at or above the threshold equals level 0's; the scale is found by bisection (UE: [0, 4], ten
+        // steps, the best error kept).
+        struct CoverageTexels
+        {
+            unsigned char* Data;
+            size_t         Count;
+            bool           Float;
+            bool           Srgb;
+
+            float Get( const size_t texel, const uint32_t c ) const
+            {
+                if ( Float )
+                    return reinterpret_cast<const float*>( Data )[texel * 4 + c];
+                const float v = static_cast<float>( Data[texel * 4 + c] ) / 255.0f;
+                return Srgb && c < 3 ? SRGBToLinear( v ) : v;
+            }
+            void Set( const size_t texel, const uint32_t c, const float v ) const
+            {
+                if ( Float )
+                {
+                    reinterpret_cast<float*>( Data )[texel * 4 + c] = v;
+                    return;
+                }
+                Data[texel * 4 + c] = Srgb && c < 3
+                                           ? LinearToSRGBByte( v )
+                                           : static_cast<unsigned char>( std::clamp( v * 255.0f + 0.5f, 0.0f, 255.0f ) );
+            }
+        };
+
+        float AlphaCoverage( const CoverageTexels& t, const uint32_t c, const float threshold, const float scale )
+        {
+            if ( t.Count == 0 )
+                return 0.0f;
+            size_t covered = 0;
+            for ( size_t i = 0; i < t.Count; ++i )
+                covered += t.Get( i, c ) * scale >= threshold ? 1u : 0u;
+            return static_cast<float>( covered ) / static_cast<float>( t.Count );
+        }
+
+        float AlphaScaleForCoverage( const CoverageTexels& t, const uint32_t c, const float threshold,
+                                     const float desired )
+        {
+            float lo = 0.0f, hi = 4.0f, scale = 1.0f;
+            float best = 1.0f, bestError = 2.0f;
+            for ( int step = 0; step < 10; ++step )
+            {
+                const float coverage = AlphaCoverage( t, c, threshold, scale );
+                const float error    = std::fabs( coverage - desired );
+                if ( error < bestError )
+                {
+                    bestError = error;
+                    best      = scale;
+                }
+                if ( coverage < desired )
+                    lo = scale;
+                else if ( coverage > desired )
+                    hi = scale;
+                else
+                    break;
+                scale = ( lo + hi ) * 0.5f;
+            }
+            return best;
+        }
+
+        // Scales levels 1.. of @p chain (largest first) in place; the log line names every level's coverage before
+        // and after, so a regression reads as numbers rather than as a thinner crown.
+        void PreserveAlphaCoverage( std::vector<std::vector<unsigned char>>& chain, const bool isFloat, const bool srgb,
+                                    const std::array<float, 4>& thresholds )
+        {
+            const size_t bpp = isFloat ? 16u : 4u;
+            for ( uint32_t c = 0; c < 4; ++c )
+            {
+                const float threshold = thresholds[c];
+                if ( !( threshold > 0.0f ) )
+                    continue;
+                const CoverageTexels base{ chain[0].data(), chain[0].size() / bpp, isFloat, srgb };
+                const float          desired = AlphaCoverage( base, c, threshold, 1.0f );
+                std::string          report;
+                for ( size_t level = 1; level < chain.size(); ++level )
+                {
+                    const CoverageTexels t{ chain[level].data(), chain[level].size() / bpp, isFloat, srgb };
+                    const float          before = AlphaCoverage( t, c, threshold, 1.0f );
+                    const float          scale  = AlphaScaleForCoverage( t, c, threshold, desired );
+                    for ( size_t i = 0; i < t.Count; ++i )
+                        t.Set( i, c, std::min( t.Get( i, c ) * scale, 1.0f ) );
+                    report += fmt::format( " {}:{:.3f}->{:.3f}", level, before, AlphaCoverage( t, c, threshold, 1.0f ) );
+                }
+                LOG_INFO( "[TextureCook] alpha coverage channel {} threshold {:.3f}: level 0 {:.3f};{}", c, threshold,
+                          desired, report );
+            }
+        }
     } // namespace
 
     bool LooksLikeTextureBinary( const std::string_view bytes )
@@ -333,7 +429,8 @@ namespace Desert::Assets::Serialization
                                                                 const Core::Formats::ImageFormat       format,
                                                                 const std::vector<unsigned char>&      base,
                                                                 std::vector<unsigned char>&            chainOut,
-                                                                const Core::Formats::TextureColorSpace space )
+                                                                const Core::Formats::TextureColorSpace space,
+                                                                const std::array<float, 4>& alphaCoverageThresholds )
     {
         using Fmt = Core::Formats::ImageFormat;
 
@@ -406,6 +503,10 @@ namespace Desert::Assets::Serialization
             srcW = dstW;
             srcH = dstH;
         }
+
+        // AFTER the whole chain is filtered: each level is made from the UNSCALED level above it, so a scale
+        // never compounds down the chain (each level answers to level 0 alone).
+        PreserveAlphaCoverage( scratch, format == Fmt::RGBA32F, srgb, alphaCoverageThresholds );
 
         std::vector<TextureLevel> levels( levelCount );
         chainOut.clear();

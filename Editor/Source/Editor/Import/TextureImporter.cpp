@@ -787,7 +787,8 @@ namespace Desert::Editor
         // container exists to carry (`blitDst=0`) — so the chain has to be in the file before the
         // format can change, and that ordering is `Docs/World/PROGRAMME.md` §5.
         auto chain = Assets::Serialization::BuildMipChain( data.Width, data.Height, data.Format, base, data.Pixels,
-                                                           asset.Import.Settings.ColorSpace );
+                                                           asset.Import.Settings.ColorSpace,
+                                                           asset.Import.Settings.AlphaCoverageThresholds );
         if ( !chain.IsSuccess() )
         {
             LOG_ERROR( "[TextureImporter] '{0}' was decoded but its mip chain could not be built: {1}. "
