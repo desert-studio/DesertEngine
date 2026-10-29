@@ -104,6 +104,8 @@ namespace Desert::Graphic::GpuDriven
                 return "BoundTextures";
             case BinFallback::GenericProgram:
                 return "GenericProgram";
+            case BinFallback::MovableCaster:
+                return "MovableCaster";
             case BinFallback::Count:
                 break;
         }
@@ -483,6 +485,26 @@ namespace Desert::Graphic::GpuDriven
         if ( slot >= table.SlotFirstVisible.size() || table.SlotFirstVisible[slot] == kInvalidIndex )
             return std::nullopt;
         return table.SlotFirstVisible[slot];
+    }
+
+    bool DrawCommandCache::SubmeshesBinned( const MeshPass pass, const PrimitiveIndex primitive,
+                                            const uint64_t hiddenSubmeshMask ) const
+    {
+        if ( primitive >= m_Primitives.size() || !m_Primitives[primitive] )
+            return false;
+        const PrimitiveRecord& record    = *m_Primitives[primitive];
+        const auto&            pipelines = record.Pipelines[static_cast<uint32_t>( pass )];
+        bool                   any       = false;
+        for ( size_t si = 0; si < pipelines.size(); ++si )
+        {
+            if ( IsHidden( hiddenSubmeshMask, si ) )
+                continue;
+            // A submesh the primitive hides has no bin: the CPU record must not leave it to one.
+            if ( pipelines[si] == nullptr || IsHidden( record.HiddenSubmeshMask, si ) )
+                return false;
+            any = true;
+        }
+        return any;
     }
 
     Common::ResultStr<DrawCommandBuffers> DrawCommandCache::AddUploadPass( RDG::Builder& graph )

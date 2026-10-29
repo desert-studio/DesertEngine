@@ -635,7 +635,7 @@ namespace Desert::Graphic::System
         if ( !m_DrawCommandCache )
             m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
                  [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh&,
-                         uint32_t, const uint32_t materialRow ) -> const GraphicsPipeline*
+                         uint32_t, const uint32_t materialRow ) -> GpuDriven::PassPipelineResolution
                  { return ResolveBinnedPipeline( pass, primitive, materialRow ); } );
         // Answers resolved before a recompile or a wireframe toggle are stale: a reload can add or drop a cell
         // (PipelineCache's InvalidateByShader point, Graphic::PipelineRebuildEpoch), and the Forward pass state is

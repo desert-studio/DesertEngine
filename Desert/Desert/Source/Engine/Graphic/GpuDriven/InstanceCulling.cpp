@@ -314,7 +314,8 @@ namespace Desert::Graphic::GpuDriven
                 result.Draws[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
                                                           .VisibleInstances  = binds.Visible,
                                                           .VisibleInstanceIds = binds.VisibleIds,
-                                                          .FirstIndirectDraw = k * bins };
+                                                          .FirstIndirectDraw = k * bins,
+                                                          .VisibleRowEnd     = ( k + 1u ) * capacity };
         }
         return Common::MakeSuccess( std::move( result ) );
     }
@@ -410,7 +411,8 @@ namespace Desert::Graphic::GpuDriven
                 result[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
                                                     .VisibleInstances  = binds.Visible,
                                                           .VisibleInstanceIds = binds.VisibleIds,
-                                                    .FirstIndirectDraw = k * bins };
+                                                    .FirstIndirectDraw = k * bins,
+                                                    .VisibleRowEnd     = ( k + 1u ) * table.VisibleCapacity };
         }
         return Common::MakeSuccess( std::move( result ) );
     }

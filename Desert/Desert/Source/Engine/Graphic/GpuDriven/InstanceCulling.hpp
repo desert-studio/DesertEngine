@@ -71,6 +71,9 @@ namespace Desert::Graphic::GpuDriven
         // per-instance vertex stream (4 B per visible instance, read at gl_InstanceIndex).
         RDG::BufferRef VisibleInstanceIds;
         uint32_t       FirstIndirectDraw = 0;
+        // One past the last VisibleInstances row this view's records name ((view + 1) x VisibleCapacity): the rows
+        // the binned vertex stage reaches through a_VisibleRow = gl_InstanceIndex.
+        uint32_t VisibleRowEnd = 0;
     };
 
     // Phase 1's left-overs that phase 2 consumes, and the per (view, instance) Visibility words both write.

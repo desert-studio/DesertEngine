@@ -105,6 +105,8 @@ namespace Desert::Graphic::GpuDriven
         BoundTextures,       // the template binds textures per material (a TextureBinding), which one bin cannot carry
         GenericProgram,      // a generic draw through a program with no Surface block, or a slot material's own
                              // program: its passes (DepthNormal + forward) have no `.Binned` permutation
+        MovableCaster,       // a caster of the cascade cache's movable layer (skinned, swaying foliage): drawn every
+                             // frame over the copied cache, a layer the cull does not split the bins by yet
         Count
     };
     inline constexpr uint32_t kBinFallbackCount = static_cast<uint32_t>( BinFallback::Count );
@@ -209,6 +211,11 @@ namespace Desert::Graphic::GpuDriven
         // after Rebuild, until the next AddPrimitive / RemovePrimitive / InvalidatePipelines.
         [[nodiscard]] std::optional<uint32_t> UnculledFirstVisible( MeshPass pass, PrimitiveIndex primitive,
                                                                     uint32_t lod, uint32_t submesh ) const;
+        // True when every submesh of @p primitive that @p hiddenSubmeshMask does not hide (bit i = submesh i; past
+        // 64 never hidden) draws in @p pass through one of its bins: the CPU list leaves the record to the issued
+        // bins (a record's submeshes share one material, so they are binned together or not at all). False for a
+        // primitive the cache does not hold, or with any such submesh on a fallback or out of the pass.
+        [[nodiscard]] bool SubmeshesBinned( MeshPass pass, PrimitiveIndex primitive, uint64_t hiddenSubmeshMask ) const;
         [[nodiscard]] std::span<const glm::mat4> SubmeshTransforms() const
         {
             return m_SubmeshTransforms;

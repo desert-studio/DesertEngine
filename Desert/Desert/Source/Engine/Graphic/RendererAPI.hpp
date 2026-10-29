@@ -49,6 +49,14 @@ namespace Desert::Graphic
         uint32_t       MaxDraws        = 0;
         uint32_t       Stride          = 0;
         uint32_t       MaxDrawsPerCall = 1;
+        // The pass state the group's shader reads beside the graph block: the scene/view blocks (camera, lights,
+        // the lent GpuScene primitives and material table) its `.Binned` cell's per-view carrier holds. Null =
+        // the block alone.
+        const MaterialExecutor* Material = nullptr;
+        // The instance id stream at binding 2 (a_VisibleRow): rows [0, VisibleRows) of the identity stream, so
+        // a_VisibleRow = gl_InstanceIndex = the record's firstInstance + i, a row of the pass's culled
+        // VisibleInstances. 0 = the pipeline reads no stream.
+        uint32_t VisibleRows = 0;
     };
 
     enum class RendererAPIType : uint8_t
@@ -197,8 +205,8 @@ namespace Desert::Graphic
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
                             const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
                             uint64_t offset, uint64_t hiddenSubmeshMask, MeshDrawArgumentsOrder order ) = 0;
-        // One IndirectGroup of a binned pass: @p pipeline's pass state (no material: binned materials are bindless
-        // rows), @p geometry's vertex / stream / index buffers (the group's shared binding: one bind per pipeline
+        // One IndirectGroup of a binned pass: @p pipeline's pass state (no per-draw material: binned materials are
+        // bindless rows; draw.Material is the view's carrier of the scene blocks), @p geometry's vertex / stream / index buffers (the group's shared binding: one bind per pipeline
         // switch), then the indirect draws @p draw names. No push block is written: a binned draw reads its
         // per-draw state from GpuScene through gl_InstanceIndex.
         [[nodiscard]] virtual Common::BoolResultStr

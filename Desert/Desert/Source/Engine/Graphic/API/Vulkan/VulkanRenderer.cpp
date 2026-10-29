@@ -1112,14 +1112,16 @@ namespace Desert::Graphic::API::Vulkan
         if ( draw.MaxDrawsPerCall == 0u )
             return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
 
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, nullptr );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material );
              !bound || !bound.GetValue() )
             return bound;
-        // The cull's id stream (CulledDraws::VisibleInstanceIds) is bound here by PASSES (MeshIndirectGroupDraw); until
-        // then a pipeline reading a_VisibleRow is refused by BindMeshBuffers, never drawn with a stale binding 2.
+        // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
+        // VisibleInstances the record's firstInstance points into (BindMeshBuffers refuses a pipeline reading
+        // a_VisibleRow without it, and a stream handed to one that does not).
+        const VkBuffer visibleRows = draw.VisibleRows != 0u ? VisibleRowIdentity( draw.VisibleRows ) : VK_NULL_HANDLE;
         // The group's shared binding (the pool arena at offset 0): bound once per pipeline switch, the records'
         // FirstIndex / VertexOffset are pool-absolute (DrawCommandCache).
-        if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, geometry, VK_NULL_HANDLE, true );
+        if ( const Common::BoolResultStr buffers = BindMeshBuffers( pass, pipeline, geometry, visibleRows, true );
              !buffers )
             return buffers;
 
