@@ -610,11 +610,12 @@ namespace Desert::Graphic::System
         // then draw every record, phase 2 has nothing it held back.
         bool SetFramePostOcclusion( GpuDriven::MeshPass pass, uint32_t viewKey, const GpuDriven::CulledDraws& culled );
         // THE VIRTUAL-GEOMETRY RASTER of (pass, view) (MeshRendererDetail::VirtualGeometryIssue): attached to its
-        // phase-1 issue (SetFrameBinned first), the carriers of the groups' `.VirtualGeometry` cells made here.
-        // False (logged once per message, nothing attached) without a phase-1 issue, for bins of another group
-        // count or when a carrier cannot be made. A group whose cell has no VG twin draws none of its clusters:
-        // logged once per cell.
-        bool SetFrameVirtualGeometry( GpuDriven::MeshPass pass, uint32_t viewKey,
+        // phase-1 issue (CullPhase::Main, SetFrameBinned first) or its phase-2 issue (CullPhase::PostOcclusion,
+        // SetFramePostOcclusion first: the post cut's clusters, drawn by the post-occlusion pass), the carriers of
+        // the groups' `.VirtualGeometry` cells made here. False (logged once per message, nothing attached)
+        // without that issue, for bins of another group count or when a carrier cannot be made. A group whose
+        // cell has no VG twin draws none of its clusters: logged once per cell.
+        bool SetFrameVirtualGeometry( GpuDriven::MeshPass pass, uint32_t viewKey, GpuDriven::CullPhase phase,
                                       MeshRendererDetail::VirtualGeometryIssue issue );
 
         // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that

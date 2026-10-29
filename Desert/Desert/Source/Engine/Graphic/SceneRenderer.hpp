@@ -431,9 +431,14 @@ namespace Desert::Graphic
         {
             uint32_t Instances        = 0;
             uint32_t ClustersVisible  = 0;
+            // Clusters the rasters drew (RasterBins::GroupArgs over the groups with a `.VirtualGeometry` pipeline):
+            // the main view's main + post phase, and every shadow cascade's.
+            uint32_t ClustersDrawn       = 0;
+            uint32_t ShadowClustersDrawn = 0;
             uint32_t Overflow         = 0;
             uint32_t OccludedClusters = 0;
-            // VG instances still drawn by the main view's bins (must be 0: the cluster raster draws them).
+            // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster
+            // raster draws them).
             uint32_t BinnedVgInstances = 0;
         };
         [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const;
@@ -1100,12 +1105,18 @@ namespace Desert::Graphic
         // MeshRenderer::SetFrameBinned. What phase 2 needs is kept in m_FrameDrawBins. A refusal is logged once
         // per message and leaves every pass on the CPU path.
         void AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        // VIRT-GEOM, right after AddFrameDrawBins: the main view's "VirtualGeometry: Cluster Cut" over the VG
-        // candidates the draw bins' phase 1 appended (m_FrameDrawBins->VirtualGeometry), at Scalability
-        // ViewDistance.VirtualGeometryMaxPixelsPerEdge; its result kept in m_FrameVirtualGeometry (what the
-        // vg_clusters view draws) and its counts handed to m_ClusterCutCounts. A frame with no candidates forgets
-        // the counts; a refusal is logged once per message.
+        // VIRT-GEOM, right after AddFrameDrawBins: one "VirtualGeometry: Cluster Cut" + raster binning per cull
+        // view of the draw bins (each drawn shadow cascade, then the main view) over the VG candidates phase 1
+        // appended (m_FrameDrawBins->VgCandidates), at Scalability ViewDistance.VirtualGeometryMaxPixelsPerEdge,
+        // attached to each view's phase-1 issue (MeshRenderer::SetFrameVirtualGeometry); the main cut kept in
+        // m_FrameVirtualGeometry (what the vg_clusters view draws, the post phase's carry) and every cut's counts
+        // handed to m_ClusterCutCounts. A frame with no candidates forgets the counts; a refusal is logged once
+        // per message.
         void AddFrameVirtualGeometry( RDG::Builder& graph, const ViewFrame& frame );
+        // VIRT-GEOM phase 2 (AddFrameDrawBinsPostOcclusion, after SetFramePostOcclusion and before the GBuffer
+        // post pass): the main cut's carry ("Cluster Cut Post") against this frame's furthest HZB, drawn by the
+        // GBuffer post-occlusion pass. Nothing when the main cut tested no HZB.
+        void AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame );
         // TWO-PHASE OCCLUSION, after the phase-1 G-buffer ("Deferred: GBuffer" + "TerrainGBuffer"; UE
         // FInstanceCullingContext's post pass, HZB.cpp): this frame's furthest HZB of that depth, extracted into
         // m_CullHzbHistory for the next frame's phase 1; when phase 1 tested last frame's HZB, the instances it
@@ -1541,6 +1552,10 @@ namespace Desert::Graphic
             RDG::BufferRef RasterArgs;
             uint32_t       VisibleCapacity = 0;
             uint32_t       Pass            = 0; // the cut view's MeshPass (its draw slots resolve the world)
+            // The post phase's candidates (ClusterCullResult::OccludedCandidates / OccludedCount): invalid when
+            // the main cut tested no HZB.
+            RDG::BufferRef OccludedCandidates;
+            RDG::BufferRef OccludedCount;
         };
         std::optional<FrameVirtualGeometry> m_FrameVirtualGeometry;
         uint32_t                            m_VirtualGeometryInstances = 0; // this frame's VG candidate instances
@@ -1780,8 +1795,9 @@ namespace Desert::Graphic
             GpuDriven::DrawCommandBuffers         Upload;
             GpuDriven::GpuSceneBuffers            Scene;
             bool                                  MainTestsHzb = false;
-            // The VG candidates phase 1 appended for the main view (cut view 0); invalid Rows = none this frame.
-            // VgVisibleCapacity: the exact cluster bound (each candidate instance x its DAGs' ClusterCount).
+            // The VG candidates phase 1 appended for every view (cull view v = cut view v); invalid Rows = none
+            // this frame. VgVisibleCapacity: one view's exact cluster bound (each candidate instance x its DAGs'
+            // ClusterCount).
             GpuDriven::VirtualGeometryCandidateOutput VgCandidates;
             uint32_t                                  VgVisibleCapacity = 0;
             uint32_t                                  VgInstances       = 0;

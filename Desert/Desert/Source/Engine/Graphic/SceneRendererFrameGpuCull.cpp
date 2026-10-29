@@ -65,9 +65,11 @@ namespace Desert::Graphic
         };
 
         // From the static queue: per primitive row, the DAG rows of every submesh one of its queue entries shows
-        // (one entry per material slot: their union), appended for cull view 0 (the main view) only, as cut view
-        // 0. Capacity = instances x DAGs; VisibleCapacity = instances x the DAGs' ClusterCount (a cut never draws
-        // more clusters than its DAG holds). Refused when that bound passes the visible-list index range.
+        // (one entry per material slot: their union), appended for EVERY cull view of the draw bins (the main view
+        // and the drawn shadow cascades), cull view v as cut view v. Capacity = instances x DAGs x views;
+        // VisibleCapacity = instances x the DAGs' ClusterCount, the bound of ONE view's cut (AddFrameVirtualGeometry
+        // cuts each view in its own dispatch; a cut never draws more clusters than its DAG holds). Refused when
+        // that bound passes the visible-list index range.
         Common::ResultStr<VirtualGeometryCandidateTables>
         MakeVirtualGeometryCandidates( RDG::Builder& graph, System::MeshRenderer& meshes,
                                        const GpuDriven::GpuScene& gpuScene, const uint32_t primitiveRows,
@@ -117,6 +119,8 @@ namespace Desert::Graphic
                 capacity += instances * spans.size();
                 instancesTotal += instances;
             }
+            const uint64_t views = std::max( viewCount, 1u );
+            capacity *= views;
             if ( visible > VirtualGeometry::kMaxVisibleClusters || capacity > UINT32_MAX )
                 return Common::MakeError<Result>( std::format(
                      "VirtualGeometry: {} drawn VG instances hold {} clusters / {} candidates, past the visible-list "
@@ -125,8 +129,9 @@ namespace Desert::Graphic
             if ( capacity == 0u || visible == 0u )
                 return Common::MakeSuccess( std::move( out ) );
 
-            std::vector<uint32_t> cutViewOf( std::max( viewCount, 1u ), GpuDriven::kInvalidIndex );
-            cutViewOf[0] = 0u; // the main view is cull view 0 (AddFrameDrawBins) and the cut's only view
+            std::vector<uint32_t> cutViewOf( views, 0u );
+            for ( uint32_t v = 0; v < views; ++v )
+                cutViewOf[v] = v; // cull view v (main = 0, cascades after it: AddFrameDrawBins) is cut view v
 
             const auto upload = [&graph]( const std::string& name, const std::span<const std::byte> bytes )
             {
@@ -243,7 +248,7 @@ namespace Desert::Graphic
             }
         }
 
-        // VIRT-GEOM: the main view's VG candidates ride phase 1 (AddFrameVirtualGeometry cuts them). A refusal is
+        // VIRT-GEOM: every view's VG candidates ride phase 1 (AddFrameVirtualGeometry cuts them). A refusal is
         // logged once per message and the frame cuts nothing; the bins draw as before.
         VirtualGeometryCandidateTables vgTables;
         if ( auto made = MakeVirtualGeometryCandidates( graph, *meshes, *gpuScene, scene.GetValue().PrimitiveCount,
@@ -330,7 +335,10 @@ namespace Desert::Graphic
                     refuse( post.GetError() );
                 else if ( meshRenderer->SetFramePostOcclusion( GpuDriven::MeshPass::GBuffer, bins.ViewKeys.front(),
                                                                post.GetValue().front() ) )
+                {
+                    AddFrameVirtualGeometryPostOcclusion( graph, frame );
                     AddFrameGBufferPostOcclusion( graph, textures, meshRenderer );
+                }
             }
             graph.Extract( furthest, m_CullHzbHistory, RDG::Access::SampledCompute );
         }
@@ -501,6 +509,69 @@ namespace Desert::Graphic
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        // One view's cut of one phase, end to end: "Cluster Cut" -> "Raster Binning" on the view's mesh pass ->
+        // attached to (pass, view key)'s issue of @p phase -> handed to @p counts with the groups the pass draws.
+        // The cut's result is returned even when its raster could not be attached (logged by MeshRenderer).
+        struct VirtualGeometryCutInput
+        {
+            const GpuDriven::GpuSceneBuffers&          Scene;
+            const GpuDriven::DrawCommandBuffers&       Upload;
+            const VirtualGeometry::VirtualMeshBuffers& Meshes;
+            RDG::TextureRef                            NeutralHzb;
+        };
+        Common::ResultStr<VirtualGeometry::ClusterCullResult>
+        AddVirtualGeometryCut( RDG::Builder& graph, const VirtualGeometry::VirtualGeometryRenderer& renderer,
+                               VirtualGeometry::ClusterCutCounts& counts, System::MeshRenderer& meshes,
+                               const VirtualGeometryCutInput& in, const VirtualGeometry::ClusterCandidates& candidates,
+                               const VirtualGeometry::ClusterCullView& view, const uint32_t cutView,
+                               const uint32_t viewKey, const GpuDriven::CullPhase phase,
+                               const VirtualGeometry::ClusterCutKind kind )
+        {
+            using Result                              = VirtualGeometry::ClusterCullResult;
+            const uint32_t                  pass      = view.Instance.View.Pass;
+            const GpuDriven::PassDrawTable& passTable = meshes.GetDrawCommandCache()->Passes()[pass];
+            const auto culled = renderer.AddClusterCull( graph, phase, in.Scene, in.Meshes, passTable,
+                                                         in.Upload.Passes[pass], in.Upload.SubmeshTransforms,
+                                                         candidates, std::span( &view, 1 ), cutView, in.NeutralHzb );
+            if ( !culled )
+                return Common::MakeError<Result>( culled.GetError() );
+            // THE RASTER (VIRT-GEOM step 11/12): the cut's HW clusters sorted into the pass's material groups,
+            // drawn by that pass's mesh list after its bins with each group's `.VirtualGeometry` cell into the same
+            // targets and depth. The VG instances are in no bin of a view with a cut view (InstanceCull.shader).
+            const auto rasterBins = renderer.AddRasterBinning( graph, in.Scene, in.Meshes, passTable,
+                                                               in.Upload.Passes[pass], culled.GetValue() );
+            if ( !rasterBins )
+            {
+                counts.Add( graph, kind, culled.GetValue(), nullptr, {} );
+                return Common::MakeError<Result>(
+                     std::format( "{}; the cut's clusters are not drawn this frame", rasterBins.GetError() ) );
+            }
+            const VirtualGeometry::RasterBins& bins     = rasterBins.GetValue();
+            const bool                         attached = meshes.SetFrameVirtualGeometry(
+                 static_cast<GpuDriven::MeshPass>( pass ), viewKey, phase,
+                 System::MeshRendererDetail::VirtualGeometryIssue{ .GroupArgs       = bins.GroupArgs,
+                                                                   .Rows            = bins.Rows,
+                                                                   .VisibleClusters = bins.VisibleClusters,
+                                                                   .Clusters        = in.Meshes.Clusters,
+                                                                   .Dags            = in.Meshes.Dags,
+                                                                   .PrimitiveDraws = in.Upload.Passes[pass].PrimitiveDraws,
+                                                                   .GroupCount     = bins.GroupCount } );
+            // The groups the pass draws (SetFrameVirtualGeometry made a carrier for each of them, or refused).
+            std::vector<uint8_t> drawn;
+            if ( attached )
+            {
+                drawn.reserve( passTable.Groups.size() );
+                for ( const GpuDriven::IndirectGroup& group : passTable.Groups )
+                    drawn.push_back( static_cast<uint8_t>( group.BinCount != 0u && group.Pipeline != nullptr &&
+                                                           group.VirtualGeometryPipeline != nullptr ) );
+            }
+            counts.Add( graph, kind, culled.GetValue(), attached ? &bins : nullptr, std::move( drawn ) );
+            return culled;
+        }
+    } // namespace
+
     void SceneRenderer::AddFrameVirtualGeometry( RDG::Builder& graph, const ViewFrame& frame )
     {
         m_FrameVirtualGeometry.reset();
@@ -519,63 +590,102 @@ namespace Desert::Graphic
             m_VirtualGeometry = std::make_unique<VirtualGeometry::VirtualGeometryRenderer>();
         if ( !m_ClusterCutCounts )
             m_ClusterCutCounts = std::make_unique<VirtualGeometry::ClusterCutCounts>();
+        m_ClusterCutCounts->BeginFrame( frame.FrameIndex );
 
-        // The cut's one view: the draw bins' main view (cull view 0, cut view 0 of the candidates).
-        const GpuDriven::CullViewInput&        main = bins.Views.front();
-        const uint32_t                         pass = main.View.Pass;
-        const VirtualGeometry::ClusterCullView view{ .Instance         = main,
-                                                     .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
-                                                     .ViewWidth        = frame.Split.Render.Width,
-                                                     .ViewHeight       = frame.Split.Render.Height };
+        // One cut per cull view of the draw bins (cull view v = cut view v): the main view, then each drawn
+        // shadow cascade. Every view selects LOD from the main camera (MakeCullView's LodProjection, as the bins:
+        // the shadows draw the main view's LOD), so each cut projects into the main view's pixels.
         const VirtualGeometry::ClusterCandidates candidates{ .Rows            = bins.VgCandidates.Rows,
                                                              .Count           = bins.VgCandidates.Count,
                                                              .Capacity        = bins.VgCandidates.Capacity,
                                                              .VisibleCapacity = bins.VgVisibleCapacity };
-        const VirtualGeometry::VirtualMeshBuffers vgMeshes  = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
-        const GpuDriven::PassDrawTable&           passTable = meshes->GetDrawCommandCache()->Passes()[pass];
-        const auto culled = m_VirtualGeometry->AddClusterCull( graph, GpuDriven::CullPhase::Main, bins.Scene, vgMeshes,
-                                                               passTable, bins.Upload.Passes[pass],
-                                                               bins.Upload.SubmeshTransforms, candidates,
-                                                               std::span( &view, 1 ), bins.NeutralHzb );
+        const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+        const VirtualGeometryCutInput             in{ .Scene      = bins.Scene,
+                                                      .Upload     = bins.Upload,
+                                                      .Meshes     = vgMeshes,
+                                                      .NeutralHzb = bins.NeutralHzb };
+        const auto viewOf = [&]( const size_t v )
+        {
+            return VirtualGeometry::ClusterCullView{ .Instance         = bins.Views[v],
+                                                     .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                                                     .ViewWidth        = frame.Split.Render.Width,
+                                                     .ViewHeight       = frame.Split.Render.Height };
+        };
+        const auto logOnce = [this]( const std::string& message )
+        {
+            if ( message != m_VirtualGeometryLastError )
+                LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), message );
+            m_VirtualGeometryLastError = message;
+        };
+        // Shadow cascades: the cascade's static layer draws the clusters (only drawn cascades are cull views).
+        bool cascadesCut = true;
+        for ( size_t v = 1; v < bins.Views.size(); ++v )
+        {
+            const auto cascade = AddVirtualGeometryCut( graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in,
+                                                        candidates, viewOf( v ), static_cast<uint32_t>( v ),
+                                                        bins.ViewKeys[v], GpuDriven::CullPhase::Main,
+                                                        VirtualGeometry::ClusterCutKind::ShadowCascade );
+            if ( !cascade )
+            {
+                logOnce( std::format( "{} ({})", cascade.GetError(), bins.ViewNames[v] ) );
+                cascadesCut = false;
+            }
+        }
+
+        const VirtualGeometry::ClusterCullView view   = viewOf( 0 );
+        const uint32_t                         pass   = view.Instance.View.Pass;
+        const auto                             culled = AddVirtualGeometryCut(
+             graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes, in, candidates, view, 0u,
+             System::MeshRenderer::kBinnedMainView, GpuDriven::CullPhase::Main, VirtualGeometry::ClusterCutKind::Main );
         if ( !culled )
         {
-            m_ClusterCutCounts->Forget();
-            if ( culled.GetError() != m_VirtualGeometryLastError )
-                LOG_ERROR( "[SceneRenderer] {}: {}; no cluster cut this frame", m_ViewResources.GetName(),
-                           culled.GetError() );
-            m_VirtualGeometryLastError = culled.GetError();
+            logOnce( culled.GetError() );
             return;
         }
-        m_ClusterCutCounts->AddFrame( graph, frame.FrameIndex, culled.GetValue() );
-        // THE RASTER (VIRT-GEOM step 11/12): the cut's HW clusters sorted into the main pass's material groups, drawn
-        // by that pass's mesh list after its bins (MeshRenderer::SetFrameVirtualGeometry) with each group's
-        // `.VirtualGeometry` cell into the same G-buffer / forward targets and depth. The VG instances are not in
-        // the main view's bins (InstanceCull.shader: a view with a cut view appends instead of binning).
-        const auto rasterBins = m_VirtualGeometry->AddRasterBinning( graph, bins.Scene, vgMeshes, passTable,
-                                                                     bins.Upload.Passes[pass], culled.GetValue() );
-        if ( !rasterBins )
-        {
-            if ( rasterBins.GetError() != m_VirtualGeometryLastError )
-                LOG_ERROR( "[SceneRenderer] {}: {}; the cut's clusters are not drawn this frame",
-                           m_ViewResources.GetName(), rasterBins.GetError() );
-            m_VirtualGeometryLastError = rasterBins.GetError();
-            return;
-        }
-        (void)meshes->SetFrameVirtualGeometry(
-             static_cast<GpuDriven::MeshPass>( pass ), System::MeshRenderer::kBinnedMainView,
-             System::MeshRendererDetail::VirtualGeometryIssue{ .GroupArgs       = rasterBins.GetValue().GroupArgs,
-                                                       .Rows            = rasterBins.GetValue().Rows,
-                                                       .VisibleClusters = rasterBins.GetValue().VisibleClusters,
-                                                       .Clusters        = vgMeshes.Clusters,
-                                                       .Dags            = vgMeshes.Dags,
-                                                       .PrimitiveDraws  = bins.Upload.Passes[pass].PrimitiveDraws,
-                                                       .GroupCount      = rasterBins.GetValue().GroupCount } );
-        m_FrameVirtualGeometry     = FrameVirtualGeometry{ .VisibleClusters = culled.GetValue().VisibleClusters,
-                                                           .RasterArgs      = culled.GetValue().RasterArgs,
-                                                           .VisibleCapacity = culled.GetValue().VisibleCapacity,
-                                                           .Pass            = pass };
+        m_FrameVirtualGeometry     = FrameVirtualGeometry{ .VisibleClusters    = culled.GetValue().VisibleClusters,
+                                                           .RasterArgs         = culled.GetValue().RasterArgs,
+                                                           .VisibleCapacity    = culled.GetValue().VisibleCapacity,
+                                                           .Pass               = pass,
+                                                           .OccludedCandidates = culled.GetValue().OccludedCandidates,
+                                                           .OccludedCount      = culled.GetValue().OccludedCount };
         m_VirtualGeometryInstances = bins.VgInstances;
-        m_VirtualGeometryLastError.clear();
+        if ( cascadesCut )
+            m_VirtualGeometryLastError.clear();
+    }
+
+    void SceneRenderer::AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        if ( !m_FrameVirtualGeometry || !m_FrameVirtualGeometry->OccludedCandidates.IsValid() || !m_FrameDrawBins ||
+             !m_VirtualGeometry || !m_ClusterCutCounts || meshes == nullptr ||
+             meshes->GetDrawCommandCache() == nullptr )
+            return; // the main cut tested no HZB: nothing was held back
+        const FrameDrawBins& bins = *m_FrameDrawBins;
+        // The main phase's carry, re-cut against this frame's HZB (AddFrameDrawBinsPostOcclusion set the main
+        // view's Hzb) with the main cut's view.
+        const VirtualGeometry::ClusterCandidates candidates{
+             .Rows            = m_FrameVirtualGeometry->OccludedCandidates,
+             .Count           = m_FrameVirtualGeometry->OccludedCount,
+             .Capacity        = m_FrameVirtualGeometry->VisibleCapacity,
+             .VisibleCapacity = m_FrameVirtualGeometry->VisibleCapacity };
+        const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+        const VirtualGeometry::ClusterCullView    view{ .Instance         = bins.Views.front(),
+                                                        .MaxPixelsPerEdge = m_VirtualGeometryMaxPixelsPerEdge,
+                                                        .ViewWidth        = frame.Split.Render.Width,
+                                                        .ViewHeight       = frame.Split.Render.Height };
+        const auto post = AddVirtualGeometryCut(
+             graph, *m_VirtualGeometry, *m_ClusterCutCounts, *meshes,
+             VirtualGeometryCutInput{
+                  .Scene = bins.Scene, .Upload = bins.Upload, .Meshes = vgMeshes, .NeutralHzb = bins.NeutralHzb },
+             candidates, view, 0u, bins.ViewKeys.front(), GpuDriven::CullPhase::PostOcclusion,
+             VirtualGeometry::ClusterCutKind::PostOcclusion );
+        if ( !post && post.GetError() != m_VirtualGeometryLastError )
+        {
+            LOG_ERROR( "[SceneRenderer] {}: {}: the clusters the main cut held back are not drawn this frame",
+                       m_ViewResources.GetName(), post.GetError() );
+            m_VirtualGeometryLastError = post.GetError();
+        }
     }
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
@@ -583,8 +693,10 @@ namespace Desert::Graphic
         if ( !m_ClusterCutCounts )
             return { .Instances = m_VirtualGeometryInstances };
         const VirtualGeometry::ClusterCutCount& last = m_ClusterCutCounts->LastCount();
-        return { .Instances        = m_VirtualGeometryInstances,
-                 .ClustersVisible  = last.ClustersVisible,
+        return { .Instances           = m_VirtualGeometryInstances,
+                 .ClustersVisible     = last.ClustersVisible,
+                 .ClustersDrawn       = last.ClustersDrawn,
+                 .ShadowClustersDrawn = last.ShadowClustersDrawn,
                  .Overflow         = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
                  .OccludedClusters  = last.Status.OccludedClusters,
                  .BinnedVgInstances = last.Status.BinnedVgInstances };

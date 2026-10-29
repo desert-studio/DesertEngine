@@ -1018,6 +1018,7 @@ namespace Desert::Graphic::System
     }
 
     bool MeshRenderer::SetFrameVirtualGeometry( const GpuDriven::MeshPass pass, const uint32_t viewKey,
+                                                const GpuDriven::CullPhase                phase,
                                                 MeshRendererDetail::VirtualGeometryIssue issue )
     {
         const auto refuse = [this]( std::string message )
@@ -1034,7 +1035,13 @@ namespace Desert::Graphic::System
         if ( view == nullptr || m_SceneRenderer == nullptr )
             return refuse( std::format( "virtual geometry raster of pass {}: the view issues no bins",
                                         static_cast<uint32_t>( pass ) ) );
-        const GpuDriven::PassDrawTable& table = *view->Issue.Table;
+        const bool post = phase == GpuDriven::CullPhase::PostOcclusion;
+        if ( post && !view->PostOcclusion )
+            return refuse( std::format( "virtual geometry raster of pass {}, post-occlusion phase: the view has no "
+                                        "phase-2 issue (SetFramePostOcclusion first)",
+                                        static_cast<uint32_t>( pass ) ) );
+        MeshRendererDetail::BinnedIssue& target = post ? *view->PostOcclusion : view->Issue;
+        const GpuDriven::PassDrawTable&  table  = *target.Table;
         if ( issue.GroupCount != table.Groups.size() )
             return refuse( std::format( "virtual geometry raster of pass {}: {} bins for {} groups",
                                         static_cast<uint32_t>( pass ), issue.GroupCount, table.Groups.size() ) );
@@ -1061,7 +1068,7 @@ namespace Desert::Graphic::System
             if ( issue.GroupCarriers[group] == nullptr )
                 return refuse( std::move( error ) );
         }
-        view->Issue.VirtualGeometry = std::move( issue );
+        target.VirtualGeometry = std::move( issue );
         return true;
     }
 
@@ -1092,7 +1099,9 @@ namespace Desert::Graphic::System
                 continue;
             MeshRendererDetail::BinnedIssue issue = view.Issue;
             issue.Culled                          = culled;
-            issue.VirtualGeometry.reset(); // phase 2 rasters no clusters yet (the cut has no post phase)
+            // Phase 1's clusters are drawn; phase 2 rasters only the post cut's (SetFrameVirtualGeometry,
+            // CullPhase::PostOcclusion).
+            issue.VirtualGeometry.reset();
             view.PostOcclusion                    = std::move( issue );
             return true;
         }

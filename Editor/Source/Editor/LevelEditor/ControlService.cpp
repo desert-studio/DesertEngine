@@ -1401,6 +1401,8 @@ namespace Desert::Editor
                      m_Workspace.PrimaryRenderer()->GetVirtualGeometryCounts();
                 snapshot.VirtualGeometry = VirtualGeometrySnapshot{ .Instances        = vg.Instances,
                                                                     .ClustersVisible  = vg.ClustersVisible,
+                                                                    .ClustersDrawn    = vg.ClustersDrawn,
+                                                                    .ShadowClustersDrawn = vg.ShadowClustersDrawn,
                                                                     .Overflow         = vg.Overflow,
                                                                     .OccludedClusters = vg.OccludedClusters,
                                                                     .BinnedVgInstances = vg.BinnedVgInstances };

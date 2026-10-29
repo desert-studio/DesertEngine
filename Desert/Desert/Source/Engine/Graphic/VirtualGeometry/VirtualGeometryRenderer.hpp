@@ -32,20 +32,26 @@ namespace Desert::Graphic::RDG
 // RDG ORDER (SceneRenderer::AddFrameVirtualGeometry, after AddFrameDrawBins' instance phase 1):
 //  1. instance cull       InstanceCulling (GPU-DRIVEN, unchanged owner): a VG primitive's instance that survives the
 //                         frustum / caster / distance test in a view with a cut view appends one ClusterCandidate per
-//                         DAG row and goes into NO bin of that view (nor its occlusion carry). Other views (shadow
-//                         cascades today) still bin it.
+//                         DAG row and goes into NO bin of that view (nor its occlusion carry). Every cull view of
+//                         the draw bins (main + drawn shadow cascades) has a cut view.
 //  2. cluster cull (Main) "VirtualGeometry: Cluster Cut": persistent-thread BVH traversal; per node / cluster:
 //                         frustum, previous-frame furthest HZB, LOD (Project(LodBounds, error) vs
-//                         MaxPixelsPerEdge). Occluded nodes / clusters are counted and dropped (no post carry yet).
+//                         MaxPixelsPerEdge). Occluded node children / clusters are carried to the post phase
+//                         (ClusterCullResult::OccludedCandidates).
 //  3. raster binning      "VirtualGeometry: Raster Binning" (AddRasterBinning): the cut's HW clusters -> one
 //                         VkDrawIndirectCommand per IndirectGroup of the main view's pass + the instance id rows.
 //  4. raster              the main pass's mesh list (MeshRenderer::SetFrameVirtualGeometry), after its bins: per
 //                         group IndirectGroup::VirtualGeometryPipeline, RendererAPI::RenderClusterIndirectGroup.
 //                         Depth, G-buffer / forward colour, velocity as any binned draw; the HZB of the frame
 //                         (AddFrameDrawBinsPostOcclusion) therefore holds the clusters.
-// NOT YET: the post phase (phase-1-occluded clusters re-tested against this frame's HZB, binned and drawn by the
-// GBuffer post pass), the shadow views (a cut per cascade view, its raster in the cascade's static layer), the SW
-// raster.
+//  5. cluster cull (PostOcclusion) "VirtualGeometry: Cluster Cut Post" (AddFrameDrawBinsPostOcclusion, after this
+//                         frame's furthest HZB): the main phase's carry re-cut against that HZB through
+//                         ViewProjection, raster-binned and drawn by the GBuffer post-occlusion pass
+//                         (MeshRenderer::SetFrameVirtualGeometry, CullPhase::PostOcclusion).
+//  6. shadow cascades     one cut + raster binning per drawn cascade view (its own dispatch: one RasterBins per
+//                         view), LOD from the main camera as the bins (the shadows draw the main view's LOD), no
+//                         HZB (cascades do not occlusion-cull), drawn in each cascade's static layer.
+// NOT YET: the SW raster of sub-pixel triangles (visibility buffer).
 namespace Desert::Graphic::VirtualGeometry
 {
     // One view the cluster cull serves: the instance cull's view (same GpuCullView, same frustum, same HZBs).
@@ -53,7 +59,8 @@ namespace Desert::Graphic::VirtualGeometry
     {
         GpuDriven::CullViewInput Instance{};
         // The LOD threshold for this view, pixels per edge (Scalability VirtualGeometry.MaxPixelsPerEdge x the
-        // view's LOD scale, VIEW-LOD-FOV). Shadow views use their own pixel size (UE: VSM page texel).
+        // view's LOD scale, VIEW-LOD-FOV). Shadow cascades use the main view's (their LOD is the main camera's;
+        // UE: the VSM page texel).
         float    MaxPixelsPerEdge = 1.0f;
         uint32_t ViewWidth        = 0; // pixels the LOD error projects into
         uint32_t ViewHeight       = 0;
@@ -78,8 +85,10 @@ namespace Desert::Graphic::VirtualGeometry
         RDG::BufferRef RasterArgs;         // GpuClusterRasterArgs — Access::IndirectArgs
         RDG::BufferRef Status;             // ClusterCutStatus (what the cut could not do, by DAG row)
         uint32_t       VisibleCapacity = 0; // rows of VisibleClusters (HW row i = VisibleCapacity - 1 - i)
-        RDG::BufferRef OccludedCandidates; // GpuClusterCandidate[] for the post phase (Main only)
-        RDG::BufferRef OccludedArgs;       // VkDispatchIndirectCommand of the post phase (Main only)
+        // Main only: the post phase's ClusterCandidates (Rows / Count), capacity VisibleCapacity. A row's Node
+        // names the occluded node child or cluster (ClusterCut.shader VG_POST_CHILD / VG_POST_CLUSTER).
+        RDG::BufferRef OccludedCandidates; // GpuClusterCandidate[VisibleCapacity]
+        RDG::BufferRef OccludedCount;      // uint32 at offset 0, 0 at offset 4 (the candidates' count block)
     };
 
     // THE CUT'S HW CLUSTERS SORTED INTO ONE MESH PASS'S MATERIAL GROUPS (AddRasterBinning): what that pass's VG
@@ -107,15 +116,19 @@ namespace Desert::Graphic::VirtualGeometry
         // (Programs/VirtualGeometry/ClusterCut.shader). Every view is of the one mesh pass @p passTable /
         // @p passSlots describe: a candidate's submesh transform is the row that pass's DrawCommandCache placed
         // for (primitive, lod 0, the DAG's submesh), indexing @p submeshTransforms. Refused: no view, views of two
-        // passes, a missing table, the PostOcclusion phase (its HZB carry is not built yet), views with two
-        // previous-frame HZBs. Node and cluster boxes are tested against the views' Instance.PrevHzb (the instance
-        // cull's test, Common/GpuCullTests.glslh); @p neutralHzb is bound when no view has one (nothing occluded).
+        // passes, a missing table, views with two HZBs, a PostOcclusion phase with no view holding Instance.Hzb.
+        // @p views are the cut views [@p firstView, firstView + size): GpuClusterCandidate::View is a cut view of
+        // the frame, a candidate of another view is skipped (one dispatch per mesh pass's views).
+        // Main: node and cluster boxes are tested against the views' Instance.PrevHzb (the instance cull's test,
+        // Common/GpuCullTests.glslh), the occluded carried into the result's OccludedCandidates; @p neutralHzb is
+        // bound when no view has one (nothing occluded). PostOcclusion: @p candidates is a Main result's carry
+        // (same @p views, same order), tested against the views' Instance.Hzb (this frame's).
         [[nodiscard]] Common::ResultStr<ClusterCullResult>
         AddClusterCull( RDG::Builder& graph, GpuDriven::CullPhase phase, const GpuDriven::GpuSceneBuffers& scene,
                         const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
                         const GpuDriven::PassDrawBuffers& passSlots, RDG::BufferRef submeshTransforms,
                         const ClusterCandidates& candidates, std::span<const ClusterCullView> views,
-                        RDG::TextureRef neutralHzb ) const;
+                        uint32_t firstView, RDG::TextureRef neutralHzb ) const;
 
         // Step 11: "VirtualGeometry: Raster Binning" (Programs/VirtualGeometry/RasterBinning.shader) of @p culled's
         // HW clusters into the material groups of the mesh pass @p passTable / @p passSlots describe (a cluster's
@@ -147,24 +160,41 @@ namespace Desert::Graphic::VirtualGeometry
         // VG instances InstanceCull still put into a bin of a view the cut serves (an invariant: 0; the raster
         // draws them), copied from the candidates' count block.
         uint32_t BinnedVgInstances = 0;
-        uint32_t Pad               = 0;
+        uint32_t OccludedOverflow  = 0; // occluded entries past the post carry's capacity (missing one frame)
     };
     static_assert( sizeof( ClusterCutStatus ) == 40, "std430 twin: ClusterCut.shader ClusterCutStatus" );
 
     struct ClusterCutCount
     {
-        uint32_t ClustersVisible = 0; // RasterArgs.HwDraw[1]
-        ClusterCutStatus Status{};
+        uint32_t ClustersVisible = 0; // the main view's main phase: RasterArgs.HwDraw[1]
+        // What the rasters DREW: per cut, the sum of RasterBins::GroupArgs instanceCount over the groups the mesh
+        // pass drew (a group with no `.VirtualGeometry` pipeline draws none of the clusters binned into it).
+        uint32_t         ClustersDrawn       = 0; // the main view: main + post phase
+        uint32_t         ShadowClustersDrawn = 0; // every shadow cascade
+        ClusterCutStatus Status{};                // the main view's main phase
     };
 
-    // HOW MANY CLUSTERS THE CUT DREW (DesertCtl `state views.virtualGeometry`), the CullPhaseCounts pattern: the
-    // frame's RasterArgs + Status reach the host through a frame-in-flight readback slot, counted when the slot
-    // comes round again. A Status failure is logged once per message with the mesh the DAG row belongs to.
+    // Which cut of the frame a ClusterCutCounts entry is.
+    enum class ClusterCutKind : uint32_t
+    {
+        Main,          // the main view, phase 1
+        PostOcclusion, // the main view, phase 2
+        ShadowCascade, // one cascade view
+    };
+
+    // HOW MANY CLUSTERS THE CUTS DREW (DesertCtl `state views.virtualGeometry`), the CullPhaseCounts pattern: each
+    // cut's RasterArgs + Status (+ its raster's GroupArgs) reach the host through a frame-in-flight readback slot,
+    // counted when the slot comes round again. A Status failure is logged once per message with the mesh the DAG
+    // row belongs to.
     class ClusterCutCounts
     {
     public:
-        // Counts the slot of @p frameIndex, then hands it this frame's @p culled.
-        void AddFrame( RDG::Builder& graph, uint64_t frameIndex, const ClusterCullResult& culled );
+        // Counts the slot of @p frameIndex and empties it for this frame's cuts (Add).
+        void BeginFrame( uint64_t frameIndex );
+        // Hands this frame's cut @p culled of @p kind. @p bins: its raster's bins when the pass drew them, with
+        // @p drawnGroups (one flag per group of bins: the pass drew that group's clusters); null = drew nothing.
+        void Add( RDG::Builder& graph, ClusterCutKind kind, const ClusterCullResult& culled, const RasterBins* bins,
+                  std::vector<uint8_t> drawnGroups );
         // A frame with no cut: nothing is handed, and the counts read so far are forgotten.
         void                                 Forget();
         [[nodiscard]] const ClusterCutCount& LastCount() const
@@ -173,14 +203,22 @@ namespace Desert::Graphic::VirtualGeometry
         }
 
     private:
+        struct Entry
+        {
+            ClusterCutKind       Kind = ClusterCutKind::Main;
+            RDG::ExternalBuffer  RasterArgs;
+            RDG::ExternalBuffer  Status;
+            RDG::ExternalBuffer  GroupArgs; // none: the cut was not drawn
+            std::vector<uint8_t> DrawnGroups;
+        };
         struct Slot
         {
-            RDG::ExternalBuffer RasterArgs;
-            RDG::ExternalBuffer Status;
+            std::vector<Entry> Entries;
         };
         void Count( const Slot& slot );
 
         std::vector<Slot> m_Slots;
+        Slot*             m_Current = nullptr; // this frame's slot (BeginFrame)
         ClusterCutCount   m_Last;
         std::string       m_LastError; // logged once per message
     };

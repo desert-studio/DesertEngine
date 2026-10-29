@@ -47,6 +47,8 @@ namespace Desert::Graphic::VirtualGeometry
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutRasterArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutStatus );
             DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutDispatchArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutOccludedCandidates );
+            DESERT_SHADER_PARAMETER( StorageBuffer, ClusterCutOccludedCount );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, ClusterCutHzbTexture );
         };
@@ -81,7 +83,8 @@ namespace Desert::Graphic::VirtualGeometry
         {
             glm::uvec4 Params{
                  0u }; // step, visible capacity, primitive rows of the pass table, candidate capacity
-            glm::uvec4 Params2{ 0u }; // x = 1 when a HZB is bound
+            glm::uvec4 Params2{ 0u }; // x = 1 when a HZB is bound, y = occluded carry capacity, z = 1 post phase
+            glm::uvec4 Params3{ 0u }; // x = first cut view of the dispatch, y = its views
         };
 
         template <typename T>
@@ -144,7 +147,8 @@ namespace Desert::Graphic::VirtualGeometry
             RDG::BufferRef Visible, RasterArgs, Status;
             RDG::BufferRef DispatchArgs; // step 0 writes it, step 1 reads it as its indirect arguments
             RDG::BufferRef ArgsSlot;     // step 1's DispatchArgs slot: an unread buffer
-            RDG::TextureRef Hzb;         // the views' previous-frame furthest HZB, or the neutral texture
+            RDG::BufferRef OccludedCandidates, OccludedCount; // the main phase's post carry (post: unread slots)
+            RDG::TextureRef Hzb; // the views' HZB of the phase (previous frame / this frame), or the neutral texture
         };
 
         void BindCut( RDG::PassBuilder& pass, const VirtualGeometryRenderer::Programs::Program& program,
@@ -171,6 +175,8 @@ namespace Desert::Graphic::VirtualGeometry
                  .Storage( P::ClusterCutVisibleClusters, b.Visible, W )
                  .Storage( P::ClusterCutRasterArgs, b.RasterArgs, W )
                  .Storage( P::ClusterCutStatus, b.Status, W )
+                 .Storage( P::ClusterCutOccludedCandidates, b.OccludedCandidates, W )
+                 .Storage( P::ClusterCutOccludedCount, b.OccludedCount, W )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::ClusterCutHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CutPush ) ) );
@@ -188,13 +194,11 @@ namespace Desert::Graphic::VirtualGeometry
          RDG::Builder& graph, const GpuDriven::CullPhase phase, const GpuDriven::GpuSceneBuffers& scene,
          const VirtualMeshBuffers& meshes, const GpuDriven::PassDrawTable& passTable,
          const GpuDriven::PassDrawBuffers& passSlots, const RDG::BufferRef submeshTransforms,
-         const ClusterCandidates& candidates, const std::span<const ClusterCullView> views,
+         const ClusterCandidates& candidates, const std::span<const ClusterCullView> views, const uint32_t firstView,
          const RDG::TextureRef neutralHzb ) const
     {
-        using Result = ClusterCullResult;
-        if ( phase != GpuDriven::CullPhase::Main )
-            return Common::MakeError<Result>(
-                 "VirtualGeometry: Cluster Cut: the PostOcclusion phase needs the HZB carry (not built yet)" );
+        using Result    = ClusterCullResult;
+        const bool post = phase == GpuDriven::CullPhase::PostOcclusion;
         if ( views.empty() )
             return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: no view to cut for" );
         const uint32_t pass = views.front().Instance.View.Pass;
@@ -212,17 +216,22 @@ namespace Desert::Graphic::VirtualGeometry
                  pass, passTable.PrimitiveDraws.size(), passSlots.PrimitiveDraws.IsValid() ? "valid" : "invalid",
                  passSlots.DrawSlots.IsValid() ? "valid" : "invalid",
                  submeshTransforms.IsValid() ? "valid" : "invalid" ) );
-        // One HZB per dispatch (the instance cull's rule): the views' previous-frame furthest HZB.
+        // One HZB per dispatch (the instance cull's rule): the views' previous-frame furthest HZB (Main), this
+        // frame's (PostOcclusion: required, it is what the phase re-tests against).
         RDG::TextureRef hzb{};
         for ( const ClusterCullView& view : views )
-            if ( view.Instance.PrevHzb.IsValid() )
-            {
-                if ( hzb.IsValid() && hzb != view.Instance.PrevHzb )
-                    return Common::MakeError<Result>(
-                         "VirtualGeometry: Cluster Cut: views with two previous-frame HZBs in one dispatch" );
-                hzb = view.Instance.PrevHzb;
-            }
+        {
+            const RDG::TextureRef viewHzb = post ? view.Instance.Hzb : view.Instance.PrevHzb;
+            if ( !viewHzb.IsValid() )
+                continue;
+            if ( hzb.IsValid() && hzb != viewHzb )
+                return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: views with two HZBs in one dispatch" );
+            hzb = viewHzb;
+        }
         const bool hasHzb = hzb.IsValid();
+        if ( post && !hasHzb )
+            return Common::MakeError<Result>(
+                 "VirtualGeometry: Cluster Cut: the PostOcclusion phase has no view with this frame's HZB" );
         if ( !hasHzb && !neutralHzb.IsValid() )
             return Common::MakeError<Result>( "VirtualGeometry: Cluster Cut: no HZB and no neutral texture to bind" );
         if ( !meshes.Dags.IsValid() || !meshes.Clusters.IsValid() || !meshes.Hierarchy.IsValid() )
@@ -290,6 +299,14 @@ namespace Desert::Graphic::VirtualGeometry
         b.DispatchArgs = Upload( graph, "VirtualGeometry.CutDispatchArgs", Bytes( zeros ) );
         b.ArgsSlot     = Upload( graph, "VirtualGeometry.CutArgsSlot", Bytes( zeros ) );
         b.Hzb          = hasHzb ? hzb : neutralHzb;
+        // The post carry: every entry the main phase finds occluded is a disjoint subtree or a cluster of a
+        // candidate's cut, each holding at least one cluster, so the visible capacity bounds it too.
+        const uint32_t carryCapacity = !post && hasHzb ? candidates.VisibleCapacity : 0u;
+        b.OccludedCount              = Upload( graph, post ? "VirtualGeometry.CutOccludedSlot" : "VirtualGeometry.OccludedCount",
+                                               Bytes( zeros ) );
+        b.OccludedCandidates         = graph.CreateBuffer(
+             RDG::BufferDesc{ .Bytes = uint64_t{ std::max( carryCapacity, 1u ) } * sizeof( GpuClusterCandidate ) },
+             post ? "VirtualGeometry.CutOccludedRowsSlot" : "VirtualGeometry.OccludedCandidates" );
 
         const Programs::Program& program       = m_Programs->ClusterCut;
         const auto               primitiveRows = static_cast<uint32_t>( passTable.PrimitiveDraws.size() );
@@ -297,9 +314,11 @@ namespace Desert::Graphic::VirtualGeometry
         {
             const bool    indirect = step == kStepCut;
             const CutPush push{ glm::uvec4( step, candidates.VisibleCapacity, primitiveRows, candidates.Capacity ),
-                                glm::uvec4( hasHzb ? 1u : 0u, 0u, 0u, 0u ) };
+                                glm::uvec4( hasHzb ? 1u : 0u, carryCapacity, post ? 1u : 0u, 0u ),
+                                glm::uvec4( firstView, static_cast<uint32_t>( views.size() ), 0u, 0u ) };
             graph.AddPass(
-                 indirect ? "VirtualGeometry: Cluster Cut" : "VirtualGeometry: Cluster Cut Args",
+                 post ? ( indirect ? "VirtualGeometry: Cluster Cut Post" : "VirtualGeometry: Cluster Cut Post Args" )
+                      : ( indirect ? "VirtualGeometry: Cluster Cut" : "VirtualGeometry: Cluster Cut Args" ),
                  RDG::PassFlags::Compute,
                  [&]( RDG::PassBuilder& builder ) { BindCut( builder, program, scene, meshes, b, indirect ); },
                  [pipeline     = program.Pipeline, push, indirect,
@@ -318,6 +337,11 @@ namespace Desert::Graphic::VirtualGeometry
         result.RasterArgs      = b.RasterArgs;
         result.Status          = b.Status;
         result.VisibleCapacity = candidates.VisibleCapacity;
+        if ( carryCapacity != 0u )
+        {
+            result.OccludedCandidates = b.OccludedCandidates;
+            result.OccludedCount      = b.OccludedCount;
+        }
         return result;
     }
 
@@ -403,8 +427,7 @@ namespace Desert::Graphic::VirtualGeometry
 
     // --- ClusterCutCounts ------------------------------------------------------------------------------------
 
-    void ClusterCutCounts::AddFrame( RDG::Builder& graph, const uint64_t frameIndex,
-                                     const ClusterCullResult& culled )
+    void ClusterCutCounts::BeginFrame( const uint64_t frameIndex )
     {
         const uint32_t slots = std::max( 1u, EngineContext::GetInstance().GetMaxFramesInFlight() );
         if ( m_Slots.size() != slots )
@@ -414,61 +437,122 @@ namespace Desert::Graphic::VirtualGeometry
         }
         Slot& slot = m_Slots[static_cast<std::size_t>( frameIndex % slots )];
         Count( slot );
-        slot = Slot{};
+        slot      = Slot{};
+        m_Current = &slot;
+    }
+
+    void ClusterCutCounts::Add( RDG::Builder& graph, const ClusterCutKind kind, const ClusterCullResult& culled,
+                                const RasterBins* bins, std::vector<uint8_t> drawnGroups )
+    {
+        if ( m_Current == nullptr )
+        {
+            LOG_ERROR( "[VirtualGeometry] Cluster Cut counts: a cut handed before BeginFrame" );
+            return;
+        }
         if ( !culled.RasterArgs.IsValid() || !culled.Status.IsValid() )
         {
             LOG_ERROR( "[VirtualGeometry] Cluster Cut counts: the cut left no RasterArgs / Status to read" );
             return;
         }
-        graph.Extract( culled.RasterArgs, slot.RasterArgs, RDG::Access::HostRead );
-        graph.Extract( culled.Status, slot.Status, RDG::Access::HostRead );
+        Entry& entry = m_Current->Entries.emplace_back();
+        entry.Kind   = kind;
+        graph.Extract( culled.RasterArgs, entry.RasterArgs, RDG::Access::HostRead );
+        graph.Extract( culled.Status, entry.Status, RDG::Access::HostRead );
+        if ( bins != nullptr && bins->GroupArgs.IsValid() && drawnGroups.size() == bins->GroupCount )
+        {
+            graph.Extract( bins->GroupArgs, entry.GroupArgs, RDG::Access::HostRead );
+            entry.DrawnGroups = std::move( drawnGroups );
+        }
     }
 
     void ClusterCutCounts::Forget()
     {
         m_Slots.clear();
-        m_Last = ClusterCutCount{};
+        m_Current = nullptr;
+        m_Last    = ClusterCutCount{};
     }
 
     void ClusterCutCounts::Count( const Slot& slot )
     {
-        if ( !slot.RasterArgs.Physical || !slot.Status.Physical )
+        if ( slot.Entries.empty() )
             return; // the slot has not been handed a frame yet
-        const std::span<const std::byte> args   = slot.RasterArgs.Physical->ReadForHost();
-        const std::span<const std::byte> status = slot.Status.Physical->ReadForHost();
-        if ( args.size() < sizeof( GpuClusterRasterArgs ) || status.size() < sizeof( ClusterCutStatus ) )
-        {
-            std::string message =
-                 std::format( "the readback holds {} / {} bytes, RasterArgs / Status need {} / {}", args.size(),
-                              status.size(), sizeof( GpuClusterRasterArgs ), sizeof( ClusterCutStatus ) );
-            if ( message != m_LastError )
-                LOG_ERROR( "[VirtualGeometry] Cluster Cut counts: {}", message );
-            m_LastError = std::move( message );
-            return;
-        }
-        GpuClusterRasterArgs raster;
-        std::memcpy( &raster, args.data(), sizeof( raster ) );
         ClusterCutCount count;
-        count.ClustersVisible = raster.HwDraw[1];
-        std::memcpy( &count.Status, status.data(), sizeof( count.Status ) );
-        m_Last = count;
-
-        // A failure is named by the mesh its lowest DAG row belongs to (rows outlive a frame-in-flight readback:
-        // VirtualMeshTable::kRetireFrames). One message per distinct set of failures.
-        std::string message;
-        const auto  named = [&message]( const char* what, const uint32_t n, const uint32_t dag )
+        std::string     message;
+        const auto      fail = [&message]( std::string what )
         {
-            if ( n == 0u )
-                return;
-            const std::string mesh = VirtualMeshTable::Get().DagMeshName( dag );
-            message += std::format( "{}'{}' (DAG row {}): {} x {}", message.empty() ? "" : "; ",
-                                    mesh.empty() ? "<released>" : mesh, dag, n, what );
+            message += std::format( "{}{}", message.empty() ? "" : "; ", what );
         };
-        named( "hierarchy node dropped by a full traversal stack (ClusterCut.shader kStackDepth)",
-               count.Status.StackOverflow, count.Status.StackOverflowDag );
-        named( "candidate whose primitive has no lod-0 draw slot for the DAG's submesh in the view's pass",
-               count.Status.MissingSlot, count.Status.MissingSlotDag );
-        named( "cluster past the visible capacity", count.Status.VisibleOverflow, count.Status.VisibleOverflowDag );
+        for ( const Entry& entry : slot.Entries )
+        {
+            const char* const kind = entry.Kind == ClusterCutKind::Main            ? "main"
+                                     : entry.Kind == ClusterCutKind::PostOcclusion ? "post-occlusion"
+                                                                                   : "shadow cascade";
+            if ( !entry.RasterArgs.Physical || !entry.Status.Physical )
+            {
+                fail( std::format( "the {} cut's readback was not executed", kind ) );
+                continue;
+            }
+            const std::span<const std::byte> args   = entry.RasterArgs.Physical->ReadForHost();
+            const std::span<const std::byte> status = entry.Status.Physical->ReadForHost();
+            if ( args.size() < sizeof( GpuClusterRasterArgs ) || status.size() < sizeof( ClusterCutStatus ) )
+            {
+                fail( std::format( "the {} cut's readback holds {} / {} bytes, RasterArgs / Status need {} / {}", kind,
+                                   args.size(), status.size(), sizeof( GpuClusterRasterArgs ),
+                                   sizeof( ClusterCutStatus ) ) );
+                continue;
+            }
+            GpuClusterRasterArgs raster;
+            std::memcpy( &raster, args.data(), sizeof( raster ) );
+            ClusterCutStatus cut;
+            std::memcpy( &cut, status.data(), sizeof( cut ) );
+            if ( entry.Kind == ClusterCutKind::Main )
+            {
+                count.ClustersVisible = raster.HwDraw[1];
+                count.Status          = cut;
+            }
+
+            // Drawn: the GroupArgs instance counts of the groups the pass drew.
+            uint64_t drawn = 0;
+            if ( entry.GroupArgs.Physical )
+            {
+                const std::span<const std::byte> groups = entry.GroupArgs.Physical->ReadForHost();
+                const size_t rows = std::min( entry.DrawnGroups.size(), groups.size() / kRasterBinsArgsStride );
+                for ( size_t g = 0; g < rows; ++g )
+                {
+                    if ( entry.DrawnGroups[g] == 0u )
+                        continue;
+                    uint32_t instances = 0; // VkDrawIndirectCommand::instanceCount
+                    std::memcpy( &instances, groups.data() + g * kRasterBinsArgsStride + sizeof( uint32_t ),
+                                 sizeof( instances ) );
+                    drawn += instances;
+                }
+            }
+            const auto clamped = static_cast<uint32_t>( std::min<uint64_t>( drawn, UINT32_MAX ) );
+            if ( entry.Kind == ClusterCutKind::ShadowCascade )
+                count.ShadowClustersDrawn += clamped;
+            else
+                count.ClustersDrawn += clamped;
+
+            // A failure is named by the mesh its lowest DAG row belongs to (rows outlive a frame-in-flight
+            // readback: VirtualMeshTable::kRetireFrames).
+            const auto named = [&fail, kind]( const char* what, const uint32_t n, const uint32_t dag )
+            {
+                if ( n == 0u )
+                    return;
+                const std::string mesh = VirtualMeshTable::Get().DagMeshName( dag );
+                fail( std::format( "{} cut: '{}' (DAG row {}): {} x {}", kind, mesh.empty() ? "<released>" : mesh, dag,
+                                   n, what ) );
+            };
+            named( "hierarchy node dropped by a full traversal stack (ClusterCut.shader kStackDepth)",
+                   cut.StackOverflow, cut.StackOverflowDag );
+            named( "candidate whose primitive has no lod-0 draw slot for the DAG's submesh in the view's pass",
+                   cut.MissingSlot, cut.MissingSlotDag );
+            named( "cluster past the visible capacity", cut.VisibleOverflow, cut.VisibleOverflowDag );
+            if ( cut.OccludedOverflow != 0u )
+                fail( std::format( "{} cut: {} occluded entries past the post carry's capacity (missing this frame)",
+                                   kind, cut.OccludedOverflow ) );
+        }
+        m_Last = count;
         if ( !message.empty() && message != m_LastError )
             LOG_ERROR( "[VirtualGeometry] Cluster Cut: {}", message );
         m_LastError = std::move( message );

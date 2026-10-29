@@ -102,9 +102,11 @@ namespace Desert::Editor::Control
     {
         uint32_t Instances        = 0;
         uint32_t ClustersVisible  = 0;
+        uint32_t ClustersDrawn       = 0; // the main view's rasters drew (main + post phase)
+        uint32_t ShadowClustersDrawn = 0; // every shadow cascade's raster drew
         uint32_t Overflow         = 0;
         uint32_t OccludedClusters = 0;
-        uint32_t BinnedVgInstances = 0; // VG instances the main view's bins still drew (must be 0)
+        uint32_t BinnedVgInstances = 0; // VG instances the bins of a cut view still drew (must be 0)
     };
 
     struct EntitySnapshot
@@ -412,6 +414,8 @@ namespace Desert::Editor::Control
             Common::Json::Object virtualGeometry;
             virtualGeometry["instances"]        = Num( snapshot.VirtualGeometry.Instances );
             virtualGeometry["clustersVisible"]  = Num( snapshot.VirtualGeometry.ClustersVisible );
+            virtualGeometry["clustersDrawn"]    = Num( snapshot.VirtualGeometry.ClustersDrawn );
+            virtualGeometry["shadowClustersDrawn"] = Num( snapshot.VirtualGeometry.ShadowClustersDrawn );
             virtualGeometry["overflow"]         = Num( snapshot.VirtualGeometry.Overflow );
             virtualGeometry["occludedClusters"] = Num( snapshot.VirtualGeometry.OccludedClusters );
             virtualGeometry["binnedVgInstances"] = Num( snapshot.VirtualGeometry.BinnedVgInstances );
