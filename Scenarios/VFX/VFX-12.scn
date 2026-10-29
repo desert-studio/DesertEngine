@@ -1,0 +1,17 @@
+# VFX-12 per-placement User Parameters (UE UNiagaraComponent::OverrideParameters): two placements of one system,
+# Content/VFX/Demo/Impact.dfx (the engine Impact template made a looping demo: system Loop, emitters Infinite every
+# 1.5 s, so the burst repeats in the editor viewport without Play), each with its own SurfaceNormal override.
+# Scene Content/Scenes/VFX_Demo_Impacts.desce: ImpactUp at x=-150 (SurfaceNormal 0,1,0), ImpactPlusX at x=+150
+# (SurfaceNormal 1,0,0). The edit goes through the Details write path (`set <entity> <Type>.<Field>`: the same
+# reflected write, undo record and dirty scene as a hand edit); the User Parameters section then shows the row.
+# The scenario dirties the scene but does not save it.
+Дано run Scene "Open Scene VFX_Demo_Impacts.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,30,700
+Дано --subject viewport set Camera.Direction 0,0,-1
+Когда state
+Тогда-вид 1_impacts two impact bursts: the left one (x=-150) throws sparks and dust upward, the right one (x=+150) sideways along +X
+Когда run Entity "Add to selection ImpactPlusX"
+Когда set selected VFX.Overrides[0].Value 0,0,1,0
+Когда state
+Тогда 2_details Details of ImpactPlusX shows the "User Parameters" section with a ticked (overridden) Vec3 row SurfaceNormal = 0, 0, 1; in the viewport the right burst now throws toward the camera (+Z, a round splash) while the left one still throws upward
