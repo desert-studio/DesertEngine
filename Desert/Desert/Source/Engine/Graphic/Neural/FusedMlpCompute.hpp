@@ -97,6 +97,9 @@ namespace Desert::Engine::Neural
     class FusedMlpCompute
     {
     public:
+        /// The registered program (NeuralFusedMlp.shader) every kernel of every path is a variant of.
+        static constexpr const char* kProgram = "NeuralFusedMlp";
+
         explicit FusedMlpCompute( const NeuralComputeCaps& caps );
         ~FusedMlpCompute();
 

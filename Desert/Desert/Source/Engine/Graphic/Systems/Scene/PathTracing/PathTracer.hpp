@@ -280,8 +280,10 @@ namespace Desert::Graphic::System
     // refuse the frame: the paths run without it (the cache Off, GetRadianceCacheStatus names why), the refusal is
     // logged once per reason (ShaderService::ClaimRefusalReport for a refused shader variant). The refusal HOLDS:
     // the cache is not built again until an input it was refused under changes - PathTracing.RadianceCache (set
-    // away from Nrc and back), MachineSettings::ForcedNeuralKernelPath, or ShaderService::RecompileGeneration (the
-    // rule of SceneRenderer::RetryRefusedProgramsAfterRecompile: the same bytes fail the same way) - so a refused
+    // away from Nrc and back), MachineSettings::ForcedNeuralKernelPath, or a recompile of a program the cache is
+    // built from (ShaderService::ProgramGeneration of NeuralRadianceCache::kPrograms, the radiance-cache trace's
+    // program and its hit groups' surface templates; the rule of SceneRenderer::RetryRefusedProgramsAfterRecompile:
+    // the same bytes fail the same way, and another shader's bytes do not change them) - so a refused
     // cache costs one build attempt, not one per frame, and a hot-reloaded fix or a changed path takes it back on
     // the next frame. A retry refused again for the same reason is not said again. The frame's data-shape
     // refusals (AddTraceTargets, AddCachePasses) are the same held refusal: AddTraceTargets is asked before the
@@ -289,8 +291,10 @@ namespace Desert::Graphic::System
     // cannot refuse a batch (Initialize validated every one), and a refusal it still gives leaves the passes it
     // added - the sum it composited into is this frame's only (it restarts every Nrc frame), and the next frame,
     // without the cache, restarts it and empties the history (a method change).
-    // A RUNNING cache follows the same inputs: it is built under MachineSettings::ForcedNeuralKernelPath and
-    // ShaderService::RecompileGeneration (CacheInputs), and the first Nrc frame either differs at rebuilds it once
+    // A RUNNING cache follows the inputs that made its weights: it is built under
+    // MachineSettings::ForcedNeuralKernelPath and the ProgramGeneration of its own programs (NeuralRadianceCache::
+    // kPrograms: its passes and its MLP's kernels - CacheInputs::SameCache), and the first Nrc frame either differs
+    // at rebuilds it once
     // - the old cache retired (FrameRetireQueue: frames in flight still read its buffers and pipelines), a new one
     // made with the new path (fresh weights and hash table: the old ones were trained by other kernels), the sum
     // restarted and the history emptied (it holds the old cache's light) - so switching the path while the cache
@@ -493,6 +497,59 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
+        // The radiance-cache trace's program (built with PATH_TRACING_NRC=1 by EnsureRadianceCache).
+        static constexpr const char* kTraceProgram = "PathTracer/PathTracing";
+
+        // A registered program and its ShaderService::ProgramGeneration.
+        struct ProgramStamp
+        {
+            std::string Program;
+            uint64_t    Generation = 0;
+
+            bool operator==( const ProgramStamp& ) const = default;
+        };
+        // "<program> <generation>, ..." (the log and state nrc).
+        [[nodiscard]] static std::string FormatStamps( const std::vector<ProgramStamp>& stamps )
+        {
+            std::string text;
+            for ( const ProgramStamp& stamp : stamps )
+                text += std::format( "{}{} {}", text.empty() ? "" : ", ", stamp.Program, stamp.Generation );
+            return text;
+        }
+
+        // The inputs a cache is built (and a cache refusal held) under besides PathTracing.RadianceCache itself
+        // (THE NEURAL RADIANCE CACHE above).
+        struct CacheInputs
+        {
+            std::optional<Common::Settings::NeuralKernelPath>
+                 ForcedPath;                  ///< MachineSettings::ForcedNeuralKernelPath
+            std::vector<ProgramStamp> Cache; ///< NeuralRadianceCache::kPrograms: the code that trains the weights
+            std::vector<ProgramStamp> Trace; ///< kTraceProgram and the hit groups' surface templates
+
+            // Everything: a held refusal may be any of these programs' (EnsureRadianceCache builds them all).
+            bool operator==( const CacheInputs& ) const = default;
+            // What the running cache's weights depend on: the kernel path and the cache's own programs. The trace
+            // feeding it recompiling does not make the learned light wrong (its pipeline follows its shader on the
+            // hot-reload poll, Graphic::AnyPipelineBehindItsShader).
+            [[nodiscard]] bool SameCache( const CacheInputs& other ) const
+            {
+                return ForcedPath == other.ForcedPath && Cache == other.Cache;
+            }
+        };
+
+        // CacheInputs as they are this frame (after EnsurePipeline: the hit groups are m_PipelineTemplates').
+        [[nodiscard]] CacheInputs CurrentCacheInputs() const
+        {
+            const Runtime::ShaderService* shaders = Runtime::ResourceRegistry::GetShaderService();
+            CacheInputs inputs{ .ForcedPath = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath };
+            for ( const char* program : Engine::Neural::NeuralRadianceCache::kPrograms )
+                inputs.Cache.push_back( { program, shaders->ProgramGeneration( program ) } );
+            inputs.Trace.push_back( { kTraceProgram, shaders->ProgramGeneration( kTraceProgram ) } );
+            for ( const std::string& surfaceTemplate : m_PipelineTemplates )
+                inputs.Trace.push_back( { surfaceTemplate, shaders->ProgramGeneration( surfaceTemplate ) } );
+            return inputs;
+        }
+
         // THE NEURAL RADIANCE CACHE'S PIECES, made on the first Nrc frame: the cache (its programs, the NN layer's
         // kernel path) and the trace built with PATH_TRACING_NRC=1 over the same hit groups as EnsurePipeline's.
         // @p inputs: what this frame builds it under (m_RadianceCacheInputs, THE NEURAL RADIANCE CACHE above).
@@ -517,7 +574,6 @@ namespace Desert::Graphic::System
             auto*                 shaders = Runtime::ResourceRegistry::GetShaderService();
             Core::ShaderVariant   variant;
             variant.Defines = { "PATH_TRACING_NRC=1" };
-            constexpr const char* kTraceProgram = "PathTracer/PathTracing";
             auto                  acquired      = shaders->AcquireVariant( kTraceProgram, variant );
             if ( !acquired )
             {
@@ -546,25 +602,6 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
-        // The inputs a cache refusal is held under besides PathTracing.RadianceCache itself (THE NEURAL RADIANCE
-        // CACHE above).
-        struct CacheInputs
-        {
-            std::optional<Common::Settings::NeuralKernelPath>
-                     ForcedPath;     ///< MachineSettings::ForcedNeuralKernelPath
-            uint64_t Generation = 0; ///< ShaderService::RecompileGeneration
-
-            bool operator==( const CacheInputs& ) const = default;
-        };
-
-        // CacheInputs as they are this frame.
-        [[nodiscard]] static CacheInputs CurrentCacheInputs()
-        {
-            return CacheInputs{ .ForcedPath = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath,
-                                .Generation =
-                                     Runtime::ResourceRegistry::GetShaderService()->RecompileGeneration() };
-        }
-
         // The running cache was built under other inputs than this frame's @p inputs: it is retired (kept alive
         // until no frame in flight reads it) and EnsureRadianceCache makes the new one this frame; the sum restarts
         // and the history empties, both made with the old cache's light.
@@ -574,10 +611,10 @@ namespace Desert::Graphic::System
             const std::string from   = m_RadianceCache->GetStats().KernelPath;
             const auto forcedName = []( const std::optional<Common::Settings::NeuralKernelPath>& forced )
             { return forced ? Engine::NeuralKernelPathName( *forced ) : "none"; };
-            LOG_INFO( "[PathTracer] radiance cache rebuilt (ForcedNeuralKernelPath {} -> {}, shader recompile "
-                      "generation {} -> {}); it ran the {} path",
+            LOG_INFO( "[PathTracer] radiance cache rebuilt (ForcedNeuralKernelPath {} -> {}, program generations "
+                      "{} -> {}); it ran the {} path",
                       forcedName( m_RadianceCacheInputs.ForcedPath ), forcedName( inputs.ForcedPath ),
-                      m_RadianceCacheInputs.Generation, inputs.Generation, from );
+                      FormatStamps( m_RadianceCacheInputs.Cache ), FormatStamps( inputs.Cache ), from );
             m_RetiringCaches.Park( std::move( m_RadianceCache ), frames.GetAbsoluteFrameCount() );
             ++m_RadianceCacheRebuilds;
             Restart();
@@ -662,7 +699,7 @@ namespace Desert::Graphic::System
             if ( m_CacheRefusal && ( !m_NrcRequested || m_CacheRefusal->Inputs != cacheInputs ) )
                 m_RetriedCacheRefusal = std::exchange( m_CacheRefusal, std::nullopt );
             bool nrc = m_NrcRequested && !m_CacheRefusal;
-            if ( nrc && m_RadianceCache && m_RadianceCacheInputs != cacheInputs )
+            if ( nrc && m_RadianceCache && !m_RadianceCacheInputs.SameCache( cacheInputs ) )
                 RetireRadianceCache( cacheInputs );
             if ( nrc )
                 if ( const auto ready = EnsureRadianceCache( cacheInputs ); !ready )
@@ -796,6 +833,10 @@ namespace Desert::Graphic::System
             std::string Reason;
             std::string RetryOn;
             uint32_t    Rebuilds = 0; ///< running caches rebuilt because their inputs changed (RetireRadianceCache)
+            /// The ProgramGeneration of NeuralRadianceCache::kPrograms the running cache was built under (a held
+            /// refusal: refused under; neither: empty) - Rebuilds moves exactly when one of these does (or the
+            /// kernel path).
+            std::vector<ProgramStamp> ProgramGenerations;
         };
         [[nodiscard]] RadianceCacheStatus GetRadianceCacheStatus() const
         {
@@ -803,17 +844,21 @@ namespace Desert::Graphic::System
             RadianceCacheStatus status{ .Requested = m_NrcRequested ? Method::Nrc : Method::Off,
                                         .Effective = m_Nrc ? Method::Nrc : Method::Off,
                                         .Rebuilds  = m_RadianceCacheRebuilds };
+            if ( m_RadianceCache )
+                status.ProgramGenerations = m_RadianceCacheInputs.Cache;
             if ( m_NrcRequested && m_CacheRefusal )
             {
                 const CacheInputs& held   = m_CacheRefusal->Inputs;
                 const char*        forced = "none";
                 if ( held.ForcedPath )
                     forced = Engine::NeuralKernelPathName( *held.ForcedPath );
-                status.Reason  = m_CacheRefusal->Reason;
-                status.RetryOn = std::format( "PathTracing.RadianceCache set away from Nrc and back; MachineSettings "
-                                              "ForcedNeuralKernelPath changed (held at {}); a shader recompile "
-                                              "(ShaderService::RecompileGeneration, held at {})",
-                                              forced, held.Generation );
+                status.Reason             = m_CacheRefusal->Reason;
+                status.ProgramGenerations = held.Cache;
+                status.RetryOn            = std::format(
+                     "PathTracing.RadianceCache set away from Nrc and back; MachineSettings ForcedNeuralKernelPath "
+                     "changed (held at {}); a recompile of one of its programs (ShaderService::ProgramGeneration, "
+                     "held at {}, {})",
+                     forced, FormatStamps( held.Cache ), FormatStamps( held.Trace ) );
             }
             return status;
         }

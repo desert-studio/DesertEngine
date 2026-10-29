@@ -274,6 +274,12 @@ namespace Desert::Engine::Neural
         explicit NeuralRadianceCache( const NeuralComputeCaps& caps );
         ~NeuralRadianceCache();
 
+        /// The registered program of the cache's own passes (NeuralRadianceCache.shader: "<kProgram>/<Pass>").
+        static constexpr const char* kProgram = "NeuralRadianceCache";
+        /// Every registered program the cache's passes and its MLP's kernels are built from: a recompile of any
+        /// of them (ShaderService::ProgramGeneration) changes the code that trained its weights.
+        static constexpr std::array<const char*, 2> kPrograms = { kProgram, FusedMlpCompute::kProgram };
+
         NeuralRadianceCache( const NeuralRadianceCache& )            = delete;
         NeuralRadianceCache& operator=( const NeuralRadianceCache& ) = delete;
 

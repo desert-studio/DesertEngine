@@ -21,7 +21,7 @@ namespace Desert::Engine::Neural
 {
     namespace
     {
-        constexpr const char* kShaderName = "NeuralRadianceCache";
+        constexpr const char* kShaderName = NeuralRadianceCache::kProgram;
         constexpr uint32_t    W           = kFusedMlpWidth;
         constexpr uint32_t    kNoCounter  = 0xFFFFFFFFu;
         constexpr uint32_t    kGroup      = 64; // LocalSize of every NeuralRadianceCache.shader pass

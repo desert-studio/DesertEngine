@@ -24,7 +24,7 @@ namespace Desert::Engine::Neural
 {
     namespace
     {
-        constexpr const char* kShaderName = "NeuralFusedMlp";
+        constexpr const char* kShaderName = FusedMlpCompute::kProgram;
         constexpr uint32_t    W           = kFusedMlpWidth;
 
         // NN_KERNEL values (NeuralFusedMlp.shader).

@@ -1569,6 +1569,8 @@ namespace Desert::Editor
             snapshot.Nrc.Reason    = status.Reason;
             snapshot.Nrc.RetryOn   = status.RetryOn;
             snapshot.Nrc.Rebuilds  = status.Rebuilds;
+            for ( const auto& stamp : status.ProgramGenerations )
+                snapshot.Nrc.ProgramGenerations.emplace_back( stamp.Program, stamp.Generation );
             if ( const Engine::Neural::NrcStats* stats = renderer->GetRadianceCacheStats() )
             {
                 Control::NrcSnapshot& nrc = snapshot.Nrc;
