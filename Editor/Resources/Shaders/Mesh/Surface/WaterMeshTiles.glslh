@@ -11,10 +11,63 @@ struct WaterTileRow
     vec4 Zone; // xy = the zone's world (X, Z) origin, z = LOD scale (cm), w = quads per side
 };
 
-// Binding 24: free in every surface cell (the mesh paths' own are 1, 13, 17; the pass headers' 7-22, 27).
+// One Gerstner wave of the drawn body (Water::GerstnerWave; C++ twin WaterRenderer.cpp WaterWaveRow).
+struct WaterWaveRow
+{
+    vec4 Wave; // xy = direction on the (X, Z) plane, z = wavelength (cm), w = amplitude (cm)
+    vec4 Form; // x = steepness, yzw unused
+};
+
+// The most waves one body draws (UE's generator stops at 128; its presets use 16-32). WaterRenderer refuses more,
+// out loud.
+#define WATER_MAX_WAVES 32
+
+// Binding 24: free in every surface cell (the mesh paths' own are 1, 13, 17; the pass headers' 7-22, 27). The
+// body's waves lead the buffer (read by the vertex path to displace the surface and by Pass_SingleLayerWater for
+// the foam), the tiles follow.
 layout( std430, binding = 24 ) readonly buffer WaterTiles
 {
+    vec4         WaterWaveHeader; // x = wave count, y unused, zw = WaveOrigin (X, Z)
+    WaterWaveRow WaterWaveRows[WATER_MAX_WAVES];
     WaterTileRow WaterTileRows[];
 };
+
+#include <Common/GerstnerWave.glslh>
+
+// The plane point of a world (X, Z): relative to the body's WaveOrigin, as every Gerstner query takes it.
+vec2 WaterWavePlane( vec2 worldXZ )
+{
+    return worldXZ - WaterWaveHeader.zw;
+}
+
+// The summed displacement of the plane point at `time` (Engine/Water/GerstnerWaterWaves.cpp WaveDisplacement).
+vec3 WaterWavesDisplacement( vec2 plane, float time )
+{
+    vec3 d = vec3( 0.0 );
+    for ( int k = 0; k < int( WaterWaveHeader.x ); ++k )
+        d += GerstnerWaveOffset( plane, WaterWaveRows[k].Wave.xy, WaterWaveRows[k].Wave.z, WaterWaveRows[k].Wave.w,
+                                 WaterWaveRows[k].Form.x, time );
+    return d;
+}
+
+// The displaced surface's normal at the plane point.
+vec3 WaterWavesNormal( vec2 plane, float time )
+{
+    vec3 n = vec3( 0.0 );
+    for ( int k = 0; k < int( WaterWaveHeader.x ); ++k )
+        n += GerstnerWaveNormalTerm( plane, WaterWaveRows[k].Wave.xy, WaterWaveRows[k].Wave.z,
+                                     WaterWaveRows[k].Wave.w, WaterWaveRows[k].Form.x, time );
+    return GerstnerFinalizeNormal( n );
+}
+
+// The Jacobian determinant of the surface over the plane point at `time` (1 = still, <= 0 = folded over).
+float WaterWavesJacobian( vec2 plane, float time )
+{
+    vec3 j = vec3( 0.0 );
+    for ( int k = 0; k < int( WaterWaveHeader.x ); ++k )
+        j += GerstnerWaveJacobianTerm( plane, WaterWaveRows[k].Wave.xy, WaterWaveRows[k].Wave.z,
+                                       WaterWaveRows[k].Wave.w, WaterWaveRows[k].Form.x, time );
+    return GerstnerJacobian( j );
+}
 
 #endif // DESERT_WATER_MESH_TILES_GLSLH

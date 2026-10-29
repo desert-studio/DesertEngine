@@ -4,6 +4,10 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <format>
+#include <string>
+#include <utility>
+
 namespace Desert::Runtime
 {
     void WaterWavesService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
@@ -15,8 +19,27 @@ namespace Desert::Runtime
                                    const Assets::Asset<Assets::WaterWavesAsset>& asset )
     {
         // Generated once per load: the set's waves are a pure function of its generator (UE RecomputeWaves).
-        m_Ready[handle] = std::make_shared<const std::vector<Water::GerstnerWave>>(
-             Water::GenerateGerstnerWaves( asset->GetData().Generator ) );
+        std::vector<Water::GerstnerWave> waves = Water::GenerateGerstnerWaves( asset->GetData().Generator );
+
+        // A sum of Gerstner waves stays a surface only while the horizontal squeeze of all of them together cannot
+        // pass the particle's own spacing: sum of Q k A (= each wave's Steepness) <= 1 (Tessendorf 2001 sec. 4.4;
+        // UE's generator does not check it and its steep presets loop). Past it the mesh folds through itself where
+        // the crests line up, and the whitecaps (the Jacobian below the material's threshold) are drawn from folds
+        // rather than from crests about to break. Refused out loud: the set's author lowers the steepness.
+        float steepness = 0.0f;
+        for ( const Water::GerstnerWave& wave : waves )
+            steepness += wave.Steepness;
+        if ( steepness > 1.0f )
+        {
+            const std::string why = std::format( "its waves' steepness sums to {:.2f} (Q k A summed over {} waves); a "
+                                                 "Gerstner sum folds through itself past 1 - lower SmallWaveSteepness/"
+                                                 "LargeWaveSteepness",
+                                                 steepness, waves.size() );
+            LOG_ERROR( "[Water] Wave set {} is refused: {}", static_cast<uint64_t>( handle ), why );
+            m_Failed[handle] = why;
+            return;
+        }
+        m_Ready[handle] = std::make_shared<const std::vector<Water::GerstnerWave>>( std::move( waves ) );
     }
 
     void WaterWavesService::Request( const Assets::AssetHandle& handle )

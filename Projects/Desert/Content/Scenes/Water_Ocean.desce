@@ -9,30 +9,10 @@
             "UNIT": 1,
             "WPAR": 1
         },
-        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "615ae6cde51242b39947fd6224df80b6", "8254b0475d555accf00b0c7a929c73e4", "d97a0cb255554c92a315a3330db71f5f", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
+        "Dependencies": ["5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91", "95cdc28154e34f40b1ff8399d707b5b8", "c730e67be3da4598b852ba1021a94692", "cc91578c315f46bdacd58fde6183a144", "f19593762f19be4d47cadcb269c4e878", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Water_Ocean",
     "Entities": [
-        {
-            "id": 4200000000000000013,
-            "siblingIndex": 14,
-            "Tag": "Seabed",
-            "Translation": [0.0, -190.0, -1500.0],
-            "Rotation": [-0.11200000345706940, 0.0, 0.0],
-            "Scale": [15.0, 1.0, 15.0],
-            "StaticMesh": {
-                "MeshHandle": {
-                    "Guid": "8254b0475d555accf00b0c7a929c73e4",
-                    "Path": "assets:Meshes/Displace/DisplaceSlab.stmesh"
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "615ae6cde51242b39947fd6224df80b6",
-                        "Path": "assets:Environments/Shore/Materials/M_Shore_CoastSandRocks.demat"
-                    }
-                ]
-            }
-        },
         {
             "id": 371561652986549398,
             "siblingIndex": 13,
@@ -56,15 +36,15 @@
             "Scale": [1.0, 1.0, 1.0],
             "WaterBody": {
                 "WaterWaves": {
-                    "Guid": "d97a0cb255554c92a315a3330db71f5f",
-                    "Path": "assets:Water/Waves/OpenOcean.dwaves"
+                    "Guid": "cc91578c315f46bdacd58fde6183a144",
+                    "Path": "assets:Water/Waves/ShoreSwell.dwaves"
                 },
+                "OceanExtents": [4096000.0, 4096000.0],
+                "TargetWaveMaskDepth": 2048.0,
                 "WaterMaterial": {
                     "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
                     "Path": "assets:Water/Materials/M_Water_Ocean.demat"
-                },
-                "OceanExtents": [4096000.0, 4096000.0],
-                "TargetWaveMaskDepth": 2048.0
+                }
             }
         },
         {
@@ -236,6 +216,97 @@
             }
         },
         {
+            "id": 4200000000000000100,
+            "siblingIndex": 14,
+            "Tag": "Shore",
+            "Translation": [-6375.0, 0.0, -11000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Landscape": {
+                "QuadsPerTile": 255,
+                "SpacingCm": 25.0,
+                "ZScale": 4.0,
+                "EditLayers": [
+                    {
+                        "Guid": "4200000000000000199",
+                        "Name": "Base",
+                        "Visible": true,
+                        "Locked": false,
+                        "HeightAlpha": 1.0,
+                        "WeightAlpha": 1.0
+                    }
+                ],
+                "Layers": [
+                    {
+                        "Guid": "c730e67be3da4598b852ba1021a94692",
+                        "Path": "assets:Landscape/Layers/Shore/ShoreSand.delayerinfo"
+                    }
+                ]
+            },
+            "LandscapeMaterial": {
+                "Material": {
+                    "Guid": "95cdc28154e34f40b1ff8399d707b5b8",
+                    "Path": "assets:Environments/Shore/Materials/M_Shore_Landscape.demat"
+                }
+            }
+        },
+        {
+            "id": 4200000000000000101,
+            "siblingIndex": 15,
+            "Tag": "Shore Tile 0_0",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000101.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000102,
+            "siblingIndex": 16,
+            "Tag": "Shore Tile 1_0",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000102.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000103,
+            "siblingIndex": 17,
+            "Tag": "Shore Tile 0_1",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 0,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000103.dlht"
+            }
+        },
+        {
+            "id": 4200000000000000104,
+            "siblingIndex": 18,
+            "Tag": "Shore Tile 1_1",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "4200000000000000100",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/Water_Ocean_Landscape/4200000000000000104.dlht"
+            }
+        },
+        {
             "id": 7480392879292652412,
             "siblingIndex": 11,
             "Tag": "PostProcessVolume",
@@ -303,7 +374,9 @@
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
             }
         },
