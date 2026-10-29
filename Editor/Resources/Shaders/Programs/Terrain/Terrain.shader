@@ -263,15 +263,21 @@ Shader "Terrain"
 
         void main()
         {
-            TerrainSurface s = EvaluateTerrainSurface();
+            // The ground with the grass field's far cover over it, shaded as TerrainGBuffer packs it (GRASS-FIELD):
+            // TwoSidedFoliage with the cover's SubsurfaceColor where the cover lies, DefaultLit on bare ground.
+            vec3           transmission;
+            float          cover;
+            TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover );
             vec3 N           = s.N;
+            const int  model = cover > 0.0 ? SHADING_MODEL_INDEX_TWO_SIDED_FOLIAGE : SHADING_MODEL_INDEX_DEFAULT_LIT;
 
             // The eye from the view matrix (rigid: its inverse rotation is its transpose).
             const vec3          eye     = -transpose( mat3( u.View ) ) * u.View[3].xyz;
-            const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos,
-                                                             s.Albedo * Material.Tint.rgb, 0.0, s.Roughness,
+            const DesertSurface surface = DesertMakeSurface( v_WorldPos, N, eye - v_WorldPos, s.Albedo, 0.0, s.Roughness,
                                                              0.5 ); // UE's default Specular, as TerrainGBuffer packs
-            const DesertPayload payload = DesertPayload( 0.0, 0.0, 0.0, 0.0 );
+            const vec3          sss     = sqrt( clamp( transmission, 0.0, 1.0 ) );
+            const DesertPayload payload = cover > 0.0 ? DesertPayload( sss.r, sss.g, sss.b, cover )
+                                                      : DesertPayload( 0.0, 0.0, 0.0, 0.0 );
 
             // The sun, occluded by the cascades and its contact shadow, then by the cloud layer - the order
             // Pass_Forward and the deferred composite assemble it in. The ground always receives sun shadows.
@@ -284,11 +290,11 @@ Shader "Terrain"
             vec3 light = vec3( 0.0 );
             for ( uint d = 0u; d < lightsMetadata.DirectionLightCount; d++ )
                 light += DesertEvaluateShadingModel(
-                     SHADING_MODEL_INDEX_DEFAULT_LIT,
+                     model,
                      DesertSunLight( directionLights.directionLights.Direction.xyz,
                                      directionLights.directionLights.ColorIntensity.rgb *
                                           directionLights.directionLights.ColorIntensity.a,
-                                     shadow, 1.0 ), // the ground is not a subsurface receiver
+                                     shadow, shadow ), // the cover's transmitted light is shadowed as its surface (no caster depth here)
                      surface, payload );
 
             // The point and spot lights (the MegaLights volume under Shadows Stochastic, else the pixel's froxel) and
@@ -296,9 +302,9 @@ Shader "Terrain"
             // Deferred path), as a forward mesh takes them (Mesh/ForwardSceneLighting.glslh). The ground is no
             // subsurface receiver.
             const DesertForwardLocalLighting local = DesertForwardLocalLights(
-                 SHADING_MODEL_INDEX_DEFAULT_LIT, gl_FragCoord.xy, v_WorldPos, N, -1.0, surface, payload );
+                 model, gl_FragCoord.xy, v_WorldPos, N, -1.0, surface, payload );
             light += local.Light;
-            const vec3 ambient = DesertForwardAmbient( SHADING_MODEL_INDEX_DEFAULT_LIT, surface, local.Indirect, s.AO,
+            const vec3 ambient = DesertForwardAmbient( model, surface, local.Indirect, s.AO,
                                                        gl_FragCoord.xy, payload );
 
             // Stored pre-exposed (ViewFrame::PreExposure), like the deferred composite and the forward mesh pass.

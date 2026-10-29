@@ -88,27 +88,31 @@ namespace Desert::Graphic::System
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> InputSlices{};
         // x = the input the GROUND draws with (the root's first layer, by name; -1 = none), yzw unused.
         glm::vec4 GroundInput{ -1.0f, 0.0f, 0.0f, 0.0f };
+        // GRASS-FIELD: per tile layer, the grass field's far cover (LandscapeGrassCover, see LandscapeWeightDraw):
+        // the blades the generator thins out with distance are carried on by the ground's own shading.
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCover{};
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverLight{};
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverRange{};
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
+    static_assert( sizeof( TerrainInstance ) == 52 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay fifty-two 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+                   "reads these offsets" );
     static_assert(
-         sizeof( TerrainInstance ) == 28 * sizeof( glm::vec4 ),
-         "TerrainInstance must stay twenty-eight 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
-         "reads these offsets" );
-    static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
-                        offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
-                        offsetof( TerrainInstance, LandscapeTile ) == 64 &&
-                        offsetof( TerrainInstance, LodEdges ) == 80 &&
-                        offsetof( TerrainInstance, LodCorners ) == 96 &&
-                        offsetof( TerrainInstance, LayerColors ) == 112 &&
-                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
-                        offsetof( TerrainInstance, LayerInput ) == 272 &&
-                        offsetof( TerrainInstance, InputSlices ) == 304 &&
-                        offsetof( TerrainInstance, GroundInput ) == 432,
-                   "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
+         offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
+              offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
+              offsetof( TerrainInstance, LandscapeTile ) == 64 && offsetof( TerrainInstance, LodEdges ) == 80 &&
+              offsetof( TerrainInstance, LodCorners ) == 96 && offsetof( TerrainInstance, LayerColors ) == 112 &&
+              offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
+              offsetof( TerrainInstance, LayerInput ) == 272 && offsetof( TerrainInstance, InputSlices ) == 304 &&
+              offsetof( TerrainInstance, GroundInput ) == 432 && offsetof( TerrainInstance, GrassCover ) == 448 &&
+              offsetof( TerrainInstance, GrassCoverLight ) == 576 &&
+              offsetof( TerrainInstance, GrassCoverRange ) == 704,
+         "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
     // apart from LandscapeTileDraw: that one feeds the LOD/seam keys, and painting must not touch them.
@@ -138,6 +142,11 @@ namespace Desert::Graphic::System
         // The tile layer that is its visibility mask (LandscapeWeightChannels::Visibility), -1 for none: the
         // surface and the shadow caster discard where it reaches 0.5 (UE's Landscape Visibility Mask).
         int32_t VisibilityLayer = -1;
+        // GRASS-FIELD: per tile layer, its grass field's far cover (TerrainInstance::GrassCover*), zero for a
+        // layer that grows no grass. LandscapeECSSystem::GrassCoverOf derives it from the layer's grass types.
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCover{};
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverLight{};
+        std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverRange{};
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first

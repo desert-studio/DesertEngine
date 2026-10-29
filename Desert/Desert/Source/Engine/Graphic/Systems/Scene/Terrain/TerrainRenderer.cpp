@@ -90,6 +90,9 @@ namespace Desert::Graphic::System
             instance.LodCorners = lod.Corners;
             instance.LayerColors     = t.Weights.Colors;
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
+            instance.GrassCover      = t.Weights.GrassCover;
+            instance.GrassCoverLight = t.Weights.GrassCoverLight;
+            instance.GrassCoverRange = t.Weights.GrassCoverRange;
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
