@@ -1118,11 +1118,6 @@ namespace Desert::Graphic
         // particles - in both render paths: the scene depth resolve (MSAA > 1), the sky's AP/LUT nodes, the
         // volumetric fog's froxels, then AddFrameAtmosphericFog.
         void AddFrameOpaqueFog( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
-        // The height fog's evaluation of the opaque depth and its apply over the scene target (the opaque
-        // composite only), and FrameTransients::FogParams / FogAerialPerspective / FogDistantSkyLight / FogVolume,
-        // with which every translucent surface after it evaluates the same fog at its own depth
-        // (Common/ViewFog.glslh). The froxels are AddFrameVolumetricFog's, added just before.
-
         // The cloud march and its noise bake. Issued after the opaque fog and the water/glass: in-frame compute
         // outside an open render pass, once the scene depth (water included) is final and this frame's atmosphere
         // LUTs have been filled. The composite itself is the first node of AddFrameTranslucency, over the fogged
@@ -1390,6 +1385,11 @@ namespace Desert::Graphic
         // ImportSceneViewTextures, so the environment it imports is the one this frame's capture completed.
         void AddFrameSkyLight( RDG::Builder& graph, FrameTextures& textures );
         void AddFrameSkyAtmosphereLuts( RDG::Builder& graph, FrameTextures& textures );
+        // The height fog's evaluation of the opaque depth and its apply over the scene target (the opaque
+        // composite only), and FrameTransients::FogParams / FogAerialPerspective / FogDistantSkyLight / FogVolume,
+        // with which every translucent surface after it evaluates the same fog at its own depth
+        // (Mesh/Surface/SceneFog.glslh over Common/ViewFog.glslh). The froxels are AddFrameVolumetricFog's, added
+        // just before.
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         // The volumetric fog's two compute nodes (VolumetricFogRenderer), after the light grid and the shadow
         // depths, before AddFrameAtmosphericFog, which composes its integrated volume.

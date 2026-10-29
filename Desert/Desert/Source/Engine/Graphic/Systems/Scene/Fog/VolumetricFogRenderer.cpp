@@ -3,7 +3,6 @@
 #include <Engine/Graphic/FallbackTextures.hpp>
 #include <Engine/Graphic/Fog/FogPayload.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
-#include <Engine/Graphic/RenderConfig.hpp> // GlobalTextureFilterSampler, VolumeSampler
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/View/ViewFrame.hpp>
@@ -13,6 +12,8 @@
 
 #include <algorithm>
 #include <format>
+#include <string>
+#include <utility>
 
 namespace Desert::Graphic::System
 {
@@ -267,6 +268,9 @@ namespace Desert::Graphic::System
              atmosphere.DistantSkyLight
                   ? std::shared_ptr<Image>( atmosphere.DistantSkyLight )
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
+        // Named here, not as a conditional inside the by-value argument (MSVC 19.44 hangs on that shape).
+        std::string distantSkyLightName =
+             atmosphere.DistantSkyLight ? "Sky.DistantLight" : "VolumetricFog.DistantSkyLightFallback";
         const RDG::TextureRef atlas = t.LocalShadowAtlas.IsValid() ? t.LocalShadowAtlas : refs.System.White;
 
         const std::string currentName =
@@ -308,7 +312,7 @@ namespace Desert::Graphic::System
              .Sampler( Scattering::PointClampSampler, RDG::SamplerDesc::PointClamp() )
              // Read with texelFetch at its sphere texel.
              .Texture( Scattering::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
-                       atmosphere.DistantSkyLight ? "Sky.DistantLight" : "VolumetricFog.DistantSkyLightFallback" )
+                       std::move( distantSkyLightName ) )
              .Storage( Scattering::PointLightsUB, t.Lights.Point, RDG::Access::StorageRead )
              .Storage( Scattering::SpotLightsUB, t.Lights.Spot, RDG::Access::StorageRead )
              .Storage( Scattering::LocalShadowViewsUB, t.Lights.ShadowViews, RDG::Access::StorageRead )

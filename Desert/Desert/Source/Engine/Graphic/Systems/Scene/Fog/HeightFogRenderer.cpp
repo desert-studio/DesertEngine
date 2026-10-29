@@ -13,7 +13,9 @@
 #include <Common/Core/Profiler.hpp>
 
 #include <cstddef>
+#include <memory>
 #include <span>
+#include <utility>
 
 namespace Desert::Graphic::System
 {
@@ -246,6 +248,12 @@ namespace Desert::Graphic::System
              atmosphere.DistantSkyLight
                   ? std::shared_ptr<Image>( atmosphere.DistantSkyLight )
                   : FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
+        // The integrated froxels, or the 3D fallback when the volumetric fog did not run (Volumetric0.w = 0 says
+        // it is never sampled). Named here, not as a conditional inside the by-value argument: MSVC 19.44 hangs on
+        // a const lvalue / prvalue conditional there.
+        std::shared_ptr<Image> volumetricImage =
+             volumetric ? volume.Integrated
+                        : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
         auto block = fog.Access.Bindings( m_FogLayout.Get( m_FogPipeline->GetShader() ),
                                           Renderer::GetPipelineRouteFill( *m_FogPipeline ) );
         block.PushConstantBytes( static_cast<uint32_t>( sizeof( FogPush ) ) );
@@ -258,9 +266,7 @@ namespace Desert::Graphic::System
              .Sampler( HeightFogFogShaderParameters::LinearRepeatSampler, VolumeSampler() )
              .Texture( HeightFogFogShaderParameters::DistantSkyLightTexture, distantSkyLight, RDG::Access::SampledCompute,
                        atmosphere.DistantSkyLight ? "Sky.DistantLight" : "HeightFog.DistantSkyLightFallback" )
-             .Texture( HeightFogFogShaderParameters::VolumetricFogTexture,
-                       volumetric ? volume.Integrated
-                                  : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F ),
+             .Texture( HeightFogFogShaderParameters::VolumetricFogTexture, std::move( volumetricImage ),
                        RDG::Access::SampledCompute,
                        volumetric ? "VolumetricFog.Integrated" : "HeightFog.VolumetricFogFallback" )
              .Sampler( HeightFogFogShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() );
