@@ -790,6 +790,7 @@ namespace Desert::Core
             {
                 const auto&     light  = m_Registry.get<ECS::DirectionLightComponent>( *sun );
                 const glm::vec3 travel = ECS::DirectionalLightTravel( m_Registry, *sun );
+                sceneRendererInfo.SunVolumetricScatteringIntensity = light.Data.VolumetricScatteringIntensity;
                 sceneRendererInfo.DirLights.DirectionLights.push_back(
                      { glm::vec4( travel, 0.0f ), glm::vec4( light.Data.Color, light.Data.Intensity ) } );
             }

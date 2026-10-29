@@ -71,6 +71,7 @@ namespace Desert::ECS
                      light.ContactShadowInWorld          = pointlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
                      light.ContactShadowCastingIntensity = pointlight.Data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = pointlight.Data.ContactShadowNonCastingIntensity;
+                     light.VolumetricScatteringIntensity    = pointlight.Data.VolumetricScatteringIntensity;
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).

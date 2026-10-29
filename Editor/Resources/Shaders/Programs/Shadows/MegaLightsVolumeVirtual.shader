@@ -13,17 +13,17 @@ Shader "MegaLightsVolumeVirtual"
         #include <Common/VirtualShadowMap.glslh>
         // The VSM reader's tables (Core::kVsmReadFrameDataBinding .. kVsmReadLocalLightsBinding, as
         // Mesh/ForwardLocalLights.glslh spells them), bound by name (BindVirtualShadowMapReads).
-        layout( std430, binding = 45 ) restrict readonly buffer VsmFrameData
+        layout( std430, binding = 49 ) restrict readonly buffer VsmFrameData
         {
             VsmFrame Frame;
             VsmLevel Levels[];
         };
-        layout( std430, binding = 46 ) restrict readonly buffer VsmPageTable
+        layout( std430, binding = 50 ) restrict readonly buffer VsmPageTable
         {
             VsmPageEntry Entries[];
         };
-        layout( binding = 47, r32ui ) restrict readonly uniform uimage2D PhysicalPoolTexture;
-        layout( std430, binding = 48 ) restrict readonly buffer VsmLocalLightsUB
+        layout( binding = 51, r32ui ) restrict readonly uniform uimage2D PhysicalPoolTexture;
+        layout( std430, binding = 52 ) restrict readonly buffer VsmLocalLightsUB
         {
             VsmLocalLight vsmLocalLights[];
         };

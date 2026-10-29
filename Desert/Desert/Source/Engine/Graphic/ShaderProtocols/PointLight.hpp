@@ -51,14 +51,16 @@
     /* UE SourceRadius (cm): the emitter sphere traced shadows aim at (MegaLights); 0 = a point. */               \
     FIELD( float, SourceRadius, sourceRadius, { 0.0f } ) /* 64 */                                                 \
     /* std430 rounds the array stride of a struct with a vec3 to 16 bytes: explicit, so sizeof matches. */        \
-    /* The light's layer in the view's ray-traced local shadow masks (Shadows HardwareTraced), or -1: then */      \
-    /* ShadowView is the light's shadow. Written by SceneRenderer::AssignLocalShadowMaskSlots. */                  \
-    FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 68 */                                              \
+    /* The light's layer in the view's ray-traced local shadow masks (Shadows HardwareTraced), or -1: then */     \
+    /* ShadowView is the light's shadow. Written by SceneRenderer::AssignLocalShadowMaskSlots. */                 \
+    FIELD( int32_t, ShadowMaskSlot, shadowMaskSlot, { -1 } ) /* 68 */                                             \
     /* Under Shadows Stochastic, the source MegaLights' trace tests this light's samples with */                  \
     /* (Common::Scalability::StochasticVisibility: 0 ray query, 1 vsm+screen, 2 screen; the component's Shadow */ \
     /* Method clamped, Graphic::ResolveLightVisibility). Written by SceneRenderer::AssignLocalShadowMaskSlots. */ \
     FIELD( int32_t, ShadowVisibility, shadowVisibility, { 0 } ) /* 72 */                                          \
-    FIELD( float, Pad2, pad2, { 0.0f } ) /* -> 80 */
+    /* UE ULightComponent::VolumetricScatteringIntensity: the light's share in the froxel fog's in-scattering */  \
+    /* (VolumetricFogLightScattering); 1 = as bright as on surfaces, 0 = the fog does not see the light. */       \
+    FIELD( float, VolumetricScatteringIntensity, volumetricScatteringIntensity, { 1.0f } ) /* 76 -> 80 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
