@@ -119,6 +119,15 @@ namespace Desert::Graphic
     // viewport and dies with the toggle, while the stored flag belongs to the user and outlives the
     // session. К10 exists because the two were once the same field, which made every unrelated save of
     // the preference file able to write a transient mode into the user's permanent answer.
+    // The virtual-geometry views (UE r.Nanite.Visualize). Clusters: every level-0 cluster of each drawn
+    // virtual-geometry mesh in its own colour over the lit scene (VirtualGeometry/VirtualGeometryClusterView.hpp);
+    // every other mesh unchanged.
+    enum class VirtualGeometryView : int
+    {
+        Off      = 0,
+        Clusters = 1,
+    };
+
     struct DebugViewState
     {
         // The editor's infinite ground grid. Drawn by Editor::Render::EditorGridPass, which is compiled
@@ -163,6 +172,7 @@ namespace Desert::Graphic
 
         ShadowDebugMode   ShadowDebug   = ShadowDebugMode::Off;
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
+        VirtualGeometryView VirtualGeometry = VirtualGeometryView::Off;
 
         // The view modes are ONE choice: every channel off, so the one the caller sets next is the only one
         // on. Shared by the View Mode dropdown and the palette's "View mode: ..." entries, so the two cannot
@@ -175,6 +185,7 @@ namespace Desert::Graphic
             LightingDebug = false;
             DeferredDebug = DeferredDebugMode::Off;
             ShadowDebug   = ShadowDebugMode::Off;
+            VirtualGeometry = VirtualGeometryView::Off;
         }
 
         // Render-graph pass culling off (RDG::Builder::SetPassCulling, set on the view's graph every frame).
@@ -189,6 +200,21 @@ namespace Desert::Graphic
         // nothing and changes no picture; costs the cull passes and a readback. Set from a scenario through the
         // viewport subject's 'Debug.ValidateGpuCulling'.
         bool ValidateGpuCulling = false;
+
+        // VIRTUAL-GEOMETRY FALLBACK check (VIRT-GEOM step 26; UE: a primitive the cluster path cannot draw renders
+        // its fallback mesh): every cluster cut of the frame (main view, sun cascades, VSM levels) is refused AFTER
+        // InstanceCull took the VG instances out of the bins, so the CPU walk (MeshRenderer::CpuWalkHidden) must
+        // draw them - a picture equal to VG off. Logged once while on. Set from a scenario through the viewport
+        // subject's 'Debug.ForceVirtualGeometryCutRefusal'.
+        bool ForceVirtualGeometryCutRefusal = false;
+
+        // VIRTUAL-GEOMETRY POST CUT check (VIRT-GEOM step 29; UE Nanite two-pass: the main pass tests occlusion only
+        // when the post pass runs): the main view's post-occlusion cluster cut is refused for the frame, and that
+        // refusal is decided BEFORE the main cut (SceneRenderer::FrameDrawBins::ClusterMainTestsHzb), so the main
+        // cut tests no HZB and holds nothing back - every visible cluster is drawn in phase 1, a picture equal to VG
+        // off within the cut's LOD. Logged once while on. Set from a scenario through the viewport subject's
+        // 'Debug.ForceVirtualGeometryPostCutRefusal'.
+        bool ForceVirtualGeometryPostCutRefusal = false;
 
         // The viewport's Screen Percentage override (UE: the viewport's "Screen Percentage" menu, an
         // EditorViewportClient setting). Absent = the view renders at the game's RenderScalePercent

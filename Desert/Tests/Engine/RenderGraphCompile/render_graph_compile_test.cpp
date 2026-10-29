@@ -5238,25 +5238,27 @@ namespace
     {
         DeclaredBindingBlock Block;
 
-        CollectedBlock& Texture( std::string_view name, TextureRef texture, Access access, SubresourceRange range )
+        CollectedBlock& Texture( Desert::Graphic::RDG::TextureParameter parameter, TextureRef texture, Access access,
+                                 SubresourceRange range )
         {
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::Texture, ResourceKind::Texture,
+            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::Texture, ResourceKind::Texture,
                                        texture.Index, access, range, std::nullopt } );
             return *this;
         }
-        CollectedBlock& Sampler( std::string_view name, SamplerDesc sampler )
+        CollectedBlock& Sampler( Desert::Graphic::RDG::SamplerParameter parameter, SamplerDesc sampler )
         {
+            const std::string name = parameter.SlotName();
             for ( const DeclaredBindingEntry& e : Block.Entries )
                 if ( e.Kind == ShaderResourceKind::Sampler && e.ShaderName == name && e.Sampler == sampler )
                     return *this;
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::Sampler, ResourceKind::Texture,
+            Block.Entries.push_back( { name, ShaderResourceKind::Sampler, ResourceKind::Texture,
                                        kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
-        CollectedBlock& Storage( std::string_view name, BufferRef buffer, Access access )
+        CollectedBlock& Storage( Desert::Graphic::RDG::StorageBufferParameter parameter, BufferRef buffer, Access access )
         {
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer,
+            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer,
                                        buffer.Index, access, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
             return *this;
         }

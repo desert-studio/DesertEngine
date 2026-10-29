@@ -408,6 +408,11 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild (the TLAS is "
                "built after this many in-place updates in a row; 0 = every frame)",
                60, Vis::Advanced },
+             { P::ViewDistanceVirtualGeometryMaxPixelsPerEdge, G::ViewDistance,
+               "ViewDistance.VirtualGeometryMaxPixelsPerEdge", 1, 1000, CL::None,
+               "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD cut, "
+               "tenths of a pixel)",
+               10, Vis::Advanced },
              { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
                "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on the "
                "compute queue family)",

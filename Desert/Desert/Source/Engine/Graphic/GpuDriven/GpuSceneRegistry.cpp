@@ -233,6 +233,7 @@ namespace Desert::Graphic::GpuDriven
         out.SkinnedInstances.clear();
         out.FieldInstances.clear();
         ++m_SyncSerial;
+        out.FieldPrimitives.clear();
         out.RigidPrimitives.reserve( rigid.size() );
         out.RigidInstances.reserve( rigid.size() );
         out.SkinnedPrimitives.reserve( skinned.size() );
@@ -358,11 +359,13 @@ namespace Desert::Graphic::GpuDriven
                     entry.CullEnd   = field.CullDistanceEnd;
                 }
                 BeginContent( entry, inserted, field.Content );
+                m_Scene.SetWind( entry.Primitive, field.Wind );
                 Queued( entry );
             }
             else
                 AddContent( entry, field.Content ); // another material slot of the same field
             out.FieldInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
+            out.FieldPrimitives.push_back( entry.Primitive );
         }
         PublishContent();
     }

@@ -30,6 +30,8 @@
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 #include <Engine/Graphic/View/SceneViewState.hpp>
+#include <Engine/Graphic/GpuDriven/CullPhaseCounts.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCulling.hpp>
 #include <Engine/Graphic/GpuDriven/InstanceCullValidation.hpp>
@@ -148,8 +150,17 @@ namespace Desert::Graphic
     /// "view #3 41 rows 182.40 MiB (the view's budget); scene #1 12 rows 9.10 MiB (scene-shared, the
     /// scene's own budget entry)" — the [ViewMemory] line.
     [[nodiscard]] std::string FormatViewLedgerMemory( const ViewLedgerMemory& memory );
+    namespace VirtualGeometry
+    {
+        class VirtualGeometryRenderer;
+        class ClusterCutCounts;
+    } // namespace VirtualGeometry
 #if DESERT_DEV_INSTRUMENTS
     class DebugDrawRenderer;
+    namespace VirtualGeometry
+    {
+        class ClusterView;
+    }
 #endif
 
     class SceneRenderer final
@@ -424,6 +435,48 @@ namespace Desert::Graphic
         /// PathTracing.RadianceCache as the path tracer last ran it (System::PathTracer::GetRadianceCacheStatus;
         /// DesertCtl state "nrc" status / reason); all Off without a path tracer.
         [[nodiscard]] System::PathTracer::RadianceCacheStatus GetRadianceCacheStatus() const;
+        /// Per view the GPU-culled draw bins served (main view, drawn sun cascades): the instances drawn in
+        /// occlusion phase 1 and phase 2, read back slots-in-flight late (GpuDriven::CullPhaseCounts). Empty while
+        /// no view draws from bins.
+        [[nodiscard]] const std::vector<GpuDriven::CullPhaseViewCount>& GetDrawBinPhaseCounts() const
+        {
+            return m_DrawBinPhaseCounts.LastCounts();
+        }
+        /// VIRT-GEOM (DesertCtl `state views.virtualGeometry`): the VG instances this frame's draw bins made cut
+        /// candidates of, and the clusters the main view's cluster cut drew (read back slots-in-flight late,
+        /// VirtualGeometry::ClusterCutCounts). Zero while no VG mesh is drawn. Overflow: what the cut could not do
+        /// (full traversal stacks + clusters past the visible capacity + candidates without a draw slot);
+        /// OccludedClusters: clusters the previous-frame HZB hid.
+        struct VirtualGeometryCounts
+        {
+            uint32_t Instances        = 0;
+            uint32_t ClustersVisible  = 0;
+            // Clusters the rasters drew (RasterBins::GroupArgs over the groups with a `.VirtualGeometry` pipeline):
+            // the main view's main + post phase, and every shadow cascade's.
+            uint32_t ClustersDrawn       = 0;
+            uint32_t ShadowClustersDrawn = 0;
+            // Per VSM clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew into it.
+            std::vector<uint32_t> VsmClustersDrawn;
+            // VSM material groups with binned VG clusters whose template declares a `.VirtualGeometry` twin and has
+            // no pipeline of it (held refusals: their primitives stay in the levels' CPU walk;
+            // MeshRenderer::VsmRefusedGroups). Must be 0.
+            uint32_t VsmRefusedGroups = 0;
+            // VG submeshes binned into a VSM group whose template has no `.VirtualGeometry` twin: the fallback, walked
+            // by design (MeshRenderer::VsmFallbackSubmeshes; UE: a material without a Nanite path draws the fallback).
+            uint32_t VsmFallbackSubmeshes = 0;
+            uint32_t Overflow         = 0;
+            uint32_t OccludedClusters = 0;
+            // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster
+            // raster draws them).
+            uint32_t BinnedVgInstances = 0;
+        };
+        [[nodiscard]] VirtualGeometryCounts GetVirtualGeometryCounts() const;
+        /// This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps). Public
+        /// for MeshRenderer: the VSM's own pass table (MeshPass::VirtualShadow) is resolved only while it is.
+        [[nodiscard]] bool SunShadowIsVirtual() const;
+        /// The mesh passes' cached draw commands (MeshRenderer::GetDrawCommandCache): bins, slots and the CPU
+        /// fallbacks per pass. Null before the first GpuScene sync.
+        [[nodiscard]] const GpuDriven::DrawCommandCache* GetDrawCommandCache() const;
         /// Draws the last frame gave to the default surface while their own pipeline compiled
         /// (MeshRenderer::GetStandInDraws): the control gate's PendingWork::MaterialPipelines.
         [[nodiscard]] uint32_t GetStandInDraws() const;
@@ -1150,8 +1203,6 @@ namespace Desert::Graphic
         // G-buffer's).
         void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                        const LightGridParamsPayload& lightGrid, RDG::TextureRef hzbDepth );
-        // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
-        [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
         // shadow map, both ShadowMask.Sun): every mask READER asks it - the composite's and the opaque generic
         // programs' DESERT_SUN_SHADOW_SCREEN_MASK permutations, the depth/normal prepass, the cascade budget (the
@@ -1185,6 +1236,43 @@ namespace Desert::Graphic
         // this frame's furthest HZB extracted into m_CullHzbHistory. A refusal is logged once per message and skips
         // the frame.
         void AddFrameGpuCull( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // GPU-DRIVEN PASSES, before the cascade depths and the base pass: the draw command cache's upload, the GPU
+        // scene's tables (m_FrameGpuSceneTables, reused by AddFrameGpuCull) and the phase-1 cull of the main view
+        // (MeshRenderer::MainViewPass) - against last frame's furthest HZB (m_CullHzbHistory) when the view is the
+        // deferred G-buffer and the history is its size and previous frame, else frustum only - and of the sun
+        // cascades whose static layer is drawn (frustum only), each view's culled draws handed to
+        // MeshRenderer::SetFrameBinned. What phase 2 needs is kept in m_FrameDrawBins. A refusal is logged once
+        // per message and leaves every pass on the CPU path.
+        void AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // VIRT-GEOM, right after AddFrameDrawBins: one "VirtualGeometry: Cluster Cut" + raster binning per cull
+        // view of the draw bins (each drawn shadow cascade, then the main view) over the VG candidates phase 1
+        // appended (m_FrameDrawBins->VgCandidates), at Scalability ViewDistance.VirtualGeometryMaxPixelsPerEdge,
+        // attached to each view's phase-1 issue (MeshRenderer::SetFrameVirtualGeometry); the main cut kept in
+        // m_FrameVirtualGeometry (what the vg_clusters view draws, the post phase's carry) and every cut's counts
+        // handed to m_ClusterCutCounts. A frame with no candidates forgets the counts; a refusal is logged once
+        // per message.
+        void AddFrameVirtualGeometry( RDG::Builder& graph, const ViewFrame& frame );
+        // VIRT-GEOM phase 2 (AddFrameDrawBinsPostOcclusion, after SetFramePostOcclusion and before the GBuffer
+        // post pass): the main cut's carry ("Cluster Cut Post") against this frame's furthest HZB, drawn by the
+        // GBuffer post-occlusion pass. Nothing when the main cut tested no HZB.
+        void AddFrameVirtualGeometryPostOcclusion( RDG::Builder& graph, const ViewFrame& frame );
+        // VIRT-GEOM step 16 (AddFrameVirtualSunShadow, between the page passes and "VSM: Raster"): the virtual
+        // shadow map's clipmap levels as cut views - one instance cull over the levels (kVsmPageMask, the level's
+        // drawn-page mask) appending only VG candidates, then per level a "Cluster Cut" at the level's texel
+        // (VirtualShadowMapFrame::LevelTexelWorld) + raster binning into the ShadowCascade table's groups, handed to
+        // MeshRenderer::SetVirtualShadowGeometry (the level's raster draws the clusters; its CPU walk leaves the VG
+        // primitives out) and to m_ClusterCutCounts (vsmClustersDrawn). Nothing without this frame's VG candidates;
+        // a refusal is logged once per message and that level's VG stays on the CPU walk.
+        // UE rasters every VSM view in one Nanite pass (view id per cluster); here one pass per level reuses the
+        // level's RasterLevel + camera block (REMAINDER: one pass needs the VG VSM cell to read the level per cluster).
+        void AddFrameVirtualGeometryShadowPages( RDG::Builder& graph, const System::VirtualShadowMapFrame& pages );
+        // TWO-PHASE OCCLUSION, after the phase-1 G-buffer ("Deferred: GBuffer" + "TerrainGBuffer"; UE
+        // FInstanceCullingContext's post pass, HZB.cpp): this frame's furthest HZB of that depth, extracted into
+        // m_CullHzbHistory for the next frame's phase 1; when phase 1 tested last frame's HZB, the instances it
+        // held back re-tested against this one and the visible drawn by "Deferred: GBuffer Post-Occlusion" (same
+        // carriers, their own indirect args). Then the per-view phase counts' readback. No-op without draw bins.
+        void AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                            System::MeshRenderer* meshRenderer, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
         // THE FORWARD PATH'S DEPTH PREPASS (UE: the full DepthPass of the forward renderer), every forward frame:
         // the opaque meshes and the terrain into the scene target's depth ALONE, cleared here; the base pass
@@ -1249,6 +1337,10 @@ namespace Desert::Graphic
 
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
+        // "Deferred: GBuffer Post-Occlusion" (AddFrameDrawBinsPostOcclusion): the main view's phase-2 bins over the
+        // loaded G-buffer.
+        void AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                           System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
         // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
@@ -1284,6 +1376,9 @@ namespace Desert::Graphic
         void AddFrameWater( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef sceneCopy );
 #if DESERT_DEV_INSTRUMENTS
         void AddFrameOverdraw( RDG::Builder& graph, FrameTextures& textures );
+        // The vg_clusters view (DebugViewState::VirtualGeometry = Clusters): "Debug: Virtual Geometry Clusters"
+        // over the scene target, after the translucency (VirtualGeometry/VirtualGeometryClusterView.hpp).
+        void AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures );
         // The Velocity view mode (DeferredDebugMode::Velocity, Deferred only): "Debug: Velocity" draws the view's
         // velocity over @p target, the post input, after the temporal resolve.
         void AddFrameVelocityView( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef target );
@@ -1630,6 +1725,8 @@ namespace Desert::Graphic
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
         // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
         std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+        // The vg_clusters view's shader and pipeline. Made on first use.
+        std::unique_ptr<VirtualGeometry::ClusterView> m_VirtualGeometryClusterView;
         // WatchPrimitive's request: the entity and the absolute frame it was asked in.
         struct PrimitiveWatch
         {
@@ -1639,6 +1736,29 @@ namespace Desert::Graphic
         std::optional<PrimitiveWatch>   m_PrimitiveWatch;
         std::optional<PrimitiveReadout> m_PrimitiveReadout;
 #endif
+        // VIRT-GEOM (AddFrameVirtualGeometry): the cluster cut's programs and its frame-in-flight counts, made on
+        // first use; the last refusal logged; Scalability ViewDistance.VirtualGeometryMaxPixelsPerEdge in pixels
+        // (the parameter is tenths), refreshed per frame.
+        std::unique_ptr<VirtualGeometry::VirtualGeometryRenderer> m_VirtualGeometry;
+        std::unique_ptr<VirtualGeometry::ClusterCutCounts>        m_ClusterCutCounts;
+        std::string                                               m_VirtualGeometryLastError;
+        // DebugViewState::ForceVirtualGeometryPostCutRefusal as last logged (logged once when it turns on).
+        bool                                                      m_VirtualGeometryPostRefusalLogged = false;
+        float                                                     m_VirtualGeometryMaxPixelsPerEdge = 1.0f;
+        // This frame's cut (reset by AddFrameVirtualGeometry): what the vg_clusters view draws.
+        struct FrameVirtualGeometry
+        {
+            RDG::BufferRef VisibleClusters;
+            RDG::BufferRef RasterArgs;
+            uint32_t       VisibleCapacity = 0;
+            uint32_t       Pass            = 0; // the cut view's MeshPass (its draw slots resolve the world)
+            // The post phase's candidates (ClusterCullResult::OccludedCandidates / OccludedCount): invalid when
+            // the main cut tested no HZB.
+            RDG::BufferRef OccludedCandidates;
+            RDG::BufferRef OccludedCount;
+        };
+        std::optional<FrameVirtualGeometry> m_FrameVirtualGeometry;
+        uint32_t                            m_VirtualGeometryInstances = 0; // this frame's VG candidate instances
 
     public:
         // --- UI glass (backdrop blur) -----------------------------------------------------------
@@ -1888,10 +2008,49 @@ namespace Desert::Graphic
         // which nothing drew them.
         bool m_FrameCascades          = true;
         bool m_CascadesDrawnLastFrame = false;
-        // GPU-DRIVEN CULL (DebugViewState::ValidateGpuCulling): last frame's FURTHEST HZB of the main view, phase 1's
-        // occlusion input (registered only when its size is this frame's depth size).
+        // Last frame's FURTHEST HZB of the main view, phase 1's occlusion input (registered only when its size is
+        // this frame's depth size): written by the draw bins' phase 2 (AddFrameDrawBinsPostOcclusion), or by the
+        // GPU-DRIVEN CULL validation (DebugViewState::ValidateGpuCulling) on a frame without them.
         RDG::ExternalTexture m_CullHzbHistory;
         GpuDriven::InstanceCulling m_GpuCull;
+        // This frame graph's import of the GPU scene's tables (AddFrameDrawBins), reset before it each frame.
+        std::optional<GpuDriven::GpuSceneBuffers> m_FrameGpuSceneTables;
+        std::string                               m_DrawBinsLastError;
+        // This frame's draw-bin cull (AddFrameDrawBins) as phase 2 (AddFrameDrawBinsPostOcclusion) re-runs it:
+        // the views in cull order, their MeshRenderer view keys and names, phase 1's carry, the upload, and
+        // whether the main view (Views[0]) tested last frame's HZB. Reset at the start of AddFrameDrawBins.
+        struct FrameDrawBins
+        {
+            std::vector<GpuDriven::CullViewInput> Views;
+            std::vector<uint32_t>                 ViewKeys;
+            std::vector<std::string>              ViewNames;
+            GpuDriven::OcclusionCarry             Carry;
+            GpuDriven::DrawCommandBuffers         Upload;
+            GpuDriven::GpuSceneBuffers            Scene;
+            bool                                  MainTestsHzb = false;
+            // TWO-PASS OCCLUSION OF THE CLUSTERS (UE Nanite: the main pass tests last frame's HZB only when the post
+            // pass runs): whether the main view's cluster cut tests last frame's HZB and carries what it holds back.
+            // Decided in AddFrameDrawBins BEFORE AddFrameVirtualGeometry's main cut: the instances' rule
+            // (MainTestsHzb) AND phase 2's consumer (the main view issues its bins: SetFramePostOcclusion's
+            // precondition) AND the post cut not refused (DebugViewState::ForceVirtualGeometryPostCutRefusal).
+            // False: the main cut is frustum-only, holds nothing back, and there is no post cut to lose it.
+            bool                                  ClusterMainTestsHzb = false;
+            // The VG candidates phase 1 appended for every view (cull view v = cut view v); invalid Rows = none
+            // this frame. VgVisibleCapacity: one view's exact cluster bound (each candidate instance x its DAGs'
+            // ClusterCount).
+            GpuDriven::VirtualGeometryCandidateOutput VgCandidates;
+            uint32_t                                  VgVisibleCapacity = 0;
+            uint32_t                                  VgInstances       = 0;
+            // The texture the culls bind where a view has no HZB (System.Black: nothing occluded).
+            RDG::TextureRef NeutralHzb{};
+        };
+        std::optional<FrameDrawBins> m_FrameDrawBins;
+        // This graph's furthest HZBs of the main view when the draw bins built them: last frame's (registered from
+        // m_CullHzbHistory; invalid when phase 1 did not test it) and this frame's. AddFrameGpuCull reuses them
+        // instead of registering and building its own. Reset at the start of AddFrameDrawBins.
+        RDG::TextureRef m_FramePrevHzb{};
+        RDG::TextureRef m_FrameFurthestHzb{};
+        GpuDriven::CullPhaseCounts m_DrawBinPhaseCounts;
         // The CPU recount of the cull's Visibility words, logged per view (one frame-in-flight late).
         GpuDriven::InstanceCullValidation m_GpuCullValidation;
         // This frame's VSM page passes (AddFrameVirtualShadows), for the cull's VSM level views; reset before

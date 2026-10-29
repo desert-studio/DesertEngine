@@ -266,6 +266,24 @@ namespace Desert::Graphic
     // Whether a compiled cell shader is a `.Parallax` permutation (its caster is its own; see ShadowCasterCellFor).
     [[nodiscard]] bool IsParallaxCell( std::string_view shaderName );
 
+    // THE BINNED PERMUTATION of a cell (DShaderParser kSurfaceBinnedCellSuffix): "<Template>/<Cell>[.Parallax].Binned",
+    // the cell a GPU-driven bin draws (GpuDriven::DrawCommandCache): it reads World / PrevWorld / material row /
+    // primitive flags through its instance id and pushes nothing. Registered for every Forward / GBuffer / ShadowDepth
+    // mesh cell of a non-translucent template.
+    [[nodiscard]] std::string BinnedCellOf( std::string_view cellShader );
+    [[nodiscard]] bool        IsBinnedCell( std::string_view shaderName );
+
+    // THE VIRTUAL GEOMETRY PERMUTATION of a binned Static or Instanced cell (DShaderParser
+    // kSurfaceVirtualGeometryCellSuffix, kSurfaceVirtualGeometryPaths): "<Template>/<Cell>[.Parallax].Binned.
+    // VirtualGeometry", the cell the VG raster's material group draws (one instance = one visible cluster of one
+    // GpuScene instance, Common/GpuScene.glslh DesertResolveVgDraw). @p binnedCell is the `.Binned` cell whose
+    // group the clusters were binned into.
+    [[nodiscard]] std::string VirtualGeometryCellOf( std::string_view binnedCell );
+    [[nodiscard]] bool        IsVirtualGeometryCell( std::string_view shaderName );
+    // Whether @p path's binned cells have a `.VirtualGeometry` permutation: its name is in DShaderParser's
+    // kSurfaceVirtualGeometryPaths (the one list; today a static mesh and an instanced static mesh, UE: Nanite ISM).
+    [[nodiscard]] bool HasVirtualGeometryPermutation( MeshVertexPath path );
+
     // The one binding a path adds to the surface's own set, or nothing for a path that adds none.
     // Set 0 binding 1 is the skinned path's `Bones`, binding 17 the instanced path's
     // `InstanceTransforms`; both are free in every other variant, which is what makes "same surface,
@@ -324,9 +342,11 @@ namespace Desert::Graphic
     // The caster shader of a material on @p materialTemplate with @p blend, drawn on @p path:
     // MeshShaderFor on the material's template when ShadowCasterCellFor says Own, on @p defaultTemplate (the
     // template declaring `Default Surface`) when it says Shared; a parallax material's is its own template's
-    // `.Parallax` cell. Empty where MeshShaderFor is.
+    // `.Parallax` cell. Empty where MeshShaderFor is. @p casterPass: ShadowDepth (cascades, local lights) or
+    // VirtualShadowDepth (the virtual shadow map's caster cell, same rule); empty for any other pass.
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
                                                       Core::Formats::SurfaceBlendMode blend, bool parallax,
-                                                      MeshVertexPath path );
+                                                      MeshVertexPath path,
+                                                      MeshPass       casterPass = MeshPass::ShadowDepth );
 } // namespace Desert::Graphic

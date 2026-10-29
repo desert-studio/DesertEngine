@@ -1,4 +1,6 @@
 #include <Engine/Graphic/Systems/Scene/PostProcessing/LocalExposureRenderer.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryRenderer.hpp>
 #include <Engine/Graphic/PostProcessing/LocalExposureRules.hpp>
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
@@ -1065,6 +1067,9 @@ namespace Desert::Graphic
         m_SSRMaxSteps    = quality.As<int>( Parameter::ReflectionMaxSteps );
         m_SSRRaysPerPixel      = quality.As<int>( Parameter::ReflectionRaysPerPixel );
         m_DistanceFieldPoolMiB = static_cast<uint32_t>( quality.As<int>( Parameter::DistanceFieldPoolMiB ) );
+        // Tenths of a pixel (Scalability.cpp row) -> pixels per edge.
+        m_VirtualGeometryMaxPixelsPerEdge =
+             static_cast<float>( quality.As<int>( Parameter::ViewDistanceVirtualGeometryMaxPixelsPerEdge ) ) / 10.0f;
         m_DisplacementDicingRate = quality.As<int>( Parameter::DisplacementDicingRate );
         m_DisplacementPoolMiB    = static_cast<uint32_t>( quality.As<int>( Parameter::DisplacementPoolMiB ) );
         m_SSAOSamples    = quality.As<int>( Parameter::AmbientOcclusionSamples );
@@ -2043,6 +2048,12 @@ namespace Desert::Graphic
         // cache comes before the traced GI - so they are forgotten HERE, before any reader: a handle from the last
         // frame's graph is not a handle in this one.
         m_TracedFrameShared = {};
+        // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
+        // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ResetVirtualShadowGeometry();
+        AddFrameDrawBins( graph, textures, frame );
+        AddFrameVirtualGeometry( graph, frame );
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
@@ -2102,6 +2113,9 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
+            // bins and this one finds visible.
+            AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
 
@@ -2336,6 +2350,8 @@ namespace Desert::Graphic
         {
             AddFrameOverdraw( graph, textures );
         }
+        if ( m_DebugView.VirtualGeometry == VirtualGeometryView::Clusters )
+            AddFrameVirtualGeometryClusters( graph, textures );
 #endif // DESERT_DEV_INSTRUMENTS
 
         // After the last node that draws the scene geometry's velocity into the scene target (the translucency),
@@ -2959,6 +2975,8 @@ namespace Desert::Graphic
             return {};
         }
         m_FrameVsmPages = pages.GetValue();
+        // The levels' cluster cuts, before the raster that draws them (and leaves their VG primitives off the walk).
+        AddFrameVirtualGeometryShadowPages( graph, pages.GetValue() );
         // "VSM: Raster": every caster into the dirty pages (the sun's levels, then the local lights' mips), before
         // the projections read the pool. A refusal is a missing caster program or pipeline, which no later frame
         // repairs: said once, and the method stays dark.
@@ -3698,6 +3716,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return {};
         return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
+    }
+
+    const GpuDriven::DrawCommandCache* SceneRenderer::GetDrawCommandCache() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetDrawCommandCache();
     }
 
     uint32_t SceneRenderer::GetStandInDraws() const

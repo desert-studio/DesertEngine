@@ -11,6 +11,7 @@
 
 #include <format>
 #include <iterator>
+#include <unordered_map>
 #include <set>
 
 namespace
@@ -147,7 +148,14 @@ namespace Desert::Graphic::System
                                                           static_cast<uint64_t>( g.MotionPart ) };
             const auto [it, inserted] = m_FrameMaterialRows.try_emplace( key, 0u );
             if ( inserted )
+            {
                 it->second = registry.SyncMaterialRow( key, shared->GetParamRow() );
+                // The row's surface, as RegisterMaterialRow records it: what ResolveBinnedPipeline turns the row
+                // back into a cell with.
+                if ( it->second >= m_RowSurfaces.size() )
+                    m_RowSurfaces.resize( it->second + 1 );
+                m_RowSurfaces[it->second] = { shared.get(), nullptr };
+            }
             else
             {
                 // Two records of one entity part through one (template x texture set): one row, so their values
@@ -211,6 +219,14 @@ namespace Desert::Graphic::System
             // the engine's Mesh/Surface/Vertex_<Path>.glslh, which transforms a_Position and nothing else, and
             // Desert/Tests/Engine/FrustumCulling asserts that over every Surface-domain shader in the tree. The
             // day a vertex-offset node exists, that census goes red before this does.
+            // A surface override held by the view's GPU-culled bins (AttachBinned) is issued from them (asked
+            // before the CPU frustum test: the cull decides it).
+            if ( ( slice == GenericSlice::DeferredSurfaceGBuffer || slice == GenericSlice::Forward ) &&
+                 !CpuWalkHidden( BinnedWalkView( slice == GenericSlice::Forward ? GpuDriven::MeshPass::Forward
+                                                                                : GpuDriven::MeshPass::GBuffer,
+                                                 kBinnedMainView ),
+                                 g.Mesh, g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                continue;
             if ( g.Mesh != nullptr &&
                  !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
                 continue;
@@ -485,6 +501,12 @@ namespace Desert::Graphic::System
                                                        m_GenericPrepassVirtualLocal ) )
                         continue;
                     m_GenericPrepassed.insert( &g );
+                    // Admitted, so "Deferred: Generic" shades it; its depth and normal come from the DepthPrepass
+                    // bins (the "depthPrepass" cull view, AttachBinned) when they hold every visible submesh - the
+                    // view's CPU walk rule (CpuWalkHidden; a VG candidate is in no bin and no raster here: walked).
+                    if ( !CpuWalkHidden( BinnedWalkView( GpuDriven::MeshPass::DepthPrepass, kBinnedMainView ), g.Mesh,
+                                         g.GpuPrimitive, ~g.VisibleSubmeshMask ) )
+                        continue;
                 }
                 if ( choice.UseOwnPipeline )
                 {
@@ -965,6 +987,12 @@ namespace Desert::Graphic::System
                                return false; // the G-buffer pass is set up on a later frame
                            // A missing cell shader or a refused pipeline is logged by CellPipeline, once per key.
                            (void)CullPermutation( CellPipeline( passState, cell.Shader ), cell.TwoSided );
+                           // The same cell's `.Binned` permutation, which a GPU-driven bin draws it with
+                           // (ResolveBinnedPipeline): warmed with it, so a bin does not first ask on the frame
+                           // that sees its mesh. A template with no binned cell (translucent) is not binned.
+                           const std::string binnedCell = BinnedCellOf( cell.Shader );
+                           if ( Runtime::ResourceRegistry::GetShaderService()->GetByName( binnedCell ) )
+                               (void)BinnedCellPipeline( binnedCell, passState, cell.TwoSided );
                            return true;
                        } );
     }
@@ -1377,13 +1405,34 @@ namespace Desert::Graphic::System
             return groups.back().second;
         };
 
+        // THE CPU WALK of the main view (CpuWalkHidden, the one rule of every view pass): a record its bins hold
+        // is issued from them; a VG primitive (out of the bins, the cluster raster's) is walked for every submesh
+        // the raster does not draw - a refused cut / carrier or a twin-less group leaves it to its own submeshes.
+        // The masks that differ from an entry's own HiddenSubmeshes (a partly clustered VG entry) are kept here.
+        const ClusterWalkView mainWalk =
+             BinnedWalkView( m_DeferredGeometry ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
+                             kBinnedMainView );
+        std::unordered_map<const StaticMeshRenderData*, SubmeshMask> walked;
+        const auto hiddenOf = [&walked]( const StaticMeshRenderData* obj ) -> SubmeshMask
+        {
+            const auto found = walked.find( obj );
+            return found != walked.end() ? found->second : SubmeshMask{ obj->HiddenSubmeshes };
+        };
         for ( const auto& data : m_StaticQueue )
         {
             if ( data.Mesh == nullptr || !data.MaterialSlots )
                 continue;
 
+            // Held by the view's GPU-culled bins this frame (AttachBinned, CpuWalkHidden): the cull decides it and
+            // the bins issue it - asked before the CPU frustum test, so a binned record costs this loop no culling work.
+            const std::optional<SubmeshMask> walk =
+                 CpuWalkHidden( mainWalk, data.Mesh, data.GpuPrimitive, data.HiddenSubmeshes );
+            if ( !walk )
+                continue;
             if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
                 continue;
+            if ( !( *walk == SubmeshMask{ data.HiddenSubmeshes } ) )
+                walked.emplace( &data, *walk );
 
             // The entry's section slot drives its batch (one entry per section material, made at submit by
             // Rules::SplitMeshSlotDraws; custom-shader sections went to the generic path and are masked out).
@@ -1637,8 +1686,8 @@ namespace Desert::Graphic::System
             // classic per-object path below — which also preserves their individual material overrides.
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
             // section of its twins, one mask for the whole instanced draw.
-            std::vector<std::pair<std::pair<Desert::StaticMesh*, uint64_t>, std::vector<ObjDraw>>> byMesh;
-            const auto bucketFor = [&]( Desert::StaticMesh* mesh, uint64_t hidden ) -> std::vector<ObjDraw>&
+            std::vector<std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<ObjDraw>>> byMesh;
+            const auto bucketFor = [&]( Desert::StaticMesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
             {
                 for ( auto& [key, v] : byMesh )
                     if ( key.first == mesh && key.second == hidden )
@@ -1668,7 +1717,7 @@ namespace Desert::Graphic::System
                             od.HasOverrides = true;
                             break;
                         }
-                bucketFor( obj->Mesh, obj->HiddenSubmeshes ).push_back( od );
+                bucketFor( obj->Mesh, hiddenOf( obj ) ).push_back( od );
             }
 
             auto& singles = m_ScratchSingles;
@@ -1676,7 +1725,7 @@ namespace Desert::Graphic::System
             for ( auto& [meshKey, bucket] : byMesh )
             {
                 Desert::StaticMesh* const mesh   = meshKey.first;
-                const uint64_t            hidden = meshKey.second;
+                const SubmeshMask         hidden = meshKey.second;
                 // Per-object state a shared batch entry can't carry: hidden submeshes, the
                 // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
                 // PrimitiveFlags, the default) and INSTANCE OVERRIDES — a batch shares one material
@@ -1877,7 +1926,7 @@ namespace Desert::Graphic::System
                             .Mesh              = obj->Mesh,
                             .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
-                            .HiddenSubmeshMask = obj->HiddenSubmeshes,
+                            .HiddenSubmeshMask = hiddenOf( obj ),
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
                             .BindState = [drawMat, inst, motionRow = obj->GpuPrimitive, materialRow,
                                           flags = PrimitiveFlagsOf( obj->CastContactShadow )]
@@ -1922,6 +1971,18 @@ namespace Desert::Graphic::System
             {
                 if ( ism.Mesh == nullptr || !ism.Material || !ism.Transforms || ism.Transforms->empty() )
                     continue;
+                // The main view's CPU walk (mainWalk, as the statics): held by the bins -> the cull decides its
+                // instances; a VG field walks every submesh its cluster raster does not draw.
+                SubmeshMask ismHidden{ ism.HiddenSubmeshes };
+                if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                     field < m_FieldPrimitives.size() )
+                {
+                    const std::optional<SubmeshMask> walk =
+                         CpuWalkHidden( mainWalk, ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes );
+                    if ( !walk )
+                        continue;
+                    ismHidden = *walk;
+                }
                 auto* mat = dynamic_cast<DataDrivenMaterial*>( ism.Material->GetParentMaterial() );
                 if ( mat == nullptr )
                     continue;
@@ -1979,7 +2040,7 @@ namespace Desert::Graphic::System
                     d.Mesh          = ism.Mesh;
                     d.FirstInstance = static_cast<uint32_t>( ismSet->Transforms.size() );
                     d.MaterialIndex = *materialIndex;
-                    d.HiddenSubmeshMask = ism.HiddenSubmeshes;
+                    d.HiddenSubmeshMask = ismHidden;
                     d.LodLevel      = level;
                     // A view pass: the wind at the view's previous frame too (B.z), for the instances' velocity.
                     d.Wind           = PackViewInstanceWind( ism.Wind );
@@ -2200,7 +2261,11 @@ namespace Desert::Graphic::System
             if ( data.Mesh == nullptr )
                 continue;
             for ( const auto& section : data.Sections )
-                if ( section.Material != nullptr && section.Instance != nullptr )
+                if ( section.Material != nullptr && section.Instance != nullptr &&
+                     CpuWalkHidden( BinnedWalkView( gbuffer ? GpuDriven::MeshPass::GBuffer : GpuDriven::MeshPass::Forward,
+                                                    kBinnedMainView ),
+                                    /*skinned: never a VG primitive*/ nullptr, data.GpuPrimitive,
+                                    section.HiddenSubmeshes ) )
                     if ( DataDrivenMaterial* const mat = passMaterial( section.Material ) )
                         groupFor( mat ).push_back( { &data, &section } );
         }

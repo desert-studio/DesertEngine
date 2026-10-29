@@ -6,6 +6,7 @@
 #include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -241,5 +242,18 @@ namespace Desert::Graphic::API::Vulkan
                               ->GetVulkanAllocator()
                               .get();
         return RT_UploadDeviceBuffer( *allocator, m_VulkanBuffer, offset, data, size );
+    }
+
+    uint64_t VulkanVertexBuffer::GetDeviceAddress() const
+    {
+        if ( m_Usage != BufferUsage::Pooled || m_VulkanBuffer == VK_NULL_HANDLE )
+            return 0;
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        if ( !logical || !logical->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::BufferDeviceAddress ) )
+            return 0;
+        const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
+        if ( functions.GetBufferDeviceAddress == nullptr )
+            return 0;
+        return functions.BufferAddress( logical->GetVulkanLogicalDevice(), m_VulkanBuffer );
     }
 } // namespace Desert::Graphic::API::Vulkan

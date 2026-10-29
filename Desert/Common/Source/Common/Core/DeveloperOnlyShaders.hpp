@@ -22,8 +22,8 @@
 
 namespace Common
 {
-    inline constexpr std::array<std::string_view, 3> kDeveloperOnlyShaderPrograms = { "DebugLine", "Overdraw",
-                                                                                      "OverdrawResolve" };
+    inline constexpr std::array<std::string_view, 4> kDeveloperOnlyShaderPrograms = {
+         "DebugLine", "Overdraw", "OverdrawResolve", "VirtualGeometryClusters" };
 
     inline bool IsDeveloperOnlyShaderProgram( std::string_view programName )
     {

@@ -57,10 +57,8 @@ Shader "VirtualShadowMapCullCasters"
             uvec4 Params; // x = level, y = instance count, z = threads per row of groups
         };
 
-        bool CoversDrawnCell( uint level, ivec2 lowPage, ivec2 highPage )
+        bool CoversDrawnCell( uint level, ivec2 lowCell, ivec2 highCell )
         {
-            const ivec2 lowCell  = lowPage / int( VSM_MASK_CELL_PAGES );
-            const ivec2 highCell = highPage / int( VSM_MASK_CELL_PAGES );
             for ( int y = lowCell.y; y <= highCell.y; ++y )
             {
                 for ( int x = lowCell.x; x <= highCell.x; ++x )
@@ -80,11 +78,14 @@ Shader "VirtualShadowMapCullCasters"
                 return;
             const uint            level    = Params.x;
             const VsmCullInstance instance = Instances[i];
+            // The box's footprint in the level's pages (Common/VirtualShadowMap.glslh VsmLevelPageRect: a sun level's
+            // window or a local view's perspective map), as "VSM: Dirty Mask" cells. Nearer the sun than the level's
+            // range still draws (depth clamp, "VSM: Raster"); wholly past its far end does not.
             ivec2 lowPage;
             ivec2 highPage;
             float nearest;
             if ( !VsmLevelPageRect( Levels[level], instance.Min.xyz, instance.Max.xyz, lowPage, highPage, nearest ) ||
-                 !CoversDrawnCell( level, lowPage, highPage ) )
+                 !CoversDrawnCell( level, lowPage / int( VSM_MASK_CELL_PAGES ), highPage / int( VSM_MASK_CELL_PAGES ) ) )
                 return;
             const uvec4 draw = Draws[instance.Draw.x];
             const uint  slot = atomicAdd( Arguments[draw.x * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );

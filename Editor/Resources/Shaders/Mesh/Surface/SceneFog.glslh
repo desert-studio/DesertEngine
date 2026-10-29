@@ -1,6 +1,6 @@
 // THE VIEW'S FOG, for a surface that applies it to ITSELF at its own depth: the translucent mesh cell
-// (Pass_Forward_Translucent.glslh), the particle sprite cell (Pass_ParticleSprite.glslh) and the water program
-// (Programs/Water/WaterSurface.shader). UE's arrangement: the height fog, the volumetric fog and the aerial
+// (Pass_Forward_Translucent.glslh), the particle sprite cell (Pass_ParticleSprite.glslh) and the water cell
+// (Pass_SingleLayerWater.glslh). UE's arrangement: the height fog, the volumetric fog and the aerial
 // perspective are built before the translucency, the opaque composite fogs the opaque scene only, and every
 // translucent surface evaluates the same fog at the point it is drawn (Common/ViewFog.glslh), so a pane of glass in
 // front of a far wall is fogged by the air in front of the pane.
@@ -12,19 +12,20 @@
 // when absent, never sampled then). The includer declares `LinearClampSampler` first.
 #ifndef DESERT_SCENE_FOG_GLSLH
 #define DESERT_SCENE_FOG_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
-#define FOG_PARAMS_BINDING 45 // = Core::kSceneFogParamsBinding
+#define FOG_PARAMS_BINDING kSceneFogParamsBinding
 #include <Common/HeightFog.glslh>
 #include <Common/FogParams.glslh>
 #include <Common/ViewFog.glslh>
 
 // Separate textures read through the includer's `LinearClampSampler` (trilinear, clamped at the volumes' edges;
 // the binding side is BindSceneFogInputs), as Common/MegaLightsVolume.glslh does.
-layout( binding = 46 ) uniform texture3D SceneFogAerialPerspectiveTexture; // 46 = Core::kSceneFogAerialPerspectiveBinding
+layout( binding = kSceneFogAerialPerspectiveBinding ) uniform texture3D SceneFogAerialPerspectiveTexture;
 #define SceneFogAerialPerspectiveTexture sampler3D( SceneFogAerialPerspectiveTexture, LinearClampSampler )
-layout( binding = 47 ) uniform texture2D SceneFogDistantSkyLightTexture; // 47 = Core::kSceneFogDistantSkyLightBinding
+layout( binding = kSceneFogDistantSkyLightBinding ) uniform texture2D SceneFogDistantSkyLightTexture;
 #define SceneFogDistantSkyLightTexture sampler2D( SceneFogDistantSkyLightTexture, LinearClampSampler )
-layout( binding = 48 ) uniform texture3D SceneFogVolumeTexture; // 48 = Core::kSceneFogVolumeBinding
+layout( binding = kSceneFogVolumeBinding ) uniform texture3D SceneFogVolumeTexture;
 #define SceneFogVolumeTexture sampler3D( SceneFogVolumeTexture, LinearClampSampler )
 
 // The fog between the camera and this fragment (@p worldPosition, world units): premultiplied inscattering in .rgb,

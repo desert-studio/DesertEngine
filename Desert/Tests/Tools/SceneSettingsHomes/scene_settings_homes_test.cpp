@@ -170,8 +170,9 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     EXPECT_EQ( light.CascadeSplitLambda, 0.85f );
     EXPECT_EQ( light.Intensity, 2.0f ) << "the light's own keys survive the stamp";
 
-    EXPECT_TRUE( Core::SceneIsAtCurrentVersion( Core::SceneSerialized{
-         scene.Header, scene.SceneName, scene.Entities, std::nullopt, scene.WorldPartition } ) );
+    // The stamp is all SceneIsAtCurrentVersion reads; the migrator's WorldPartition block is its own type
+    // (Migration::WorldPartitionSerialized carries the read-only v50..v66 DefaultHLODLayer).
+    EXPECT_TRUE( Core::SceneIsAtCurrentVersion( Core::SceneSerialized{ .Header = scene.Header } ) );
 }
 
 TEST( SceneSettingsHomesMigration, ASecondRunMintsNoSecondVolumeAndTheIdIsStable )

@@ -208,6 +208,7 @@ namespace Desert::Graphic
                            glm::max( m_SunVolumetricScatteringIntensity, 0.0f );
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // The sun is directional-shadow slot 0, published by the mesh renderer exactly as every receiver packs it.
         if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
              mesh != nullptr && mesh->AreShadowsEnabled() )
         {

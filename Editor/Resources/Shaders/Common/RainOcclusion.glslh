@@ -1,5 +1,6 @@
 #ifndef DESERT_COMMON_RAIN_OCCLUSION_GLSLH
 #define DESERT_COMMON_RAIN_OCCLUSION_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // THE VIEW'S RAIN OCCLUSION (Graphic/RainOcclusion.hpp) — one text for every reader: the wetted surfaces
 // (Mesh/Surface/SurfaceWeather.glslh, the forward and G-buffer cells) and the precipitation that must stop at a roof.
@@ -9,9 +10,9 @@
 // top, 1 at the bottom; 1 = nothing overhead). The two scene-read slots are Core::kRainOcclusionMapBinding /
 // kRainOcclusionBlockBinding (ShaderGraphBindings.hpp); the map is bound from the frame graph
 // (SceneViewInputs::RainOcclusionMap, System.White when the view has none), the block by SceneFrameBinding::ApplyTo.
-layout( binding = 36 ) uniform texture2D RainOcclusionMapTexture;
+layout( binding = kRainOcclusionMapBinding ) uniform texture2D RainOcclusionMapTexture;
 Uniform sampler RainOcclusionSampler;
-layout( std140, binding = 37 ) uniform RainOcclusionUB
+layout( std140, binding = kRainOcclusionBlockBinding ) uniform RainOcclusionUB
 {
     mat4 RainOcclusionWorldToMap; // world -> the map's clip (uv = (x, -y) * 0.5 + 0.5, z = depth)
     vec4 RainOcclusionParams;     // x = depth range (cm), y = valid (>0.5), z = bias (cm), w = texel (cm)

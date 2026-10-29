@@ -48,6 +48,17 @@ namespace Desert::Graphic::RDG
 // (InstanceCulling), how the draws are issued (IndirectDrawSubmission).
 namespace Desert::Graphic::GpuDriven
 {
+    // The foliage wind of an instanced primitive as its row carries it (GpuScenePrimitive::Wind*; Graphic::InstanceWind
+    // packed by MeshRenderer::SyncGpuScene). Strength (Wind.z) 0 = does not sway.
+    struct PrimitiveWind
+    {
+        glm::vec4 Wind{ 0.0f }; // dir.x, dir.z, Strength cm, Height cm
+        float     Speed       = 0.0f;
+        float     Seconds     = 0.0f;
+        float     PrevSeconds = 0.0f;
+        bool      operator==( const PrimitiveWind& ) const = default;
+    };
+
     // What a mesh component hands the scene when it is registered or its shape changes (mesh, LOD chain,
     // instances).
     struct PrimitiveDesc
@@ -145,6 +156,8 @@ namespace Desert::Graphic::GpuDriven
         // The component moved: LocalToWorld := world, PrevLocalToWorld := the old LocalToWorld. The same world
         // again is no change (nothing is dirtied), so every view of a frame may report it.
         void SetTransform( PrimitiveIndex primitive, const glm::mat4& world );
+        // The primitive's foliage wind (its clock moves every frame it sways); the same wind again dirties nothing.
+        void SetWind( PrimitiveIndex primitive, const PrimitiveWind& wind );
         // Skinned, every frame it is drawn.
         void SetSkinning( PrimitiveIndex primitive, const PrimitiveSkinning& skinning );
         // The GPU skin cache's streams of a skinned primitive (RayTracingSkinCache::PrepareRows / SkinFrame);

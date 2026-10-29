@@ -1186,7 +1186,11 @@ namespace Desert::Core::Preprocess
                 out << "};\n";
                 out << "layout( std430, binding = " << *layout.RowBinding << " ) readonly buffer Materials\n"
                     << "{\n    MaterialParams MaterialRows[];\n};\n";
-                out << "#define Material MaterialRows[m_PushConstants.MaterialIndex]\n";
+                // The row index: the push block's, unless the stage named its own first (a binned cell,
+                // kSurfaceMaterialRowMacro).
+                out << "#ifndef " << kSurfaceMaterialRowMacro << "\n#define " << kSurfaceMaterialRowMacro
+                    << " m_PushConstants.MaterialIndex\n#endif\n";
+                out << "#define Material MaterialRows[" << kSurfaceMaterialRowMacro << "]\n";
             }
 
             // A bound texture is a separate texture plus its own sampler state; the define keeps every read in
@@ -1858,7 +1862,8 @@ namespace Desert::Core::Preprocess
                                               const std::string& autoDecls, const SurfaceBlendMode blend,
                                               const std::string_view shadingModelDefine, const bool responsiveAA,
                                               const std::string& opacityMaskFunction, const bool parallax,
-                                              const std::string& heightFunctions, const bool weather )
+                                              const std::string& heightFunctions, const bool weather,
+                                              const bool binned = false, const bool virtualGeometry = false )
         {
             const bool        masked   = blend == SurfaceBlendMode::Masked;
             const bool        particle = path == kSurfaceParticleSpritePath || path == kSurfaceParticleRibbonPath;
@@ -1874,7 +1879,15 @@ namespace Desert::Core::Preprocess
                  particle ? std::format( "#define {} 1\n", kSurfaceParticleSpriteDefine ) : std::string(),
                  responsiveAA ? std::format( "#define {} 1\n", kSurfaceResponsiveAADefine ) : std::string(),
                  parallax ? std::format( "#define {} 1\n", kSurfaceParallaxDefine ) : std::string(),
-                 kSurfaceShadingModelDefine, shadingModelDefine );
+                 kSurfaceShadingModelDefine, shadingModelDefine ) +
+                 ( binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() ) +
+                 ( virtualGeometry ? std::format( "#define {} 1\n", kSurfaceVirtualGeometryDefine )
+                                   : std::string() );
+            // A binned cell's fragment `Material` reads the row its vertex stage resolved (kSurfaceMaterialRowMacro):
+            // named ahead of the generated declarations, which default it to the push block's.
+            const std::string cellDecls =
+                 binned ? std::format( "#define {} g_SurfaceMaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls )
+                        : autoDecls;
             // A lit mesh pass of a template whose row carries the weather response (kSurfaceWeatherDefine).
             const bool wets =
                  weather && ( pass == "Forward" || pass == "GBuffer" ) && !particle && path != kSurfaceRayHitPath;
@@ -1921,7 +1934,7 @@ namespace Desert::Core::Preprocess
                                   heightFunctions, surface.StartLine > 0 ? surface.StartLine - 1 : 0, lowered,
                                   masked ? opacityMaskFunction : std::string(), passInclude );
             }
-            return AssembleStage( stage, code, include, autoDecls );
+            return AssembleStage( stage, code, include, cellDecls );
         }
 
     } // namespace
@@ -1954,29 +1967,45 @@ namespace Desert::Core::Preprocess
         return false;
     }
 
+    namespace
+    {
+        // "domain", whitespace, @p domain (lower case) - any case in @p source.
+        bool MayDeclareDomain( const std::string_view source, const std::string_view domain )
+        {
+            const auto lowerAt = [&]( size_t at, std::string_view word )
+            {
+                if ( at + word.size() > source.size() )
+                    return false;
+                for ( size_t k = 0; k < word.size(); ++k )
+                    if ( std::tolower( static_cast<unsigned char>( source[at + k] ) ) != word[k] )
+                        return false;
+                return true;
+            };
+            for ( size_t i = 0; i < source.size(); ++i )
+            {
+                if ( !lowerAt( i, "domain" ) )
+                    continue;
+                size_t j = i + 6;
+                while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) != 0 )
+                    ++j;
+                if ( j > i + 6 && lowerAt( j, domain ) )
+                    return true;
+            }
+            return false;
+        }
+    } // namespace
+
     bool DShaderParser::MayDeclareParticle( const std::string_view source )
     {
-        // "domain", whitespace, "particle" — any case. A Particle block is legal only under that line.
-        const auto lowerAt = [&]( size_t at, std::string_view word )
-        {
-            if ( at + word.size() > source.size() )
-                return false;
-            for ( size_t k = 0; k < word.size(); ++k )
-                if ( std::tolower( static_cast<unsigned char>( source[at + k] ) ) != word[k] )
-                    return false;
-            return true;
-        };
-        for ( size_t i = 0; i < source.size(); ++i )
-        {
-            if ( !lowerAt( i, "domain" ) )
-                continue;
-            size_t j = i + 6;
-            while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) != 0 )
-                ++j;
-            if ( j > i + 6 && lowerAt( j, "particle" ) )
-                return true;
-        }
-        return false;
+        // A Particle block is legal only under `Domain Particle`.
+        return MayDeclareDomain( source, "particle" );
+    }
+
+    bool DShaderParser::MayDeclareGenericProgram( const std::string_view source )
+    {
+        // A generic program is a `Domain Surface` program without a Surface block (the parse's genericProgram);
+        // a surface template also matches, which only hashes two headers it already hashes.
+        return MayDeclareDomain( source, "surface" );
     }
 
     bool DShaderParser::MayDeclareSurface( const std::string_view source )
@@ -2024,6 +2053,11 @@ namespace Desert::Core::Preprocess
         if ( Formats::IsTranslucentBlend( blend ) && pass == "Forward" )
             return std::string( kSurfaceTranslucentPassInclude );
         return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
+    }
+
+    std::vector<std::string> GenericProgramIncludes()
+    {
+        return { std::string( kSurfaceTypesInclude ), SurfaceVertexInclude( kGenericVertexPath ) };
     }
 
     std::vector<std::string> SurfaceTemplateIncludes()
@@ -2686,6 +2720,30 @@ namespace Desert::Core::Preprocess
             return fail();
         }
 
+        // A GENERIC PROGRAM (a mesh-domain program without a Surface block) writes fragment stages only: its
+        // vertex stage is the mesh vertex factory (kGenericVertexPath; assembled below by assembleGenericPass).
+        const bool genericProgram = !surfaceBlock && Formats::DrawnByMeshPath( result.Meta.Domain );
+        if ( genericProgram )
+        {
+            const auto refuseVertex = [&]( const PendingPass& pending )
+            {
+                const auto vertex = pending.Blocks.find( ShaderStage::Vertex );
+                if ( vertex == pending.Blocks.end() )
+                    return false;
+                err = {
+                     vertex->second.StartLine,
+                     std::format( "a generic program's vertex stage is the mesh vertex factory ({}): delete the "
+                                  "Vertex block and read v_Surface in the Fragment stage",
+                                  SurfaceVertexInclude( kGenericVertexPath ) ) };
+                return true;
+            };
+            if ( refuseVertex( defaultPass ) )
+                return fail();
+            for ( const auto& pass : namedPasses )
+                if ( refuseVertex( pass ) )
+                    return fail();
+        }
+
         // A Particle fragment and its domain come together, and nothing else beside them: stages next to it
         // would be a program no simulation ever selects.
         if ( !result.Meta.ParticleSource.empty() )
@@ -2797,6 +2855,55 @@ namespace Desert::Core::Preprocess
             out.State = state;
             for ( const auto& [stage, block] : pending.Blocks )
                 out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
+            return out;
+        };
+
+        // A generic program's pass (kGenericVertexPath): the vertex stage is the mesh vertex factory, the author's
+        // fragment reads its varyings. @p binned assembles the `.Binned` twin the GPU-driven bins draw: the vertex
+        // stage resolves the draw from its instance id, the fragment's `Material` reads the row it handed down (a
+        // macro, expanded in the author's code after DESERT_SURFACE_VARYINGS declared v_Surface). A pass without a
+        // Fragment stage (a ray tracing pass) is assembled as written.
+        const auto assembleGenericPass = [&]( const PendingPass& pending, const ShaderRenderState& state,
+                                              const std::string& name, const bool binned )
+        {
+            const auto fragment = pending.Blocks.find( ShaderStage::Fragment );
+            if ( fragment == pending.Blocks.end() )
+            {
+                DShaderPass out = assemblePass( pending, state );
+                out.Name        = name;
+                return out;
+            }
+            const std::string_view kind =
+                 pending.Name == kGenericDepthNormalPass ? kGenericDepthNormalPass : kGenericForwardPassKind;
+            const std::string defines =
+                 std::format( "#define DESERT_SURFACE_PASS_{} 1\n#define {} 1\n{}", kind, kGenericProgramDefine,
+                              binned ? std::format( "#define {} 1\n", kSurfaceBinnedDefine ) : std::string() );
+            DShaderPass out;
+            out.Name  = name;
+            out.State = state;
+            for ( const auto& [stage, block] : pending.Blocks )
+            {
+                if ( stage == ShaderStage::Fragment )
+                    continue;
+                out.Stages.emplace( stage, AssembleStage( stage, block, includeBlock, autoDecls ) );
+            }
+            RawBlock vertex;
+            vertex.StartLine = 1;
+            vertex.Content   = std::format( "{}#include <{}>\n#include <{}>\n", defines, kSurfaceTypesInclude,
+                                            SurfaceVertexInclude( kGenericVertexPath ) );
+            out.Stages.emplace( ShaderStage::Vertex,
+                                AssembleStage( ShaderStage::Vertex, vertex, includeBlock, {} ) );
+            RawBlock fragmentCode;
+            fragmentCode.StartLine = 1;
+            fragmentCode.Content   = std::format(
+                 "{}#include <{}>\nDESERT_SURFACE_VARYINGS( in )\n#line {}\n{}\n", defines, kSurfaceTypesInclude,
+                 fragment->second.StartLine > 0 ? fragment->second.StartLine - 1 : 0, fragment->second.Content );
+            std::string fragmentDecls = autoDecls;
+            if ( binned )
+                fragmentDecls =
+                     std::format( "#define {} v_Surface.MaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls );
+            out.Stages.emplace( ShaderStage::Fragment, AssembleStage( ShaderStage::Fragment, fragmentCode,
+                                                                      includeBlock, fragmentDecls ) );
             return out;
         };
 
@@ -3124,16 +3231,85 @@ namespace Desert::Core::Preprocess
                         result.Surface.Cells.push_back( cell.Name );
                         result.Passes.push_back( std::move( cell ) );
                     }
+
+            // THE BINNED PERMUTATION (kSurfaceBinnedCellSuffix): every mesh cell of a binned pass again, the
+            // `.Parallax` ones too, after every other cell (the earlier cells' order is unchanged). A translucent
+            // template has none: its Forward cell is the translucency pass's, which is sorted, not binned.
+            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const bool parallax : { false, true } )
+                {
+                    if ( parallax && !result.Meta.Height )
+                        continue;
+                    for ( const std::string_view path : kSurfaceVertexPaths )
+                        for ( const std::string_view pass : kSurfaceBinnedCellPasses )
+                        {
+                            DShaderPass cell;
+                            cell.Name = SurfaceCellName( path, pass ) +
+                                        ( parallax ? std::string( kSurfaceParallaxCellSuffix ) : std::string() ) +
+                                        std::string( kSurfaceBinnedCellSuffix );
+                            cell.State = cellState;
+                            for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                                cell.Stages.emplace( stage,
+                                                     AssembleSurfaceCellStage(
+                                                          stage, path, pass, *surfaceBlock, includeBlock,
+                                                          autoDecls, result.Surface.Blend, shadingModelDefine,
+                                                          result.Surface.ResponsiveAA, opacityMaskFunction,
+                                                          parallax, heightFunctions, respondsToWeather, true ) );
+                            result.Meta.PassNames.push_back( cell.Name );
+                            result.Surface.Cells.push_back( cell.Name );
+                            result.Passes.push_back( std::move( cell ) );
+                        }
+                }
+            // THE VIRTUAL GEOMETRY PERMUTATION (kSurfaceVirtualGeometryCellSuffix): the binned cells of every
+            // kSurfaceVirtualGeometryPaths path (Static, Instanced) and its VirtualShadowDepth cell
+            // (kSurfaceVirtualGeometryCellPasses) again, after every binned cell (the earlier cells' order is
+            // unchanged).
+            if ( !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const bool parallax : { false, true } )
+                {
+                    if ( parallax && !result.Meta.Height )
+                        continue;
+                    for ( const std::string_view path : kSurfaceVirtualGeometryPaths )
+                        for ( const std::string_view pass : kSurfaceVirtualGeometryCellPasses )
+                        {
+                            DShaderPass cell;
+                            cell.Name = SurfaceCellName( path, pass ) +
+                                        ( parallax ? std::string( kSurfaceParallaxCellSuffix ) : std::string() ) +
+                                        std::string( kSurfaceBinnedCellSuffix ) +
+                                        std::string( kSurfaceVirtualGeometryCellSuffix );
+                            cell.State = cellState;
+                            for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                                cell.Stages.emplace(
+                                     stage, AssembleSurfaceCellStage(
+                                                 stage, path, pass, *surfaceBlock, includeBlock, autoDecls,
+                                                 result.Surface.Blend, shadingModelDefine,
+                                                 result.Surface.ResponsiveAA, opacityMaskFunction, parallax,
+                                                 heightFunctions, respondsToWeather, true, true ) );
+                            result.Meta.PassNames.push_back( cell.Name );
+                            result.Surface.Cells.push_back( cell.Name );
+                            result.Passes.push_back( std::move( cell ) );
+                        }
+                }
         }
 
         // The default program is the top-level stage set; when a shader consists solely of
         // named passes, the first pass IS the default program (ShaderProgramMeta::DefaultPassName, below).
         if ( !defaultPass.Blocks.empty() )
-            result.Passes.push_back( assemblePass( defaultPass, defaultPass.State ) );
+        {
+            if ( genericProgram )
+                result.Passes.push_back(
+                     assembleGenericPass( defaultPass, defaultPass.State, defaultPass.Name, false ) );
+            else
+                result.Passes.push_back( assemblePass( defaultPass, defaultPass.State ) );
+        }
 
         for ( const auto& pass : namedPasses )
         {
-            result.Passes.push_back( assemblePass( pass, MergeState( defaultPass.State, pass.State ) ) );
+            const ShaderRenderState state = MergeState( defaultPass.State, pass.State );
+            if ( genericProgram )
+                result.Passes.push_back( assembleGenericPass( pass, state, pass.Name, false ) );
+            else
+                result.Passes.push_back( assemblePass( pass, state ) );
             result.Meta.PassNames.push_back( pass.Name );
             if ( std::any_of( result.Passes.back().Stages.begin(), result.Passes.back().Stages.end(),
                               []( const auto& stage ) { return Formats::IsRayTracingStage( stage.first ); } ) )
@@ -3152,6 +3328,36 @@ namespace Desert::Core::Preprocess
                  "deferred path's depth/normal prepass draws it (write depth and DesertWriteDepthNormal, "
                  "Mesh/Generic/DepthNormal.glslh)",
                  result.Name, Formats::ShaderDomainName( result.Meta.Domain ), kGenericDepthNormalPass );
+
+        // THE BINNED TWINS of an opaque generic program (kGenericForwardBinnedPass,
+        // kGenericDepthNormalBinnedPass), after every declared pass so the default program and the pass order are
+        // unchanged. The forward twin is the default program's (the top-level stage set, or the first named pass
+        // that is not the depth-normal one).
+        if ( genericProgram && !defaultPass.State.Blend.value_or( false ) &&
+             defaultPass.State.DepthWrite.value_or( true ) )
+        {
+            const PendingPass* forward     = defaultPass.Blocks.empty() ? nullptr : &defaultPass;
+            const PendingPass* depthNormal = nullptr;
+            for ( const auto& pass : namedPasses )
+            {
+                if ( pass.Name == kGenericDepthNormalPass )
+                    depthNormal = &pass;
+                else if ( forward == nullptr )
+                    forward = &pass;
+            }
+            const auto twin = [&]( const PendingPass& pending, const std::string_view name )
+            {
+                ShaderRenderState state = defaultPass.State;
+                if ( &pending != &defaultPass )
+                    state = MergeState( defaultPass.State, pending.State );
+                result.Passes.push_back( assembleGenericPass( pending, state, std::string( name ), true ) );
+                result.Meta.PassNames.emplace_back( name );
+            };
+            if ( forward != nullptr )
+                twin( *forward, kGenericForwardBinnedPass );
+            if ( depthNormal != nullptr )
+                twin( *depthNormal, kGenericDepthNormalBinnedPass );
+        }
 
         // A surface template's default program is NAMED, never positional: kSurfaceDefaultCell. A template
         // whose cell set lost it is refused here by name, rather than having some other cell stand in for it.

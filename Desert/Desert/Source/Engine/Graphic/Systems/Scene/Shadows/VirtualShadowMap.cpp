@@ -528,7 +528,11 @@ namespace Desert::Graphic::System
         WriteLocalLevels( levels, resetAll != 0u );
         frame.LevelViewProjection.resize( levelCount, glm::mat4( 1.0f ) );
         for ( uint32_t i = 0; i < levelCount; ++i )
+        {
             frame.LevelViewProjection[i] = levels[i].ViewProjection;
+            if ( i < kVsmClipmapLevelCount ) // the sun's levels: what the virtual geometry's cut measures in
+                frame.LevelTexelWorld[i] = levels[i].Extent.w;
+        }
 
         // VsmFrameData: the view's constants, then the levels.
         const glm::vec3 toSun = sun != nullptr ? glm::normalize( sun->DirectionToSun ) : glm::vec3( 0.0f, 1.0f, 0.0f );

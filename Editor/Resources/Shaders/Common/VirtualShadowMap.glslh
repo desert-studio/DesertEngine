@@ -243,6 +243,39 @@ float VsmLocalLinearDepth( float z, float nearPlane, float farPlane )
 }
 
 
+// THE CASTER PAGE TEST's footprint, the one statement of it (UE CullPerPageDrawCommands / Nanite's VSM page cull):
+// the "VSM: Dirty Mask" cells [lowCell, highCell] a world box covers in the level @p viewProjection projects into
+// (the map's texel convention, VsmProject). False: the box is wholly past the level's far end (nearer the sun than
+// its range still draws - depth clamp, "VSM: Raster") or outside its window. The caller tests the cells against its
+// own DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + cell / 32] - "VSM: Cull Casters" (instances of the CPU walk),
+// InstanceCull (a kVsmPageMask view) and ClusterCut (the virtual geometry's nodes and clusters per level).
+bool VsmBoxMaskCells( mat4 viewProjection, vec3 boxMin, vec3 boxMax, out ivec2 lowCell, out ivec2 highCell )
+{
+    vec2  first   = vec2( 1.0e30 );
+    vec2  last    = vec2( -1.0e30 );
+    float nearest = 1.0e30;
+    for ( uint c = 0u; c < 8u; ++c )
+    {
+        const vec3 corner = mix( boxMin, boxMax, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
+        const vec4 clip   = viewProjection * vec4( corner, 1.0 );
+        const vec2 page   = ( clip.xy * 0.5 + 0.5 ) * float( VSM_LEVEL_PAGES );
+        first             = min( first, page );
+        last              = max( last, page );
+        nearest           = min( nearest, clip.z );
+    }
+    lowCell  = ivec2( 0 );
+    highCell = ivec2( -1 );
+    if ( nearest > 1.0 )
+        return false;
+    const ivec2 lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
+    const ivec2 highPage = min( ivec2( floor( last ) ), ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
+    if ( any( greaterThan( lowPage, highPage ) ) )
+        return false;
+    lowCell  = lowPage / int( VSM_MASK_CELL_PAGES );
+    highCell = highPage / int( VSM_MASK_CELL_PAGES );
+    return true;
+}
+
 #endif // DESERT_VIRTUAL_SHADOW_MAP_GLSLH
 
 // ---- Reading a local light's map (UE VirtualShadowMapProjection.usf for a local light) ---------------------------

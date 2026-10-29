@@ -126,9 +126,10 @@ TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
     const glm::vec3 position( 10.0f, 200.0f, -30.0f );
     const glm::vec3 forward( 0.0f, 0.5f, -1.0f );
 
-    const std::vector<EditableProperty> census = DescribeViewportCamera( position, forward, 75.0f, false );
+    const std::vector<EditableProperty> census =
+         DescribeViewportCamera( position, forward, 75.0f, false, false, false );
 
-    ASSERT_EQ( census.size(), 4u );
+    ASSERT_EQ( census.size(), 6u );
     EXPECT_EQ( census[0].Name, kViewportCameraPosition );
     EXPECT_EQ( census[1].Name, kViewportCameraDirection );
     EXPECT_EQ( census[2].Name, Desert::Editor::kViewportCameraFOV );
@@ -148,7 +149,8 @@ TEST( ViewportCamera, TheCensusReportsThePoseTheCameraIsActuallyIn )
 TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 {
     const std::vector<EditableProperty> census =
-         DescribeViewportCamera( glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false );
+         DescribeViewportCamera( glm::vec3( 0.0f, 200.0f, 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false,
+                                 false, false );
 
     for ( const EditableProperty& row : census )
     {
@@ -169,7 +171,7 @@ TEST( ViewportCamera, EverySettableRowOfTheCensusIsAcceptedByTheWrite )
 TEST( ViewportCamera, TheDeclaredTypeAndTheDeclaredCountAgree )
 {
     for ( const EditableProperty& row :
-          DescribeViewportCamera( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false ) )
+          DescribeViewportCamera( glm::vec3( 0.0f ), glm::vec3( 0.0f, 0.0f, -1.0f ), 90.0f, false, false, false ) )
     {
         EXPECT_EQ( row.Type,
                    row.Components == 1 ? std::string( "float" ) : "float" + std::to_string( row.Components ) )

@@ -3,6 +3,7 @@
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
+#include <algorithm>
 #include <format>
 #include <functional>
 #include <string_view>
@@ -143,11 +144,13 @@ namespace Desert::Graphic
     std::optional<std::string> ShadowCasterShaderFor( std::string_view                materialTemplate,
                                                       std::string_view                defaultTemplate,
                                                       Core::Formats::SurfaceBlendMode blend, const bool parallax,
-                                                      MeshVertexPath path )
+                                                      MeshVertexPath path, const MeshPass casterPass )
     {
+        if ( casterPass != MeshPass::ShadowDepth && casterPass != MeshPass::VirtualShadowDepth )
+            return std::nullopt;
         const std::string_view owner =
              ShadowCasterCellFor( blend, parallax ) == ShadowCasterCell::Own ? materialTemplate : defaultTemplate;
-        auto cell = MeshShaderFor( owner, path, MeshPass::ShadowDepth );
+        auto cell = MeshShaderFor( owner, path, casterPass );
         if ( cell && parallax )
             return ParallaxCellOf( *cell );
         return cell;
@@ -163,8 +166,41 @@ namespace Desert::Graphic
         return shaderName.ends_with( Core::Preprocess::kSurfaceParallaxCellSuffix );
     }
 
+    std::string BinnedCellOf( const std::string_view cellShader )
+    {
+        return std::format( "{}{}", cellShader, Core::Preprocess::kSurfaceBinnedCellSuffix );
+    }
+
+    bool IsBinnedCell( const std::string_view shaderName )
+    {
+        return shaderName.ends_with( Core::Preprocess::kSurfaceBinnedCellSuffix );
+    }
+
+    std::string VirtualGeometryCellOf( const std::string_view binnedCell )
+    {
+        return std::format( "{}{}", binnedCell, Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );
+    }
+
+    bool IsVirtualGeometryCell( const std::string_view shaderName )
+    {
+        return shaderName.ends_with( Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );
+    }
+
+    bool HasVirtualGeometryPermutation( const MeshVertexPath path )
+    {
+        const std::string_view name = MeshVertexPathName( path );
+        return std::ranges::find( Core::Preprocess::kSurfaceVirtualGeometryPaths, name ) !=
+               Core::Preprocess::kSurfaceVirtualGeometryPaths.end();
+    }
+
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
     {
+        // A `.VirtualGeometry` permutation is its `.Binned` base's path (Static or Instanced).
+        if ( IsVirtualGeometryCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceVirtualGeometryCellSuffix.size() );
+        // A `.Binned` permutation is drawn on its base cell's path (its `.Parallax` base included).
+        if ( IsBinnedCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceBinnedCellSuffix.size() );
         // A `.Parallax` permutation is drawn on its base cell's path.
         if ( IsParallaxCell( shaderName ) )
             shaderName.remove_suffix( Core::Preprocess::kSurfaceParallaxCellSuffix.size() );

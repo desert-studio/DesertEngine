@@ -35,7 +35,8 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         12; // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
+         13; // 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG);
+             // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
              // tangent frames together; 10: UV weighs 0.5 in the reduction
              // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
              // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over position-welded

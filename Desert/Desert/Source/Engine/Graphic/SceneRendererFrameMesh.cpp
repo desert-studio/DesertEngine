@@ -4,6 +4,9 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Geometry/StaticMesh.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -385,6 +388,21 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGBufferDraws( pass, view ); } );
     }
 
+    void SceneRenderer::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                      System::MeshRenderer* meshRenderer )
+    {
+        // LOAD: "Deferred: GBuffer" and "TerrainGBuffer" wrote it; only the main view's phase-2 bins are drawn.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer Post-Occlusion" );
+        if ( !targets || meshRenderer == nullptr )
+            return;
+        AddRaster(
+             graph, "Deferred: GBuffer Post-Occlusion", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {}, [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGBufferPostOcclusionManual( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGBufferPostOcclusionDraws( pass, view ); } );
+    }
+
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
     {
         // Its own row, so the ground's G-buffer cost reads as a pass line (the forward path's is the
@@ -419,10 +437,13 @@ namespace Desert::Graphic
              textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), rayTracedSun = SunShadowIsScreenMask(),
               localShadowMasks = LocalShadowsAreScreenMask(),
               virtualLocal     = LocalShadowsAreVirtual()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks, virtualLocal ); } );
+             {
+                 meshRenderer->DeclareForwardDepthNormalDraws( pass, view, rayTracedSun, localShadowMasks,
+                                                               virtualLocal );
+             } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
@@ -486,7 +507,9 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the clouds and the particles after it see the surface. It samples the opaque scene's
+        // depth, so the glass, the clouds and the particles after it see the surface. It fogs itself at its own
+        // depth (the opaque fog was applied before the copy; its inputs come with the view's, BindSceneViewInputs).
+        // It samples the opaque scene's
         // copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image
         // from the scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
         // It fogs itself at its own depth (the opaque fog ran before it; Mesh/Surface/SceneFog.glslh, bound by name
@@ -531,6 +554,42 @@ namespace Desert::Graphic
              { return meshRenderer->RecordOverdrawResolve( context ); },
              [meshRenderer, overdraw = accum->Colors[0]]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareOverdrawResolve( pass, overdraw ); } );
+    }
+    void SceneRenderer::AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // This frame's cluster cut (AddFrameVirtualGeometry): nothing to draw without one.
+        const ViewFrame* view = GetViewFrame();
+        if ( view == nullptr || !m_FrameVirtualGeometry || !m_FrameDrawBins )
+            return;
+        if ( !m_VirtualGeometryClusterView )
+            m_VirtualGeometryClusterView = std::make_unique<VirtualGeometry::ClusterView>();
+        if ( !m_VirtualGeometryClusterView->Ensure() )
+            return;
+        const VirtualGeometry::VirtualMeshBuffers buffers = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+        const auto scene = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Virtual Geometry Clusters" );
+        if ( !scene )
+            return;
+        const FrameDrawBins&                  bins = *m_FrameDrawBins;
+        const FrameVirtualGeometry&           cut  = *m_FrameVirtualGeometry;
+        const VirtualGeometry::ClusterViewDraw draw{ .Clusters          = buffers.Clusters,
+                                                     .Dags              = buffers.Dags,
+                                                     .Primitives        = bins.Scene.Primitives,
+                                                     .Instances         = bins.Scene.Instances,
+                                                     .PrimitiveDraws    = bins.Upload.Passes[cut.Pass].PrimitiveDraws,
+                                                     .DrawSlots         = bins.Upload.Passes[cut.Pass].DrawSlots,
+                                                     .SubmeshTransforms = bins.Upload.SubmeshTransforms,
+                                                     .VisibleClusters   = cut.VisibleClusters,
+                                                     .RasterArgs        = cut.RasterArgs,
+                                                     .VisibleCapacity   = cut.VisibleCapacity,
+                                                     .ViewProjection    = view->JitteredViewProjection };
+        // LOAD colour and depth: the clusters are depth-tested against the composited scene and write no depth.
+        VirtualGeometry::ClusterView* const clusterView = m_VirtualGeometryClusterView.get();
+        AddRaster(
+             graph, "Debug: Virtual Geometry Clusters", *scene, textures.ColorLoads( *scene, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {},
+             [clusterView]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return clusterView->Record( context ); },
+             [clusterView, draw]( RDG::PassBuilder& pass ) { clusterView->Declare( pass, draw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

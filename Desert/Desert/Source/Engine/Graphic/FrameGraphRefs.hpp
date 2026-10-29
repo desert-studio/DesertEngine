@@ -569,7 +569,7 @@ namespace Desert::Graphic
     // The fog a translucent surface applies at its own depth, where the layout declares it
     // (Mesh/Surface/SceneFog.glslh): the block and its three images, each read trilinear and clamped through the
     // pass's LinearClampSampler. Called by BindSceneViewInputs, and on its own by the passes that bind the rest of
-    // their view inputs themselves (the particle sprites, the water). A layout that declares the slots in a frame
+    // their view inputs themselves (the particle sprites). A layout that declares the slots in a frame
     // with no fog renderer has nothing to bind them to: that is a registration fault, and the pass faults by name
     // in ValidatePassBindings exactly as any other missing scene input does.
     template <typename Block>

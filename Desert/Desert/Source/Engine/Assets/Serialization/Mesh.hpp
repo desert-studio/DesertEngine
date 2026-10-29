@@ -13,6 +13,7 @@
 #include <Engine/Assets/Common.hpp>
 #include <Engine/Assets/MeshDisplacementSettings.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 
 namespace Desert::Assets::Serialization
 {
@@ -74,6 +75,11 @@ namespace Desert::Assets::Serialization
         // generated at load. New field — meshes cooked before it exists load via rfl::DefaultIfMissing with an
         // empty list (so they fall back to load-time generation, unchanged).
         std::vector<std::vector<IndexData>> LODs;
+
+        // THE SUBMESH'S CLUSTER LOD DAG (MeshBinary v7, VIRT-GEOM): built at cook for a mesh imported with
+        // MeshImportSettings::VirtualGeometry, empty (no clusters) otherwise. Vertex refs are submesh-relative, as
+        // the triangles of Indices / LODs are.
+        Geometry::ClusterDag ClusterDag;
     };
 
     // Blendshape / morph target on disk: per-vertex deltas index-aligned with the mesh's global vertex array

@@ -88,26 +88,49 @@ namespace Desert::Graphic::GpuDriven
     {
         const GraphicsPipeline* Pipeline = nullptr; // owned by the SceneRenderer's PipelineCache
         MeshGeometryBinding     Binding;            // the vertex / stream / index buffers the group binds
+        // The group's VIRTUAL-GEOMETRY TWIN: Pipeline's pass state with the `.VirtualGeometry` permutation of its
+        // cell (MeshVertexPath VirtualGeometryCellOf), what the VG raster draws the clusters binned into this group
+        // with (VirtualGeometry::RasterBins). Null: the cell has none (a skinned / grass / particle path, a template without the
+        // permutation) or it is still compiling (GroupPipelineResolver).
+        const GraphicsPipeline* VirtualGeometryPipeline = nullptr;
         uint32_t                FirstBin = 0;
         uint32_t                BinCount = 0;
+    };
+
+    // Why a submesh that draws in a pass is not one of its bins: the draw stays on the CPU MeshDrawList for that
+    // pass (UE: a mesh batch the pass processor cannot cache goes through the dynamic path). None = binned, or
+    // legitimately absent from the pass (translucent in an opaque pass, a non-caster in a shadow pass).
+    enum class BinFallback : uint8_t
+    {
+        None,
+        NoBinnedCell,        // the material's template emits no `.Binned` cell for the pass / vertex path
+        PipelineUnavailable, // the `.Binned` cell is not registered, or its PSO failed to build
+        NoMaterialRow,       // the submesh's scene material row names no surface (SyncGpuScene did not register it)
+        BoundTextures,       // the template binds textures per material (a TextureBinding), which one bin cannot carry
+        MovableCaster,       // a skinned/swaying caster in the VSM table: clusters raster rest pose; the CPU walk draws it
+        Count
+    };
+    inline constexpr uint32_t kBinFallbackCount = static_cast<uint32_t>( BinFallback::Count );
+    [[nodiscard]] const char* BinFallbackName( BinFallback fallback );
+
+    // The resolver's answer for one submesh in one pass: the PSO of its bin, or why it has none.
+    struct PassPipelineResolution
+    {
+        const GraphicsPipeline* Pipeline = nullptr;
+        BinFallback             Fallback = BinFallback::None; // meaningful only when Pipeline is null
     };
 
     // One pass's cached state: what the cull and the draw need, as host mirrors of the GPU tables.
     struct PassDrawTable
     {
+        // Per BinFallback: the submeshes of the cache's primitives that draw in the pass but not binned (counted
+        // once per primitive x submesh, not per LOD).
+        std::array<uint32_t, kBinFallbackCount> Fallbacks{};
         std::vector<GpuPrimitivePassDraws> PrimitiveDraws; // indexed by PrimitiveIndex (high-water mark)
         std::vector<GpuDrawSlot>           DrawSlots;
         std::vector<GpuDrawBin>            Bins; // sorted by IndirectGroup
         std::vector<IndirectGroup>         Groups;
         uint32_t                           VisibleCapacity = 0; // sum of the bins' Capacity
-        // THE UNCULLED LIST: every instance of every bin, VisibleCapacity rows, bin b's at [FirstVisible,
-        // +Capacity) in primitive order. What the vertex stage reads through VisibleInstances[gl_InstanceIndex]
-        // when nothing culled the pass (UE: InstanceCulling with culling off still writes every instance id):
-        // the CPU-recorded draw of a slot instances [SlotFirstVisible[slot], +InstanceCount) of it, so no
-        // per-draw state is pushed. The cull's compacted list (InstanceCulling) has the same row type and
-        // indexing; it replaces this one as the pass's VisibleInstances, never adds a second path.
-        std::vector<GpuVisibleInstance> UnculledVisible;
-        std::vector<uint32_t>           SlotFirstVisible; // host only, per DrawSlot; kInvalidIndex = Bin invalid
     };
 
     // The graph handles of one pass's tables after this frame's upload.
@@ -116,7 +139,6 @@ namespace Desert::Graphic::GpuDriven
         RDG::BufferRef PrimitiveDraws; // GpuPrimitivePassDraws[]
         RDG::BufferRef DrawSlots;      // GpuDrawSlot[]
         RDG::BufferRef Bins;           // GpuDrawBin[]
-        RDG::BufferRef UnculledVisible; // GpuVisibleInstance[] (PassDrawTable::UnculledVisible)
     };
 
     // Every table of the cache after this frame's upload: the passes', and the submesh transforms every pass's
@@ -129,10 +151,13 @@ namespace Desert::Graphic::GpuDriven
 
     // How the cache learns the PSO a submesh draws with in a pass: the SceneRenderer's PipelineCache resolution
     // of the section's material for that pass (the question the CPU MeshDrawList asks today in its Build*).
-    // nullptr = the submesh does not draw in the pass (no depth cell for its material, a translucent section in
-    // the opaque passes). Called from AddPrimitive and InvalidatePipelines only, never per frame.
-    using PassPipelineResolver = std::function<const GraphicsPipeline*(
+    // A null Pipeline with BinFallback::None = the submesh does not draw in the pass (a translucent section in the
+    // opaque passes); with a fallback = it draws there on the CPU path, for that reason. Called from AddPrimitive and InvalidatePipelines only, never per frame.
+    using PassPipelineResolver = std::function<PassPipelineResolution(
          MeshPass pass, PrimitiveIndex primitive, const Mesh& mesh, uint32_t submesh, uint32_t materialRow )>;
+    // How the cache learns a group's VG twin (IndirectGroup::VirtualGeometryPipeline) from the group's PSO: asked
+    // when a pass's groups are rebuilt and by InvalidatePipelines (a twin that finished compiling). Empty: no twins.
+    using GroupPipelineResolver = std::function<const GraphicsPipeline*( MeshPass pass, const GraphicsPipeline& group )>;
 
     // What a primitive hands the cache: its mesh, the scene material table row of each material slot
     // (GpuSceneRegistry::SyncMaterialRow; mesh section i draws with MaterialRows[SectionMaterialSlot( i, size )],
@@ -153,7 +178,7 @@ namespace Desert::Graphic::GpuDriven
     class DrawCommandCache
     {
     public:
-        explicit DrawCommandCache( PassPipelineResolver resolver );
+        explicit DrawCommandCache( PassPipelineResolver resolver, GroupPipelineResolver vgResolver = {} );
         ~DrawCommandCache();
         DrawCommandCache( const DrawCommandCache& )            = delete;
         DrawCommandCache& operator=( const DrawCommandCache& ) = delete;
@@ -174,13 +199,27 @@ namespace Desert::Graphic::GpuDriven
         [[nodiscard]] bool NeedsRebuild() const;
 
         [[nodiscard]] const PassDrawTable& Pass( MeshPass pass ) const;
-        // The gl_InstanceIndex base of the primitive's draw of (lod, submesh) in @p pass on the unculled list:
-        // its instances are the rows [base, base + InstanceCount) (PassDrawTable::UnculledVisible), so a CPU-
-        // recorded draw passes firstInstance = base and pushes nothing. nullopt: the primitive has no draw there
-        // (not in the cache, not in the pass, lod / submesh past its chain, or no PSO for the submesh). Valid
-        // after Rebuild, until the next AddPrimitive / RemovePrimitive / InvalidatePipelines.
-        [[nodiscard]] std::optional<uint32_t> UnculledFirstVisible( MeshPass pass, PrimitiveIndex primitive,
-                                                                    uint32_t lod, uint32_t submesh ) const;
+        // Every pass's table, indexed by MeshPass (InstanceCulling's @p tables).
+        [[nodiscard]] std::span<const PassDrawTable, kMeshPassCount> Passes() const
+        {
+            return m_Passes;
+        }
+        // True when every submesh of @p primitive that @p hiddenSubmeshMask does not hide (bit i = submesh i; past
+        // 64 never hidden) draws in @p pass through one of its bins: the CPU list leaves the record to the issued
+        // bins (a record's submeshes share one material, so they are binned together or not at all). False for a
+        // primitive the cache does not hold, or with any such submesh on a fallback or out of the pass.
+        [[nodiscard]] bool SubmeshesBinned( MeshPass pass, PrimitiveIndex primitive, uint64_t hiddenSubmeshMask ) const;
+        // The `.VirtualGeometry` twin (IndirectGroup::VirtualGeometryPipeline) of the group @p submesh of
+        // @p primitive is binned into in @p pass at lod 0 - the group "VirtualGeometry: Raster Binning" puts the
+        // submesh's clusters in, so the pipeline that rasters them. Null: no bin there (not in the cache, not in the
+        // pass, a fallback) or the group has no twin (no such cell, still compiling). Valid after Rebuild.
+        [[nodiscard]] const GraphicsPipeline* SubmeshVirtualGeometryPipeline( MeshPass pass, PrimitiveIndex primitive,
+                                                                              uint32_t submesh ) const;
+        // The group (index into Pass( @p pass ).Groups) @p submesh of @p primitive is binned into at lod 0 - the
+        // lookup SubmeshVirtualGeometryPipeline reads its twin from. Empty: no bin there (not in the cache, not in
+        // the pass, a fallback). Valid after Rebuild.
+        [[nodiscard]] std::optional<uint32_t> SubmeshGroup( MeshPass pass, PrimitiveIndex primitive,
+                                                            uint32_t submesh ) const;
         [[nodiscard]] std::span<const glm::mat4> SubmeshTransforms() const
         {
             return m_SubmeshTransforms;
@@ -203,6 +242,8 @@ namespace Desert::Graphic::GpuDriven
             uint32_t              LodCount          = 1;
             // [pass][submesh]: the resolved PSO, nullptr = not drawn in the pass.
             std::array<std::vector<const GraphicsPipeline*>, kMeshPassCount> Pipelines;
+            // [pass][submesh]: why a null Pipelines entry is not binned (BinFallback::None = not in the pass).
+            std::array<std::vector<BinFallback>, kMeshPassCount> Fallbacks;
         };
         struct MeshTransformRows
         {
@@ -218,6 +259,7 @@ namespace Desert::Graphic::GpuDriven
         void RebuildPass( MeshPass pass );
 
         PassPipelineResolver                               m_Resolver;
+        GroupPipelineResolver                              m_VgResolver;
         std::vector<std::optional<PrimitiveRecord>>        m_Primitives; // indexed by PrimitiveIndex
         std::unordered_map<const Mesh*, MeshTransformRows> m_MeshTransforms;
         std::vector<glm::mat4>                             m_SubmeshTransforms;
@@ -227,9 +269,9 @@ namespace Desert::Graphic::GpuDriven
         // Rebuilt and not uploaded yet (the pass tables), and the transforms changed since the last upload.
         std::array<bool, kMeshPassCount> m_Unuploaded{};
         bool                             m_TransformsUnuploaded = false;
-        // [pass][PrimitiveDraws, DrawSlots, Bins, UnculledVisible]: the persistent device tables
+        // [pass][PrimitiveDraws, DrawSlots, Bins]: the persistent device tables
         // (DrawCommandCache.cpp).
-        std::array<std::array<std::unique_ptr<Table>, 4>, kMeshPassCount> m_PassTables;
+        std::array<std::array<std::unique_ptr<Table>, 3>, kMeshPassCount> m_PassTables;
         std::unique_ptr<Table>                                            m_TransformTable;
     };
 } // namespace Desert::Graphic::GpuDriven

@@ -1,5 +1,6 @@
 #ifndef MEGALIGHTS_VOLUME_GLSLH
 #define MEGALIGHTS_VOLUME_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // THE MEGALIGHTS TRANSLUCENCY VOLUME, read side (UE 5.5 MegaLights' volume + TranslucencyLightingVolume: the
 // forward and translucent surfaces take their local lights, shadowed, from a volume MegaLights lit, instead of
@@ -22,15 +23,15 @@ struct MegaLightsVolumeReadParams
     uvec4 Size;    // xyz = froxels, w = on (1) / off (0)
 };
 
-layout( std430, binding = 31 ) readonly buffer MegaLightsVolumeUB
+layout( std430, binding = kMegaLightsVolumeParamsBinding ) readonly buffer MegaLightsVolumeUB
 {
     MegaLightsVolumeReadParams megaLightsVolume;
 };
-layout( binding = 32 ) uniform texture3D MegaLightsVolumeRTexture;
+layout( binding = kMegaLightsVolumeFirstBinding ) uniform texture3D MegaLightsVolumeRTexture;
 #define MegaLightsVolumeRTexture sampler3D(MegaLightsVolumeRTexture, LinearClampSampler)
-layout( binding = 33 ) uniform texture3D MegaLightsVolumeGTexture;
+layout( binding = kMegaLightsVolumeFirstBinding + 1 ) uniform texture3D MegaLightsVolumeGTexture;
 #define MegaLightsVolumeGTexture sampler3D(MegaLightsVolumeGTexture, LinearClampSampler)
-layout( binding = 34 ) uniform texture3D MegaLightsVolumeBTexture;
+layout( binding = kMegaLightsVolumeFirstBinding + 2 ) uniform texture3D MegaLightsVolumeBTexture;
 #define MegaLightsVolumeBTexture sampler3D(MegaLightsVolumeBTexture, LinearClampSampler)
 
 // SH basis constants (Y00, and Y1m without the direction).

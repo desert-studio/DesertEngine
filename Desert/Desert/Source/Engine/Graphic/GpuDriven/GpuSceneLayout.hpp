@@ -40,6 +40,10 @@ namespace Desert::Graphic::GpuDriven
         // Exempt from the HZB test (editor gizmo-like or always-visible primitives); frustum culling still
         // applies.
         inline constexpr uint32_t kSkipOcclusion = 1u << 4;
+        // Moves by itself every frame (a skinned pose, a swaying foliage field): a caster of the cascade cache's
+        // MOVABLE layer, drawn over the copied static cache each frame, never into the cache (UE's cached shadow
+        // maps: movable primitives go to the dynamic depths). The cull's layer flags below split on it.
+        inline constexpr uint32_t kMovableCaster = 1u << 5;
     } // namespace PrimitiveFlags
 
     // THE BINNED DRAW'S INSTANCE ID STREAM (decision 10-27, UE5 instance id stream): a mesh-pass pipeline binds one
@@ -108,12 +112,18 @@ namespace Desert::Graphic::GpuDriven
         uint32_t SkinCacheAddressLo   = 0; // 168
         uint32_t SkinCacheAddressHi   = 0; // 172
         uint32_t SkinCacheVertexCount = 0; // 176
-        // std430 struct-array stride: 192 = 12 x 16. The per-pass draws live in PassDraws[primitive], not here.
-        uint32_t Pad0 = 0; // 180
-        uint32_t Pad1 = 0; // 184
-        uint32_t Pad2 = 0; // 188
+        // The foliage wind of an instanced primitive (Graphic::InstanceWind; the binned instanced vertex stage reads it
+        // here, where the CPU-recorded draw pushed it, Graphic::PackViewInstanceWind): Speed and both clocks, then
+        // (dir.x, dir.z, Strength, Height). Strength 0 = does not sway (every other primitive).
+        float     WindSpeed       = 0.0f;               // 180
+        float     WindSeconds     = 0.0f;               // 184
+        float     WindPrevSeconds = 0.0f;               // 188
+        glm::vec4 Wind{ 0.0f };                         // 192
+        // std430 struct-array stride: 208 = 13 x 16. The per-pass draws live in PassDraws[primitive], not here.
     };
-    static_assert( sizeof( GpuScenePrimitive ) == 192, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( sizeof( GpuScenePrimitive ) == 208, "std430 twin in Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, WindSpeed ) == 180, "Common/GpuScene.glslh" );
+    static_assert( offsetof( GpuScenePrimitive, Wind ) == 192, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuScenePrimitive, PrevLocalToWorld ) == 48, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuScenePrimitive, LocalBoundsCenter ) == 96, "Common/GpuScene.glslh" );
     static_assert( offsetof( GpuScenePrimitive, FirstInstance ) == 128, "Common/GpuScene.glslh" );
@@ -261,6 +271,10 @@ namespace Desert::Graphic::GpuDriven
         inline constexpr uint32_t kShadowCaster  = 1u << 2; // only kCastsShadow primitives
         inline constexpr uint32_t kLodDisabled   = 1u << 3; // MeshRenderer::IsLODEnabled() == false: auto LOD is 0
         inline constexpr uint32_t kVsmPageMask   = 1u << 4; // VSM level: also the "VSM: Dirty Mask" cell test
+        // A cached cascade's layers (MeshRenderer::PlanCascadeCache): the static layer takes only primitives
+        // without PrimitiveFlags::kMovableCaster, the movable layer only those with it. Neither: every caster.
+        inline constexpr uint32_t kCasterStaticLayer  = 1u << 5;
+        inline constexpr uint32_t kCasterMovableLayer = 1u << 6;
     } // namespace CullViewFlags
 
     // One word per (view, instance) the cull writes (InstanceCull.shader Visibility[]; GLSL

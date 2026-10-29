@@ -311,6 +311,9 @@ namespace Desert::Graphic::System
         std::vector<RDG::BufferRef> RasterLevel;
         RDG::BufferRef              DirtyMask; // VsmDirtyMask: kVsmMaskWordsPerLevel words per level
         std::vector<glm::mat4>      LevelViewProjection;
+        // The sun levels' world size of one texel, cm (VsmLevelGpu::Extent.w): what a caster's LOD is measured in
+        // (the virtual geometry's cut per level, SceneRenderer::AddFrameVirtualGeometryShadowPages).
+        std::array<float, kVsmClipmapLevelCount> LevelTexelWorld{};
         uint32_t                    LevelCount = 0;
         // Whether the sun's clipmap levels are in use this frame (a sun was handed to AddPagePasses).
         bool HasSun = false;

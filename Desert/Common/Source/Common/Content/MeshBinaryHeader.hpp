@@ -61,7 +61,14 @@ namespace Common::Content
     /// Version 5 (SKEL-TREE) states the skeleton by GUID in an 80-byte header; versions 1-4 are refused by
     /// name and raised by Tools/SceneMigrator (bone hash -> the one .skeleton with it).
     /// Version 6 (DISPLACE-5) gives the skinned mesh's displacement mode the header byte v5 wrote as zero.
-    inline constexpr uint32_t kMeshBinaryVersion = 6; // 6: skinned DisplacementMode; 5: SkeletonGuid
+    /// Version 7 (VIRT-GEOM) appends the six cluster-DAG sections (MeshBinary.hpp); its prefix is v6's, and a v6
+    /// file IS a v7 file with those sections absent, so both are read (kMeshBinaryOldestReadVersion).
+    inline constexpr uint32_t kMeshBinaryVersion = 7; // 7: cluster DAG; 6: skinned DisplacementMode; 5: SkeletonGuid
+    inline constexpr uint32_t kMeshBinaryOldestReadVersion = 6;
+    [[nodiscard]] constexpr bool IsReadableMeshBinaryVersion( const uint32_t version )
+    {
+        return version >= kMeshBinaryOldestReadVersion && version <= kMeshBinaryVersion;
+    }
 
     // THE MESH'S IDENTITY (version 3, AF7): the asset GUID follows the header as {Hi u64, Lo u64} - at byte 80
     // since version 5 - and the section table follows it at byte 96: kMeshBinaryPrefixSize, the header plus the
@@ -77,7 +84,7 @@ namespace Common::Content
             return std::nullopt;
         MeshBinaryFileHeader header{};
         std::memcpy( &header, bytes.data(), sizeof( header ) );
-        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || header.Version != kMeshBinaryVersion )
+        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || !IsReadableMeshBinaryVersion( header.Version ) )
             return std::nullopt;
         AssetGuid guid;
         std::memcpy( &guid.Hi, bytes.data() + kMeshBinaryGuidOffset, 8 );
@@ -93,7 +100,7 @@ namespace Common::Content
             return std::nullopt;
         MeshBinaryFileHeader header{};
         std::memcpy( &header, bytes.data(), sizeof( header ) );
-        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || header.Version != kMeshBinaryVersion )
+        if ( std::memcmp( header.Magic, "DESTMESH", 8 ) != 0 || !IsReadableMeshBinaryVersion( header.Version ) )
             return std::nullopt;
         return header.SkeletonGuid;
     }

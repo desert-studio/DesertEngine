@@ -1,5 +1,6 @@
 #ifndef FORWARD_LOCAL_LIGHTS_GLSLH
 #define FORWARD_LOCAL_LIGHTS_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // THE POINT AND SPOT LIGHTS OF A FORWARD SURFACE, with their shadows: one statement for every forward program that
 // shades a pixel with them — the forward mesh cells (Mesh/Surface/Pass_Forward.glslh), the translucent cells
@@ -18,11 +19,11 @@
 #include <Mesh/LightsMetadata.glslh>
 
 #include <Mesh/LightGrid.glslh>
-layout( std430, binding = 29 ) readonly buffer LightGridParamsUB
+layout( std430, binding = kLightGridParamsBinding ) readonly buffer LightGridParamsUB
 {
     LightGridParams lightGrid;
 };
-layout( std430, binding = 30 ) readonly buffer LightGridCellsUB
+layout( std430, binding = kLightGridCellsBinding ) readonly buffer LightGridCellsUB
 {
     uint lightGridCells[];
 };
@@ -53,9 +54,9 @@ layout( std430, binding = 52 ) restrict readonly buffer VsmLocalLightsUB
 // The atlas is a separate texture read through the pass's shared point-clamped state (the includer declares
 // PointClampSampler, as the deferred composite does), so it costs no sampler of its own in the stage's limit.
 #include <Mesh/LocalLightShadowView.glslh>
-layout( binding = 38 ) uniform texture2D LocalShadowAtlasTexture;
+layout( binding = kLocalShadowAtlasBinding ) uniform texture2D LocalShadowAtlasTexture;
 #define LocalShadowAtlasTexture sampler2D( LocalShadowAtlasTexture, PointClampSampler )
-layout( std430, binding = 39 ) readonly buffer LocalShadowViewsUB
+layout( std430, binding = kLocalShadowViewsBinding ) readonly buffer LocalShadowViewsUB
 {
     LocalShadowView localShadowViews[];
 };
@@ -66,7 +67,7 @@ layout( std430, binding = 39 ) readonly buffer LocalShadowViewsUB
 // shadow view exactly as the deferred composite reads it (Programs/Deferred/DeferredLighting.shader). The atlas
 // (or the virtual map) stays declared: a light with no mask slot and the subsurface transmission still read it.
 // Core::kLocalShadowMasksBinding.
-layout( binding = 40 ) uniform texture2DArray LocalShadowMasksTexture;
+layout( binding = kLocalShadowMasksBinding ) uniform texture2DArray LocalShadowMasksTexture;
 #define DesertLocalShadowScreenMask( slot ) texelFetch( sampler2DArray( LocalShadowMasksTexture, PointClampSampler ), ivec3( ivec2( gl_FragCoord.xy ), slot ), 0 ).r
 #endif
 #include <Mesh/LocalLightShadow.glslh>

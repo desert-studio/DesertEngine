@@ -95,17 +95,19 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
                                           const MaterialExecutor& material, uint32_t instanceCount,
-                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
-                                          std::span<const uint32_t> submeshFirstRows ) override;
+                                          uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel ) override;
         Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings,
                                                   const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                   const glm::mat4& transform, const MaterialExecutor& material,
-                                                  RDG::BufferRef args, uint64_t offset, uint64_t hiddenSubmeshMask,
+                                                  RDG::BufferRef args, uint64_t offset, SubmeshMask hiddenSubmeshMask,
                                                   MeshDrawArgumentsOrder order ) override;
         Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
                                                        const GraphicsPipeline&      pipeline,
                                                        const MeshGeometryBinding&   geometry,
                                                        const MeshIndirectGroupDraw& draw ) override;
+        Common::BoolResultStr RenderClusterIndirectGroup( const RDG::PassBindings&        bindings,
+                                                          const GraphicsPipeline&         pipeline,
+                                                          const ClusterIndirectGroupDraw& draw ) override;
 
         virtual void ComputeImageBeginWrite( Image* image ) override;
         virtual void ComputeImageEndWrite( Image* image ) override;
@@ -194,7 +196,7 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings,
                                                  const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                  const glm::mat4& transform, const MaterialExecutor& material,
-                                                 uint64_t hiddenSubmeshMask, VkBuffer visibleRows,
+                                                 SubmeshMask hiddenSubmeshMask, VkBuffer visibleRows,
                                                  const SubmeshDraw& draw );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,
                                  int32_t vertexOffset, uint32_t firstInstance );

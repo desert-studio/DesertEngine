@@ -305,6 +305,9 @@ namespace Desert::Editor
         for ( const bool on : { true, false } )
             commands.push_back( { "Assets", std::format( "Import Options: Combine Meshes {}", on ? "on" : "off" ),
                                   [on] { return ImportOptions::SetShownCombineMeshes( on ); } } );
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Import Options: Virtual Geometry {}", on ? "on" : "off" ),
+                                  [on] { return ImportOptions::SetShownVirtualGeometry( on ); } } );
         for ( const auto mode : { Assets::MeshDisplacementMode::None, Assets::MeshDisplacementMode::Runtime,
                                   Assets::MeshDisplacementMode::Baked } )
             commands.push_back(
@@ -381,6 +384,16 @@ namespace Desert::Editor
                        return overSelectedAssets( [axis]( const std::filesystem::path& asset )
                                                   { return ImportOptions::SetSectionUpAxis( asset, axis ); } );
                    } } );
+        // UE's Asset Actions > Nanite > Enable / Disable over the selected static meshes: the asset's own flag,
+        // its clusters cooked (or dropped) and every entity that draws it rebuilt now (SetStoredVirtualGeometry).
+        for ( const bool on : { true, false } )
+            commands.push_back( { "Assets", std::format( "Static Mesh: Virtual Geometry {}", on ? "on" : "off" ),
+                                  [overSelectedAssets, on]
+                                  {
+                                      return overSelectedAssets(
+                                           [on]( const std::filesystem::path& asset )
+                                           { return ImportOptions::SetStoredVirtualGeometry( asset, on ); } );
+                                  } } );
     }
 
     void AssetCommands::AppendFolderCommands( std::vector<PaletteCommand>& commands )

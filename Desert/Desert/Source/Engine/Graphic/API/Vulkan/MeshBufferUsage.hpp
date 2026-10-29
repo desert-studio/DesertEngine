@@ -33,8 +33,16 @@ namespace Desert::Graphic::API::Vulkan
                   ? VkBufferUsageFlags{ VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT }
                   : VkBufferUsageFlags{ VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT };
+        // VIRT-GEOM: the cluster passes read a virtual-geometry mesh's vertices, vertex refs and packed triangles
+        // through the device addresses of its GeometryPool spans (GpuClusterDag), so wherever the device has
+        // bufferDeviceAddress the pages carry SHADER_DEVICE_ADDRESS, and the index page (indices + cluster words)
+        // STORAGE as well. A device without it has no Virtual Geometry (CapabilityCatalog «VirtualGeometry»).
         if ( caps.Has( Capability::BufferDeviceAddress ) )
+        {
             usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            if ( role == MeshBufferRole::Index )
+                usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        }
         if ( caps.Has( Capability::AccelerationStructure ) )
             usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
         return usage;

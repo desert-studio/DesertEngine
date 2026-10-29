@@ -14,24 +14,30 @@
 // reads as no occluder (VirtualShadowMapProject: occluder = 1 - bits).
 #ifndef VIRTUAL_SHADOW_RASTER_GLSLH
 #define VIRTUAL_SHADOW_RASTER_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 #include <Common/VirtualShadowMap.glslh>
 
-layout( std430, binding = 53 ) restrict readonly buffer VsmFrameData
+layout( std430, binding = kVsmFrameDataBinding ) restrict readonly buffer VsmFrameData
 {
     VsmFrame Frame;
     VsmLevel Levels[];
 };
-layout( std430, binding = 54 ) restrict readonly buffer VsmPageTable
+layout( std430, binding = kVsmPageTableBinding ) restrict readonly buffer VsmPageTable
 {
     VsmPageEntry Entries[];
 };
-layout( binding = 55, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
-// The level this draw rasterizes (VirtualShadowMapFrame::RasterLevel): x = level index.
-layout( std430, binding = 56 ) restrict readonly buffer VsmRasterLevel
+layout( binding = kVsmPhysicalPoolBinding, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
+// The level this fragment rasterizes: the draw's (VirtualShadowMapFrame::RasterLevel, x = level index), unless the
+// includer names it per primitive first (VSM_RASTER_LEVEL: the cluster raster of every level in one pass,
+// Mesh/Surface/Pass_VirtualShadowDepth.glslh).
+#ifndef VSM_RASTER_LEVEL
+layout( std430, binding = kVsmRasterLevelBinding ) restrict readonly buffer VsmRasterLevel
 {
     uvec4 RasterLevel;
 };
+#define VSM_RASTER_LEVEL RasterLevel.x
+#endif
 
 // @p depth is the caster's standard-Z depth at this fragment: the rasterised one (VsmRasterWrite), or a surface's
 // Pixel Depth Offset depth (Mesh/Surface/Pass_VirtualShadowDepth.glslh, a template's `.Parallax` cell).
@@ -40,7 +46,7 @@ void VsmRasterWriteDepth( float depth )
     // The engine's viewport is flipped (negative height, VulkanRdgBackend::BeginRenderPass), so framebuffer y runs
     // down while the map's texel y (VsmProject: (clip.y * 0.5 + 0.5) * resolution) runs up.
     // The level's own resolution: 16k for a clipmap level, (128 >> mip) pages of a local light's mip.
-    const uint  level      = RasterLevel.x;
+    const uint  level      = VSM_RASTER_LEVEL;
     const int   resolution = int( Levels[level].Pages.y * VSM_PAGE_SIZE );
     const ivec2 texel      = ivec2( int( gl_FragCoord.x ), resolution - 1 - int( gl_FragCoord.y ) );
     if ( any( lessThan( texel, ivec2( 0 ) ) ) || any( greaterThanEqual( texel, ivec2( resolution ) ) ) )

@@ -25,6 +25,7 @@ namespace Desert::Graphic::System
         m_GeometryPass = MeshPass::Forward;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
+        AttachBinned( m_GBufferDraws, GpuDriven::MeshPass::GBuffer, kBinnedMainView );
         m_GBufferDraws.Declare( pass, view );
         // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
         // pass reads them after "SkinCache: Skin" wrote them.
@@ -37,8 +38,25 @@ namespace Desert::Graphic::System
         return m_GBufferDraws.Record( context );
     }
 
-    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,
-                                                       const bool localShadowMasks, const bool virtualLocal )
+    void MeshRenderer::DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GBufferPostDraws.Clear();
+        const FrameBinnedView* const binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        if ( binned == nullptr || !binned->PostOcclusion )
+            return;
+        // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred: GBuffer".
+        m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
+        m_GBufferPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGBufferPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GBufferPostDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                       const bool rayTracedSun, const bool localShadowMasks,
+                                                       const bool virtualLocal )
     {
         m_DepthNormalDraws.Clear();
         // This frame's admissions start empty here, whatever returns below: "Deferred: Generic" reads only a set
@@ -52,10 +70,12 @@ namespace Desert::Graphic::System
         const auto& gbuffer          = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
             return;
-        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The depth-normal programs
-        // sample no scene/view input: the camera and the material row are the material's own blocks.
+        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The unbinned draws carry the
+        // camera and the material row in their own blocks; the binned ones (the DepthPrepass bins, culled by the
+        // "depthPrepass" view) read the GPU scene's primitive rows, the view input bound here.
         BuildGenericDraws( m_DepthNormalDraws, GenericSlice::DeferredDepthNormal );
-        m_DepthNormalDraws.Declare( pass, std::nullopt );
+        AttachBinned( m_DepthNormalDraws, GpuDriven::MeshPass::DepthPrepass, kBinnedMainView );
+        m_DepthNormalDraws.Declare( pass, view );
     }
 
     Common::BoolResultStr MeshRenderer::RenderForwardDepthNormalManual( const RDG::PassContext& context ) const

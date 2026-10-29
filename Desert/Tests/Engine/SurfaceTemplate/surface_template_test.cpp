@@ -183,8 +183,10 @@ TEST_F( SurfaceTemplateFixture, TheTemplateSettingsAreRefusedWhereTheyCannotAppl
                     .find( "Domain Surface" ),
                std::string::npos );
 
+    // A Fragment block, not a Vertex one: a generic program's Vertex block is refused on its own, which would let
+    // this probe pass on the wrong message if the refusal order ever changed.
     EXPECT_NE( ParseError( R"(Shader "M" { Domain Surface TwoSided
-        Vertex { void main() { gl_Position = vec4( 0.0 ); } } })" )
+        Fragment { layout( location = 0 ) out vec4 o_Color; void main() { o_Color = vec4( 1.0 ); } } })" )
                     .find( "TwoSided" ),
                std::string::npos )
          << "TwoSided without a Surface block shapes nothing";

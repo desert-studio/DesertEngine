@@ -1,0 +1,14 @@
+# PASSES6-DISOCCLUSION (GPU-DRIVEN-PASSES step 6): the main view's draw bins are culled UE-style in two phases -
+# phase 1 against last frame's furthest HZB draws "Deferred: GBuffer", this frame's HZB is built from that depth,
+# phase 2 re-tests what phase 1 held back and draws the newly visible in "Deferred: GBuffer Post-Occlusion".
+# A 90 degree turn in one frame disoccludes nearly everything: no frame may show a hole.
+# Pixel check (by hand): the frame after the turn vs the same camera on the CPU path (dev) differs by <= 1/255.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -440,300,-230
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда state
+Тогда-вид 1_still улица в Lit без дыр; state views.drawBinViews.gbuffer.phase1 > 0, phase2 ≈ 0 (камера стоит)
+Когда --subject viewport set Camera.Direction 0.8,0.05,-0.6
+Когда state
+Тогда-вид 2_turned кадр после поворота на 90° без дыр (pixel diff vs CPU-путь dev <= 1/255); drawBinViews.gbuffer.phase2 > 0 на кадре поворота; editor.log 0 VUID

@@ -5,6 +5,7 @@
 #include <Engine/Assets/MeshDisplacementBake.hpp>
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
 #include <mutex>
@@ -135,6 +136,13 @@ namespace Desert::Assets
         {
             return m_ImportSettings;
         }
+        // VIRT-GEOM: the cooked cluster DAG of every submesh, in submesh order (SubmeshData::ClusterDag); empty
+        // when the mesh was not cooked with Virtual Geometry. MeshFactory hands them to the StaticMesh, which
+        // uploads their words into its index span and registers them with the VirtualMeshTable.
+        [[nodiscard]] const std::vector<Geometry::ClusterDag>& GetClusterDags() const
+        {
+            return m_ClusterDags;
+        }
 
     private:
         // Fills the CPU arrays (vertices, indices, streams, each submesh's baked LODs) from the decoded container.
@@ -149,6 +157,7 @@ namespace Desert::Assets
         std::vector<Submesh>      m_Submeshes;
         std::vector<MorphTarget>  m_MorphTargets;
         std::vector<MeshVertexStreams> m_VertexStreams;
+        std::vector<Geometry::ClusterDag> m_ClusterDags;
         std::vector<Common::UUID> m_MaterialAssetHandles;
         // Per submesh, the material GUID the file states (null = none): the distance field's sidedness input.
         std::vector<Common::Content::AssetGuid>      m_MaterialGuids;
