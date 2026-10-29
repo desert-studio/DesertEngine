@@ -303,7 +303,8 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             const bool sceneReadHeader = entry.path().filename() == "GpuScene.glslh" ||
                                          ( entry.path().filename() == "SurfaceTypes.glslh" &&
                                            ( name == "SceneDepthTexture" || name == "SceneShadingWordTexture" ) ) ||
-                                         entry.path().filename() == "MegaLightsVolume.glslh";
+                                         entry.path().filename() == "MegaLightsVolume.glslh" ||
+                                         entry.path().filename() == "SceneFog.glslh";
             if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
             {
                 if ( viewPassLayout )
@@ -324,7 +325,7 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 17u );
+    ASSERT_EQ( sceneRead.size(), 20u );
     EXPECT_EQ( sceneRead["GpuSceneInstances"], Desert::Core::kGpuSceneInstancesBinding );
     EXPECT_EQ( sceneRead["GpuSceneVisibleInstances"], Desert::Core::kGpuSceneVisibleInstancesBinding );
     EXPECT_EQ( sceneRead["GpuSceneDrawSlots"], Desert::Core::kGpuSceneDrawSlotsBinding );
@@ -341,6 +342,17 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
     EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
     EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
     EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
+    // VOLFOG-2: the view's fog a translucent surface applies at its own depth (Mesh/Surface/SceneFog.glslh). Its
+    // parameter block is declared through Common/FogParams.glslh at FOG_PARAMS_BINDING, which the header defines
+    // first - a macro the declaration walk above cannot read, so the define itself is checked.
+    EXPECT_EQ( sceneRead["SceneFogAerialPerspectiveTexture"], Desert::Core::kSceneFogAerialPerspectiveBinding );
+    EXPECT_EQ( sceneRead["SceneFogDistantSkyLightTexture"], Desert::Core::kSceneFogDistantSkyLightBinding );
+    EXPECT_EQ( sceneRead["SceneFogVolumeTexture"], Desert::Core::kSceneFogVolumeBinding );
+    const std::string sceneFog = ReadFile( shaders / "Mesh/Surface/SceneFog.glslh" );
+    EXPECT_NE(
+         sceneFog.find( std::format( "#define FOG_PARAMS_BINDING {}", Desert::Core::kSceneFogParamsBinding ) ),
+         std::string::npos )
+         << "Mesh/Surface/SceneFog.glslh does not put the fog block at Core::kSceneFogParamsBinding";
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )

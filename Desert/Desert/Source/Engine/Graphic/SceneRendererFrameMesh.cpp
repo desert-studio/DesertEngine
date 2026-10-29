@@ -200,16 +200,11 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
     {
         // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
-        // numeric placement. The height fog apply first: it modifies the OPAQUE scene itself (every pixel gains
-        // the fog between it and the camera), so everything composited after lands over the fogged world. Then
-        // the far field, the cloud composite: everything after it is nearer the camera and paints over it.
+        // numeric placement. The height fog's apply is NOT here: it fogs the OPAQUE scene and ran before the scene
+        // copy and the first translucent draw; what is drawn here fogs itself at its own depth.
+        // First the far field, the cloud composite: everything after it is nearer the camera and paints over it.
         // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
-        // grid). All on the scene target: the graph merges them into
-        // one render pass.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddSystemRaster(
-             graph, textures,
-             UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->ApplyPass() );
+        // grid). All on the scene target: the graph merges them into one render pass.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         AddSystemRaster( graph, textures,
                          UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
@@ -442,22 +437,25 @@ namespace Desert::Graphic
              { meshRenderer->DeclareGlassBindings( pass, sceneCopy, view, glassFront ); } );
     }
 
-    void SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )
+    bool SceneRenderer::AddFrameWater( RDG::Builder& graph, FrameTextures& textures )
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
         if ( water == nullptr || !water->HasDraws() )
-            return;
+            return false;
         const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Deferred: Water" );
         if ( !targets )
-            return;
+            return false;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the fog and the particles after it see the surface.
+        // depth, so the glass, the clouds and the particles after it see the surface. It fogs itself at its own
+        // depth (the opaque fog was applied before it): the frame's fog inputs are part of its declaration.
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return water->RenderManual( context ); },
-             [water]( RDG::PassBuilder& pass ) { water->DeclareDraws( pass ); } );
+             [water, view]( RDG::PassBuilder& pass ) { water->DeclareDraws( pass, view ); } );
+        return true;
     }
 
 #if DESERT_DEV_INSTRUMENTS
