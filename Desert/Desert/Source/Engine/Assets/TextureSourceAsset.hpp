@@ -51,7 +51,28 @@ namespace Desert::Assets
     //      SceneMigrator (UpgradeTextureSourceAsset), never read leniently.
     //   3  + AlphaCoverageThresholds (FOLIAGE-ALPHA-MIPS, UE UTexture::AlphaCoverageThresholds). Versions 1 and 2
     //      are raised by UpgradeTextureSourceAsset with no channel preserved (the cook they had).
-    inline constexpr uint32_t kTextureAssetSubsystemVersion = 3;
+    //   4  + ColorDilationMask (GRASS-ASSET p5, UE UTexture::CompositeTexture pattern). Versions 1-3 are raised by
+    //      UpgradeTextureSourceAsset with no mask (the cook they had).
+    inline constexpr uint32_t kTextureAssetSubsystemVersion = 4;
+
+    // COLOUR DILATION UNDER ANOTHER TEXTURE'S MASK (GRASS-ASSET p5). A foliage atlas whose opacity is a SEPARATE
+    // image (Poly Haven: `*_diff` + `*_alpha`) ships its colour BLACK where the mask cuts the card away; every mip
+    // then box-filters the blade with that black, and a distant blade (deep mip) renders 2-3x darker than its
+    // texels (measured: grass_medium_02 blade G 0.28 at level 0, 0.10 at 8x8). The cook pads the colour into the
+    // cut-away texels BEFORE the mip chain (push-pull: each hole takes the masked average of the nearest coarser
+    // level), as Megascans/Substance atlases ship dilated. The mask is referenced by GUID like UE's
+    // UTexture::CompositeTexture (another texture that shapes this one's cook); only RGB is touched.
+    struct TextureDilationMask
+    {
+        Common::Content::AssetGuid Texture;          // the opacity texture; null = no dilation
+        uint32_t                   Channel   = 0;    // 0..3 = R, G, B, A of that texture
+        float                      Threshold = 0.0f; // a texel is kept where mask >= Threshold; 0 = no dilation
+        bool                       Enabled() const
+        {
+            return !Texture.IsNull() && Threshold > 0.0f;
+        }
+        bool operator==( const TextureDilationMask& ) const = default;
+    };
 
     // Import settings: what, besides the source bytes, shapes the platform data. Serialized into IMPT and,
     // separately and in a fixed order, into the DDC key (SerializeTextureSettingsForKey).
@@ -69,6 +90,8 @@ namespace Desert::Assets
         // its OpacityMaskClipValue, channel = its OpacityChannel) so foliage keeps its silhouette with distance;
         // all 0 = plain filtering. Part of the DDC key.
         std::array<float, 4>             AlphaCoverageThresholds{ 0.0f, 0.0f, 0.0f, 0.0f };
+        // Colour padded under another texture's mask before the mip chain (TextureDilationMask). Part of the DDC key.
+        TextureDilationMask              ColorDilationMask;
         bool                             operator==( const TextureImportSettings& ) const = default;
     };
 
@@ -146,6 +169,11 @@ namespace Desert::Assets
     // changed, false = it already carried them.
     Common::ResultStr<bool> SetTextureAlphaCoverage( const std::filesystem::path& path,
                                                      const std::array<float, 4>&  thresholds );
+
+    // Writes ColorDilationMask into the texture asset at @p path (the colour atlas of a foliage card whose opacity
+    // is a separate texture). true = the file changed, false = it already carried it.
+    Common::ResultStr<bool> SetTextureColorDilationMask( const std::filesystem::path& path,
+                                                         const TextureDilationMask&   mask );
 
     // SceneMigrator's step for a version-1 `.detex` (no ColorSpace) or a version-2 one (no AlphaCoverageThresholds):
     // the same asset at the current version, a version-1 one with ColorSpace = DefaultTextureColorSpace, both with
