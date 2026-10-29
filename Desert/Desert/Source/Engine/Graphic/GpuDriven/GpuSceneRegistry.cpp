@@ -320,6 +320,7 @@ namespace Desert::Graphic::GpuDriven
                     entry.CullStart = field.CullDistanceStart;
                     entry.CullEnd   = field.CullDistanceEnd;
                 }
+                m_Scene.SetWind( entry.Primitive, field.Wind );
                 Queued( entry );
             }
             out.FieldInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );

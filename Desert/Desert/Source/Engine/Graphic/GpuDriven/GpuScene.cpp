@@ -427,6 +427,21 @@ namespace Desert::Graphic::GpuDriven
         return primitive < m_Live.size() && m_Live[primitive] != 0u;
     }
 
+    void GpuScene::SetWind( const PrimitiveIndex primitive, const PrimitiveWind& wind )
+    {
+        if ( !IsValid( primitive ) )
+            return;
+        GpuScenePrimitive& row = m_Primitives[primitive];
+        if ( row.Wind == wind.Wind && row.WindSpeed == wind.Speed && row.WindSeconds == wind.Seconds &&
+             row.WindPrevSeconds == wind.PrevSeconds )
+            return;
+        row.Wind            = wind.Wind;
+        row.WindSpeed       = wind.Speed;
+        row.WindSeconds     = wind.Seconds;
+        row.WindPrevSeconds = wind.PrevSeconds;
+        MarkPrimitive( primitive );
+    }
+
     void GpuScene::SetTransform( const PrimitiveIndex primitive, const glm::mat4& world )
     {
         if ( !IsValid( primitive ) )

@@ -672,6 +672,17 @@ namespace Desert::Graphic::System
                                  .Mesh   = data.Mesh,
                                  .Flags  = Flags::kSkinned | rigidFlags( data.CastShadows, true ) } );
 
+        // A field's wind as its row carries it: PackViewInstanceWind's values (zeros for one that does not sway), which
+        // the binned instanced vertex stage reads from the row instead of the push block.
+        const auto primitiveWind = []( const InstanceWind& wind ) -> GpuDriven::PrimitiveWind
+        {
+            if ( !wind.Sways() )
+                return {};
+            return { .Wind        = glm::vec4( wind.Direction.x, wind.Direction.y, wind.Strength, wind.Height ),
+                     .Speed       = wind.Speed,
+                     .Seconds     = wind.Seconds,
+                     .PrevSeconds = wind.PrevSeconds };
+        };
         // Every ISM / foliage field is ONE primitive whose GpuScene instances are its instances (UE instance
         // scene data; the GI card table and the TLAS custom index are keyed per instance).
         auto& fields = m_ScratchFieldRecords;
@@ -684,7 +695,8 @@ namespace Desert::Graphic::System
                                 .CullDistanceStart = data.CullDistance.Min,
                                 .CullDistanceEnd   = data.CullDistance.Max,
                                 .Flags             = rigidFlags( data.CastShadows, data.CastContactShadow ),
-                                .BoundsPad         = WindBoundsPad( data.Wind ) } );
+                                .BoundsPad         = WindBoundsPad( data.Wind ),
+                                .Wind              = primitiveWind( data.Wind ) } );
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );

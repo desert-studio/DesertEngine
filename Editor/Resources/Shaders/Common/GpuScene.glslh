@@ -47,7 +47,7 @@ struct GpuAffine3x4
     vec4 Rows[3];
 };
 
-// One per primitive of the scene; stable index for its life. 192 bytes.
+// One per primitive of the scene; stable index for its life. 208 bytes.
 struct GpuScenePrimitive
 {
     GpuAffine3x4 LocalToWorld;  // offset 0
@@ -67,9 +67,10 @@ struct GpuScenePrimitive
     uint  SkinCacheAddressLo;   // offset 168 — skinned, skin cache on; 0 = skin in the vertex stage
     uint  SkinCacheAddressHi;   // offset 172
     uint  SkinCacheVertexCount; // offset 176
-    uint  Pad0;                 // offset 180
-    uint  Pad1;                 // offset 184
-    uint  Pad2;                 // offset 188
+    float WindSpeed;            // offset 180 — foliage wind (Graphic::InstanceWind): Hz; Wind.z 0 = does not sway
+    float WindSeconds;          // offset 184 — the wind clock this frame (InstanceWind::Seconds)
+    float WindPrevSeconds;      // offset 188 — ...at the previous gameplay step (InstanceWind::PrevSeconds)
+    vec4  Wind;                 // offset 192 — (dir.x, dir.z, Strength cm, Height cm); read through GpuScene_WindA
 };
 
 // One per instance (one for a non-instanced primitive, one per ISM instance). 64 bytes.
@@ -100,6 +101,16 @@ mat4 GpuScene_PrevLocalToWorld( const GpuScenePrimitive p )
 mat4 GpuScene_InstanceToPrimitive( const GpuSceneInstance i )
 {
     return GpuScene_UnpackAffine( i.InstanceToPrimitive );
+}
+// The primitive's foliage wind as Common/FoliageWind.glslh takes it (windA, windB; Graphic::PackInstanceWind's layout),
+// at this frame's clock or, @p previous, the previous step's (a view pass's velocity).
+vec4 GpuScene_WindA( const GpuScenePrimitive p )
+{
+    return p.Wind;
+}
+vec4 GpuScene_WindB( const GpuScenePrimitive p, const bool previous )
+{
+    return vec4( p.WindSpeed, previous ? p.WindPrevSeconds : p.WindSeconds, 0.0, 0.0 );
 }
 
 // A per-frame world box replacing the local bounds of one instance (skinned pose). 32 bytes.
@@ -249,6 +260,7 @@ struct DesertMeshDraw
     uint Instance;
     uint Primitive;
     uint MaterialRow; // row in Materials[]; the fragment stage gets it as a flat varying
+    uint Flags;       // the primitive's DESERT_GPU_PRIMITIVE_*; the fragment stage gets it as a flat varying
     mat4 World;
     mat4 PrevWorld;
 };
@@ -265,6 +277,7 @@ DesertMeshDraw DesertResolveMeshDraw()
     draw.Instance    = visible.Instance;
     draw.Primitive   = instance.Primitive;
     draw.MaterialRow = slot.MaterialRow;
+    draw.Flags       = primitive.Flags;
     draw.World       = GpuScene_LocalToWorld( primitive ) * local;
     draw.PrevWorld   = GpuScene_PrevLocalToWorld( primitive ) * local;
     return draw;

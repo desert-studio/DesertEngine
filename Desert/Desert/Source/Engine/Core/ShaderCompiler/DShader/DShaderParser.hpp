@@ -92,6 +92,23 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParallaxCellSuffix = ".Parallax";
     inline constexpr std::string_view kSurfaceParallaxDefine     = "DESERT_SURFACE_PARALLAX";
     inline constexpr std::string_view kSurfaceParallaxInclude    = "Mesh/Surface/SurfaceParallax.glslh";
+    // THE BINNED PERMUTATION (GPU-driven draws; UE: the cached mesh draw command's shaders read every per-draw
+    // value through the instance id, nothing is set per draw). Every mesh cell of a binned pass
+    // (kSurfaceBinnedCellPasses; a translucent template has none: translucency is sorted per view, never binned) a
+    // second time — and every
+    // `.Parallax` cell — named `<Cell>.Binned`, after all the other cells, with kSurfaceBinnedDefine
+    // (Mesh/Surface/SurfaceTypes.glslh): the vertex stage resolves World / PrevWorld / material row / primitive
+    // flags from its instance id (Common/GpuScene.glslh DesertResolveMeshDraw), the fragment's `Material` reads
+    // the row the vertex stage handed down (kSurfaceMaterialRowMacro). Drawn by GpuDriven::DrawCommandCache's bins
+    // only.
+    inline constexpr std::string_view                kSurfaceBinnedCellSuffix = ".Binned";
+    inline constexpr std::string_view                kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
+    inline constexpr std::array<std::string_view, 3> kSurfaceBinnedCellPasses = { "Forward", "GBuffer",
+                                                                                  "ShadowDepth" };
+    // The index the generated `#define Material MaterialRows[...]` reads: the push block's MaterialIndex unless
+    // the stage defined it first (a binned cell: the vertex stage's resolved row, SurfaceTypes.glslh
+    // g_SurfaceMaterialRow).
+    inline constexpr std::string_view kSurfaceMaterialRowMacro = "DESERT_SURFACE_MATERIAL_ROW";
     // The world's parameter table, included into a cell whose surface reads `WorldParameter( "Name" )`.
     inline constexpr std::string_view kWorldParametersInclude = "Common/WorldParameters.glslh";
     // THE SURFACE'S WEATHER RESPONSE (WTH-WET; UE: CitySample's wet material functions). Every Opaque / Masked

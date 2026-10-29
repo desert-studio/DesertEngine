@@ -114,8 +114,21 @@ namespace Desert::Graphic
         return shaderName.ends_with( Core::Preprocess::kSurfaceParallaxCellSuffix );
     }
 
+    std::string BinnedCellOf( const std::string_view cellShader )
+    {
+        return std::format( "{}{}", cellShader, Core::Preprocess::kSurfaceBinnedCellSuffix );
+    }
+
+    bool IsBinnedCell( const std::string_view shaderName )
+    {
+        return shaderName.ends_with( Core::Preprocess::kSurfaceBinnedCellSuffix );
+    }
+
     std::optional<MeshVertexPath> MeshCellPath( std::string_view shaderName )
     {
+        // A `.Binned` permutation is drawn on its base cell's path (its `.Parallax` base included).
+        if ( IsBinnedCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceBinnedCellSuffix.size() );
         // A `.Parallax` permutation is drawn on its base cell's path.
         if ( IsParallaxCell( shaderName ) )
             shaderName.remove_suffix( Core::Preprocess::kSurfaceParallaxCellSuffix.size() );

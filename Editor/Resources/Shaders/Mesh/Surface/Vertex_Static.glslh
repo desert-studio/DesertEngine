@@ -11,8 +11,11 @@
 #ifdef DESERT_SURFACE_CASTER_PASS
 #include <Common/ShadowCasterBias.glslh>
 #endif
-#ifdef DESERT_SURFACE_VIEW_PASS
+#if defined( DESERT_SURFACE_VIEW_PASS ) || defined( DESERT_SURFACE_BINNED )
 #define DESERT_GPU_SCENE_PRIMITIVES 1 // this stage reads its primitive's GpuScene row
+#endif
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_GPU_SCENE_DRAWS 1 // ...through its instance id: the draw pushes nothing (SurfaceTypes.glslh)
 #endif
 #include <Common/GpuScene.glslh>
 #include <Common/Velocity.glslh>
@@ -21,7 +24,7 @@
 // The ONE engine push block, as the fragment stage's material row index reads it.
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
-#else
+#elif !defined( DESERT_SURFACE_BINNED )
 // The shadow pass pushes the transform alone (Programs/Shadow/Shadow.shader, 64 bytes).
 layout( push_constant ) uniform constants
 {
@@ -32,7 +35,12 @@ m_PushConstants;
 
 void main()
 {
-#ifdef DESERT_SURFACE_VIEW_PASS
+#ifdef DESERT_SURFACE_BINNED
+    // Binned: the instance id names the instance, its primitive and its cached draw slot (Common/GpuScene.glslh).
+    const DesertMeshDraw draw      = DesertResolveMeshDraw();
+    const mat4           world     = draw.World;
+    const mat4           prevWorld = draw.PrevWorld;
+#elif defined( DESERT_SURFACE_VIEW_PASS )
     // View pass: the object's row holds its current and previous world; Transform is the submesh's transform
     // relative to it (identical in both frames), so a still object gives PrevWorld == World bit for bit.
     const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
@@ -53,6 +61,10 @@ void main()
     v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
+#endif
+#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh DesertVelocity).

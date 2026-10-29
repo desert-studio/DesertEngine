@@ -13,10 +13,19 @@
 #endif
 #include <Common/Velocity.glslh>
 
+#ifdef DESERT_SURFACE_BINNED
+// Binned (SurfaceTypes.glslh): the instance id names the GpuScene instance, whose world is Primitive.LocalToWorld x
+// Instance.InstanceToPrimitive x the submesh's transform, and whose primitive row carries the field's wind
+// (GpuScene_WindA / GpuScene_WindB). No InstanceTransforms, nothing pushed.
+#define DESERT_GPU_SCENE_PRIMITIVES 1
+#define DESERT_GPU_SCENE_DRAWS 1
+#include <Common/GpuScene.glslh>
+#else
 layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 {
     mat4 transforms[];
 };
+#endif
 
 #ifdef DESERT_SURFACE_PASS_VirtualShadowDepth
 // The virtual shadow map draws only the instances "VSM: Cull Casters" kept for this level: gl_InstanceIndex is a slot of
@@ -40,9 +49,18 @@ DESERT_SURFACE_VARYINGS( out )
 
 void main()
 {
+#ifdef DESERT_SURFACE_BINNED
+    const DesertMeshDraw    draw  = DesertResolveMeshDraw();
+    const GpuScenePrimitive row   = gpuScene.Primitives[draw.Primitive];
+    const mat4              model = draw.World;
+    const vec4              windA = GpuScene_WindA( row );
+    const vec4              windB = GpuScene_WindB( row, false );
+#else
     const mat4 model = transforms[DESERT_INSTANCE_INDEX];
-    const vec3 worldPosition =
-         InstancedWorldPosition( model, a_Position, m_PushConstants.WindA, m_PushConstants.WindB );
+    const vec4 windA = m_PushConstants.WindA;
+    const vec4 windB = m_PushConstants.WindB;
+#endif
+    const vec3 worldPosition = InstancedWorldPosition( model, a_Position, windA, windB );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     const mat3 normalMatrix  = transpose( inverse( mat3( model ) ) );
     const vec3 T             = normalize( normalMatrix * a_Tangent );
@@ -55,6 +73,10 @@ void main()
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
 #endif
+#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
+#endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The instance's previous world: transforms[i + offset], the offset in WindB.w's bits
     // (Graphic::InstanceWindPush, GpuInstancedRenderData::PrevInstanceOffset). A producer whose instances move
@@ -62,9 +84,15 @@ void main()
     // NiagaraMeshVertexFactory's PrevPosition) states it; a batch that is world-static by construction (moving an
     // instance rebuilds it; grass) pushes 0 = its own transform. The wind is evaluated again at the view's previous
     // time (WindB.z). No motion row is read.
+#ifdef DESERT_SURFACE_BINNED
+    // Binned: the primitive's previous world x the same instance / submesh transforms; the wind at the row's previous clock.
+    const mat4 prevModel         = draw.PrevWorld;
+    const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, windA, GpuScene_WindB( row, true ) );
+#else
     const mat4 prevModel         = transforms[DESERT_INSTANCE_INDEX + floatBitsToUint( m_PushConstants.WindB.w )];
     const vec3 prevWorldPosition = InstancedWorldPosition( prevModel, a_Position, m_PushConstants.WindA,
                                                            vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
+#endif
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( worldPosition, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( prevWorldPosition, 1.0 );
     // The object-motion flag (Common/Velocity.glslh DesertVelocity w): the INSTANCE moved (a producer whose
