@@ -95,7 +95,7 @@ namespace Desert::ECS
         for ( entt::entity current = entity; current != entt::null; )
         {
             if ( const auto* transform = registry.try_get<TransformComponent>( current ) )
-                world = glm::quat( transform->Rotation ) * world;
+                world = glm::quat( transform->GetRotation() ) * world;
             const auto* link = registry.try_get<RelationshipComponent>( current );
             current          = link ? link->Parent : entt::null;
         }
@@ -117,7 +117,6 @@ namespace Desert::ECS
         const auto*     link   = registry.try_get<RelationshipComponent>( entity );
         const glm::quat parent = link && link->Parent != entt::null ? WorldRotation( registry, link->Parent )
                                                                     : glm::quat( 1.0f, glm::vec3( 0.0f ) );
-        registry.get<TransformComponent>( entity ).Rotation =
-             glm::eulerAngles( glm::inverse( parent ) * Rules::RotationForTravel( travel ) );
+        ECS::SetLocalRotation( registry, entity, glm::eulerAngles( glm::inverse( parent ) * Rules::RotationForTravel( travel ) ) );
     }
 } // namespace Desert::ECS

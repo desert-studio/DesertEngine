@@ -81,9 +81,9 @@ namespace Desert::ECS
         {
             const auto pick = [slot]( const auto& mesh ) -> Graphic::MaterialInstance*
             {
-                if ( slot >= mesh.MaterialSlots.size() || slot >= mesh.RuntimeMaterialInstances.size() )
+                if ( slot >= mesh.GetMaterialSlots().size() || slot >= mesh.RuntimeMaterialInstances().size() )
                     return nullptr;
-                return mesh.RuntimeMaterialInstances[slot].get();
+                return mesh.RuntimeMaterialInstances()[slot].get();
             };
             if ( !registry.valid( entity ) )
                 return nullptr;

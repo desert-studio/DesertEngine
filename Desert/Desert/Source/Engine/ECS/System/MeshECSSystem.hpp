@@ -122,7 +122,7 @@ namespace Desert::ECS
                          if ( ECS::IsHidden( registry, entity ) )
                              return;
 
-                         if ( !mesh.RuntimeMesh && !mesh.Primitive.has_value() && !mesh.MeshHandle )
+                         if ( !mesh.GetRuntimeMesh() && !mesh.GetPrimitive().has_value() && !mesh.GetMeshHandle() )
                              return;
 
                          // Its pieces stand in for it (FracturePieceDraw).
@@ -131,66 +131,66 @@ namespace Desert::ECS
 
                          Desert::Mesh* targetMesh = nullptr;
 
-                         if ( mesh.RuntimeMesh )
+                         if ( mesh.GetRuntimeMesh() )
                          {
                              // Use unique modified mesh
-                             targetMesh = mesh.RuntimeMesh.get();
+                             targetMesh = mesh.GetRuntimeMesh().get();
                          }
-                         else if ( mesh.Primitive.has_value() )
+                         else if ( mesh.GetPrimitive().has_value() )
                          {
                              // Use the process-wide SHARED primitive mesh (one Mesh* per type) so identical
                              // primitives batch via instancing. NOT stored in RuntimeMesh — leaving it null
                              // keeps the entity on the shared mesh; the mesh editor forks a per-entity
                              // RuntimeMesh on edit (copy-on-edit), which then takes priority above.
-                             targetMesh = Geometry::PrimitiveMeshFactory::GetShared( mesh.Primitive.value() );
+                             targetMesh = Geometry::PrimitiveMeshFactory::GetShared( mesh.GetPrimitive().value() );
                          }
-                         else if ( mesh.MeshHandle )
+                         else if ( mesh.GetMeshHandle() )
                          {
                              // Asset-based mesh
-                             targetMesh = Runtime::ResourceRegistry::GetMeshService()->Get( mesh.MeshHandle );
+                             targetMesh = Runtime::ResourceRegistry::GetMeshService()->Get( mesh.GetMeshHandle() );
                          }
 
                          if ( !targetMesh )
                              return;
 
                          // --- Auto-Initialize Material Slots --- (the one rule, AdoptMeshMaterialSlots)
-                         AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.RuntimeMaterialInstances,
-                                                 mesh.MeshHandle );
+                         AdoptMeshMaterialSlots( mesh.GetMaterialSlots(), mesh.RuntimeMaterialInstances(),
+                                                 mesh.GetMeshHandle() );
 
                          // A MaterialService::Invalidate() this frame dropped some runtime Material —
                          // rebuild every cached instance set (parents may be graveyarded). One uint
                          // compare per entity; without it a stale RuntimeMaterialInstances would keep
                          // a dangling GetParentMaterial() pointer past the next CollectGarbage().
-                         if ( mesh.SeenMaterialsVersion != materialsVersion )
+                         if ( mesh.SeenMaterialsVersion() != materialsVersion )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
-                             mesh.SeenMaterialsVersion = materialsVersion;
+                             mesh.RuntimeMaterialInstances().clear();
+                             mesh.SeenMaterialsVersion() = materialsVersion;
                          }
 
                          // Ensure runtime material instances are initialized and match the slots
-                         size_t slotCount = mesh.MaterialSlots.empty() ? 1 : mesh.MaterialSlots.size();
+                         size_t slotCount = mesh.GetMaterialSlots().empty() ? 1 : mesh.GetMaterialSlots().size();
 
-                         if ( mesh.RuntimeMaterialInstances.size() != slotCount )
+                         if ( mesh.RuntimeMaterialInstances().size() != slotCount )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
-                             mesh.RuntimeMaterialInstances.reserve( slotCount );
+                             mesh.RuntimeMaterialInstances().clear();
+                             mesh.RuntimeMaterialInstances().reserve( slotCount );
 
-                             if ( mesh.MaterialSlots.empty() )
+                             if ( mesh.GetMaterialSlots().empty() )
                              {
                                  // Use persistent system default material template
-                                 mesh.RuntimeMaterialInstances.push_back(
+                                 mesh.RuntimeMaterialInstances().push_back(
                                       DefaultInstance( Graphic::MeshVertexPath::Static ) );
                              }
                              else
                              {
-                                 for ( const auto& assetHandle : mesh.MaterialSlots )
+                                 for ( const auto& assetHandle : mesh.GetMaterialSlots() )
                                  {
                                      // Service-owned resolution: base assets give a plain instance,
                                      // material-INSTANCE assets give an instance of their base with
                                      // the child overrides applied.
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance( assetHandle );
-                                     mesh.RuntimeMaterialInstances.push_back(
+                                     mesh.RuntimeMaterialInstances().push_back(
                                           inst ? std::move( inst )
                                                : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
@@ -204,17 +204,17 @@ namespace Desert::ECS
                              // the reason the whole change exists: a command recorded last frame may still
                              // be holding the previous binding.
                              auto binding   = std::make_shared<Graphic::MaterialSlotBinding>();
-                             binding->Owned = mesh.RuntimeMaterialInstances;
+                             binding->Owned = mesh.RuntimeMaterialInstances();
                              binding->Slots.reserve( binding->Owned.size() );
                              for ( const auto& inst : binding->Owned )
                                  binding->Slots.push_back( inst.get() );
                              // A displaced mesh (Runtime or Baked, its import settings) draws its displaced
                              // geometry with the displaced siblings of the same slots: base cells, so the
                              // relief is not marched a second time over the triangles that carry it.
-                             if ( targetMesh->IsDisplaced() && !mesh.MaterialSlots.empty() )
+                             if ( targetMesh->IsDisplaced() && !mesh.GetMaterialSlots().empty() )
                              {
                                  auto displaced = std::make_shared<Graphic::MaterialSlotBinding>();
-                                 for ( const auto& assetHandle : mesh.MaterialSlots )
+                                 for ( const auto& assetHandle : mesh.GetMaterialSlots() )
                                  {
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance(
@@ -224,21 +224,21 @@ namespace Desert::ECS
                                                : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
                                  if ( displaced->Owned[0] )
-                                     for ( const auto& p : mesh.ScriptSlotParams )
+                                     for ( const auto& p : mesh.GetScriptSlotParams() )
                                          displaced->Owned[0]->SetParamFromVec4( p.Name, p.Value );
                                  for ( const auto& inst : displaced->Owned )
                                      displaced->Slots.push_back( inst.get() );
                                  binding->Displaced = std::move( displaced );
                              }
-                             mesh.RuntimeSlots = std::move( binding );
+                             mesh.RuntimeSlots() = std::move( binding );
 
                              // The script's slot-0 overrides land on EVERY slot-0 instance built (UE: the
                              // MID a mesh component keeps across material changes). The list is the
                              // script's, not a hand-off buffer: nothing is consumed, so a rebuild after a
                              // material invalidation shows the same values the script last wrote.
-                             if ( !mesh.RuntimeMaterialInstances.empty() && mesh.RuntimeMaterialInstances[0] )
-                                 for ( const auto& p : mesh.ScriptSlotParams )
-                                     mesh.RuntimeMaterialInstances[0]->SetParamFromVec4( p.Name, p.Value );
+                             if ( !mesh.RuntimeMaterialInstances().empty() && mesh.RuntimeMaterialInstances()[0] )
+                                 for ( const auto& p : mesh.GetScriptSlotParams() )
+                                     mesh.RuntimeMaterialInstances()[0]->SetParamFromVec4( p.Name, p.Value );
                          }
 
                          glm::mat4 worldTransform = transform.GetTransform();
@@ -289,36 +289,36 @@ namespace Desert::ECS
                          }
 
                          // Outline: editor selection OR the per-entity "Draw outline" toggle.
-                         const bool outlined = isSelected || mesh.OutlineDraw;
+                         const bool outlined = isSelected || mesh.GetOutlineDraw();
 
                          // A MaterialComponent assigning a NON-Lit shader takes this mesh off the batched
                          // Lit path onto the generic per-object data-driven path.
                          if ( registry.has<MaterialComponent>( entity ) )
                          {
                              const auto& matc = registry.get<MaterialComponent>( entity );
-                             if ( !matc.ShaderName.empty() )
+                             if ( !matc.GetShaderName().empty() )
                              {
                                  std::vector<std::pair<std::string, glm::vec4>> overrides;
-                                 overrides.reserve( matc.Params.size() );
-                                 for ( const auto& p : matc.Params )
+                                 overrides.reserve( matc.GetParams().size() );
+                                 for ( const auto& p : matc.GetParams() )
                                      overrides.emplace_back( p.Name, p.Value );
 
                                  std::vector<std::pair<std::string, uint64_t>> texOverrides;
-                                 texOverrides.reserve( matc.Textures.size() );
-                                 for ( const auto& t : matc.Textures )
+                                 texOverrides.reserve( matc.GetTextures().size() );
+                                 for ( const auto& t : matc.GetTextures() )
                                      texOverrides.emplace_back( t.Name, t.TextureHandle );
 
                                  // This draw REPLACES the entity's lit draw (note the return), so it is
                                  // the only draw that could carry the caster — and before it did, a
                                  // Shader Override mesh cast no shadow at all.
-                                 const bool overrideCasts = mesh.CastShadows;
+                                 const bool overrideCasts = mesh.GetCastShadows();
 
                                  renderCommandBuffer.Emplace<Graphic::Render::DrawGenericMeshCommand>(
-                                      static_cast<uint32_t>( entity ), targetMesh, worldTransform, matc.ShaderName,
+                                      static_cast<uint32_t>( entity ), targetMesh, worldTransform, matc.GetShaderName(),
                                       Graphic::MaterialOverrides{ std::move( overrides ),
                                                                   std::move( texOverrides ) },
                                       outlined, /*directTexture*/ nullptr, /*directTextureSampler*/ std::string{},
-                                      overrideCasts, mesh.MaxDrawDistance, /*visibleInRayTracing*/ true );
+                                      overrideCasts, mesh.GetMaxDrawDistance(), /*visibleInRayTracing*/ true );
                                  return; // skip the lit path for this entity
                              }
                          }
@@ -332,22 +332,22 @@ namespace Desert::ECS
                          const size_t submeshCount =
                               std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 );
                          const auto split = Rules::SplitMeshSlotDraws<Graphic::Material*>(
-                              submeshCount, mesh.RuntimeMaterialInstances.size(), mesh.HiddenSubmeshes,
-                              mesh.CastShadows, [&]( size_t slot ) -> Graphic::Material*
-                              { return CustomSlotMaterial( mesh.RuntimeMaterialInstances[slot].get() ); } );
+                              submeshCount, mesh.RuntimeMaterialInstances().size(), mesh.GetHiddenSubmeshes(),
+                              mesh.GetCastShadows(), [&]( size_t slot ) -> Graphic::Material*
+                              { return CustomSlotMaterial( mesh.RuntimeMaterialInstances()[slot].get() ); } );
 
                          for ( const auto& d : split.SlotDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawSlotMaterialMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh, worldTransform, d.Mat,
-                                  d.VisibleMask, outlined, d.CastShadows, mesh.MaxDrawDistance );
+                                  d.VisibleMask, outlined, d.CastShadows, mesh.GetMaxDrawDistance() );
 
                          for ( const auto& d : split.SectionDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawStaticMeshCommand>(
-                                  static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots,
+                                  static_cast<uint32_t>( entity ), targetMesh, mesh.RuntimeSlots(),
                                   static_cast<uint32_t>( d.Slot ), worldTransform, outlined, d.HiddenMask,
-                                  mesh.ForcedLOD, mesh.LODBias, d.CastShadows, mesh.ReceiveShadows,
-                                  mesh.TranslucencySortPriority, mesh.MaxDrawDistance, /*motionPart*/ 0,
-                                  mesh.CastContactShadow );
+                                  mesh.GetForcedLOD(), mesh.GetLODBias(), d.CastShadows, mesh.GetReceiveShadows(),
+                                  mesh.GetTranslucencySortPriority(), mesh.GetMaxDrawDistance(), /*motionPart*/ 0,
+                                  mesh.GetCastContactShadow() );
                      } );
             }
 
@@ -361,17 +361,17 @@ namespace Desert::ECS
                      {
                          if ( ECS::IsHidden( registry, entity ) )
                              return;
-                         if ( ism.InstanceTransforms.empty() )
+                         if ( ism.GetInstanceTransforms().empty() )
                              return;
 
                          // Resolve the single shared mesh (edited RuntimeMesh > primitive > asset handle).
                          Desert::Mesh* targetMesh = nullptr;
-                         if ( ism.RuntimeMesh )
-                             targetMesh = ism.RuntimeMesh.get();
-                         else if ( ism.Primitive.has_value() )
-                             targetMesh = Geometry::PrimitiveMeshFactory::GetShared( ism.Primitive.value() );
-                         else if ( ism.MeshHandle )
-                             targetMesh = Runtime::ResourceRegistry::GetMeshService()->Get( ism.MeshHandle );
+                         if ( ism.RuntimeMesh() )
+                             targetMesh = ism.RuntimeMesh().get();
+                         else if ( ism.GetPrimitive().has_value() )
+                             targetMesh = Geometry::PrimitiveMeshFactory::GetShared( ism.GetPrimitive().value() );
+                         else if ( ism.GetMeshHandle() )
+                             targetMesh = Runtime::ResourceRegistry::GetMeshService()->Get( ism.GetMeshHandle() );
                          if ( !targetMesh )
                              return;
 
@@ -381,48 +381,48 @@ namespace Desert::ECS
                          // field drew the default white surface, and a resimulate (which rebuilds the fields)
                          // dropped any slots copied in by hand. An edited RuntimeMesh or a primitive has no
                          // mesh asset to adopt from.
-                         if ( !ism.RuntimeMesh && !ism.Primitive.has_value() )
-                             AdoptMeshMaterialSlots( ism.MaterialSlots, ism.RuntimeMaterialInstances,
-                                                     ism.MeshHandle );
+                         if ( !ism.RuntimeMesh() && !ism.GetPrimitive().has_value() )
+                             AdoptMeshMaterialSlots( ism.GetMaterialSlots(), ism.RuntimeMaterialInstances(),
+                                                     ism.GetMeshHandle() );
 
                          // Invalidation stamp (see the static path) — rebuild on any Invalidate().
-                         if ( ism.SeenMaterialsVersion != materialsVersion )
+                         if ( ism.SeenMaterialsVersion() != materialsVersion )
                          {
-                             ism.RuntimeMaterialInstances.clear();
-                             ism.SeenMaterialsVersion = materialsVersion;
+                             ism.RuntimeMaterialInstances().clear();
+                             ism.SeenMaterialsVersion() = materialsVersion;
                          }
 
                          // One material instance per slot, rebuilt only when the slot set changes.
-                         const size_t slotCount = ism.MaterialSlots.empty() ? 1 : ism.MaterialSlots.size();
-                         if ( ism.RuntimeMaterialInstances.size() != slotCount )
+                         const size_t slotCount = ism.GetMaterialSlots().empty() ? 1 : ism.GetMaterialSlots().size();
+                         if ( ism.RuntimeMaterialInstances().size() != slotCount )
                          {
-                             ism.RuntimeMaterialInstances.clear();
-                             ism.RuntimeDisplacedInstances.clear();
+                             ism.RuntimeMaterialInstances().clear();
+                             ism.RuntimeDisplacedInstances().clear();
                              // A displaced mesh's twins draw with the displaced siblings (base cells).
                              if ( targetMesh->IsDisplaced() )
-                                 for ( const auto& h : ism.MaterialSlots )
+                                 for ( const auto& h : ism.GetMaterialSlots() )
                                  {
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance(
                                                            h, Graphic::MeshVertexPath::Static, true );
-                                     ism.RuntimeDisplacedInstances.push_back(
+                                     ism.RuntimeDisplacedInstances().push_back(
                                           inst ? std::move( inst )
                                                : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
-                             if ( ism.MaterialSlots.empty() )
-                                 ism.RuntimeMaterialInstances.push_back(
+                             if ( ism.GetMaterialSlots().empty() )
+                                 ism.RuntimeMaterialInstances().push_back(
                                       DefaultInstance( Graphic::MeshVertexPath::Static ) );
                              else
-                                 for ( const auto& h : ism.MaterialSlots )
+                                 for ( const auto& h : ism.GetMaterialSlots() )
                                  {
                                      auto inst = Runtime::ResourceRegistry::GetMaterialService()
                                                       ->CreateRuntimeInstance( h );
-                                     ism.RuntimeMaterialInstances.push_back(
+                                     ism.RuntimeMaterialInstances().push_back(
                                           inst ? std::move( inst )
                                                : DefaultInstance( Graphic::MeshVertexPath::Static ) );
                                  }
                          }
-                         if ( ism.RuntimeMaterialInstances.empty() )
+                         if ( ism.RuntimeMaterialInstances().empty() )
                              return;
 
                          // Per section, as a static mesh splits (Rules::SplitMeshSlotDraws): one instanced draw
@@ -434,9 +434,9 @@ namespace Desert::ECS
                          // draw and executing it.
                          const auto ismSplit = Rules::SplitMeshSlotDraws<Graphic::Material*>(
                               std::min<size_t>( targetMesh->GetSubmeshes().size(), 64 ),
-                              ism.RuntimeMaterialInstances.size(), /*hidden*/ 0ull, ism.CastShadows,
+                              ism.RuntimeMaterialInstances().size(), /*hidden*/ 0ull, ism.GetCastShadows(),
                               [&]( size_t slot ) -> Graphic::Material*
-                              { return CustomSlotMaterial( ism.RuntimeMaterialInstances[slot].get() ); } );
+                              { return CustomSlotMaterial( ism.RuntimeMaterialInstances()[slot].get() ); } );
                          if ( !ismSplit.SlotDraws.empty() )
                          {
                              static bool s_WarnedCustomISM = false;
@@ -455,10 +455,10 @@ namespace Desert::ECS
                          // carries a CO-OWNED snapshot, not the component's address: see the member's own
                          // note and Graphic::MaterialSlotBinding (A8-3). The comparison is what makes the
                          // snapshot impossible to leave stale.
-                         if ( !ism.RuntimeInstanceSnapshot ||
-                              *ism.RuntimeInstanceSnapshot != ism.InstanceTransforms )
-                             ism.RuntimeInstanceSnapshot =
-                                  std::make_shared<const std::vector<glm::mat4>>( ism.InstanceTransforms );
+                         if ( !ism.RuntimeInstanceSnapshot() ||
+                              *ism.RuntimeInstanceSnapshot() != ism.GetInstanceTransforms() )
+                             ism.RuntimeInstanceSnapshot() =
+                                  std::make_shared<const std::vector<glm::mat4>>( ism.GetInstanceTransforms() );
 
                          // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
                          // (one source: the paint panel's edit re-reads into the same asset). A type still being
@@ -484,11 +484,11 @@ namespace Desert::ECS
                          for ( const auto& d : ismSplit.SectionDraws )
                              renderCommandBuffer.Emplace<Graphic::Render::DrawInstancedStaticMeshCommand>(
                                   static_cast<uint32_t>( entity ), targetMesh,
-                                  ism.RuntimeMaterialInstances[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot,
-                                  d.CastShadows, ism.CastContactShadow,
-                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.MaxDrawDistance ), wind,
-                                  d.Slot < ism.RuntimeDisplacedInstances.size()
-                                       ? ism.RuntimeDisplacedInstances[d.Slot]
+                                  ism.RuntimeMaterialInstances()[d.Slot], d.HiddenMask, ism.RuntimeInstanceSnapshot(),
+                                  d.CastShadows, ism.GetCastContactShadow(),
+                                  Graphic::ClipToMaxDrawDistance( cullDistance, ism.GetMaxDrawDistance() ), wind,
+                                  d.Slot < ism.RuntimeDisplacedInstances().size()
+                                       ? ism.RuntimeDisplacedInstances()[d.Slot]
                                        : Graphic::MaterialInstancePtr{} );
                      } );
             }
@@ -508,9 +508,9 @@ namespace Desert::ECS
                              return;
 
                          // Editor-built runtime rig (Convert to Skinned) takes priority over the cooked asset.
-                         Desert::Mesh* baseMesh = mesh.RuntimeMesh.get();
+                         Desert::Mesh* baseMesh = mesh.GetRuntimeMesh().get();
                          if ( !baseMesh )
-                             baseMesh = Runtime::ResourceRegistry::GetMeshService()->Get( mesh.MeshHandle );
+                             baseMesh = Runtime::ResourceRegistry::GetMeshService()->Get( mesh.GetMeshHandle() );
                          if ( !baseMesh || !baseMesh->IsSkinned() )
                              return;
                          auto* skinnedMesh = static_cast<Desert::SkinnedMesh*>( baseMesh );
@@ -520,28 +520,28 @@ namespace Desert::ECS
                          // of its own takes them, by the same rule. Without it every placed skinned mesh drew the
                          // grey default although its .demat and textures were written (THM1l, live on Fox.glb). A
                          // runtime rig (Convert to Skinned) carries its own slots.
-                         if ( !mesh.RuntimeMesh )
-                             AdoptMeshMaterialSlots( mesh.MaterialSlots, mesh.RuntimeMaterialInstances,
-                                                     mesh.MeshHandle );
+                         if ( !mesh.GetRuntimeMesh() )
+                             AdoptMeshMaterialSlots( mesh.GetMaterialSlots(), mesh.RuntimeMaterialInstances(),
+                                                     mesh.GetMeshHandle() );
 
                          // One skinned lit material instance (default if no slot assigned), rebuilt only when
                          // the slot set changes.
                          // Invalidation stamp (see the static path) — rebuild on any Invalidate().
-                         if ( mesh.SeenMaterialsVersion != materialsVersion )
+                         if ( mesh.SeenMaterialsVersion() != materialsVersion )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
-                             mesh.RuntimeDisplacedInstances.clear();
-                             mesh.SeenMaterialsVersion = materialsVersion;
+                             mesh.RuntimeMaterialInstances().clear();
+                             mesh.RuntimeDisplacedInstances().clear();
+                             mesh.SeenMaterialsVersion() = materialsVersion;
                          }
-                         const size_t slotCount = mesh.MaterialSlots.empty() ? 1 : mesh.MaterialSlots.size();
-                         if ( mesh.RuntimeMaterialInstances.size() != slotCount )
+                         const size_t slotCount = mesh.GetMaterialSlots().empty() ? 1 : mesh.GetMaterialSlots().size();
+                         if ( mesh.RuntimeMaterialInstances().size() != slotCount )
                          {
-                             mesh.RuntimeMaterialInstances.clear();
-                             if ( mesh.MaterialSlots.empty() )
-                                 mesh.RuntimeMaterialInstances.push_back(
+                             mesh.RuntimeMaterialInstances().clear();
+                             if ( mesh.GetMaterialSlots().empty() )
+                                 mesh.RuntimeMaterialInstances().push_back(
                                       DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
                              else
-                                 for ( const auto& h : mesh.MaterialSlots )
+                                 for ( const auto& h : mesh.GetMaterialSlots() )
                                  {
                                      // THE SKINNED path of the SAME `.demat` the static twin uses. This
                                      // argument is the whole fix: the slot names a surface, this system
@@ -551,12 +551,12 @@ namespace Desert::ECS
                                      auto inst =
                                           Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
                                                h, Graphic::MeshVertexPath::Skinned );
-                                     mesh.RuntimeMaterialInstances.push_back(
+                                     mesh.RuntimeMaterialInstances().push_back(
                                           inst ? std::move( inst )
                                                : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
                                  }
                          }
-                         if ( mesh.RuntimeMaterialInstances.empty() )
+                         if ( mesh.RuntimeMaterialInstances().empty() )
                              return;
 
                          // Built per frame here, as the raw vector it replaces was — the skinned path has
@@ -564,36 +564,36 @@ namespace Desert::ECS
                          // changed is that the command now CO-OWNS the instances instead of copying bare
                          // pointers to instances this component alone keeps alive (A8-3).
                          auto slots   = std::make_shared<Graphic::MaterialSlotBinding>();
-                         slots->Owned = mesh.RuntimeMaterialInstances;
+                         slots->Owned = mesh.RuntimeMaterialInstances();
                          slots->Slots.reserve( slots->Owned.size() );
                          for ( const auto& inst : slots->Owned )
                              slots->Slots.push_back( inst.get() );
                          // A displaced skinned mesh (Runtime, CONTRACT-DISPLACE §9.8) draws its twin with the
                          // displaced siblings of the same slots: base cells, so the relief is not marched again
                          // over the triangles that carry it (the static rule above).
-                         if ( skinnedMesh->IsDisplaced() && !mesh.MaterialSlots.empty() )
+                         if ( skinnedMesh->IsDisplaced() && !mesh.GetMaterialSlots().empty() )
                          {
-                             if ( mesh.RuntimeDisplacedInstances.size() != mesh.MaterialSlots.size() )
+                             if ( mesh.RuntimeDisplacedInstances().size() != mesh.GetMaterialSlots().size() )
                              {
-                                 mesh.RuntimeDisplacedInstances.clear();
-                                 for ( const auto& h : mesh.MaterialSlots )
+                                 mesh.RuntimeDisplacedInstances().clear();
+                                 for ( const auto& h : mesh.GetMaterialSlots() )
                                  {
                                      auto inst =
                                           Runtime::ResourceRegistry::GetMaterialService()->CreateRuntimeInstance(
                                                h, Graphic::MeshVertexPath::Skinned, true );
-                                     mesh.RuntimeDisplacedInstances.push_back(
+                                     mesh.RuntimeDisplacedInstances().push_back(
                                           inst ? std::move( inst )
                                                : DefaultInstance( Graphic::MeshVertexPath::Skinned ) );
                                  }
                              }
                              auto displaced   = std::make_shared<Graphic::MaterialSlotBinding>();
-                             displaced->Owned = mesh.RuntimeDisplacedInstances;
+                             displaced->Owned = mesh.RuntimeDisplacedInstances();
                              for ( const auto& inst : displaced->Owned )
                                  displaced->Slots.push_back( inst.get() );
                              slots->Displaced = std::move( displaced );
                          }
                          else
-                             mesh.RuntimeDisplacedInstances.clear();
+                             mesh.RuntimeDisplacedInstances().clear();
 
                          // Bone matrices: animated pose if an Animator exists, else bind pose (identity = the
                          // skeleton's rest shape, which stays correct after Phase-2 rest-pose edits since
@@ -657,7 +657,7 @@ namespace Desert::ECS
 
                          renderCommandBuffer.Emplace<Graphic::Render::DrawSkinnedMeshCommand>(
                               static_cast<uint32_t>( entity ), skinnedMesh, slots, worldTransform, boneMatrices,
-                              std::move( morphWeights ), morphRevision, isSelected, mesh.CastShadows );
+                              std::move( morphWeights ), morphRevision, isSelected, mesh.GetCastShadows() );
                      } );
             }
         }

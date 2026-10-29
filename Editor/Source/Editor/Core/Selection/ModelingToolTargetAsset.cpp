@@ -12,37 +12,38 @@ namespace Desert::Editor
 {
     Common::ResultStr<ToolTargetMesh> GetToolTargetMesh( const ECS::StaticMeshComponent& component )
     {
-        if ( component.EditableMesh || !component.MeshHandle )
-            return GetToolTargetMeshAt( component.EditableMesh, {} );
+        if ( component.GetEditableMesh() || !component.GetMeshHandle() )
+            return GetToolTargetMeshAt( component.GetEditableMesh(), {} );
         // A tool is a command the user is waiting on, so a mesh that is not resident yet (just accepted, just
         // evicted) is read now through the editor-tool door instead of being refused as "pending".
         auto*       service = Runtime::ResourceRegistry::GetMeshService();
-        const auto* asset   = service->GetAsset( component.MeshHandle );
-        if ( !asset && service->LoadNow( component.MeshHandle ) )
-            asset = service->GetAsset( component.MeshHandle );
+        const auto* asset   = service->GetAsset( component.GetMeshHandle() );
+        if ( !asset && service->LoadNow( component.GetMeshHandle() ) )
+            asset = service->GetAsset( component.GetMeshHandle() );
         if ( !asset )
             return Common::MakeFormattedError<ToolTargetMesh>( "static mesh asset {} could not be read (the log "
                                                                "names why)",
-                                                               static_cast<uint64_t>( component.MeshHandle ) );
+                                                               static_cast<uint64_t>( component.GetMeshHandle() ) );
         return GetToolTargetMeshAt( nullptr, asset->GetMetadata().Filepath );
     }
 
-    Common::ResultStr<std::filesystem::path> CommitEditableMeshToAsset( ECS::StaticMeshComponent& component )
+    Common::ResultStr<std::filesystem::path> CommitEditableMeshToAsset( entt::registry& registry, entt::entity entity )
     {
-        if ( !component.EditableMesh )
+        const auto& component = registry.get<ECS::StaticMeshComponent>( entity );
+        if ( !component.GetEditableMesh() )
             return Common::MakeError<std::filesystem::path>(
                  "the entity holds no edit: it already draws its static mesh asset as it is" );
-        if ( !component.MeshHandle )
+        if ( !component.GetMeshHandle() )
             return Common::MakeError<std::filesystem::path>(
                  "the edited mesh has no static mesh asset to write into (a created shape): write it as a new "
                  "asset with Output type Static Mesh" );
         auto* service = Runtime::ResourceRegistry::GetMeshService();
-        auto* asset   = service->GetAsset( component.MeshHandle );
+        auto* asset   = service->GetAsset( component.GetMeshHandle() );
         if ( !asset )
             return Common::MakeFormattedError<std::filesystem::path>(
-                 "static mesh asset {} is not loaded", static_cast<uint64_t>( component.MeshHandle ) );
+                 "static mesh asset {} is not loaded", static_cast<uint64_t>( component.GetMeshHandle() ) );
         const std::filesystem::path path = asset->GetMetadata().Filepath;
-        if ( auto written = WriteEditedMeshAsset( path, *component.EditableMesh ); !written.IsSuccess() )
+        if ( auto written = WriteEditedMeshAsset( path, *component.GetEditableMesh() ); !written.IsSuccess() )
             return Common::MakeError<std::filesystem::path>( written.GetError() );
         Assets::ContentRegistry::NoteFile( path );
         // Every entity that draws the asset draws the edit from the next frame: the parsed payload and the
@@ -51,14 +52,14 @@ namespace Desert::Editor
         if ( auto unloaded = asset->Unload(); !unloaded.IsSuccess() )
             return Common::MakeFormattedError<std::filesystem::path>( "'{}' was written but not reloaded: {}",
                                                                       path.generic_string(), unloaded.GetError() );
-        service->EvictBuilt( component.MeshHandle );
+        service->EvictBuilt( component.GetMeshHandle() );
         // UE's CommitDynamicMeshUpdate rebuilds the render data before Accept returns: the rewritten file is
         // read and built now (the user is waiting on this command), not left pending for a later frame.
-        if ( !service->LoadNow( component.MeshHandle ) )
+        if ( !service->LoadNow( component.GetMeshHandle() ) )
             return Common::MakeFormattedError<std::filesystem::path>(
                  "'{}' was written but could not be rebuilt (the log names why)", path.generic_string() );
         // The entity's own copy is now the asset's: it draws the asset again, like every other user of it.
-        ECS::ClearEditableMesh( component );
+        ECS::ClearEditableMesh( registry, entity );
         return Common::MakeSuccess( path );
     }
 } // namespace Desert::Editor

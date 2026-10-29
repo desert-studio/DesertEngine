@@ -159,8 +159,8 @@ namespace Desert::Graphic
             HashBytes( hash, &environment, sizeof( environment ) );
             const auto hashTransform = [&hash]( const ECS::TransformComponent& transform )
             {
-                HashBytes( hash, &transform.Translation, sizeof( transform.Translation ) );
-                HashBytes( hash, &transform.Rotation, sizeof( transform.Rotation ) );
+                HashBytes( hash, &transform.GetTranslation(), sizeof( transform.GetTranslation() ) );
+                HashBytes( hash, &transform.GetRotation(), sizeof( transform.GetRotation() ) );
             };
             const auto points = registry.view<const ECS::PointLightComponent, const ECS::TransformComponent>();
             for ( const entt::entity entity : points )
@@ -287,15 +287,15 @@ namespace Desert::Graphic
             const bool      box        = data.Shape == ECS::ReflectionCaptureShape::Box;
             const glm::vec3 extent     = glm::max( data.BoxExtent, glm::vec3( 1.0f ) );
             const float     radius     = box ? glm::length( extent ) : std::max( data.InfluenceRadius, 1.0f );
-            const glm::mat4 boxToWorld = glm::translate( glm::mat4( 1.0f ), transform.Translation ) *
-                                         glm::toMat4( glm::quat( transform.Rotation ) ) *
+            const glm::mat4 boxToWorld = glm::translate( glm::mat4( 1.0f ), transform.GetTranslation() ) *
+                                         glm::toMat4( glm::quat( transform.GetRotation() ) ) *
                                          glm::scale( glm::mat4( 1.0f ), extent );
 
             ReflectionCaptureEntry entry;
             entry.Entity                      = entity;
             entry.InfluenceRadius             = radius;
-            entry.CapturePosition             = transform.Translation + data.CaptureOffset;
-            entry.Gpu.PositionRadius          = glm::vec4( transform.Translation, radius );
+            entry.CapturePosition             = transform.GetTranslation() + data.CaptureOffset;
+            entry.Gpu.PositionRadius          = glm::vec4( transform.GetTranslation(), radius );
             entry.Gpu.CaptureOffsetBrightness = glm::vec4( data.CaptureOffset, std::max( data.Brightness, 0.0f ) );
             entry.Gpu.BoxExtentTransition     = glm::vec4( extent, std::max( data.BoxTransitionDistance, 0.0f ) );
             entry.Gpu.ShapeCube               = glm::uvec4( box ? 1u : 0u, 0u, 0u, 0u );

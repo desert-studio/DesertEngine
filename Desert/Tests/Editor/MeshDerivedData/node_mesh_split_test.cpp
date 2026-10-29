@@ -534,7 +534,7 @@ TEST( NodeMeshSplit, APlacedSplitSourceStandsEveryNodeWhereTheFilePutIt )
         const auto& [node, path] = written.GetValue()[i];
         ASSERT_EQ( recorded[i].Name, node.Node );
         ASSERT_TRUE( children[i].HasComponent<ECS::StaticMeshComponent>() ) << node.Node;
-        EXPECT_EQ( children[i].GetComponent<ECS::StaticMeshComponent>().MeshHandle, placed[i].Mesh );
+        EXPECT_EQ( children[i].GetComponent<ECS::StaticMeshComponent>().GetMeshHandle(), placed[i].Mesh );
         // The node mesh's vertex 0, derived (scaled) and placed, is the combined mesh's vertex 0 of that node,
         // scaled: the round trip split -> record -> placed entity loses no position.
         const glm::vec3 local = node.Mesh.StaticVertices[0].Position * settings.Mesh.UniformScale;

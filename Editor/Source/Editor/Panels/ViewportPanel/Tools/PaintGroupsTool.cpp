@@ -174,7 +174,8 @@ namespace Desert::Editor::Tools
             return true;
         }
         auto after = std::shared_ptr<const Geometry::DynamicMesh3>( std::move( m_Session->Working ) );
-        if ( auto set = ECS::SetEditableMesh( *component, after ); !set.IsSuccess() )
+        const ECS::Entity* entity = EntityOf( scene, m_Session->Entity );
+        if ( auto set = ECS::SetEditableMesh( *entity->GetRegistry(), entity->GetHandle(), after ); !set.IsSuccess() )
         {
             Refuse( ms, "Accept", set.GetError() );
             m_Session.reset();

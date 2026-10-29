@@ -158,7 +158,7 @@ namespace Desert::Editor
         // --- Header row: [ ] [icon] [Name (bold, editable)]      [save] [tune] ---
         // Visible toggle -> VisibilityComponent.Visible (added on demand). Render systems skip invisible.
         bool active = !selectedEntity.HasComponent<ECS::VisibilityComponent>() ||
-                      selectedEntity.GetComponent<ECS::VisibilityComponent>().Visible;
+                      selectedEntity.GetComponent<ECS::VisibilityComponent>().IsVisible();
         if ( ImGui::Checkbox( "##ActiveCheckbox", &active ) )
         {
             // Cascade visibility to the whole subtree so hiding a parent hides its children (UE-like).
@@ -264,7 +264,7 @@ namespace Desert::Editor
                     {
                         std::optional<glm::vec3> savedPos;
                         if ( selectedEntity.HasComponent<ECS::TransformComponent>() )
-                            savedPos = selectedEntity.GetComponent<ECS::TransformComponent>().Translation;
+                            savedPos = selectedEntity.GetComponent<ECS::TransformComponent>().GetTranslation();
 
                         ECS::Entity parentEntity;
                         if ( selectedEntity.HasComponent<ECS::RelationshipComponent>() )
