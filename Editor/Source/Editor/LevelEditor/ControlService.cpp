@@ -1224,6 +1224,16 @@ namespace Desert::Editor
                                         : camera->GetDirection();
 
         PlaceEditorCamera( *camera, position, forward );
+        // A PLACED POSE IS A TELEPORT, so it is a camera cut for every view this camera feeds (UE
+        // FEditorViewportClient::SetIsCameraCut -> FSceneView::bCameraCut, as a bookmark jump makes it): the
+        // histories reprojected from the old pose are reset. Without it the temporal history of the pose before
+        // (a far view seconds away) was reprojected into the new one and settled over seconds as a pale block with
+        // a straight edge (GRASS-SETTLE p21). A camera a person flies is never cut.
+        if ( const auto& scene = m_Workspace.ActiveScene() )
+            for ( size_t view = 0; view < scene->GetViewCount(); ++view )
+                if ( scene->GetViewCamera( view ).get() == camera )
+                    if ( auto* renderer = scene->GetViewRenderer( view ) )
+                        renderer->ResetTemporalHistory();
 
         // INPUT IS NOT DISABLED, and the difference from the capture path is deliberate. `--shot` turns it
         // off because nothing may nudge the camera between the placement and the readback, and there is no
