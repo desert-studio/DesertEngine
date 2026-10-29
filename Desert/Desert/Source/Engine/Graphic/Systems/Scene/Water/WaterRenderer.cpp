@@ -48,16 +48,19 @@ namespace Desert::Graphic::System
         // The still surface's vertical extent the quadtree culls with (no GPU waves yet: REMAINDER).
         constexpr float kFlatSurfaceVerticalExtentCm = 1.0f;
 
-        // The cell a water material draws with (DShaderParser kSurfaceWaterMeshPath x kSurfaceSingleLayerWaterPass).
+        // The cell a water material draws with (DShaderParser kSurfaceWaterMeshPath x
+        // kSurfaceSingleLayerWaterPass).
         constexpr const char* kWaterCell = "WaterMesh.SingleLayerWater";
     } // namespace
 
     Common::BoolResultStr WaterRenderer::Initialize()
     {
         // The engine's program must build: a material naming it is the common case and its failure is loud here.
-        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( std::format( "WaterSurface/{}", kWaterCell ) );
+        const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
+             std::format( "WaterSurface/{}", kWaterCell ) );
         if ( !shader )
-            return Common::MakeError( std::format( "WaterRenderer: missing shader 'WaterSurface/{}'", kWaterCell ) );
+            return Common::MakeError(
+                 std::format( "WaterRenderer: missing shader 'WaterSurface/{}'", kWaterCell ) );
         return BOOLSUCCESS;
     }
 
@@ -142,7 +145,7 @@ namespace Desert::Graphic::System
     {
         m_FrameDraws.clear();
         const auto* camera = m_SceneRenderer->GetMainCamera();
-        m_Frame = nullptr;
+        m_Frame            = nullptr;
         if ( camera == nullptr || m_Queue.empty() )
             return;
 
@@ -216,7 +219,7 @@ namespace Desert::Graphic::System
         // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
         frame.ApplyTo( m_Frame->Material.get() );
         const auto layout = m_Layout.Get( m_Frame->Pipeline->GetSpecification().Shader );
-        auto block = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
+        auto       block  = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
         BindSceneViewInputs( block, view, *layout );
         constexpr RDG::TextureParameter kSceneColor{ "SceneColorTexture" };
         constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };

@@ -458,9 +458,9 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the fog and the particles after it see the surface. It samples the opaque scene's copy
-        // (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image from the
-        // scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
+        // depth, so the glass, the fog and the particles after it see the surface. It samples the opaque scene's
+        // copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image
+        // from the scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -471,8 +471,7 @@ namespace Desert::Graphic
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return water->RenderManual( context ); },
-             [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
+             { return water->RenderManual( context ); }, [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
              { water->DeclareDraws( pass, sceneCopy, view, frame ); } );
     }
 

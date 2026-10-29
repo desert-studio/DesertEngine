@@ -141,14 +141,15 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceGrassBladePath = "GrassBlade";
     // THE WATER MESH USAGE (UE: the water mesh vertex factory, FWaterMeshVertexFactory, and the SingleLayerWater
     // mesh pass). A template of `ShadingModel SingleLayerWater` declares `Usage WaterMesh` and gets ONE more cell,
-    // `WaterMesh.SingleLayerWater`: the vertex stage is Vertex_WaterMesh.glslh (the water quadtree's tiles, morphed
-    // between LODs), the pass header Pass_SingleLayerWater.glslh (the scene behind refracted, absorbed and
+    // `WaterMesh.SingleLayerWater`: the vertex stage is Vertex_WaterMesh.glslh (the water quadtree's tiles,
+    // morphed between LODs), the pass header Pass_SingleLayerWater.glslh (the scene behind refracted, absorbed and
     // scattered by the material's EvaluateSingleLayerWater, the interface lit through the shading model). Drawn by
     // Graphic::System::WaterRenderer only. The model and the usage go together: either alone is refused.
-    inline constexpr std::string_view kSurfaceWaterMeshPath               = "WaterMesh";
-    inline constexpr std::string_view kSurfaceSingleLayerWaterPass        = "SingleLayerWater";
-    inline constexpr std::string_view kSurfaceSingleLayerWaterPassInclude = "Mesh/Surface/Pass_SingleLayerWater.glslh";
-    inline constexpr std::string_view kSingleLayerWaterShadingModel       = "SingleLayerWater";
+    inline constexpr std::string_view kSurfaceWaterMeshPath        = "WaterMesh";
+    inline constexpr std::string_view kSurfaceSingleLayerWaterPass = "SingleLayerWater";
+    inline constexpr std::string_view kSurfaceSingleLayerWaterPassInclude =
+         "Mesh/Surface/Pass_SingleLayerWater.glslh";
+    inline constexpr std::string_view kSingleLayerWaterShadingModel = "SingleLayerWater";
     // THE TRANSLUCENT FRONT LAYER CELL (UE: EMeshPass::FrontLayerTranslucencyGBuffer, FrontLayerTranslucency.usf
     // MainPS). Every `BlendMode Translucent` template gets `Static.FrontLayer` after its Forward cells: the static
     // vertex path and Mesh/Surface/Pass_FrontLayer.glslh, which writes the surface's world normal + roughness and
@@ -249,7 +250,7 @@ namespace Desert::Core::Preprocess
         bool UsedWithParticleSprites      = false; // `Usage ParticleSprites`: + ParticleSprite.Forward
         bool UsedWithParticleRibbons                 = false; // `Usage ParticleRibbons`: + ParticleRibbon.Forward
         bool                     UsedWithGrassBlades = false;          // `Usage GrassBlades`: + GrassBlade.<Pass>
-        bool UsedWithWaterMesh = false; // `Usage WaterMesh`: + WaterMesh.SingleLayerWater
+        bool                     UsedWithWaterMesh   = false; // `Usage WaterMesh`: + WaterMesh.SingleLayerWater
         // `ResponsiveAA` (UE bResponsiveAA): a Translucent / Additive template only — an opaque surface draws into
         // the G-buffer, which has no responsive slot, and writes the velocity TAA reprojects it with.
         bool ResponsiveAA = false;

@@ -100,7 +100,7 @@ namespace Desert::Graphic::System
         void ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program );
         void WarnOnce( const Assets::AssetHandle& material, const std::string& why );
 
-        std::unordered_map<std::string, WaterProgram> m_Programs; // by template compile name
+        std::unordered_map<std::string, WaterProgram> m_Programs;        // by template compile name
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
         ShaderBindingLayoutCache                      m_Layout;
         std::unordered_set<uint64_t>                  m_Warned;

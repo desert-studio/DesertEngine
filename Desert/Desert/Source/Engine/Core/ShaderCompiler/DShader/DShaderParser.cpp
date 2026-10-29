@@ -2359,8 +2359,9 @@ namespace Desert::Core::Preprocess
                 {
                     // The author's spelling, not the folded one the comparison used.
                     err = { line,
-                            std::format( "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades, WaterMesh)",
-                                         stated ) };
+                            std::format(
+                                 "unknown Usage '{}' (ParticleSprites, ParticleRibbons, GrassBlades, WaterMesh)",
+                                 stated ) };
                     return fail();
                 }
                 surfaceSettingLine                     = surfaceSettingLine != 0 ? surfaceSettingLine : line;
@@ -2843,14 +2844,15 @@ namespace Desert::Core::Preprocess
             result.Meta.Blend = result.Surface.Blend;
             if ( result.Surface.UsedWithWaterMesh != ( model->Manifest.Name == kSingleLayerWaterShadingModel ) )
             {
-                err = { surfaceSettingLine != 0 ? surfaceSettingLine : 1,
-                        result.Surface.UsedWithWaterMesh
-                             ? std::format( "Usage WaterMesh draws the single layer water pass, which only "
-                                            "ShadingModel {} shades (this template's is {})",
-                                            kSingleLayerWaterShadingModel, model->Manifest.Name )
-                             : std::format( "ShadingModel {} is drawn by the water mesh's single layer water pass: "
-                                            "declare Usage WaterMesh",
-                                            kSingleLayerWaterShadingModel ) };
+                err = {
+                     surfaceSettingLine != 0 ? surfaceSettingLine : 1,
+                     result.Surface.UsedWithWaterMesh
+                          ? std::format( "Usage WaterMesh draws the single layer water pass, which only "
+                                         "ShadingModel {} shades (this template's is {})",
+                                         kSingleLayerWaterShadingModel, model->Manifest.Name )
+                          : std::format( "ShadingModel {} is drawn by the water mesh's single layer water pass: "
+                                         "declare Usage WaterMesh",
+                                         kSingleLayerWaterShadingModel ) };
                 return fail();
             }
             if ( result.Surface.ResponsiveAA && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
@@ -3079,12 +3081,11 @@ namespace Desert::Core::Preprocess
                 cell.Name  = SurfaceCellName( kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass );
                 cell.State = cellState;
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                    cell.Stages.emplace(
-                         stage, AssembleSurfaceCellStage( stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
-                                                          *surfaceBlock, includeBlock, autoDecls,
-                                                          result.Surface.Blend, shadingModelDefine,
-                                                          result.Surface.ResponsiveAA, opacityMaskFunction, false,
-                                                          heightFunctions, false ) );
+                    cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                     stage, kSurfaceWaterMeshPath, kSurfaceSingleLayerWaterPass,
+                                                     *surfaceBlock, includeBlock, autoDecls, result.Surface.Blend,
+                                                     shadingModelDefine, result.Surface.ResponsiveAA,
+                                                     opacityMaskFunction, false, heightFunctions, false ) );
                 result.Meta.PassNames.push_back( cell.Name );
                 result.Surface.Cells.push_back( cell.Name );
                 result.Passes.push_back( std::move( cell ) );
