@@ -10,11 +10,21 @@
 Дано --subject viewport set Camera.Position 0,30,320
 Дано --subject viewport set Camera.Direction 0,0,-1
 Дано run Panel "Open Particle Debugger"
+# Simulate starts the effects from age zero (Scene::SetState resets the VFXWorld, as UE's fresh SIE world); the
+# effects are frozen first so the shot is a chosen fixed step (6 x 1/60 s = 0.1 s), not wherever the clock lands.
+Дано run Debug "Particles: Freeze"
 Когда run Action Simulate
-Когда advance 0.1
-Тогда 0_debugger the Particle Debugger table lists Dust, Flash and Sparks of both ImpactUp and ImpactPlusX with Spawned > 0 and Alive > 0 for Flash and Sparks
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда run Debug "Particles: Step"
+Когда state
+Тогда 0_debugger the Particle Debugger (frozen) lists Dust, Flash and Sparks of both ImpactUp and ImpactPlusX with Total spawned > 0 and Alive > 0 for Flash and Sparks
 Когда state
 Тогда-вид 1_impacts each impact shows a bright flash and velocity-aligned spark streaks; the left one (x=-150) throws them upward, the right one (x=+150) sideways along +X - the difference is plain to the eye
+Когда run Debug "Particles: Unfreeze"
 Когда run Action Stop
 Когда run Entity "Add to selection ImpactPlusX"
 Когда set selected VFX.Overrides[0].Value 0,0,1,0

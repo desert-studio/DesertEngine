@@ -357,13 +357,20 @@ namespace Desert::Core
 
         [[nodiscard]] SceneState GetState() const { return m_State; }
         // Entering Play from Edit starts the world's clock from zero, as UE's PIE world does; Paused and
-        // back keep it (a pause is not a new world).
+        // back keep it (a pause is not a new world). The effects start over with it: Play and Simulate run this
+        // scene in place, where UE builds a fresh PIE/SIE world whose Niagara components activate at age zero -
+        // without the reset an effect would enter Play mid-loop at whatever age the editor preview reached, and a
+        // burst at SpawnTime 0 would not fire until the loop came round. Back to Edit the preview starts over
+        // too (the restored world is a new one).
         void SetState( SceneState state )
         {
             if ( m_State == SceneState::Edit && state == SceneState::Play )
             {
                 m_WorldTime.Reset();
+                m_VFXWorld.Reset();
             }
+            else if ( m_State != SceneState::Edit && state == SceneState::Edit )
+                m_VFXWorld.Reset();
             m_State = state;
             if ( state == SceneState::Edit )
                 m_Simulating = false; // a simulation ends with the session it ran in

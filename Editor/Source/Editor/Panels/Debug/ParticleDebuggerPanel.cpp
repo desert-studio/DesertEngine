@@ -84,10 +84,10 @@ namespace Desert::Editor
                      stats.Frozen ? " - frozen" : "" );
 
         bool selectionListed = false;
-        if ( ImGui::BeginTable( "##emitters", 8, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg ) )
+        if ( ImGui::BeginTable( "##emitters", 9, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg ) )
         {
             for ( const char* header : { "Entity", "Emitter", "Name", "Alive", "Free", "Capacity", "Spawned",
-                                         "Channel overflow" } )
+                                         "Total spawned", "Channel overflow" } )
                 ImGui::TableSetupColumn( header );
             ImGui::TableHeadersRow();
             for ( const VFX::VFXSystemDebugStats& system : stats.Systems )
@@ -123,6 +123,10 @@ namespace Desert::Editor
                     ImGui::Text( "%u", e.Capacity );
                     ImGui::TableNextColumn();
                     ImGui::Text( "%u", e.Spawned );
+                    ImGui::TableNextColumn();
+                    // UE FNiagaraEmitterInstance::TotalSpawnedParticles: every id handed out since the instance
+                    // (re)started - a burst stays visible here after the tick that fired it.
+                    ImGui::Text( "%u", e.NextId );
                     ImGui::TableNextColumn();
                     ImGui::Text( "%llu", static_cast<unsigned long long>( e.ChannelOverflowTotal ) );
                 }
