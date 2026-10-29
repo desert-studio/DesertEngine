@@ -951,6 +951,7 @@ namespace Common::Scalability
             QualitySelection                                      Selection;
             ResolvedQuality                                       Resolved;
             QualityState::Saver                                   Save = nullptr;
+            bool                                                  SessionOnly = false;
             std::vector<std::pair<QualityState::Listener, void*>> Listeners;
             bool                                                  Initialized = false;
         };
@@ -1396,10 +1397,18 @@ namespace Common::Scalability
         s.Catalog     = std::move( catalog );
         s.Selection   = std::move( saved );
         s.Save        = save;
+        s.SessionOnly = false;
         s.Resolved    = {};
         s.Initialized = true;
         LogUnknownOverrides( s.Selection, nullptr );
         Publish( Resolve( s.Selection, s.Table, s.Catalog ) );
+    }
+
+    void QualityState::KeepInSession( std::string_view why )
+    {
+        S().SessionOnly = true;
+        LOG_INFO( "[Scalability] {}: quality changes apply to this process only; machine.json is not written",
+                  why );
     }
 
     void QualityState::ReplaceCatalog( CapabilityCatalog catalog )
@@ -1425,6 +1434,14 @@ namespace Common::Scalability
         LogUnknownOverrides( selection, &s.Selection );
         s.Selection        = selection;
         ApplyReport report = Publish( Resolve( s.Selection, s.Table, s.Catalog ) );
+        if ( s.SessionOnly )
+        {
+            report.SessionOnly = true;
+            LOG_INFO( "[Scalability] quality applied for this session only ({} override(s)); machine.json "
+                      "untouched",
+                      s.Selection.Overrides.size() );
+            return report;
+        }
         if ( s.Save == nullptr )
         {
             LOG_ERROR( "[Scalability] QualityState was initialized without a saver; the selection applies to this "
