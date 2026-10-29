@@ -3,6 +3,9 @@
 #include "MeshRendererInternal.hpp"
 #include <Engine/Graphic/ViewTargetLayouts.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#if DESERT_DEV_INSTRUMENTS
+#include <Engine/Core/ShaderCompiler/ShadingModels/ShaderRootShadingModels.hpp>
+#endif
 
 namespace
 {
@@ -391,6 +394,160 @@ namespace Desert::Graphic::System
              },
              .TargetFramebuffer = targetFb };
         return pass;
+    }
+
+    namespace
+    {
+        // The program's shading model by name, from the one loaded set (ShaderRootShadingModels, the set the
+        // parser resolved it from); empty for a program that is no surface template.
+        std::string DescribeShadingModelName( const Core::Formats::ShaderProgramMeta& meta )
+        {
+            if ( meta.ShadingModel.IsNull() )
+                return {};
+            const Core::ShadingModels::ShaderRootSet held = Core::ShadingModels::ShaderRootShadingModels();
+            if ( !held->IsSuccess() )
+                return "<shading models did not load>";
+            const Core::ShadingModels::ShadingModelEntry* entry =
+                 held->GetValue().Registry.FindByGuid( meta.ShadingModel );
+            return entry != nullptr ? std::string( entry->Manifest.Name ) : std::string( "<unknown model>" );
+        }
+
+        // What ShadingOf answered, as the readout's values.
+        void DescribeShading( const MeshRenderer::SectionShading& shading, PrimitiveDrawReadout& out )
+        {
+            if ( shading.Instance != nullptr )
+                out.MaterialInstance = shading.Instance->GetName();
+            if ( shading.Surface == nullptr )
+                return;
+            const Core::Formats::ShaderProgramMeta& meta = shading.Surface->GetSchema();
+            out.Template                                 = shading.Surface->GetShaderName();
+            out.Blend                                    = meta.Blend;
+            out.ShadingModel                             = DescribeShadingModelName( meta );
+        }
+    } // namespace
+
+    std::vector<PrimitiveDrawReadout> MeshRenderer::DescribePrimitive( const uint32_t entity ) const
+    {
+        using Pass = PrimitiveDrawReadout::Pass;
+        std::vector<PrimitiveDrawReadout> draws;
+
+        const Core::Camera* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        const std::optional<Core::Frustum> frustum =
+             camera != nullptr ? std::optional<Core::Frustum>( camera->GetFrustum() ) : std::nullopt;
+        // The path test the passes make (GetViewTrianglesDrawn, DeclareGBufferDraws): on Deferred the lit, skinned
+        // and instanced queues are drawn into the G-buffer (UE's base pass), else by the forward pass.
+        const bool deferred = m_SceneRenderer != nullptr &&
+                              m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred &&
+                              m_StaticGBufferPipeline != nullptr;
+        const Pass opaquePass = deferred ? Pass::BasePass : Pass::Forward;
+
+        // Bounds, frustum and level count of one placement of @p mesh (the authored box every cull reads).
+        const auto place =
+             [&frustum]( PrimitiveDrawReadout& out, const glm::mat4& transform, const Desert::Mesh& mesh )
+        {
+            const Common::Math::AABB local = Geometry::LocalBounds( mesh.GetSubmeshes() );
+            out.WorldBounds                = Geometry::TransformBounds( transform, local );
+            out.InFrustum                  = frustum.has_value() && IsVisibleInView( *frustum, transform, local );
+            out.LodCount = std::max<uint32_t>( 1u, static_cast<uint32_t>( mesh.GetLODScreenSizes().size() ) );
+        };
+
+        for ( const StaticMeshRenderData& data : m_StaticQueue )
+        {
+            if ( data.Entity != entity || data.Mesh == nullptr )
+                continue;
+            PrimitiveDrawReadout& out    = draws.emplace_back();
+            out.Kind                     = PrimitiveDrawReadout::Queue::Static;
+            out.SectionSlot              = data.SectionSlot;
+            out.ForcedLod                = data.ForcedLOD;
+            out.LodBias                  = data.LODBias;
+            out.Lod                      = ComputeLOD( data.Transform, data.Mesh, data.ForcedLOD, data.LODBias );
+            const SectionShading shading = ShadingOf( data );
+            DescribeShading( shading, out );
+            out.ShadingPass  = shading.Translucent ? Pass::Translucency : opaquePass;
+            out.CastShadows  = data.CastShadows;
+            out.GpuPrimitive = data.GpuPrimitive;
+            place( out, data.Transform, *data.Mesh );
+        }
+
+        for ( const SkinnedMeshRenderData& data : m_SkinnedQueue )
+        {
+            if ( data.Entity != entity || data.Mesh == nullptr )
+                continue;
+            // One draw per section, each with its own material (BuildSkinnedDraws); the skin pass draws LOD 0.
+            for ( uint32_t section = 0; section < data.Sections.size(); ++section )
+            {
+                PrimitiveDrawReadout& out    = draws.emplace_back();
+                out.Kind                     = PrimitiveDrawReadout::Queue::Skinned;
+                out.SectionSlot              = section;
+                const SectionShading shading = ShadingOf( data.Sections[section] );
+                DescribeShading( shading, out );
+                out.ShadingPass  = shading.Translucent ? Pass::Translucency : opaquePass;
+                out.CastShadows  = data.CastShadows;
+                out.GpuPrimitive = data.GpuPrimitive;
+                place( out, data.Transform, *data.Mesh );
+            }
+        }
+
+        auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
+        const auto  isRegistered = [shaders]( std::string_view name )
+        { return shaders->GetByName( std::string( name ) ) != nullptr; };
+        for ( const GenericMeshRenderData& data : m_GenericQueue )
+        {
+            if ( data.Entity != entity || data.Mesh == nullptr )
+                continue;
+            PrimitiveDrawReadout& out = draws.emplace_back();
+            out.Kind                  = PrimitiveDrawReadout::Queue::Generic;
+            // The program BuildGenericDraws resolves: the per-slot material's shader, else the Shader Override's.
+            const auto* slotSurface = dynamic_cast<const DataDrivenMaterial*>( data.SlotMaterial );
+            out.Template            = slotSurface != nullptr ? slotSurface->GetShaderName() : data.ShaderName;
+            if ( const auto shader = shaders->GetByName( out.Template ) )
+            {
+                const Core::Formats::ShaderProgramMeta& meta = shader->GetProgramMeta();
+                out.Blend                                    = meta.Blend;
+                out.ShadingModel                             = DescribeShadingModelName( meta );
+            }
+            // A Shader Override naming a surface template is drawn in the G-buffer on Deferred (the slice
+            // DeferredSurfaceGBuffer); every other generic draw shades forward over the composite.
+            const bool surfaceOverride =
+                 data.SlotMaterial == nullptr &&
+                 TemplateCellShader( out.Template, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
+                      .has_value();
+            out.ShadingPass  = deferred && surfaceOverride ? Pass::BasePass : Pass::Forward;
+            out.Lod          = ComputeLOD( data.Transform, data.Mesh, /*forced*/ -1 );
+            out.CastShadows  = data.CastShadows;
+            out.GpuPrimitive = data.GpuPrimitive;
+            place( out, data.Transform, *data.Mesh );
+        }
+
+        for ( const InstancedMeshRenderData& data : m_InstancedQueue )
+        {
+            if ( data.Entity != entity || data.Mesh == nullptr || !data.Transforms )
+                continue;
+            PrimitiveDrawReadout& out    = draws.emplace_back();
+            out.Kind                     = PrimitiveDrawReadout::Queue::Instanced;
+            out.LodPerInstance           = true;
+            const SectionShading shading = ShadingOf( data );
+            DescribeShading( shading, out );
+            out.ShadingPass = shading.Translucent ? Pass::Translucency : opaquePass;
+            out.CastShadows = data.CastShadows;
+            out.Instances   = static_cast<uint32_t>( data.Transforms->size() );
+            // The field's box is the union of its instances'; it is in the frustum when any instance is.
+            out.WorldBounds = Common::Math::AABB{ glm::vec3( Geometry::kNoBoundsSentinel ),
+                                                  glm::vec3( -Geometry::kNoBoundsSentinel ) };
+            for ( const glm::mat4& transform : *data.Transforms )
+            {
+                PrimitiveDrawReadout one;
+                place( one, transform, *data.Mesh );
+                if ( !Geometry::IsEmpty( one.WorldBounds ) )
+                {
+                    out.WorldBounds.Min = glm::min( out.WorldBounds.Min, one.WorldBounds.Min );
+                    out.WorldBounds.Max = glm::max( out.WorldBounds.Max, one.WorldBounds.Max );
+                }
+                out.InFrustum = out.InFrustum || one.InFrustum;
+                out.LodCount  = one.LodCount;
+            }
+        }
+        return draws;
     }
 #endif // DESERT_DEV_INSTRUMENTS
 

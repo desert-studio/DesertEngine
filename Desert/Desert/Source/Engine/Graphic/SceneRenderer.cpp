@@ -2379,11 +2379,46 @@ namespace Desert::Graphic
         textures.ResetInvalidatedHistories();
     }
 
+#if DESERT_DEV_INSTRUMENTS
+    void SceneRenderer::WatchPrimitive( const uint32_t entity )
+    {
+        m_PrimitiveWatch = PrimitiveWatch{ entity, Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() };
+    }
+#endif
+
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debugger's Rendering category: the watched entity described from the queues the passes
+        // drew, BEFORE they are cleared. A watch older than the previous frame is dropped (the debugger hid).
+        if ( m_PrimitiveWatch.has_value() )
+        {
+            const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            if ( frame > m_PrimitiveWatch->Frame + 1 )
+            {
+                m_PrimitiveWatch.reset();
+                m_PrimitiveReadout.reset();
+            }
+            else
+            {
+                PrimitiveReadout readout;
+                readout.Entity = m_PrimitiveWatch->Entity;
+                readout.Frame  = frame;
+                // The sun as this frame shadowed it: the VSM pages, else the traced mask, else the cascades.
+                readout.Sun = m_FrameVsmPages.has_value() ? SunShadowReadout::Virtual
+                              : SunShadowIsRayTraced()    ? SunShadowReadout::RayTraced
+                              : m_FrameCascades           ? SunShadowReadout::Cascaded
+                                                          : SunShadowReadout::None;
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                readout.Draws = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                                     ->DescribePrimitive( readout.Entity );
+                m_PrimitiveReadout = std::move( readout );
+            }
+        }
+#endif
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();

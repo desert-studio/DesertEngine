@@ -107,6 +107,7 @@
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/Systems/Scene/PathTracing/PathTracer.hpp>
 #include <Engine/Graphic/GlobalIllumination/GITracing.hpp>
+#include <Engine/Graphic/PrimitiveReadout.hpp>
 
 namespace Desert::Core
 {
@@ -461,6 +462,19 @@ namespace Desert::Graphic
         {
             m_DebugView = state;
         }
+
+#if DESERT_DEV_INSTRUMENTS
+        // THE GAMEPLAY DEBUGGER'S RENDERING CATEGORY (Graphic/PrimitiveReadout.hpp): asks this view to describe
+        // @p entity at the end of the frame being rendered. The request is good for the frame it was made in and
+        // the next one (the debugger collects in the scene update, before or after this view's render phase);
+        // a renderer nobody asks does one frame compare at EndScene and nothing else.
+        void WatchPrimitive( uint32_t entity );
+        // What the last EndScene that had a watch found: null before any. Its Entity names whom it describes.
+        [[nodiscard]] const PrimitiveReadout* GetPrimitiveReadout() const
+        {
+            return m_PrimitiveReadout.has_value() ? &*m_PrimitiveReadout : nullptr;
+        }
+#endif
 
         // WHAT THIS MACHINE CAN AFFORD — post AA, mesh LOD, the sampler's filter and anisotropy, the
         // cloud tier. Pushed in for the same reason the two above are: it is not a property of the scene
@@ -1519,6 +1533,14 @@ namespace Desert::Graphic
         // The gameplay debug drawing of the scene BeginScene was handed (Core/DebugDraw.hpp): this view's lines
         // and strings passes, fed the scene's store by BeginScene and emptied by EndScene. Made on first use.
         std::unique_ptr<DebugDrawRenderer> m_DebugDraw;
+        // WatchPrimitive's request: the entity and the absolute frame it was asked in.
+        struct PrimitiveWatch
+        {
+            uint32_t Entity = 0;
+            uint64_t Frame  = 0;
+        };
+        std::optional<PrimitiveWatch>   m_PrimitiveWatch;
+        std::optional<PrimitiveReadout> m_PrimitiveReadout;
 #endif
 
     public:
