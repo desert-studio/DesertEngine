@@ -21,12 +21,17 @@
 #endif
 #elif defined( __APPLE__ )
 #include <mach/mach.h>
+#include <mach/mach_vm.h>
 #include <mach/task.h>
+#include <mach/vm_statistics.h>
+#include <malloc/malloc.h>
 #elif defined( __linux__ )
 #include <cstdio>
 #endif
 
+#include <algorithm>
 #include <format>
+#include <map>
 
 namespace Common::Utils
 {
@@ -111,6 +116,129 @@ namespace Common::Utils
         }
 #endif
 
+        return out;
+    }
+
+    std::string FootprintBreakdown::Describe( const uint64_t footprint ) const
+    {
+        if ( !Known )
+            return "footprint by region kind: unknown (no region walk on this platform)";
+        constexpr double MB  = 1024.0 * 1024.0;
+        std::string      out = std::format( "footprint {:.1f} MB by region kind (dirty + compressed):",
+                                            static_cast<double>( footprint ) / MB );
+        for ( const FootprintKind& kind : Kinds )
+            out += std::format( "\n  {:<34} x{:<6} {:9.1f} MB", kind.Name, kind.Regions,
+                                static_cast<double>( kind.Bytes ) / MB );
+        out += std::format( "\n  {:<34} {:>7} {:9.1f} MB", "mapped nowhere (GPU private storage)", "",
+                            footprint > Walked ? static_cast<double>( footprint - Walked ) / MB : 0.0 );
+        out += std::format( "\n  malloc zones: {:.1f} MB in use of {:.1f} MB reserved",
+                            static_cast<double>( HeapInUse ) / MB, static_cast<double>( HeapAllocated ) / MB );
+        return out;
+    }
+
+#if defined( __APPLE__ )
+    namespace
+    {
+        // The kernel's VM user tags (mach/vm_statistics.h), grouped the way vmmap's summary groups them.
+        [[nodiscard]] std::string KindName( const unsigned tag, const unsigned char shareMode )
+        {
+            switch ( tag )
+            {
+                case VM_MEMORY_MALLOC:
+                case VM_MEMORY_MALLOC_HUGE:
+                case VM_MEMORY_REALLOC:
+                    return "malloc (other)";
+                case VM_MEMORY_MALLOC_SMALL:
+                    return "malloc small";
+                case VM_MEMORY_MALLOC_LARGE:
+                case VM_MEMORY_MALLOC_LARGE_REUSABLE:
+                case VM_MEMORY_MALLOC_LARGE_REUSED:
+                    return "malloc large";
+                case VM_MEMORY_MALLOC_TINY:
+                    return "malloc tiny";
+                case VM_MEMORY_MALLOC_NANO:
+                    return "malloc nano";
+                case VM_MEMORY_MALLOC_MEDIUM:
+                    return "malloc medium";
+                case VM_MEMORY_IOACCELERATOR:
+                    return "IOAccelerator (GPU driver)";
+                case VM_MEMORY_IOSURFACE:
+                    return "IOSurface";
+                case VM_MEMORY_STACK:
+                    return "stacks";
+                case VM_MEMORY_DYLD:
+                case VM_MEMORY_DYLD_MALLOC:
+                    return "dyld";
+                case VM_MEMORY_OS_ALLOC_ONCE:
+                    return "os_alloc_once";
+                case VM_MEMORY_COREGRAPHICS:
+                case VM_MEMORY_COREGRAPHICS_DATA:
+                case VM_MEMORY_COREGRAPHICS_SHARED:
+                case VM_MEMORY_COREGRAPHICS_FRAMEBUFFERS:
+                case VM_MEMORY_COREGRAPHICS_BACKINGSTORES:
+                    return "CoreGraphics";
+                case VM_MEMORY_FOUNDATION:
+                case VM_MEMORY_CORESERVICES:
+                    return "Foundation/CoreServices";
+                case 0:
+                    return shareMode == SM_PRIVATE || shareMode == SM_COW ? "untagged (images' data, mmap)"
+                                                                          : "untagged shared";
+                default:
+                    return std::format( "VM tag {}", tag );
+            }
+        }
+    } // namespace
+#endif
+
+    FootprintBreakdown ReadFootprintBreakdown()
+    {
+        FootprintBreakdown out;
+#if defined( __APPLE__ )
+        std::map<std::string, FootprintKind> kinds;
+        const uint64_t                       page    = static_cast<uint64_t>( vm_page_size );
+        mach_vm_address_t                    address = 0;
+        for ( ;; )
+        {
+            mach_vm_size_t                 size = 0;
+            vm_region_extended_info_data_t info{};
+            mach_msg_type_number_t         count  = VM_REGION_EXTENDED_INFO_COUNT;
+            mach_port_t                    object = MACH_PORT_NULL;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast) - see task_info above
+            if ( ::mach_vm_region( ::mach_task_self(), &address, &size, VM_REGION_EXTENDED_INFO,
+                                   reinterpret_cast<vm_region_info_t>( &info ), &count, &object ) != KERN_SUCCESS )
+                break;
+            const uint64_t bytes = ( static_cast<uint64_t>( info.pages_dirtied ) +
+                                     static_cast<uint64_t>( info.pages_swapped_out ) ) *
+                                   page;
+            if ( bytes > 0 && info.share_mode != SM_EMPTY )
+            {
+                const std::string name = KindName( info.user_tag, info.share_mode );
+                FootprintKind&    kind = kinds[name];
+                kind.Name              = name;
+                kind.Bytes += bytes;
+                ++kind.Regions;
+                out.Walked += bytes;
+            }
+            address += size;
+        }
+        for ( auto& [name, kind] : kinds )
+            out.Kinds.push_back( std::move( kind ) );
+        std::ranges::sort( out.Kinds,
+                           []( const FootprintKind& a, const FootprintKind& b ) { return a.Bytes > b.Bytes; } );
+
+        vm_address_t* zones     = nullptr;
+        unsigned      zoneCount = 0;
+        if ( ::malloc_get_all_zones( ::mach_task_self(), nullptr, &zones, &zoneCount ) == KERN_SUCCESS )
+            for ( unsigned i = 0; i < zoneCount; ++i )
+            {
+                malloc_statistics_t stats{};
+                // NOLINTNEXTLINE(performance-no-int-to-ptr) - the zone list is addresses in this very task
+                ::malloc_zone_statistics( reinterpret_cast<malloc_zone_t*>( zones[i] ), &stats );
+                out.HeapInUse += stats.size_in_use;
+                out.HeapAllocated += stats.size_allocated;
+            }
+        out.Known = true;
+#endif
         return out;
     }
 
