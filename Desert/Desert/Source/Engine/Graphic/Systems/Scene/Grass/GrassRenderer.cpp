@@ -273,7 +273,7 @@ namespace Desert::Graphic::System
             const GrassBladeDraw& b = *variety.Blade;
             boundsHeight            = 0.5f * b.Height;
             boundsRadius            = boundsHeight * ( 1.0f + b.Curvature * ( 1.0f + b.CurvatureSpread ) ) +
-                           b.Height * std::sin( glm::radians( b.Tilt ) ) + b.Width + variety.Wind.Strength;
+                           b.Height * std::sin( glm::radians( b.Tilt ) ) + b.MaxWidth + variety.Wind.Strength;
         }
         else
         {
@@ -436,10 +436,11 @@ namespace Desert::Graphic::System
         if ( variety.Blade )
         {
             const GrassBladeDraw&    b = *variety.Blade;
+            const size_t             cards = std::min( b.Cards.size(), gpu.ShapeData.Cards.size() );
             gpu.ShapeData              = GrassBladeShapeGpu{
-                 glm::vec4( b.Height, b.Width, b.Taper, b.Curvature ), glm::vec4( b.BaseColor, b.Stiffness ),
-                 glm::vec4( b.TipColor, b.DryTipShare ), glm::vec4( b.DryTipColor, b.DryTipLength ),
+                 glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
                  glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
+            std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
             if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
                  !wrote.IsSuccess() )
             {

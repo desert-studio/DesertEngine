@@ -610,23 +610,23 @@ namespace Desert::ECS
                     variety.Sections = sections.Sections;
                     if ( blade )
                     {
-                        const auto& b   = *v.Blade;
-                        const auto  rgb = []( const std::array<float, 3>& c )
-                        { return glm::vec3( c[0], c[1], c[2] ); };
+                        const auto&            b = *v.Blade;
+                        std::vector<glm::vec4> cards;
+                        float                  maxWidth = 0.0f;
+                        for ( const auto& c : b.Cards )
+                        {
+                            cards.emplace_back( c[0], c[1], c[2], c[3] );
+                            maxWidth = std::max( maxWidth, b.Height * ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f ) );
+                        }
                         variety.Blade = Graphic::System::GrassBladeDraw{ .Height          = b.Height,
-                                                                         .Width           = b.Width,
-                                                                         .Taper           = b.Taper,
                                                                          .Curvature       = b.Curvature,
                                                                          .CurvatureSpread = b.CurvatureSpread,
                                                                          .BendSpread      = b.BendSpread,
                                                                          .Tilt            = b.Tilt,
                                                                          .FacingJitter    = b.FacingJitter,
                                                                          .Stiffness       = b.Stiffness,
-                                                                         .BaseColor       = rgb( b.BaseColor ),
-                                                                         .TipColor        = rgb( b.TipColor ),
-                                                                         .DryTipColor     = rgb( b.DryTipColor ),
-                                                                         .DryTipShare     = b.DryTipShare,
-                                                                         .DryTipLength    = b.DryTipLength,
+                                                                         .Cards           = std::move( cards ),
+                                                                         .MaxWidth        = maxWidth,
                                                                          .Clumping        = b.Clumping,
                                                                          .ClumpSize       = b.ClumpSize,
                                                                          .ClumpPull       = b.ClumpPull,
@@ -652,7 +652,7 @@ namespace Desert::ECS
                     p.AlignToSurface            = v.AlignToSurface;
                     p.CastDynamicShadow         = v.CastDynamicShadow;
                     {
-                        // One instance's leaf area (cm2): a blade's strip (its taper narrows it to the tip), a
+                        // One instance's leaf area (cm2): a blade's card (its mean card's rectangle), a
                         // mesh's footprint (a tuft covers the ground under it once), at the variety's mean scale.
                         const float meanX   = 0.5f * ( v.ScaleX.Min + v.ScaleX.Max );
                         const float meanY   = 0.5f * ( v.ScaleY.Min + v.ScaleY.Max );
@@ -660,9 +660,15 @@ namespace Desert::ECS
                         const bool  uniform = p.Scaling == 0u;
                         float       area    = 0.0f;
                         if ( blade )
-                            area = v.Blade->Height * v.Blade->Width * ( 1.0f - 0.5f * v.Blade->Taper ) *
+                        {
+                            float aspect = 0.0f;
+                            for ( const auto& c : v.Blade->Cards )
+                                aspect += ( c[2] - c[0] ) / std::max( c[3] - c[1], 1.0e-4f );
+                            aspect /= static_cast<float>( std::max<size_t>( v.Blade->Cards.size(), 1u ) );
+                            area = v.Blade->Height * v.Blade->Height * aspect *
                                    ( uniform ? meanX * meanX : meanX * meanUp ) *
                                    ( 1.0f - 0.5f * v.Blade->Patchiness );
+                        }
                         else
                         {
                             const Common::Math::AABB bounds = Geometry::LocalBounds( mesh->GetSubmeshes() );
@@ -677,25 +683,14 @@ namespace Desert::ECS
                         sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
                         if ( blade && !sections.Sections.empty() && sections.Sections.front().Material )
                         {
-                            // The blade's mean colour over its area: root to tip (the vertex stage's mix by
-                            // height, weighted by the tapering width), then the dry tip's share on DryTipShare of
-                            // them.
-                            const auto&     b    = *v.Blade;
-                            const glm::vec3 base = glm::vec3( b.BaseColor[0], b.BaseColor[1], b.BaseColor[2] );
-                            const glm::vec3 tip  = glm::vec3( b.TipColor[0], b.TipColor[1], b.TipColor[2] );
-                            const glm::vec3 dry =
-                                 glm::vec3( b.DryTipColor[0], b.DryTipColor[1], b.DryTipColor[2] );
-                            const float taper = std::clamp( b.Taper, 0.0f, 1.0f );
-                            const float meanT =
-                                 ( 0.5f - ( taper / 3.0f ) ) / std::max( 1.0f - ( 0.5f * taper ), 1.0e-3f );
-                            const float len = std::clamp( b.DryTipLength, 0.0f, 1.0f );
-                            // Width-weighted share of the top `len` of the strip, half of it dry (the smoothstep).
-                            const float topArea = len * ( 1.0f - taper * ( 1.0f - 0.5f * len ) );
-                            const float dryArea = 0.5f * topArea / std::max( 1.0f - ( 0.5f * taper ), 1.0e-3f );
-                            glm::vec3   colour  = glm::mix( glm::mix( base, tip, meanT ), dry,
-                                                            std::clamp( b.DryTipShare, 0.0f, 1.0f ) * dryArea );
-                            const auto& m       = *sections.Sections.front().Material;
-                            colour *= glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) );
+                            // The blade's look is its material's scan: the cover takes the scan's mean colour
+                            // over the cards (CoverAlbedo, the opacity-weighted mean of AlbedoTexture over them),
+                            // tinted as the blades are - AlbedoColor and the clump tint's mean.
+                            const auto& m      = *sections.Sections.front().Material;
+                            glm::vec3   colour = glm::vec3( m.GetVec4( "CoverAlbedo", glm::vec4( 0.0f ) ) ) *
+                                               glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) ) * 0.5f *
+                                               ( glm::vec3( m.GetVec4( "ClumpTintCool", glm::vec4( 1.0f ) ) ) +
+                                                 glm::vec3( m.GetVec4( "ClumpTintWarm", glm::vec4( 1.0f ) ) ) );
                             sum.ColourLai += lai;
                             sum.Albedo += lai * colour;
                             sum.Subsurface += lai * glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
