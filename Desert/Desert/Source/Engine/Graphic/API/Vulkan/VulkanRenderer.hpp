@@ -90,8 +90,7 @@ namespace Desert::Graphic::API::Vulkan
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
                                           const MaterialExecutor& material, uint32_t instanceCount,
-                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel,
-                                          std::span<const uint32_t> submeshFirstRows ) override;
+                                          uint32_t firstInstance, uint64_t hiddenSubmeshMask, uint32_t lodLevel ) override;
         Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings,
                                                   const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                   const glm::mat4& transform, const MaterialExecutor& material,

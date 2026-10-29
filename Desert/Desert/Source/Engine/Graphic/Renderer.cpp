@@ -221,11 +221,10 @@ namespace Desert::Graphic
                                                 const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                 const glm::mat4& transform, const MaterialExecutor& material,
                                                 uint32_t instanceCount, uint32_t firstInstance,
-                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel,
-                                                std::span<const uint32_t> submeshFirstRows )
+                                                uint64_t hiddenSubmeshMask, uint32_t lodLevel )
     {
         return s_RendererAPI->RenderMesh( bindings, pipeline, mesh, transform, material, instanceCount,
-                                          firstInstance, hiddenSubmeshMask, lodLevel, submeshFirstRows );
+                                          firstInstance, hiddenSubmeshMask, lodLevel );
     }
 
     Common::BoolResultStr

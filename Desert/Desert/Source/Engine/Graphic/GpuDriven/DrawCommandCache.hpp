@@ -128,14 +128,6 @@ namespace Desert::Graphic::GpuDriven
         std::vector<GpuDrawBin>            Bins; // sorted by IndirectGroup
         std::vector<IndirectGroup>         Groups;
         uint32_t                           VisibleCapacity = 0; // sum of the bins' Capacity
-        // THE UNCULLED LIST: every instance of every bin, VisibleCapacity rows, bin b's at [FirstVisible,
-        // +Capacity) in primitive order. What the vertex stage reads through VisibleInstances[gl_InstanceIndex]
-        // when nothing culled the pass (UE: InstanceCulling with culling off still writes every instance id):
-        // the CPU-recorded draw of a slot instances [SlotFirstVisible[slot], +InstanceCount) of it, so no
-        // per-draw state is pushed. The cull's compacted list (InstanceCulling) has the same row type and
-        // indexing; it replaces this one as the pass's VisibleInstances, never adds a second path.
-        std::vector<GpuVisibleInstance> UnculledVisible;
-        std::vector<uint32_t>           SlotFirstVisible; // host only, per DrawSlot; kInvalidIndex = Bin invalid
     };
 
     // The graph handles of one pass's tables after this frame's upload.
@@ -144,7 +136,6 @@ namespace Desert::Graphic::GpuDriven
         RDG::BufferRef PrimitiveDraws; // GpuPrimitivePassDraws[]
         RDG::BufferRef DrawSlots;      // GpuDrawSlot[]
         RDG::BufferRef Bins;           // GpuDrawBin[]
-        RDG::BufferRef UnculledVisible; // GpuVisibleInstance[] (PassDrawTable::UnculledVisible)
     };
 
     // Every table of the cache after this frame's upload: the passes', and the submesh transforms every pass's
@@ -207,13 +198,6 @@ namespace Desert::Graphic::GpuDriven
         {
             return m_Passes;
         }
-        // The gl_InstanceIndex base of the primitive's draw of (lod, submesh) in @p pass on the unculled list:
-        // its instances are the rows [base, base + InstanceCount) (PassDrawTable::UnculledVisible), so a CPU-
-        // recorded draw passes firstInstance = base and pushes nothing. nullopt: the primitive has no draw there
-        // (not in the cache, not in the pass, lod / submesh past its chain, or no PSO for the submesh). Valid
-        // after Rebuild, until the next AddPrimitive / RemovePrimitive / InvalidatePipelines.
-        [[nodiscard]] std::optional<uint32_t> UnculledFirstVisible( MeshPass pass, PrimitiveIndex primitive,
-                                                                    uint32_t lod, uint32_t submesh ) const;
         // True when every submesh of @p primitive that @p hiddenSubmeshMask does not hide (bit i = submesh i; past
         // 64 never hidden) draws in @p pass through one of its bins: the CPU list leaves the record to the issued
         // bins (a record's submeshes share one material, so they are binned together or not at all). False for a
@@ -267,9 +251,9 @@ namespace Desert::Graphic::GpuDriven
         // Rebuilt and not uploaded yet (the pass tables), and the transforms changed since the last upload.
         std::array<bool, kMeshPassCount> m_Unuploaded{};
         bool                             m_TransformsUnuploaded = false;
-        // [pass][PrimitiveDraws, DrawSlots, Bins, UnculledVisible]: the persistent device tables
+        // [pass][PrimitiveDraws, DrawSlots, Bins]: the persistent device tables
         // (DrawCommandCache.cpp).
-        std::array<std::array<std::unique_ptr<Table>, 4>, kMeshPassCount> m_PassTables;
+        std::array<std::array<std::unique_ptr<Table>, 3>, kMeshPassCount> m_PassTables;
         std::unique_ptr<Table>                                            m_TransformTable;
     };
 } // namespace Desert::Graphic::GpuDriven
