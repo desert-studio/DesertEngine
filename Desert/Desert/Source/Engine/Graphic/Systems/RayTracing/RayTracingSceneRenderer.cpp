@@ -1,5 +1,7 @@
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSceneRenderer.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanRayTracingGeometry.hpp>
@@ -243,8 +245,23 @@ namespace Desert::Graphic::RayTracing
         if ( m_SceneMeshes == nullptr ||
              m_SceneGatherFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
             return Common::MakeError( "RayTracingScene: a scene gather before this frame's AddPasses" );
-        GatherRayTracingPrimitives( GatherInputsOf( *m_SceneMeshes, m_SceneViewOrigin, m_SceneLensScale ), nullptr,
-                                    m_Gather );
+        // Cached: the gather runs again only when what it reads changed (RayTracingSceneGatherKey, O(records)) or
+        // a TLAS gather overwrote it since. A still scene costs the key, not the per-instance ISM walk.
+        const RayTracingGatherInputs inputs = GatherInputsOf( *m_SceneMeshes, m_SceneViewOrigin, m_SceneLensScale );
+        {
+            DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGatherKey" );
+            MakeRayTracingSceneGatherKey( inputs, m_SceneGatherScratchKey );
+            if ( m_GatherIsScene && m_SceneGatherScratchKey == m_SceneGatherKey )
+                return BOOLSUCCESS;
+        }
+        {
+            // In the profile only on the frames that regather (a still scene: none after the first).
+            DESERT_PROFILE_SCOPE( "RayTracingScene: SceneGather" );
+            GatherRayTracingPrimitives( inputs, nullptr, m_Gather );
+        }
+        std::swap( m_SceneGatherKey, m_SceneGatherScratchKey );
+        m_GatherIsScene = true;
+        ++m_SceneGathers;
         return BOOLSUCCESS;
     }
 
@@ -266,6 +283,8 @@ namespace Desert::Graphic::RayTracing
         // The scene's shared geometry ends its previous frame on the first view of this one
         // (RayTracingSceneCache).
         cache.BeginViewFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        // m_Gather becomes this frame's TLAS gather below: a later frame without a TLAS gathers the scene anew.
+        m_GatherIsScene = false;
 
         m_DynamicBlas.clear();
         m_DynamicBuilds.clear();

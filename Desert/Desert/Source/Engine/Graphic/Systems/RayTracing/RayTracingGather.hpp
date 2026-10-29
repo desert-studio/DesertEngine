@@ -48,4 +48,8 @@ namespace Desert::Graphic::RayTracing
     // list on a frame whose GI tracer is the software one, EmissiveLights.hpp).
     void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants* variants,
                                      RayTracingGatherResult& out );
+
+    // RayTracingSceneGatherKey: RayTracingScene.hpp (held by RayTracingSceneRenderer without this header).
+    // @p out is cleared first (capacity kept).
+    void MakeRayTracingSceneGatherKey( const RayTracingGatherInputs& inputs, RayTracingSceneGatherKey& out );
 } // namespace Desert::Graphic::RayTracing

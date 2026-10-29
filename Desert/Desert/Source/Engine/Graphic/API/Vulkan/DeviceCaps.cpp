@@ -69,7 +69,11 @@ namespace Desert::Graphic::API::Vulkan
              // MoltenVK (argument buffers) carries it, and there is no non-bindless second path.
              { C::DescriptorIndexing, "descriptorIndexing", N::Required, V12,
                VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME },
-             { C::BufferDeviceAddress, "bufferDeviceAddress", N::Available, V12,
+             // Optional, its own row, independent of ray tracing: mesh buffers carry SHADER_DEVICE_ADDRESS under
+             // it (MeshBufferUsage.hpp) and the GI emissive light list names emitter triangles by address for both
+             // tracers; without it the list cannot name an emitter and the surface cache reports that error
+             // (REMAINDER GI-ALL-LIGHTS-3: no desktop 1.2 device lacks it, the branch is not built yet).
+             { C::BufferDeviceAddress, "bufferDeviceAddress", N::Optional, V12,
                VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME },
              // Below 1.2 the extension needs depth_stencil_resolve and create_renderpass2 as extensions.
              { C::DynamicRendering, "dynamicRendering", N::Available, V13, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,

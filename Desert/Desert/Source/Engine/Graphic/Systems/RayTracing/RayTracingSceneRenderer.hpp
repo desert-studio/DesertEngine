@@ -320,8 +320,15 @@ namespace Desert::Graphic::RayTracing
         // segment records with no BLAS resolved (GatherRayTracingPrimitives with no variants) from the queues and
         // view AddPasses was given, so GetPrimitives / GetSegmentRecords answer for a reader of the scene's meshes
         // (the emissive light list under the software GI tracer, EmissiveLights.hpp). A frame with a TLAS keeps
-        // its gather (the same rows). Error: called before this frame's AddPasses.
+        // its gather (the same rows). Cached across frames: regathered only when RayTracingSceneGatherKey (the
+        // queues' primitives, transforms, sections, materials, ISM transform snapshots and rows) changes, or after
+        // a TLAS gather replaced it. Error: called before this frame's AddPasses.
         [[nodiscard]] Common::BoolResultStr GatherScene();
+        // How many scene gathers GatherScene actually ran since the view was made (a still scene: one).
+        [[nodiscard]] uint64_t GetSceneGatherCount() const
+        {
+            return m_SceneGathers;
+        }
 
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
@@ -370,6 +377,11 @@ namespace Desert::Graphic::RayTracing
         glm::vec3                   m_SceneViewOrigin{ 0.0f };
         float                       m_SceneLensScale   = 1.0f;
         uint64_t                    m_SceneGatherFrame = ~0ull;
+        // The scene gather's cache (GatherScene): the key m_Gather was gathered from, while m_GatherIsScene.
+        RayTracingSceneGatherKey m_SceneGatherKey;
+        RayTracingSceneGatherKey m_SceneGatherScratchKey; // this frame's, capacity kept
+        bool                     m_GatherIsScene = false;
+        uint64_t                 m_SceneGathers  = 0;
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;

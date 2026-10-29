@@ -1543,6 +1543,7 @@ namespace Desert::Editor
             const bool rtOffered = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
                                                 []( Common::Scalability::RayTracingMode m )
                                                 { return m != Common::Scalability::RayTracingMode::None; } );
+            device.BufferDeviceAddress = capabilities.SupportsBufferDeviceAddress;
             device.Rt = rtOffered ? "on" : ( capabilities.RayTracingHidden ? "hidden" : "off" );
             for ( const Common::Scalability::RayTracingMode mode : catalog.RayTracingModes )
                 device.RtModes.emplace_back(

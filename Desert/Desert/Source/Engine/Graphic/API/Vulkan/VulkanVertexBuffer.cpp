@@ -59,7 +59,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( buffer == VK_NULL_HANDLE )
             return 0;
         const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        if ( !logical || !logical->GetRayTracingFunctions().Complete() )
+        // bufferDeviceAddress alone (its own DeviceCaps row, loaded without acceleration structures too): the GI
+        // emissive list reads mesh buffers by address on a device that cannot trace (MeshBufferUsage.hpp).
+        if ( !logical || logical->GetRayTracingFunctions().GetBufferDeviceAddress == nullptr )
             return 0;
         return logical->GetRayTracingFunctions().BufferAddress( logical->GetVulkanLogicalDevice(), buffer );
     }

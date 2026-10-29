@@ -7,6 +7,8 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <format>
 #include <unordered_map>
 
@@ -57,6 +59,17 @@ namespace Desert::Graphic::RayTracing
         SectionSource SourceOf( const uint64_t visible, const MeshRenderer::SectionShading& shading )
         {
             return { visible, shading.Instance, shading.Surface, shading.Masked, shading.Translucent };
+        }
+
+        // A generic record's section: its own program (a per-slot data-driven material, or a shader override with
+        // no slot material), opaque unless the record carries its own hit group with an alpha test.
+        SectionSource GenericSectionOf( const MeshRenderer::GenericMeshRenderData& data )
+        {
+            const bool program = !data.RayHit.Template.empty();
+            return { .Visible    = data.VisibleSubmeshMask,
+                     .Surface    = data.SlotMaterial,
+                     .Masked     = program && data.RayHit.Opacity.has_value(),
+                     .ProgramHit = program ? &data.RayHit : nullptr };
         }
 
         // The BLAS masks of @p mesh drawn by @p sections: a submesh no section draws is hidden; one a Masked
@@ -184,13 +197,8 @@ namespace Desert::Graphic::RayTracing
         for ( const MeshRenderer::GenericMeshRenderData& data : inputs.Generic )
             if ( data.VisibleInRayTracing )
             {
-                const bool program = !data.RayHit.Template.empty();
-                add( data.Mesh, data.Transform, data.GpuInstance,
-                     { .Visible    = data.VisibleSubmeshMask,
-                       .Surface    = data.SlotMaterial,
-                       .Masked     = program && data.RayHit.Opacity.has_value(),
-                       .ProgramHit = program ? &data.RayHit : nullptr },
-                     data.CastShadows, RayTracingPrimitiveKind::Generic );
+                add( data.Mesh, data.Transform, data.GpuInstance, GenericSectionOf( data ), data.CastShadows,
+                     RayTracingPrimitiveKind::Generic );
             }
 
         for ( const RowRecord& record : rows )
@@ -394,6 +402,136 @@ namespace Desert::Graphic::RayTracing
             primitive.Submeshes   = MasksOf( *data.Mesh, skinnedSections );
             primitive.Translucent = AllTranslucent( skinnedSections );
             AppendSegmentRecords( *data.Mesh, skinnedSections, primitive, out );
+        }
+    }
+    namespace
+    {
+        // The words of MakeRayTracingSceneGatherKey: each value the gather reads, bit-exact.
+        struct KeyWriter
+        {
+            std::vector<uint64_t>& Words;
+
+            void Value( const uint64_t value ) const
+            {
+                Words.push_back( value );
+            }
+            void Pointer( const void* pointer ) const
+            {
+                Words.push_back( static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( pointer ) ) );
+            }
+            void Float( const float value ) const
+            {
+                Words.push_back( std::bit_cast<uint32_t>( value ) );
+            }
+            void Matrix( const glm::mat4& matrix ) const
+            {
+                for ( glm::length_t c = 0; c < 4; ++c )
+                    for ( glm::length_t r = 0; r < 4; ++r )
+                        Float( matrix[c][r] );
+            }
+            void Section( const SectionSource& section ) const
+            {
+                Value( section.Visible );
+                Pointer( section.Instance );
+                Pointer( section.Surface );
+                Value( ( section.Masked ? 1u : 0u ) | ( section.Translucent ? 2u : 0u ) );
+                Pointer( section.ProgramHit );
+            }
+            // What the gather reads of a mesh: its submesh list (masks, segment runs) and its residency.
+            void MeshOf( const Mesh* mesh ) const
+            {
+                Pointer( mesh );
+                if ( mesh == nullptr )
+                    return;
+                Pointer( mesh->GetSubmeshes().data() );
+                Value( mesh->GetSubmeshes().size() );
+                Value( mesh->GetGeometry().IndexCount );
+                Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+            }
+        };
+    } // namespace
+
+    void MakeRayTracingSceneGatherKey( const RayTracingGatherInputs& inputs, RayTracingSceneGatherKey& out )
+    {
+        out.Words.clear();
+        out.InstancedRows.clear();
+        out.Fields.clear();
+        const KeyWriter key{ out.Words };
+        key.Value( inputs.Static.size() );
+        key.Value( inputs.Generic.size() );
+        key.Value( inputs.Instanced.size() );
+        key.Value( inputs.GpuInstanced.size() );
+        key.Value( inputs.Skinned.size() );
+        for ( const MeshRenderer::StaticMeshRenderData& data : inputs.Static )
+        {
+            key.MeshOf( data.Mesh );
+            key.Matrix( data.Transform );
+            key.Value( data.GpuInstance );
+            key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
+            key.Value( data.CastShadows ? 1u : 0u );
+        }
+        for ( const MeshRenderer::GenericMeshRenderData& data : inputs.Generic )
+        {
+            key.Value( data.VisibleInRayTracing ? 1u : 0u );
+            if ( !data.VisibleInRayTracing )
+                continue;
+            key.MeshOf( data.Mesh );
+            key.Matrix( data.Transform );
+            key.Value( data.GpuInstance );
+            key.Section( GenericSectionOf( data ) );
+            key.Value( data.CastShadows ? 1u : 0u );
+        }
+        bool viewCulls = false;
+        for ( const MeshRenderer::InstancedMeshRenderData& data : inputs.Instanced )
+        {
+            key.Value( data.Entity );
+            key.MeshOf( data.Mesh );
+            key.Pointer( data.Transforms.get() );
+            key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
+            key.Value( data.CastShadows ? 1u : 0u );
+            key.Float( data.CullDistance.Min );
+            key.Float( data.CullDistance.Max );
+            key.Value( data.FirstGpuInstance );
+            if ( data.Mesh == nullptr || !data.Transforms )
+                continue;
+            out.Fields.push_back( data.Transforms );
+            viewCulls = viewCulls || data.CullDistance.Culls();
+            // The GPU-scene row of every instance (RayTracingPrimitive::GpuSceneRow), as the gather reads them.
+            const std::span<const uint32_t> rows = inputs.InstancedGpuInstances;
+            const std::size_t first = std::min<std::size_t>( data.FirstGpuInstance, rows.size() );
+            const std::size_t count = std::min( data.Transforms->size(), rows.size() - first );
+            out.InstancedRows.insert( out.InstancedRows.end(), rows.begin() + first, rows.begin() + first + count );
+        }
+        if ( viewCulls )
+        {
+            key.Float( inputs.ViewOrigin.x );
+            key.Float( inputs.ViewOrigin.y );
+            key.Float( inputs.ViewOrigin.z );
+            key.Float( inputs.DrawDistanceScale );
+        }
+        for ( const MeshRenderer::GpuInstancedRenderData& data : inputs.GpuInstanced )
+        {
+            key.MeshOf( data.Mesh );
+            key.Pointer( data.Refs );
+            key.Value( static_cast<uint64_t>( data.Path ) );
+            key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
+            key.Value( data.CastShadows ? 1u : 0u );
+            key.Value( data.Capacity );
+            key.Value( data.BladeGeometry.size() );
+            for ( const RayTracingGeometryResource* geometry : data.BladeGeometry )
+                key.Pointer( geometry );
+            key.Value( data.BucketCapacities.size() );
+            for ( const uint32_t capacity : data.BucketCapacities )
+                key.Value( capacity );
+        }
+        for ( const MeshRenderer::SkinnedMeshRenderData& data : inputs.Skinned )
+        {
+            key.MeshOf( data.Mesh );
+            key.Matrix( data.Transform );
+            key.Value( data.GpuInstance );
+            key.Value( data.Sections.size() );
+            for ( const MeshRenderer::SkinnedSection& section : data.Sections )
+                key.Section( SourceOf( ~section.HiddenSubmeshes, MeshRenderer::ShadingOf( section ) ) );
         }
     }
 } // namespace Desert::Graphic::RayTracing

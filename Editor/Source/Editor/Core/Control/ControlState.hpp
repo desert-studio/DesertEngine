@@ -124,6 +124,9 @@ namespace Desert::Editor::Control
 
         // RAY TRACING (NO-RT): what the device offers and what the main viewport resolved to, so a scenario on a
         // card without RT (or with it hidden by machine.json) reads the fallback from one source.
+        /// bufferDeviceAddress row (DeviceCapabilities::SupportsBufferDeviceAddress): independent of `Rt`; the GI
+        /// emissive light list needs only this.
+        bool                     BufferDeviceAddress = false;
         std::string              Rt;      ///< "on" | "off" (the device has none) | "hidden" (machine.json HideRayTracing)
         std::vector<std::string> RtModes; ///< Catalog RayTracingModes, kRayTracingModeNames, best first
         /// Graphic::PathTracingRefusal: empty when the device can path-trace, else why a PathTraced request is
@@ -424,6 +427,7 @@ namespace Desert::Editor::Control
             Common::Json::Object section;
             section["name"]        = Str( device.Name );
             section["nn"]          = Common::Json::Value( nn );
+            section["bufferDeviceAddress"] = Common::Json::Value( device.BufferDeviceAddress );
             section["rt"]          = Str( device.Rt );
             section["rtModes"]     = Common::Json::Value( modes );
             section["pathTracing"] = Common::Json::Value( pathTracing );

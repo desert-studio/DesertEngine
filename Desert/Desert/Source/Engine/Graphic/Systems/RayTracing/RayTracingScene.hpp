@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -278,6 +279,23 @@ namespace Desert::Graphic::RayTracing
         const GpuInstanceRefs* Refs   = nullptr;
         uint32_t               Rows   = 0; // reserved rows: the producer's instance capacity
         uint32_t               Record = 0; // the indexed-indirect record (submesh) that states count and first
+    };
+
+    // THE IDENTITY OF A SCENE GATHER'S INPUTS (GI-ALL-LIGHTS step 3): every value GatherRayTracingPrimitives
+    // (RayTracingGather.hpp, MakeRayTracingSceneGatherKey) reads from its inputs and their meshes, in O(records) -
+    // an ISM field by its transform snapshot (immutable, and held here so its address cannot be reused by another)
+    // and the GPU-scene rows of its instances, never instance by instance. Equal keys gather the same primitives
+    // and segment records with no BLAS resolved, so a reader of the scene's meshes on a frame without a TLAS
+    // (RayTracingSceneRenderer::GatherScene) regathers only when a primitive, its transform, its sections or their
+    // materials change. The view (origin, lens scale) is part of the key only when an ISM field culls by distance
+    // - the one place the gather reads it.
+    struct RayTracingSceneGatherKey
+    {
+        std::vector<uint64_t>                                      Words;
+        std::vector<uint32_t>                                      InstancedRows;
+        std::vector<std::shared_ptr<const std::vector<glm::mat4>>> Fields;
+
+        bool operator==( const RayTracingSceneGatherKey& ) const = default;
     };
 
     struct RayTracingGatherResult

@@ -9,3 +9,6 @@
 Дано: the same scene, GlobalIllumination.Method 4 (SoftwareTraced).
 Когда: shoot after 120 frames, this branch and dev.
 Тогда 2_day_swgi: byte-identical to dev up to the GI's own frame-to-frame noise (the software tracer has no emissive list: GI-EMISSIVE-LIGHTS-SW); 0 VUID
+Дано: F:/BistroFoliageProj, GI_Bistro_Night, GlobalIllumination.Method 4 (SoftwareTraced); machine.json (ProjectContext::ConfigDirectory) "HideRayTracing": true, editor started after the edit (the NO-RT path: no AS/ray query/RT pipeline, bufferDeviceAddress still on).
+Когда: state device; shoot after 120 frames (this branch) and the same without HideRayTracing; capture the CPU profile over frames 100..120.
+Тогда [gi_emissive_nort] 3_night_swgi_nort: state device bufferDeviceAddress = true, rt = "hidden"; walls/pavement beside the emissive shades lit (lamp-region mean luminance within noise of the same shot with RT shown, far above a dev SW frame); no "[SceneRenderer] Surface Cache: the emissive lights" error in editor.log; profile: "RayTracingScene: SceneGather" absent on frames 100..120 (only "RayTracingScene: SceneGatherKey"); 0 VUID

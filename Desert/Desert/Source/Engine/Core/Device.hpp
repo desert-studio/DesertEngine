@@ -99,6 +99,11 @@ namespace Desert::Engine
         /// (SSR trace/resolve, GI resolve, bloom) writes RGBA32F, so this gates them.
         bool SupportsFloatRenderTargets = false;
 
+        /// bufferDeviceAddress (core 1.2, its own DeviceCaps row, enabled whenever supported - independent of
+        /// ray tracing): mesh buffers are addressable and the GI emissive light list can be built for either
+        /// tracer. Readers: SurfaceCache (whether to build the list) and DesertCtl `state device`.
+        bool SupportsBufferDeviceAddress = false;
+
         // --- Ray tracing hidden by the machine (NO-RT) ------------------------------------------------
         /// machine.json "HideRayTracing": the backend probed this device as one without ray tracing (Catalog
         /// RayTracingModes = None), so `rt` reads "hidden" rather than "off". Readers: the start-up log and
