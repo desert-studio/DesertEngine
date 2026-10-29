@@ -32,6 +32,22 @@
             "Value": [0.15, 0.0, 0.0, 0.0]
         },
         {
+            "Name": "DetailNormalScale",
+            "Value": [8.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "DetailNormalStrength",
+            "Value": [0.8, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueSize",
+            "Value": [3000.0, 0.0, 0.0, 0.0]
+        },
+        {
+            "Name": "MacroHueStrength",
+            "Value": [0.6, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "Layer0Blend",
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
@@ -42,6 +58,10 @@
         {
             "Name": "Layer0Tint",
             "Value": [0.16, 0.27, 0.19, 1.0]
+        },
+        {
+            "Name": "Layer0NormalStrength",
+            "Value": [1.6, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Layer1Blend",
@@ -56,6 +76,10 @@
             "Value": [0.22, 0.26, 0.19, 1.0]
         },
         {
+            "Name": "Layer1NormalStrength",
+            "Value": [1.6, 0.0, 0.0, 0.0]
+        },
+        {
             "Name": "Layer2Blend",
             "Value": [1.0, 0.0, 0.0, 0.0]
         },
@@ -66,6 +90,10 @@
         {
             "Name": "Layer2Tint",
             "Value": [1.0, 1.0, 1.0, 1.0]
+        },
+        {
+            "Name": "Layer2NormalStrength",
+            "Value": [1.4, 0.0, 0.0, 0.0]
         }
     ],
     "Textures": [
