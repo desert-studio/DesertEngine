@@ -877,6 +877,7 @@ namespace Desert::Core
             // first view to reach the cache runs captures the cards in front of every viewport, not its own.
             const auto& frames = Engine::FrameManager::GetInstance();
             m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             std::vector<glm::vec3> origins;
             for ( const auto& view : m_Views.All() )
                 if ( view.Camera )
@@ -1312,14 +1313,18 @@ namespace Desert::Core
         // depth and the ray-tracing variants of the old world stayed resident under the next scene and were
         // still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects are queued for
         // deletion here; the opener drains the queue before the new world loads (SceneWorkspace).
+        // The captures' renderer records into the views' frame graphs (faces, its face surface cache and global
+        // distance field, its own retire queues): frames in flight still read them, so it is parked whole like the
+        // surface cache below and dies with its queues once those frames retired (OnUpdate collects).
+        const std::uint64_t clearFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        m_RetiringReflectionCaptures.Park( std::move( m_ReflectionCaptures ), clearFrame );
         m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
         m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
         m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
         m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
         // The surface cache's atlases, capture framebuffer and pipelines are still read by the frames in flight
         // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
-        m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ),
-                                      Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+        m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );
         m_SurfaceCache     = std::make_unique<Graphic::SurfaceCache::SurfaceCacheRenderer>( m_LedgerInstance );
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;

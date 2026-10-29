@@ -849,9 +849,10 @@ namespace Desert::Core
         std::unique_ptr<Graphic::DistanceField::DistanceFieldSceneData> m_DistanceFields;
         // See GetSurfaceCache. Never null: made by both constructors.
         std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer> m_SurfaceCache;
-        // The caches Clear dropped with their world, kept until no frame in flight reads them (collected at the top
-        // of the views' render, OnUpdate).
+        // The surface caches and capture renderers Clear dropped with their world, kept until no frame in flight
+        // reads them (collected at the top of the views' render, OnUpdate).
         Assets::FrameRetireQueue<std::unique_ptr<Graphic::SurfaceCache::SurfaceCacheRenderer>> m_RetiringSurfaceCaches;
+        Assets::FrameRetireQueue<std::unique_ptr<Graphic::ReflectionCaptureRenderer>>          m_RetiringReflectionCaptures;
 
         std::shared_ptr<Core::Camera> m_EditorCamera;   // persistent editor view (Edit mode)
         bool                          m_CameraPinned = false; // view driven from outside (see PinActiveCamera)
