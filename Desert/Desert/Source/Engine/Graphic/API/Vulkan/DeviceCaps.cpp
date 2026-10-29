@@ -187,6 +187,22 @@ namespace Desert::Graphic::API::Vulkan
         return caps;
     }
 
+    bool IsRayTracingCapability( Capability capability )
+    {
+        return capability == Capability::AccelerationStructure || capability == Capability::RayQuery ||
+               capability == Capability::RayTracingPipeline;
+    }
+
+    void HideRayTracing( DeviceCaps& caps )
+    {
+        for ( std::size_t i = 0; i < kCapabilityCount; ++i )
+        {
+            if ( IsRayTracingCapability( static_cast<Capability>( i ) ) )
+                caps.Rows[i] = CapabilityRow{ .Route = CapabilityRoute::Unreachable, .Present = false };
+        }
+        caps.RayTracingHidden = true;
+    }
+
     bool DependenciesPresent( const DeviceCaps& caps, Capability capability )
     {
         for ( const Capability dependency : SpecOf( capability ).DependsOn )
@@ -249,12 +265,14 @@ namespace Desert::Graphic::API::Vulkan
         {
             const CapabilitySpec& spec = kTable[i];
             const CapabilityRow&  row  = caps.Rows[i];
-            const char*           how  = !row.Present                              ? "no"
-                                         : row.Route == CapabilityRoute::Extension ? "ext"
-                                         : spec.CoreSince == VK_API_VERSION_1_0    ? "1.0"
-                                         : spec.CoreSince == VK_API_VERSION_1_1    ? "core1.1"
-                                         : spec.CoreSince == VK_API_VERSION_1_2    ? "core1.2"
-                                                                                   : "core1.3";
+            const char* how = caps.RayTracingHidden && IsRayTracingCapability( static_cast<Capability>( i ) )
+                                   ? "hidden"
+                              : !row.Present                            ? "no"
+                              : row.Route == CapabilityRoute::Extension ? "ext"
+                              : spec.CoreSince == VK_API_VERSION_1_0    ? "1.0"
+                              : spec.CoreSince == VK_API_VERSION_1_1    ? "core1.1"
+                              : spec.CoreSince == VK_API_VERSION_1_2    ? "core1.2"
+                                                                        : "core1.3";
             const char*           need = spec.Need == CapabilityNeed::Required ? "!" : "";
             line += std::format( " {}{}={}", need, spec.Name, how );
         }
