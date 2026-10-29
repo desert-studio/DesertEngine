@@ -16,3 +16,17 @@
 Тогда-вид 1_dirfirst cut with direction first: the previous frame saw none of this view
 Когда --subject viewport set Camera.Position 0,900,2500
 Тогда-вид 1_dirfirst_again same pose, frames later
+# p20: name the pass - the same direction-first cut with the GI method ceiling Off, then with reflections Off.
+Когда run Quality "Quality: GlobalIllumination.Method Off"
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_nogi direction-first cut with GI off: no pale block in the near field
+Когда run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Когда run Quality "Quality: Reflections.Method Off"
+Когда --subject viewport set Camera.Position 3000,1500,-2000
+Когда --subject viewport set Camera.Direction -1,-0.3,0.5
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport set Camera.Position 0,900,2500
+Тогда-вид 1_norefl direction-first cut with GI on and reflections off: the block shows whether reflections carry it
