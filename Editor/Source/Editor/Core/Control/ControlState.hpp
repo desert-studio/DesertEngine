@@ -78,6 +78,12 @@ namespace Desert::Editor::Control
         uint32_t    CpuDraws      = 0;
         uint32_t    IndirectCalls = 0;
         uint32_t    BinsIssued    = 0;
+        // The pass's cached draw commands (GpuDriven::DrawCommandCache::Pass): the bins and draw slots it holds,
+        // and per BinFallback reason the submeshes drawn in the pass that stay on the CPU path (name -> count,
+        // only reasons with a non-zero count).
+        uint32_t                                     CachedBins  = 0;
+        uint32_t                                     CachedSlots = 0;
+        std::vector<std::pair<std::string, uint32_t>> CpuFallbacks;
     };
 
     struct EntitySnapshot
@@ -330,6 +336,12 @@ namespace Desert::Editor::Control
                 item["cpuDraws"]      = Num( pass.CpuDraws );
                 item["indirectCalls"] = Num( pass.IndirectCalls );
                 item["binsIssued"]    = Num( pass.BinsIssued );
+                item["cachedBins"]    = Num( pass.CachedBins );
+                item["cachedSlots"]   = Num( pass.CachedSlots );
+                Common::Json::Object fallbacks;
+                for ( const auto& [reason, count] : pass.CpuFallbacks )
+                    fallbacks.insert( reason, Num( count ) );
+                item["cpuFallbacks"] = Common::Json::Value( fallbacks );
                 meshPasses[pass.Name] = Common::Json::Value( item );
             }
             views["meshPasses"] = Common::Json::Value( meshPasses );

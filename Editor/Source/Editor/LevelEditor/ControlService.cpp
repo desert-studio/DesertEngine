@@ -37,6 +37,7 @@
 #include <Engine/Graphic/DrawCounters.hpp>
 #include <array>
 #include <Engine/Graphic/GeometryPool.hpp>
+#include <Engine/Graphic/GpuDriven/DrawCommandCache.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/ECS/AtmosphereSunLight.hpp>
@@ -1337,14 +1338,32 @@ namespace Desert::Editor
             // GpuDriven::MeshPass order (DrawCounters.hpp kCountedMeshPasses).
             static constexpr std::array<const char*, Graphic::kCountedMeshPasses> kMeshPassNames{
                  "depthPrepass", "gbuffer", "forward", "shadowCascade", "virtualShadow" };
+            static_assert( Graphic::kCountedMeshPasses == Graphic::GpuDriven::kMeshPassCount );
+            const Graphic::GpuDriven::DrawCommandCache* const cache =
+                 m_Workspace.PrimaryRenderer() != nullptr ? m_Workspace.PrimaryRenderer()->GetDrawCommandCache()
+                                                          : nullptr;
             snapshot.MeshPasses.clear();
             for ( uint32_t pass = 0; pass < Graphic::kCountedMeshPasses; ++pass )
             {
                 const Graphic::MeshPassDrawCounters counted = Graphic::DrawCounter::LastFrameMeshPass( pass );
-                snapshot.MeshPasses.push_back( { .Name          = kMeshPassNames[pass],
-                                                 .CpuDraws      = counted.CpuDraws,
-                                                 .IndirectCalls = counted.IndirectCalls,
-                                                 .BinsIssued    = counted.BinsIssued } );
+                MeshPassDrawSnapshot item{ .Name          = kMeshPassNames[pass],
+                                           .CpuDraws      = counted.CpuDraws,
+                                           .IndirectCalls = counted.IndirectCalls,
+                                           .BinsIssued    = counted.BinsIssued };
+                if ( cache != nullptr )
+                {
+                    const Graphic::GpuDriven::PassDrawTable& table =
+                         cache->Pass( static_cast<Graphic::GpuDriven::MeshPass>( pass ) );
+                    item.CachedBins  = static_cast<uint32_t>( table.Bins.size() );
+                    item.CachedSlots = static_cast<uint32_t>( table.DrawSlots.size() );
+                    for ( uint32_t reason = 0; reason < Graphic::GpuDriven::kBinFallbackCount; ++reason )
+                        if ( table.Fallbacks[reason] > 0u )
+                            item.CpuFallbacks.emplace_back(
+                                 Graphic::GpuDriven::BinFallbackName(
+                                      static_cast<Graphic::GpuDriven::BinFallback>( reason ) ),
+                                 table.Fallbacks[reason] );
+                }
+                snapshot.MeshPasses.push_back( std::move( item ) );
             }
         }
 

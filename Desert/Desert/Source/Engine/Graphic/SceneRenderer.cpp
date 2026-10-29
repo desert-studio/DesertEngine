@@ -3191,6 +3191,14 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
+    const GpuDriven::DrawCommandCache* SceneRenderer::GetDrawCommandCache() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetDrawCommandCache();
+    }
+
     uint64_t SceneRenderer::GetViewTrianglesDrawn() const
     {
         const auto found = m_RenderSystems.find( "MeshSystem" );

@@ -5,9 +5,20 @@
 #include <Engine/Graphic/API/Vulkan/VulkanPipelineCompute.hpp>
 
 #include <algorithm>
+#include <atomic>
 
 namespace Desert::Graphic
 {
+    namespace
+    {
+        std::atomic<uint64_t> g_PipelineRebuildEpoch{ 0 };
+    } // namespace
+
+    uint64_t PipelineRebuildEpoch()
+    {
+        return g_PipelineRebuildEpoch.load( std::memory_order_acquire );
+    }
+
     bool AnyPipelineBehindItsShader()
     {
         const std::lock_guard lock( detail::LivePipelines().Mutex );
@@ -28,6 +39,8 @@ namespace Desert::Graphic
             pipeline->Invalidate(); // records the new generation; a refusal logs its reason and leaves it unbuilt
             ++rebuilt;
         }
+        if ( rebuilt > 0 )
+            g_PipelineRebuildEpoch.fetch_add( 1, std::memory_order_acq_rel );
         return rebuilt;
     }
 

@@ -1798,19 +1798,31 @@ namespace Desert::Graphic::System
             uint64_t              HiddenSubmeshMask = 0;
             uint32_t              Flags             = 0;
             MeshVertexPath        Path              = MeshVertexPath::Static;
+            // A generic (m_GenericQueue) draw: it casts through the shared opaque caster whatever its program
+            // (MeshRendererShadow.cpp, the generic casters), and its view passes answer Fallback when set (a program
+            // with no Surface block, a slot material's own program: no `.Binned` permutation).
+            bool                   Generic  = false;
+            GpuDriven::BinFallback Fallback = GpuDriven::BinFallback::None;
             bool                  operator==( const BinnedPrimitiveFeed& ) const = default;
         };
         std::unique_ptr<GpuDriven::DrawCommandCache>                       m_DrawCommandCache;
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;
         std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_ScratchBinnedFeed;
         std::unordered_set<std::string>                                    m_BinnedRefused; // said once each
+        // What the cache's answers were resolved at: a recompile (Graphic::PipelineRebuildEpoch) or a wireframe
+        // toggle (the Forward pass state's line twin) moves them, and the feed re-resolves every cached draw.
+        uint64_t m_BinnedPipelineEpoch = 0;
+        bool     m_BinnedWireframe     = false;
         void FeedDrawCommandCache( const GpuDriven::GpuScene& scene, const GpuDriven::GpuSceneRecordRows& rows );
         // The PSO a submesh of @p primitive draws with in @p pass from material row @p materialRow: the pass's shared
         // state with the material's `.Binned` cell (GBuffer / Forward: the template's cell, two-sided as
         // CullPermutation; ShadowCascade: ShadowCasterShaderFor's cell, the default surface's for an opaque one).
-        // nullptr = not drawn in the pass (translucent, no cell, DepthPrepass / VirtualShadow not binned yet).
-        const GraphicsPipeline* ResolveBinnedPipeline( GpuDriven::MeshPass pass, GpuDriven::PrimitiveIndex primitive,
-                                                       uint32_t materialRow );
+        // No pipeline + BinFallback::None = not drawn in the pass (translucent); + a fallback = drawn there on the CPU
+        // path for that reason (no cell, bound textures, a generic program, DepthPrepass / VirtualShadow not
+        // binned yet).
+        GpuDriven::PassPipelineResolution ResolveBinnedPipeline( GpuDriven::MeshPass       pass,
+                                                                 GpuDriven::PrimitiveIndex primitive,
+                                                                 uint32_t                  materialRow );
         const GraphicsPipeline* BinnedCellPipeline( const std::string& cellShader, const GraphicsPipeline* passState,
                                                     bool twoSided );
         std::unordered_set<const void*> m_MissingMaterialRowReported; // a template whose miss was said once

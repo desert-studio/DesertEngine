@@ -134,6 +134,11 @@ namespace Desert::Graphic
      */
     size_t RebuildPipelinesBehindTheirShader();
 
+    /// How many RebuildPipelinesBehindTheirShader calls rebuilt something: a holder of RESOLVED answers (which
+    /// cell a material draws with, whether that cell is registered — DrawCommandCache) compares it to the epoch
+    /// it resolved at and re-resolves when a recompile moved it, since a reload can add or drop cells.
+    [[nodiscard]] uint64_t PipelineRebuildEpoch();
+
     /// Whether any live pipeline is behind its shader — asked first so a poll that changed nothing does not
     /// idle the device.
     [[nodiscard]] bool AnyPipelineBehindItsShader();

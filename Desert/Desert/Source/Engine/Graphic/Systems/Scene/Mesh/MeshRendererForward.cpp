@@ -147,7 +147,14 @@ namespace Desert::Graphic::System
                                                           static_cast<uint64_t>( g.MotionPart ) };
             const auto [it, inserted] = m_FrameMaterialRows.try_emplace( key, 0u );
             if ( inserted )
+            {
                 it->second = registry.SyncMaterialRow( key, shared->GetParamRow() );
+                // The row's surface, as RegisterMaterialRow records it: what ResolveBinnedPipeline turns the row
+                // back into a cell with.
+                if ( it->second >= m_RowSurfaces.size() )
+                    m_RowSurfaces.resize( it->second + 1 );
+                m_RowSurfaces[it->second] = { shared.get(), nullptr };
+            }
             else
             {
                 // Two records of one entity part through one (template x texture set): one row, so their values
