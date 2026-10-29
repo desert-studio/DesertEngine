@@ -260,8 +260,9 @@ namespace Desert::Graphic::API::Vulkan
     {
         // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,
         // before the probe, so the device is created as the restricted card would create it.
-        const DeviceRestrictions restrictions{ .HideRayTracing = Common::Settings::MachineSettings::Get().HideRayTracing };
-        auto probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
+        const DeviceRestrictions restrictions{ .HideRayTracing =
+                                                    Common::Settings::MachineSettings::Get().HideRayTracing };
+        auto                     probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
         if ( !probed )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
         if ( restrictions.HideRayTracing )

@@ -577,10 +577,9 @@ namespace Desert::Graphic::SurfaceCache
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
              std::string( kRadiosityShaderName ), GlobalIllumination::TracerVariant( tracer ) );
         if ( !acquired )
-            return Common::MakeFormattedError<bool>( "surface cache: shader {} ({}) was refused: {}",
-                                                     kRadiosityShaderName,
-                                                     GlobalIllumination::TracerDefine( tracer.Tracer ),
-                                                     acquired.GetError() );
+            return Common::MakeFormattedError<bool>(
+                 "surface cache: shader {} ({}) was refused: {}", kRadiosityShaderName,
+                 GlobalIllumination::TracerDefine( tracer.Tracer ), acquired.GetError() );
         auto shader = acquired.ExtractValue();
         // One quad per relit page into the trace atlas, blended with the history by the sample's weight
         // (src alpha; the target keeps no alpha of its own).

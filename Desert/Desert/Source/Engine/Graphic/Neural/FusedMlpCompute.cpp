@@ -156,10 +156,10 @@ namespace Desert::Engine::Neural
                  "(requiredSubgroupSizeStages lacks COMPUTE); its coopmat shapes are listed for width {}",
                  caps.MinSubgroupSize, caps.MaxSubgroupSize, width );
         request.RequiredSubgroupSize = width;
-        request.Reason               = std::format(
-             "full subgroups of the required width {} (the device varies {}..{}; its coopmat shapes are listed for "
-             "subgroupSize {})",
-             width, caps.MinSubgroupSize, caps.MaxSubgroupSize, width );
+        request.Reason = std::format( "full subgroups of the required width {} (the device varies {}..{}; its "
+                                      "coopmat shapes are listed for "
+                                      "subgroupSize {})",
+                                      width, caps.MinSubgroupSize, caps.MaxSubgroupSize, width );
         return Common::MakeSuccess( std::move( request ) );
     }
 
@@ -170,12 +170,13 @@ namespace Desert::Engine::Neural
     FusedMlpCompute::~FusedMlpCompute() = default;
 
     Common::ResultStr<FusedMlpCompute::Kernel*> FusedMlpCompute::AcquireKernel( const uint32_t         kernel,
-                                                                               const NeuralKernelPath path )
+                                                                                const NeuralKernelPath path )
     {
         using KernelResult = Kernel*;
 
         ::Desert::Core::ShaderVariant variant;
-        variant.Defines = { std::format( "NN_KERNEL={}", kernel ), std::format( "NN_PATH={}", PathDefine( path ) ) };
+        variant.Defines = { std::format( "NN_KERNEL={}", kernel ),
+                            std::format( "NN_PATH={}", PathDefine( path ) ) };
         NeuralSubgroupRequest subgroups;
         if ( path == NeuralKernelPath::CoopMatFp16 )
         {
@@ -255,8 +256,8 @@ namespace Desert::Engine::Neural
     }
 
     Common::ResultStr<FusedMlpGraphOutputs> FusedMlpCompute::AddTrainingPasses( Graphic::RDG::Builder&     graph,
-                                                                               const FusedMlpGraphInputs& inputs,
-                                                                               const NeuralKernelPath     path )
+                                                                                const FusedMlpGraphInputs& inputs,
+                                                                                const NeuralKernelPath     path )
     {
         namespace RDG = Graphic::RDG;
 
@@ -361,8 +362,9 @@ namespace Desert::Engine::Neural
         return Common::MakeSuccess( std::move( out ) );
     }
 
-    Common::ResultStr<std::unique_ptr<FusedMlpCheckRun>>
-    FusedMlpCheckRun::Submit( FusedMlpCompute& compute, const NeuralComputeCaps& caps, const NeuralKernelPath path )
+    Common::ResultStr<std::unique_ptr<FusedMlpCheckRun>> FusedMlpCheckRun::Submit( FusedMlpCompute& compute,
+                                                                                   const NeuralComputeCaps& caps,
+                                                                                   const NeuralKernelPath   path )
     {
         namespace RDG   = Graphic::RDG;
         using RunResult = std::unique_ptr<FusedMlpCheckRun>;
@@ -453,7 +455,8 @@ namespace Desert::Engine::Neural
         if ( !output )
             return Common::MakeError<FusedMlpPathCheck>( output.GetError() );
         std::memcpy( gpu.Output.data(), output.GetValue().data(), output.GetValue().size() );
-        const auto weightGrad = bytesOf( m_WeightGrad, gpu.WeightGrad.size() * sizeof( float ), "weight-gradient" );
+        const auto weightGrad =
+             bytesOf( m_WeightGrad, gpu.WeightGrad.size() * sizeof( float ), "weight-gradient" );
         if ( !weightGrad )
             return Common::MakeError<FusedMlpPathCheck>( weightGrad.GetError() );
         std::memcpy( gpu.WeightGrad.data(), weightGrad.GetValue().data(), weightGrad.GetValue().size() );
@@ -475,10 +478,11 @@ namespace Desert::Engine::Neural
                  size_t( L ) * problem.Batch * W );
 
         FusedMlpPathCheck check;
-        check.Path       = m_Path;
-        check.Tile       = m_Tile;
-        check.Output     = CompareFusedMlp( gpu.Output, reference->Output );
-        check.WeightGrad = CompareFusedMlpSum( gpu.WeightGrad, reference->WeightGrad, reference->WeightGradMagnitude );
+        check.Path   = m_Path;
+        check.Tile   = m_Tile;
+        check.Output = CompareFusedMlp( gpu.Output, reference->Output );
+        check.WeightGrad =
+             CompareFusedMlpSum( gpu.WeightGrad, reference->WeightGrad, reference->WeightGradMagnitude );
         check.MaskFlips =
              CountReluMaskFlips( gpu.Activations, reference->Activations, problem.Shape, problem.Batch );
         check.Tolerance         = FusedMlpTolerance( m_Path );

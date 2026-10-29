@@ -348,9 +348,9 @@ namespace Desert::Graphic::GlobalIllumination
         {
             uint32_t    Downsample   = 0;
             uint32_t    TracedTexels = 0;
-            std::string Program;          // the refused program; empty: the layout itself was refused
-            bool        Service  = false; // AcquireVariant refused Program (the service's memory answers the report)
-            bool        Reported = false; // a refusal that is not the service's was reported
+            std::string Program;   // the refused program; empty: the layout itself was refused
+            bool Service  = false; // AcquireVariant refused Program (the service's memory answers the report)
+            bool Reported = false; // a refusal that is not the service's was reported
         };
         // Record the refusal of (@p downsample, @p tracedTexels) and return @p error as EnsureLayoutPrograms'.
         [[nodiscard]] Common::BoolResultStr RefuseLayout( uint32_t downsample, uint32_t tracedTexels,
@@ -360,7 +360,7 @@ namespace Desert::Graphic::GlobalIllumination
         std::array<std::shared_ptr<ComputePipeline>, ProgramCount> m_Pipelines;
         mutable std::array<ShaderBindingLayoutCache, ProgramCount> m_Layouts;
         Pipeline                                                   m_TraceProgramFor{};
-        std::optional<LayoutRefusal> m_LayoutRefusal;
+        std::optional<LayoutRefusal>                               m_LayoutRefusal;
         uint32_t m_ProgramDownsample   = 0; // the layout the programs are compiled under (0 = none yet)
         uint32_t m_ProgramTracedTexels = 0;
         uint32_t m_TraceProgramDownsample   = 0; // the layout the trace legs are compiled under

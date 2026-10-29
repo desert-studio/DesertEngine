@@ -1507,10 +1507,10 @@ namespace Desert::Graphic
         RenderMethods           m_RenderMethods;
         // The methods the view's renderers could not build a program for on this device, an input of every
         // ResolveRenderMethods: Shadows from the DeferredLightingRenderer's initialisation, GI and Reflections
-        // from their renderers' programs as each is first built (RefuseProgramMethods), PathTraced on both from the
-        // path tracer's bring-up (RefusePathTracer). Every refusal stands until the shader service recompiles a
-        // program (RetryRefusedProgramsAfterRecompile): the same bytes fail the same way, new bytes are tried again
-        // on the next frame.
+        // from their renderers' programs as each is first built (RefuseProgramMethods), PathTraced on both from
+        // the path tracer's bring-up (RefusePathTracer). Every refusal stands until the shader service recompiles
+        // a program (RetryRefusedProgramsAfterRecompile): the same bytes fail the same way, new bytes are tried
+        // again on the next frame.
         ProgramRefusals m_ProgramRefusals;
         // The refusals that stood when the shader service last recompiled, and the
         // ShaderService::RecompileGeneration they were dropped at. A method refused again for the same program
@@ -1534,7 +1534,8 @@ namespace Desert::Graphic
         void RefuseShadowPrograms( const ProgramRefusals& deferred );
         // The path tracer (@p program: "PathTracer" or "EmissiveLightList", static storage) could not be brought
         // up: GI and Reflections PathTraced are refused together with one ERROR line (none when it is the same
-        // refusal retried after a recompile); EnsurePathTracerResources is asked again once a recompile retries it.
+        // refusal retried after a recompile); EnsurePathTracerResources is asked again once a recompile retries
+        // it.
         void RefusePathTracer( std::string_view program, std::string_view error );
         void RefuseProgramMethods( std::span<const Common::Scalability::ReflectionMethod> methods,
                                    std::string_view program, std::string_view error );

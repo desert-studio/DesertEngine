@@ -212,18 +212,20 @@ namespace Desert::Runtime
     Common::ResultStr<std::shared_ptr<Graphic::Shader>>
     ShaderService::AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant )
     {
-        const std::string key = std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
+        const std::string key =
+             std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
 
         // The default variant is GetByName's question, and answering it here would build an unregistered
         // second copy of a program that already exists — two objects, two sets of modules, and a
         // material picking whichever it was handed.
         if ( variant.IsDefault() )
         {
-            return Refuse( key, { .Program = name,
-                                  .Reason  = std::format(
-                                       "AcquireVariant('{}') was asked for the DEFAULT variant. That is GetByName's "
-                                       "question; serving it here would build a second copy of a registered program.",
-                                       name ) } );
+            return Refuse( key,
+                           { .Program = name,
+                             .Reason  = std::format(
+                                  "AcquireVariant('{}') was asked for the DEFAULT variant. That is GetByName's "
+                                   "question; serving it here would build a second copy of a registered program.",
+                                  name ) } );
         }
 
         // A NAMED PASS ("<Shader>/<Pass>", as GetByName answers it) is compiled from its shader's asset with
@@ -249,10 +251,9 @@ namespace Desert::Runtime
         const auto handleIt = m_NameToHandleMap.find( programName );
         if ( handleIt == m_NameToHandleMap.end() )
         {
-            return Refuse( key,
-                           { .Program = programName,
-                             .Reason  = std::format( "AcquireVariant: no program or pass named '{}' is registered.",
-                                                     name ) } );
+            return Refuse( key, { .Program = programName,
+                                  .Reason  = std::format(
+                                       "AcquireVariant: no program or pass named '{}' is registered.", name ) } );
         }
 
         if ( variant.ShippedByCook )
@@ -275,10 +276,11 @@ namespace Desert::Runtime
         auto       asset   = assetIt != m_ShaderAssets.end() ? assetIt->second.lock() : nullptr;
         if ( !asset )
         {
-            return Refuse( key, { .Handle  = handleIt->second,
-                                  .Program = programName,
-                                  .Reason  = std::format(
-                                       "AcquireVariant('{}'): the shader asset behind that name is gone.", name ) } );
+            return Refuse(
+                 key, { .Handle  = handleIt->second,
+                        .Program = programName,
+                        .Reason  = std::format( "AcquireVariant('{}'): the shader asset behind that name is gone.",
+                                                name ) } );
         }
 
         // RE-READ IF THE SWEEP HAS BEEN THROUGH. A registered shader compiles ONCE at startup and never
@@ -292,12 +294,12 @@ namespace Desert::Runtime
         {
             if ( const auto loaded = asset->Load(); !loaded )
             {
-                return Refuse( key,
-                               { .Handle  = handleIt->second,
-                                 .Program = programName,
-                                 .Reason  = std::format( "AcquireVariant('{}'): the shader's source had been released "
-                                                         "and could not be re-read: {}",
-                                                         name, loaded.GetError() ) } );
+                return Refuse(
+                     key, { .Handle  = handleIt->second,
+                            .Program = programName,
+                            .Reason  = std::format( "AcquireVariant('{}'): the shader's source had been released "
+                                                     "and could not be re-read: {}",
+                                                    name, loaded.GetError() ) } );
             }
         }
 
@@ -325,7 +327,7 @@ namespace Desert::Runtime
             return Refuse( key, { .Handle  = handleIt->second,
                                   .Program = programName,
                                   .Reason  = std::format( "Variant {} of '{}' has no compiled stages - the source "
-                                                          "did not compile or reflect: {}",
+                                                           "did not compile or reflect: {}",
                                                           key, name, program->GetCompileError() ),
                                   .Compile = true } );
         }
@@ -336,7 +338,7 @@ namespace Desert::Runtime
     }
 
     Common::ResultStr<std::shared_ptr<Graphic::Shader>> ShaderService::Refuse( const std::string& key,
-                                                                              Refusal            refusal )
+                                                                               Refusal            refusal )
     {
         auto [it, inserted] = m_Refusals.try_emplace( key, refusal );
         if ( !inserted && it->second.Reason != refusal.Reason )
@@ -346,8 +348,9 @@ namespace Desert::Runtime
 
     bool ShaderService::ClaimRefusalReport( const std::string& name, const Graphic::ShaderVariant& variant )
     {
-        const std::string key = std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
-        const auto        it  = m_Refusals.find( key );
+        const std::string key =
+             std::format( "{}#{:016x}", name, static_cast<unsigned long long>( variant.Hash() ) );
+        const auto it = m_Refusals.find( key );
         if ( it == m_Refusals.end() )
             return true;
         return !std::exchange( it->second.Reported, true );

@@ -163,8 +163,8 @@ namespace Desert::Editor
 
         struct PendingNnCheck
         {
-            int64_t                                                       Id = 0;
-            std::string                                                   Forced;
+            int64_t                                                        Id = 0;
+            std::string                                                    Forced;
             std::vector<std::unique_ptr<Engine::Neural::FusedMlpCheckRun>> Runs;
             /// A path that did not run. DeviceLacksIt: the resolver refused it because the device does not
             /// expose what it needs - an expected answer. Otherwise the device claims the path and the kernel,

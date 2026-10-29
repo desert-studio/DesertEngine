@@ -977,7 +977,8 @@ namespace Desert::Graphic
         m_CloudQuality   = quality.As<Common::Settings::CloudQuality>( Parameter::CloudQuality );
         // THE ONE RESOLUTION of the view's render methods (Graphic/RenderMethods.hpp): request x machine ceiling x
         // A shader recompiled since the standing program refusals were made: every refused method is resolved and
-        // asked for again this frame (a fixed program draws, one still broken is refused again without a new line).
+        // asked for again this frame (a fixed program draws, one still broken is refused again without a new
+        // line).
         RetryRefusedProgramsAfterRecompile();
         // The captures' programs serve every Reflections method that reads the captures: built here, before the
         // resolution, so one that did not build refuses those methods from this frame on (by its name).
@@ -2900,10 +2901,11 @@ namespace Desert::Graphic
     {
         // @p retried: the refusals that stood before the last recompile - the same one again is not said again.
         template <typename Method, std::size_t N>
-        void RefuseMethods( std::vector<MethodRefusal<Method>>& refusals,
-                            const std::vector<MethodRefusal<Method>>& retried, const std::span<const Method> methods,
-                            const std::string_view axis, const std::array<std::string_view, N>& names,
-                            const std::string_view program, const std::string_view error )
+        void RefuseMethods( std::vector<MethodRefusal<Method>>&       refusals,
+                            const std::vector<MethodRefusal<Method>>& retried,
+                            const std::span<const Method> methods, const std::string_view axis,
+                            const std::array<std::string_view, N>& names, const std::string_view program,
+                            const std::string_view error )
         {
             for ( const Method method : methods )
                 if ( AddRefusal( refusals, method, program, error ) &&
@@ -2946,13 +2948,15 @@ namespace Desert::Graphic
         using Common::Scalability::GIMethod;
         using Common::Scalability::ReflectionMethod;
         // One integrator for both axes: both are refused, and the refusal is said once, by the path tracer's name.
-        const bool added = AddRefusal( m_ProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error );
+        const bool added =
+             AddRefusal( m_ProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error );
         AddRefusal( m_ProgramRefusals.Reflections, ReflectionMethod::PathTraced, program, error );
         if ( added &&
              !HoldsRefusal( m_RetriedProgramRefusals.GlobalIllumination, GIMethod::PathTraced, program, error ) )
-            LOG_ERROR( "[SceneRenderer] {}: GI and Reflections PathTraced refused on this device: '{}' could not be "
-                       "brought up: {}",
-                       m_ViewResources.GetName(), program, error );
+            LOG_ERROR(
+                 "[SceneRenderer] {}: GI and Reflections PathTraced refused on this device: '{}' could not be "
+                 "brought up: {}",
+                 m_ViewResources.GetName(), program, error );
     }
 
     void SceneRenderer::RetryRefusedProgramsAfterRecompile()
@@ -2969,10 +2973,10 @@ namespace Desert::Graphic
         // The deferred composite's refused permutations are acquired and built again now (they are not made
         // lazily on use): the ones still refused are refused again, said only when the reason changed.
         const auto deferredSystem = m_RenderSystems.find( "DeferredLightingSystem" );
-        if ( auto* const deferred = deferredSystem == m_RenderSystems.end()
-                                         ? nullptr
-                                         : dynamic_cast<System::DeferredLightingRenderer*>(
-                                                deferredSystem->second.get() ) )
+        if ( auto* const deferred =
+                  deferredSystem == m_RenderSystems.end()
+                       ? nullptr
+                       : dynamic_cast<System::DeferredLightingRenderer*>( deferredSystem->second.get() ) )
         {
             deferred->RetryRefusedPrograms();
             RefuseShadowPrograms( deferred->Refusals() );
@@ -2995,7 +2999,8 @@ namespace Desert::Graphic
         RegisterSystem<System::PathTracer>( "PathTracerSystem", this, m_TargetFramebuffer );
         const auto& pathTracer = SP_CAST( System::PathTracer, m_RenderSystems["PathTracerSystem"] );
         // A refusal holds PathTraced off both axes from the next BeginScene (this frame LowerPathTracingForFrame
-        // renders HardwareTraced) until the shader service recompiles a program (RetryRefusedProgramsAfterRecompile).
+        // renders HardwareTraced) until the shader service recompiles a program
+        // (RetryRefusedProgramsAfterRecompile).
         if ( const Common::BoolResultStr initialized = pathTracer->Initialize(); !initialized )
         {
             RefusePathTracer( "PathTracer", initialized.GetError() );

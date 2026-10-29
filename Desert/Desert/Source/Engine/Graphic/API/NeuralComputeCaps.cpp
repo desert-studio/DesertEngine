@@ -16,7 +16,8 @@ namespace Desert::Engine
 
         // The tile must accumulate in fp32: the weight gradient is a sum over the batch, and an fp16 accumulator's
         // bound for it (batch * 2^-10, 1.0 at a 1024 batch) leaves nothing a training step can use (tiny-cuda-nn
-        // accumulates weight gradients in fp32 too). A device with only fp16-accumulating tiles takes the fp16 path.
+        // accumulates weight gradients in fp32 too). A device with only fp16-accumulating tiles takes the fp16
+        // path.
         bool IsFp16Shape( const CooperativeMatrixShape& shape )
         {
             return shape.SubgroupScope && shape.A == NeuralScalar::Float16 && shape.B == NeuralScalar::Float16 &&
@@ -145,9 +146,9 @@ namespace Desert::Engine
              YesNo( caps.ShaderFloat16 ), YesNo( caps.ShaderInt8 ), YesNo( caps.StorageBuffer16BitAccess ),
              YesNo( caps.StorageBuffer8BitAccess ), YesNo( caps.SubgroupSizeControl ),
              YesNo( caps.CooperativeMatrix ), YesNo( caps.CooperativeMatrixInCompute ),
-             YesNo( caps.VulkanMemoryModel ), caps.SubgroupSize,
-             caps.MinSubgroupSize, caps.MaxSubgroupSize, YesNo( caps.ComputeSubgroupSizeRequirable ),
-             caps.MaxPushConstantsSize, caps.MaxComputeSharedMemorySize, caps.CooperativeMatrixShapes.size() );
+             YesNo( caps.VulkanMemoryModel ), caps.SubgroupSize, caps.MinSubgroupSize, caps.MaxSubgroupSize,
+             YesNo( caps.ComputeSubgroupSizeRequirable ), caps.MaxPushConstantsSize,
+             caps.MaxComputeSharedMemorySize, caps.CooperativeMatrixShapes.size() );
         if ( caps.CooperativeMatrixShapes.empty() )
             line += " none";
         for ( const CooperativeMatrixShape& shape : caps.CooperativeMatrixShapes )

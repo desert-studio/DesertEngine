@@ -510,8 +510,8 @@ namespace Desert::Graphic
         // refusal memory for a refused program), and the GI is not gathered while it stands. A recompile of the
         // fixed shader (ShaderService::Recompile) forgets the refusal, so the next frame gathers.
         if ( m_GIPipeline.ScreenProbes )
-            if ( const auto layout =
-                      m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample, m_ScreenProbeTracedTexels );
+            if ( const auto layout = m_ScreenProbeGather->EnsureLayoutPrograms( m_ScreenProbeDownsample,
+                                                                                m_ScreenProbeTracedTexels );
                  !layout )
             {
                 if ( m_ScreenProbeGather->ClaimLayoutRefusalReport() )

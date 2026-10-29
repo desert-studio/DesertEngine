@@ -253,11 +253,11 @@ namespace Desert::Engine::Neural
         {
             const double difference = std::abs( double( gpu[i] ) - double( reference[i] ) );
             // A zero magnitude means every term was zero: the sum must be exactly zero too.
-            const double rel = magnitude[i] > 0.0f ? difference / double( magnitude[i] )
-                                                   : ( difference > 0.0 ? INFINITY : 0.0 );
+            const double rel =
+                 magnitude[i] > 0.0f ? difference / double( magnitude[i] ) : ( difference > 0.0 ? INFINITY : 0.0 );
             if ( i == 0 || rel > error.Rel )
             {
-                error.Rel                 = rel;
+                error.Rel             = rel;
                 error.Worst.Matrix    = uint32_t( i / ( size_t( W ) * W ) );
                 error.Worst.Row       = uint32_t( i / W % W );
                 error.Worst.Column    = uint32_t( i % W );
@@ -275,7 +275,8 @@ namespace Desert::Engine::Neural
         return path == NeuralKernelPath::Fp32 ? 1e-5 : 1e-2;
     }
 
-    double FusedMlpGradientTolerance( const NeuralKernelPath path, const FusedMlpShape& shape, const uint32_t batch )
+    double FusedMlpGradientTolerance( const NeuralKernelPath path, const FusedMlpShape& shape,
+                                      const uint32_t batch )
     {
         // One ulp of the format each operation rounds to: Vulkan leaves a conversion's and an fp16 product's
         // rounding mode to the implementation (round-to-nearest OR toward zero), so a rounding is bounded by one

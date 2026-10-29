@@ -58,10 +58,11 @@ namespace Desert::Engine::Neural
     // What a forward + backward pass produces.
     struct FusedMlpResult
     {
-        std::vector<float> Output;      ///< Batch * 64
-        std::vector<float> WeightGrad;  ///< MatrixCount * 64 * 64
+        std::vector<float> Output;     ///< Batch * 64
+        std::vector<float> WeightGrad; ///< MatrixCount * 64 * 64
         /// MatrixCount * 64 * 64: sum over the batch of m * |h|, m the gradient's propagated magnitude
-        /// (m_last = |dL/dy|, m_{l-1} = [h_l > 0] |W_l|^T m_l), what every rounding of g and of the sum is a part of
+        /// (m_last = |dL/dy|, m_{l-1} = [h_l > 0] |W_l|^T m_l), what every rounding of g and of the sum is a part
+        /// of
         std::vector<float> WeightGradMagnitude;
         std::vector<float> Activations; ///< MatrixCount * Batch * 64: h_l, the input of matrix l (h_0 = input)
     };
@@ -99,7 +100,8 @@ namespace Desert::Engine::Neural
     // (CountReluMaskFlips); Output and Activations stay the reference's own forward. nullopt when the tensor is
     // not that size.
     [[nodiscard]] std::optional<FusedMlpResult>
-    RunFusedMlpReferenceOnActivations( const FusedMlpProblem& problem, const std::vector<float>& kernelActivations );
+    RunFusedMlpReferenceOnActivations( const FusedMlpProblem&    problem,
+                                       const std::vector<float>& kernelActivations );
 
     // max |gpu - ref| and that divided by max |ref| (the error relative to the tensor's scale: an element-wise
     // ratio is meaningless where a ReLU zeroes the reference).
@@ -128,7 +130,8 @@ namespace Desert::Engine::Neural
     // signed terms cancel, so its rounding is bounded by the sum of the terms' magnitudes (Higham: |error| <=
     // gamma_n * sum |g| |h|), not by |sum|. Rel is the largest |gpu - reference| / magnitude over the elements;
     // the reference's WeightGradMagnitude also carries the rounding the backward put into g (see there).
-    [[nodiscard]] FusedMlpError CompareFusedMlpSum( const std::vector<float>& gpu, const std::vector<float>& reference,
+    [[nodiscard]] FusedMlpError CompareFusedMlpSum( const std::vector<float>& gpu,
+                                                    const std::vector<float>& reference,
                                                     const std::vector<float>& magnitude );
 
     // The relative tolerance a path's outputs are held to: 1e-2 for the fp16 paths, 1e-5 for fp32.

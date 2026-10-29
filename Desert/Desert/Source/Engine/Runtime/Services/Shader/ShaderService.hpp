@@ -42,8 +42,8 @@ namespace Desert::Runtime
          * element 0 of the stage list a failed compile leaves empty. An answer a caller cannot use is a
          * refusal; returning it as a success is the "empty successful answer" the contract forbids.
          */
-        Common::ResultStr<std::shared_ptr<Graphic::Shader>> AcquireVariant( const std::string&            name,
-                                                                            const Graphic::ShaderVariant& variant );
+        Common::ResultStr<std::shared_ptr<Graphic::Shader>>
+        AcquireVariant( const std::string& name, const Graphic::ShaderVariant& variant );
 
         /**
          * @brief Whether the caller holding AcquireVariant's refusal of (@p name, @p variant) is the one to

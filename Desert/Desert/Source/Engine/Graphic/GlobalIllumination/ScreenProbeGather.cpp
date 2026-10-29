@@ -304,9 +304,9 @@ namespace Desert::Graphic::GlobalIllumination
             auto              acquired = shaders->AcquireVariant( name, variant );
             if ( !acquired )
                 return RefuseLayout( downsample, tracedTexels, name, true,
-                                     std::format( "screen probes: shader {} ({} px, {} texels) was refused: {}", name,
-                                                  downsample, tracedTexels, acquired.GetError() ) );
-            auto shader = acquired.ExtractValue();
+                                     std::format( "screen probes: shader {} ({} px, {} texels) was refused: {}",
+                                                  name, downsample, tracedTexels, acquired.GetError() ) );
+            auto shader   = acquired.ExtractValue();
             auto pipeline = ComputePipeline::Create( { .Shader = shader, .DebugName = name } );
             if ( !pipeline )
                 return RefuseLayout( downsample, tracedTexels, name, false,
@@ -343,7 +343,8 @@ namespace Desert::Graphic::GlobalIllumination
             return true;
         if ( m_LayoutRefusal->Service )
             return Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport(
-                 m_LayoutRefusal->Program, LayoutVariant( m_LayoutRefusal->Downsample, m_LayoutRefusal->TracedTexels ) );
+                 m_LayoutRefusal->Program,
+                 LayoutVariant( m_LayoutRefusal->Downsample, m_LayoutRefusal->TracedTexels ) );
         return !std::exchange( m_LayoutRefusal->Reported, true );
     }
 
@@ -361,8 +362,9 @@ namespace Desert::Graphic::GlobalIllumination
             if ( !acquired )
                 return Common::MakeFormattedError<bool>( "screen probes: shader {} ({}, {}, {}) was refused: {}",
                                                          name, TracerDefine( pipeline.Tracer ),
-                                                         HitLightingDefine( pipeline.Hits ), leg, acquired.GetError() );
-            auto shader = acquired.ExtractValue();
+                                                         HitLightingDefine( pipeline.Hits ), leg,
+                                                         acquired.GetError() );
+            auto shader  = acquired.ExtractValue();
             auto compute = ComputePipeline::Create(
                  { .Shader    = shader,
                    .DebugName = std::format( "{} ({}, {})", name, TracerDefine( pipeline.Tracer ), leg ) } );
