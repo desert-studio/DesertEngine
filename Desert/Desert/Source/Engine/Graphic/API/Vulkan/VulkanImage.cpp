@@ -2039,11 +2039,17 @@ namespace Desert::Graphic::API::Vulkan
         TransitionLayout( cmd, restingLayout, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                           VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
 
-        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-        allocator->RT_DestroyBuffer( staging, stagingAlloc );
-        if ( !flushed.IsSuccess() )
+        // SUBMITTED, NOT WAITED FOR (FPS-CPU-2; UE's deferred texture update): the bricks and cloud boxes
+        // stream in while the camera moves, and a blocking flush here made every streaming frame wait for the
+        // whole GPU queue ahead of it. The barriers above are the entire dependency: ALL_COMMANDS in the first
+        // scope covers every earlier submission's reads, the second barrier every later submission's. The
+        // staging copy is released once the fence is seen signalled (CollectFinished, every frame).
+        const auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
+             cmd, [allocator, staging, stagingAlloc]
+             { allocator->RT_ReleaseStaging( staging, stagingAlloc, Common::MakeSuccess( VK_SUCCESS ) ); } );
+        if ( !submitted.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Image3D '{}': region upload submit failed: {}",
-                                                     m_Specification.Tag, flushed.GetError() );
+                                                     m_Specification.Tag, submitted.GetError() );
         return BOOLSUCCESS;
     }
 

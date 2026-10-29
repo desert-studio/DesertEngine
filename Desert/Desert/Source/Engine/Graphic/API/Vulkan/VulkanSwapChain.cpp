@@ -2,6 +2,7 @@
 #include <Engine/Core/GlfwVulkan.hpp> // glfwCreateWindowSurface: called here, so named here
 
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
 #include <Common/Settings/DisplaySettings.hpp>
@@ -413,6 +414,8 @@ namespace Desert::Graphic::API::Vulkan
         // SUBOPTIMAL IS AN IMAGE, NOT A FAILURE (see Engine/Graphic/SwapchainAcquire.hpp). It used to leave
         // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
         // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
+        // A row of its own (FPS-CPU-2): under FIFO the acquire is where a vsync-bound frame waits.
+        DESERT_PROFILE_SCOPE( "Vulkan: AcquireNextImage" );
         const VkResult res =
              vkLogicalDevice->GetPresentationDispatch().vkAcquireNextImageKHR(
                   vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX, presentCompleteSemaphore,

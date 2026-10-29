@@ -5,6 +5,8 @@
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <algorithm>
 
 namespace Desert::Graphic::API::Vulkan
@@ -118,6 +120,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( slot >= m_Fences.size() || m_Fences[slot] == VK_NULL_HANDLE )
             return Common::MakeFormattedError<bool>( "frame slot {} has no fence (vkCreateFence failed)", slot );
 
+        // A row of its own (FPS-CPU-2): the frames-in-flight throttle is the one CPU wait every steady frame
+        // may pay; it is the GPU being behind, not CPU work, and the profile must say which.
+        DESERT_PROFILE_SCOPE( "Vulkan: frame slot fence wait" );
         const VkResult waited = vkWaitForFences( m_Device, 1, &m_Fences[slot], VK_TRUE, UINT64_MAX );
         if ( waited != VK_SUCCESS )
         {
