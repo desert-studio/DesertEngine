@@ -138,10 +138,63 @@ namespace Desert::Editor
         /// sampler returns. A byte-wise comparison would therefore have refused every narrow format on
         /// every image, and the authored intent would have looked implemented while being unable to
         /// take effect once. `PreservedChannelCount` is the promise; this is where it is collected.
+        /// WHICH TEXELS OF EACH LEVEL A VIEWER CAN EVER SEE, for a colour whose cut-away is another texture
+        /// (TextureDilationMask). Under the mask the colour is padding: DilateColorUnderMask wrote it so no mip
+        /// mixes the leaf with black, and the alpha test discards every pixel there. Grading BC7 on those texels
+        /// grades a colour nobody sees -- and padding is exactly where a hard edge meets a smeared fill inside one
+        /// 4x4 block, so it was the padding, not the blade, that kept four FieldBarn albedos at 16 MB uncompressed
+        /// (p6). Visible = the mask keeps it at level 0; a coarser texel is visible when any of its 2x2 children
+        /// is (the coverage-preserving opacity mips keep the cut-out's area, so a superset is conservative); every
+        /// level is then grown by one texel, the bilinear footprint that reaches into the padding from a visible
+        /// sample. Empty = no mask, every texel graded.
+        using VisibleTexels = std::vector<std::vector<uint8_t>>;
+
+        VisibleTexels BuildVisibleTexels( const std::vector<uint8_t>&                             keptAtBase,
+                                          const std::vector<Assets::Serialization::TextureLevel>& levels )
+        {
+            VisibleTexels visible;
+            if ( levels.empty() ||
+                 keptAtBase.size() != static_cast<std::size_t>( levels[0].Width ) * levels[0].Height )
+                return visible;
+            std::vector<uint8_t> core = keptAtBase;
+            for ( std::size_t row = 0; row < levels.size(); ++row )
+            {
+                const uint32_t lw = levels[row].Width, lh = levels[row].Height;
+                if ( row > 0 )
+                {
+                    const uint32_t       pw = levels[row - 1].Width, ph = levels[row - 1].Height;
+                    std::vector<uint8_t> coarser( static_cast<std::size_t>( lw ) * lh, 0 );
+                    for ( uint32_t y = 0; y < lh; ++y )
+                        for ( uint32_t x = 0; x < lw; ++x )
+                            for ( uint32_t dy = 0; dy < 2; ++dy )
+                                for ( uint32_t dx = 0; dx < 2; ++dx )
+                                {
+                                    const uint32_t cx = std::min( pw - 1, x * 2 + dx );
+                                    const uint32_t cy = std::min( ph - 1, y * 2 + dy );
+                                    coarser[static_cast<std::size_t>( y ) * lw + x] |=
+                                         core[static_cast<std::size_t>( cy ) * pw + cx];
+                                }
+                    core = std::move( coarser );
+                }
+                std::vector<uint8_t> grown( core.size(), 0 );
+                for ( uint32_t y = 0; y < lh; ++y )
+                    for ( uint32_t x = 0; x < lw; ++x )
+                    {
+                        if ( !core[static_cast<std::size_t>( y ) * lw + x] )
+                            continue;
+                        for ( uint32_t ny = ( y > 0 ? y - 1 : 0 ); ny <= std::min( lh - 1, y + 1 ); ++ny )
+                            for ( uint32_t nx = ( x > 0 ? x - 1 : 0 ); nx <= std::min( lw - 1, x + 1 ); ++nx )
+                                grown[static_cast<std::size_t>( ny ) * lw + nx] = 1;
+                    }
+                visible.push_back( std::move( grown ) );
+            }
+            return visible;
+        }
+
         Fidelity MeasureLdrChain( const Assets::Serialization::TextureAssetData&          source,
                                   const std::vector<Assets::Serialization::TextureLevel>& blockLevels,
                                   const std::vector<unsigned char>&                       blockPixels,
-                                  const Fmt::ImageFormat                                  blockFormat )
+                                  const Fmt::ImageFormat blockFormat, const VisibleTexels& visible )
         {
             Fidelity fidelity;
             double   squaredError = 0.0;
@@ -167,6 +220,8 @@ namespace Desert::Editor
             // `kSkyEnvBytesPerPixel` was.
             const uint32_t sourceChannels = Fmt::GetTexelBlock( source.Format ).Bytes;
             const uint32_t channels       = std::min( Fmt::PreservedChannelCount( blockFormat ), sourceChannels );
+            // One visibility per level of a single-layer chain; anything else grades every texel.
+            const bool masked = !visible.empty() && visible.size() == blockLevels.size();
 
             for ( std::size_t row = 0; row < blockLevels.size(); ++row )
             {
@@ -187,6 +242,8 @@ namespace Desert::Editor
                     const std::size_t at = texel * sourceChannels;
                     if ( at + channels > decoded.GetValue().size() || at + channels > original.ByteSize )
                         break;
+                    if ( masked && ( texel >= visible[row].size() || !visible[row][texel] ) )
+                        continue;
                     for ( uint32_t c = 0; c < channels; ++c )
                     {
                         const int delta = static_cast<int>( source.Pixels[original.ByteOffset + at + c] ) -
@@ -228,7 +285,7 @@ namespace Desert::Editor
         };
 
         Attempt EncodeAndGrade( const Assets::Serialization::TextureAssetData& data,
-                                const Fmt::ImageFormat                         blockFormat )
+                                const Fmt::ImageFormat blockFormat, const VisibleTexels& visible )
         {
             Attempt attempt;
 
@@ -253,7 +310,7 @@ namespace Desert::Editor
             }
 
             attempt.Levels  = table.ExtractValue();
-            attempt.Grade   = MeasureLdrChain( data, attempt.Levels, attempt.Pixels, blockFormat );
+            attempt.Grade   = MeasureLdrChain( data, attempt.Levels, attempt.Pixels, blockFormat, visible );
             attempt.Encoded = true;
             return attempt;
         }
@@ -792,6 +849,7 @@ namespace Desert::Editor
         // whose opacity is another texture carries matte black under its cut-away; padded here, no mip mixes the
         // blade with it. The mask is resolved by GUID (UE CompositeTexture); an unresolvable or undecodable mask is
         // a failed cook, never a silent undilated one.
+        std::vector<uint8_t> keptByMask; // level-0 texels the dilation mask shows; empty = no mask
         if ( const Assets::TextureDilationMask& dilation = asset.Import.Settings.ColorDilationMask; dilation.Enabled() )
         {
             auto failDilation = [&]( const std::string& why ) -> TextureCookResult {
@@ -826,6 +884,9 @@ namespace Desert::Editor
                          255.0f;
                 }
             stbi_image_free( maskPixels );
+            keptByMask.resize( mask.size() );
+            for ( std::size_t t = 0; t < mask.size(); ++t )
+                keptByMask[t] = mask[t] >= dilation.Threshold ? 1 : 0;
             const auto filled = Assets::Serialization::DilateColorUnderMask(
                  data.Width, data.Height, data.Format, base, mask, dilation.Threshold, asset.Import.Settings.ColorSpace );
             if ( !filled.IsSuccess() )
@@ -845,6 +906,8 @@ namespace Desert::Editor
             return { Common::AssetHandle::Null(), TextureCookOutcome::Failed };
         }
         data.Levels      = chain.ExtractValue();
+        // The block gate below grades a masked colour where the mask shows it (BuildVisibleTexels).
+        const VisibleTexels gateVisible = BuildVisibleTexels( keptByMask, data.Levels );
         data.Intent      = authoredIntent;
         data.ColorSpace  = asset.Import.Settings.ColorSpace;
         data.EncoderHash = cookSignature;
@@ -873,7 +936,7 @@ namespace Desert::Editor
                           "block format.",
                           abs, Fmt::TextureIntentName( authoredIntent ) );
             }
-            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget ); encoded.Encoded )
+            else if ( Attempt encoded = EncodeAndGrade( data, ddsTarget, gateVisible ); encoded.Encoded )
             {
                 // NO GATE: the grade is against blocks already decoded once, so it is reported, not obeyed.
                 LOG_INFO( "[TextureImporter] '{0}' (DDS blocks of another format) is re-encoded as format {1} for "
@@ -902,7 +965,7 @@ namespace Desert::Editor
             Attempt                probe;
             if ( probeFormat != Fmt::ImageFormat::Count )
             {
-                probe = EncodeAndGrade( data, probeFormat );
+                probe = EncodeAndGrade( data, probeFormat, gateVisible );
                 if ( !probe.Encoded )
                 {
                     // NOT FATAL, AND SAID OUT LOUD. An uncompressed cook is a correct cook; a cook that
@@ -925,7 +988,7 @@ namespace Desert::Editor
                 }
                 else
                 {
-                    chosen = EncodeAndGrade( data, policy.Format );
+                    chosen = EncodeAndGrade( data, policy.Format, gateVisible );
                     if ( !chosen.Encoded )
                     {
                         LOG_WARN( "[TextureImporter] '{0}' is marked {1} and could not be encoded as the "
