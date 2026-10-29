@@ -14,6 +14,8 @@
 #include <cstddef>
 #include <functional>
 #include <mutex>
+#include <string>
+#include <string_view>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -163,6 +165,17 @@ namespace Desert::Graphic::API::Vulkan
         /// inside the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
         void LogCensusIfDue();
 
+        /// ONE MEASUREMENT WINDOW PER SCENE OPEN (FIELD-MEM p4). The peak census above writes only past the run's
+        /// highest footprint + 128 MB, so a second open of the same world that stays under the first one's peak
+        /// was never measured. Called at the start of every scene open: writes the closing line of the previous
+        /// window, starts a new one at the current footprint and lets the census report again from it.
+        /// "[Memory] scene open #N '<scene>' peak P MB, owed O MB" is written whenever the window's peak climbs
+        /// (O = deferred destructions still queued at that peak); the last such line of a window is its peak.
+        void BeginSceneOpen( std::string_view scene );
+        /// Folds the process footprint now into the open window. Per present (ProcessDeletionQueue) and by the
+        /// opener at the end of the open, which runs without frames.
+        void SampleSceneOpen();
+
         /// Destroys EVERYTHING still queued, whatever frame it was queued on, and answers how many.
         /// For teardown only — see the argument at the definition. The caller must have idled the device.
         std::size_t DrainDeletionQueue();
@@ -247,5 +260,14 @@ namespace Desert::Graphic::API::Vulkan
         // when the peak has climbed kCensusPeakStep past it, so a run killed for its memory ends on a census
         // taken at most one step below the kill.
         uint64_t m_CensusPeakReported = 0;
+
+        /// Bytes of the buffers and images queued for deferred destruction (the census's "owed" row).
+        [[nodiscard]] std::size_t OwedBytes() const;
+        void                      LogSceneOpenPeak( std::string_view when ) const;
+        uint32_t                  m_SceneOpenIndex = 0; // 0 = no open yet
+        std::string               m_SceneOpenName;
+        uint64_t                  m_SceneOpenPeak       = 0;
+        std::size_t               m_SceneOpenOwedAtPeak = 0;
+        uint64_t                  m_SceneOpenPeakLogged = 0;
     };
 } // namespace Desert::Graphic::API::Vulkan

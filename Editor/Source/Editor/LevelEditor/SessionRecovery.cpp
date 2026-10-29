@@ -2,6 +2,7 @@
 
 #include "Editor/Core/AutosavePaths.hpp"
 #include "Editor/Core/CommandHistory.hpp"
+#include "Editor/Core/Control/ControlChannelOptions.hpp"
 #include "Editor/Core/CrashRecovery.hpp"
 #include "Editor/Core/EditorPreferences.hpp"
 #include "Editor/Core/ToastManager.hpp"
@@ -56,6 +57,18 @@ namespace Desert::Editor
     {
         // If the previous session left its lock behind (unclean exit) and an autosave exists, arm a prompt
         // to reopen it. Then (re)arm the lock for THIS session; a clean shutdown (Disarm) removes it.
+        //
+        // A DRIVEN SESSION (--control-socket) IS UNATTENDED (UE: -unattended suppresses the crash-recovery
+        // dialog) and leaves the lock alone both ways: a modal nobody clicks would sit over every frame the
+        // client captures (FIELD-MEM p3, 3_barn_again), and arming then disarming would erase the previous
+        // interactive session's lock, so the user would never be offered the work it lost.
+        if ( Control::ControlChannelOptions::Get().Requested() )
+        {
+            if ( CrashRecovery::WasUncleanExit() )
+                LOG_WARN( "[Recovery] driven session (--control-socket): the previous session's lock is left for "
+                          "the next interactive start to offer its autosave" );
+            return;
+        }
         if ( CrashRecovery::WasUncleanExit() )
         {
             // Only a copy at this build's scene schema is offered; autosaves are never migrated, so one
@@ -174,6 +187,9 @@ namespace Desert::Editor
     void SessionRecovery::Disarm()
     {
         // After a device loss CrashRecovery::DisarmSession refuses, on purpose — see its own comment.
+        // A driven session never armed one (OfferAndArm): the lock on disk, if any, is another session's.
+        if ( Control::ControlChannelOptions::Get().Requested() )
+            return;
         CrashRecovery::DisarmSession();
     }
 } // namespace Desert::Editor

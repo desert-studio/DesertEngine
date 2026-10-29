@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Desert::Core
@@ -127,6 +128,10 @@ namespace Desert::Editor
         // still resident, or owed deletion, at the next world's peak (FIELD-MEM p3: a reopen peaked 1080 MB
         // higher).
         void ReleaseActiveWorld();
+        /// The device-memory window of one scene open (VulkanAllocator::BeginSceneOpen): starts it at the top
+        /// of an open, and samples the footprint at the end of the load, which runs without frames.
+        void BeginSceneOpenMeasure( std::string_view scene );
+        void SampleSceneOpenMeasure();
 
         // The standard ECS systems, shared by the primary scene and every extra document.
         void BuildSceneSystems( Desert::Core::Scene& scene );
