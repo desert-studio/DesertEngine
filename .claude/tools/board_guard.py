@@ -56,7 +56,7 @@ def load():
 
 
 def save(s):
-    tmp = STATE + ".tmp"
+    tmp = "%s.%d.tmp" % (STATE, os.getpid())  # per-process: two hooks sharing one tmp interleaved their writes
     with open(tmp, "w") as f:
         json.dump(s, f)  # ASCII: open() uses the locale code page, which has no «→» / «≤» from board rows
     os.replace(tmp, STATE)
@@ -127,6 +127,18 @@ def running_count(s):
 # end time; `night_mode.sh on [HH:MM]` / `off` write it. While it is in the future, Stop refuses an idle lead.
 NIGHT_FILE = os.path.expanduser("~/.claude/night_mode")
 NIGHT_MIN_AGENTS = 3
+# Day floor (owner 10-29 «у тебя опять 2 агента. я разрешил больше ... отслеживай через хуки»): ~/.claude/min_agents
+# holds the number of agents that must be running; Stop refuses a lead below it unless a merge is in progress.
+MIN_AGENTS_FILE = os.path.expanduser("~/.claude/min_agents")
+MAX_AGENTS = 5  # owner 10-29 «минимуи 3, а максимум 5»: a launch above it is refused
+
+
+def min_agents():
+    try:
+        with open(MIN_AGENTS_FILE) as f:
+            return int(f.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
 
 
 def night_until():
@@ -385,6 +397,12 @@ def main():
         if gone and not late and not data.get("stop_hook_active"):
             emit({"decision": "block", "reason": "[board_guard] Брошено — «В работе» без живого агента: " + " ".join(gone) +
                   ". Запусти или поставь честный статус (Готово к старту / Заблокировано с причиной) — владелец 10-27: хвосты не бросать."})
+        floor = min_agents()
+        if floor and not night_until() and not late and not data.get("stop_hook_active"):
+            busy = running_count(s)
+            if busy < floor and not landing():
+                emit({"decision": "block", "reason": f"[board_guard] Работает агентов {busy} < {floor} (владелец 10-29: минимум 3, "
+                      "максимум 5, ~/.claude/min_agents). Запусти следующие карточки из очереди HANDOVER, потом заканчивай ход."})
         night = night_until()
         if night and not data.get("stop_hook_active"):
             busy = running_count(s)
@@ -464,6 +482,10 @@ def main():
             if not code:
                 deny("в промпте нет кода задачи («You are agent <КОД>» или /private/tmp/claude-501/<КОД>/BRIEF.md) — "
                      "без кода карточку не сверить. Промпт — шаблон ~/.claude/tools/lead_templates.md §5.")
+            busy = running_count(s)
+            if busy >= MAX_AGENTS:
+                deny(f"работает агентов {busy}, максимум {MAX_AGENTS} (владелец 10-29 «минимум 3, а максимум 5»). "
+                     "Дождись сдачи одного, прими его, потом запускай.")
             alive = running_agent(s, code)
             if alive:
                 deny(f"агент {code} ещё работает ({alive}): второй агент на ту же задачу правит то же дерево и сжигает "
