@@ -538,9 +538,6 @@ namespace Desert::Runtime
                 LOG_ERROR( "[HotReload] Failed to re-read shader '{}': {}", key, res.GetError() );
                 continue;
             }
-            // The file's bytes changed: every variant refused from the old bytes is asked again on its next
-            // AcquireVariant, and a refusal that remains is reported again (ShaderService::ClaimRefusalReport).
-            shaderService->ForgetRefusalsOf( handle );
 
             // Pre-validate the DSL structure: the preprocessor treats a malformed file as a fatal
             // engine error (DESERT_VERIFY), which is right at startup but must not kill a live
@@ -573,23 +570,22 @@ namespace Desert::Runtime
             if ( !shader )
                 continue;
 
-            // A pipeline compile on a worker reads this shader's stage infos; Reload replaces them.
-            Graphic::PipelineBuilds::Get().WaitIdle();
-            if ( const auto res = shader->Reload(); !res )
+            // THE SERVICE'S ONE RECOMPILE (ShaderService::Recompile), the path every editor recompile takes too:
+            // the refusals of this file's variants are forgotten (a fixed shader draws, one still broken is
+            // reported again with its new reason), the program reloads, and so does every live variant of the
+            // same file - a cloud march compiled against an authored medium is a different Shader object built
+            // from these bytes, and leaving it on its old code would read as "editing the shader stopped working
+            // once I authored a medium".
+            const auto recompiled = shaderService->Recompile( handle );
+            if ( !recompiled )
             {
                 // Compile errors land here (and in the Logs panel). Existing pipelines keep the
                 // previous working code; save again to retry.
                 LOG_ERROR( "[HotReload] Shader '{}' failed to compile: {}", shader->GetName(),
-                           res.GetError() );
+                           recompiled.GetError() );
                 continue;
             }
-
-            // AND EVERY LIVE VARIANT OF THE SAME FILE. A cloud march compiled against an authored
-            // medium is a different Shader object built from these same bytes; reloading only the
-            // registered program would leave it on the code it was built with, and the symptom would be
-            // "editing the shader stopped working once I authored a medium" — a staleness that names
-            // the wrong cause.
-            if ( const int variants = shaderService->ReloadVariantsOf( handle ); variants > 0 )
+            if ( const int variants = recompiled.GetValue(); variants > 0 )
                 LOG_INFO( "[HotReload] Shader '{}': {} variant(s) recompiled with it.", shader->GetName(),
                           variants );
 

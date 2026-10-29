@@ -3,6 +3,7 @@
 #include <Common/Core/Logger.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/PipelineBuilds.hpp>
 
 #include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 
@@ -457,6 +458,27 @@ namespace Desert::Runtime
             ++it;
         }
         return reloaded;
+    }
+
+    Common::ResultStr<int> ShaderService::Recompile( const Assets::AssetHandle& handle )
+    {
+        ForgetRefusalsOf( handle );
+        const auto shader = Get( handle );
+        if ( !shader )
+            return Common::MakeError<int>( std::format( "Recompile: shader {} is not a registered program",
+                                                        static_cast<uint64_t>( handle ) ) );
+        Graphic::PipelineBuilds::Get().WaitIdle();
+        if ( const auto res = shader->Reload(); !res )
+            return Common::MakeError<int>( res.GetError() );
+        return Common::MakeSuccess( ReloadVariantsOf( handle ) );
+    }
+
+    Common::ResultStr<int> ShaderService::Recompile( const std::string& name )
+    {
+        const auto it = m_NameToHandleMap.find( name );
+        if ( it == m_NameToHandleMap.end() )
+            return Common::MakeError<int>( std::format( "Recompile: no shader is registered as '{}'", name ) );
+        return Recompile( it->second );
     }
 
     void ShaderService::Clear()

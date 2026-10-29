@@ -2,7 +2,10 @@
 
 #include <ImGui/imgui_internal.h>
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Utilities/FileSystem.hpp>
+#include <Engine/Runtime/ResourceRegistry.hpp>
+#include <Engine/Runtime/Services/Shader/ShaderService.hpp>
 
 #include "../../Core/EditorResources.hpp"
 #include <Editor/Core/ImGuiUtilities.hpp>
@@ -152,7 +155,7 @@ namespace Desert::Editor
 
                 if ( ImGui::Selectable( "Reload" ) )
                 {
-                    shader->Reload();
+                    RecompileShader( shader->GetName() );
                 }
 
                 ImGui::Separator();
@@ -240,7 +243,7 @@ namespace Desert::Editor
                 {
                     if ( m_SelectedShader )
                     {
-                        m_SelectedShader->Reload();
+                        RecompileShader( m_SelectedShader->GetName() );
                     }
                 }
 
@@ -345,6 +348,20 @@ namespace Desert::Editor
         }
         ImGui::End();
         ImGui::PopStyleVar();
+    }
+
+    void ShaderLibraryPanel::RecompileShader( const std::string& name )
+    {
+        // THE SERVICE'S RECOMPILE, never Shader::Reload on the program alone: that left the program's variants on
+        // their old code and the service's refusals of them standing, so a shader fixed here kept being refused
+        // (and said nothing) until the file was touched for the hot-reload poll.
+        auto* shaderService = Runtime::ResourceRegistry::GetShaderService();
+        if ( !shaderService )
+            return;
+        if ( const auto recompiled = shaderService->Recompile( name ); !recompiled )
+            LOG_ERROR( "[ShaderLibrary] '{}' failed to recompile: {}", name, recompiled.GetError() );
+        else
+            LOG_INFO( "[ShaderLibrary] '{}' recompiled ({} variant(s) with it).", name, recompiled.GetValue() );
     }
 
     void ShaderLibraryPanel::SaveShaderCode()

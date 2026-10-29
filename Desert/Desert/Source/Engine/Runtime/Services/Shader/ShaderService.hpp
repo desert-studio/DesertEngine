@@ -52,7 +52,8 @@ namespace Desert::Runtime
          *
          * The service remembers the last refusal of each (name, variant) AcquireVariant made. A different
          * reason (the source was edited and fails elsewhere) is a new refusal and answers true again; a
-         * success, a hot reload of the shader's file (ForgetRefusalsOf) and a re-Register of the name forget
+         * success, a recompile of the shader's file (Recompile: hot reload, the shader graph, the shader library)
+         * and a re-Register of the name forget
          * it, so a fixed shader that is broken again is reported again.
          *
          * Asked about a pair with no standing refusal it answers true: whoever asks has a refusal in hand,
@@ -119,6 +120,25 @@ namespace Desert::Runtime
         /// with, which reads as "editing the shader stopped working once I authored a medium".
         /// @return how many variants were reloaded.
         int ReloadVariantsOf( const Assets::AssetHandle& handle );
+
+        /**
+         * @brief THE ONE RECOMPILE of a registered program from its asset's current text: every standing
+         *        refusal of its variants is forgotten (ForgetRefusalsOf), the program reloads, and so does
+         *        every live variant of the same file (ReloadVariantsOf). The hot-reload poll and every editor
+         *        action that recompiles a shader go through here, so a fixed shader draws on the next frame
+         *        and a refusal that remains is reported again, once, with its new reason - whoever asked.
+         *
+         * Waits for the pipeline builds in flight first: a compile on a worker reads the stage infos Reload
+         * replaces. The pipelines built from the old code follow on the next hot-reload poll
+         * (Graphic::AnyPipelineBehindItsShader), whichever caller recompiled.
+         *
+         * @return how many variants recompiled with it, or why the program did not: the handle names no
+         *         registered program (a medium or particle fragment has none), or the compiler's own text.
+         *         The refusals are forgotten either way - the bytes changed, so the old answer is stale.
+         */
+        Common::ResultStr<int> Recompile( const Assets::AssetHandle& handle );
+        /// Recompile by registered program name (an editor that holds the program, not its handle).
+        Common::ResultStr<int> Recompile( const std::string& name );
 
         // All registered shader program names (for the editor's material shader picker).
         //
