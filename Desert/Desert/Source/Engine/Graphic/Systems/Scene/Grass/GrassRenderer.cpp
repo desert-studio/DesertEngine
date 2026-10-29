@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <optional>
@@ -514,14 +515,12 @@ namespace Desert::Graphic::System
                                 static_cast<int32_t>( std::ceil( ( hi.x - lo.x ) / cell ) ) + 2,
                                 static_cast<int32_t>( std::ceil( ( hi.y - lo.y ) / cell ) ) + 2 );
         { // GRASS-SETTLE p18 probe (temporary)
-            static std::unordered_map<const void*, glm::vec3> s_LastEye;
-            static std::unordered_map<const void*, int>       s_Left;
-            glm::vec3&                                        last = s_LastEye[this];
-            int&                                              left = s_Left[this];
-            if ( glm::length( last - frame.CameraPosition ) > 50.0f )
-                left = 400;
-            last = frame.CameraPosition;
-            if ( left > 0 && ( left-- % 40 ) == 0 )
+            static std::unordered_map<uint64_t, int64_t> s_LastSecond;
+            const int64_t second = std::chrono::duration_cast<std::chrono::seconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch() ).count();
+            int64_t& seen = s_LastSecond[variety.Key ^ reinterpret_cast<uintptr_t>( this )];
+            const int left = static_cast<int>( second % 1000 );
+            if ( seen != second && ( second % 2 ) == 0 && counted[buckets] != 0u && seen != -1 )
             {
                 uint64_t    sum = 0;
                 std::string cs, ks;
@@ -540,6 +539,7 @@ namespace Desert::Graphic::System
                           gpu.Cells.z, gpu.Cells.w, gpu.SettleReads,
                           static_cast<const void*>( gpu.Instances.get() ),
                           static_cast<const void*>( gpu.Params.get() ), left );
+                seen = second;
             }
         }
         return &gpu;
