@@ -46,11 +46,11 @@
         },
         {
             "Name": "FoamJacobianThreshold",
-            "Value": [0.45, 0, 0, 0]
+            "Value": [0.6, 0, 0, 0]
         },
         {
             "Name": "FoamJacobianSoftness",
-            "Value": [0.15, 0, 0, 0]
+            "Value": [0.2, 0, 0, 0]
         },
         {
             "Name": "FoamDecaySeconds",
