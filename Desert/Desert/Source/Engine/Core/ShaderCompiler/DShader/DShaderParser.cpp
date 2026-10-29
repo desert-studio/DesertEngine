@@ -1747,8 +1747,9 @@ namespace Desert::Core::Preprocess
                  mask.ChannelParam.empty()
                       ? std::to_string( mask.Channel )
                       : std::format( "clamp( int( Material.{} ), 0, 3 )", mask.ChannelParam );
-            // The dither switch is a macro, not a function: DESERT_SURFACE_CLIP reads gl_FragCoord and the view block
-            // at its own (fragment) call site, and a function using either would not compile in a vertex stage.
+            // The dither switch is a macro, not a function: DESERT_SURFACE_CLIP reads gl_FragCoord and the view
+            // block at its own (fragment) call site, and a function using either would not compile in a vertex
+            // stage.
             const std::string dither =
                  mask.DitherParam.empty()
                       ? std::string()
@@ -2878,8 +2879,9 @@ namespace Desert::Core::Preprocess
                 {
                     if ( dither->IsTexture || dither->Type != ShaderValueType::Float )
                     {
-                        err = { opacityMaskLine, std::format( "'{}' (the dithered opacity mask switch) must be a Float",
-                                                              kSurfaceMaskDitherParam ) };
+                        err = { opacityMaskLine,
+                                std::format( "'{}' (the dithered opacity mask switch) must be a Float",
+                                             kSurfaceMaskDitherParam ) };
                         return fail();
                     }
                     result.Meta.OpacityMask->DitherParam = std::string( kSurfaceMaskDitherParam );
