@@ -97,7 +97,7 @@ namespace Desert::ECS
 
                 audio.SetSourceVolume( it->second, source.Volume );
                 if ( source.Spatial )
-                    audio.SetSourcePosition( it->second, transform.Translation );
+                    audio.SetSourcePosition( it->second, transform.GetTranslation() );
             }
 
             PlaySequenceAudio( registry, audio );

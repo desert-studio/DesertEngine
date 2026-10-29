@@ -77,7 +77,7 @@ namespace Desert::ECS
             // The fog floor is the entity's own Y — one owner, never a second authored height.
             float fogHeightY = 0.0f;
             if ( auto* transform = registry.try_get<ECS::TransformComponent>( entities[chosen] ) )
-                fogHeightY = transform->Translation.y;
+                fogHeightY = transform->GetTranslation().y;
 
             const auto& fog = registry.get<ECS::ExponentialHeightFogComponent>( entities[chosen] );
             renderCommandBuffer.Emplace<Graphic::Render::HeightFogCommand>( true, fog.Data, fogHeightY );

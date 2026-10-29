@@ -67,7 +67,7 @@ namespace LevelSequenceFixture
         sequence.End    = A::FrameNumber{ 100 };
         const auto door = ECS::AddEntityBinding( sequence, Common::UUID( kDoorUuid ), "Door" );
         EXPECT_TRUE( door.IsSuccess() );
-        ECS::TransformComponent pose;
+        ECS::LocalTransform     pose;
         EXPECT_TRUE(
              ECS::SetEntityTransformKey( sequence, door.GetValue(), A::FrameNumber{ 0 }, ECS::EntityPose( pose ) )
                   .IsSuccess() );

@@ -93,6 +93,11 @@ namespace Desert::Graphic
     class Image2D;
 }
 
+namespace Desert::Reflection::Generated
+{
+    void RegisterReflection_Engine();
+} // namespace Desert::Reflection::Generated
+
 namespace Desert::ECS
 {
     struct TagComponent
@@ -148,10 +153,47 @@ namespace Desert::ECS
         CameraData                    Data;
     };
 
-    struct VisibilityComponent
+    class VisibilityComponent;
+    bool SetVisible( entt::registry& registry, entt::entity entity, bool visible );
+
+    // Whether the entity is drawn (UE USceneComponent::bVisible). READ-ONLY, for the reason TransformComponent
+    // is: every write goes through ECS::SetVisible, a registry.patch, so on_update<VisibilityComponent> fires
+    // and Core::Scene's render-state dirty set sees the toggle at the source. Construction with a value
+    // (emplace<VisibilityComponent>( e, false )) is not a write: it fires on_construct.
+    class VisibilityComponent
     {
-        bool Visible = true;
+    public:
+        VisibilityComponent() = default;
+        explicit VisibilityComponent( bool visible ) : m_Visible( visible ) {}
+
+        [[nodiscard]] bool IsVisible() const
+        {
+            return m_Visible;
+        }
+
+    private:
+        bool m_Visible = true;
+
+        friend bool SetVisible( entt::registry& registry, entt::entity entity, bool visible );
     };
+
+    // THE ONE WRITER of VisibilityComponent (UE USceneComponent::SetVisibility -> MarkRenderStateDirty). Adds
+    // the component when the entity has none (on_construct), patches it when the value changes (on_update), and
+    // is no write at all when the value is unchanged. Returns whether anything changed. Scene::SetVisibleRecursive
+    // calls it per entity of a subtree.
+    inline bool SetVisible( entt::registry& registry, entt::entity entity, bool visible )
+    {
+        if ( auto* component = registry.try_get<VisibilityComponent>( entity ) )
+        {
+            if ( component->m_Visible == visible )
+                return false;
+            registry.patch<VisibilityComponent>( entity, [visible]( VisibilityComponent& c )
+                                                 { c.m_Visible = visible; } );
+            return true;
+        }
+        registry.emplace<VisibilityComponent>( entity, visible );
+        return true;
+    }
 
     // One overridden material parameter (keyed by the shader's Properties name). vec4 stores any
     // scalar/vector value (float uses .x, color uses rgba). Data-driven: NOT a fixed C++ field per param.
@@ -159,7 +201,35 @@ namespace Desert::ECS
     {
         std::string Name;
         glm::vec4   Value = glm::vec4( 0.0f );
+
+        [[nodiscard]] bool operator==( const MaterialParamOverride& ) const = default;
     };
+
+    // StaticMeshComponent's authored state as a value (field meanings on the component below). RuntimeMesh is derived
+    // from EditableMesh by ECS::SetEditableMesh only.
+    struct StaticMeshDesc
+    {
+        Assets::AssetHandle MeshHandle;
+        std::vector<Assets::AssetHandle> MaterialSlots;
+        std::optional<Geometry::PrimitiveType> Primitive;
+        std::shared_ptr<const Geometry::DynamicMesh3> EditableMesh;
+        std::shared_ptr<DynamicMesh> RuntimeMesh;
+        bool OutlineDraw = false;
+        int ForcedLOD = -1;
+        int LODBias = 0;
+        bool CastShadows = true;
+        bool ReceiveShadows = true;
+        bool CastContactShadow = true;
+        float MaxDrawDistance = 0.0f;
+        int TranslucencySortPriority = 0;
+        uint64_t HiddenSubmeshes = 0;
+        std::vector<MaterialParamOverride> ScriptSlotParams;
+
+        [[nodiscard]] bool operator==( const StaticMeshDesc& ) const = default;
+    };
+
+    class StaticMeshComponent;
+    bool SetStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshDesc& desc );
 
     // UE's UStaticMeshComponent: the two authored references (UPROPERTY StaticMesh, OverrideMaterials) are
     // REFLECTED, so Details draws the mesh row from them and DesertCtl `set` addresses them (StaticMesh.MeshHandle,
@@ -167,9 +237,115 @@ namespace Desert::ECS
     // PostEditChangeProperty). On disk they are these two fields' own keys, written by reflection as {Guid, Path}
     // (asset references v1, Assets::kAssetRefSchemaTag); World Partition, HLOD and WorldGen read the same keys from
     // raw records through Assets::StaticMeshComponentSer.
-    struct StaticMeshComponent
+    //
+    // READ-ONLY, as TransformComponent and MaterialComponent are: the authored state is a VALUE (StaticMeshDesc) and its one
+    // writer is ECS::SetStaticMesh, a registry.patch, so on_update<StaticMeshComponent> fires and Core::Scene's render-state dirty
+    // set sees every mesh, slot or flag change at the source (UE MarkRenderStateDirty). The derived render caches
+    // (Runtime*, SeenMaterialsVersion) are the proxy-side state MeshECSSystem rebuilds; they are reached through
+    // accessors and are not part of the value.
+    class StaticMeshComponent
     {
         REFLECT()
+
+    public:
+        StaticMeshComponent() = default;
+        explicit StaticMeshComponent( const StaticMeshDesc& desc )
+        {
+            Assign( desc );
+        }
+
+        [[nodiscard]] StaticMeshDesc GetDesc() const;
+        [[nodiscard]] const Assets::AssetHandle& GetMeshHandle() const
+        {
+            return MeshHandle;
+        }
+        [[nodiscard]] const std::vector<Assets::AssetHandle>& GetMaterialSlots() const
+        {
+            return MaterialSlots;
+        }
+        [[nodiscard]] const std::optional<Geometry::PrimitiveType>& GetPrimitive() const
+        {
+            return Primitive;
+        }
+        [[nodiscard]] const std::shared_ptr<const Geometry::DynamicMesh3>& GetEditableMesh() const
+        {
+            return EditableMesh;
+        }
+        [[nodiscard]] const std::shared_ptr<DynamicMesh>& GetRuntimeMesh() const
+        {
+            return RuntimeMesh;
+        }
+        [[nodiscard]] const bool& GetOutlineDraw() const
+        {
+            return OutlineDraw;
+        }
+        [[nodiscard]] const int& GetForcedLOD() const
+        {
+            return ForcedLOD;
+        }
+        [[nodiscard]] const int& GetLODBias() const
+        {
+            return LODBias;
+        }
+        [[nodiscard]] const bool& GetCastShadows() const
+        {
+            return CastShadows;
+        }
+        [[nodiscard]] const bool& GetReceiveShadows() const
+        {
+            return ReceiveShadows;
+        }
+        [[nodiscard]] const bool& GetCastContactShadow() const
+        {
+            return CastContactShadow;
+        }
+        [[nodiscard]] const float& GetMaxDrawDistance() const
+        {
+            return MaxDrawDistance;
+        }
+        [[nodiscard]] const int& GetTranslucencySortPriority() const
+        {
+            return TranslucencySortPriority;
+        }
+        [[nodiscard]] const uint64_t& GetHiddenSubmeshes() const
+        {
+            return HiddenSubmeshes;
+        }
+        [[nodiscard]] const std::vector<MaterialParamOverride>& GetScriptSlotParams() const
+        {
+            return ScriptSlotParams;
+        }
+
+        // Derived render caches (never part of the value, never serialized).
+        [[nodiscard]] std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances()
+        {
+            return m_RuntimeMaterialInstances;
+        }
+        [[nodiscard]] const std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances() const
+        {
+            return m_RuntimeMaterialInstances;
+        }
+        [[nodiscard]] Graphic::MaterialSlotBindingPtr& RuntimeSlots()
+        {
+            return m_RuntimeSlots;
+        }
+        [[nodiscard]] const Graphic::MaterialSlotBindingPtr& RuntimeSlots() const
+        {
+            return m_RuntimeSlots;
+        }
+        [[nodiscard]] uint32_t& SeenMaterialsVersion()
+        {
+            return m_SeenMaterialsVersion;
+        }
+        [[nodiscard]] const uint32_t& SeenMaterialsVersion() const
+        {
+            return m_SeenMaterialsVersion;
+        }
+
+    private:
+        void Assign( const StaticMeshDesc& desc );
+        [[nodiscard]] bool Matches( const StaticMeshDesc& desc ) const;
+
 
         PROPERTY( DisplayName( "Static Mesh" ), Category( "Static Mesh" ), Summary, Asset<StaticMeshAsset>,
                   Tooltip( "The mesh asset this component draws (UE StaticMesh). Ignored while a Primitive "
@@ -181,13 +357,13 @@ namespace Desert::ECS
                            "mesh's own section material." ) )
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
-             RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+             m_RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
         // The render path's CO-OWNED handle on those instances, rebuilt with them and never separately.
         // It replaced a `std::vector<MaterialInstance*> RuntimeSlotPtrs` whose ADDRESS the draw commands
         // took: entt moves components when the pool changes and Lua runs between recording a draw and
         // executing it, so both the vector and the instances in it could be gone by the time the renderer
         // read them. See Graphic::MaterialSlotBinding for the full account (A8-3).
-        Graphic::MaterialSlotBindingPtr        RuntimeSlots;
+        Graphic::MaterialSlotBindingPtr        m_RuntimeSlots;
         std::optional<Geometry::PrimitiveType> Primitive; // Optional primitive type for dynamic generation
         // A MESH BUILT IN THE EDITOR (CubeGrid, PolyEdit, later the Create/Model tools): the SOURCE OF TRUTH
         // for this entity's geometry, saved as-is (StaticMeshComponentSer::EditMesh). Immutable once set -
@@ -220,7 +396,7 @@ namespace Desert::ECS
         uint64_t HiddenSubmeshes = 0;
         // Transient: MaterialService invalidation stamp the runtime instances were built against;
         // a mismatch forces a rebuild (see MeshECSSystem) so parent Material* can never dangle.
-        uint32_t SeenMaterialsVersion = 0;
+        uint32_t m_SeenMaterialsVersion = 0;
         // SCRIPT PARAMETER OVERRIDES ON MATERIAL SLOT 0 (UE: the MID UMeshComponent::Set*ParameterValueOnMaterials
         // creates on demand). Runtime, never serialized: written by entity:setMaterialParam / cleared by
         // clearMaterialParams (Libraries/EntityLibrary.cpp, MaterialLibrary). Held HERE, on the mesh that owns the
@@ -229,7 +405,95 @@ namespace Desert::ECS
         // applies the list to every slot-0 instance it builds. The authored slots stay the source of truth for
         // everything else.
         std::vector<MaterialParamOverride> ScriptSlotParams;
+
+        friend void ::Desert::Reflection::Generated::RegisterReflection_Engine();
+        friend bool SetStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshDesc& desc );
     };
+
+    inline StaticMeshDesc StaticMeshComponent::GetDesc() const
+    {
+        StaticMeshDesc desc;
+        desc.MeshHandle = MeshHandle;
+        desc.MaterialSlots = MaterialSlots;
+        desc.Primitive = Primitive;
+        desc.EditableMesh = EditableMesh;
+        desc.RuntimeMesh = RuntimeMesh;
+        desc.OutlineDraw = OutlineDraw;
+        desc.ForcedLOD = ForcedLOD;
+        desc.LODBias = LODBias;
+        desc.CastShadows = CastShadows;
+        desc.ReceiveShadows = ReceiveShadows;
+        desc.CastContactShadow = CastContactShadow;
+        desc.MaxDrawDistance = MaxDrawDistance;
+        desc.TranslucencySortPriority = TranslucencySortPriority;
+        desc.HiddenSubmeshes = HiddenSubmeshes;
+        desc.ScriptSlotParams = ScriptSlotParams;
+        return desc;
+    }
+
+    inline bool StaticMeshComponent::Matches( const StaticMeshDesc& desc ) const
+    {
+        return MeshHandle == desc.MeshHandle
+            && MaterialSlots == desc.MaterialSlots
+            && Primitive == desc.Primitive
+            && EditableMesh == desc.EditableMesh
+            && RuntimeMesh == desc.RuntimeMesh
+            && OutlineDraw == desc.OutlineDraw
+            && ForcedLOD == desc.ForcedLOD
+            && LODBias == desc.LODBias
+            && CastShadows == desc.CastShadows
+            && ReceiveShadows == desc.ReceiveShadows
+            && CastContactShadow == desc.CastContactShadow
+            && MaxDrawDistance == desc.MaxDrawDistance
+            && TranslucencySortPriority == desc.TranslucencySortPriority
+            && HiddenSubmeshes == desc.HiddenSubmeshes
+            && ScriptSlotParams == desc.ScriptSlotParams;
+    }}
+
+    inline void StaticMeshComponent::Assign( const StaticMeshDesc& desc )
+    {
+        MeshHandle = desc.MeshHandle;
+        MaterialSlots = desc.MaterialSlots;
+        Primitive = desc.Primitive;
+        EditableMesh = desc.EditableMesh;
+        RuntimeMesh = desc.RuntimeMesh;
+        OutlineDraw = desc.OutlineDraw;
+        ForcedLOD = desc.ForcedLOD;
+        LODBias = desc.LODBias;
+        CastShadows = desc.CastShadows;
+        ReceiveShadows = desc.ReceiveShadows;
+        CastContactShadow = desc.CastContactShadow;
+        MaxDrawDistance = desc.MaxDrawDistance;
+        TranslucencySortPriority = desc.TranslucencySortPriority;
+        HiddenSubmeshes = desc.HiddenSubmeshes;
+        ScriptSlotParams = desc.ScriptSlotParams;
+    }
+
+    // THE ONE WRITER of StaticMeshComponent: adds it when absent (on_construct), patches it when the value differs
+    // (on_update), writes nothing when it is equal. A changed MaterialSlots drops the runtime instances, so the
+    // mesh system rebuilds them from the new slots. Returns whether anything changed.
+    inline bool SetStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshDesc& desc )
+    {
+        if ( auto* component = registry.try_get<StaticMeshComponent>( entity ) )
+        {
+            if ( component->Matches( desc ) )
+                return false;
+            registry.patch<StaticMeshComponent>( entity,
+                                    [&desc]( StaticMeshComponent& c )
+                                    {
+                                        if ( c.GetMaterialSlots() != desc.MaterialSlots )
+                                        {
+                                            c.m_RuntimeMaterialInstances.clear();
+                                            c.m_RuntimeSlots.reset();
+                                            c.m_SeenMaterialsVersion = 0;
+                                        }
+                                        c.Assign( desc );
+                                    } );
+            return true;
+        }
+        registry.emplace<StaticMeshComponent>( entity, desc );
+        return true;
+    }
 
     // World-space SDF text. FontService bakes the .ttf into an SDF atlas; TextECSSystem lays the
     // string out into a per-entity quad mesh and draws it through the generic path with the TextSDF
@@ -251,16 +515,97 @@ namespace Desert::ECS
         float                        BuiltSize = 0.0f;
     };
 
-    struct SkinnedMeshComponent
+    // SkinnedMeshComponent's authored state as a value (field meanings on the component below).
+    struct SkinnedMeshDesc
     {
+        Assets::AssetHandle MeshHandle;
+        std::vector<Assets::AssetHandle> MaterialSlots;
+        bool CastShadows = true;
+        std::shared_ptr<SkinnedMesh> RuntimeMesh;
+        std::shared_ptr<Animation::Skeleton> RuntimeSkeleton;
+
+        [[nodiscard]] bool operator==( const SkinnedMeshDesc& ) const = default;
+    };
+
+    class SkinnedMeshComponent;
+    bool SetSkinnedMesh( entt::registry& registry, entt::entity entity, const SkinnedMeshDesc& desc );
+
+
+    //
+    // READ-ONLY, as TransformComponent and MaterialComponent are: the authored state is a VALUE (SkinnedMeshDesc) and its one
+    // writer is ECS::SetSkinnedMesh, a registry.patch, so on_update<SkinnedMeshComponent> fires and Core::Scene's render-state dirty
+    // set sees every mesh, slot or flag change at the source (UE MarkRenderStateDirty). The derived render caches
+    // (Runtime*, SeenMaterialsVersion) are the proxy-side state MeshECSSystem rebuilds; they are reached through
+    // accessors and are not part of the value.
+    class SkinnedMeshComponent
+    {
+    public:
+        SkinnedMeshComponent() = default;
+        explicit SkinnedMeshComponent( const SkinnedMeshDesc& desc )
+        {
+            Assign( desc );
+        }
+
+        [[nodiscard]] SkinnedMeshDesc GetDesc() const;
+        [[nodiscard]] const Assets::AssetHandle& GetMeshHandle() const
+        {
+            return MeshHandle;
+        }
+        [[nodiscard]] const std::vector<Assets::AssetHandle>& GetMaterialSlots() const
+        {
+            return MaterialSlots;
+        }
+        [[nodiscard]] const bool& GetCastShadows() const
+        {
+            return CastShadows;
+        }
+        [[nodiscard]] const std::shared_ptr<SkinnedMesh>& GetRuntimeMesh() const
+        {
+            return RuntimeMesh;
+        }
+        [[nodiscard]] const std::shared_ptr<Animation::Skeleton>& GetRuntimeSkeleton() const
+        {
+            return RuntimeSkeleton;
+        }
+
+        // Derived render caches (never part of the value, never serialized).
+        [[nodiscard]] std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances()
+        {
+            return m_RuntimeMaterialInstances;
+        }
+        [[nodiscard]] const std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances() const
+        {
+            return m_RuntimeMaterialInstances;
+        }
+        [[nodiscard]] std::vector<Graphic::MaterialInstancePtr>& RuntimeDisplacedInstances()
+        {
+            return m_RuntimeDisplacedInstances;
+        }
+        [[nodiscard]] const std::vector<Graphic::MaterialInstancePtr>& RuntimeDisplacedInstances() const
+        {
+            return m_RuntimeDisplacedInstances;
+        }
+        [[nodiscard]] uint32_t& SeenMaterialsVersion()
+        {
+            return m_SeenMaterialsVersion;
+        }
+        [[nodiscard]] const uint32_t& SeenMaterialsVersion() const
+        {
+            return m_SeenMaterialsVersion;
+        }
+
+    private:
+        void Assign( const SkinnedMeshDesc& desc );
+        [[nodiscard]] bool Matches( const SkinnedMeshDesc& desc ) const;
+
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<Graphic::MaterialInstancePtr>
-                 RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
+                 m_RuntimeMaterialInstances; // Cache to keep instances alive and avoid per-frame allocations
         // The displaced (base-cell) siblings of the same slots, drawn over the displaced twin (CONTRACT-DISPLACE
         // §9.8); built when the mesh is displaced, empty otherwise. Transient like the cache above.
-        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
-        uint32_t SeenMaterialsVersion = 0; // see StaticMeshComponent
+        std::vector<Graphic::MaterialInstancePtr> m_RuntimeDisplacedInstances;
+        uint32_t m_SeenMaterialsVersion = 0; // see StaticMeshComponent
         bool     CastShadows          = true; // false = skipped by the shadow (depth) passes, like the static twin
 
         // In-editor rig: a skinned mesh built at runtime by "Convert to Skinned" (from a static mesh + placed
@@ -269,14 +614,177 @@ namespace Desert::ECS
         // alive for the mesh's lifetime (destroyed together with the component).
         std::shared_ptr<SkinnedMesh>         RuntimeMesh;
         std::shared_ptr<Animation::Skeleton> RuntimeSkeleton;
+
+        friend bool SetSkinnedMesh( entt::registry& registry, entt::entity entity, const SkinnedMeshDesc& desc );
     };
+
+    inline SkinnedMeshDesc SkinnedMeshComponent::GetDesc() const
+    {
+        SkinnedMeshDesc desc;
+        desc.MeshHandle = MeshHandle;
+        desc.MaterialSlots = MaterialSlots;
+        desc.CastShadows = CastShadows;
+        desc.RuntimeMesh = RuntimeMesh;
+        desc.RuntimeSkeleton = RuntimeSkeleton;
+        return desc;
+    }
+
+    inline bool SkinnedMeshComponent::Matches( const SkinnedMeshDesc& desc ) const
+    {
+        return MeshHandle == desc.MeshHandle
+            && MaterialSlots == desc.MaterialSlots
+            && CastShadows == desc.CastShadows
+            && RuntimeMesh == desc.RuntimeMesh
+            && RuntimeSkeleton == desc.RuntimeSkeleton;
+    }}
+
+    inline void SkinnedMeshComponent::Assign( const SkinnedMeshDesc& desc )
+    {
+        MeshHandle = desc.MeshHandle;
+        MaterialSlots = desc.MaterialSlots;
+        CastShadows = desc.CastShadows;
+        RuntimeMesh = desc.RuntimeMesh;
+        RuntimeSkeleton = desc.RuntimeSkeleton;
+    }
+
+    // THE ONE WRITER of SkinnedMeshComponent: adds it when absent (on_construct), patches it when the value differs
+    // (on_update), writes nothing when it is equal. A changed MaterialSlots drops the runtime instances, so the
+    // mesh system rebuilds them from the new slots. Returns whether anything changed.
+    inline bool SetSkinnedMesh( entt::registry& registry, entt::entity entity, const SkinnedMeshDesc& desc )
+    {
+        if ( auto* component = registry.try_get<SkinnedMeshComponent>( entity ) )
+        {
+            if ( component->Matches( desc ) )
+                return false;
+            registry.patch<SkinnedMeshComponent>( entity,
+                                    [&desc]( SkinnedMeshComponent& c )
+                                    {
+                                        if ( c.GetMaterialSlots() != desc.MaterialSlots )
+                                        {
+                                            c.m_RuntimeMaterialInstances.clear();
+                                            c.m_RuntimeDisplacedInstances.clear();
+                                            c.m_SeenMaterialsVersion = 0;
+                                        }
+                                        c.Assign( desc );
+                                    } );
+            return true;
+        }
+        registry.emplace<SkinnedMeshComponent>( entity, desc );
+        return true;
+    }
+
+    // InstancedStaticMeshComponent's authored state as a value (field meanings on the component below).
+    struct InstancedStaticMeshDesc
+    {
+        Assets::AssetHandle MeshHandle;
+        std::vector<Assets::AssetHandle> MaterialSlots;
+        std::vector<glm::mat4> InstanceTransforms;
+        bool CastShadows = true;
+        bool CastContactShadow = true;
+        float MaxDrawDistance = 0.0f;
+        std::optional<Geometry::PrimitiveType> Primitive;
+
+        [[nodiscard]] bool operator==( const InstancedStaticMeshDesc& ) const = default;
+    };
+
+    class InstancedStaticMeshComponent;
+    bool SetInstancedStaticMesh( entt::registry& registry, entt::entity entity, const InstancedStaticMeshDesc& desc );
 
     // UE-style Instanced Static Mesh: ONE mesh + ONE material drawn N times (per-instance world transforms)
     // as a single instanced draw call. The per-instance transforms live in a GPU storage buffer the
     // instanced shader reads by gl_InstanceIndex, so 1000 instances cost ~1 draw + 1 material setup instead
     // of N. Use for repeated static props / NPCs / buildings in the city.
-    struct InstancedStaticMeshComponent
+    //
+    // READ-ONLY, as TransformComponent and MaterialComponent are: the authored state is a VALUE (InstancedStaticMeshDesc) and its one
+    // writer is ECS::SetInstancedStaticMesh, a registry.patch, so on_update<InstancedStaticMeshComponent> fires and Core::Scene's render-state dirty
+    // set sees every mesh, slot or flag change at the source (UE MarkRenderStateDirty). The derived render caches
+    // (Runtime*, SeenMaterialsVersion) are the proxy-side state MeshECSSystem rebuilds; they are reached through
+    // accessors and are not part of the value.
+    class InstancedStaticMeshComponent
     {
+    public:
+        InstancedStaticMeshComponent() = default;
+        explicit InstancedStaticMeshComponent( const InstancedStaticMeshDesc& desc )
+        {
+            Assign( desc );
+        }
+
+        [[nodiscard]] InstancedStaticMeshDesc GetDesc() const;
+        [[nodiscard]] const Assets::AssetHandle& GetMeshHandle() const
+        {
+            return MeshHandle;
+        }
+        [[nodiscard]] const std::vector<Assets::AssetHandle>& GetMaterialSlots() const
+        {
+            return MaterialSlots;
+        }
+        [[nodiscard]] const std::vector<glm::mat4>& GetInstanceTransforms() const
+        {
+            return InstanceTransforms;
+        }
+        [[nodiscard]] const bool& GetCastShadows() const
+        {
+            return CastShadows;
+        }
+        [[nodiscard]] const bool& GetCastContactShadow() const
+        {
+            return CastContactShadow;
+        }
+        [[nodiscard]] const float& GetMaxDrawDistance() const
+        {
+            return MaxDrawDistance;
+        }
+        [[nodiscard]] const std::optional<Geometry::PrimitiveType>& GetPrimitive() const
+        {
+            return Primitive;
+        }
+
+        // Derived render caches (never part of the value, never serialized).
+        [[nodiscard]] std::shared_ptr<DynamicMesh>& RuntimeMesh()
+        {
+            return m_RuntimeMesh;
+        }
+        [[nodiscard]] const std::shared_ptr<DynamicMesh>& RuntimeMesh() const
+        {
+            return m_RuntimeMesh;
+        }
+        [[nodiscard]] std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances()
+        {
+            return m_RuntimeMaterialInstances;
+        }
+        [[nodiscard]] const std::vector<Graphic::MaterialInstancePtr>& RuntimeMaterialInstances() const
+        {
+            return m_RuntimeMaterialInstances;
+        }
+        [[nodiscard]] std::vector<Graphic::MaterialInstancePtr>& RuntimeDisplacedInstances()
+        {
+            return m_RuntimeDisplacedInstances;
+        }
+        [[nodiscard]] const std::vector<Graphic::MaterialInstancePtr>& RuntimeDisplacedInstances() const
+        {
+            return m_RuntimeDisplacedInstances;
+        }
+        [[nodiscard]] uint32_t& SeenMaterialsVersion()
+        {
+            return m_SeenMaterialsVersion;
+        }
+        [[nodiscard]] const uint32_t& SeenMaterialsVersion() const
+        {
+            return m_SeenMaterialsVersion;
+        }
+        [[nodiscard]] std::shared_ptr<const std::vector<glm::mat4>>& RuntimeInstanceSnapshot()
+        {
+            return m_RuntimeInstanceSnapshot;
+        }
+        [[nodiscard]] const std::shared_ptr<const std::vector<glm::mat4>>& RuntimeInstanceSnapshot() const
+        {
+            return m_RuntimeInstanceSnapshot;
+        }
+
+    private:
+        void Assign( const InstancedStaticMeshDesc& desc );
+        [[nodiscard]] bool Matches( const InstancedStaticMeshDesc& desc ) const;
+
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<glm::mat4>           InstanceTransforms; // per-instance world matrices
@@ -300,11 +808,11 @@ namespace Desert::ECS
         // Transient runtime state (not serialized): generated mesh for primitives, the material instance,
         // and a dirty flag so the renderer re-uploads the instance SSBO only when the transforms change.
         std::optional<Geometry::PrimitiveType>    Primitive;
-        std::shared_ptr<DynamicMesh>              RuntimeMesh;
-        std::vector<Graphic::MaterialInstancePtr> RuntimeMaterialInstances;
+        std::shared_ptr<DynamicMesh>              m_RuntimeMesh;
+        std::vector<Graphic::MaterialInstancePtr> m_RuntimeMaterialInstances;
         // The displaced siblings of the same slots (built when the mesh is displaced, empty otherwise).
-        std::vector<Graphic::MaterialInstancePtr> RuntimeDisplacedInstances;
-        uint32_t                                  SeenMaterialsVersion = 0; // see StaticMeshComponent
+        std::vector<Graphic::MaterialInstancePtr> m_RuntimeDisplacedInstances;
+        uint32_t                                  m_SeenMaterialsVersion = 0; // see StaticMeshComponent
 
         // `InstancesDirty` STOOD HERE, WRITTEN BY FIVE PLACES AND READ BY NONE. Every one of the five was
         // an authoring site raising it after editing InstanceTransforms; nothing downstream ever asked.
@@ -323,8 +831,71 @@ namespace Desert::ECS
         // REBUILT BY COMPARING, NOT BY A FLAG — see the note above on the flag that used to sit beside
         // it. Comparing the snapshot with the authored vector cannot drift: an edit that changes the
         // contents rebuilds it, an unchanged frame costs one comparison and no allocation.
-        std::shared_ptr<const std::vector<glm::mat4>> RuntimeInstanceSnapshot;
+        std::shared_ptr<const std::vector<glm::mat4>> m_RuntimeInstanceSnapshot;
+
+        friend bool SetInstancedStaticMesh( entt::registry& registry, entt::entity entity, const InstancedStaticMeshDesc& desc );
     };
+
+    inline InstancedStaticMeshDesc InstancedStaticMeshComponent::GetDesc() const
+    {
+        InstancedStaticMeshDesc desc;
+        desc.MeshHandle = MeshHandle;
+        desc.MaterialSlots = MaterialSlots;
+        desc.InstanceTransforms = InstanceTransforms;
+        desc.CastShadows = CastShadows;
+        desc.CastContactShadow = CastContactShadow;
+        desc.MaxDrawDistance = MaxDrawDistance;
+        desc.Primitive = Primitive;
+        return desc;
+    }
+
+    inline bool InstancedStaticMeshComponent::Matches( const InstancedStaticMeshDesc& desc ) const
+    {
+        return MeshHandle == desc.MeshHandle
+            && MaterialSlots == desc.MaterialSlots
+            && InstanceTransforms == desc.InstanceTransforms
+            && CastShadows == desc.CastShadows
+            && CastContactShadow == desc.CastContactShadow
+            && MaxDrawDistance == desc.MaxDrawDistance
+            && Primitive == desc.Primitive;
+    }}
+
+    inline void InstancedStaticMeshComponent::Assign( const InstancedStaticMeshDesc& desc )
+    {
+        MeshHandle = desc.MeshHandle;
+        MaterialSlots = desc.MaterialSlots;
+        InstanceTransforms = desc.InstanceTransforms;
+        CastShadows = desc.CastShadows;
+        CastContactShadow = desc.CastContactShadow;
+        MaxDrawDistance = desc.MaxDrawDistance;
+        Primitive = desc.Primitive;
+    }
+
+    // THE ONE WRITER of InstancedStaticMeshComponent: adds it when absent (on_construct), patches it when the value differs
+    // (on_update), writes nothing when it is equal. A changed MaterialSlots drops the runtime instances, so the
+    // mesh system rebuilds them from the new slots. Returns whether anything changed.
+    inline bool SetInstancedStaticMesh( entt::registry& registry, entt::entity entity, const InstancedStaticMeshDesc& desc )
+    {
+        if ( auto* component = registry.try_get<InstancedStaticMeshComponent>( entity ) )
+        {
+            if ( component->Matches( desc ) )
+                return false;
+            registry.patch<InstancedStaticMeshComponent>( entity,
+                                    [&desc]( InstancedStaticMeshComponent& c )
+                                    {
+                                        if ( c.GetMaterialSlots() != desc.MaterialSlots )
+                                        {
+                                            c.m_RuntimeMaterialInstances.clear();
+                                            c.m_RuntimeDisplacedInstances.clear();
+                                            c.m_SeenMaterialsVersion = 0;
+                                        }
+                                        c.Assign( desc );
+                                    } );
+            return true;
+        }
+        registry.emplace<InstancedStaticMeshComponent>( entity, desc );
+        return true;
+    }
 
     // A FOLIAGE FIELD (UE: one FFoliageInfo of an AInstancedFoliageActor). Sits beside an
     // InstancedStaticMeshComponent that holds the painted instances; WHAT is painted — the mesh and the scatter
@@ -479,6 +1050,8 @@ namespace Desert::ECS
     {
         std::string Name;
         uint64_t    TextureHandle = 0; // Assets::AssetHandle as uint64 (0 = unset -> shader fallback)
+
+        [[nodiscard]] bool operator==( const MaterialTextureOverride& ) const = default;
     };
 
     // Assigns an arbitrary shader (by program name) to whatever renderer draws this entity, with its
@@ -489,12 +1062,65 @@ namespace Desert::ECS
     // shader and to nothing else: a lit mesh's per-entity parameters are its slot instances' (script writes land
     // on StaticMeshComponent::ScriptSlotParams), and a scene block carrying Params with no Shader is refused at
     // load with its path. No decision compares ShaderName to a template's name.
-    struct MaterialComponent
+    //
+    // The authored state is a VALUE (MaterialDesc, as LocalTransform is for TransformComponent): a writer builds
+    // or copies one, changes it, and hands it to ECS::SetMaterial, the one writer, which is a registry.patch so
+    // Core::Scene's render-state dirty set sees a shader or parameter swap at the source.
+    struct MaterialDesc
     {
         std::string                          ShaderName;
         std::vector<MaterialParamOverride>   Params; // scalar/vector overrides (on top of the Properties defaults)
         std::vector<MaterialTextureOverride> Textures; // texture2D overrides (unset -> backend fallback)
+
+        [[nodiscard]] bool operator==( const MaterialDesc& ) const = default;
     };
+
+    class MaterialComponent;
+    bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc );
+
+    class MaterialComponent
+    {
+    public:
+        MaterialComponent() = default;
+        explicit MaterialComponent( MaterialDesc desc ) : m_Desc( std::move( desc ) ) {}
+
+        [[nodiscard]] const MaterialDesc& GetDesc() const
+        {
+            return m_Desc;
+        }
+        [[nodiscard]] const std::string& GetShaderName() const
+        {
+            return m_Desc.ShaderName;
+        }
+        [[nodiscard]] const std::vector<MaterialParamOverride>& GetParams() const
+        {
+            return m_Desc.Params;
+        }
+        [[nodiscard]] const std::vector<MaterialTextureOverride>& GetTextures() const
+        {
+            return m_Desc.Textures;
+        }
+
+    private:
+        MaterialDesc m_Desc;
+
+        friend bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc );
+    };
+
+    // THE ONE WRITER of MaterialComponent: adds it when absent (on_construct), patches it when the value differs
+    // (on_update), writes nothing when it is equal. Returns whether anything changed.
+    inline bool SetMaterial( entt::registry& registry, entt::entity entity, const MaterialDesc& desc )
+    {
+        if ( auto* component = registry.try_get<MaterialComponent>( entity ) )
+        {
+            if ( component->m_Desc == desc )
+                return false;
+            registry.patch<MaterialComponent>( entity, [&desc]( MaterialComponent& c ) { c.m_Desc = desc; } );
+            return true;
+        }
+        registry.emplace<MaterialComponent>( entity, desc );
+        return true;
+    }
 
     struct AnimationComponent
     {
@@ -888,18 +1514,106 @@ namespace Desert::ECS
         return Revision;
     }
 
-    struct TransformComponent
+    // A parent-relative transform AS A VALUE: what a TransformComponent holds, what a caller builds before
+    // handing it to SetLocalTransform, and what code that never touches a registry (gizmo maths, prefab
+    // records, tests) passes around. UE's FTransform next to USceneComponent::RelativeLocation/Rotation/Scale.
+    struct LocalTransform
     {
         glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
         glm::vec3 Rotation    = { 0.0f, 0.0f, 0.0f };
         glm::vec3 Scale       = { 1.0f, 1.0f, 1.0f };
 
-        glm::mat4 GetTransform() const
+        [[nodiscard]] glm::mat4 GetTransform() const
         {
             return glm::translate( glm::mat4( 1.0f ), Translation ) * glm::toMat4( glm::quat( Rotation ) ) *
                    glm::scale( glm::mat4( 1.0f ), Scale );
         }
+
+        [[nodiscard]] bool operator==( const LocalTransform& other ) const
+        {
+            return Translation == other.Translation && Rotation == other.Rotation && Scale == other.Scale;
+        }
+        [[nodiscard]] bool operator!=( const LocalTransform& other ) const
+        {
+            return !( *this == other );
+        }
     };
+
+    class TransformComponent;
+    bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
+
+    // THE ENTITY'S LOCAL TRANSFORM, READ-ONLY. Nothing may write it in place: every write goes through
+    // SetLocalTransform (below), which is a registry.patch, so EnTT's on_update<TransformComponent> fires for
+    // every change and Core::Scene's render-state dirty set (UE MarkRenderStateDirty) sees it at the source —
+    // a direct field write would move the entity on screen while the dirty set, and every persistent render
+    // proxy fed from it, said nothing changed. Construction (emplace / AddComponent with a LocalTransform) is
+    // not a write: it fires on_construct. Whole-object assignment stays possible only because EnTT's storage
+    // moves components by assignment; replace a component with registry.replace, which fires on_update.
+    class TransformComponent
+    {
+    public:
+        TransformComponent() = default;
+        TransformComponent( const LocalTransform& local ) : m_Local( local ) {}
+
+        [[nodiscard]] const LocalTransform& GetLocal() const
+        {
+            return m_Local;
+        }
+        [[nodiscard]] const glm::vec3& GetTranslation() const
+        {
+            return m_Local.Translation;
+        }
+        [[nodiscard]] const glm::vec3& GetRotation() const
+        {
+            return m_Local.Rotation;
+        }
+        [[nodiscard]] const glm::vec3& GetScale() const
+        {
+            return m_Local.Scale;
+        }
+        [[nodiscard]] glm::mat4 GetTransform() const
+        {
+            return m_Local.GetTransform();
+        }
+
+    private:
+        LocalTransform m_Local;
+
+        friend bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
+    };
+
+    // THE ONE WRITER of a TransformComponent (UE USceneComponent::SetRelativeTransform, which ends in
+    // MarkRenderTransformDirty). An unchanged value is not a write (UE early-outs the same way): no on_update,
+    // so a system that re-asserts the same pose every frame (attachments, physics at rest) dirties nothing.
+    // Returns whether the transform changed.
+    inline bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local )
+    {
+        if ( registry.get<TransformComponent>( entity ).m_Local == local )
+            return false;
+        registry.patch<TransformComponent>( entity, [&local]( TransformComponent& component )
+                                            { component.m_Local = local; } );
+        return true;
+    }
+
+    // One field of the local transform; each is SetLocalTransform with the other two fields kept.
+    inline bool SetLocalTranslation( entt::registry& registry, entt::entity entity, const glm::vec3& translation )
+    {
+        LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
+        local.Translation    = translation;
+        return SetLocalTransform( registry, entity, local );
+    }
+    inline bool SetLocalRotation( entt::registry& registry, entt::entity entity, const glm::vec3& rotation )
+    {
+        LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
+        local.Rotation       = rotation;
+        return SetLocalTransform( registry, entity, local );
+    }
+    inline bool SetLocalScale( entt::registry& registry, entt::entity entity, const glm::vec3& scale )
+    {
+        LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
+        local.Scale          = scale;
+        return SetLocalTransform( registry, entity, local );
+    }
 
     // ON THE TWO PAIRS OF SUN NUMBERS. Colour x Intensity here is the ILLUMINANCE arriving at scene
     // surfaces — what every lit surface integrates. SkyAtmosphereData::SunColor x SunIntensity is the

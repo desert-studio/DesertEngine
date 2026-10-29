@@ -22,24 +22,24 @@ namespace Desert::Editor
         if ( entity.HasComponent<ECS::StaticMeshComponent>() )
         {
             const auto& smc = entity.GetComponent<ECS::StaticMeshComponent>();
-            if ( smc.RuntimeMesh && !smc.RuntimeMesh->GetSubmeshes().empty() )
-                return smc.RuntimeMesh.get();
-            if ( smc.MeshHandle )
+            if ( smc.GetRuntimeMesh() && !smc.GetRuntimeMesh()->GetSubmeshes().empty() )
+                return smc.GetRuntimeMesh().get();
+            if ( smc.GetMeshHandle() )
             {
-                if ( const auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle ) )
+                if ( const auto* mesh = Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() ) )
                     return mesh;
             }
-            if ( smc.Primitive.has_value() )
-                return Geometry::PrimitiveMeshFactory::GetShared( *smc.Primitive );
+            if ( smc.GetPrimitive().has_value() )
+                return Geometry::PrimitiveMeshFactory::GetShared( *smc.GetPrimitive() );
         }
 
         if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
         {
             const auto& skc = entity.GetComponent<ECS::SkinnedMeshComponent>();
-            if ( skc.RuntimeMesh )
-                return skc.RuntimeMesh.get();
-            if ( skc.MeshHandle )
-                return Runtime::ResourceRegistry::GetMeshService()->Get( skc.MeshHandle );
+            if ( skc.GetRuntimeMesh() )
+                return skc.GetRuntimeMesh().get();
+            if ( skc.GetMeshHandle() )
+                return Runtime::ResourceRegistry::GetMeshService()->Get( skc.GetMeshHandle() );
         }
         return nullptr;
     }

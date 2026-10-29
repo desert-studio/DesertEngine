@@ -471,7 +471,6 @@ namespace Desert::Editor::Tools
                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
                                                              m_Session->PendingStarted )
                        .count() );
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
@@ -482,7 +481,7 @@ namespace Desert::Editor::Tools
         }
         std::string report = out.GetValue().Report;
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
-        if ( auto set = ECS::SetEditableMesh( *component, preview ); !set.IsSuccess() )
+        if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), preview ); !set.IsSuccess() )
         {
             ms.DeformStatus = set.GetError();
             Restore( scene );
@@ -500,12 +499,8 @@ namespace Desert::Editor::Tools
             return;
         ECS::Entity b = ref->get();
         if ( b.HasComponent<ECS::VisibilityComponent>() )
-        {
-            m_Session->OtherVisibility = b.GetComponent<ECS::VisibilityComponent>().Visible;
-            b.GetComponent<ECS::VisibilityComponent>().Visible = false;
-        }
-        else
-            b.AddComponent<ECS::VisibilityComponent>().Visible = false;
+            m_Session->OtherVisibility = b.GetComponent<ECS::VisibilityComponent>().IsVisible();
+        b.SetVisible( false );
         m_Session->OtherHidden = true;
     }
 
@@ -523,21 +518,22 @@ namespace Desert::Editor::Tools
                         b.RemoveComponent<ECS::VisibilityComponent>();
                 }
                 else if ( b.HasComponent<ECS::VisibilityComponent>() )
-                    b.GetComponent<ECS::VisibilityComponent>().Visible = *m_Session->OtherVisibility;
+                    b.SetVisible( *m_Session->OtherVisibility );
             }
         }
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
-        switch ( PlanMeshRestore( component->EditableMesh, m_Session->Committed ) )
+        switch ( PlanMeshRestore( component->GetEditableMesh(), m_Session->Committed ) )
         {
             case MeshRestore::Unchanged:
                 break;
             case MeshRestore::Clear:
-                ECS::ClearEditableMesh( *component );
+                ECS::ClearEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle() );
                 break;
             case MeshRestore::Set:
-                if ( auto set = ECS::SetEditableMesh( *component, m_Session->Committed ); !set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Committed );
+                     !set.IsSuccess() )
                     LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}", ToolName( m_Session->Tool ),
                                set.GetError() );
                 break;
@@ -558,7 +554,7 @@ namespace Desert::Editor::Tools
         if ( !m_Session->Preview )
             return refuse( ms.DeformStatus );
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
-        if ( component == nullptr || component->EditableMesh != m_Session->Preview )
+        if ( component == nullptr || component->GetEditableMesh() != m_Session->Preview )
             return refuse( "the entity no longer draws the preview" );
         Commands::RecordMeshChange( m_Session->Entity, std::format( "Modeling: {}", ToolName( m_Session->Tool ) ),
                                     m_Session->Committed );
@@ -591,8 +587,8 @@ namespace Desert::Editor::Tools
         // A goes back to what it held; the result lands on a copy of A, in A's frame (the operator ran there).
         Restore( scene );
         const auto&                tc = refA->get().GetComponent<ECS::TransformComponent>();
-        Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.Translation, tc.Rotation,
-                                          tc.Scale,          std::nullopt,       std::nullopt };
+        Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.GetTranslation(), tc.GetRotation(),
+                                          tc.GetScale(),          std::nullopt,       std::nullopt };
         std::vector<Commands::XformEntityState> changes;
         std::vector<Commands::XformNewEntity>   creates{
                { m_Session->Entity, std::format( "{} {}", m_Session->NameA, tool ), std::move( state ) } };
@@ -612,7 +608,7 @@ namespace Desert::Editor::Tools
             {
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 changes.push_back(
-                     { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+                     { in.Id, in.Committed, itc.GetTranslation(), itc.GetRotation(), itc.GetScale(), std::nullopt, false } );
             }
         }
         const std::string label   = std::format( "Modeling: {} {}", tool,
@@ -622,9 +618,8 @@ namespace Desert::Editor::Tools
         auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
         if ( !applied.IsSuccess() )
         {
-            ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
-            if ( component != nullptr )
-                (void)ECS::SetEditableMesh( *component, m_Session->Preview ); // the preview stays on screen
+            if ( MeshOf( scene, m_Session->Entity ) != nullptr ) // the preview stays on screen
+                (void)ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Preview );
             return refuse( applied.GetError() );
         }
         LOG_INFO( "[Modeling] {0} accepted as a new entity, inputs: {1}: {2}", label, Core::ToString( handling ),

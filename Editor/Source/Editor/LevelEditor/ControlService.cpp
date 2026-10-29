@@ -255,7 +255,7 @@ namespace Desert::Editor
                 return Common::MakeSuccess( true );
             }
 
-            auto&           tc    = entity.GetComponent<ECS::TransformComponent>();
+            const auto&     tc    = entity.GetComponent<ECS::TransformComponent>();
             const glm::mat4 world = entity.GetWorldTransform();
             const auto      now   = ::Desert::Core::CameraEntityViewOf( world, lens.FOV, lens.Near, lens.Far );
 
@@ -280,8 +280,10 @@ namespace Desert::Editor
             const glm::mat3 rotation( glm::normalize( glm::vec3( local[0] ) ),
                                       glm::normalize( glm::vec3( local[1] ) ),
                                       glm::normalize( glm::vec3( local[2] ) ) );
-            tc.Translation = glm::vec3( local[3] );
-            tc.Rotation    = glm::eulerAngles( glm::quat_cast( rotation ) );
+            ECS::LocalTransform posed = tc.GetLocal();
+            posed.Translation         = glm::vec3( local[3] );
+            posed.Rotation            = glm::eulerAngles( glm::quat_cast( rotation ) );
+            entity.SetLocalTransform( posed );
             return Common::MakeSuccess( true );
         }
     } // namespace
@@ -1053,10 +1055,8 @@ namespace Desert::Editor
                              request.Id, fmt::format( "the selected entity {} is not in the scene",
                                                       static_cast<uint64_t>( uuid ) ) );
                     const ECS::Entity entity = ref->get();
-                    auto&             tc     = entity.GetComponent<ECS::TransformComponent>();
-                    tc.Translation           = after.GetValue().Translation;
-                    tc.Rotation              = after.GetValue().Rotation;
-                    tc.Scale                 = after.GetValue().Scale;
+                    entity.SetLocalTransform( ECS::LocalTransform{
+                         after.GetValue().Translation, after.GetValue().Rotation, after.GetValue().Scale } );
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
@@ -1139,11 +1139,36 @@ namespace Desert::Editor
                     Core::SelectionManager::SetSelected( entityId );
                     // Only this entity's file is rewritten by the next save (WP17), as from Details.
                     const CommandHistory::FieldSubject fieldSubject( entityId );
+                    // The undo and redo of this edit reach the component again through the same entry's
+                    // EditData (entity + type), so they end in the component's writer as the edit does and never
+                    // hold an address inside EnTT storage.
+                    const ReflectedEditRoute route =
+                         [weakScene = std::weak_ptr<::Desert::Core::Scene>( scene ), entityId,
+                          reflectedType = found->ReflectedTypeName]( const std::function<void( void* )>& write )
+                    {
+                        const auto owner = weakScene.lock();
+                        if ( !owner )
+                            return false;
+                        auto ref = owner->FindEntityByID( entityId );
+                        if ( !ref )
+                            return false;
+                        ECS::Entity target = ref->get(); // a handle: a copy names the same entity
+                        for ( const ComponentEditorEntry& entry : ComponentWidgetRegistry::Get().Entries() )
+                            if ( entry.DataPtr && entry.ReflectedTypeName == reflectedType && entry.Has( target ) )
+                            {
+                                if ( entry.EditData )
+                                    entry.EditData( target, write );
+                                else
+                                    write( entry.DataPtr( target ) );
+                                return true;
+                            }
+                        return false;
+                    };
                     Common::BoolResultStr written = Common::MakeSuccess( true );
                     const auto            edit    = [&]( void* data )
                     {
                         written = SetReflectedFieldFromText( data, found->ReflectedTypeName, fieldPath,
-                                                             request.Text, CommandHistory::Get() );
+                                                             request.Text, CommandHistory::Get(), route );
                     };
                     if ( found->EditData )
                         found->EditData( en, edit );
@@ -1390,7 +1415,7 @@ namespace Desert::Editor
                                                        static_cast<uint64_t>( uuid ) );
         const auto& tc = entity.GetComponent<ECS::TransformComponent>();
         return Common::MakeSuccess(
-             Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
+             Result{ uuid, Core::SelectionTransform{ tc.GetTranslation(), tc.GetRotation(), tc.GetScale() } } );
     }
 
     Control::Response ControlService::SetViewportCameraProperty( const Control::Request& request )
@@ -1466,6 +1491,8 @@ namespace Desert::Editor
         snapshot.SceneName = m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetSceneName() : std::string();
         snapshot.SceneHasUnsavedChanges = m_SceneFiles.HasUnsavedChanges();
         snapshot.InPlayMode             = m_Play.InPlayMode();
+        snapshot.SceneRenderDirty =
+             m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetRenderStateDirtyCount() : 0;
 
         for ( const Common::UUID& uuid : Core::SelectionManager::GetSelection() )
         {

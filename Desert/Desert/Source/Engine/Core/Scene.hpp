@@ -14,6 +14,9 @@
 #include <Engine/Core/Serialize/EntityPackages.hpp>
 #include "SceneEntityIndex.hpp"
 #include "SceneViewList.hpp"
+
+#include <mutex>
+#include <unordered_set>
 #include "WorldTime.hpp"
 #include "DebugDraw.hpp"
 #if DESERT_DEV_INSTRUMENTS
@@ -758,6 +761,24 @@ namespace Desert::Core
 
         void DestroyEntity( ECS::Entity entity );
 
+        /**
+         * @brief THE RENDER-STATE DIRTY SET (UE UPrimitiveComponent::MarkRenderStateDirty).
+         *
+         * Every entity whose render-relevant state changed since the last frame boundary: fed AT THE SOURCE by
+         * EnTT's on_construct / on_update / on_destroy of TransformComponent (ECS::SetLocalTransform is a
+         * patch), the mesh components, MaterialComponent and VisibilityComponent, and by Attach / Detach. A
+         * transform or parent change dirties the whole subtree, because a child's world transform is its
+         * parent's times its own. The frame boundary is the top of OnUpdate: the set is latched into
+         * GetRenderStateDirtyCount() and emptied there. Thread-safe: a parallel system may write a transform.
+         */
+        void MarkRenderStateDirty( entt::entity entity, bool subtree );
+
+        // How many entities the last completed frame dirtied (the control state's scene.renderDirty).
+        [[nodiscard]] std::size_t GetRenderStateDirtyCount() const
+        {
+            return m_RenderStateDirtyLastFrame;
+        }
+
         // Sets VisibilityComponent on the entity and its entire subtree (UE-like hierarchical visibility).
         void SetVisibleRecursive( ECS::Entity entity, bool visible );
 
@@ -775,6 +796,11 @@ namespace Desert::Core
 
         void SetupRegistryCallbacks();
 
+        // EnTT signal handlers feeding MarkRenderStateDirty: a transform dirties its subtree, the others the
+        // entity alone.
+        void OnTransformRenderStateChanged( entt::registry& registry, entt::entity entity );
+        void OnRenderStateChanged( entt::registry& registry, entt::entity entity );
+
         // Creates every component pool a system may touch, serially, before any parallel group opens.
         // EnTT creates a pool on FIRST touch and that creation writes to the registry even through a
         // const reference, so two collectors first-touching a type on two threads race on a std::vector.
@@ -788,6 +814,11 @@ namespace Desert::Core
 
     private:
         entt::registry m_Registry;
+
+        // See MarkRenderStateDirty.
+        std::unordered_set<entt::entity> m_RenderStateDirty;
+        std::size_t                      m_RenderStateDirtyLastFrame = 0;
+        std::mutex                       m_RenderStateDirtyMutex;
 
         std::vector<std::unique_ptr<ECS::System>> m_Systems;
 

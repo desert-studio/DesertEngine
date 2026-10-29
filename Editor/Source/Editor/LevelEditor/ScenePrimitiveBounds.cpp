@@ -51,12 +51,12 @@ namespace Desert::Editor
                                const PrimitiveSubmeshes primitives )
         {
             const std::vector<Submesh>* submeshes = nullptr;
-            if ( ism.RuntimeMesh )
-                submeshes = &ism.RuntimeMesh->GetSubmeshes();
-            else if ( ism.Primitive.has_value() )
-                submeshes = primitives( *ism.Primitive );
-            else if ( ism.MeshHandle != 0u )
-                submeshes = AssetSubmeshes( ism.MeshHandle );
+            if ( ism.RuntimeMesh() )
+                submeshes = &ism.RuntimeMesh()->GetSubmeshes();
+            else if ( ism.GetPrimitive().has_value() )
+                submeshes = primitives( *ism.GetPrimitive() );
+            else if ( ism.GetMeshHandle() != 0u )
+                submeshes = AssetSubmeshes( ism.GetMeshHandle() );
             if ( submeshes == nullptr )
             {
                 ++bounds.Missing;
@@ -65,7 +65,7 @@ namespace Desert::Editor
             const auto local = Geometry::LocalBounds( *submeshes );
             if ( Geometry::IsEmpty( local ) )
                 return;
-            for ( const glm::mat4& instance : ism.InstanceTransforms )
+            for ( const glm::mat4& instance : ism.GetInstanceTransforms() )
             {
                 Grow( bounds, Geometry::TransformBounds( instance, local ) );
                 ++bounds.Instances;
@@ -88,15 +88,15 @@ namespace Desert::Editor
                 continue;
             const ECS::Entity entity( handle, registry );
             const auto&       mesh = registry.get<ECS::StaticMeshComponent>( handle );
-            if ( mesh.RuntimeMesh )
-                Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
-            else if ( mesh.Primitive.has_value() )
+            if ( mesh.GetRuntimeMesh() )
+                Include( bounds, entity, &mesh.GetRuntimeMesh()->GetSubmeshes() );
+            else if ( mesh.GetPrimitive().has_value() )
             {
-                if ( const auto* submeshes = primitives( *mesh.Primitive ) )
+                if ( const auto* submeshes = primitives( *mesh.GetPrimitive() ) )
                     Include( bounds, entity, submeshes );
             }
-            else if ( mesh.MeshHandle != 0u )
-                Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
+            else if ( mesh.GetMeshHandle() != 0u )
+                Include( bounds, entity, AssetSubmeshes( mesh.GetMeshHandle() ) );
         }
         for ( const auto handle : registry.view<ECS::TransformComponent, ECS::SkinnedMeshComponent>() )
         {
@@ -104,15 +104,15 @@ namespace Desert::Editor
                 continue;
             const ECS::Entity entity( handle, registry );
             const auto&       mesh = registry.get<ECS::SkinnedMeshComponent>( handle );
-            if ( mesh.RuntimeMesh )
-                Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
-            else if ( mesh.MeshHandle != 0u )
-                Include( bounds, entity, AssetSubmeshes( mesh.MeshHandle ) );
+            if ( mesh.GetRuntimeMesh() )
+                Include( bounds, entity, &mesh.GetRuntimeMesh()->GetSubmeshes() );
+            else if ( mesh.GetMeshHandle() != 0u )
+                Include( bounds, entity, AssetSubmeshes( mesh.GetMeshHandle() ) );
         }
         for ( const auto handle : registry.view<ECS::InstancedStaticMeshComponent>() )
         {
             const auto& ism = registry.get<ECS::InstancedStaticMeshComponent>( handle );
-            if ( ECS::IsHidden( registry, handle ) || ism.InstanceTransforms.empty() )
+            if ( ECS::IsHidden( registry, handle ) || ism.GetInstanceTransforms().empty() )
                 continue;
             IncludeInstances( bounds, ism, primitives );
         }
