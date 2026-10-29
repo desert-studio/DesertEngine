@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
+#include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -45,8 +46,8 @@ namespace Desert::Graphic::System
             return !m_FrameDraws.empty();
         }
 
-        // SETUP of the water node: its one binding block (WaterSurface.shader samples no scene/view input yet).
-        void                                DeclareDraws( RDG::PassBuilder& pass );
+        // SETUP of the water node: its one binding block, with the frame's fog inputs (the surface fogs itself).
+        void                                DeclareDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         void Submit( WaterZoneDraw zone )

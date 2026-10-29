@@ -1,0 +1,95 @@
+// THE VOLUMETRIC FOG GRID (UE VolumetricFog.usf / VolumetricFogShared.ush, reimplemented): the camera's view cut
+// into froxels - square screen tiles of GridPixel.x render pixels times GridSize.z depth slices out to the
+// height fog's VolumetricFogDistance - each holding the lit medium. One text for the three readers:
+// Programs/Fog/VolumetricFogLightScattering.shader (fills it), Programs/Fog/VolumetricFogIntegration.shader
+// (integrates it front to back) and Programs/Fog/HeightFog.shader (samples the integral at a pixel's depth).
+//
+// The parameter block is Graphic::VolumetricFogGpuPayload (Engine/Graphic/Fog/VolumetricFogPayload.hpp), member
+// for member; static_asserts there pin every offset. UNITS: centimetres and per-centimetre coefficients - unlike
+// the closed-form height fog, which works in kilometres, a froxel is a few metres deep and float holds it exactly.
+
+#ifndef VOLUMETRIC_FOG_GLSLH
+#define VOLUMETRIC_FOG_GLSLH
+
+// Must equal Graphic::kVolumetricFogParamsBinding (SetStorageBuffer takes the number, not reflection).
+#define VOLUMETRIC_FOG_PARAMS_BINDING 1
+
+const float VOLUMETRIC_FOG_PI = 3.14159265358979;
+const float VOLUMETRIC_FOG_LN2 = 0.69314718056;
+
+layout(std430, binding = VOLUMETRIC_FOG_PARAMS_BINDING) readonly buffer VolumetricFogParamsBuffer
+{
+    mat4  VfInvViewProjection;  // clip -> world of THIS frame's unjittered camera (froxels are not jittered by TAA)
+    mat4  VfViewProjection;     // world -> clip, the same camera
+    mat4  VfPrevViewProjection; // world -> clip of the PREVIOUS frame (UE PrevWorldToClip), for the reprojection
+    mat4  VfCascadeViewProj[4];     // the sun's cascades, standard Z (Graphic::CascadeFit::ViewProj)
+    uvec4 VfGridSize;           // xyz = froxels, w = frame index (the in-froxel jitter sequence)
+    vec4  VfGridZParams;        // x = B, y = O, z = S of slice = log2(depth * B + O) * S; w = grid far (cm)
+    vec4  VfGridPixel;          // x = froxel edge in render pixels, yz = render size in pixels, w = history valid
+    vec4  VfJitter;             // xyz = this frame's sample offset inside a froxel [0,1), w = history weight
+    vec4  VfCamera;             // xyz = camera position (cm), w = phase g (ScatteringDistribution)
+    vec4  VfCameraForward;      // xyz = camera forward (unit), w unused
+    vec4  VfPrevCamera;         // xyz = previous camera position (cm), w unused
+    vec4  VfPrevCameraForward;  // xyz = previous camera forward (unit), w unused
+    vec4  VfAlbedo;             // rgb = albedo, w = extinction scale
+    vec4  VfEmissive;           // rgb = emissive per unit extinction, w = start distance (cm)
+    vec4  VfFade;               // x = near fade-in distance (cm), yzw unused
+    vec4  VfLayer0;             // x = density /cm (exp2 form), y = falloff /cm, z = fog height (cm), w unused
+    vec4  VfLayer1;             // x = density /cm (exp2 form), y = falloff /cm, z = fog height (cm), w unused
+    vec4  VfSunDirection;       // xyz = TOWARD the sun (unit), w = 1 when a sun lights the fog
+    vec4  VfSunRadiance;        // rgb = sun colour x intensity x its VolumetricScatteringIntensity, w = cascades
+    vec4  VfCascadeBias;        // per cascade: depth bias in map units (texel world size / depth range)
+    vec4  VfSkyAmbient;         // rgb = sky radiance folded on the CPU (artistic model), w = 1: sample the texel
+    vec4  VfSkyAmbientScale;    // rgb = scale on the sampled distant sky light (fog's ambient colour scale)
+};
+
+// ---- Depth distribution (UE ComputeZSliceFromDepth / ComputeDepthFromZSlice). Exponential so the near froxels
+// are thin and the far ones long; S = 32 is UE's r.VolumetricFog.DepthDistributionScale.
+float VolumetricFogSliceFromDepth(float depth)
+{
+    return log2(max(depth * VfGridZParams.x + VfGridZParams.y, 1e-6)) * VfGridZParams.z;
+}
+
+float VolumetricFogDepthFromSlice(float slice)
+{
+    return (exp2(slice / VfGridZParams.z) - VfGridZParams.y) / VfGridZParams.x;
+}
+
+// The grid covers whole froxels, so it overhangs the screen on the right and bottom: screen UV -> volume UV.
+vec2 VolumetricFogVolumeUV(vec2 screenUV)
+{
+    return screenUV * VfGridPixel.yz / (vec2(VfGridSize.xy) * VfGridPixel.x);
+}
+
+// World position of a point of the grid: froxel coordinate xy in froxels, view depth in cm.
+vec3 VolumetricFogWorldPosition(vec2 froxelXY, float depth, out vec3 viewDir)
+{
+    vec2 screenUV = froxelXY * VfGridPixel.x / VfGridPixel.yz;
+    vec2 ndc      = vec2(screenUV.x * 2.0 - 1.0, 1.0 - screenUV.y * 2.0);
+    vec4 farH     = VfInvViewProjection * vec4(ndc, 0.5, 1.0);
+    viewDir       = normalize(farH.xyz / farH.w - VfCamera.xyz);
+    // Depth is measured along the view axis (a slice is a plane), so the ray length grows off-axis.
+    return VfCamera.xyz + viewDir * (depth / max(dot(viewDir, VfCameraForward.xyz), 1e-4));
+}
+
+// Henyey-Greenstein, cosTheta between the direction TOWARD the light and the direction the camera looks along:
+// looking into the light is cosTheta = 1, where g > 0 is brightest (halos, the sun's glow).
+float VolumetricFogPhaseHG(float g, float cosTheta)
+{
+    float k = 1.0 + g * g - 2.0 * g * cosTheta;
+    return (1.0 - g * g) / (4.0 * VOLUMETRIC_FOG_PI * k * sqrt(max(k, 1e-6)));
+}
+
+// Natural extinction (per cm) of the height fog at world position p, @p distance from the camera. The layers are
+// stored in the closed form's exp2 convention (transmittance = 2^-integral), so ln2 converts them to e^-integral:
+// the grid then attenuates exactly as much as the analytic fog it continues into.
+float VolumetricFogExtinction(vec3 p, float distance)
+{
+    float density = VfLayer0.x * exp2(clamp(-VfLayer0.y * (p.y - VfLayer0.z), -125.0, 126.0)) +
+                    VfLayer1.x * exp2(clamp(-VfLayer1.y * (p.y - VfLayer1.z), -125.0, 126.0));
+    float fade = distance < VfEmissive.w ? 0.0
+                 : (VfFade.x > 0.0 ? clamp((distance - VfEmissive.w) / VfFade.x, 0.0, 1.0) : 1.0);
+    return density * VOLUMETRIC_FOG_LN2 * VfAlbedo.w * fade;
+}
+
+#endif // VOLUMETRIC_FOG_GLSLH
