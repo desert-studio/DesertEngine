@@ -24,7 +24,8 @@ struct TerrainInstance
     // grass types: rgb = the blades' mean albedo, a = leaf area index at full weight (m2 of blade per m2 of ground)
     vec4 GrassCover[8];
     vec4 GrassCoverLight[8]; // rgb = the blade material's SubsurfaceColor, a = its roughness
-    vec4 GrassCoverRange[8]; // x/y = the blades' Start/EndCullDistance (cm), z = the lowest weight that grows grass
+    vec4 GrassCoverRange[8]; // x/y = the blades' Start/EndCullDistance (cm), z = the lowest weight that grows grass,
+                             // w = the blade material's subsurface Opacity (UE's pin; the transmitted light's density)
     // LANDSCAPE DISPLACEMENT (Programs/Terrain/LandscapeDisplacement.glslh; UE 5.4+ landscape Nanite displacement)
     vec4 Displacement;       // x = magnitude (cm), y = center (0..1), z = fade start (cm), w = fade end (cm); x 0 = off
     vec4 DisplacementView;   // xyz = the MAIN camera (cm; the fade's origin for every view), w = 1: drawn diced in rings

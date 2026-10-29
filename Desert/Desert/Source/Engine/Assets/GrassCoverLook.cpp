@@ -138,7 +138,7 @@ namespace Desert::Assets
         if ( albedo.Width == 0 || albedo.Height == 0 )
             return look;
         glm::dvec3 sum( 0.0 );
-        double     weight = 0.0, area = 0.0;
+        double     weight = 0.0, aspects = 0.0, covered = 0.0;
         for ( const glm::vec4& r : input.Rects )
         {
             // The texels whose centres fall inside the rect, as the rasteriser covers a card.
@@ -148,10 +148,16 @@ namespace Desert::Assets
             const int64_t x1 = std::min<int64_t>( first( std::max( r.x, r.z ), albedo.Width ), albedo.Width );
             const int64_t y0 = std::max<int64_t>( first( std::min( r.y, r.w ), albedo.Height ), 0 );
             const int64_t y1 = std::min<int64_t>( first( std::max( r.y, r.w ), albedo.Height ), albedo.Height );
+            if ( x1 <= x0 || y1 <= y0 )
+                continue;
+            // The card's world area (in blade heights squared): its rect's aspect, as BladeAt sizes the strip.
+            const double aspect = std::abs( static_cast<double>( r.z ) - r.x ) /
+                                  std::max( std::abs( static_cast<double>( r.w ) - r.y ), 1.0e-4 );
+            glm::dvec3 cardSum( 0.0 );
+            double     kept = 0.0;
             for ( int64_t y = y0; y < y1; ++y )
                 for ( int64_t x = x0; x < x1; ++x )
                 {
-                    area += 1.0;
                     if ( mask && mask->Width > 0 && mask->Height > 0 )
                     {
                         // The mask texel under the same UV (the two maps may differ in size).
@@ -166,13 +172,19 @@ namespace Desert::Assets
                             continue;
                     }
                     const glm::vec4& t = albedo.Texels[static_cast<size_t>( y ) * albedo.Width + x];
-                    sum += glm::dvec3( t.r, t.g, t.b );
-                    weight += 1.0;
+                    cardSum += glm::dvec3( t.r, t.g, t.b );
+                    kept += 1.0;
                 }
+            // Each texel of this card stands for aspect / texels of world area.
+            const double perTexel = aspect / static_cast<double>( ( x1 - x0 ) * ( y1 - y0 ) );
+            sum += cardSum * perTexel;
+            weight += kept * perTexel;
+            aspects += aspect;
+            covered += kept * perTexel;
         }
         if ( weight > 0.0 )
             look.Albedo = glm::vec3( sum / weight );
-        look.Coverage = area > 0.0 ? static_cast<float>( weight / area ) : 0.0f;
+        look.Coverage = aspects > 0.0 ? static_cast<float>( covered / aspects ) : 0.0f;
         return look;
     }
 

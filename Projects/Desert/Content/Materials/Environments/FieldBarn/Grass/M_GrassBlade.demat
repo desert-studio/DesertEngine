@@ -82,6 +82,15 @@
             ]
         },
         {
+            "Name": "SubsurfaceOpacity",
+            "Value": [
+                0.25,
+                0,
+                0,
+                0
+            ]
+        },
+        {
             "Name": "SubsurfaceColor",
             "Value": [
                 1.0,

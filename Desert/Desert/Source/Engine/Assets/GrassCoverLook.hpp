@@ -28,7 +28,7 @@ namespace Desert::Assets
 
     inline constexpr Common::DDC::Deriver kGrassCoverLookDeriver{
          "GrassCoverLook", ".grasscover", { 0x6A1F3C92D47E0B85ULL, 0x93C5E2170FA84D6BULL } };
-    inline constexpr uint32_t kGrassCoverLookBuilderVersion = 1;
+    inline constexpr uint32_t kGrassCoverLookBuilderVersion = 2;
 
     // What the look is derived from: the material's albedo map (its template's first Texture2D of Intent(Colour))
     // and the opacity mask its template cuts with (BlendMode Masked's OpacityMask), both as their texture assets.
@@ -45,7 +45,12 @@ namespace Desert::Assets
         std::vector<glm::vec4> Rects;
     };
 
-    // The derived look: the mean linear albedo of the drawn texels, and the share of the rects' area they cover.
+    // The derived look, as the drawn cards put it into the world: every card stands as tall as the blade and as
+    // wide as its rect's aspect (GrassBlade.glslh BladeAt), and the variety draws its cards uniformly, so a card's
+    // world area is its aspect and each of its texels stands for aspect / (the rect's texels) of it. Albedo is the
+    // mean linear albedo of the drawn texels weighted by that world area; Coverage is the share of the cards'
+    // world area the mask keeps (sum aspect * kept share / sum aspect): a strip is a blade only where its mask
+    // passes.
     struct GrassCoverLook
     {
         glm::vec3 Albedo{ 0.0f };
