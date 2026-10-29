@@ -9,6 +9,7 @@
 
 #include "TextureIntentFile.hpp"
 #include <Engine/Assets/TextureSourceAsset.hpp>
+#include <Projects/RendererSettings.hpp>
 #include <Common/Content/DerivedDataCache.hpp>
 #include <Common/Content/TextAssetHeader.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
@@ -1218,6 +1219,12 @@ namespace Desert::Editor
     std::filesystem::path TextureImporter::AssetPathFor( const std::filesystem::path& source )
     {
         return source.extension() == Assets::kTextureAssetExtension ? source : TextureIntentPath( source );
+    }
+
+    void TextureImporter::UseProjectTextureEncoding()
+    {
+        Assets::SetTextureEncodingSource(
+             [] { return ::Desert::Project::CurrentRendererSettings().TextureEncoding; } );
     }
 
     Common::ResultStr<std::string> TextureImporter::BuildPlatformData( const std::filesystem::path& asset )
