@@ -393,6 +393,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild (the TLAS is "
                "built after this many in-place updates in a row; 0 = every frame)",
                60, Vis::Advanced },
+             { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
+               "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on the "
+               "compute queue family)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -430,6 +434,7 @@ namespace Common::Scalability
                     return kAntiAliasingMethodNames;
                 case CatalogList::PathTracingDenoisers:
                     return kPathTracingDenoiserNames;
+                case CatalogList::AsyncCompute:
                 case CatalogList::None:
                 case CatalogList::MSAACounts:
                 case CatalogList::RenderScale:
@@ -913,6 +918,12 @@ namespace Common::Scalability
                     r.Set( spec.Id,
                            std::clamp( value, catalog.RenderScale.MinPercent, catalog.RenderScale.MaxPercent ),
                            kNotOffered );
+                    return;
+                case CatalogList::AsyncCompute:
+                    // A request for the compute queue on a device that has no separate compute family (or is a
+                    // portability device): every pass stays on the graphics queue.
+                    if ( value != 0 && !catalog.AsyncCompute )
+                        r.Set( spec.Id, 0, kNotOffered );
                     return;
                 case CatalogList::PathTracingDenoisers:
                 {

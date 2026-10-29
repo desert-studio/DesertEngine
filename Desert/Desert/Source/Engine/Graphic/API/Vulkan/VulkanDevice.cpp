@@ -252,6 +252,9 @@ namespace Desert::Graphic::API::Vulkan
         device->m_ResolvedQueueFamilies.Graphics = *families.GraphicsFamily;
         device->m_ResolvedQueueFamilies.Compute  = *families.ComputeFamily;
         device->m_ResolvedQueueFamilies.Transfer = *families.TransferFamily;
+        device->m_ResourceSharing = VulkanResourceSharing::FromFamilies(
+             device->m_ResolvedQueueFamilies.Graphics, device->m_ResolvedQueueFamilies.Compute,
+             device->m_ResolvedQueueFamilies.Transfer );
         device->m_QueueFamiliesResolved          = true;
 
         return Common::MakeSuccess( std::move( device ) );

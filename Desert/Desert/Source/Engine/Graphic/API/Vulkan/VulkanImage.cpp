@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <unordered_map>
 #include <limits>
@@ -51,6 +52,28 @@ namespace Desert::Graphic::API::Vulkan
                 default:
                     return false;
             }
+        }
+
+        // THE ONE WAY A ONE-OFF IMAGE COMMAND BUFFER LEAVES THIS FILE (FPS-CPU-3; UE's deferred texture upload
+        // and RHI upload batching: the loading thread never sleeps on the GPU). Submitted on the graphics queue
+        // and NOT waited for. Every reader of the image is a later submission on that queue, so submission order
+        // plus the barriers the caller recorded is the whole dependency: TransitionLayout takes the stage and
+        // access of the layout being left (ALL_COMMANDS for a read-only or GENERAL image, so a frame still
+        // sampling it finishes first) and of the layout being entered (ALL_COMMANDS / SHADER_READ for a sampled
+        // image). A reader on another queue waits the upload timeline on the GPU (CommandBufferAllocator::
+        // NewestUploadSync: FlushOneShot, VulkanFrameLoop::Submit). @p staging, when there is one, is released once the fence is seen signalled; on a
+        // refused submit it is released at once, since nothing reads it. Also how a begun buffer is handed back
+        // on an error path: empty, it costs one submit and no wait (the blocking flush it replaced waited the
+        // whole queue ahead of it for nothing).
+        Common::BoolResultStr SubmitWithoutWait( const VkCommandBuffer cmd, VulkanAllocator* const allocator = nullptr,
+                                                 const VkBuffer      staging      = VK_NULL_HANDLE,
+                                                 const VmaAllocation stagingAlloc = nullptr )
+        {
+            std::function<void()> release;
+            if ( staging != VK_NULL_HANDLE )
+                release = [allocator, staging, stagingAlloc]
+                { allocator->RT_ReleaseStaging( staging, stagingAlloc, Common::MakeSuccess( VK_SUCCESS ) ); };
+            return CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease( cmd, std::move( release ) );
         }
     } // namespace
 
@@ -359,9 +382,12 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdCopyBufferToImage( cmd, staging, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy );
         TransitionLayout( cmd, finalLayout );
 
-        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-        allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
-
+        // NOT WAITED FOR (FPS-CPU-3): the editor cloud canvases and a stale landscape tile re-upload while the
+        // frame runs; the pixels are in the staging copy already, so nothing on the CPU needs the copy done.
+        const auto submitted = SubmitWithoutWait( cmd, allocator, staging, stagingAlloc );
+        if ( !submitted.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "Image2D '{}': SetData upload not submitted: {}",
+                                                     m_Specification.Tag, submitted.GetError() );
         return BOOLSUCCESS;
     }
 
@@ -628,7 +654,7 @@ namespace Desert::Graphic::API::Vulkan
                  allocator->RT_AllocateBuffer( "Staging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
             if ( !stagingResult.IsSuccess() )
             {
-                CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                (void)SubmitWithoutWait( cmd );
                 return Common::MakeFormattedError<bool>( "Image2D '{}': {} byte staging buffer failed: {}",
                                                          m_Specification.Tag, size, stagingResult.GetError() );
             }
@@ -641,7 +667,7 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !wrote.IsSuccess() )
                 {
                     allocator->RT_DestroyBuffer( staging, stagingAlloc );
-                    CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                    (void)SubmitWithoutWait( cmd );
                     return Common::MakeFormattedError<bool>( "Image2D '{}': {}", m_Specification.Tag,
                                                              wrote.GetError() );
                 }
@@ -689,9 +715,7 @@ namespace Desert::Graphic::API::Vulkan
             // SUBMITTED, NOT WAITED FOR (as UE's deferred texture upload): every sampler of this image is on
             // the graphics queue after this submission, so submission order plus the barrier above is the
             // whole dependency. The staging copy is released once the fence is seen signalled.
-            const auto submitted = CommandBufferAllocator::GetInstance().RT_SubmitGraphicThenRelease(
-                 cmd, [allocator, staging, stagingAlloc]
-                 { allocator->RT_ReleaseStaging( staging, stagingAlloc, Common::MakeSuccess( VK_SUCCESS ) ); } );
+            const auto submitted = SubmitWithoutWait( cmd, allocator, staging, stagingAlloc );
             if ( !submitted.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "Image2D '{}': the upload was not submitted: {}",
                                                          m_Specification.Tag, submitted.GetError() );
@@ -744,7 +768,12 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
             TransitionLayout( cmd, finalDefaultLayout );
-            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+            // The clear (or the bare transition) is ordered before every frame that uses the image by the
+            // queue and the barrier above; nothing on the CPU waits for it.
+            const auto submitted = SubmitWithoutWait( cmd );
+            if ( !submitted.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Image2D '{}': the initial clear was not submitted: {}",
+                                                         m_Specification.Tag, submitted.GetError() );
         }
 
         m_IsLoaded           = true;
@@ -1343,10 +1372,14 @@ namespace Desert::Graphic::API::Vulkan
         TransitionLayout( cmd, GetDefaultLayout(), VK_PIPELINE_STAGE_TRANSFER_BIT,
                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
                           VK_ACCESS_MEMORY_READ_BIT );
-        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-        if ( !flushed.IsSuccess() )
+        // NOT WAITED FOR (FPS-CPU-3). Both sides are device images read only by later submissions on this
+        // queue; the barriers above order the copy after every frame still sampling a source and before every
+        // frame that samples the array. A source released by its owner right after this goes through the
+        // deletion queue, which frees it only past a frame fence submitted after the copy.
+        const auto submitted = SubmitWithoutWait( cmd );
+        if ( !submitted.IsSuccess() )
             return Common::MakeFormattedError<bool>( "CopyLayersFrom: '{}': the copy's submit failed: {}",
-                                                     m_Specification.Tag, flushed.GetError() );
+                                                     m_Specification.Tag, submitted.GetError() );
         return BOOLSUCCESS;
     }
 
@@ -1476,7 +1509,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( Core::Formats::HasData( m_Specification.Data ) && m_Specification.Levels.empty() )
         {
             // NAMED, NOT IGNORED. This is the exact shape that used to be legal and silent.
-            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+            (void)SubmitWithoutWait( cmd );
             return Common::MakeFormattedError<bool>(
                  "ImageCube '{}' was given {} bytes of pixel data and no level table. A cube's level is six "
                  "images and there is no order to assume: fill ImageCubeSpecification::Levels, indexed "
@@ -1492,7 +1525,7 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<size_t>( m_Resource.MipLevels ) * Core::Formats::kImageCubeLayerCount;
             if ( m_Specification.Levels.size() != expected )
             {
-                CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                (void)SubmitWithoutWait( cmd );
                 return Common::MakeFormattedError<bool>(
                      "ImageCube '{}': {} mips x {} faces is {} spans and the table has {}.", m_Specification.Tag,
                      m_Resource.MipLevels, Core::Formats::kImageCubeLayerCount, expected,
@@ -1507,7 +1540,7 @@ namespace Desert::Graphic::API::Vulkan
                  allocator->RT_AllocateBuffer( "CubeStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
             if ( !stagingResult.IsSuccess() )
             {
-                CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                (void)SubmitWithoutWait( cmd );
                 return Common::MakeFormattedError<bool>( "ImageCube '{}': {} byte staging buffer failed: {}",
                                                          m_Specification.Tag, size, stagingResult.GetError() );
             }
@@ -1519,7 +1552,7 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !wrote.IsSuccess() )
                 {
                     allocator->RT_DestroyBuffer( staging, stagingAlloc );
-                    CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                    (void)SubmitWithoutWait( cmd );
                     return Common::MakeFormattedError<bool>( "ImageCube '{}': {}", m_Specification.Tag,
                                                              wrote.GetError() );
                 }
@@ -1530,9 +1563,10 @@ namespace Desert::Graphic::API::Vulkan
         }
 
         TransitionLayout( cmd, finalDefaultLayout );
-        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-        if ( staging != VK_NULL_HANDLE )
-            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
+        const auto submitted = SubmitWithoutWait( cmd, allocator, staging, stagingAlloc );
+        if ( !submitted.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "ImageCube '{}': the creation upload was not submitted: {}",
+                                                     m_Specification.Tag, submitted.GetError() );
 
         return Common::MakeSuccess( true );
     }
@@ -1693,7 +1727,10 @@ namespace Desert::Graphic::API::Vulkan
         vkCmdClearColorImage( cmd, m_Resource.Image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &colour, 1, &range );
 
         TransitionLayout( cmd, restore );
-        CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+        const auto submitted = SubmitWithoutWait( cmd );
+        if ( !submitted.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "ImageCube '{}': RT_ClearToColor was not submitted: {}",
+                                                     m_Specification.Tag, submitted.GetError() );
 
         return Common::MakeSuccess( true );
     }
@@ -1875,7 +1912,7 @@ namespace Desert::Graphic::API::Vulkan
                  allocator->RT_AllocateBuffer( "VolumeStaging", bInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, staging );
             if ( !stagingResult.IsSuccess() )
             {
-                CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                (void)SubmitWithoutWait( cmd );
                 return Common::MakeFormattedError<bool>( "Image3D '{}': {} byte staging buffer failed: {}",
                                                          m_Specification.Tag, size, stagingResult.GetError() );
             }
@@ -1888,7 +1925,7 @@ namespace Desert::Graphic::API::Vulkan
                 if ( !wrote.IsSuccess() )
                 {
                     allocator->RT_DestroyBuffer( staging, stagingAlloc );
-                    CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+                    (void)SubmitWithoutWait( cmd );
                     return Common::MakeFormattedError<bool>( "Image3D '{}': {}", m_Specification.Tag,
                                                              wrote.GetError() );
                 }
@@ -1906,13 +1943,19 @@ namespace Desert::Graphic::API::Vulkan
 
             TransitionLayout( cmd, finalDefaultLayout );
 
-            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-            allocator->RT_ReleaseStaging( staging, stagingAlloc, flushed );
+            const auto submitted = SubmitWithoutWait( cmd, allocator, staging, stagingAlloc );
+            if ( !submitted.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "Image3D '{}': the volume upload was not submitted: {}",
+                                                         m_Specification.Tag, submitted.GetError() );
         }
         else
         {
             TransitionLayout( cmd, finalDefaultLayout );
-            CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
+            const auto submitted = SubmitWithoutWait( cmd );
+            if ( !submitted.IsSuccess() )
+                return Common::MakeFormattedError<bool>(
+                     "Image3D '{}': the initial transition was not submitted: {}", m_Specification.Tag,
+                     submitted.GetError() );
         }
 
         return Common::MakeSuccess( true );
@@ -2039,11 +2082,15 @@ namespace Desert::Graphic::API::Vulkan
         TransitionLayout( cmd, restingLayout, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                           VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT );
 
-        const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( cmd );
-        allocator->RT_DestroyBuffer( staging, stagingAlloc );
-        if ( !flushed.IsSuccess() )
+        // SUBMITTED, NOT WAITED FOR (FPS-CPU-2; UE's deferred texture update): the bricks and cloud boxes
+        // stream in while the camera moves, and a blocking flush here made every streaming frame wait for the
+        // whole GPU queue ahead of it. The barriers above are the entire dependency: ALL_COMMANDS in the first
+        // scope covers every earlier submission's reads, the second barrier every later submission's. The
+        // staging copy is released once the fence is seen signalled (CollectFinished, every frame).
+        const auto submitted = SubmitWithoutWait( cmd, allocator, staging, stagingAlloc );
+        if ( !submitted.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Image3D '{}': region upload submit failed: {}",
-                                                     m_Specification.Tag, flushed.GetError() );
+                                                     m_Specification.Tag, submitted.GetError() );
         return BOOLSUCCESS;
     }
 
