@@ -56,9 +56,9 @@ namespace Desert::Editor
             };
 
             if ( entity.HasComponent<ECS::StaticMeshComponent>() )
-                checkMesh( entity.GetComponent<ECS::StaticMeshComponent>().MeshHandle, "static" );
+                checkMesh( entity.GetComponent<ECS::StaticMeshComponent>().GetMeshHandle(), "static" );
             if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
-                checkMesh( entity.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle, "skinned" );
+                checkMesh( entity.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle(), "skinned" );
 
             if ( entity.HasComponent<ECS::SkyboxComponent>() )
             {

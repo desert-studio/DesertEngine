@@ -30,28 +30,15 @@ namespace Desert::Graphic::API::Vulkan
     using VertexBufferRange = GeometryBufferRange<VertexBuffer>;
     using IndexBufferRange  = GeometryBufferRange<IndexBuffer>;
 
-    // The current device address of @p range's first byte; 0 when the buffer is missing, not resident, or the
-    // device has no buffer-device-address functions.
+    // The current device address of @p range's first byte (the buffer's own, VertexBuffer::GetDeviceAddress, plus
+    // the mesh's offset); 0 when the buffer is missing, not resident, or the device has no buffer-device-address
+    // functions.
     template <typename TBuffer>
     [[nodiscard]] inline VkDeviceAddress CurrentGeometryAddress( const GeometryBufferRange<TBuffer>& range )
     {
         if ( !range.Buffer )
             return 0;
-        VkBuffer handle = VK_NULL_HANDLE;
-        // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
-        if constexpr ( std::is_same_v<TBuffer, VertexBuffer> )
-            handle = static_cast<const VulkanVertexBuffer*>( range.Buffer.get() )->GetVulkanBuffer();
-        else
-            handle = static_cast<const VulkanIndexBuffer*>( range.Buffer.get() )->GetVulkanBuffer();
-        // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
-        if ( handle == VK_NULL_HANDLE )
-            return 0;
-        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        if ( !logical )
-            return 0;
-        const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
-        if ( !functions.Complete() )
-            return 0;
-        return functions.BufferAddress( logical->GetVulkanLogicalDevice(), handle ) + range.ByteOffset;
+        const uint64_t address = range.Buffer->GetDeviceAddress();
+        return address == 0u ? 0u : address + range.ByteOffset;
     }
 } // namespace Desert::Graphic::API::Vulkan

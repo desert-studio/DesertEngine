@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/ResultStr.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
 #include <Engine/Graphic/Neural/FusedMlp.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -83,11 +84,22 @@ namespace Desert::Engine::Neural
     // Bytes of one activation / gradient element on @p path: the fp16 paths store h_l and g_l as fp16.
     [[nodiscard]] uint32_t FusedMlpStoredElementBytes( NeuralKernelPath path );
 
+    // A program variant the shader service refused (ShaderService::AcquireVariant), held by the one who reports
+    // the refusal so it asks ShaderService::ClaimRefusalReport of exactly that (program, variant).
+    struct NeuralShaderRefusal
+    {
+        std::string                   Program;
+        ::Desert::Core::ShaderVariant Variant;
+    };
+
     // Builds the pipelines of one device (one per kernel x path; the coopmat ones for caps.Tile, with the
     // subgroup control CoopMatSubgroupRequest gives) and adds the passes that run them.
     class FusedMlpCompute
     {
     public:
+        /// The registered program (NeuralFusedMlp.shader) every kernel of every path is a variant of.
+        static constexpr const char* kProgram = "NeuralFusedMlp";
+
         explicit FusedMlpCompute( const NeuralComputeCaps& caps );
         ~FusedMlpCompute();
 
@@ -104,6 +116,34 @@ namespace Desert::Engine::Neural
                                                                                  const FusedMlpGraphInputs& inputs,
                                                                                  NeuralKernelPath           path );
 
+        // THE PASSES ONE BY ONE, for a consumer whose loss gradient depends on the forward's output (the neural
+        // radiance cache: forward, its loss pass, then the backward). Each refuses as AddTrainingPasses does.
+        //   AddForwardPass    "NN: Forward" (NN_KERNEL 0): Output and Activations, the backward's input.
+        //   AddInferencePass  "NN: Inference" (NN_KERNEL 3): Output only - no activations are kept, so a batch of
+        //                     queries costs [Batch][64], not [MatrixCount][Batch][64]. inputs.OutputGrad unused.
+        //   AddBackwardPasses "NN: Backward" + "NN: Weight gradient" from @p forward's Activations: a copy of
+        //                     @p forward with Grads and WeightGrad filled.
+        [[nodiscard]] Common::ResultStr<FusedMlpGraphOutputs>
+        AddForwardPass( Graphic::RDG::Builder& graph, const FusedMlpGraphInputs& inputs, NeuralKernelPath path );
+        [[nodiscard]] Common::ResultStr<Graphic::RDG::BufferRef>
+        AddInferencePass( Graphic::RDG::Builder& graph, const FusedMlpGraphInputs& inputs, NeuralKernelPath path );
+        [[nodiscard]] Common::ResultStr<FusedMlpGraphOutputs>
+        AddBackwardPasses( Graphic::RDG::Builder& graph, const FusedMlpGraphInputs& inputs,
+                           const FusedMlpGraphOutputs& forward, NeuralKernelPath path );
+
+        // Every kernel of @p path built now (forward, backward, weight gradient, inference), so a consumer that
+        // runs them every frame (the neural radiance cache) learns a refusal before it adds any pass, not halfway
+        // through a frame's graph. Refuses as AcquireKernel does, with the first kernel refused.
+        [[nodiscard]] Common::BoolResultStr PrepareKernels( NeuralKernelPath path );
+
+        // The variant the shader service refused in the last kernel acquisition that failed there; empty after
+        // a kernel acquired, and for a refusal that was not the service's (the tile, the subgroup request, the
+        // pipeline, the binding layout).
+        [[nodiscard]] const std::optional<NeuralShaderRefusal>& GetShaderRefusal() const
+        {
+            return m_ShaderRefusal;
+        }
+
     private:
         struct Kernel
         {
@@ -113,9 +153,15 @@ namespace Desert::Engine::Neural
 
         // The pipeline of @p kernel on @p path, built on first use and kept for this object's lifetime.
         [[nodiscard]] Common::ResultStr<Kernel*> AcquireKernel( uint32_t kernel, NeuralKernelPath path );
+        // AcquireKernel with the refusal prefixed by the path and the kernel.
+        [[nodiscard]] Common::ResultStr<Kernel*> AcquireNamedKernel( uint32_t kernel, NeuralKernelPath path );
+        // The refusals every pass shares: the path, the shape and batch, the input handles.
+        [[nodiscard]] Common::BoolResultStr ValidatePasses( const FusedMlpGraphInputs& inputs, NeuralKernelPath path,
+                                                            bool needsOutputGrad ) const;
 
         NeuralComputeCaps             m_Caps;
         std::map<std::string, Kernel> m_Kernels; ///< by the variant's defines
+        std::optional<NeuralShaderRefusal> m_ShaderRefusal; ///< GetShaderRefusal
     };
 
     // THE nn-check PROBLEM: shape 32 -> 5 x 64 -> 16, batch 1024, one fixed seed ("NN-R"), so every machine and

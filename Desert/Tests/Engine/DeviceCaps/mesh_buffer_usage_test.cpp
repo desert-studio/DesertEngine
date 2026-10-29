@@ -1,5 +1,5 @@
-// A resident mesh's vertex and index buffers are BLAS build inputs exactly where the device can build one
-// (RT-SCENE): MeshBufferUsage is the one rule VulkanVertexBuffer / VulkanIndexBuffer create them with.
+// A resident mesh's vertex and index buffers are addressable wherever the device has bufferDeviceAddress and BLAS
+// build inputs exactly where the device can build one (RT-SCENE, GI-ALL-LIGHTS): MeshBufferUsage is the one rule VulkanVertexBuffer / VulkanIndexBuffer create them with.
 
 #include <Engine/Graphic/API/Vulkan/MeshBufferUsage.hpp>
 
@@ -22,16 +22,31 @@ namespace
          VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 } // namespace
 
-// Red if the RT bits are added unconditionally: a usage bit of an extension the device did not enable is invalid.
-TEST( MeshBufferUsage, ADeviceWithoutAccelerationStructuresKeepsTheRasterFlags )
+// Red if a device-address or build-input bit is added unconditionally: a usage bit of a feature the device did not
+// enable is invalid.
+TEST( MeshBufferUsage, ADeviceWithoutBufferDeviceAddressKeepsTheRasterFlags )
 {
-    const DeviceCaps caps = CapsWith( { Capability::BufferDeviceAddress } );
+    const DeviceCaps caps = CapsWith( {} );
 
     EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Vertex, caps ),
                VkBufferUsageFlags{ VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
                                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT } );
     EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Index, caps ),
                VkBufferUsageFlags{ VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT } );
+}
+
+// Red if the device address waits for ray tracing (GI-ALL-LIGHTS: the emissive list reads mesh buffers by address
+// on a device without acceleration structures), and red if the build-input bit comes without the AS row.
+TEST( MeshBufferUsage, ADeviceWithoutAccelerationStructuresAddressesButDoesNotBuild )
+{
+    const DeviceCaps caps = CapsWith( { Capability::BufferDeviceAddress } );
+
+    EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Vertex, caps ),
+               VkBufferUsageFlags{ VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT } );
+    EXPECT_EQ( MeshBufferUsage( MeshBufferRole::Index, caps ),
+               VkBufferUsageFlags{ VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT } );
 }
 
 // Red if the RT bits are dropped (a BLAS build on these buffers would fail validation and have no address).

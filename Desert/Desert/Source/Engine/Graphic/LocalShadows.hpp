@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Common/Core/Units.hpp>
+#include <Common/Settings/RenderMethods.hpp>
 #include <Engine/Graphic/ShadowCascades.hpp>
 
 #include <glm/glm.hpp>
@@ -60,6 +61,9 @@ namespace Desert::Graphic
         float DepthBias       = 0.5f; // the casters' depth bias, in texels at the caster (LocalCasterBias)
         float SlopeBias       = 0.5f; // texels per unit of the caster's slope to the view's axis
         float ResolutionScale = 1.0f;
+        // Under Shadows Stochastic, the source MegaLights traces this light with (the component's Shadow Method;
+        // Graphic::ResolveLightVisibility clamps it per frame).
+        Common::Scalability::LightShadowMethod ShadowMethod = Common::Scalability::LightShadowMethod::Auto;
         // The light's identity across frames (its entity + 1; 0 = none), so a light keeps its tiles and their
         // cached depth while it and its casters stand still.
         uint32_t SourceId = 0;

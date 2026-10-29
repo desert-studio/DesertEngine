@@ -45,19 +45,41 @@ namespace Desert::Graphic
     SurfaceCache::SurfaceCacheRenderer* SceneRenderer::ReadSurfaceCache() const
     {
         SurfaceCache::SurfaceCacheRenderer* const cache =
-             m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_OwnSurfaceCache.get();
+             m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_FrameSurfaceCache;
         return cache != nullptr && cache->IsInitialized() ? cache : nullptr;
+    }
+
+    SurfaceCache::SurfaceCacheRenderer* SceneRenderer::BoundSurfaceCache() const
+    {
+        return m_SharedSurfaceCache != nullptr ? m_SharedSurfaceCache : m_FrameSurfaceCache;
+    }
+
+    const SurfaceCache::SurfaceCacheRenderer::FrameViews* SceneRenderer::SurfaceCacheFrameViews() const
+    {
+        const SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
+        return cache != nullptr ? cache->ViewsOf( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
+                                : nullptr;
     }
 
     GlobalIllumination::Pipeline SceneRenderer::SurfaceCacheTracer() const
     {
-        if ( m_GIPipeline.Traced )
-            return m_GIPipeline;
-        // A cache brought up by its views alone, under an untraced GI method: its shadow rays walk the software
-        // tracer, the one every device runs.
-        GlobalIllumination::Pipeline software;
-        software.Traced = true;
-        return software;
+        // THE CACHE'S, NOT THE VIEW'S: one scene's cards are lit once per frame for every view, with the tracer the
+        // cache's owner resolved from the scene (SurfaceCacheRenderer::BeginFrame). Untraced (nothing to walk)
+        // when the owner stated no views this frame - AddFrameSurfaceCache refuses that frame by name.
+        const SurfaceCache::SurfaceCacheRenderer::FrameViews* const views = SurfaceCacheFrameViews();
+        return views != nullptr ? views->Tracer : GlobalIllumination::Pipeline{};
+    }
+
+    bool SceneRenderer::SurfaceCacheUpdateTracesRayQuery() const
+    {
+        if ( !SurfaceCacheRuns() )
+            return false;
+        const SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
+        if ( cache == nullptr ||
+             cache->UpdatedIn( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() ) )
+            return false;
+        const GlobalIllumination::Pipeline tracer = SurfaceCacheTracer();
+        return tracer.Traced && tracer.Tracer == GlobalIllumination::Tracer::HardwareRayQuery;
     }
 
     GlobalIllumination::TracerFrame SceneRenderer::MakeTracerFrame( RDG::Builder&                       graph,
@@ -147,14 +169,29 @@ namespace Desert::Graphic
             return;
         }
         // The cache this view reads: the one lent to it (ShareSurfaceCache: a reflection capture's face views share
-        // their capture's), else its own, made on first use; initialised by the first view that brings it up.
-        SurfaceCache::SurfaceCacheRenderer* cache = m_SharedSurfaceCache;
+        // their capture's), else its scene's (Scene::GetSurfaceCache, one for every view of the scene: UE's Lumen
+        // scene is FScene's); initialised by the first view that brings it up.
+        SurfaceCache::SurfaceCacheRenderer* const cache = BoundSurfaceCache();
         if ( cache == nullptr )
         {
-            if ( !m_OwnSurfaceCache )
-                m_OwnSurfaceCache = std::make_unique<SurfaceCache::SurfaceCacheRenderer>();
-            cache = m_OwnSurfaceCache.get();
+            LOG_ERROR( "[SceneRenderer] Surface Cache: no scene bound (AddFrameSurfaceCache outside BeginScene)" );
+            return;
         }
+        const uint64_t engineFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        // The frame's views, budget and card tracer: the cache owner's (Scene::OnUpdate, a reflection capture),
+        // stated before the frame's first view opened.
+        const SurfaceCache::SurfaceCacheRenderer::FrameViews* const frameViews = cache->ViewsOf( engineFrame );
+        if ( frameViews == nullptr )
+        {
+            LOG_ERROR( "[SceneRenderer] Surface Cache: its owner stated no views for frame {} "
+                       "(SurfaceCacheRenderer::BeginFrame)",
+                       engineFrame );
+            return;
+        }
+        // THE FRAME'S FIRST VIEW UPDATES THE CACHE (SurfaceCacheRenderer::UpdateScene) from what the owner stated
+        // for every view (its origins, budget and card tracer); a later view of the same frame reads that update
+        // and records nothing that writes the atlases, so it neither re-cuts the budget nor asks for the program.
+        const bool updatesCache = !cache->UpdatedIn( engineFrame );
         if ( !cache->IsInitialized() )
         {
             if ( const auto initialized = cache->Initialize(); !initialized )
@@ -171,34 +208,40 @@ namespace Desert::Graphic
         // software tracer and the cards are relit by it. The software permutation lights the cards for every
         // other reader - the software-traced GI methods and, whenever GI is not hardware traced, the traced
         // reflections' hits (SurfaceCacheTracer) - so it refuses those too.
-        const GlobalIllumination::Pipeline cardTracer = SurfaceCacheTracer();
-        if ( const auto program = cache->EnsureLightingProgram( cardTracer ); !program )
+        if ( updatesCache )
         {
-            RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( cardTracer, false ),
-                                  "SurfaceCacheDirectLighting", program.GetError() );
-            if ( cardTracer.Tracer != GlobalIllumination::Tracer::HardwareRayQuery )
-                RefuseProgramMethods( kTracedReflectionMethods, "SurfaceCacheDirectLighting", program.GetError() );
-            return;
-        }
-        // The machine's budget (Scalability GlobalIllumination group), every frame: a quality change re-cuts it.
-        if ( const auto configured =
-                  cache->Configure( SurfaceCache::MakeSurfaceCacheBudget( m_Quality ) );
-             !configured )
-        {
-            LOG_ERROR( "[SceneRenderer] Surface Cache: {}", configured.GetError() );
-            return;
+            const GlobalIllumination::Pipeline cardTracer = frameViews->Tracer;
+            // The cards are lit through the local shadows this view built: its frame's one page decision
+            // (LocalLightsReadVirtualPages) picks the lighting program, so the program and the view's pages agree.
+            if ( const auto program = cache->EnsureLightingProgram( cardTracer, LocalLightsReadVirtualPages() );
+                 !program )
+            {
+                // The cache resolves its next tracer without it; the view lowers its own GI off it.
+                cache->RefuseLightingTracer( cardTracer, program.GetError() );
+                RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( cardTracer, false ),
+                                      "SurfaceCacheDirectLighting", program.GetError() );
+                if ( cardTracer.Tracer != GlobalIllumination::Tracer::HardwareRayQuery )
+                    RefuseProgramMethods( kTracedReflectionMethods, "SurfaceCacheDirectLighting",
+                                          program.GetError() );
+                return;
+            }
+            // The machine's budget (Scalability GlobalIllumination group, stated with the frame's views), every
+            // frame: a quality change re-cuts it.
+            if ( const auto configured = cache->Configure( frameViews->Budget ); !configured )
+            {
+                LOG_ERROR( "[SceneRenderer] Surface Cache: {}", configured.GetError() );
+                return;
+            }
         }
 
         // THE LUMEN SCENE: every static, instanced, generic and skinned mesh of the frame with cards, whole - the
-        // cache holds what is off-screen too (a traced ray leaves the frustum). Unjittered ViewFrame position.
-        // Updated at most once per engine frame (SurfaceCacheRenderer::UpdateScene): a lent cache another view
+        // cache holds what is off-screen too (a traced ray leaves the frustum), seen from every view of the frame.
+        // Updated at most once per engine frame (SurfaceCacheRenderer::UpdateScene): a cache another view
         // already updated this frame is read - its records uploaded into this graph, its atlases imported - and
         // nothing that writes the atlases (capture, copy, direct and indirect lighting) is recorded again.
         std::vector<SurfaceCache::SceneInstance> instances;
         meshRenderer->GatherSurfaceCacheInstances( instances );
-        auto update = cache->UpdateScene( instances, frame.CameraPosition,
-                                          Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
-                                          GetFrameDirectionalLighting() );
+        auto update = cache->UpdateScene( instances, engineFrame, GetFrameDirectionalLighting() );
         if ( !update )
         {
             LOG_ERROR( "[SceneRenderer] Surface Cache: {}", update.GetError() );
@@ -307,8 +350,20 @@ namespace Desert::Graphic
             lighting.Light1Color  = light1.ColorIntensity;
             // The shadow rays of the texels the view's maps do not hold: the active GI tracer's visibility.
             lighting.Tracer = MakeTracerFrame( graph, textures, SurfaceCacheTracer() );
+            // The emissive surfaces as lights (GI-EMISSIVE-LIGHTS): either tracer's program samples the scene's one
+            // emissive triangle list (the path tracer's), built from the scene's meshes.
+            {
+                auto emissive = AddFrameEmissiveLights( graph );
+                if ( !emissive )
+                {
+                    LOG_ERROR( "[SceneRenderer] Surface Cache: the emissive lights: {}", emissive.GetError() );
+                    return;
+                }
+                lighting.Emissive = emissive.GetValue();
+            }
             // The traced GI relights the pages' indirect term after its radiance cache update (AddFrameTracedGI).
             lighting.IndirectLighting = RadianceCacheRuns();
+            lighting.VirtualLocalShadows = LocalLightsReadVirtualPages();
             if ( const auto lit = cache->AddDirectLightingPass( graph, import, scene, records, lighting );
                  !lit )
             {

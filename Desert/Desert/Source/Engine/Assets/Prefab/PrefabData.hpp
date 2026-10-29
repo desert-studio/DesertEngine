@@ -376,8 +376,8 @@ namespace Desert::Assets
     }
 
     // Puts the instance's root where its record says. The loader calls it AFTER the overrides, so nothing the
-    // prefab or an override states can move the instance. A template over the transform type so the pure
-    // suite can hold it without the ECS (ECS::TransformComponent in the engine).
+    // prefab or an override states can move the instance. A template over the transform value so the pure
+    // suite can hold it without the ECS (ECS::LocalTransform in the engine, written back by SetLocalTransform).
     template <typename TransformT>
     void PlaceInstanceRoot( TransformT& root, const InstanceRootTransform& stated )
     {

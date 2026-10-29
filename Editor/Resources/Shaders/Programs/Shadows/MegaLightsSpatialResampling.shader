@@ -36,15 +36,15 @@ Shader "MegaLightsSpatialResampling"
         	uint                  random    = MegaLightsSeed(pixel, 2u);
         	for (uint k = 0u; k < samples; ++k)
         	{
-        		const MegaLightsReservoir center =
-        		     MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(pixel, k), 0));
+        		const RisReservoir center =
+        		     RisUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(pixel, k), 0));
         		if (!p.Valid || neighbors == 0u)
         		{
-        			imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(center));
+        			imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), RisPackReservoir(center));
         			continue;
         		}
-        		MegaLightsMerge merge = MegaLightsBeginMerge();
-        		MegaLightsMergeReservoir(merge, center, center.TargetPdf, center.M, MegaLightsRandom(random));
+        		RisMerge merge = RisBeginMerge();
+        		RisMergeReservoir(merge, center, center.TargetPdf, center.M, MegaLightsRandom(random));
         		for (uint n = 0u; n < neighbors; ++n)
         		{
         			// A uniform point of the disc (sqrt of the radius' random: uniform in area).
@@ -57,18 +57,18 @@ Shader "MegaLightsSpatialResampling"
         			if (!q.Valid || dot(q.N, p.N) < kNormalThreshold ||
         			    abs(q.ViewDepth - p.ViewDepth) > kDepthThreshold * p.ViewDepth)
         				continue;
-        			const MegaLightsReservoir neighbour =
-        			     MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(other, k), 0));
+        			const RisReservoir neighbour =
+        			     RisUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(other, k), 0));
         			if (neighbour.Light < 0)
         			{
         				merge.Result.M += neighbour.M;
         				continue;
         			}
-        			MegaLightsMergeReservoir(merge, neighbour, MegaLightsTargetPdf(p, neighbour.Light), neighbour.M,
+        			RisMergeReservoir(merge, neighbour, MegaLightsTargetPdf(p, neighbour.Light), neighbour.M,
         			                         MegaLightsRandom(random));
         		}
         		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k),
-        		           MegaLightsPackReservoir(MegaLightsEndMerge(merge)));
+        		           RisPackReservoir(RisEndMerge(merge)));
         	}
         }
     }

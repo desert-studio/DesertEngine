@@ -316,7 +316,7 @@ namespace Desert::Editor::Core
             outcome = result.ExtractValue();
             after   = outcome.Mesh;
         }
-        if ( auto set = ECS::SetEditableMesh( smc, after ); !set.IsSuccess() )
+        if ( auto set = ECS::SetEditableMesh( *e.GetRegistry(), e.GetHandle(), after ); !set.IsSuccess() )
             return Common::MakeFormattedError<bool>( "Mesh {}: the result could not be put on the entity: {}",
                                                      ToString( operation ), set.GetError() );
 
@@ -356,15 +356,17 @@ namespace Desert::Editor::Core
                 Common::BoolResultStr back   = Common::MakeError<bool>( "the entity is gone" );
                 if ( source && source->get().HasComponent<ECS::StaticMeshComponent>() )
                 {
-                    auto& sourceMesh = source->get().GetComponent<ECS::StaticMeshComponent>();
-                    back             = Common::MakeSuccess( true );
-                    switch ( PlanMeshRestore( sourceMesh.EditableMesh, committed ) )
+                    const ECS::Entity sourceEntity = source->get();
+                    back                           = Common::MakeSuccess( true );
+                    switch ( PlanMeshRestore(
+                         sourceEntity.GetComponent<ECS::StaticMeshComponent>().GetEditableMesh(), committed ) )
                     {
                         case MeshRestore::Set:
-                            back = ECS::SetEditableMesh( sourceMesh, committed );
+                            back = ECS::SetEditableMesh( *sourceEntity.GetRegistry(), sourceEntity.GetHandle(),
+                                                         committed );
                             break;
                         case MeshRestore::Clear:
-                            ECS::ClearEditableMesh( sourceMesh );
+                            ECS::ClearEditableMesh( *sourceEntity.GetRegistry(), sourceEntity.GetHandle() );
                             break;
                         case MeshRestore::Unchanged:
                             break;

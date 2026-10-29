@@ -20,24 +20,15 @@ Shader "SSAO"
     // hemisphere does the nearest horizon in each direction hide - and the thickness heuristic lets a thin occluder
     // hide less than a wall without dropping it.
 
-    Vertex
-    {
-        #include <Common/FullscreenTriangle.glslh>
-
-        Out(0) vec2 v_TexCoord;
-
-        void main()
-        {
-        	v_TexCoord  = FullscreenTriangleUV();
-        	gl_Position = vec4(FullscreenTriangleNdc(), 0.0, 1.0);
-        }
-    }
-
-    Fragment
+    // COMPUTE (UE r.AmbientOcclusion.Compute 1, GTAOCombinedCS): one thread per AO texel, the result stored into the
+    // AO target as a storage image. Every input is a graph resource, so the pass may run on the async compute pipe.
+    // A thread's uv is its texel centre, (id + 0.5) / size - the texel centre the fullscreen raster version
+    // interpolated - and its noise position the texel itself (what the raster version truncated its fragment
+    // coordinate to), so the AO is the same function of the pixel. Every read is textureLod(.., 0): a compute stage
+    // has no derivatives, and the G-buffer images have one mip.
+    Compute
     {
         #include <Common/ReconstructPosition.glslh>
-
-        In(0) vec2 v_TexCoord;
 
         // Shared sampler states (UE's shared samplers): every input below is a separate texture read through one
         // of these, bound once by the pass; a same-name macro after each texture keeps the sampled form.
@@ -48,7 +39,7 @@ Shader "SSAO"
         Uniform(2) texture2D GBufferNormalTexture; // rgb = world normal
         #define GBufferNormalTexture sampler2D(GBufferNormalTexture, LinearRepeatSampler)
 
-        Out(0) vec4 oAO;
+        layout(binding = 5, rgba8) writeonly uniform image2D SsaoOutputTexture; // ViewTargetFormats::kSSAO
 
         Uniform(0) SSAOUB
         {
@@ -75,7 +66,7 @@ Shader "SSAO"
         // UE ScreenToViewPos through our depth: the texel's world position, in UE's view space. false = sky.
         bool ViewPosAt(vec2 uv, out vec3 viewPos)
         {
-        	const float deviceZ = texture(GBufferDepthTexture, uv).r;
+        	const float deviceZ = textureLod(GBufferDepthTexture, uv, 0.0).r;
         	if (deviceZ <= 0.0)
         	{
         		viewPos = vec3(0.0);
@@ -168,14 +159,21 @@ Shader "SSAO"
         	return randomVec;
         }
 
+        LocalSize(8, 8, 1);
         void main()
         {
-        	const vec3 worldNormal = texture(GBufferNormalTexture, v_TexCoord).rgb;
+        	const uvec2 texel = gl_GlobalInvocationID.xy;
+        	if (texel.x >= uint(Target.x + 0.5) || texel.y >= uint(Target.y + 0.5))
+        		return;
+        	const ivec2 store    = ivec2(texel);
+        	const vec2  texCoord = (vec2(texel) + 0.5) * Target.zw;
+
+        	const vec3 worldNormal = textureLod(GBufferNormalTexture, texCoord, 0.0).rgb;
         	vec3       viewSpacePos;
         	// No geometry (the G-buffer cleared to 0, or the sky's depth): unoccluded.
-        	if (dot(worldNormal, worldNormal) <= 0.001 || !ViewPosAt(v_TexCoord, viewSpacePos))
+        	if (dot(worldNormal, worldNormal) <= 0.001 || !ViewPosAt(texCoord, viewSpacePos))
         	{
-        		oAO = vec4(1.0);
+        		imageStore(SsaoOutputTexture, store, vec4(1.0));
         		return;
         	}
 
@@ -190,7 +188,7 @@ Shader "SSAO"
         	const float stepRadius  = pixelRadius / (float(numTaps) + 1.0);
         	const float attenFactor = 2.0 / (worldRadius * worldRadius);
 
-        	const vec3 randomAndOffset = GetRandomVector(uvec2(gl_FragCoord.xy));
+        	const vec3 randomAndOffset = GetRandomVector(texel);
         	vec2       screenDir       = randomAndOffset.xy;
         	float      offset          = randomAndOffset.z;
 
@@ -201,7 +199,7 @@ Shader "SSAO"
         	float sum = 0.0;
         	for (uint a = 0u; a < numAngles; a++)
         	{
-        		const vec2 angles = SearchForLargestAngleDual(numTaps, v_TexCoord, screenDir * Target.zw, stepRadius, offset,
+        		const vec2 angles = SearchForLargestAngleDual(numTaps, texCoord, screenDir * Target.zw, stepRadius, offset,
         		                                              viewSpacePos, viewDir, attenFactor);
         		sum += ComputeInnerIntegral(angles, screenDir, viewDir, viewSpaceNormal);
 
@@ -212,7 +210,7 @@ Shader "SSAO"
         		offset              = fract(offset + 0.617);
         	}
 
-        	oAO = vec4(vec3(clamp(sum / float(numAngles), 0.0, 1.0)), 1.0);
+        	imageStore(SsaoOutputTexture, store, vec4(vec3(clamp(sum / float(numAngles), 0.0, 1.0)), 1.0));
         }
     }
 }

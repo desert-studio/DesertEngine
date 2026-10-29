@@ -510,14 +510,21 @@ namespace Desert::Graphic
             case 16:
             {
                 // Atmosphere and fog: aerial perspective on opaque with exponential height fog over it — one
-                // compute evaluation issued outside the graph (ExecuteAtmosphericFog) and one apply pass in the
-                // translucency, below the particles by the order of AddFrameTranslucency's calls.
+                // compute evaluation of the opaque depth and its apply, once the opaque scene is complete and
+                // before every translucent draw, which fogs itself from the parameter block this system publishes.
                 // Non-fatal: neither must ever take a scene down.
                 RegisterSystem<System::HeightFogRenderer>( "HeightFogSystem", this, m_TargetFramebuffer );
                 if ( const auto fogInit =
                           SP_CAST( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->Initialize();
                      !fogInit )
                     LOG_WARN( "[SceneRenderer] Height fog system unavailable: {}", fogInit.GetError() );
+                // The volumetric fog (froxel grid) the height fog composes; non-fatal like it.
+                RegisterSystem<System::VolumetricFogRenderer>( "VolumetricFogSystem", this, m_TargetFramebuffer );
+                if ( const auto volumeInit =
+                          SP_CAST( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
+                               ->Initialize();
+                     !volumeInit )
+                    LOG_WARN( "[SceneRenderer] Volumetric fog system unavailable: {}", volumeInit.GetError() );
                 return "HeightFog";
             }
             case 17:
@@ -653,8 +660,8 @@ namespace Desert::Graphic
     {
         const ActiveViewScope          viewScope( m_ViewResources );
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
-        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it.
-        m_OwnSurfaceCache.reset();
+        // A lent surface cache / distance field is its lender's (a reflection capture's), released with it; the
+        // view's surface cache is its scene's (Scene::GetSurfaceCache), released with the scene's world.
         m_RadianceCache.reset();
         m_ScreenProbeGather.reset();
         m_IrradianceFieldGather.reset();
@@ -912,6 +919,8 @@ namespace Desert::Graphic
         m_FrameLocalShadows = &scene.GetLocalShadows();
         // The scene's mesh distance fields, which this view's global distance field composites from.
         m_FrameDistanceFields = &scene.GetDistanceFields();
+        // The scene's surface cache, which every view of the scene reads and the frame's first view updates.
+        m_FrameSurfaceCache = &scene.GetSurfaceCache();
 
         const auto& sceneSettings = scene.GetSettings();
 
@@ -953,6 +962,22 @@ namespace Desert::Graphic
         // dead setting, reintroduced by the fix for one.
         m_RenderPath = ( m_DebugView.WireframeMode || m_DebugView.LightingDebug ) ? Core::RenderPath::Forward
                                                                                   : sceneSettings.RenderingPath;
+        // The deferred path draws the meshes into the G-buffer: a mesh renderer without its (Static x GBuffer)
+        // pipeline (MeshRenderer::SetupGBufferPass named why) cannot, so the view is forward - its meshes then get
+        // the forward depth prepass their base pass tests against, never a forward draw on a deferred frame.
+        if ( m_RenderPath == Core::RenderPath::Deferred )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+            if ( mesh != nullptr && !mesh->DrawsGBuffer() )
+            {
+                m_RenderPath = Core::RenderPath::Forward;
+                if ( !m_DeferredWithoutGBufferLogged )
+                    LOG_ERROR( "[SceneRenderer] the scene states the Deferred path but the mesh renderer has no "
+                               "G-buffer pipeline: this view renders Forward" );
+                m_DeferredWithoutGBufferLogged = true;
+            }
+        }
 
         // THE ANTI-ALIASING THIS FRAME RUNS (AA2), read from the settings layer's resolution of the
         // machine's choice for the SCENE'S path — not m_RenderPath: a debug view that forces forward must
@@ -1053,6 +1078,8 @@ namespace Desert::Graphic
                                              .ShadowSteps = quality.As<int>( Parameter::ShadingParallaxShadowSteps ) };
         m_RayTracedShadowSamples =
              static_cast<uint32_t>( quality.As<int>( Parameter::ShadowRayTracedSamplesPerPixel ) );
+        m_RayTracingScene.SetTlasUpdatesBeforeRebuild(
+             quality.As<uint32_t>( Parameter::GlobalIlluminationTlasUpdatesBeforeRebuild ) );
         m_ShadowFilter = SceneResources::ShadowFilterSettings{
              .BlockerSearchTaps = quality.As<int>( Parameter::ShadowBlockerSearchTaps ),
              .FilterTaps        = quality.As<int>( Parameter::ShadowFilterTaps ) };
@@ -1074,7 +1101,9 @@ namespace Desert::Graphic
                   0.1f * static_cast<float>( quality.As<int>( Parameter::ShadowVirtualResolutionLodBias ) ),
              .SmrtRayCount = static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTRayCount ) ),
              .SmrtSamplesPerRay =
-                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ) };
+                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRay ) ),
+             .SmrtSamplesPerRayLocal =
+                  static_cast<uint32_t>( quality.As<int>( Parameter::ShadowVirtualSMRTSamplesPerRayLocal ) ) };
         m_MegaLightsQuality = System::MegaLightsQuality{
              .SamplesPerPixel  = quality.As<uint32_t>( Parameter::ShadowMegaLightsSamplesPerPixel ),
              .SpatialSamples   = quality.As<uint32_t>( Parameter::ShadowMegaLightsSpatialSamples ),
@@ -1098,6 +1127,8 @@ namespace Desert::Graphic
                                 .Denoiser =
                   quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
                                 .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .RadianceCache = quality.As<Common::Scalability::PathTracingRadianceCacheMethod>(
+                  Parameter::PathTracingRadianceCache ),
                                 .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
                   quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
@@ -1110,6 +1141,15 @@ namespace Desert::Graphic
              LightGridQuality{ .TilePixels       = quality.As<uint32_t>( Parameter::LightGridPixelSize ),
                                .Slices           = quality.As<uint32_t>( Parameter::LightGridSlices ),
                                .MaxLightsPerCell = quality.As<uint32_t>( Parameter::LightGridMaxLightsPerCell ) };
+        // The volumetric fog's ceiling and grid (Scalability Effects.VolumetricFog*), handed to its system each
+        // BeginScene like the knobs above.
+        if ( const auto it = m_RenderSystems.find( "VolumetricFogSystem" ); it != m_RenderSystems.end() )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::VolumetricFogRenderer, it->second )
+                 ->SetQuality( VolumetricFogQuality{
+                      .Enabled    = quality.As<uint32_t>( Parameter::VolumetricFog ) != 0,
+                      .GridPixels = quality.As<uint32_t>( Parameter::VolumetricFogGridPixelSize ),
+                      .GridSizeZ  = quality.As<uint32_t>( Parameter::VolumetricFogGridSizeZ ) } );
         m_RadianceCacheInputs =
              RadianceCache::MakeRadianceCacheInputs( quality, m_RenderMethods.GlobalIllumination.Effective );
 
@@ -1363,6 +1403,7 @@ namespace Desert::Graphic
 
         const auto& skyboxSystem = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
         m_DirectionLights        = sceneRenderInfo.DirLights;
+        m_SunVolumetricScatteringIntensity = sceneRenderInfo.SunVolumetricScatteringIntensity;
         m_AtmosphereLight1       = sceneRenderInfo.AtmosphereLight1;
 
         // THE SUN THE ATMOSPHERE LETS THROUGH (UE's PrepareSunLightProxy). The light's authored colour
@@ -1452,6 +1493,9 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
+        // RenderPipeline.AsyncCompute: the AsyncCompute passes below (particles, cloud shadow map, light grids) run
+        // on the compute queue, or on the graphics queue when the setting or the device says no.
+        graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a
         // previous-frame value reads `frame`; nothing reads the camera for them again. A refused frame builds no
@@ -1769,7 +1813,9 @@ namespace Desert::Graphic
                                               ? DrawDistanceScale( Geometry::LODView{ camera->GetPosition(),
                                                                                  camera->GetProjectionMatrix() } )
                                               : 1.0f;
-            const bool      required   = RayTracing::RayTracingSceneRequired( m_RenderMethods );
+            // The view's methods, or the scene's cards this view relights this frame with ray query.
+            const bool required =
+                 RayTracing::RayTracingSceneRequired( m_RenderMethods ) || SurfaceCacheUpdateTracesRayQuery();
 
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
@@ -1908,6 +1954,8 @@ namespace Desert::Graphic
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
             // (LocalShadowMapsRead: meshes, forward terrain, particles) - no forward surface loses its shadows.
+            // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
+            // terrain, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM (ForwardShadowMaskVariant).
             {
                 DESERT_PROFILE_PASS( "Shadow: UpdateLocalShadows" );
                 System::MeshRenderer* const localShadowMeshes =
@@ -1915,7 +1963,8 @@ namespace Desert::Graphic
                 localShadowMeshes->UpdateLocalShadows(
                      m_PointLight.PointLights, m_PointLightShadows, m_SpotLight.SpotLights, m_SpotLightShadows,
                      !LocalLightsAreStochastic() && !PathTraced( m_RenderMethods ) &&
-                          ( !LocalShadowsAreRayTraced() || LocalShadowMapsRead() ) );
+                          ( !LocalShadowsAreScreenMask() ||
+                            ( LocalShadowsAreRayTraced() && LocalShadowMapsRead() ) ) );
                 // The terrain's draws into those views, at the LOD each light asks for (not the camera's, so a
                 // cached local shadow survives a camera move), and its cache key, before LocalShadowPasses asks
                 // for it (PlanLocalShadowCache). Before this ran, GetLocalShadowCasterLights was empty and every
@@ -1998,13 +2047,44 @@ namespace Desert::Graphic
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
-        // The MegaLights translucency volume the forward and glass cells read (off: the neutral block), after the
-        // grid it samples its lights from and before the first lit node.
-        AddFrameMegaLightsVolume( graph, textures, frame, lightGrid );
+        // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
+        // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
+        // path, after the virtual shadow map on the deferred one (its readers there are the glass and the
+        // translucency: the deferred base pass draws no mesh).
+        textures.Transients.MegaLightsVolume =
+             System::AddMegaLightsVolumeOff( graph, textures.GraphRefs().System.Black3D );
         if ( WorldLightGridRead() )
             AddFrameLightGridWorld( graph, textures, frame );
         if ( GlobalDistanceFieldRead() )
             AddFrameGlobalDistanceField( graph, textures, frame );
+        // THE FORWARD SHADING PATH UNDER Shadows VirtualMaps (UE: virtual shadow maps are independent of the
+        // shading path): the point/spot lights' pages before the base pass, whose forward cells read the map itself
+        // (DESERT_LOCAL_SHADOW_VSM) - the atlas is not drawn. No G-buffer: no sun pages (the forward sun reads its
+        // cascades) and no screen masks; each light's coarse mip is marked ("VSM: Mark Coarse") and a receiver
+        // reads its own mip where mapped, the coarse one otherwise (VsmLocalOccluderDistance).
+        // The forward depth prepass (UE forward: the full depth prepass, every forward frame) runs first: "VSM: Mark
+        // Local" marks the pages its pixels read, as it does the deferred G-buffer's, and the base pass tests
+        // CloserOrEqual against it and writes no depth.
+        if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
+        {
+            const RDG::TextureRef sceneDepth = AddFrameForwardDepthPrepass( graph, textures );
+            // "VSM: Mark Local" and the MegaLights volume's screen trace (its HZB) read a single-sample depth: at
+            // MSAA the prepass's multisampled depth through its own resolve, once (the base pass writes no depth,
+            // so this is the opaque depth the receivers read).
+            const bool volumeTracesScreen = LocalLightsAreStochastic() && StochasticTraceSources().ScreenTrace();
+            const RDG::TextureRef prepassDepth =
+                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen )
+                      ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
+                      : RDG::TextureRef{};
+            // Stochastic with vsm+screen: the volume's froxels read the same local pages (MegaLightsVolumeVirtual).
+            if ( LocalLightsReadVirtualPages() )
+            {
+                m_FrameVsmPages.reset();
+                (void)AddFrameVirtualShadows( graph, textures, prepassDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ),
+                                              frame, {} );
+            }
+            AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
+        }
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
         if ( !m_ViewProfile.SceneCapture )
@@ -2044,6 +2124,30 @@ namespace Desert::Graphic
                 const FrameSun  sun        = GetFrameSun();
                 const glm::vec4 lightDir   = sun.Direction;
                 const glm::vec4 lightColor = sun.ColorIntensity;
+                // THE VIRTUAL SHADOW MAP before its first reader (UE: VSM page marking and rendering after the
+                // base pass, before the lighting): the surface cache's cards and every forward cell read the point/
+                // spot lights' shadows from it (DESERT_LOCAL_SHADOW_VSM), the composite its masks. Under VirtualMaps
+                // the translucent front layer's G-buffer is drawn first: its depth marks the pages the glass reads
+                // ("VSM: Mark Receivers"), and the front layer's reflections below reuse it.
+                // "VSM: Project" writes the sun's screen mask the composite's DESERT_SUN_SHADOW_SCREEN_MASK
+                // permutation reads; under VirtualMaps the point/spot lights' pages share the sun's map: one page
+                // pass for both, and "VSM: Project Local" writes the local masks the composite reads as the traced
+                // ones.
+                m_FrameVsmPages.reset();
+                std::optional<FrontLayerSurface> frontLayerSurface;
+                if ( LocalShadowsAreVirtual() && meshRenderer != nullptr && meshRenderer->BuildFrontLayerDraws() )
+                    frontLayerSurface = AddFrameFrontLayerSurface( graph, textures, meshRenderer, gbuffer );
+                const RDG::TextureRef receivers[] = { frontLayerSurface ? frontLayerSurface->Depth
+                                                                        : RDG::TextureRef{} };
+                const FrameVirtualShadows virtualShadows =
+                     SunShadowIsVirtual() ? AddFrameVirtualShadows( graph, textures,
+                                                                    textures.Depth( m_GBuffer, "GBuffer" ), gbuffer,
+                                                                    -glm::vec3( lightDir ), frame, receivers )
+                                          : FrameVirtualShadows{};
+                // The MegaLights volume after its visibility source (the TLAS, or the local pages just drawn) and
+                // before its first reader (the front layer, the glass).
+                AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, {} );
+
                 AddFrameSSAO( graph, textures, gbuffer, frame );
                 AddFrameSurfaceCache( graph, textures, frame );
 
@@ -2083,18 +2187,15 @@ namespace Desert::Graphic
                 const FrameFrontLayer frontLayer =
                      ssr != nullptr && TranslucentFrontLayerReflections()
                           ? AddFrameTranslucentFrontLayer( graph, textures, meshRenderer, gbuffer, screenTrace,
-                                                           frame )
+                                                           frame, frontLayerSurface ? &*frontLayerSurface : nullptr )
                           : FrameFrontLayer{};
 
                 // The cascades and the cloud shadow map reach the composite as scene view inputs (block entries
                 // with their neutral defaults), not as a second, separately resolved read list.
                 // "Shadows: Ray Traced Sun" in place of the cascades (SunShadowIsRayTraced): the composite's
-                // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask.
-                // "VSM: Project" likewise: the same mask, the same permutations.
-                m_FrameVsmPages.reset();
+                // DESERT_SUN_SHADOW_SCREEN_MASK permutation reads this mask; "VSM: Project" likewise (above).
                 const RDG::TextureRef sunShadowMask =
-                     SunShadowIsVirtual()
-                          ? AddFrameVirtualSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
+                     SunShadowIsVirtual() ? virtualShadows.SunMask
                      : SunShadowIsRayTraced()
                           ? AddFrameRayTracedSunShadow( graph, textures, gbuffer, -glm::vec3( lightDir ), frame )
                           : RDG::TextureRef{};
@@ -2107,10 +2208,11 @@ namespace Desert::Graphic
                      LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
                                                 : System::MegaLightsLighting{};
                 // Shadows HardwareTraced: the point/spot lights' ray-traced masks, one layer per ShadowMaskSlot.
-                const RDG::TextureRef localShadowMasks = LocalShadowsAreRayTraced()
-                                                              ? AddFrameRayTracedLocalShadows( graph, textures,
-                                                                                               gbuffer, frame )
-                                                              : RDG::TextureRef{};
+                // Shadows VirtualMaps: the same layers, from "VSM: Project Local".
+                const RDG::TextureRef localShadowMasks =
+                     LocalShadowsAreRayTraced() ? AddFrameRayTracedLocalShadows( graph, textures, gbuffer, frame )
+                     : LocalShadowsAreVirtual() ? virtualShadows.LocalMasks
+                                                : RDG::TextureRef{};
                 // SSS-PROFILE: the composite splits the scattered texels' diffuse into this target when the view
                 // scatters; Burley + Recombine add it back BEFORE the forward meshes (AddFrameGeneric), which may
                 // stand in front of a scattered texel and must not receive its diffuse.
@@ -2127,6 +2229,11 @@ namespace Desert::Graphic
                 if ( subsurfaceDiffuse.IsValid() )
                     AddFrameSubsurface( graph, textures, gbuffer, subsurfaceDiffuse, frame );
                 AddFrameGeneric( graph, textures, meshRenderer, sunShadowMask, localShadowMasks );
+
+                // The opaque scene is complete: its fog (and the fog volumes the translucency below reads) BEFORE
+                // the scene copy, so the refraction sees the fogged scene, and before every translucent draw, which
+                // fogs itself at its own depth rather than being fogged by the opaque depth behind it (UE's order).
+                AddFrameOpaqueFog( graph, textures, frame );
 
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
                 auto* copy = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
@@ -2160,31 +2267,30 @@ namespace Desert::Graphic
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             auto* copy         = UNIQUE_GET_AS( System::CopyRenderer, m_RenderSystems["SceneColorCopySystem"] );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+            // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
+            AddFrameOpaqueFog( graph, textures, frame );
             const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 
+        // The water writes the scene depth: the clouds and the particles after it read the resolve again.
         AddFrameSceneDepthResolve( graph, textures );
-        AddFrameSkyAtmosphereLuts( graph, textures );
         // The path tracer's paths carry no participating media (PathTracer.hpp: a task of its own), so a
         // path-traced frame composites no height fog, cloud layer or particles over its accumulation; the
         // editor's passes at the extension points still draw. The clouds reach its paths through the sky
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
-        // A G-buffer view (UE Buffer Visualization: BaseColor, WorldNormal, Metallic, Roughness, AO, ShadingModel)
-        // shows the stored surface value: no height fog or cloud layer is composited over it (GRASS-ASSET p5: the
-        // Albedo view read +0.08 fog blue on the far cover). The clouds' sky-occlusion volume is still written.
-        const DeferredDebugMode debugView   = m_DebugView.DeferredDebug;
-        const bool              gbufferView = ( debugView >= DeferredDebugMode::Albedo && debugView <= DeferredDebugMode::AO ) ||
-                                 debugView == DeferredDebugMode::ShadingModel ||
-                                 debugView == DeferredDebugMode::SunShadowReceive;
-        if ( !pathTraced && !gbufferView )
-        {
-            AddFrameAtmosphericFog( graph, textures );
+        // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
+        // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); a path-traced frame
+        // added none, so its sky LUTs are added here. A G-buffer view (IsGBufferView) composites no cloud layer.
+        if ( !pathTraced && !IsGBufferView( m_DebugView.DeferredDebug ) )
             AddFrameVolumetricClouds( graph, textures, frame );
-        }
         else
+        {
+            if ( pathTraced )
+                AddFrameSkyAtmosphereLuts( graph, textures );
             AddFrameCloudSkyOcclusion( graph, textures );
+        }
 
         // The opaque scene is complete (lit, composited, the sky/fog/cloud nodes declared): passes from outside
         // the engine that belong under every translucent layer join here.
@@ -2355,11 +2461,46 @@ namespace Desert::Graphic
         textures.ResetInvalidatedHistories();
     }
 
+#if DESERT_DEV_INSTRUMENTS
+    void SceneRenderer::WatchPrimitive( const uint32_t entity )
+    {
+        m_PrimitiveWatch = PrimitiveWatch{ entity, Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() };
+    }
+#endif
+
     NO_DISCARD Common::BoolResultStr SceneRenderer::EndScene()
     {
         const ActiveViewScope viewScope( m_ViewResources ); // same reason as OnUpdate: phases interleave
         const ResourceAttributionScope ledger = OpenViewLedgerScope();
 
+#if DESERT_DEV_INSTRUMENTS
+        // The gameplay debugger's Rendering category: the watched entity described from the queues the passes
+        // drew, BEFORE they are cleared. A watch older than the previous frame is dropped (the debugger hid).
+        if ( m_PrimitiveWatch.has_value() )
+        {
+            const uint64_t frame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            if ( frame > m_PrimitiveWatch->Frame + 1 )
+            {
+                m_PrimitiveWatch.reset();
+                m_PrimitiveReadout.reset();
+            }
+            else
+            {
+                PrimitiveReadout readout;
+                readout.Entity = m_PrimitiveWatch->Entity;
+                readout.Frame  = frame;
+                // The sun as this frame shadowed it: the VSM pages, else the traced mask, else the cascades.
+                readout.Sun = m_FrameVsmPages.has_value() ? SunShadowReadout::Virtual
+                              : SunShadowIsRayTraced()    ? SunShadowReadout::RayTraced
+                              : m_FrameCascades           ? SunShadowReadout::Cascaded
+                                                          : SunShadowReadout::None;
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                readout.Draws = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
+                                     ->DescribePrimitive( readout.Entity );
+                m_PrimitiveReadout = std::move( readout );
+            }
+        }
+#endif
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ClearQueues();
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key/handle names this exact type
         UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] )->ClearQueue();
@@ -2383,6 +2524,7 @@ namespace Desert::Graphic
         m_FrameGpuScene           = nullptr;
         m_FrameLocalShadows       = nullptr;
         m_FrameDistanceFields     = nullptr;
+        m_FrameSurfaceCache       = nullptr;
 
         return BOOLSUCCESS;
     }
@@ -2395,10 +2537,12 @@ namespace Desert::Graphic
 
     bool SceneRenderer::SunShadowIsRayTraced() const
     {
-        // Stochastic's sun is the ray-traced one (MegaLights shades the local lights).
+        // Stochastic's sun follows its visibility source: ray traced with the ray query (MegaLights shades the
+        // local lights), the virtual map's clipmap with vsm+screen (SunShadowIsVirtual), the cascades with screen.
         using Common::Scalability::ShadowMethod;
         return m_RenderMethods.Shadows.Effective == ShadowMethod::HardwareTraced ||
-               m_RenderMethods.Shadows.Effective == ShadowMethod::Stochastic;
+               ( m_RenderMethods.Shadows.Effective == ShadowMethod::Stochastic &&
+                 m_RenderMethods.Visibility == Common::Scalability::StochasticVisibility::RayQuery );
     }
 
     bool SceneRenderer::LocalLightsAreStochastic() const
@@ -2410,6 +2554,39 @@ namespace Desert::Graphic
     {
         return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::HardwareTraced &&
                !PathTraced( m_RenderMethods );
+    }
+
+    bool SceneRenderer::LocalShadowsAreVirtual() const
+    {
+        return LocalShadowsVirtual( m_RenderMethods );
+    }
+
+    Common::Scalability::StochasticSources SceneRenderer::StochasticTraceSources() const
+    {
+        using Common::Scalability::StochasticSources;
+        using Common::Scalability::StochasticVisibility;
+        const auto lights = [&]( const StochasticVisibility source )
+        { return m_StochasticSourceLights[static_cast<std::size_t>( source )] > 0; };
+        const StochasticSources sources{ .RayQuery    = lights( StochasticVisibility::RayQuery ),
+                                         .VirtualMaps = lights( StochasticVisibility::VirtualMapsAndScreen ),
+                                         .Screen      = lights( StochasticVisibility::Screen ) };
+        if ( !sources.Empty() )
+            return sources;
+        // No casting light in the view: nothing is traced; the frame's source names the program, and a vsm+screen
+        // frame drew no local page, so the screen one.
+        return StochasticSources::Of( m_RenderMethods.Visibility == StochasticVisibility::VirtualMapsAndScreen
+                                           ? StochasticVisibility::Screen
+                                           : m_RenderMethods.Visibility );
+    }
+
+    bool SceneRenderer::LocalLightsReadVirtualPages() const
+    {
+        return m_LocalLightsVirtualPages;
+    }
+
+    bool SceneRenderer::LocalShadowsAreScreenMask() const
+    {
+        return LocalShadowsAreRayTraced() || LocalShadowsAreVirtual();
     }
 
     namespace
@@ -2461,15 +2638,57 @@ namespace Desert::Graphic
         // ShadowCaster is UpdateLocalShadows' answer "this light casts in this view" (CastShadows, and the view
         // draws shadows), whether or not a map was drawn for it.
         m_LocalShadowMaskLights.clear();
-        const bool traced = LocalShadowsAreRayTraced();
-        int32_t    slot   = 0;
+        m_StochasticLightMethods.clear();
+        m_StochasticSourceLights = {};
+        // Under Stochastic every casting light's own source (its Shadow Method, ResolveLightVisibility) goes into
+        // its payload (ShadowVisibility, MegaLights' trace); a light whose source is vsm+screen gets a slot = its
+        // index in the virtual map's local lights (Common/MegaLights.glslh MegaLightsLightShadowMaskSlot).
+        using Common::Scalability::LightShadowMethod;
+        using Common::Scalability::StochasticVisibility;
+        const bool screenMask = LocalShadowsAreScreenMask();
+        const bool stochastic = m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic &&
+                                !PathTraced( m_RenderMethods );
+        const auto source     = [&]( const LocalLightShadowSettings& shadow )
+        {
+            const StochasticVisibility effective = ResolveLightVisibility( shadow.ShadowMethod, m_RenderMethods );
+            ++m_StochasticSourceLights[static_cast<std::size_t>( effective )];
+            if ( shadow.ShadowMethod == LightShadowMethod::Auto )
+                return effective;
+            m_StochasticLightMethods.push_back(
+                 { .SourceId = shadow.SourceId, .Requested = shadow.ShadowMethod, .Effective = effective } );
+            const bool clamped =
+                 ( shadow.ShadowMethod == LightShadowMethod::RayQuery && effective != StochasticVisibility::RayQuery ) ||
+                 ( shadow.ShadowMethod == LightShadowMethod::VirtualMaps &&
+                   effective != StochasticVisibility::VirtualMapsAndScreen );
+            const uint64_t key = ( static_cast<uint64_t>( shadow.SourceId ) << 8u ) |
+                                 static_cast<uint64_t>( shadow.ShadowMethod );
+            if ( clamped && m_ReportedLightMethodClamps.insert( key ).second )
+                LOG_WARN( "[SceneRenderer] {}: light {} asks Shadow Method {}, which this device/frame does not run; "
+                          "its samples test {}",
+                          m_ViewResources.GetName(), shadow.SourceId,
+                          Common::Scalability::kLightShadowMethodNames[static_cast<std::size_t>( shadow.ShadowMethod )],
+                          Common::Scalability::kStochasticVisibilityNames[static_cast<std::size_t>( effective )] );
+            return effective;
+        };
+        int32_t slot = 0;
         for ( std::size_t i = 0; i < m_PointLight.PointLights.size(); ++i )
         {
             auto& point          = m_PointLight.PointLights[i];
-            point.ShadowMaskSlot = -1;
+            point.ShadowMaskSlot   = -1;
+            point.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
             // Per-light view cull (UE: a light whose bounds miss the view frustum renders no shadow): no pixel of
             // the view is inside its attenuation sphere, so no slot, no trace, no pack.
-            if ( !traced || point.ShadowCaster == 0 || !view.IntersectsSphere( point.Position, point.Radius ) )
+            if ( point.ShadowCaster == 0 || !view.IntersectsSphere( point.Position, point.Radius ) )
+                continue;
+            bool slotted = screenMask;
+            if ( stochastic )
+            {
+                const StochasticVisibility effective =
+                     source( i < m_PointLightShadows.size() ? m_PointLightShadows[i] : LocalLightShadowSettings{} );
+                point.ShadowVisibility = static_cast<int32_t>( effective );
+                slotted                = effective == StochasticVisibility::VirtualMapsAndScreen;
+            }
+            if ( !slotted )
                 continue;
             point.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
@@ -2481,8 +2700,19 @@ namespace Desert::Graphic
         for ( std::size_t i = 0; i < m_SpotLight.SpotLights.size(); ++i )
         {
             auto& spot          = m_SpotLight.SpotLights[i];
-            spot.ShadowMaskSlot = -1;
-            if ( !traced || spot.ShadowCaster == 0 || !view.IntersectsSphere( spot.Position, spot.Range ) )
+            spot.ShadowMaskSlot   = -1;
+            spot.ShadowVisibility = static_cast<int32_t>( m_RenderMethods.Visibility );
+            if ( spot.ShadowCaster == 0 || !view.IntersectsSphere( spot.Position, spot.Range ) )
+                continue;
+            bool slotted = screenMask;
+            if ( stochastic )
+            {
+                const StochasticVisibility effective =
+                     source( i < m_SpotLightShadows.size() ? m_SpotLightShadows[i] : LocalLightShadowSettings{} );
+                spot.ShadowVisibility = static_cast<int32_t>( effective );
+                slotted               = effective == StochasticVisibility::VirtualMapsAndScreen;
+            }
+            if ( !slotted )
                 continue;
             spot.ShadowMaskSlot = slot++;
             m_LocalShadowMaskLights.push_back( System::RayTracedLocalShadowLight{
@@ -2493,6 +2723,13 @@ namespace Desert::Graphic
                  .CosOuter          = spot.CosOuter,
                  .SourceId          = i < m_SpotLightShadows.size() ? m_SpotLightShadows[i].SourceId : 0u } );
         }
+        // The frame's one answer to "the local lights have virtual pages" (RenderMethods' rule over this view's
+        // lights): every page reader of the frame - the page passes, MegaLights, the surface cache's cards - reads
+        // it.
+        constexpr std::size_t kVirtualMapsSource =
+             static_cast<std::size_t>( StochasticVisibility::VirtualMapsAndScreen );
+        m_LocalLightsVirtualPages =
+             LocalLightsVirtualPages( m_RenderMethods, m_StochasticSourceLights[kVirtualMapsSource] );
     }
 
     bool SceneRenderer::EnsureMegaLightsResources()
@@ -2517,6 +2754,9 @@ namespace Desert::Graphic
                                                                   const std::vector<RDG::TextureRef>& gbuffer,
                                                                   const ViewFrame&                    frame )
     {
+        using Common::Scalability::StochasticVisibility;
+        if ( !EnsureMegaLightsResources() )
+            return {}; // said once by EnsureMegaLightsResources
         const auto pointCount = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto spotCount  = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
         if ( pointCount + spotCount == 0 )
@@ -2528,26 +2768,37 @@ namespace Desert::Graphic
                        m_ViewResources.GetName(), gbuffer.size() );
             return {};
         }
-        // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
+        // The frame's visibility source (LowerShadowsForFrame): the ray query only with this frame's TLAS built;
+        // without rays the closest HZB (the screen traces' when they built one this frame) and, vsm+screen, the
+        // virtual map AddFrameVirtualShadows drew this frame.
+        // Per light its own source (payload ShadowVisibility): the program holds every source present
+        // (StochasticTraceSources), the HZB (the frame's one, AddFrameHZB: the screen traces' and the volume's)
+        // whenever one of them traces the screen (a ray-query frame with a Screen or VirtualMaps lamp too).
+        const Common::Scalability::StochasticSources sources = StochasticTraceSources();
+        const RDG::TextureRef hzb = sources.ScreenTrace() ? AddFrameHZB( graph, textures ) : RDG::TextureRef{};
         const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
         const FrameGraphRefs                    refs  = textures.GraphRefs();
-        const System::MegaLightsInputs          inputs{ .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
-                                                        .GBufferA    = gbuffer[0],
-                                                        .GBufferB    = gbuffer[1],
-                                                        .ShadingWord = gbuffer[2],
-                                                        .Velocity    = textures.Transients.Velocity,
-                                                        .Black       = refs.System.Black,
-                                                        .Tlas        = scene.Tlas,
-                                                        .Metadata    = scene.Metadata,
-                                                        .Lights      = refs.Transients.Lights,
-                                                        .PointLights = pointCount,
-                                                        .SpotLights  = spotCount,
-                                                        .Width       = frame.Split.Render.Width,
-                                                        .Height      = frame.Split.Render.Height,
-                                               // The G-buffer depth is the opaque scene: the march has
-                                               // something to hit (as the composite's contact shadows).
-                                                        .ContactShadowView = SceneResources::ContactShadowViewVector(
-                                                    GetContactShadowSettings( frame, true ) ) };
+        const System::MegaLightsInputs               inputs{
+                           .Depth       = textures.Depth( m_GBuffer, "GBuffer" ),
+                           .GBufferA    = gbuffer[0],
+                           .GBufferB    = gbuffer[1],
+                           .ShadingWord = gbuffer[2],
+                           .Velocity    = textures.Transients.Velocity,
+                           .Black       = refs.System.Black,
+                           .Sources     = sources,
+                           .Tlas        = sources.RayQuery ? scene.Tlas : RDG::BufferRef{},
+                           .Metadata = sources.RayQuery ? scene.Metadata : RayTracing::RayTracingMetadataFrame{},
+                           .Hzb      = hzb,
+                           .Vsm      = textures.Transients.Vsm,
+                           .Lights   = refs.Transients.Lights,
+                           .PointLights = pointCount,
+                           .SpotLights  = spotCount,
+                           .Width       = frame.Split.Render.Width,
+                           .Height      = frame.Split.Render.Height,
+             // The G-buffer depth is the opaque scene: the march has
+             // something to hit (as the composite's contact shadows).
+                           .ContactShadowView =
+                  SceneResources::ContactShadowViewVector( GetContactShadowSettings( frame, true ) ) };
         const Common::ResultStr<System::MegaLightsLighting> lighting =
              m_MegaLights.AddPasses( graph, inputs, m_MegaLightsQuality, frame );
         if ( !lighting )
@@ -2560,30 +2811,36 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid )
+                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid,
+                                                  const RDG::TextureRef hzbDepth )
     {
         const FrameGraphRefs refs            = textures.GraphRefs();
         const auto           pointCount      = static_cast<uint32_t>( GetPointLights().PointLights.size() );
         const auto           spotCount       = static_cast<uint32_t>( GetSpotLights().SpotLights.size() );
-        textures.Transients.MegaLightsVolume = System::AddMegaLightsVolumeOff( graph, refs.System.Black3D );
+        // Off unless lit below: the OFF block OnUpdate set after the light grid stays.
         // A path-traced frame's lit image is the accumulation: no forward or glass cell lights over it.
         if ( !LocalLightsAreStochastic() || pointCount + spotCount == 0 || PathTraced( m_RenderMethods ) )
             return; // the forward cells loop their light grid; the glass adds no local light
-        if ( !m_MegaLightsVolumeReady )
-        {
-            if ( const Common::BoolResultStr initialized = m_MegaLightsVolume.Initialize(); !initialized )
-            {
-                LOG_ERROR( "[SceneRenderer] {}: {}; the forward and translucent surfaces get no local light under "
-                           "Stochastic",
-                           m_ViewResources.GetName(), initialized.GetError() );
-                return;
-            }
-            m_MegaLightsVolumeReady = true;
-        }
-        // The frame resolved to Stochastic only with this frame's TLAS built (OnUpdate, LowerShadowsForFrame).
-        const RayTracing::RayTracingSceneFrame&       scene = m_RayTracingScene.GetFrame();
-        const System::MegaLightsVolumeInputs          inputs{ .Tlas        = scene.Tlas,
-                                                              .Metadata    = scene.Metadata,
+        // The froxels' visibility is the frame's StochasticVisibility (LowerShadowsForFrame): the TLAS only when
+        // this frame built it; under vsm+screen and screen the closest HZB (the frame's one, AddFrameHZB - of the
+        // forward prepass's depth on the forward path) and, vsm+screen, the local lights' virtual pages
+        // (AddFrameVirtualShadows drew them before this call).
+        // Each froxel sample tests its light's own source (payload ShadowVisibility); the program holds them all.
+        const Common::Scalability::StochasticSources  sources = StochasticTraceSources();
+        const bool                                    rays    = sources.RayQuery;
+        // The forward path has no G-buffer depth to fall back on: without its prepass depth no HZB (AddPasses
+        // refuses the frame, logged below).
+        const bool            forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
+        const RDG::TextureRef hzb     = !sources.ScreenTrace() || ( forward && !hzbDepth.IsValid() )
+                                             ? RDG::TextureRef{}
+                                             : AddFrameHZB( graph, textures, hzbDepth );
+        const RayTracing::RayTracingSceneFrame&       scene   = m_RayTracingScene.GetFrame();
+        const System::MegaLightsVolumeInputs          inputs{ .Sources     = sources,
+                                                              .Tlas        = rays ? scene.Tlas : RDG::BufferRef{},
+                                                              .Metadata    = rays ? scene.Metadata
+                                                                                  : RayTracing::RayTracingMetadataFrame{},
+                                                              .Hzb         = hzb,
+                                                              .Vsm         = textures.Transients.Vsm,
                                                               .Lights      = textures.Transients.Lights,
                                                               .Black3D     = refs.System.Black3D,
                                                               .PointLights = pointCount,
@@ -2606,7 +2863,9 @@ namespace Desert::Graphic
 
     bool SceneRenderer::SunShadowIsVirtual() const
     {
-        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps;
+        return m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::VirtualMaps ||
+               ( m_RenderMethods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic &&
+                 m_RenderMethods.Visibility == Common::Scalability::StochasticVisibility::VirtualMapsAndScreen );
     }
 
     bool SceneRenderer::SunShadowIsScreenMask() const
@@ -2633,15 +2892,17 @@ namespace Desert::Graphic
         return true;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameVirtualSunShadow( RDG::Builder& graph, FrameTextures& textures,
-                                                             const std::vector<RDG::TextureRef>& gbuffer,
-                                                             const glm::vec3&                    directionToSun,
-                                                             const ViewFrame&                    frame )
+    SceneRenderer::FrameVirtualShadows SceneRenderer::AddFrameVirtualShadows(
+         RDG::Builder& graph, FrameTextures& textures, const RDG::TextureRef viewDepth,
+         const std::vector<RDG::TextureRef>& gbuffer,
+         const glm::vec3& directionToSun, const ViewFrame& frame, const std::span<const RDG::TextureRef> receiverDepths )
     {
         if ( !EnsureVirtualShadowResources() )
             return {};
-        const System::VirtualShadowMapViewInputs view{ .Depth  = textures.Depth( m_GBuffer, "GBuffer" ),
-                                                       .Normal = gbuffer[1],
+        const bool                               deferred = gbuffer.size() > 1;
+        const System::VirtualShadowMapViewInputs view{ .Depth   = viewDepth,
+                                                       .Normal  = deferred ? gbuffer[1] : RDG::TextureRef{},
+                                                       .NoDepth = textures.GraphRefs().System.Black,
                                                        .InvJitteredViewProjection =
                                                             frame.InvJitteredViewProjection,
                                                        .Projection     = frame.Projection,
@@ -2649,45 +2910,105 @@ namespace Desert::Graphic
                                                        .Width          = frame.Split.Render.Width,
                                                        .Height         = frame.Split.Render.Height,
                                                        .FrameIndex     = frame.FrameIndex };
-        const System::VirtualShadowMapSun        sun{ .DirectionToSun     = directionToSun,
-                                                      .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // The sun only when the scene has a directional light (a night scene's map holds its lamps alone), and only
+        // from a G-buffer: the forward path's sun reads its cascades.
+        // `composite`: the deferred composite reads this frame's masks; a forward view has no G-buffer, its depth
+        // prepass (AddFrameForwardDepthPrepass) marks the local lights' pages only.
+        const bool composite = deferred && m_RenderPath == Core::RenderPath::Deferred;
+        const bool                        hasSun = composite && !m_DirectionLights.DirectionLights.empty();
+        const System::VirtualShadowMapSun sun{ .DirectionToSun     = directionToSun,
+                                               .SourceAngleDegrees = m_SunSourceAngleDegrees };
+        // The point/spot lights given a mask slot (AssignLocalShadowMaskSlots: they cast, and their sphere meets
+        // the view), slot = layer.
+        std::vector<System::VirtualShadowMapLocalLight> locals;
+        if ( LocalLightsReadVirtualPages() )
+        {
+            locals.reserve( m_LocalShadowMaskLights.size() );
+            for ( size_t slot = 0; slot < m_LocalShadowMaskLights.size(); ++slot )
+            {
+                const System::RayTracedLocalShadowLight& light = m_LocalShadowMaskLights[slot];
+                const bool spot = light.CosOuter != System::kRayTracedLocalShadowNoCone;
+                locals.push_back( { .SourceId      = light.SourceId,
+                                    .Position      = light.Position,
+                                    .Radius        = light.AttenuationRadius,
+                                    .SpotDirection = light.SpotDirection,
+                                    .CosOuter      = spot ? light.CosOuter : System::kVsmLocalPointCone,
+                                    .SourceRadius  = light.SourceRadius,
+                                    .MaskSlot      = static_cast<uint32_t>( slot ) } );
+            }
+        }
+        // Under VirtualMaps every local-shadow reader is a VSM program (the forward cells, the terrain and the glass
+        // take the frame's LocalShadowsAreVirtual, as the generic prepass checked): the map's refs exist even when
+        // no light casts this frame (the page passes run over none; the view slots are a high-water mark, so the
+        // cached pages stay).
+        if ( !hasSun && !LocalLightsReadVirtualPages() )
+            return {};
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* const meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
         // The casters that changed since the last frame drop their cached pages (UE VSM cache invalidation).
         const System::MeshRenderer::VirtualShadowInvalidation invalidation =
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
-             graph, view, sun, m_VirtualShadowQuality, invalidation.Boxes, invalidation.StaticCastersChanged );
+             graph, view, hasSun ? &sun : nullptr, locals, receiverDepths, m_VirtualShadowQuality,
+             invalidation.Boxes,
+             invalidation.StaticCastersChanged );
         if ( !pages )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
-                       pages.GetError() );
+            LOG_ERROR( "[SceneRenderer] {}: {}; the virtual shadow map casts no shadow this frame",
+                       m_ViewResources.GetName(), pages.GetError() );
             return {};
         }
         m_FrameVsmPages = pages.GetValue();
-        // "VSM: Raster": every caster into the dirty pages, before the projection reads the pool. A refusal is
-        // a missing caster program or pipeline, which no later frame repairs: said once, and the method stays
-        // dark.
+        // "VSM: Raster": every caster into the dirty pages (the sun's levels, then the local lights' mips), before
+        // the projections read the pool. A refusal is a missing caster program or pipeline, which no later frame
+        // repairs: said once, and the method stays dark.
         if ( const Common::BoolResultStr raster =
                   meshes->AddVirtualShadowRasterPasses( graph, pages.GetValue(), m_VirtualShadowMap );
              !raster.IsSuccess() )
         {
-            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; the sun casts no "
+            LOG_ERROR( "[SceneRenderer] {}: Shadows: Virtual Shadow Map casters cannot be drawn; nothing casts a "
                        "shadow while the method resolves to VirtualMaps: {}",
                        m_ViewResources.GetName(), raster.GetError() );
             m_VirtualShadowFailed = true;
             m_VirtualShadowReady  = false;
             return {};
         }
-        const Common::ResultStr<RDG::TextureRef> mask =
-             m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
-        if ( !mask )
+        // The map for its readers (DESERT_LOCAL_SHADOW_VSM: the forward and translucent cells, the composite's
+        // transmission, the surface cache's cards), bound by name through SceneViewInputs::Vsm.
+        textures.Transients.Vsm = VirtualShadowMapReadRefs{ .FrameData    = pages.GetValue().FrameData,
+                                                             .PageTable    = pages.GetValue().PageTable,
+                                                             .PhysicalPool = pages.GetValue().PhysicalPool,
+                                                             .LocalLights  = pages.GetValue().LocalLights };
+        FrameVirtualShadows result;
+        if ( hasSun )
         {
-            LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
-                       mask.GetError() );
-            return {};
+            const Common::ResultStr<RDG::TextureRef> mask =
+                 m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
+            if ( !mask )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
+                           mask.GetError() );
+            }
+            else
+                result.SunMask = mask.GetValue();
         }
-        return mask.GetValue();
+        // The local masks are the deferred composite's and the generic opaque cells' (screen pixels of the
+        // G-buffer); the forward path's cells read the map itself. Under Stochastic MegaLights reads the pages.
+        if ( composite && !locals.empty() && LocalShadowsAreVirtual() )
+        {
+            const RDG::TextureRef masks = System::RayTracedLocalShadowRenderer::CreateMasks(
+                 graph, view.Width, view.Height, static_cast<uint32_t>( locals.size() ) );
+            if ( const Common::BoolResultStr projected =
+                      m_VirtualShadowMap.AddLocalProjection( graph, pages.GetValue(), view, masks );
+                 !projected.IsSuccess() )
+            {
+                LOG_ERROR( "[SceneRenderer] {}: {}; the local lights cast no virtual shadow this frame",
+                           m_ViewResources.GetName(), projected.GetError() );
+            }
+            else
+                result.LocalMasks = masks;
+        }
+        return result;
     }
 
     bool SceneRenderer::EnsureRayTracedShadowResources()
@@ -3363,6 +3684,22 @@ namespace Desert::Graphic
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
     }
 
+    const Engine::Neural::NrcStats* SceneRenderer::GetRadianceCacheStats() const
+    {
+        const auto found = m_RenderSystems.find( "PathTracerSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStats();
+    }
+
+    System::PathTracer::RadianceCacheStatus SceneRenderer::GetRadianceCacheStatus() const
+    {
+        const auto found = m_RenderSystems.find( "PathTracerSystem" );
+        if ( found == m_RenderSystems.end() )
+            return {};
+        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
+    }
+
     uint32_t SceneRenderer::GetStandInDraws() const
     {
         const auto found = m_RenderSystems.find( "MeshSystem" );
@@ -3377,6 +3714,14 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetViewTrianglesDrawn();
+    }
+
+    System::ForwardPrepassStats SceneRenderer::GetForwardPrepassStats() const
+    {
+        const auto found = m_RenderSystems.find( "MeshSystem" );
+        if ( found == m_RenderSystems.end() )
+            return {};
+        return static_cast<const System::MeshRenderer*>( found->second.get() )->GetForwardPrepassStats();
     }
 
     void SceneRenderer::SubmitInstancedMesh( const uint32_t entity, Mesh* mesh,
@@ -3801,6 +4146,9 @@ namespace Desert::Graphic
     void SceneRenderer::SetHeightFog( bool present, const ECS::ExponentialHeightFogData& data, float fogHeightY )
     {
         UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )
+             ->SetFogSettings( present, data, fogHeightY );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        UNIQUE_GET_AS( System::VolumetricFogRenderer, m_RenderSystems["VolumetricFogSystem"] )
              ->SetFogSettings( present, data, fogHeightY );
     }
 

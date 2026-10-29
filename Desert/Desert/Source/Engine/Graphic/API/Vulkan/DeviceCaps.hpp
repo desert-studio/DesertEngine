@@ -65,6 +65,13 @@ namespace Desert::Graphic::API::Vulkan
         // glslang declares every cooperative-matrix module under the Vulkan memory model (OpMemoryModel Vulkan,
         // capability VulkanMemoryModel), so the coopmat kernels need the feature enabled (NN-RUNTIME step 2).
         VulkanMemoryModel,
+        // GPU memory and timeline semaphores another API on the same GPU imports (Graphic::SharedGpuBuffer /
+        // SharedGpuTimeline; reader: the OIDN denoiser, CapabilityCatalog::GpuSharing). Optional: without the pair
+        // of one platform OIDN is refused by name. Windows NT handles / POSIX file descriptors.
+        ExternalMemoryWin32,
+        ExternalSemaphoreWin32,
+        ExternalMemoryFd,
+        ExternalSemaphoreFd,
 
         Count
     };

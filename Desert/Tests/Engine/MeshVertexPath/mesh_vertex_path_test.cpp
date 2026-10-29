@@ -725,7 +725,7 @@ namespace
         return R"(Shader "LayoutMock"
 {
     Domain Surface
-    Properties Binding(30) TextureBinding(31)
+    Properties Binding(30) TextureBinding(35)
     {
         Color     Tint    ("Tint")    = (1, 1, 1, 1)
         Float     Tiling  ("Tiling")  = 2
@@ -752,7 +752,7 @@ namespace
         return R"(Shader "PushMock"
 {
     Domain Surface
-    Properties TextureBinding(31)
+    Properties TextureBinding(35)
     {
         Texture2D MaskTexture ("Mask") = "white"
     }

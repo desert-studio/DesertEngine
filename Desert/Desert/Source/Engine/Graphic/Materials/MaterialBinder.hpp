@@ -4,6 +4,8 @@
 
 #include <Common/Core/Memory/Buffer.hpp>
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <optional>
 #include <string_view>
@@ -99,6 +101,22 @@ namespace Desert::Graphic::MaterialBinder
         if ( slot >= row.size() )
             return std::nullopt;
         return row[slot];
+    }
+
+    // Read a texture parameter's slot by name: (bindless table slot, sampler index) as
+    // DataDrivenMaterial::WriteTextureSlots wrote them (the bits of the slot's x and y). Empty when the cell's row
+    // has no such texture parameter.
+    inline std::optional<glm::uvec2> ReadRowTexture( const Core::Formats::MaterialLayout&   layout,
+                                                     const Core::Formats::MaterialParamRow& row,
+                                                     std::string_view                       name )
+    {
+        const auto* p = layout.FindParam( name );
+        if ( p == nullptr || !p->IsTexture )
+            return std::nullopt;
+        const uint32_t slot = p->Offset / Core::Formats::kMaterialParamSlotSize;
+        if ( slot >= row.size() )
+            return std::nullopt;
+        return glm::uvec2( glm::floatBitsToUint( row[slot].x ), glm::floatBitsToUint( row[slot].y ) );
     }
 
     // The row a material asset asks for: the layout's defaults, then every persisted `{Name, Value}` the

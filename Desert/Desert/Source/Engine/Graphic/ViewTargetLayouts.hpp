@@ -24,6 +24,14 @@ namespace Desert::Graphic
              1 };
     }
 
+    // The scene target's depth ALONE: the forward view's depth prepass (UE DepthPass, SceneRenderer::
+    // AddFrameForwardDepthPrepass) draws into it before the base pass, which then tests CloserOrEqual and writes
+    // none.
+    inline RenderTargetLayout SceneDepthLayout()
+    {
+        return RenderTargetLayout{ {}, ViewTargetFormats::kSceneDepth, 1 };
+    }
+
     inline RenderTargetLayout GBufferLayout()
     {
         return RenderTargetLayout{ { ViewTargetFormats::kGBufferA, ViewTargetFormats::kGBufferB,

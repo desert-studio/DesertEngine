@@ -379,13 +379,16 @@ namespace Desert::Editor
         auto& floorMesh = m_Floor.GetComponent<ECS::StaticMeshComponent>();
         if ( m_Setup.ShowFloor )
         {
-            if ( floorMesh.Primitive != Geometry::PrimitiveType::Plane )
+            // Stated every frame; the writer compares and writes only when the setup changed something.
+            ECS::StaticMeshDesc floorDesc = floorMesh.GetDesc();
+            if ( floorDesc.Primitive != Geometry::PrimitiveType::Plane )
             {
-                floorMesh.Primitive = Geometry::PrimitiveType::Plane;
-                ECS::ClearEditableMesh( floorMesh );
+                floorDesc.Primitive = Geometry::PrimitiveType::Plane;
+                ECS::ClearEditableMesh( floorDesc );
             }
-            floorMesh.CastShadows    = m_Setup.FloorCastsShadow;
-            floorMesh.ReceiveShadows = m_Setup.FloorReceivesShadow;
+            floorDesc.CastShadows    = m_Setup.FloorCastsShadow;
+            floorDesc.ReceiveShadows = m_Setup.FloorReceivesShadow;
+            ECS::SetStaticMesh( *m_Floor.GetRegistry(), m_Floor.GetHandle(), floorDesc );
 
             // THE FLOOR'S OWN LOOK, WRITTEN ON ITS RUNTIME INSTANCE — deliberately NOT through
             // ECS::MaterialComponent, which is the shader-OVERRIDE route this widget is forbidden to touch
@@ -397,9 +400,9 @@ namespace Desert::Editor
             //
             // Every frame, because MeshECSSystem owns those instances and rebuilds them whenever the slot
             // count changes; three setter calls on one instance is cheaper than watching for that.
-            if ( !floorMesh.RuntimeMaterialInstances.empty() && floorMesh.RuntimeMaterialInstances[0] )
+            if ( !floorMesh.RuntimeMaterialInstances().empty() && floorMesh.RuntimeMaterialInstances()[0] )
             {
-                auto& inst = floorMesh.RuntimeMaterialInstances[0];
+                auto& inst = floorMesh.RuntimeMaterialInstances()[0];
                 inst->SetParamFromVec4( "AlbedoColor", glm::vec4( m_Setup.FloorColour, 1.0f ) );
                 // Fully rough and non-metallic: the floor is there to catch a shadow, and a glossy one
                 // would throw a sun highlight across the frame that reads as part of the asset.
@@ -411,23 +414,26 @@ namespace Desert::Editor
             // In dome mode it is not a floor at all but the GROUND, and its size is fixed at a distance
             // the eye reads as a horizon rather than left to a control that means nothing there.
             const float size = ( m_Fill == Fill::SkyDome ) ? kDomeGroundSize : m_Setup.FloorSize;
-            auto&       tc   = m_Floor.GetComponent<ECS::TransformComponent>();
-            tc.Scale         = glm::vec3( size / 100.0f );
+            ECS::LocalTransform floor;
+            floor.Scale = glm::vec3( size / 100.0f );
             // LAID DOWN. The Plane primitive is a vertical CARD (normal +Z), which is what a foliage
             // material wants and is not what a floor is; without this quarter turn the "floor" was a
             // 20 km wall standing on edge, and the ground in the first dome frame was the procedural
             // sky's own ground hemisphere rather than anything this scene drew. Radians, negative, so
             // the card's +Z normal ends up pointing at +Y.
-            tc.Rotation = glm::vec3( -glm::half_pi<float>(), 0.0f, 0.0f );
+            floor.Rotation = glm::vec3( -glm::half_pi<float>(), 0.0f, 0.0f );
             // Just below the subject rather than at its centre: the primitives are generated about the
             // origin, so a floor at y=0 would cut every one of them in half.
-            tc.Translation = glm::vec3( 0.0f, ( m_Fill == Fill::SkyDome ) ? 0.0f : -50.0f, 0.0f );
+            floor.Translation = glm::vec3( 0.0f, ( m_Fill == Fill::SkyDome ) ? 0.0f : -50.0f, 0.0f );
+            m_Floor.SetLocalTransform( floor );
         }
-        else if ( floorMesh.Primitive.has_value() )
+        else if ( floorMesh.GetPrimitive().has_value() )
         {
-            floorMesh.Primitive.reset();
-            ECS::ClearEditableMesh( floorMesh );
-            floorMesh.RuntimeMaterialInstances.clear();
+            ECS::StaticMeshDesc floorDesc = floorMesh.GetDesc();
+            floorDesc.Primitive.reset();
+            ECS::ClearEditableMesh( floorDesc );
+            ECS::SetStaticMesh( *m_Floor.GetRegistry(), m_Floor.GetHandle(), floorDesc );
+            floorMesh.RuntimeMaterialInstances().clear();
         }
 
         // ── What the scene renderer is asked for ──────────────────────────────────────────────────────
@@ -501,10 +507,12 @@ namespace Desert::Editor
     {
         if ( !m_Target || !m_Target.HasComponent<ECS::StaticMeshComponent>() )
             return;
-        int& forced = m_Target.GetComponent<ECS::StaticMeshComponent>().ForcedLOD;
-        if ( forced != lod )
-            ++m_ContentRevision;
-        forced = lod;
+        ECS::StaticMeshDesc desc = m_Target.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+        if ( desc.ForcedLOD == lod )
+            return;
+        desc.ForcedLOD = lod;
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        ++m_ContentRevision;
     }
 
     void PreviewViewport::SetMesh( const Assets::AssetHandle&              mesh,
@@ -520,17 +528,20 @@ namespace Desert::Editor
         EnsureInit();
         DropSkinned();
 
-        auto& smc = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        ECS::ClearEditableMesh( smc );
-        smc.Primitive.reset();
-        smc.RuntimeMaterialInstances.clear();
-        smc.MeshHandle    = mesh;
-        smc.MaterialSlots = materials;
-        smc.ForcedLOD     = -1;
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        ECS::ClearEditableMesh( desc );
+        desc.Primitive.reset();
+        desc.MeshHandle    = mesh;
+        desc.MaterialSlots = materials;
+        desc.ForcedLOD     = -1;
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        // A new handle with the same slots keeps the instances built for the old mesh; dropped here.
+        smc.RuntimeMaterialInstances().clear();
 
         // Upright, like the material preview sets it: the target entity is reused across previews, so a
         // rotation left by an earlier one would tilt this mesh for no reason.
-        m_Target.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f );
+        m_Target.SetLocalRotation( glm::vec3( 0.0f ) );
 
         // One kind of content at a time (same line as in SetMaterial).
         if ( m_CubemapPass )
@@ -661,19 +672,20 @@ namespace Desert::Editor
         EnsureInit();
         DropSkinned();
 
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        // Clearing the runtime instances forces a rebuild against the new handle; dropping the runtime mesh
-        // makes a shape change rebuild the geometry.
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
-        smc.Primitive     = ToPrimitive( shape );
-        smc.MaterialSlots = { material };
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        // Dropping the runtime mesh makes a shape change rebuild the geometry.
+        ECS::ClearEditableMesh( desc );
+        desc.Primitive     = ToPrimitive( shape );
+        desc.MaterialSlots = { material };
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        // Clearing the runtime instances forces a rebuild against the new handle.
+        smc.RuntimeMaterialInstances().clear();
 
         // A flat card must face the camera to be readable (a grass atlas garbles on a sphere), so the plane
         // preview keeps a fixed front-on view instead of an orbit start angle.
-        auto& tc    = m_Target.GetComponent<ECS::TransformComponent>();
-        tc.Rotation = glm::vec3( 0.0f );
+        m_Target.SetLocalRotation( glm::vec3( 0.0f ) );
 
         m_MeshHandle  = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Framed      = true; // a primitive's size is known up front
@@ -700,12 +712,14 @@ namespace Desert::Editor
         DropSkinned();
         // Nothing rides the mesh path in this mode — the ball is the external pass's draw (see the
         // header for why it is not a primitive with a scratch material).
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
 
         if ( !m_CubemapPass )
         {
@@ -770,12 +784,14 @@ namespace Desert::Editor
             return;
 
         // Nothing rides the mesh path: a medium has no surface to put on a primitive (see the header).
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
 
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();
@@ -859,12 +875,14 @@ namespace Desert::Editor
         DropSkinned();
 
         // One kind of content at a time: the target mesh and the cubemap ball are emptied (SetVolumeMaterial).
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();
 
@@ -880,7 +898,7 @@ namespace Desert::Editor
         vfx.RequestRestart    = true;
         // On the floor's top (the floor entity sits at y = -50, ApplySetup).
         const glm::vec3 origin( 0.0f, -50.0f, 0.0f );
-        m_Effect.GetComponent<ECS::TransformComponent>().Translation = origin;
+        m_Effect.SetLocalTranslation( origin );
 
         m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Fill            = Fill::Object;
@@ -964,16 +982,19 @@ namespace Desert::Editor
             return;
         EnsureInit();
 
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
 
-        auto& skinned         = m_Target.AddComponent<ECS::SkinnedMeshComponent>();
+        ECS::SkinnedMeshDesc skinned;
         skinned.MeshHandle    = mesh;
         skinned.MaterialSlots = materials;
+        ECS::SetSkinnedMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), skinned );
 
         // THE SCENE'S CLOCK IS STOPPED: the preview scene runs no AnimationECSSystem, so the only writer of
         // the playhead is SetAnimationTime, and ApplyAnimationTime builds the animator (Playing = false and
@@ -991,7 +1012,7 @@ namespace Desert::Editor
         m_Focus           = glm::vec3( 0.0f );
         m_FrameHalfExtent = glm::vec3( 50.0f ); // stand-in until the bounds are known (see TryFrameMesh)
         m_FrameRadius     = RadiusOfHalfExtent( m_FrameHalfExtent );
-        m_Target.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f );
+        m_Target.SetLocalRotation( glm::vec3( 0.0f ) );
         ResetView();
         m_Framed = TryFrameMesh();
         ++m_ContentRevision;
@@ -1116,7 +1137,7 @@ namespace Desert::Editor
             // so the signature stamp, not the pointer, says the Animator is stale.
             Desert::Mesh* mesh = m_Target.HasComponent<ECS::SkinnedMeshComponent>()
                                       ? Runtime::ResourceRegistry::GetMeshService()->Get(
-                                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle )
+                                             m_Target.GetComponent<ECS::SkinnedMeshComponent>().GetMeshHandle() )
                                       : nullptr;
             if ( mesh == nullptr || !mesh->IsSkinned() )
             {
@@ -1171,12 +1192,14 @@ namespace Desert::Editor
             return;
         DropSkinned();
 
-        auto& smc      = m_Target.GetComponent<ECS::StaticMeshComponent>();
-        smc.MeshHandle = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
-        smc.Primitive.reset();
-        smc.MaterialSlots.clear();
-        smc.RuntimeMaterialInstances.clear();
-        ECS::ClearEditableMesh( smc );
+        auto&               smc  = m_Target.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MeshHandle          = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        ECS::ClearEditableMesh( desc );
+        ECS::SetStaticMesh( *m_Target.GetRegistry(), m_Target.GetHandle(), desc );
+        smc.RuntimeMaterialInstances().clear();
 
         if ( m_CubemapPass )
             m_CubemapPass->ClearSource();

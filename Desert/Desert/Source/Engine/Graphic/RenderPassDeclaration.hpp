@@ -329,6 +329,9 @@ namespace Desert::Graphic
         std::string           Name;
         RenderPassDeclaration Access;
         NodeRecordFunc        Record;
+        // The frame asks for the async compute queue (RDG::PassFlags::AsyncCompute): set by the frame code that
+        // adds the nodes, which knows how far the first reader is, never by the system that declares them.
+        bool AsyncCompute = false;
     };
 
     // The graph-ref half of a declaration (textures and buffers named by their handle in THIS graph), kept free of

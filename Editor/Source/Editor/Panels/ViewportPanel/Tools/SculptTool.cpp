@@ -187,8 +187,9 @@ namespace Desert::Editor::Tools
                     const Geometry::RemeshSettings* topology =
                          ms.SculptDynamic ? &ms.DynamicSculptTopology : nullptr;
                     Geometry::ApplySculptStamp( *next, target->World, stamp, brush, topology );
-                    auto& component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
-                    if ( auto set = ECS::SetEditableMesh( component, std::move( next ) ); set.IsSuccess() )
+                    if ( auto set = ECS::SetEditableMesh( *target->Entity.GetRegistry(), target->Entity.GetHandle(),
+                                                          std::move( next ) );
+                         set.IsSuccess() )
                         m_LastStamp = hit.Center;
                     else
                         LOG_ERROR( "[Sculpt] the moved mesh could not be built: {0}", set.GetError() );
@@ -231,8 +232,9 @@ namespace Desert::Editor::Tools
                     prev                               = c;
                     Geometry::ApplySculptStamp( *next, target->World, stamp, brush, topology );
                 }
-                auto& component = target->Entity.GetComponent<ECS::StaticMeshComponent>();
-                if ( auto set = ECS::SetEditableMesh( component, std::move( next ) ); set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( *target->Entity.GetRegistry(), target->Entity.GetHandle(),
+                                                      std::move( next ) );
+                     set.IsSuccess() )
                     m_LastStamp = centres.back();
                 else
                     LOG_ERROR( "[Sculpt] the sculpted mesh could not be built: {0}", set.GetError() );

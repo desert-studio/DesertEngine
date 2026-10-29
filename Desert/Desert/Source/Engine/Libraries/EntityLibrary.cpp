@@ -71,64 +71,64 @@ namespace Desert::Libraries
     glm::vec3 EntityLibrary::GetPosition( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->Translation : glm::vec3( 0.0f );
+        return t != nullptr ? t->GetTranslation() : glm::vec3( 0.0f );
     }
 
     void EntityLibrary::SetPosition( ECS::Entity entity, const glm::vec3& position )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Translation = position;
+        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
+            entity.SetLocalTranslation( position );
     }
 
     void EntityLibrary::Translate( ECS::Entity entity, const glm::vec3& offset )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Translation += offset;
+        if ( const auto* t = Get<ECS::TransformComponent>( entity ) )
+            entity.SetLocalTranslation( t->GetTranslation() + offset );
     }
 
     glm::vec3 EntityLibrary::GetRotation( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->Rotation : glm::vec3( 0.0f );
+        return t != nullptr ? t->GetRotation() : glm::vec3( 0.0f );
     }
 
     void EntityLibrary::SetRotation( ECS::Entity entity, const glm::vec3& euler )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Rotation = euler;
+        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
+            entity.SetLocalRotation( euler );
     }
 
     glm::vec3 EntityLibrary::GetScale( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->Scale : glm::vec3( 1.0f );
+        return t != nullptr ? t->GetScale() : glm::vec3( 1.0f );
     }
 
     void EntityLibrary::SetScale( ECS::Entity entity, const glm::vec3& scale )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Scale = scale;
+        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
+            entity.SetLocalScale( scale );
     }
 
     glm::vec3 EntityLibrary::Forward( ECS::Entity entity )
     {
         const auto*     t = Get<ECS::TransformComponent>( entity );
         const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
-        return t != nullptr ? glm::quat( t->Rotation ) * forward : forward;
+        return t != nullptr ? glm::quat( t->GetRotation() ) * forward : forward;
     }
 
     glm::vec3 EntityLibrary::Right( ECS::Entity entity )
     {
         const auto*     t = Get<ECS::TransformComponent>( entity );
         const glm::vec3 right( 1.0f, 0.0f, 0.0f );
-        return t != nullptr ? glm::quat( t->Rotation ) * right : right;
+        return t != nullptr ? glm::quat( t->GetRotation() ) * right : right;
     }
 
     float EntityLibrary::DistanceTo( ECS::Entity entity, ECS::Entity other )
     {
         const auto* a = Get<ECS::TransformComponent>( entity );
         const auto* b = Get<ECS::TransformComponent>( other );
-        return ( a != nullptr && b != nullptr ) ? glm::distance( a->Translation, b->Translation ) : -1.0f;
+        return ( a != nullptr && b != nullptr ) ? glm::distance( a->GetTranslation(), b->GetTranslation() ) : -1.0f;
     }
 
     // ── CharacterLibrary ──
@@ -183,8 +183,12 @@ namespace Desert::Libraries
 
     void CharacterLibrary::AddYaw( ECS::Entity entity, float radians )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Rotation.y += radians;
+        if ( const auto* t = Get<ECS::TransformComponent>( entity ) )
+        {
+            glm::vec3 rotation = t->GetRotation();
+            rotation.y += radians;
+            entity.SetLocalRotation( rotation );
+        }
     }
 
     void CharacterLibrary::AddCameraPitch( ECS::Entity entity, float radians )
@@ -200,8 +204,9 @@ namespace Desert::Libraries
             if ( ( reg.has<ECS::SpringArmComponent>( child ) || reg.has<ECS::CameraComponent>( child ) ) &&
                  reg.has<ECS::TransformComponent>( child ) )
             {
-                auto& rot = reg.get<ECS::TransformComponent>( child ).Rotation;
-                rot.x     = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );
+                glm::vec3 rot = reg.get<ECS::TransformComponent>( child ).GetRotation();
+                rot.x         = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );
+                ECS::SetLocalRotation( reg, child, rot );
                 break;
             }
         }
@@ -249,10 +254,10 @@ namespace Desert::Libraries
         }
 
         // The Shader Override component, when the entity has one naming a shader: its Params are that draw.
-        ECS::MaterialComponent* ShaderOverrideOf( const ECS::Entity& entity )
+        const ECS::MaterialComponent* ShaderOverrideOf( const ECS::Entity& entity )
         {
-            auto* mc = Get<ECS::MaterialComponent>( entity );
-            return mc != nullptr && !mc->ShaderName.empty() ? mc : nullptr;
+            const auto* mc = Get<ECS::MaterialComponent>( entity );
+            return mc != nullptr && !mc->GetShaderName().empty() ? mc : nullptr;
         }
     } // namespace
 
@@ -265,9 +270,11 @@ namespace Desert::Libraries
     // An entity with neither has no material to write, and the call fails naming it.
     void MaterialLibrary::SetMaterialParam( ECS::Entity entity, const std::string& name, const glm::vec4& value )
     {
-        if ( auto* mc = ShaderOverrideOf( entity ) )
+        if ( const auto* mc = ShaderOverrideOf( entity ) )
         {
-            UpsertParam( mc->Params, name, value );
+            ECS::MaterialDesc desc = mc->GetDesc();
+            UpsertParam( desc.Params, name, value );
+            ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
             return;
         }
         auto* smc = Get<ECS::StaticMeshComponent>( entity );
@@ -279,9 +286,14 @@ namespace Desert::Libraries
                               name ) );
             return;
         }
-        UpsertParam( smc->ScriptSlotParams, name, value );
-        if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
-            smc->RuntimeMaterialInstances[0]->SetParamFromVec4( name, value );
+        // Through the component's one writer (ECS::SetStaticMesh): the slots are unchanged, so the runtime
+        // instances survive and take the value directly below.
+        ECS::StaticMeshDesc meshDesc = smc->GetDesc();
+        UpsertParam( meshDesc.ScriptSlotParams, name, value );
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), meshDesc );
+        smc = Get<ECS::StaticMeshComponent>( entity );
+        if ( !smc->RuntimeMaterialInstances().empty() && smc->RuntimeMaterialInstances()[0] )
+            smc->RuntimeMaterialInstances()[0]->SetParamFromVec4( name, value );
     }
 
     // The value a read sees is the one the write route above keeps: the override's Params, else the script's
@@ -290,18 +302,18 @@ namespace Desert::Libraries
     {
         if ( const auto* mc = ShaderOverrideOf( entity ) )
         {
-            for ( const auto& p : mc->Params )
+            for ( const auto& p : mc->GetParams() )
                 if ( p.Name == name )
                     return p.Value;
             return glm::vec4( 0.0f );
         }
         if ( const auto* smc = Get<ECS::StaticMeshComponent>( entity ) )
         {
-            for ( const auto& p : smc->ScriptSlotParams )
+            for ( const auto& p : smc->GetScriptSlotParams() )
                 if ( p.Name == name )
                     return p.Value;
-            if ( !smc->RuntimeMaterialInstances.empty() && smc->RuntimeMaterialInstances[0] )
-                if ( const auto authored = smc->RuntimeMaterialInstances[0]->GetOverrideAsVec4( name ) )
+            if ( !smc->RuntimeMaterialInstances().empty() && smc->RuntimeMaterialInstances()[0] )
+                if ( const auto authored = smc->RuntimeMaterialInstances()[0]->GetOverrideAsVec4( name ) )
                     return *authored;
         }
         return glm::vec4( 0.0f );
@@ -312,16 +324,22 @@ namespace Desert::Libraries
     // material-instance asset's own overrides, which the instance carries the same way.
     void MaterialLibrary::ClearMaterialParams( ECS::Entity entity )
     {
-        if ( auto* mc = ShaderOverrideOf( entity ) )
+        if ( const auto* mc = ShaderOverrideOf( entity ) )
         {
-            mc->Params.clear();
-            mc->Textures.clear();
+            ECS::MaterialDesc desc = mc->GetDesc();
+            desc.Params.clear();
+            desc.Textures.clear();
+            ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
         }
         if ( auto* smc = Get<ECS::StaticMeshComponent>( entity );
-             smc != nullptr && !smc->ScriptSlotParams.empty() )
+             smc != nullptr && !smc->GetScriptSlotParams().empty() )
         {
-            smc->ScriptSlotParams.clear();
-            smc->RuntimeMaterialInstances.clear();
+            ECS::StaticMeshDesc desc = smc->GetDesc();
+            desc.ScriptSlotParams.clear();
+            ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+            // The script overrides were baked into the runtime instances; the writer drops those only on a
+            // slot change, so they are dropped here and rebuilt from the slots on the next draw.
+            Get<ECS::StaticMeshComponent>( entity )->RuntimeMaterialInstances().clear();
         }
     }
 
@@ -334,13 +352,18 @@ namespace Desert::Libraries
         if ( shader.empty() )
             entity.GetRegistry()->remove<ECS::MaterialComponent>( entity.GetHandle() );
         else
-            entity.GetRegistry()->get_or_emplace<ECS::MaterialComponent>( entity.GetHandle() ).ShaderName = shader;
+        {
+            const auto*       mc   = Get<ECS::MaterialComponent>( entity );
+            ECS::MaterialDesc desc = mc != nullptr ? mc->GetDesc() : ECS::MaterialDesc{};
+            desc.ShaderName        = shader;
+            ECS::SetMaterial( *entity.GetRegistry(), entity.GetHandle(), desc );
+        }
     }
 
     std::string MaterialLibrary::GetShader( ECS::Entity entity )
     {
         const auto* mc = Get<ECS::MaterialComponent>( entity );
-        return mc != nullptr ? mc->ShaderName : std::string();
+        return mc != nullptr ? mc->GetShaderName() : std::string();
     }
 
     // ── WorldLibrary ──
@@ -390,11 +413,14 @@ namespace Desert::Libraries
         const Core::WorldContext* context = World( "spawnMarker" );
         if ( context == nullptr )
             return {};
-        ECS::Entity e                                        = context->World->CreateNewEntity( "Marker" );
-        e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Sphere;
-        auto& t                                              = e.GetComponent<ECS::TransformComponent>();
-        t.Translation                                        = position;
-        t.Scale                                              = glm::vec3( scale <= 0.0f ? 0.15f : scale );
+        ECS::Entity         e = context->World->CreateNewEntity( "Marker" );
+        ECS::StaticMeshDesc marker;
+        marker.Primitive = Geometry::PrimitiveType::Sphere;
+        ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), marker );
+        ECS::LocalTransform t = e.GetComponent<ECS::TransformComponent>().GetLocal();
+        t.Translation         = position;
+        t.Scale               = glm::vec3( scale <= 0.0f ? 0.15f : scale );
+        e.SetLocalTransform( t );
         const auto debugColor =
              context->Assets != nullptr
                   ? Assets::FindTemplateByRole( *context->Assets, Common::Content::kDebugColorRole )
@@ -408,9 +434,10 @@ namespace Desert::Libraries
                                   : debugColor.GetError() );
             return e;
         }
-        auto& mc      = e.AddComponent<ECS::MaterialComponent>();
-        mc.ShaderName = template_->GetMetadata().Filepath.stem().string();
-        mc.Params.push_back( ECS::MaterialParamOverride{ "Color", glm::vec4( color, 1.0f ) } );
+        ECS::MaterialDesc desc;
+        desc.ShaderName = template_->GetMetadata().Filepath.stem().string();
+        desc.Params.push_back( ECS::MaterialParamOverride{ "Color", glm::vec4( color, 1.0f ) } );
+        ECS::SetMaterial( *e.GetRegistry(), e.GetHandle(), desc );
         return e;
     }
 

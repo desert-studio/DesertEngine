@@ -2,6 +2,7 @@
 
 #include <Engine/Graphic/RendererContext.hpp>
 #include <span>
+#include <string_view>
 #include <Common/Core/Memory/CommandBuffer.hpp>
 
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
@@ -29,6 +30,8 @@ namespace Desert::Graphic
     {
         struct RayTracingHitGroupTable;
     } // namespace RayTracing
+    class SharedGpuBuffer;
+    class SharedGpuTimeline;
     class VertexBuffer;
     namespace RDG
     {
@@ -78,6 +81,11 @@ namespace Desert::Graphic
         // RendererAPI::InvalidateGeometryBinding.
         static void InvalidateGeometryBinding();
         static Common::BoolResultStr ImportMeshStreams( const MeshGeometry& geometry, RDG::ExternalBuffer& into );
+        // RendererAPI::CreateSharedBuffer / CreateSharedTimeline (SharedGpuMemory.hpp).
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<SharedGpuBuffer>>
+        CreateSharedBuffer( std::string_view name, uint64_t bytes );
+        [[nodiscard]] static Common::ResultStr<std::shared_ptr<SharedGpuTimeline>>
+                                     CreateSharedTimeline( std::string_view name );
         void                         EndDebugLabel();
         // Vertexless draw in the pipeline's own topology (Lines for the debug lines, Triangles for a tool's
         // translucent preview mesh): the vertex stage pulls each vertex from a storage buffer by gl_VertexIndex.

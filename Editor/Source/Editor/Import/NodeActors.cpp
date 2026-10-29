@@ -17,8 +17,10 @@ namespace Desert::Editor
         for ( const PlacedNodeMesh& node : nodes )
         {
             const ECS::Entity child = scene.CreateNewEntity( std::string( node.Name ) );
-            child.AddComponent<ECS::StaticMeshComponent>().MeshHandle = node.Mesh;
-            child.GetComponent<ECS::TransformComponent>().Translation = node.Placement;
+            ECS::StaticMeshDesc mesh;
+            mesh.MeshHandle = node.Mesh;
+            ECS::SetStaticMesh( *child.GetRegistry(), child.GetHandle(), mesh );
+            child.SetLocalTranslation( node.Placement );
             scene.Attach( root, child );
             placed.push_back( child );
         }
@@ -39,7 +41,7 @@ namespace Desert::Editor
             const glm::vec3   color( light.Color[0], light.Color[1], light.Color[2] );
             const float       radius    = light.Radius.value_or( std::numeric_limits<float>::max() );
             const ECS::Entity child     = scene.CreateNewEntity( std::string( light.Name ) );
-            auto&             transform = child.GetComponent<ECS::TransformComponent>();
+            ECS::LocalTransform transform = child.GetComponent<ECS::TransformComponent>().GetLocal();
             if ( light.Type == "Directional" )
             {
                 auto& data     = child.AddComponent<ECS::DirectionLightComponent>().Data;
@@ -73,6 +75,7 @@ namespace Desert::Editor
                 data.Falloff          = ECS::LightFalloff::InverseSquare;
                 transform.Translation = position;
             }
+            child.SetLocalTransform( transform );
             scene.Attach( root, child );
             placed.push_back( child );
         }

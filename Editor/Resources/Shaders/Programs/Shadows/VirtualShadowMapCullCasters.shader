@@ -80,31 +80,12 @@ Shader "VirtualShadowMapCullCasters"
                 return;
             const uint            level    = Params.x;
             const VsmCullInstance instance = Instances[i];
-            const mat4            vp       = Levels[level].ViewProjection;
-
-            // The box's footprint in the level's window pages (the map's texel convention, VsmProject) and its depth
-            // span. Nearer the sun than the level's range still draws (depth clamp, "VSM: Raster"); wholly past its
-            // far end does not.
-            vec2  first   = vec2( 1.0e30 );
-            vec2  last    = vec2( -1.0e30 );
-            float nearest = 1.0e30;
-            for ( uint c = 0u; c < 8u; ++c )
-            {
-                const vec3 corner =
-                     mix( instance.Min.xyz, instance.Max.xyz, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
-                const vec4 clip = vp * vec4( corner, 1.0 );
-                const vec2 page = ( clip.xy * 0.5 + 0.5 ) * float( VSM_LEVEL_PAGES );
-                first           = min( first, page );
-                last            = max( last, page );
-                nearest         = min( nearest, clip.z );
-            }
-            if ( nearest > 1.0 )
+            ivec2 lowPage;
+            ivec2 highPage;
+            float nearest;
+            if ( !VsmLevelPageRect( Levels[level], instance.Min.xyz, instance.Max.xyz, lowPage, highPage, nearest ) ||
+                 !CoversDrawnCell( level, lowPage, highPage ) )
                 return;
-            const ivec2 lowPage  = max( ivec2( floor( first ) ), ivec2( 0 ) );
-            const ivec2 highPage = min( ivec2( floor( last ) ), ivec2( int( VSM_LEVEL_PAGES ) - 1 ) );
-            if ( any( greaterThan( lowPage, highPage ) ) || !CoversDrawnCell( level, lowPage, highPage ) )
-                return;
-
             const uvec4 draw = Draws[instance.Draw.x];
             const uint  slot = atomicAdd( Arguments[draw.x * VSM_DRAW_ARGUMENT_WORDS + 1u], 1u );
             for ( uint r = 1u; r < draw.y; ++r )

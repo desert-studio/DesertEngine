@@ -13,6 +13,8 @@ Shader "NeuralFusedMlp"
         //   NN_KERNEL  0 forward      h_{l+1} = ReLU(W_l h_l), y = W_last h_last; writes every h_l (training)
         //              1 backward     g_{l-1} = (W_l^T g_l) * [h_l > 0] from g_last = dL/dy; writes every g_l
         //              2 weight grad  dW_l = sum over the batch of g_l (x) h_l, fp32, deterministic (no atomics)
+        //              3 inference    the forward of 0 that keeps no activations: reads NnWeights NnInput, writes
+        //                             NnOutput only (the neural radiance cache's queries, NeuralRadianceCache.hpp)
         //   NN_PATH    0 fp32 scalar, 1 fp16 scalar (fp16 products, fp32 sums), 2 cooperative matrix fp16
         //   NN_TM / NN_TN / NN_TK   the cooperative-matrix tile the device selected (NeuralComputeCaps::Tile)
         // The default variant (no define) is fp32 forward, so the program the boot compiles is a real one.
@@ -62,11 +64,13 @@ Shader "NeuralFusedMlp"
         // fp32 in, as the caller holds them; the fp16 paths convert on load. Each kernel declares only the buffers
         // it touches, with the access it makes (reflection lists every declared buffer, and the render-graph pass
         // binds exactly these: FusedMlpCompute::AddTrainingPasses).
-        #if NN_KERNEL == 0
+        #if NN_KERNEL == 0 || NN_KERNEL == 3
         ReadBuffer(0) NnWeights { float Weights[]; };       // [MatrixCount][64 out][64 in]
         ReadBuffer(1) NnInput { float Input[]; };           // [Batch][64]
         Buffer(3) NnOutput { float Output[]; };             // [Batch][64]
+        #if NN_KERNEL == 0
         Buffer(4) NnActivations { nn_t Activations[]; };    // [MatrixCount][Batch][64] h_l, the input of matrix l
+        #endif
         #elif NN_KERNEL == 1
         ReadBuffer(0) NnWeights { float Weights[]; };       // [MatrixCount][64 out][64 in]
         ReadBuffer(2) NnOutputGrad { float OutputGrad[]; }; // [Batch][64] dL/dy
@@ -160,7 +164,7 @@ Shader "NeuralFusedMlp"
         }
         #endif
 
-        #if NN_KERNEL == 0
+        #if NN_KERNEL == 0 || NN_KERNEL == 3
         void main()
         {
             const uint block = gl_WorkGroupID.x * NN_BLOCK;
@@ -168,7 +172,9 @@ Shader "NeuralFusedMlp"
             {
                 const nn_t h                            = nn_t( Input[block * NN_WIDTH + i] );
                 sRows[i]                                = h;
+        #if NN_KERNEL == 0
                 Activations[RowIndex( 0, block ) + i]   = h;
+        #endif
             }
 
             const uint last = Push.MatrixCount - 1u;
@@ -187,7 +193,9 @@ Shader "NeuralFusedMlp"
                     {
                         const nn_t h                              = nn_t( max( z, 0.0 ) );
                         sRows[i]                                  = h;
+        #if NN_KERNEL == 0
                         Activations[RowIndex( l + 1u, block ) + i] = h;
+        #endif
                     }
                     else
                         Output[block * NN_WIDTH + i] = z;
@@ -205,7 +213,9 @@ Shader "NeuralFusedMlp"
                     {
                         const nn_t h                              = nn_t( max( acc[c], 0.0 ) );
                         sRows[i]                                  = h;
+        #if NN_KERNEL == 0
                         Activations[RowIndex( l + 1u, block ) + i] = h;
+        #endif
                     }
                     else
                         Output[block * NN_WIDTH + i] = acc[c];

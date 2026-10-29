@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -127,9 +128,34 @@ namespace Desert::Graphic::SurfaceCache
             glm::vec4  LightColor{ 0.0f };
             glm::vec4  Light1Dir{ 0.0f };   // atmosphere light 1 (the moon)
             glm::vec4  Light1Color{ 0.0f }; // a == 0: none
-            glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame)
+            glm::uvec4 Flags{ 0u }; // x = 1: the pages keep their IndirectLighting (it runs this frame); y = frame
+            glm::uvec4 Emissive{ 0u };        // EmissiveLightsFrame::StaticParams
+            glm::uvec4 EmissiveDynamic{ 0u }; // EmissiveLightsFrame::DynamicParams
         };
-        static_assert( sizeof( DirectLightingPush ) == 80 );
+        static_assert( sizeof( DirectLightingPush ) == 112 );
+
+        // Programs/SurfaceCache/SurfaceCacheDirectLighting.shader's emissive triangle blocks (hardware tracer).
+        struct SurfaceCacheEmissiveLightsShaderParameters
+        {
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveSegmentsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveLookupUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveTrianglesUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissivePowerUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicSegmentsUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicTrianglesUB );
+            DESERT_SHADER_PARAMETER( StorageBuffer, EmissiveDynamicPowerUB );
+        };
+        // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader's card emission a hit leaves out (hardware
+        // tracer, GI_HIT_EXCLUDES_EMISSION).
+        constexpr RDG::TextureParameter kRadiosityExcludedEmissive{ "SurfaceCacheEmissiveTexture" };
+
+        // The tracers whose programs sample the emissive triangles as lights (GI-EMISSIVE-LIGHTS): both - the list
+        // is built from the scene's meshes (EmissiveLights.hpp), and each tracer shadows a sample by its own
+        // visibility ray (TracedShadow).
+        [[nodiscard]] bool SamplesEmissiveLights( const GlobalIllumination::Pipeline& /*tracer*/ )
+        {
+            return true;
+        }
 
         // Programs/SurfaceCache/SurfaceCacheRadiosityTrace.shader SurfaceRadiosityPush.
         struct RadiosityTracePush
@@ -167,8 +193,11 @@ namespace Desert::Graphic::SurfaceCache
         }
     } // namespace
 
+    SurfaceCacheRenderer::SurfaceCacheRenderer( const ResourceOwnerInstance owner ) : m_LedgerInstance( owner ) {}
+
     Common::BoolResultStr SurfaceCacheRenderer::Initialize()
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         m_CopyShader       = shaders->GetByName( "SurfaceCacheCardCopy" );
         m_AtlasViewShader  = shaders->GetByName( "SurfaceCacheAtlasView" );
@@ -230,6 +259,7 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::BoolResultStr SurfaceCacheRenderer::Configure( const SurfaceCacheBudget& budget )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         m_Scene.Configure( budget, kCaptureAtlasSize, kMaxCapturesPerFrame );
         if ( budget.AtlasSize == m_AtlasSize )
             return BOOLSUCCESS;
@@ -298,31 +328,52 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
+    void SurfaceCacheRenderer::BeginFrame( const uint64_t engineFrame, std::vector<glm::vec3> origins,
+                                           const entt::registry& registry, const bool deferred )
+    {
+        const Common::Scalability::ResolvedQuality&   quality = Common::Scalability::QualityState::Resolved();
+        const Common::Scalability::CapabilityCatalog& catalog = Common::Scalability::QualityState::Catalog();
+        // THE SCENE'S GI METHOD: its unbound volumes (no view position: a volume around one camera is that view's
+        // grade, not the scene's), under the machine's ceiling and the device - the resolution a view runs.
+        const Core::PostProcessSettings scenePost = ResolveViewSettings( registry, std::nullopt ).Post;
+        const RenderMethods methods = ResolveRenderMethods( scenePost, quality, catalog, deferred, m_Refusals );
+        GlobalIllumination::Pipeline tracer =
+             GlobalIllumination::PipelineFor( methods.GlobalIllumination.Effective, quality, catalog );
+        if ( !tracer.Traced )
+        {
+            // An untraced scene method (the cards serve the traced reflections or a view mode): the software walk,
+            // the one every device runs.
+            tracer        = GlobalIllumination::Pipeline{};
+            tracer.Traced = true;
+        }
+        m_FrameViews = FrameViews{ .Frame   = engineFrame,
+                                   .Origins = std::move( origins ),
+                                   .Budget  = MakeSurfaceCacheBudget( quality ),
+                                   .Tracer  = tracer };
+    }
+
+    void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer,
+                                                     const std::string_view reason )
+    {
+        for ( const Common::Scalability::GIMethod method : GlobalIllumination::TraceProgramGIMethods( tracer, false ) )
+            AddRefusal( m_Refusals.GlobalIllumination, method, "SurfaceCacheDirectLighting", reason );
+    }
+
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
-    SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera,
-                                       const uint64_t                                 engineFrame,
+    SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const uint64_t engineFrame,
                                        const GlobalIllumination::DirectionalLighting& lighting )
     {
-        // What this call asks for: the camera and the instance list's identity (key, placement, surface and
-        // capture readiness of each, in order) - the once-per-frame rule compares it with the frame's update.
-        uint64_t inputs = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( instances.size() );
-        for ( const auto& instance : instances )
-        {
-            inputs = ( inputs ^ instance.Key ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ SurfaceCacheScene::PlacementKey( instance.Mesh, instance.World ) ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ instance.SurfaceKey ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ ( instance.CaptureReady ? 1ULL : 0ULL ) ) * 0x100000001B3ULL;
-        }
-        if ( m_FrameUpdate && m_FrameUpdate->Frame == engineFrame )
-        {
-            if ( camera != m_FrameUpdate->Camera || inputs != m_FrameUpdate->Instances )
-                return Common::MakeFormattedError<SceneUpdate>(
-                     "surface cache: updated once per frame - frame {} was updated for another camera or instance "
-                     "set (its captures and relit pages are what that frame's earlier graph writes and reads)",
-                     engineFrame );
-            // The frame's update already ran: this graph reads the same cache, nothing is updated.
+        // The frame's update already ran (another view of the scene, earlier this frame): this graph reads the
+        // same cache - the records that view's graph wrote the atlases from - and nothing is updated. Its own
+        // camera and instance list do not re-pick the frame's captures (SurfaceCacheRenderer, the class comment).
+        if ( UpdatedIn( engineFrame ) )
             return Common::MakeSuccess( SceneUpdate{ .Scene = m_FrameUpdate->Scene, .Updated = false } );
-        }
+        // The frame's views were stated before any of them opened (BeginFrame): the update is cut from all of them.
+        const FrameViews* const views = ViewsOf( engineFrame );
+        if ( views == nullptr || views->Origins.empty() )
+            return Common::MakeFormattedError<SceneUpdate>(
+                 "surface cache: no view origins stated for frame {} (BeginFrame must run before the frame's views)",
+                 engineFrame );
 
         if ( !m_LitBy || GlobalIllumination::InvalidatesLightingHistory( *m_LitBy, lighting ) )
         {
@@ -331,8 +382,8 @@ namespace Desert::Graphic::SurfaceCache
             m_LitBy          = lighting;
             m_ResetRadiosity = true;
         }
-        SceneFrame scene = m_Scene.Update( instances, camera );
-        m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Camera = camera, .Instances = inputs, .Scene = scene };
+        SceneFrame scene = m_Scene.Update( instances, views->Origins );
+        m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Scene = scene };
         return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
     }
 
@@ -399,6 +450,7 @@ namespace Desert::Graphic::SurfaceCache
          const std::shared_ptr<Shader>& shader, const Core::Formats::ImageFormat format, const uint32_t samples,
          const bool depth, const std::string_view name )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         const auto key = std::make_pair( static_cast<int>( format ), samples );
         if ( const auto it = cache.find( key ); it != cache.end() )
             return Common::MakeSuccess( it->second );
@@ -559,12 +611,25 @@ namespace Desert::Graphic::SurfaceCache
     namespace
     {
         constexpr std::string_view kDirectLightingShaderName = "SurfaceCacheDirectLighting";
+
+        // The direct lighting's permutation: the tracer's, plus DESERT_LOCAL_SHADOW_VSM under Shadows VirtualMaps.
+        Core::ShaderVariant DirectLightingVariant( const GlobalIllumination::Pipeline& tracer,
+                                                  const bool                          virtualLocalShadows )
+        {
+            Core::ShaderVariant variant = GlobalIllumination::TracerVariant( tracer );
+            if ( virtualLocalShadows )
+                variant.Defines.emplace_back( kLocalShadowVsmDefine );
+            return variant;
+        }
     } // namespace
 
     std::vector<Core::CookedProgramVariant> SurfaceCacheRenderer::ProgramVariants()
     {
-        std::vector<Core::CookedProgramVariant> variants =
-             GlobalIllumination::TracerProgramVariants( kDirectLightingShaderName );
+        std::vector<Core::CookedProgramVariant> variants;
+        for ( const GlobalIllumination::Pipeline& tracer : GlobalIllumination::kTracerPermutations )
+            for ( const bool virtualLocalShadows : { false, true } )
+                variants.push_back( { std::string( kDirectLightingShaderName ),
+                                      DirectLightingVariant( tracer, virtualLocalShadows ) } );
         for ( auto& variant : GlobalIllumination::TracerProgramVariants( kRadiosityShaderName ) )
             variants.push_back( std::move( variant ) );
         return variants;
@@ -572,6 +637,7 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         if ( m_RadiosityPipeline && tracer == m_RadiosityProgramFor )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
@@ -604,12 +670,14 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer )
+    Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
+                                                                       const bool virtualLocalShadows )
     {
-        if ( m_LightingPipeline && tracer == m_LightingProgramFor )
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
+        if ( m_LightingPipeline && tracer == m_LightingProgramFor && virtualLocalShadows == m_LightingProgramVsm )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
-             std::string( kDirectLightingShaderName ), GlobalIllumination::TracerVariant( tracer ) );
+             std::string( kDirectLightingShaderName ), DirectLightingVariant( tracer, virtualLocalShadows ) );
         if ( !acquired )
             return Common::MakeFormattedError<bool>( "surface cache: shader SurfaceCacheDirectLighting ({}) was "
                                                      "refused: {}",
@@ -619,8 +687,9 @@ namespace Desert::Graphic::SurfaceCache
         // One quad per relit page into the two lit layers (no depth, no blend: every texel of a relit page is
         // written).
         GraphicsPipelineSpecification lighting;
-        lighting.DebugName =
-             std::format( "SurfaceCacheDirectLighting ({})", GlobalIllumination::TracerDefine( tracer.Tracer ) );
+        lighting.DebugName = std::format( "SurfaceCacheDirectLighting ({}{})",
+                                          GlobalIllumination::TracerDefine( tracer.Tracer ),
+                                          virtualLocalShadows ? ", VSM" : "" );
         lighting.TargetLayout =
              RenderTargetLayout{ .ColorFormats = { kLayerFormats[static_cast<std::size_t>( kLitLayers[0] )],
                                                    kLayerFormats[static_cast<std::size_t>( kLitLayers[2] )] },
@@ -635,6 +704,7 @@ namespace Desert::Graphic::SurfaceCache
         m_LightingShader     = std::move( shader );
         m_LightingPipeline   = pipeline.GetValue();
         m_LightingProgramFor = tracer;
+        m_LightingProgramVsm = virtualLocalShadows;
         return BOOLSUCCESS;
     }
 
@@ -646,8 +716,16 @@ namespace Desert::Graphic::SurfaceCache
     {
         if ( frame.LightingPages.empty() )
             return BOOLSUCCESS;
+        // The updating view's local shadow kind (DirectLightingInputs::VirtualLocalShadows, the value its page
+        // passes were built by): virtual, the lights read the view's virtual shadow map (AddFrameVirtualShadows
+        // ran before this), and the atlas's view table is not this program's.
+        const bool virtualLocalShadows = inputs.VirtualLocalShadows;
+        if ( virtualLocalShadows && !inputs.View.Vsm.IsValid() )
+            return Common::MakeError<bool>( "surface cache direct lighting: the cache's lights read virtual shadow "
+                                            "maps, and the updating view built none this frame "
+                                            "(AddFrameVirtualShadows)" );
         if ( !inputs.Lights.Point.IsValid() || !inputs.Lights.Spot.IsValid() ||
-             !inputs.Lights.ShadowViews.IsValid() )
+             ( !virtualLocalShadows && !inputs.Lights.ShadowViews.IsValid() ) )
             return Common::MakeError<bool>( "surface cache direct lighting: the view's light buffers were not "
                                             "uploaded this frame (AddFrameLightGrid)" );
         if ( !inputs.Lights.WorldGridParams.IsValid() || !inputs.Lights.WorldGridCells.IsValid() )
@@ -658,7 +736,11 @@ namespace Desert::Graphic::SurfaceCache
              !missing.empty() )
             return Common::MakeFormattedError<bool>(
                  "surface cache direct lighting: {} (its shadow rays off the view's shadow maps)", missing );
-        if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline ); !program )
+        const bool emissiveLights = SamplesEmissiveLights( inputs.Tracer.Pipeline );
+        if ( emissiveLights && !inputs.Emissive.Valid )
+            return Common::MakeError<bool>( "surface cache direct lighting: the GI tracer samples the emissive "
+                                            "triangles, and the frame built no list (AddFrameEmissiveLights)" );
+        if ( const auto program = EnsureLightingProgram( inputs.Tracer.Pipeline, virtualLocalShadows ); !program )
             return program;
         std::array<RDG::TextureRef, kCapturedLayers.size()> layers;
         for ( std::size_t i = 0; i < layers.size(); ++i )
@@ -677,6 +759,12 @@ namespace Desert::Graphic::SurfaceCache
         push.Light1Dir                = inputs.Light1Dir;
         push.Light1Color              = inputs.Light1Color;
         push.Flags.x                  = inputs.IndirectLighting ? 1u : 0u;
+        push.Flags.y                  = m_FrameUpdate ? static_cast<uint32_t>( m_FrameUpdate->Frame ) : 0u;
+        if ( emissiveLights )
+        {
+            push.Emissive        = inputs.Emissive.StaticParams();
+            push.EmissiveDynamic = inputs.Emissive.DynamicParams();
+        }
         GraphicsPipeline* const raw   = m_LightingPipeline.get();
         const uint32_t          count = static_cast<uint32_t>( frame.LightingPages.size() );
         graph.AddPass(
@@ -695,8 +783,6 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::Access::StorageRead )
                       .Storage( ShaderProtocols::SpotLight::Parameter, inputs.Lights.Spot,
                                 RDG::Access::StorageRead )
-                      .Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews,
-                                RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheShadowUB, shadow,
                                 RDG::Access::StorageRead )
                       .Storage( SurfaceCacheDirectLightingShaderParameters::SurfaceCacheCloudShadowUB, cloud,
@@ -704,6 +790,14 @@ namespace Desert::Graphic::SurfaceCache
                       .Storage( kLightGridParamsBlock, inputs.Lights.WorldGridParams, RDG::Access::StorageRead )
                       .Storage( kLightGridWorldCellsBlock, inputs.Lights.WorldGridCells, RDG::Access::StorageRead )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( DirectLightingPush ) ) );
+                 // The local lights' shadows: the atlas's view table, or the virtual shadow map's tables.
+                 if ( virtualLocalShadows )
+                 {
+                     if ( layout )
+                         BindVirtualShadowMapReads( block, inputs.View.Vsm, *layout );
+                 }
+                 else
+                     block.Storage( kLocalShadowViewsBlock, inputs.Lights.ShadowViews, RDG::Access::StorageRead );
                  for ( std::size_t i = 0; i < layers.size(); ++i )
                      block.Texture( kLayerTextures[i], layers[i], RDG::Access::SampledGraphics,
                                     RDG::SubresourceRange::All() )
@@ -715,6 +809,19 @@ namespace Desert::Graphic::SurfaceCache
                                 RDG::SamplerDesc::PointClamp() );
                  // The active tracer's reads (its visibility rays), sampled in the fragment stage.
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, RDG::Access::SampledGraphics );
+                 if ( emissiveLights )
+                 {
+                     using E                    = SurfaceCacheEmissiveLightsShaderParameters;
+                     constexpr RDG::Access kR   = RDG::Access::StorageRead;
+                     const auto&           list = inputs.Emissive;
+                     block.Storage( E::EmissiveSegmentsUB, list.Static.Segments, kR )
+                          .Storage( E::EmissiveLookupUB, list.Lookup, kR )
+                          .Storage( E::EmissiveTrianglesUB, list.Static.Triangles, kR )
+                          .Storage( E::EmissivePowerUB, list.Static.Power, kR )
+                          .Storage( E::EmissiveDynamicSegmentsUB, list.Dynamic.Segments, kR )
+                          .Storage( E::EmissiveDynamicTrianglesUB, list.Dynamic.Triangles, kR )
+                          .Storage( E::EmissiveDynamicPowerUB, list.Dynamic.Power, kR );
+                 }
                  // The cascades, the cloud map and the local shadow atlas, with the composite's samplers; the
                  // light grid read is the world grid bound above, not the view's.
                  // (BindSceneViewInputs would bind the view's grid under the same block name a second time.)
@@ -806,6 +913,9 @@ namespace Desert::Graphic::SurfaceCache
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( RadiosityTracePush ) ) );
                  GlobalIllumination::DeclareSurfaceCacheReads( block, inputs.Hits, kS );
                  GlobalIllumination::DeclareTracerReads( block, inputs.Tracer, kS );
+                 // The emission the hits leave out: the direct lighting sampled the emitters (GI-EMISSIVE-LIGHTS).
+                 if ( SamplesEmissiveLights( inputs.Tracer.Pipeline ) )
+                     block.Texture( kRadiosityExcludedEmissive, layers[4], kS, all );
                  pass.ColorTarget( 0, trace, RDG::LoadOp::Load() );
              },
              [traceRaw, tracePush, count]( RDG::PassContext& context ) -> Common::BoolResultStr

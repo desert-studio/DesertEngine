@@ -27,6 +27,16 @@ namespace Desert::Graphic::GpuDriven
             return mesh == nullptr ? MeshGeometryBinding{} : mesh->GetGeometry().MeshBinding();
         }
 
+        // A Content word spread over 64 bits (splitmix64's finaliser): the sum of a primitive's records' mixes does
+        // not depend on their order and two records do not cancel as an xor of equal words would.
+        uint64_t MixContent( uint64_t word )
+        {
+            word += 0x9E3779B97F4A7C15ull;
+            word = ( word ^ ( word >> 30u ) ) * 0xBF58476D1CE4E5B9ull;
+            word = ( word ^ ( word >> 27u ) ) * 0x94D049BB133111EBull;
+            return word ^ ( word >> 31u );
+        }
+
         bool SameInstances( const std::span<const GpuSceneInstance> held,
                             const std::span<const glm::mat4>        transforms )
         {
@@ -38,6 +48,30 @@ namespace Desert::Graphic::GpuDriven
             return true;
         }
     } // namespace
+
+    void GpuSceneRegistry::BeginContent( Entry& entry, const bool inserted, const uint64_t content )
+    {
+        entry.ContentSync  = m_SyncSerial;
+        entry.FrameContent = MixContent( content );
+        m_ContentTouched.emplace_back( &entry, inserted );
+    }
+
+    void GpuSceneRegistry::AddContent( Entry& entry, const uint64_t content ) const
+    {
+        if ( entry.ContentSync == m_SyncSerial ) // else an earlier view of the frame summed it
+            entry.FrameContent += MixContent( content );
+    }
+
+    void GpuSceneRegistry::PublishContent()
+    {
+        for ( const auto& [entry, inserted] : m_ContentTouched )
+        {
+            if ( !inserted && entry->FrameContent != entry->Content )
+                m_Scene.MarkContent( entry->Primitive );
+            entry->Content = entry->FrameContent;
+        }
+        m_ContentTouched.clear();
+    }
 
     void GpuSceneRegistry::CommitFrame( const uint64_t frame )
     {
@@ -184,6 +218,7 @@ namespace Desert::Graphic::GpuDriven
         }
         else
             m_Scene.SetTransform( entry.Primitive, record.World );
+        BeginContent( entry, inserted, record.Content );
         Queued( entry );
         return entry;
     }
@@ -197,6 +232,7 @@ namespace Desert::Graphic::GpuDriven
         out.SkinnedPrimitives.clear();
         out.SkinnedInstances.clear();
         out.FieldInstances.clear();
+        ++m_SyncSerial;
         out.RigidPrimitives.reserve( rigid.size() );
         out.RigidInstances.reserve( rigid.size() );
         out.SkinnedPrimitives.reserve( skinned.size() );
@@ -204,7 +240,7 @@ namespace Desert::Graphic::GpuDriven
         out.FieldInstances.reserve( fields.size() );
 
         // Per entity, the primitives it owns in this view's submission order: index in the list == Slot.
-        std::unordered_map<uint32_t, std::vector<PrimitiveIndex>> entityPrimitives;
+        std::unordered_map<uint32_t, std::vector<Owned>> entityPrimitives;
         entityPrimitives.reserve( rigid.size() + skinned.size() );
         const auto emit = [&]( std::vector<PrimitiveIndex>& primitives, std::vector<InstanceIndex>& instances,
                                const PrimitiveIndex primitive )
@@ -225,19 +261,20 @@ namespace Desert::Graphic::GpuDriven
             }
             auto&          owned     = entityPrimitives[record.Entity];
             PrimitiveIndex primitive = kInvalidIndex;
-            for ( const PrimitiveIndex held : owned ) // only rigid primitives exist yet: skinned run last
-                if ( m_Scene.Primitive( held ).LocalToWorld == PackAffine( record.World ) )
+            for ( const Owned& held : owned ) // only rigid primitives exist yet: skinned run last
+                if ( m_Scene.Primitive( held.Primitive ).LocalToWorld == PackAffine( record.World ) )
                 {
-                    primitive = held;
+                    primitive = held.Primitive;
+                    AddContent( *held.Held, record.Content ); // a section of the same primitive
                     break;
                 }
             if ( primitive == kInvalidIndex )
             {
-                bool fresh = false;
-                primitive =
-                     Touch( MotionKey{ record.Entity, static_cast<uint32_t>( owned.size() ) }, record, fresh )
-                          .Primitive;
-                owned.push_back( primitive );
+                bool   fresh = false;
+                Entry& entry =
+                     Touch( MotionKey{ record.Entity, static_cast<uint32_t>( owned.size() ) }, record, fresh );
+                primitive = entry.Primitive;
+                owned.push_back( Owned{ .Primitive = primitive, .Held = &entry } );
             }
             emit( out.RigidPrimitives, out.RigidInstances, primitive );
         }
@@ -249,7 +286,7 @@ namespace Desert::Graphic::GpuDriven
             bool   fresh = false;
             Entry& entry =
                  Touch( MotionKey{ record.Entity, static_cast<uint32_t>( owned.size() ) }, record, fresh );
-            owned.push_back( entry.Primitive );
+            owned.push_back( Owned{ .Primitive = entry.Primitive, .Held = &entry } );
             if ( entry.BonesFrame != m_Frame )
             {
                 // Both palettes go into the ONE buffer every pass that draws the primitive skins it from. The
@@ -320,9 +357,13 @@ namespace Desert::Graphic::GpuDriven
                     entry.CullStart = field.CullDistanceStart;
                     entry.CullEnd   = field.CullDistanceEnd;
                 }
+                BeginContent( entry, inserted, field.Content );
                 Queued( entry );
             }
+            else
+                AddContent( entry, field.Content ); // another material slot of the same field
             out.FieldInstances.push_back( m_Scene.Primitive( entry.Primitive ).FirstInstance );
         }
+        PublishContent();
     }
 } // namespace Desert::Graphic::GpuDriven

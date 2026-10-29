@@ -55,8 +55,6 @@ namespace
            "TextComponent's own glyph-quad mesh" },
          { "Editor/Source/Editor/Core/Rigging/RigBuilder.cpp", "out",
            "SkinnedMeshComponent built by Convert to Skinned" },
-         { "Editor/Source/Editor/Panels/SceneProperties/ComponentEditorRegistrations.cpp", "c",
-           "InstancedStaticMeshComponent: dropping its primitive cache when the shape or mesh changes" },
     };
 
     std::string StripLineComments( const std::string& line )

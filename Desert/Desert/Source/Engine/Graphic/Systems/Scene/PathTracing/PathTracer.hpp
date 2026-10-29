@@ -1,9 +1,15 @@
 #pragma once
 
+#include <Common/Core/Logger.hpp>
 #include <Common/Core/Profiler.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 #include <Common/Settings/Scalability.hpp>
 #include <Engine/Assets/FrameRetireQueue.hpp>
+#include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/FrameManager.hpp>
+#include <Engine/Core/ShaderCompiler/ShaderVariant.hpp>
+#include <Engine/Graphic/Neural/NeuralRadianceCache.hpp>
+#include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 
 #include <Engine/Graphic/Pipeline.hpp>
@@ -27,11 +33,15 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <chrono>
 #include <format>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Desert::Graphic::System
@@ -90,6 +100,12 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( Texture, CloudShadowMapTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
         DESERT_SHADER_PARAMETER( UniformBuffer, CloudShadowUB );
+        // PATH_TRACING_NRC=1 only (Engine/Graphic/Neural/NeuralRadianceCache.hpp).
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcQueriesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcTrainingSamplesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcSelfQueriesUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcCountersUB );
+        DESERT_SHADER_PARAMETER( StorageBuffer, NrcTraceParamsUB );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -179,6 +195,21 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( StorageTexture, DenoisedTexture );
     };
 
+    struct PathTracingOidnPackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageTexture, AccumulationTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideAlbedoTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideNormalTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, GuideSpecularTexture );
+        DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingOidnPackUB );
+    };
+
+    struct PathTracingOidnUnpackShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, PathTracingOidnOutputUB );
+        DESERT_SHADER_PARAMETER( StorageTexture, OidnResultTexture );
+    };
+
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct PathTracingResolveShaderParameters
     {
@@ -242,7 +273,7 @@ namespace Desert::Graphic::System
     // RayTracing::kMaskTranslucent, plus kMaskTranslucentShadowCaster with CastShadows, so only these rays meet
     // them). Light rays trace the shadow-caster bits only: CastShadows off never occludes a path-traced light.
     //
-    // THE DENOISER (PathTracing.Denoiser = Off | ReLAX | RR | Auto, PathTracingDenoiserMethod; UE
+    // THE DENOISER (PathTracing.Denoiser = Off | ReLAX | RR | Auto | OIDN, PathTracingDenoiserMethod; UE
     // r.PathTracing.Denoiser): the image is clean from the first frame, not after the sum converges, and while the
     // camera moves. Each path that meets a surface also adds its first
     // surface's guides - diffuse and specular reflectance, world normal, camera distance, roughness, the first
@@ -262,6 +293,26 @@ namespace Desert::Graphic::System
     //    of the mean), an energy-conserving variance-guided a-trous, and the remodulation. Its edge-stopping width
     //    is the estimate's standard deviation, so it fades as the paths add up and the converged image is the
     //    tracer's own.
+    //  - OIDN (UE's OpenImageDenoise plugin): OIDN denoises the frame's estimate once it is FINAL - the sum holds
+    //    PathTracing.SamplesPerPixel paths, or under Nrc every frame (the sum restarts each frame, THE NEURAL
+    //    RADIANCE CACHE below; UE's real-time path tracer denoises every frame). Until then the view is ReLAX's,
+    //    as above. A final estimate not denoised yet is denoised IN ITS OWN FRAME'S GRAPH (AddOidnPasses):
+    //    "PathTracing: OIDN Pack" writes the mean radiance and the paths' albedo (both lobes' reflectance, 1 for a
+    //    path that met no surface) and normal (PathTracerDenoise.shader "OidnPack"; means over the sum's paths, so
+    //    valid from one path per pixel) into a buffer shared with OIDN (Renderer::CreateSharedBuffer: exported
+    //    Vulkan memory, imported by OIDN's CUDA / HIP / SYCL device); "PathTracing: OIDN", an ExternalQueue pass,
+    //    splits the frame's submission there on a shared timeline semaphore, and Graphic::Denoise::OidnDenoiser
+    //    filters it (High, hdr, cleanAux guides) on the GPU whose UUID is the Vulkan device's, enqueued and not
+    //    waited; "PathTracing: OIDN Unpack" writes "PathTracing.OidnResult", which the resolve of the SAME frame
+    //    reads, the ReLAX passes not run. A converged still sum is denoised once and its image kept; under Nrc
+    //    each frame's estimate is, with no latency. An estimate that is no longer final, or a sum not kept (a cut,
+    //    a resize, the scene - anything but the camera's motion and Nrc's own restart), drops the image. A refusal
+    //    (CapabilityCatalog::Sharing None, the library missing, no OIDN GPU device for this GPU, an export, import
+    //    or enqueue error) is logged with its reason, kept in OidnDenoiser::Status (the control channel's device
+    //    state) and the view shows the raw accumulation - never a silent ReLAX in its place, and never a host
+    //    copy. UE's OpenImageDenoise plugin reads the image back and blocks; this path neither copies nor stalls.
+    //    While OIDN's image is shown, THE DENOISER'S HISTORY is dropped (the ReLAX passes
+    //    do not run), so the first frame after it that ReLAX shows starts ReLAX's history afresh, as after a cut.
     //
     // THE DENOISER'S HISTORY: the accumulation is the temporal integration of a still camera; a moving camera
     // restarts it every frame, and the history carries the integration across that restart instead - only that
@@ -274,7 +325,42 @@ namespace Desert::Graphic::System
     // radiance with guides from the paths themselves (glass looked through, sub-pixel averaged), as UE keeps its
     // path tracer's denoiser apart from the screen-space one.
     //
-    // Not here (each is UE's and a task of its own): UE's offline denoiser plugin (OIDN), rough glass (the
+    // THE NEURAL RADIANCE CACHE (PathTracing.RadianceCache Nrc; Engine/Graphic/Neural/NeuralRadianceCache.hpp is
+    // the contract): the trace runs PathTracer.shader "PathTracing" built with PATH_TRACING_NRC=1, whose paths end
+    // in the cache once their footprint has spread (the paper's heuristic) and whose training paths feed it; the
+    // cache's passes then add the cached radiance into the sums and train it, before the denoiser and the resolve.
+    // The cache changes every frame it trains, so under Nrc the sum holds this frame's paths only: it restarts
+    // every frame, and that restart keeps THE DENOISER'S HISTORY as a moving camera's does (the previous frame's
+    // sum folded into the history, reprojected - by no motion on a still camera), so the temporal integration of
+    // the image is the denoiser's history and the cache term (THE INFERENCE WEIGHTS: a moving average) is a stable
+    // input to it, not a reset. Turning the cache on or off empties the history (a method change). The cached
+    // contribution goes through the same path intensity clamp as the traced ones (NrcCompositeTargets).
+    // A cache that cannot run on this device (its NN kernel path refused, a program or pipeline refused) does not
+    // refuse the frame: the paths run without it (the cache Off, GetRadianceCacheStatus names why), the refusal is
+    // logged once per reason (ShaderService::ClaimRefusalReport for a refused shader variant). The refusal HOLDS:
+    // the cache is not built again until an input it was refused under changes - PathTracing.RadianceCache (set
+    // away from Nrc and back), MachineSettings::ForcedNeuralKernelPath, or a recompile of a program the cache is
+    // built from (ShaderService::ProgramGeneration of NeuralRadianceCache::kPrograms, the radiance-cache trace's
+    // program and its hit groups' surface templates; the rule of
+    // SceneRenderer::RetryRefusedProgramsAfterRecompile: the same bytes fail the same way, and another shader's
+    // bytes do not change them) - so a refused cache costs one build attempt, not one per frame, and a
+    // hot-reloaded fix or a changed path takes it back on the next frame. A retry refused again for the same
+    // reason is not said again. The frame's data-shape refusals (AddTraceTargets, AddCachePasses) are the same
+    // held refusal: AddTraceTargets is asked before the sum's restart decision, so a refusal there leaves this
+    // frame's paths without the cache; AddCachePasses cannot refuse a batch (Initialize validated every one), and
+    // a refusal it still gives leaves the passes it added - the sum it composited into is this frame's only (it
+    // restarts every Nrc frame), and the next frame, without the cache, restarts it and empties the history (a
+    // method change). A RUNNING cache follows the inputs that made its weights: it is built under
+    // MachineSettings::ForcedNeuralKernelPath and the ProgramGeneration of its own programs (NeuralRadianceCache::
+    // kPrograms: its passes and its MLP's kernels - CacheInputs::SameCache), and the first Nrc frame either
+    // differs at rebuilds it once
+    // - the old cache retired (FrameRetireQueue: frames in flight still read its buffers and pipelines), a new one
+    // made with the new path (fresh weights and hash table: the old ones were trained by other kernels), the sum
+    // restarted and the history emptied (it holds the old cache's light) - so switching the path while the cache
+    // runs takes effect on the next frame; GetRadianceCacheStatus counts the rebuilds and the cache's stats name
+    // the path it runs.
+    //
+    // Not here (each is UE's and a task of its own): rough glass (the
     // raster's glass pass reads no roughness), participating media, a Sobol sequence, pixel filters other than a
     // box.
     class PathTracer final : public RenderSystem
@@ -320,6 +406,9 @@ namespace Desert::Graphic::System
             // a-trous (PathTracerDenoise.shader). It reads the integrated signal only, so the sum and the history
             // are the same with it on or off and a change restarts nothing.
             bool AntiFirefly = true;
+            // PathTracing.RadianceCache (THE NEURAL RADIANCE CACHE above).
+            Common::Scalability::PathTracingRadianceCacheMethod RadianceCache =
+                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
             // PathTracing.LightSampling (THE LIGHT CHOICE above).
             LightSamplingMethod LightSampling = LightSamplingMethod::AllLights;
         };
@@ -432,8 +521,9 @@ namespace Desert::Graphic::System
                 return Common::MakeError( lightGrid.GetError() );
             m_LightGridPipeline = lightGrid.GetValue();
 
-            for ( DenoiseProgram* program : { &m_DenoiseSnapshot, &m_DenoiseTemporal, &m_DenoiseCombine,
-                                              &m_DenoiseAntiFirefly, &m_DenoiseFilter, &m_DenoiseRemodulate } )
+            for ( DenoiseProgram* program :
+                  { &m_DenoiseSnapshot, &m_DenoiseTemporal, &m_DenoiseCombine, &m_DenoiseAntiFirefly,
+                    &m_DenoiseFilter, &m_DenoiseRemodulate, &m_DenoiseOidnPack, &m_DenoiseOidnUnpack } )
             {
                 const std::string name = std::format( "PathTracerDenoise/{}", program->Name );
                 program->PassShader    = shaders->GetByName( name );
@@ -495,10 +585,157 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
+        // The radiance-cache trace's program (built with PATH_TRACING_NRC=1 by EnsureRadianceCache).
+        static constexpr const char* kTraceProgram = "PathTracer/PathTracing";
+
+        // A registered program and its ShaderService::ProgramGeneration.
+        struct ProgramStamp
+        {
+            std::string Program;
+            uint64_t    Generation = 0;
+
+            bool operator==( const ProgramStamp& ) const = default;
+        };
+        // "<program> <generation>, ..." (the log and state nrc).
+        [[nodiscard]] static std::string FormatStamps( const std::vector<ProgramStamp>& stamps )
+        {
+            std::string text;
+            for ( const ProgramStamp& stamp : stamps )
+                text += std::format( "{}{} {}", text.empty() ? "" : ", ", stamp.Program, stamp.Generation );
+            return text;
+        }
+
+        // The inputs a cache is built (and a cache refusal held) under besides PathTracing.RadianceCache itself
+        // (THE NEURAL RADIANCE CACHE above).
+        struct CacheInputs
+        {
+            std::optional<Common::Settings::NeuralKernelPath>
+                 ForcedPath;                  ///< MachineSettings::ForcedNeuralKernelPath
+            std::vector<ProgramStamp> Cache; ///< NeuralRadianceCache::kPrograms: the code that trains the weights
+            std::vector<ProgramStamp> Trace; ///< kTraceProgram and the hit groups' surface templates
+
+            // Everything: a held refusal may be any of these programs' (EnsureRadianceCache builds them all).
+            bool operator==( const CacheInputs& ) const = default;
+            // What the running cache's weights depend on: the kernel path and the cache's own programs. The trace
+            // feeding it recompiling does not make the learned light wrong (its pipeline follows its shader on the
+            // hot-reload poll, Graphic::AnyPipelineBehindItsShader).
+            [[nodiscard]] bool SameCache( const CacheInputs& other ) const
+            {
+                return ForcedPath == other.ForcedPath && Cache == other.Cache;
+            }
+        };
+
+        // CacheInputs as they are this frame (after EnsurePipeline: the hit groups are m_PipelineTemplates').
+        [[nodiscard]] CacheInputs CurrentCacheInputs() const
+        {
+            const Runtime::ShaderService* shaders = Runtime::ResourceRegistry::GetShaderService();
+            CacheInputs inputs{ .ForcedPath = Common::Settings::MachineSettings::Get().ForcedNeuralKernelPath };
+            for ( const char* program : Engine::Neural::NeuralRadianceCache::kPrograms )
+                inputs.Cache.push_back( { program, shaders->ProgramGeneration( program ) } );
+            inputs.Trace.push_back( { kTraceProgram, shaders->ProgramGeneration( kTraceProgram ) } );
+            for ( const std::string& surfaceTemplate : m_PipelineTemplates )
+                inputs.Trace.push_back( { surfaceTemplate, shaders->ProgramGeneration( surfaceTemplate ) } );
+            return inputs;
+        }
+
+        // THE NEURAL RADIANCE CACHE'S PIECES, made on the first Nrc frame: the cache (its programs, the NN layer's
+        // kernel path) and the trace built with PATH_TRACING_NRC=1 over the same hit groups as EnsurePipeline's.
+        // @p inputs: what this frame builds it under (m_RadianceCacheInputs, THE NEURAL RADIANCE CACHE above).
+        [[nodiscard]] Common::BoolResultStr EnsureRadianceCache( const CacheInputs& inputs )
+        {
+            const auto& frames = ::Desert::Engine::FrameManager::GetInstance();
+            m_RetiringCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
+            if ( !m_RadianceCache )
+            {
+                auto cache = std::make_unique<Engine::Neural::NeuralRadianceCache>(
+                     ::Desert::EngineContext::GetInstance().GetCapabilities().Neural );
+                if ( const auto made = cache->Initialize(); !made )
+                {
+                    m_CacheShaderRefusal = cache->GetShaderRefusal();
+                    return made;
+                }
+                m_RadianceCache       = std::move( cache );
+                m_RadianceCacheInputs = inputs;
+            }
+            if ( m_TracePipelineNrc && m_PipelineTemplatesNrc == m_PipelineTemplates )
+                return BOOLSUCCESS;
+            auto*                 shaders = Runtime::ResourceRegistry::GetShaderService();
+            Core::ShaderVariant   variant;
+            variant.Defines = { "PATH_TRACING_NRC=1" };
+            auto                  acquired      = shaders->AcquireVariant( kTraceProgram, variant );
+            if ( !acquired )
+            {
+                m_CacheShaderRefusal =
+                     Engine::Neural::NeuralShaderRefusal{ .Program = kTraceProgram, .Variant = variant };
+                return Common::MakeFormattedError(
+                     "PathTracer: the radiance-cache trace ('{}' with PATH_TRACING_NRC=1) was refused: {}",
+                     kTraceProgram, acquired.GetError() );
+            }
+            m_TraceShaderNrc = acquired.ExtractValue();
+            RayTracingPipelineSpecification spec{
+                 .Program = m_TraceShaderNrc, .HitGroups = {}, .DebugName = "PathTracerNrc" };
+            for ( const std::string& name : m_PipelineTemplates )
+            {
+                auto hit = shaders->GetByName( std::format( "{}/RayTracing.Hit", name ) );
+                if ( !hit || !hit->IsCompiled() )
+                    return Common::MakeFormattedError(
+                         "PathTracer: the hit group of surface template '{}' is not compiled", name );
+                spec.HitGroups.push_back( std::move( hit ) );
+            }
+            auto pipeline = RayTracingPipeline::Create( spec );
+            if ( !pipeline )
+                return Common::MakeError( pipeline.GetError() );
+            m_TracePipelineNrc     = pipeline.GetValue();
+            m_PipelineTemplatesNrc = m_PipelineTemplates;
+            return BOOLSUCCESS;
+        }
+
+        // The running cache was built under other inputs than this frame's @p inputs: it is retired (kept alive
+        // until no frame in flight reads it) and EnsureRadianceCache makes the new one this frame; the sum restarts
+        // and the history empties, both made with the old cache's light.
+        void RetireRadianceCache( const CacheInputs& inputs )
+        {
+            const auto&       frames = ::Desert::Engine::FrameManager::GetInstance();
+            const std::string from   = m_RadianceCache->GetStats().KernelPath;
+            const auto forcedName = []( const std::optional<Common::Settings::NeuralKernelPath>& forced )
+            { return forced ? Engine::NeuralKernelPathName( *forced ) : "none"; };
+            LOG_INFO( "[PathTracer] radiance cache rebuilt (ForcedNeuralKernelPath {} -> {}, program generations "
+                      "{} -> {}); it ran the {} path",
+                      forcedName( m_RadianceCacheInputs.ForcedPath ), forcedName( inputs.ForcedPath ),
+                      FormatStamps( m_RadianceCacheInputs.Cache ), FormatStamps( inputs.Cache ), from );
+            m_RetiringCaches.Park( std::move( m_RadianceCache ), frames.GetAbsoluteFrameCount() );
+            ++m_RadianceCacheRebuilds;
+            Restart();
+        }
+
+        // The cache's refusal @p reason this frame under @p inputs: held as the standing refusal (no build is
+        // attempted while it stands) and logged when it is the one to report. ShaderService::ClaimRefusalReport
+        // answers for a refused shader variant (so a recompile that refuses again is said again); any other is
+        // said unless it is the retried refusal's reason again.
+        void RefuseRadianceCache( const std::string& reason, const CacheInputs& inputs )
+        {
+            m_CacheRefusal = CacheRefusal{
+                 .Reason = reason, .Shader = std::exchange( m_CacheShaderRefusal, {} ), .Inputs = inputs };
+            bool report = false;
+            if ( m_CacheRefusal->Shader )
+                report = Runtime::ResourceRegistry::GetShaderService()->ClaimRefusalReport(
+                     m_CacheRefusal->Shader->Program, m_CacheRefusal->Shader->Variant );
+            else
+                report = !m_RetriedCacheRefusal || m_RetriedCacheRefusal->Reason != reason;
+            m_RetriedCacheRefusal.reset();
+            if ( report )
+                LOG_WARN( "[PathTracer] PathTracing.RadianceCache Nrc refused, the paths run without the cache "
+                          "(Off): {}",
+                          reason );
+        }
+
         // A new world: nothing summed belongs to it (IRenderSystem::OnSceneReplaced).
         void OnSceneReplaced() override
         {
             Restart();
+            // What the cache learned is the old world's light.
+            if ( m_RadianceCache )
+                m_RadianceCache->Reset();
         }
 
         // A camera cut (IRenderSystem::OnTemporalHistoryReset).
@@ -542,6 +779,38 @@ namespace Desert::Graphic::System
                 return Common::MakeFormattedError<Refused>( "{}", envDesc.GetError() );
 
             m_TraceFailed = false;
+            // THE NEURAL RADIANCE CACHE: made on the first Nrc frame; a cache that cannot run leaves the paths
+            // without it (Off, the reason held and logged once: RefuseRadianceCache), never the frame refused. A
+            // held refusal is retried only once an input it was refused under changed.
+            m_NrcRequested = settings.RadianceCache == Common::Scalability::PathTracingRadianceCacheMethod::Nrc;
+            const CacheInputs cacheInputs = CurrentCacheInputs();
+            if ( m_CacheRefusal && ( !m_NrcRequested || m_CacheRefusal->Inputs != cacheInputs ) )
+                m_RetriedCacheRefusal = std::exchange( m_CacheRefusal, std::nullopt );
+            bool nrc = m_NrcRequested && !m_CacheRefusal;
+            if ( nrc && m_RadianceCache && !m_RadianceCacheInputs.SameCache( cacheInputs ) )
+                RetireRadianceCache( cacheInputs );
+            if ( nrc )
+                if ( const auto ready = EnsureRadianceCache( cacheInputs ); !ready )
+                {
+                    RefuseRadianceCache( ready.GetError(), cacheInputs );
+                    nrc = false;
+                }
+            // The cache's targets for this frame's trace, asked before the sum's restart decision so a refusal
+            // leaves this frame's paths without the cache. Under Nrc the sum restarts every frame, so the frame
+            // traces min(PathsPerFrame, SamplesPerPixel) paths (none: nothing to cache, no targets).
+            std::optional<Engine::Neural::NrcTraceTargets> nrcTargets;
+            if ( const uint32_t nrcPaths = std::min( settings.PathsPerFrame, settings.SamplesPerPixel );
+                 nrc && nrcPaths > 0u )
+            {
+                auto targets = m_RadianceCache->AddTraceTargets( graph, width, height, nrcPaths, m_NrcFrames++ );
+                if ( !targets )
+                {
+                    RefuseRadianceCache( std::format( "PathTracer: {}", targets.GetError() ), cacheInputs );
+                    nrc = false;
+                }
+                else
+                    nrcTargets = targets.ExtractValue();
+            }
             const bool resized =
                  !m_Accumulation.Built || m_Accumulation.Width != width || m_Accumulation.Height != height;
             const bool exposureLeft =
@@ -552,40 +821,86 @@ namespace Desert::Graphic::System
             const bool sumKept = !resized && m_Stamp.ReadableIn( frame ) && settings.MaxBounces == m_MaxBounces &&
                                  settings.LightSampling == m_LightSampling && inputs.SceneHash == m_SceneHash &&
                                  !inputs.DynamicGeometry && settings.MaxPathIntensity == m_MaxPathIntensity &&
-                                 !exposureLeft && !inputs.RawToUpscaler && !m_RawToUpscaler;
+                                 !exposureLeft && !inputs.RawToUpscaler && !m_RawToUpscaler && nrc == m_Nrc;
             const bool cameraMoved = frame.ViewProjection != frame.PrevViewProjection;
-            const bool restart     = !sumKept || cameraMoved;
-            const bool denoise     = settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::Off &&
-                                 !inputs.RawToUpscaler;
-            // The previous frame's sum is folded into the history and reprojected (THE DENOISER'S HISTORY).
-            // A history made in this graph (the denoiser just turned on) is written by the combine before any read.
-            const bool reproject = denoise && sumKept && cameraMoved && m_Summed > 0u && m_History.Built &&
-                                   m_History.Width == width && m_History.Height == height;
-            if ( !denoise || !sumKept )
-                m_HistoryValid = false;
+            // Under Nrc the sum restarts every frame (THE NEURAL RADIANCE CACHE above) and keeps the history.
+            const bool restart     = !sumKept || cameraMoved || nrc;
+            const bool hadSum      = m_Summed > 0u; // the previous frame's, before a restart empties it
+            // Why the sum is not kept, stated against the previous frame's inputs before they are replaced below.
+            const bool bouncesLeft    = settings.MaxBounces != m_MaxBounces;
+            const bool samplingLeft   = settings.LightSampling != m_LightSampling;
+            const bool sceneLeft      = inputs.SceneHash != m_SceneHash;
+            const bool clampLeft      = settings.MaxPathIntensity != m_MaxPathIntensity;
+            const bool rawLeft        = inputs.RawToUpscaler || m_RawToUpscaler;
+            const bool nrcLeft        = nrc != m_Nrc;
+            const bool stampUnreadable = !m_Stamp.ReadableIn( frame );
             if ( restart )
             {
                 m_Summed = 0;
                 ++m_Restarts;
                 m_ClampPreExposure = frame.PreExposure;
             }
-            m_MaxBounces                       = settings.MaxBounces;
-            m_LightSampling                     = settings.LightSampling;
-            m_MaxPathIntensity                 = settings.MaxPathIntensity;
-            m_SceneHash                        = inputs.SceneHash;
-            m_RawToUpscaler                     = inputs.RawToUpscaler;
+            m_MaxBounces       = settings.MaxBounces;
+            m_LightSampling    = settings.LightSampling;
+            m_MaxPathIntensity = settings.MaxPathIntensity;
+            m_SceneHash        = inputs.SceneHash;
+            m_RawToUpscaler    = inputs.RawToUpscaler;
+            m_Nrc              = nrc;
+            const uint32_t owed   = settings.SamplesPerPixel > m_Summed ? settings.SamplesPerPixel - m_Summed : 0u;
+            const uint32_t traced = std::min( settings.PathsPerFrame, owed );
+
+            // The frame's estimate is final when no later frame adds to it: the sum reached SamplesPerPixel, or
+            // under Nrc every frame that traces (the sum restarts each frame, THE NEURAL RADIANCE CACHE above).
+            const uint32_t pathsAfter = m_Summed + traced;
+            const bool     estimateFinal =
+                 nrc ? traced > 0u : pathsAfter > 0u && pathsAfter >= settings.SamplesPerPixel;
+            // PathTracing.Denoiser OIDN (THE DENOISER above): what this frame shows - ReLAX's image while the sum
+            // grows or OIDN's is not back yet, OIDN's once it is, the raw sum after a refusal.
+            const OidnView oidnView =
+                 UpdateOidn( settings, inputs.RawToUpscaler, sumKept, estimateFinal, pathsAfter, width, height );
+            const bool denoise = settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::Off &&
+                                 !inputs.RawToUpscaler && oidnView == OidnView::Denoiser;
+            // The previous frame's sum is folded into the history and reprojected (THE DENOISER'S HISTORY).
+            // A history made in this graph (the denoiser just turned on) is written by the combine before any read.
+            const bool reproject = denoise && sumKept && ( cameraMoved || nrc ) && hadSum && m_History.Built &&
+                                   m_History.Width == width && m_History.Height == height;
+            if ( !denoise || !sumKept )
+            {
+                if ( m_HistoryValid && denoise )
+                    LOG_INFO( "[PathTracer] denoiser history reset (resized {}, stamp {}, bounces {}, light sampling "
+                              "{}, scene {}, dynamic geometry {}, clamp {}, exposure {}, raw to upscaler {}, radiance "
+                              "cache {})",
+                              resized, stampUnreadable, bouncesLeft, samplingLeft, sceneLeft, inputs.DynamicGeometry,
+                              clampLeft, exposureLeft, rawLeft, nrcLeft );
+                m_HistoryValid = false;
+            }
             const AccumulationRefs accumulation = AcquireAccumulation( graph, width, height );
             const HistoryRefs      history = denoise ? AcquireHistory( graph, width, height ) : HistoryRefs{};
             const SnapshotRefs     snapshot =
                  reproject ? AddDenoiseSnapshotPass( graph, accumulation, history, width, height ) : SnapshotRefs{};
 
-            const uint32_t owed   = settings.SamplesPerPixel > m_Summed ? settings.SamplesPerPixel - m_Summed : 0u;
-            const uint32_t traced = std::min( settings.PathsPerFrame, owed );
             if ( traced > 0u )
             {
                 const SkyTargets       sky  = AddSkyPasses( graph, inputs, envDesc.GetValue().Size.Width );
                 const LightGridTargets grid = AddLightGridPass( graph, inputs, frame, settings.LightSampling );
-                AddTracePass( graph, accumulation, sky, grid, inputs, width, height, traced );
+                // Under Nrc the sum restarted, so traced is the nrcPaths the targets were made for.
+                if ( nrcTargets )
+                {
+                    AddTracePass( graph, accumulation, sky, grid, inputs, width, height, traced, &*nrcTargets );
+                    const Engine::Neural::NrcCompositeTargets composite{
+                         .Radiance            = accumulation.Radiance,
+                         .DemodulatedDiffuse  = accumulation.DemodulatedDiffuse,
+                         .DemodulatedSpecular = accumulation.DemodulatedSpecular,
+                         .PathIntensityClamp =
+                              m_MaxPathIntensity > 0.0f ? m_MaxPathIntensity / m_ClampPreExposure : 0.0f };
+                    if ( const auto cached = m_RadianceCache->AddCachePasses( graph, *nrcTargets, composite );
+                         !cached )
+                        RefuseRadianceCache( std::format( "PathTracer: {}", cached.GetError() ), cacheInputs );
+                    else
+                        m_RetriedCacheRefusal.reset(); // the cache ran: a later refusal is a new one, and is said
+                }
+                else
+                    AddTracePass( graph, accumulation, sky, grid, inputs, width, height, traced, nullptr );
                 m_Summed += traced;
             }
             if ( reproject )
@@ -593,9 +908,11 @@ namespace Desert::Graphic::System
                 AddDenoiseTemporalPass( graph, inputs.Camera, accumulation, snapshot, history, width, height );
                 m_HistoryValid = true;
             }
-            const RDG::TextureRef image =
-                 denoise ? AddDenoisePasses( graph, accumulation, history, settings.AntiFirefly, width, height )
-                         : accumulation.Radiance;
+            RDG::TextureRef image = accumulation.Radiance;
+            if ( oidnView == OidnView::Result )
+                image = AddOidnPasses( graph, accumulation, width, height );
+            else if ( denoise )
+                image = AddDenoisePasses( graph, accumulation, history, settings.AntiFirefly, width, height );
             AddResolvePass( graph, image, sceneColor, frame.FrameIndex, frame.PreExposure );
             // Raw to the upscaler the sum is this frame's paths alone (sumKept is false), so its guide sums are this
             // frame's - the ones the colour just resolved was made with.
@@ -611,6 +928,55 @@ namespace Desert::Graphic::System
         [[nodiscard]] uint32_t GetSummedSamples() const
         {
             return m_Summed;
+        }
+
+        // PathTracing.RadianceCache as the last frame ran it: Requested the setting, Effective what the paths ran
+        // (Off when the cache was refused), Reason the standing refusal (empty when the cache ran or was not
+        // asked), RetryOn what the held refusal waits for - the inputs whose change builds the cache again, with
+        // the values it holds at (empty with no refusal).
+        struct RadianceCacheStatus
+        {
+            Common::Scalability::PathTracingRadianceCacheMethod Requested =
+                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
+            Common::Scalability::PathTracingRadianceCacheMethod Effective =
+                 Common::Scalability::PathTracingRadianceCacheMethod::Off;
+            std::string Reason;
+            std::string RetryOn;
+            uint32_t    Rebuilds = 0; ///< running caches rebuilt because their inputs changed (RetireRadianceCache)
+            /// The ProgramGeneration of NeuralRadianceCache::kPrograms the running cache was built under (a held
+            /// refusal: refused under; neither: empty) - Rebuilds moves exactly when one of these does (or the
+            /// kernel path).
+            std::vector<ProgramStamp> ProgramGenerations;
+        };
+        [[nodiscard]] RadianceCacheStatus GetRadianceCacheStatus() const
+        {
+            using Method = Common::Scalability::PathTracingRadianceCacheMethod;
+            RadianceCacheStatus status{ .Requested = m_NrcRequested ? Method::Nrc : Method::Off,
+                                        .Effective = m_Nrc ? Method::Nrc : Method::Off,
+                                        .Rebuilds  = m_RadianceCacheRebuilds };
+            if ( m_RadianceCache )
+                status.ProgramGenerations = m_RadianceCacheInputs.Cache;
+            if ( m_NrcRequested && m_CacheRefusal )
+            {
+                const CacheInputs& held   = m_CacheRefusal->Inputs;
+                const char*        forced = "none";
+                if ( held.ForcedPath )
+                    forced = Engine::NeuralKernelPathName( *held.ForcedPath );
+                status.Reason             = m_CacheRefusal->Reason;
+                status.ProgramGenerations = held.Cache;
+                status.RetryOn            = std::format(
+                     "PathTracing.RadianceCache set away from Nrc and back; MachineSettings ForcedNeuralKernelPath "
+                     "changed (held at {}); a recompile of one of its programs (ShaderService::ProgramGeneration, "
+                     "held at {}, {})",
+                     forced, FormatStamps( held.Cache ), FormatStamps( held.Trace ) );
+            }
+            return status;
+        }
+
+        // The neural radiance cache's read-back (DesertCtl state "nrc"); nullptr while no Nrc frame made one.
+        [[nodiscard]] const Engine::Neural::NrcStats* GetRadianceCacheStats() const
+        {
+            return m_RadianceCache ? &m_RadianceCache->GetStats() : nullptr;
         }
 
     private:
@@ -739,6 +1105,325 @@ namespace Desert::Graphic::System
         {
             m_Summed = 0;
             m_Stamp.Invalidate();
+        }
+
+        // PathTracing.Denoiser OIDN (THE DENOISER above): what the frame resolves.
+        enum class OidnView : uint8_t
+        {
+            Denoiser, // ReLAX's image (the sum is still growing)
+            Result,   // "PathTracing.OidnResult", OIDN's image of the final estimate, written this frame or kept
+            Raw,      // the accumulation: OIDN refused (logged, OidnDenoiser::Status().Error)
+        };
+        enum class OidnPhase : uint8_t
+        {
+            Idle,    // no OIDN image of the current estimates
+            Shown,   // m_Oidn.Result holds OIDN's image of m_Oidn.ShownKey's estimate (or this graph writes it)
+            Refused, // OIDN refused: the raw sum is shown until the estimates are dropped
+        };
+        // One final estimate: the restart that began it, the paths summed in it, its size.
+        struct OidnKey
+        {
+            uint32_t Restart = 0;
+            uint32_t Paths   = 0;
+            uint32_t Width   = 0;
+            uint32_t Height  = 0;
+            bool     operator==( const OidnKey& ) const = default;
+        };
+        // The memory OIDN shares with the graph (Renderer::CreateSharedBuffer, SharedGpuMemory.hpp) and the
+        // timeline that orders the two queues, bound to the denoiser for one size.
+        struct OidnState
+        {
+            OidnPhase                          Phase = OidnPhase::Idle;
+            OidnKey                            ShownKey;             // the estimate whose image Phase Shown shows
+            bool                               RunThisFrame = false; // UpdateOidn asked this graph for the run
+            Denoise::OidnDenoiser*             Denoiser     = nullptr;
+            std::shared_ptr<SharedGpuBuffer>   Input;  // OidnPack's three float3 planes: colour, albedo, normal
+            std::shared_ptr<SharedGpuBuffer>   Output; // OIDN's float3 image
+            std::shared_ptr<SharedGpuTimeline> Timeline;
+            uint32_t                           BoundWidth  = 0; // the size Input / Output are bound for (0: none)
+            uint32_t                           BoundHeight = 0;
+            RDG::ExternalBuffer                InputImport; // this graph's imports of Input / Output
+            RDG::ExternalBuffer                OutputImport;
+            RDG::ExternalTexture               Result; // "PathTracing.OidnResult"
+            uint32_t                           ResultWidth  = 0;
+            uint32_t                           ResultHeight = 0;
+        };
+
+        // Forgets the image of the estimates; the shared memory and the result texture are kept for reuse.
+        void DropOidnEstimates()
+        {
+            m_Oidn.Phase    = OidnPhase::Idle;
+            m_Oidn.ShownKey = {};
+        }
+
+        // Unbinds the denoiser and drops the shared memory (its Vulkan objects go through the frames-in-flight
+        // queue, OIDN's imports are released after OIDN's stream finished: OidnDenoiser::ReleaseShared).
+        void ReleaseOidnShared()
+        {
+            if ( m_Oidn.Denoiser )
+                m_Oidn.Denoiser->ReleaseShared();
+            m_Oidn.Input.reset();
+            m_Oidn.Output.reset();
+            m_Oidn.BoundWidth  = 0;
+            m_Oidn.BoundHeight = 0;
+        }
+
+        // Drops every OIDN resource: the denoiser is not OIDN, or the paths go to the upscaler raw.
+        void ReleaseOidn()
+        {
+            DropOidnEstimates();
+            m_Oidn.RunThisFrame = false;
+            ReleaseOidnShared();
+            m_Oidn.Timeline.reset();
+            m_Oidn.Denoiser = nullptr;
+            if ( m_Oidn.Result.Physical )
+                m_RetiringAccumulation.Park( std::move( m_Oidn.Result ),
+                                             ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+            m_Oidn.Result       = {};
+            m_Oidn.ResultWidth  = 0;
+            m_Oidn.ResultHeight = 0;
+        }
+
+        // The denoiser, the shared buffers of this size and the timeline, bound once (again after a resize). An
+        // error names what refused: GpuSharing None, the denoiser (no OIDN GPU device for this GPU), an export or
+        // an import.
+        Common::BoolResultStr EnsureOidnShared( const uint32_t width, const uint32_t height )
+        {
+            if ( m_Oidn.Denoiser && m_Oidn.Input && m_Oidn.Output && m_Oidn.Timeline &&
+                 m_Oidn.BoundWidth == width && m_Oidn.BoundHeight == height )
+                return Common::MakeSuccess( true );
+            const auto& capabilities = EngineContext::GetInstance().GetCapabilities();
+            const auto  denoiser =
+                 Denoise::OidnDenoiser::Acquire( capabilities.DeviceUuid, capabilities.Catalog.Sharing );
+            if ( !denoiser )
+                return Common::MakeError( denoiser.GetError() );
+            ReleaseOidnShared();
+            m_Oidn.Denoiser = denoiser.GetValue();
+
+            const uint64_t plane = static_cast<uint64_t>( width ) * height * 3u * sizeof( float );
+            auto           input = Renderer::CreateSharedBuffer( "PathTracing.OidnInput", 3u * plane );
+            if ( !input )
+                return Common::MakeError( input.GetError() );
+            auto output = Renderer::CreateSharedBuffer( "PathTracing.OidnOutput", plane );
+            if ( !output )
+                return Common::MakeError( output.GetError() );
+            if ( !m_Oidn.Timeline )
+            {
+                auto timeline = Renderer::CreateSharedTimeline( "PathTracing.OidnTimeline" );
+                if ( !timeline )
+                    return Common::MakeError( timeline.GetError() );
+                m_Oidn.Timeline = timeline.GetValue();
+            }
+            const auto inputHandle    = input.GetValue()->ExportHandle();
+            const auto outputHandle   = output.GetValue()->ExportHandle();
+            const auto timelineHandle = m_Oidn.Timeline->ExportHandle();
+            for ( const auto* handle : { &inputHandle, &outputHandle, &timelineHandle } )
+                if ( !*handle )
+                    return Common::MakeError( handle->GetError() );
+
+            Denoise::SharedDenoiseImages images{
+                 .Width    = width,
+                 .Height   = height,
+                 .Buffers  = { { .Handle = inputHandle.GetValue(), .Bytes = 3u * plane },
+                               { .Handle = outputHandle.GetValue(), .Bytes = plane } },
+                 .Color    = { .Buffer = 0, .ByteOffset = 0 },
+                 .Albedo   = { .Buffer = 0, .ByteOffset = plane },
+                 .Normal   = { .Buffer = 0, .ByteOffset = 2u * plane },
+                 .Output   = { .Buffer = 1, .ByteOffset = 0 },
+                 .Timeline = timelineHandle.GetValue() };
+            if ( const Common::BoolResultStr bound =
+                      m_Oidn.Denoiser->BindShared( images, Denoise::ImageDenoiseQuality::High );
+                 !bound )
+                return bound;
+            m_Oidn.Input       = input.GetValue();
+            m_Oidn.Output      = output.GetValue();
+            m_Oidn.BoundWidth  = width;
+            m_Oidn.BoundHeight = height;
+            return Common::MakeSuccess( true );
+        }
+
+        // A refusal: logged with its reason, kept in OidnDenoiser::Status, and the raw sum is shown until the
+        // estimates are dropped - never a silent ReLAX in its place.
+        OidnView RefuseOidn( const OidnKey& key, const std::string& reason )
+        {
+            LOG_ERROR(
+                 "[PathTracing] OIDN did not denoise the {}x{} image of {} paths per pixel: {}; the view shows "
+                 "the raw accumulation",
+                 key.Width, key.Height, key.Paths, reason );
+            Denoise::OidnDenoiser::NoteError( reason );
+            m_Oidn.Phase        = OidnPhase::Refused;
+            m_Oidn.RunThisFrame = false;
+            return OidnView::Raw;
+        }
+
+        // GRAPH BUILD, after the restart decision: the OIDN step of the frame. The rule is one for both modes -
+        // OIDN denoises the frame's estimate once it is final (@p estimateFinal: SamplesPerPixel paths summed, or
+        // under Nrc every frame that traces), IN THIS FRAME'S GRAPH (AddOidnPasses: pack, OIDN between two
+        // submissions on the shared timeline, unpack), and the frame resolves that image. A converged still sum is
+        // denoised once and its image kept; under Nrc every frame is, with no latency. An estimate that is not
+        // final, or a sum that was not kept (@p sumKept false: a cut, a resize, the scene - anything but the
+        // camera's motion and Nrc's own restart), drops the image: it is of another scene.
+        OidnView UpdateOidn( const Settings& settings, const bool rawToUpscaler, const bool sumKept,
+                             const bool estimateFinal, const uint32_t pathsAfter, const uint32_t width,
+                             const uint32_t height )
+        {
+            m_Oidn.RunThisFrame = false;
+            if ( settings.Denoiser != Common::Scalability::PathTracingDenoiserMethod::OIDN || rawToUpscaler )
+            {
+                if ( m_Oidn.Phase != OidnPhase::Idle || m_Oidn.Denoiser || m_Oidn.Timeline ||
+                     m_Oidn.Result.Physical )
+                    ReleaseOidn();
+                return OidnView::Denoiser;
+            }
+            if ( !sumKept || !estimateFinal )
+                DropOidnEstimates();
+            if ( !estimateFinal )
+                return OidnView::Denoiser; // converging: ReLAX's image
+            if ( m_Oidn.Phase == OidnPhase::Refused )
+                return OidnView::Raw;
+
+            const OidnKey key{ .Restart = m_Restarts, .Paths = pathsAfter, .Width = width, .Height = height };
+            if ( m_Oidn.Phase == OidnPhase::Shown && m_Oidn.ShownKey == key )
+            {
+                if ( m_Oidn.Result.Physical && m_Oidn.ResultWidth == width && m_Oidn.ResultHeight == height )
+                    return OidnView::Result; // the image of this estimate, kept
+                return RefuseOidn( key, "the denoised image of this estimate was lost before it was shown again" );
+            }
+            if ( const Common::BoolResultStr ready = EnsureOidnShared( width, height ); !ready )
+                return RefuseOidn( key, ready.GetError() );
+            m_Oidn.Phase        = OidnPhase::Shown;
+            m_Oidn.ShownKey     = key;
+            m_Oidn.RunThisFrame = true;
+            return OidnView::Result;
+        }
+
+        // "PathTracing.OidnResult" in this graph: registered when it exists at this size, else created and
+        // extracted (kept for the frames that show the same estimate).
+        RDG::TextureRef AcquireOidnResult( RDG::Builder& graph, const uint32_t width, const uint32_t height )
+        {
+            if ( m_Oidn.Result.Physical && m_Oidn.ResultWidth == width && m_Oidn.ResultHeight == height )
+                return graph.RegisterExternal( m_Oidn.Result, "PathTracing.OidnResult" );
+            if ( m_Oidn.Result.Physical )
+                m_RetiringAccumulation.Park(
+                     std::move( m_Oidn.Result ),
+                     ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() );
+            m_Oidn.Result = {};
+            const RDG::TextureDesc desc{ .Size   = { .Width = width, .Height = height },
+                                         .Format = ViewTargetFormats::kPathTracingDenoise };
+            const RDG::TextureRef  result = graph.CreateTexture( desc, "PathTracing.OidnResult" );
+            graph.Extract( result, m_Oidn.Result, RDG::Access::SampledGraphics,
+                           { RDG::Access::StorageWrite, RDG::Access::SampledGraphics } );
+            m_Oidn.ResultWidth  = width;
+            m_Oidn.ResultHeight = height;
+            return result;
+        }
+
+        // OIDN's image of the frame's final estimate, IN THIS GRAPH (THE DENOISER above). On a frame that runs it
+        // (m_Oidn.RunThisFrame), after this frame's trace:
+        //  1. "PathTracing: OIDN Pack" writes the estimate as OIDN's three float3 planes (PathTracerDenoise.shader
+        //     "OidnPack") into the shared input buffer;
+        //  2. "PathTracing: OIDN" is an ExternalQueue pass (RDG-EXTERNAL): the submission so far signals the
+        //     timeline's odd value, OIDN (CUDA / HIP / SYCL, enqueued by the exec, not waited) waits it, filters
+        //     the shared input into the shared output and signals the even value, and the rest of the frame waits
+        //     that on the GPU - no host stall, no copy;
+        //  3. "PathTracing: OIDN Unpack" turns the float3 output into "PathTracing.OidnResult" (RGBA32F, a = 1,
+        //  the
+        //     resolve's (mean, 1) form).
+        // A frame that shows a kept image only registers the result. @p raw is never shown here: a refusal turned
+        // the view to Raw before this graph was built.
+        RDG::TextureRef AddOidnPasses( RDG::Builder& graph, const AccumulationRefs& accumulation,
+                                       const uint32_t width, const uint32_t height )
+        {
+            const RDG::TextureRef result = AcquireOidnResult( graph, width, height );
+            if ( !m_Oidn.RunThisFrame )
+                return result;
+
+            constexpr RDG::Access kR = RDG::Access::StorageRead;
+            constexpr RDG::Access kW = RDG::Access::StorageWrite;
+            (void)m_Oidn.Input->Import( m_Oidn.InputImport );   // never fails: the buffers are bound
+            (void)m_Oidn.Output->Import( m_Oidn.OutputImport ); // (EnsureOidnShared made them this size)
+            const RDG::BufferRef input  = graph.RegisterExternal( m_Oidn.InputImport, "PathTracing.OidnInput" );
+            const RDG::BufferRef output = graph.RegisterExternal( m_Oidn.OutputImport, "PathTracing.OidnOutput" );
+
+            graph.AddPass(
+                 "PathTracing: OIDN Pack", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingOidnPackShaderParameters;
+                     pass.Bindings( m_DenoiseOidnPack.PassLayout.Get( m_DenoiseOidnPack.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseOidnPack.PassPipeline ) )
+                          .Storage( P::AccumulationTexture, accumulation.Radiance, kR )
+                          .Storage( P::GuideAlbedoTexture, accumulation.GuideAlbedo, kR )
+                          .Storage( P::GuideNormalTexture, accumulation.GuideNormal, kR )
+                          .Storage( P::GuideSpecularTexture, accumulation.GuideSpecular, kR )
+                          .Storage( P::PathTracingOidnPackUB, input, kW );
+                 },
+                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: OIDN Pack" );
+                     return DispatchDenoise( context, m_DenoiseOidnPack, nullptr, width, height );
+                 } );
+
+            const RDG::ExternalQueueSync sync = m_Oidn.Timeline->NextPair();
+            const OidnKey                key  = m_Oidn.ShownKey;
+            const uint64_t frame = ::Desert::Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+            graph.AddPass(
+                 "PathTracing: OIDN", RDG::PassFlags::Copy,
+                 [input, output, sync]( RDG::PassBuilder& pass )
+                 {
+                     // OIDN reads and writes the shared memory as raw bytes: Copy accesses.
+                     pass.Read( input, RDG::Access::CopySrc );
+                     pass.Write( output, RDG::Access::CopyDst );
+                     pass.ExternalQueue( sync );
+                 },
+                 [this, sync, key, frame]( RDG::PassContext& ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: OIDN" );
+                     const auto            start    = std::chrono::steady_clock::now();
+                     Common::BoolResultStr enqueued = Common::MakeError( "OIDN: no denoiser is bound" );
+                     if ( m_Oidn.Denoiser )
+                         enqueued = m_Oidn.Denoiser->EnqueueShared( sync.Signal.Value, sync.Wait.Value );
+                     if ( !enqueued )
+                     {
+                         // The pass faults and the graph is abandoned: the recorder signals the odd value from the
+                         // host, the even one is never waited (the next pair is above it). The next frame shows
+                         // the raw sum and says why.
+                         LOG_ERROR(
+                              "[PathTracing] OIDN did not denoise the {}x{} image of {} paths per pixel: {}; "
+                              "the view shows the raw accumulation",
+                              key.Width, key.Height, key.Paths, enqueued.GetError() );
+                         Denoise::OidnDenoiser::NoteError( enqueued.GetError() );
+                         m_Oidn.Phase = OidnPhase::Refused;
+                         return enqueued;
+                     }
+                     const double ms =
+                          std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() - start )
+                               .count();
+                     Denoise::OidnDenoiser::NoteRun( key.Paths, key.Width, key.Height, ms );
+                     LOG_INFO(
+                          "[PathTracing] OIDN denoised the {}x{} image of {} paths per pixel (restart {}) on {} "
+                          "in frame {} (enqueued in {:.2f} ms, timeline {} -> {})",
+                          key.Width, key.Height, key.Paths, key.Restart, m_Oidn.Denoiser->GetDeviceName(), frame,
+                          ms, sync.Signal.Value, sync.Wait.Value );
+                     return enqueued;
+                 } );
+
+            graph.AddPass(
+                 "PathTracing: OIDN Unpack", RDG::PassFlags::Compute,
+                 [&]( RDG::PassBuilder& pass )
+                 {
+                     using P = PathTracingOidnUnpackShaderParameters;
+                     pass.Bindings( m_DenoiseOidnUnpack.PassLayout.Get( m_DenoiseOidnUnpack.PassShader ),
+                                    Renderer::GetPipelineRouteFill( *m_DenoiseOidnUnpack.PassPipeline ) )
+                          .Storage( P::PathTracingOidnOutputUB, output, kR )
+                          .Storage( P::OidnResultTexture, result, kW );
+                 },
+                 [this, width, height]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     DESERT_PROFILE_PASS( "PathTracing: OIDN Unpack" );
+                     return DispatchDenoise( context, m_DenoiseOidnUnpack, nullptr, width, height );
+                 } );
+            return result;
         }
 
         // The view's accumulation in this graph: registered when it exists at this size, created and extracted
@@ -967,10 +1652,14 @@ namespace Desert::Graphic::System
         }
 
         // "PathTracing: Trace": @p traced paths per pixel added to the accumulation (one launch per pixel).
+        // @p nrc: this frame's cache targets (the PATH_TRACING_NRC=1 trace writes them), or nullptr.
         void AddTracePass( RDG::Builder& graph, const AccumulationRefs& accumulation, const SkyTargets& sky,
                            const LightGridTargets& grid, const FrameInputs& inputs, const uint32_t width,
-                           const uint32_t height, const uint32_t traced )
+                           const uint32_t height, const uint32_t traced, const Engine::Neural::NrcTraceTargets* nrc )
         {
+            const std::shared_ptr<Shader>&             shader   = nrc ? m_TraceShaderNrc : m_TraceShader;
+            const std::shared_ptr<RayTracingPipeline>& pipeline = nrc ? m_TracePipelineNrc : m_TracePipeline;
+            ShaderBindingLayoutCache&                  layout   = nrc ? m_TraceLayoutNrc : m_TraceLayout;
             const TracePush push{
                  glm::uvec4( inputs.PointLightCount, inputs.SpotLightCount, m_Summed, m_MaxBounces ),
                  glm::uvec4( sky.Side, sky.Levels, m_Restarts, traced ),
@@ -986,7 +1675,18 @@ namespace Desert::Graphic::System
                  [&]( RDG::PassBuilder& pass )
                  {
                      constexpr RDG::Access kR = RDG::Access::StorageRead;
-                     pass.Bindings( m_TraceLayout.Get( m_TraceShader ), RDG::OtherRouteFill{} )
+                     auto&& block = pass.Bindings( layout.Get( shader ), RDG::OtherRouteFill{} );
+                     if ( nrc )
+                         block.Storage( PathTracingTraceShaderParameters::NrcQueriesUB, nrc->Queries,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcTrainingSamplesUB, nrc->TrainingSamples,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcSelfQueriesUB, nrc->SelfQueries,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcCountersUB, nrc->Counters,
+                                        RDG::Access::StorageWrite )
+                              .Storage( PathTracingTraceShaderParameters::NrcTraceParamsUB, nrc->Params, kR );
+                     block
                           .Uniform( PathTracingTraceShaderParameters::CameraUB, inputs.Camera )
                           .AccelerationStructure( PathTracingTraceShaderParameters::SceneTlas, inputs.Tlas )
                           .Storage( PathTracingTraceShaderParameters::AccumulationTexture, accumulation.Radiance,
@@ -1034,14 +1734,14 @@ namespace Desert::Graphic::System
                           .Uniform( PathTracingTraceShaderParameters::CloudShadowUB, inputs.CloudShadow )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( TracePush ) ) );
                  },
-                 [this, push, hits = inputs.HitGroups, width,
+                 [this, push, pipeline, hits = inputs.HitGroups, width,
                   height]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      DESERT_PROFILE_PASS( "PathTracing: Trace" );
                      RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                      bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                      Common::BoolResultStr traced =
-                          Renderer::TraceRays( bindings, *m_TracePipeline, *hits, width, height );
+                          Renderer::TraceRays( bindings, *pipeline, *hits, width, height );
                      // The sum no longer holds what m_Summed counts: the resolve does not stamp it, so the next
                      // frame restarts (PassHistoryStamp not readable).
                      if ( !traced )
@@ -1315,6 +2015,8 @@ namespace Desert::Graphic::System
         DenoiseProgram                      m_DenoiseAntiFirefly{ .Name = "AntiFirefly" };
         DenoiseProgram                      m_DenoiseFilter{ .Name = "Filter" };
         DenoiseProgram                      m_DenoiseRemodulate{ .Name = "Remodulate" };
+        DenoiseProgram                      m_DenoiseOidnPack{ .Name = "OidnPack" };
+        DenoiseProgram                      m_DenoiseOidnUnpack{ .Name = "OidnUnpack" };
         std::shared_ptr<RayTracingPipeline> m_TracePipeline;
         std::vector<std::string>            m_PipelineTemplates;
         std::shared_ptr<ComputePipeline>    m_SkyPreparePipeline;
@@ -1344,5 +2046,32 @@ namespace Desert::Graphic::System
         uint32_t           m_Restarts    = 0;     // the random sequence's seed: each restart draws new paths
         bool               m_TraceFailed = false; // this frame's trace was refused (set at execution)
         bool m_RawToUpscaler = false; // the sum holds one frame's pixel-centre paths for the upscaler
+        // THE NEURAL RADIANCE CACHE: the cache, the PATH_TRACING_NRC=1 trace and its hit groups' templates.
+        bool                                                  m_Nrc       = false; // the sum's frame ran the cache
+        bool m_NrcRequested = false; // the last frame's Settings::RadianceCache was Nrc
+        // The cache's standing refusal (RefuseRadianceCache); none while the cache runs. It holds while Inputs are
+        // this frame's and the cache stays requested (THE NEURAL RADIANCE CACHE above).
+        struct CacheRefusal
+        {
+            std::string                                         Reason;
+            std::optional<Engine::Neural::NeuralShaderRefusal> Shader; ///< the variant the shader service refused
+            CacheInputs                                         Inputs; ///< what it was refused under
+        };
+        std::optional<CacheRefusal> m_CacheRefusal;
+        // The refusal an input change dropped, until the retry it allowed ends: refused again for the same reason
+        // it is not said again; the cache running clears it, so a later breakage is said.
+        std::optional<CacheRefusal>                           m_RetriedCacheRefusal;
+        std::optional<Engine::Neural::NeuralShaderRefusal> m_CacheShaderRefusal; // EnsureRadianceCache's, if any
+        uint32_t                                              m_NrcFrames = 0;     // the training offset's seed
+        std::unique_ptr<Engine::Neural::NeuralRadianceCache> m_RadianceCache;
+        CacheInputs m_RadianceCacheInputs;       // what m_RadianceCache was built under (EnsureRadianceCache)
+        uint32_t    m_RadianceCacheRebuilds = 0; // RadianceCacheStatus::Rebuilds
+        // Retired caches (RetireRadianceCache), alive until no frame in flight reads their buffers and pipelines.
+        Assets::FrameRetireQueue<std::unique_ptr<Engine::Neural::NeuralRadianceCache>> m_RetiringCaches;
+        std::shared_ptr<Shader>                               m_TraceShaderNrc;
+        std::shared_ptr<RayTracingPipeline>                   m_TracePipelineNrc;
+        std::vector<std::string>                              m_PipelineTemplatesNrc;
+        mutable ShaderBindingLayoutCache                      m_TraceLayoutNrc;
+        OidnState m_Oidn;             // PathTracing.Denoiser OIDN (THE DENOISER above)
     };
 } // namespace Desert::Graphic::System

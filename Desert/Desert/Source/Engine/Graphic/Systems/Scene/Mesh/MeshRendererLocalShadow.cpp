@@ -51,6 +51,8 @@ namespace Desert::Graphic::System
             m_ShadowSkinnedMaterial.resize( viewCount );
             m_CascadeCasterVP.resize( viewCount, glm::mat4( 1.0f ) );
             m_CascadeCasterBias.resize( viewCount );
+            m_VirtualShadowViews.resize( viewCount, 0u );
+            m_ShadowMaterialsVirtual.resize( viewCount, 0u );
         }
         const uint32_t localViews = viewCount > kLocalShadowViewBase ? viewCount - kLocalShadowViewBase : 0u;
         while ( m_LocalDraws.size() < localViews )
@@ -69,6 +71,16 @@ namespace Desert::Graphic::System
         const CasterPipelines casters = CasterPipelinesOf( view );
         if ( casters.Static == nullptr )
             return false;
+        // A local view handed from an atlas row to a virtual shadow map mip (or back) drops the materials made on
+        // the other cells.
+        const uint8_t kind = IsVirtualShadowView( view ) ? 1u : 0u;
+        if ( m_ShadowMaterialsVirtual[view] != kind )
+        {
+            m_ShadowMaterial[view].reset();
+            m_ShadowInstancedMaterial[view].reset();
+            m_ShadowSkinnedMaterial[view].reset();
+            m_ShadowMaterialsVirtual[view] = kind;
+        }
         if ( !m_ShadowMaterial[view] )
             m_ShadowMaterial[view] = std::make_unique<MaterialShadow>( casters.Pass );
         if ( casters.Instanced != nullptr && !m_ShadowInstancedMaterial[view] )
@@ -355,6 +367,7 @@ namespace Desert::Graphic::System
                 m_CascadeCasterBias[view] =
                      LocalCasterBias( row.Params.x, row.Params.y, row.Params.z, *request.Settings );
                 m_CascadeCasterVP[view] = CasterViewProj( row.ViewProj, m_CascadeCasterBias[view].DepthBias );
+                m_VirtualShadowViews[view] = 0u; // an atlas row (a past frame may have given it to a VSM mip)
                 EnsureShadowViewMaterials( view );
             }
 

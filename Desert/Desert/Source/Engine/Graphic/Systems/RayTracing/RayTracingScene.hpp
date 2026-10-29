@@ -10,10 +10,17 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+namespace Desert
+{
+    class Mesh;
+}
 
 // THE RAY-TRACING SCENE — what a view's TLAS holds this frame (UE FRayTracingScene, its instance list built from
 // the scene's primitives). Device-free: this file decides WHICH instances, with which transform, mask and
@@ -25,7 +32,7 @@
 // number; nothing is gathered twice and no second per-instance table exists.
 //
 // GATED BY THE METHODS. A frame builds a TLAS only when one of its three resolved methods traces hardware rays
-// (Common::Scalability::NeedsRayQuery). ResolveRenderMethods already walked a method the device cannot run down to
+// (Common::Scalability::NeedsRayQuery; Shadows Stochastic by its StochasticVisibility). ResolveRenderMethods already walked a method the device cannot run down to
 // one it can (MethodLimit::Device), so "a resolved method needs ray query" already implies the device has it.
 namespace Desert
 {
@@ -247,9 +254,15 @@ namespace Desert::Graphic::RayTracing
         return "?";
     }
 
+    inline constexpr uint32_t kNoRayTracingInstance = ~0u;
+
     struct RayTracingInstanceList
     {
         std::vector<RayTracingInstance> Instances;
+        // Indexed by primitive (the span BuildRayTracingInstances read): the primitive's instance in Instances, or
+        // kNoRayTracingInstance for one the list left out (skipped, GPU-instanced). What a frame that only moves
+        // primitives patches in place (RayTracingSceneRenderer::AddPasses).
+        std::vector<uint32_t> InstanceOfPrimitive;
         // Indexed by GPU-scene row, up to the highest row the TLAS holds: the instances of each row.
         std::vector<RayTracingPrimitiveInstances>                                        Ranges;
         std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          Skipped{};
@@ -280,6 +293,16 @@ namespace Desert::Graphic::RayTracing
         uint32_t               Record = 0; // the indexed-indirect record (submesh) that states count and first
     };
 
+    // A BLAS variant a gather resolved (RayTracingGeometryVariants::Resolve with masks set): the cache drops a
+    // variant no Resolve asked for in a frame, so a frame that keeps the gather instead of redoing it asks again
+    // for each use (RayTracingSceneRenderer::AddPasses) and regathers when the answer is another BLAS.
+    struct RayTracingVariantUse
+    {
+        Desert::Mesh*          MeshPtr  = nullptr;
+        RayTracingSubmeshMasks Masks;
+        const void*            Geometry = nullptr; // the BLAS the gather was answered
+    };
+
     struct RayTracingGatherResult
     {
         std::vector<RayTracingPrimitive>                                        Primitives;
@@ -288,11 +311,13 @@ namespace Desert::Graphic::RayTracing
         // Every primitive's per-segment material run (RayTracingSegmentRecord), indexed by FirstSegmentRecord.
         std::vector<RayTracingSegmentRecord>     SegmentRecords;
         std::vector<RayTracingGpuInstanceSource> GpuInstanced; // the GpuInstanced primitives' TLAS rows
+        std::vector<RayTracingVariantUse>        VariantUses;  // every masked Resolve of the gather
 
         void Clear()
         {
             Primitives.clear();
             GpuInstanced.clear();
+            VariantUses.clear();
             Skipped = {};
             Errors.clear();
             SegmentRecords.clear();
@@ -304,7 +329,10 @@ namespace Desert::Graphic::RayTracing
     {
         return Common::Scalability::NeedsRayQuery( methods.GlobalIllumination.Effective ) ||
                Common::Scalability::NeedsRayQuery( methods.Reflections.Effective ) ||
-               Common::Scalability::NeedsRayQuery( methods.Shadows.Effective );
+               Common::Scalability::NeedsRayQuery( methods.Shadows.Effective ) ||
+               // Stochastic traces only when its visibility source is the ray query (Graphic::ShadowsTraceRays).
+               ( methods.Shadows.Effective == Common::Scalability::ShadowMethod::Stochastic &&
+                 methods.Visibility == Common::Scalability::StochasticVisibility::RayQuery );
     }
 
     [[nodiscard]] inline std::array<float, 12> ToRowMajor3x4( const glm::mat4& world )
@@ -338,6 +366,37 @@ namespace Desert::Graphic::RayTracing
         return requests;
     }
 
+    // The TLAS instance of a primitive the list traces: its BLAS, world, row, SBT offset and mask. The one rule
+    // BuildRayTracingInstances and an in-place move (RayTracingSceneRenderer::AddPasses) both apply.
+    [[nodiscard]] inline RayTracingInstance MakeRayTracingInstance( const RayTracingPrimitive& primitive )
+    {
+        RayTracingInstance instance;
+        instance.Geometry           = primitive.Geometry;
+        instance.Transform          = ToRowMajor3x4( primitive.World );
+        instance.CustomIndex        = primitive.GpuSceneRow;
+        instance.FirstSegmentRecord = primitive.FirstSegmentRecord;
+        instance.Mask =
+             primitive.Translucent
+                  ? static_cast<uint8_t>( kMaskTranslucent | ( primitive.CastShadows ? kMaskTranslucentShadowCaster : 0u ) )
+                  : static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
+        return instance;
+    }
+
+    // Why a CPU-instanced primitive (any kind but GpuInstanced) gets no TLAS instance, or nullopt when it gets
+    // one: the one rule BuildRayTracingInstances counts by and a kept list (RayTracingSceneRenderer::AddPasses)
+    // tests a row against.
+    [[nodiscard]] inline std::optional<RayTracingSkip> RayTracingInstanceSkipOf( const RayTracingPrimitive& primitive )
+    {
+        if ( primitive.Geometry == nullptr )
+            return primitive.Kind == RayTracingPrimitiveKind::Skinned ? RayTracingSkip::Skinned
+                                                                      : RayTracingSkip::NoGeometry;
+        if ( primitive.GpuSceneRow > kMaxGpuSceneRow )
+            return RayTracingSkip::RowOutOfRange;
+        if ( primitive.FirstSegmentRecord > kMaxSegmentRecord )
+            return RayTracingSkip::SegmentRecordOutOfRange;
+        return std::nullopt;
+    }
+
     // The TLAS instances of @p primitives, in primitive order, the instances of one GPU-scene row kept contiguous
     // (a row's later primitive joins its first one's range), so RayTracingInstanceList::Ranges names every row's
     // instances as one range. Primitives that cannot be traced are counted by reason, never silently dropped.
@@ -345,6 +404,7 @@ namespace Desert::Graphic::RayTracing
     BuildRayTracingInstances( std::span<const RayTracingPrimitive> primitives )
     {
         RayTracingInstanceList list;
+        list.InstanceOfPrimitive.assign( primitives.size(), kNoRayTracingInstance );
         const auto skip = [&list]( RayTracingSkip reason ) { ++list.Skipped[static_cast<std::size_t>( reason )]; };
         // Pass 1: which primitives enter, and how many instances each row holds.
         std::vector<uint32_t> traced;
@@ -355,24 +415,9 @@ namespace Desert::Graphic::RayTracing
             // Its rows are the GPU's (RayTracingGpuInstanceSource): none on the CPU, nothing skipped here.
             if ( primitive.Kind == RayTracingPrimitiveKind::GpuInstanced )
                 continue;
-            if ( primitive.Kind == RayTracingPrimitiveKind::Skinned && primitive.Geometry == nullptr )
+            if ( const std::optional<RayTracingSkip> reason = RayTracingInstanceSkipOf( primitive ) )
             {
-                skip( RayTracingSkip::Skinned );
-                continue;
-            }
-            if ( primitive.Geometry == nullptr )
-            {
-                skip( RayTracingSkip::NoGeometry );
-                continue;
-            }
-            if ( primitive.GpuSceneRow > kMaxGpuSceneRow )
-            {
-                skip( RayTracingSkip::RowOutOfRange );
-                continue;
-            }
-            if ( primitive.FirstSegmentRecord > kMaxSegmentRecord )
-            {
-                skip( RayTracingSkip::SegmentRecordOutOfRange );
+                skip( *reason );
                 continue;
             }
             traced.push_back( static_cast<uint32_t>( i ) );
@@ -400,16 +445,9 @@ namespace Desert::Graphic::RayTracing
         {
             const RayTracingPrimitive& primitive = primitives[index];
             const uint32_t             row       = primitive.GpuSceneRow;
-            RayTracingInstance&        instance  = list.Instances[list.Ranges[row].FirstInstance + placed[row]++];
-            instance.Geometry                    = primitive.Geometry;
-            instance.Transform                   = ToRowMajor3x4( primitive.World );
-            instance.CustomIndex                 = row;
-            instance.FirstSegmentRecord          = primitive.FirstSegmentRecord;
-            instance.Mask =
-                 primitive.Translucent
-                      ? static_cast<uint8_t>( kMaskTranslucent |
-                                              ( primitive.CastShadows ? kMaskTranslucentShadowCaster : 0u ) )
-                      : static_cast<uint8_t>( kMaskOpaque | ( primitive.CastShadows ? kMaskShadowCaster : 0u ) );
+            const uint32_t             slot      = list.Ranges[row].FirstInstance + placed[row]++;
+            list.Instances[slot]                 = MakeRayTracingInstance( primitive );
+            list.InstanceOfPrimitive[index]      = slot;
             ++list.InstancesByKind[static_cast<std::size_t>( primitive.Kind )];
         }
         return list;

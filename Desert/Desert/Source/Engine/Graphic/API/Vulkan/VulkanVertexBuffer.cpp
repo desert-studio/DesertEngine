@@ -54,6 +54,23 @@ namespace Desert::Graphic::API::Vulkan
         return RT_Invalidate();
     }
 
+    uint64_t CurrentBufferAddress( const VkBuffer buffer )
+    {
+        if ( buffer == VK_NULL_HANDLE )
+            return 0;
+        const auto logical = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+        // bufferDeviceAddress alone (its own DeviceCaps row, loaded without acceleration structures too): the GI
+        // emissive list reads mesh buffers by address on a device that cannot trace (MeshBufferUsage.hpp).
+        if ( !logical || logical->GetRayTracingFunctions().GetBufferDeviceAddress == nullptr )
+            return 0;
+        return logical->GetRayTracingFunctions().BufferAddress( logical->GetVulkanLogicalDevice(), buffer );
+    }
+
+    uint64_t VulkanVertexBuffer::GetDeviceAddress() const
+    {
+        return CurrentBufferAddress( m_VulkanBuffer );
+    }
+
     [[nodiscard]] Common::BoolResultStr VulkanVertexBuffer::RT_Invalidate()
     {
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
@@ -142,33 +159,6 @@ namespace Desert::Graphic::API::Vulkan
         else [[likely]]
         {
 
-            VkBufferCreateInfo stagingBufferCreateInfo =
-                 CreateVertexBufferInfo( m_Size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_SHARING_MODE_EXCLUSIVE );
-
-            VkBuffer stagingBuffer;
-            auto     stagingBufferAllocation = allocator->RT_AllocateBuffer(
-                 "VertexBuffer_staging", stagingBufferCreateInfo, VMA_MEMORY_USAGE_CPU_TO_GPU, stagingBuffer );
-
-            if ( !stagingBufferAllocation.IsSuccess() )
-            {
-                return Common::MakeError<bool>( stagingBufferAllocation.GetError() );
-            }
-
-            auto stagingBufferAllocationVAL = stagingBufferAllocation.GetValue();
-
-            // copy data to staging buffer
-            {
-                MappedMemory staged = allocator->MapMemory( stagingBufferAllocationVAL );
-                const auto   wrote  = staged.Write( m_StorageBuffer.Data, m_StorageBuffer.Size );
-                if ( !wrote.IsSuccess() )
-                {
-                    staged.Unmap();
-                    allocator->RT_DestroyBuffer( stagingBuffer, stagingBufferAllocationVAL );
-                    return Common::MakeFormattedError<bool>( "vertex buffer staging upload: {}",
-                                                             wrote.GetError() );
-                }
-            }
-
             // The usage is MeshBufferUsage's: storage for the morph update, a BLAS build input where the device
             // can build one.
             auto vertexBufferCreateInfo = CreateVertexBufferInfo(
@@ -183,30 +173,20 @@ namespace Desert::Graphic::API::Vulkan
             }
 
             m_MemoryAllocation = buffer.GetValue();
-            auto copyCmd       = CommandBufferAllocator::GetInstance().RT_AllocateCommandBufferGraphic( true );
-            if ( !copyCmd.IsSuccess() )
-            {
-                return Common::MakeError<bool>( copyCmd.GetError() );
-            }
 
-            auto copyCmdVal = copyCmd.GetValue();
-
-            VkBufferCopy copyRegion = {};
-            copyRegion.size         = m_Size;
-
-            vkCmdCopyBuffer( copyCmdVal, stagingBuffer, m_VulkanBuffer, 1, &copyRegion );
-
-            const auto flushed = CommandBufferAllocator::GetInstance().RT_FlushCommandBufferGraphic( copyCmdVal );
-            const bool uploaded = flushed.IsSuccess() && flushed.GetValue() == VK_SUCCESS;
-            allocator->RT_ReleaseStaging( stagingBuffer, stagingBufferAllocationVAL, flushed );
+            // THE ONE BUFFER UPLOAD PATH, submitted and not waited for (FPS-CPU-3): a mesh load no longer sleeps the
+            // loading thread on the whole GPU queue ahead of it. The barriers it records order the copy after every
+            // earlier submission and before every later one, so a draw or a BLAS build of this buffer reads it whole.
+            const auto uploaded = RT_UploadDeviceBuffer( *allocator, m_VulkanBuffer, 0, m_StorageBuffer.Data,
+                                                         m_StorageBuffer.Size );
+            if ( !uploaded.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "static vertex buffer upload: {}", uploaded.GetError() );
             // UE drops a static buffer's resource array once it is on the RHI (no bNeedsCPUAccess): nothing reads
-            // the host copy after the upload, and holding it doubled every mesh's geometry in the heap (~250 MB
-            // on B16_Bistro_Street). The mesh asset keeps its own arrays for the CPU readers.
-            if ( uploaded )
-            {
-                m_StorageBuffer.Release();
-                m_HostCopyReleased = true;
-            }
+            // the host copy after the upload (the staging buffer holds the bytes until the copy has run), and
+            // holding it doubled every mesh's geometry in the heap (~250 MB on B16_Bistro_Street). The mesh asset
+            // keeps its own arrays for the CPU readers.
+            m_StorageBuffer.Release();
+            m_HostCopyReleased = true;
         }
         return Common::MakeSuccess( true );
     }
@@ -260,6 +240,6 @@ namespace Desert::Graphic::API::Vulkan
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                               ->GetVulkanAllocator()
                               .get();
-        return RT_WritePooledBuffer( *allocator, m_VulkanBuffer, offset, data, size );
+        return RT_UploadDeviceBuffer( *allocator, m_VulkanBuffer, offset, data, size );
     }
 } // namespace Desert::Graphic::API::Vulkan

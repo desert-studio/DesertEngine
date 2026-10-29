@@ -234,6 +234,8 @@ project "Editor"
 
     -- The DLSS runtime next to the executable (Desert/Dependencies.lua).
     DesertCopyStreamlineRuntime()
+    -- The OIDN runtime (PathTracing.Denoiser OIDN), Desert/Dependencies.lua.
+    DesertCopyOidnRuntime()
 
     filter "system:macosx"
         -- Unlike Visual Studio, gmake does not link static-lib dependencies

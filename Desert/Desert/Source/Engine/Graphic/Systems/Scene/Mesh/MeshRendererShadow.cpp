@@ -581,7 +581,7 @@ namespace Desert::Graphic::System
     }
 
     DataDrivenMaterial* MeshRenderer::MaskedCasterMaterial( const DataDrivenMaterial* material,
-                                                            MeshVertexPath path, uint32_t cascade )
+                                                            MeshVertexPath path, uint32_t cascade ) const
     {
         const MeshPass pass =
              IsVirtualShadowView( cascade ) ? MeshPass::VirtualShadowDepth : MeshPass::ShadowDepth;
@@ -602,19 +602,34 @@ namespace Desert::Graphic::System
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const DataDrivenMaterial& cell )
     {
-        return CellPipeline( passState, cell.GetShaderName() );
+        // The cell's OWN program: a permutation (ShaderService::AcquireVariant - the DESERT_LOCAL_SHADOW_VSM twin
+        // of a forward cell) carries its base program's name but is not registered under it, and its bindings
+        // are its own; a pipeline found by the name alone would bind the base program to the twin's sets.
+        const MaterialExecutor* const executor = cell.GetMaterialExecutor();
+        const std::shared_ptr<Shader> program  = executor != nullptr ? executor->GetShader() : nullptr;
+        if ( program == nullptr || program->GetVariant().IsDefault() )
+            return CellPipeline( passState, cell.GetShaderName() );
+        return CellPipeline( passState, cell.GetShaderName(), program );
     }
 
     GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader )
     {
+        return CellPipeline( passState, cellShader, nullptr );
+    }
+
+    GraphicsPipeline* MeshRenderer::CellPipeline( GraphicsPipeline* passState, const std::string& cellShader,
+                                                  const std::shared_ptr<Shader>& permutation )
+    {
         if ( passState == nullptr )
             return nullptr;
-        MeshCellPipelineKey key{ passState, cellShader };
+        MeshCellPipelineKey key{ passState, cellShader,
+                                 permutation != nullptr ? permutation->GetVariant().Hash() : 0u };
         if ( const auto found = m_CellPipelines.find( key ); found != m_CellPipelines.end() )
             return found->second.get(); // null = refused before (said once, below)
         auto& slot = m_CellPipelines[key];
 
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
+        auto shader =
+             permutation != nullptr ? permutation : Runtime::ResourceRegistry::GetShaderService()->GetByName( key.CellShader );
         if ( !shader )
         {
             LOG_ERROR( "[MeshRenderer] cell '{}' will not draw in '{}': no such shader is registered",
@@ -622,7 +637,9 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         GraphicsPipelineSpecification spec = passState->GetSpecification();
-        spec.DebugName                     = std::format( "{} {}", spec.DebugName, key.CellShader );
+        spec.DebugName = permutation != nullptr
+                              ? std::format( "{} {}#{:016x}", spec.DebugName, key.CellShader, key.Variant )
+                              : std::format( "{} {}", spec.DebugName, key.CellShader );
         // The pass's own program is an engine pipeline the reveal waits for; any other program is a CONTENT
         // material's cell, compiled on demand (AL1-12) and drawn only once ChooseCellDraw says it is Ready.
         const bool content = shader != spec.Shader;
@@ -833,7 +850,9 @@ namespace Desert::Graphic::System
         // clamp and land on its sun-side end (EnsureVirtualShadowPipelines). That end is clip z >= 0 of the
         // level's standard-Z [0,1] projection, the plane the extraction names PLANE_FAR (row 2 alone,
         // Frustum::Rebuild).
-        if ( IsVirtualShadowView( c ) )
+        // A local light's mip is a perspective view from the light: its near-plane casters are clamped and
+        // dropped by the raster (Common/VirtualShadowRaster.glslh), nothing lies beyond its far plane.
+        if ( c >= kVsmViewBase && c < kRainOcclusionView )
             cascadeFrustum.Open( Core::PLANE_FAR );
 
         // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is

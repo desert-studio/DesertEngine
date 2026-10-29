@@ -134,8 +134,8 @@ namespace Desert::Graphic
         }
 
         // The VSM clipmap levels: the far plane open, as the casters' cull (MeshRendererShadow.cpp:826), and the
-        // drawn-page mask of this frame.
-        if ( m_FrameVsmPages )
+        // drawn-page mask of this frame. A frame with no sun (only local lights in the map) has none.
+        if ( m_FrameVsmPages && m_FrameVsmPages->HasSun )
         {
             for ( uint32_t level = 0; level < System::kVsmClipmapLevelCount; ++level )
             {

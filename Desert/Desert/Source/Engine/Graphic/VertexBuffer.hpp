@@ -242,6 +242,16 @@ namespace Desert::Graphic
             m_Accounting.RecordBytes( bytes );
         }
 
+        // The device address of this buffer's first byte, for a shader that reads it through a buffer reference
+        // (the emissive light list's Build pass, a BLAS build input). 0: none - a device without
+        // bufferDeviceAddress (the address table is filled only with the acceleration-structure row, so a device
+        // with no hardware ray tracing has no addresses), or the buffer is not resident. Read when used, never
+        // cached across frames: a pool arena's VkBuffer changes as it grows (VulkanGeometryAddress.hpp).
+        [[nodiscard]] virtual uint64_t GetDeviceAddress() const
+        {
+            return 0;
+        }
+
         [[nodiscard]] virtual unsigned int GetSize() const = 0;
 
         [[nodiscard]] virtual Common::BoolResultStr RT_Invalidate() = 0;

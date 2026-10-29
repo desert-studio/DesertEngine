@@ -19,18 +19,67 @@ namespace Desert::Graphic
         // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
         // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth
+             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth  View depth
              { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth", nullptr,
-               "Static.VirtualShadowDepth" },
+               "Static.VirtualShadowDepth", "Static.Depth" },
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", nullptr,
-               "Skinned.VirtualShadowDepth" },
+               "Skinned.VirtualShadowDepth", "Skinned.Depth" },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
-               "Instanced.VirtualShadowDepth" },
-             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
+               "Instanced.VirtualShadowDepth", "Instanced.Depth" },
+             { "ParticleSprite.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
              // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).
-             { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr },
-             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr },
+             { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr,
+               "GrassBlade.Depth" },
+             { "ParticleRibbon.Forward", nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
         };
+
+        // THE FORWARD PREPASS RELATION: the forward base pass draws an opaque mesh only where "Forward: Depth
+        // Prepass" drew it first (its depth test is CloserOrEqual with no write), so every path drawn in the
+        // view's opaque mesh passes - the paths with a G-buffer cell - has a view Depth cell. A row that gains
+        // Forward and GBuffer without Depth would leave that path's meshes out of the forward frame; it fails here
+        // instead. (The particle paths are drawn over the lit scene by ParticleRenderer, never by the mesh base
+        // pass.)
+        constexpr bool EveryOpaqueMeshPathHasViewDepth()
+        {
+            for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
+            {
+                const auto& row = kMeshCells[path];
+                if ( row[static_cast<uint32_t>( MeshPass::GBuffer )] != nullptr &&
+                     row[static_cast<uint32_t>( MeshPass::Depth )] == nullptr )
+                    return false;
+            }
+            return true;
+        }
+        static_assert( EveryOpaqueMeshPathHasViewDepth(),
+                       "a mesh path with a GBuffer cell has no Depth cell: the forward prepass cannot admit it" );
+
+        // THE VIRTUAL-SHADOW COOK RELATION: every opaque mesh path (a G-buffer cell) is drawn forward by
+        // MeshRenderer through its VSM twin (ForwardVirtualCell), and the cook lists the twins of exactly
+        // kMeshRendererForwardPaths; a path missing there would draw a permutation no package ships.
+        constexpr bool EveryOpaqueMeshPathHasForwardVsmTwinCooked()
+        {
+            for ( uint32_t path = 0; path < kMeshVertexPathCount; ++path )
+            {
+                const auto& row = kMeshCells[path];
+                if ( row[static_cast<uint32_t>( MeshPass::GBuffer )] == nullptr )
+                    continue;
+                if ( row[static_cast<uint32_t>( MeshPass::Forward )] == nullptr )
+                    return false;
+                bool listed = false;
+                for ( const MeshVertexPath forward : kMeshRendererForwardPaths )
+                    listed = listed || static_cast<uint32_t>( forward ) == path;
+                if ( !listed )
+                    return false;
+            }
+            for ( const MeshVertexPath forward : kMeshRendererForwardPaths )
+                if ( kMeshCells[static_cast<uint32_t>( forward )][static_cast<uint32_t>( MeshPass::Forward )] ==
+                     nullptr )
+                    return false;
+            return true;
+        }
+        static_assert( EveryOpaqueMeshPathHasForwardVsmTwinCooked(),
+                       "an opaque mesh path is missing from kMeshRendererForwardPaths (or has no Forward cell): "
+                       "its DESERT_LOCAL_SHADOW_VSM permutation would not be cooked" );
     } // namespace
 
     const char* MeshCellFor( MeshVertexPath path, MeshPass pass )
@@ -189,6 +238,8 @@ namespace Desert::Graphic
                 return "DepthNormal";
             case MeshPass::VirtualShadowDepth:
                 return "VirtualShadowDepth";
+            case MeshPass::Depth:
+                return "Depth";
         }
         return "?";
     }
@@ -196,7 +247,8 @@ namespace Desert::Graphic
     std::size_t MeshCellPipelineKeyHash::operator()( const MeshCellPipelineKey& key ) const
     {
         const std::size_t state  = std::hash<const void*>{}( key.PassState );
-        const std::size_t shader = std::hash<std::string>{}( key.CellShader );
+        const std::size_t shader =
+             std::hash<std::string>{}( key.CellShader ) ^ ( std::hash<uint64_t>{}( key.Variant ) << 1 );
         return state ^ ( shader + 0x9e3779b97f4a7c15ULL + ( state << 6 ) + ( state >> 2 ) );
     }
 } // namespace Desert::Graphic
