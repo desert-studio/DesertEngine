@@ -9,13 +9,14 @@
 // instead of the per-view ObjectMotions rows (Common/Velocity.glslh), which this header retires.
 //
 // Buffer declarations: the scene-read range (Core/ShaderCompiler/ShaderGraphBindings.hpp) holds the primitive
-// table at 25 (Core::kGpuScenePrimitivesBinding) and the bone palettes at 26 (Core::kObjectBonesBinding), each
+// table at kGpuScenePrimitivesBinding and the bone palettes at kObjectBonesBinding (Generated/SceneBindings.glslh), each
 // declared by the stage that defines DESERT_GPU_SCENE_PRIMITIVES / DESERT_GPU_SCENE_BONES before including this
 // header (the view-pass vertex stages, Mesh/Surface/Vertex_Static.glslh / Vertex_Skinned.glslh). The binned draw's
 // four tables sit at 41-44 under DESERT_GPU_SCENE_DRAWS (below); the cull-only tables get theirs in phase CULL.
 
 #ifndef DESERT_GPU_SCENE_GLSLH
 #define DESERT_GPU_SCENE_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // GpuDriven::PrimitiveFlags
 #define DESERT_GPU_PRIMITIVE_CASTS_SHADOW        1u
@@ -202,7 +203,7 @@ struct GpuCullView
 // material by Graphic::SceneFrameBinding::ApplyTo. DShaderParser refuses a Properties row or texture run inside
 // the scene-read range by name, and Tests/Engine/VelocityTarget holds the whole tree to nothing else there.
 #ifdef DESERT_GPU_SCENE_PRIMITIVES
-layout( std430, binding = 25 ) readonly buffer GpuScenePrimitives
+layout( std430, binding = kGpuScenePrimitivesBinding ) readonly buffer GpuScenePrimitives
 {
     GpuScenePrimitive Primitives[];
 }
@@ -212,14 +213,14 @@ gpuScene;
 // BoneOffset / PrevBoneOffset name its two slices, so every pass that draws the primitive skins it from the same
 // bytes.
 #ifdef DESERT_GPU_SCENE_BONES
-layout( std430, binding = 26 ) readonly buffer ObjectBones
+layout( std430, binding = kObjectBonesBinding ) readonly buffer ObjectBones
 {
     mat4 Palettes[];
 }
 objectBones;
 #endif
 
-// THE BINNED DRAW'S TABLES (Core::kGpuSceneInstancesBinding .. kGpuSceneSubmeshTransformsBinding, 41-44): a mesh-pass
+// THE BINNED DRAW'S TABLES (kGpuSceneInstancesBinding .. kGpuSceneSubmeshTransformsBinding): a mesh-pass
 // vertex stage resolves EVERYTHING per draw from its instance id — the row of the pass's visible list names the
 // instance (-> its primitive) and the cached draw slot (-> material row, submesh transform), so a draw pushes nothing.
 // THE ID IS A PER-INSTANCE VERTEX STREAM (decision 10-27, UE5's instance id stream): a_VisibleRow, 4 bytes at
@@ -233,24 +234,24 @@ objectBones;
 #endif
 layout( location = 9 ) in uint a_VisibleRow; // GpuDriven::kVisibleRowVertexLocation
 
-layout( std430, binding = 41 ) readonly buffer GpuSceneInstances
+layout( std430, binding = kGpuSceneInstancesBinding ) readonly buffer GpuSceneInstances
 {
     GpuSceneInstance Instances[];
 }
 gpuSceneInstances;
 #ifndef DESERT_GPU_SCENE_VIRTUAL_GEOMETRY
-layout( std430, binding = 42 ) readonly buffer GpuSceneVisibleInstances
+layout( std430, binding = kGpuSceneVisibleInstancesBinding ) readonly buffer GpuSceneVisibleInstances
 {
     GpuVisibleInstance VisibleInstances[];
 }
 gpuSceneVisible;
 #endif
-layout( std430, binding = 43 ) readonly buffer GpuSceneDrawSlots
+layout( std430, binding = kGpuSceneDrawSlotsBinding ) readonly buffer GpuSceneDrawSlots
 {
     GpuDrawSlot DrawSlots[];
 }
 gpuSceneDrawSlots;
-layout( std430, binding = 44 ) readonly buffer GpuSceneSubmeshTransforms
+layout( std430, binding = kGpuSceneSubmeshTransformsBinding ) readonly buffer GpuSceneSubmeshTransforms
 {
     mat4 SubmeshTransforms[];
 }
@@ -292,29 +293,29 @@ DesertMeshDraw DesertResolveMeshDraw()
     return DesertResolveDrawOf( gpuSceneVisible.VisibleInstances[a_VisibleRow] );
 }
 #else
-// THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; Core::kVgRaster*Binding 58-61): the
+// THE VIRTUAL GEOMETRY RASTER'S DRAW (the `.VirtualGeometry` surface cells; kVgRaster*Binding): the
 // instance id names a row of the cluster cut's VisibleClusters (written per material group by "VirtualGeometry:
 // Raster Binning", Programs/VirtualGeometry/RasterBinning.shader), i.e. (instance, cluster); the draw slot is the
 // pass's lod-0 slot of the cluster's DAG submesh - the very slot the cut took the submesh transform from
 // (ClusterCut.shader) and the binning took the material group from. A draw instance is one cluster: vertex =
 // triangle x 3 + corner of it (Common/VirtualGeometry.glslh).
 #include <Common/VirtualGeometry.glslh>
-layout( std430, binding = 58 ) readonly buffer VgRasterClusters
+layout( std430, binding = kVgRasterClustersBinding ) readonly buffer VgRasterClusters
 {
     VgCluster Clusters[];
 }
 vgRasterClusters;
-layout( std430, binding = 59 ) readonly buffer VgRasterDags
+layout( std430, binding = kVgRasterDagsBinding ) readonly buffer VgRasterDags
 {
     VgClusterDag Dags[];
 }
 vgRasterDags;
-layout( std430, binding = 60 ) readonly buffer VgRasterVisibleClusters
+layout( std430, binding = kVgRasterVisibleClustersBinding ) readonly buffer VgRasterVisibleClusters
 {
     VgVisibleCluster VisibleClusters[];
 }
 vgRasterVisible;
-layout( std430, binding = 61 ) readonly buffer VgRasterPrimitiveDraws
+layout( std430, binding = kVgRasterPrimitiveDrawsBinding ) readonly buffer VgRasterPrimitiveDraws
 {
     GpuPrimitivePassDraws PrimitiveDraws[];
 }

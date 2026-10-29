@@ -1,5 +1,6 @@
 #ifndef DESERT_WORLD_PARAMETERS_GLSLH
 #define DESERT_WORLD_PARAMETERS_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // THE WORLD'S PARAMETERS (UE's Material Parameter Collection uniform buffer): the scene's collection as the world
 // holds it this frame, one per (view x frame), written by its one writer (Graphic::BuildWorldParameterTable from
@@ -18,7 +19,7 @@ struct WorldParameterSlot
     vec4  Value;
 };
 
-layout( std430, binding = 35 ) readonly buffer WorldParameters
+layout( std430, binding = kWorldParametersBinding ) readonly buffer WorldParameters
 {
     uvec4              Header; // x = capacity (a power of two), y = parameter count
     WorldParameterSlot Slots[];

@@ -248,21 +248,40 @@ TEST( VelocityTarget, AMaterialRowOrTextureCannotBeNumberedIntoTheSceneReadRange
 }
 
 // Seam 2, the hand-numbered declarations (a template's own `layout( binding = n )` textures, a pass header's
-// lighting slots — none of which goes through the Properties block): over the WHOLE shipped shader tree, the
-// reserved numbers carry the three scene-read resources and nothing else, and their two declaring headers
-// (GpuScene.glslh, SurfaceTypes.glslh) spell exactly the C++ numbers they are reserved under. Text, not
-// reflection, because a resource that only collides inside one cell would need that cell compiled to be seen; the
-// after-compile half is ShaderReflection::ReflectStage, which refuses a slot claimed twice by name. Mutation: move
-// SpotLightsUB (or any texture) to 25 / spell GpuScenePrimitives at 16 (where SpotLightsUB lives) -> red.
+// lighting slots — none of which goes through the Properties block). The reserved slots are no longer numbers in
+// shader text: ShaderGraphBindings.hpp is the one place they are decided and shaders read them by name from the
+// generated Generated/SceneBindings.glslh (Core::kSceneBindingNames). So over the WHOLE shipped shader tree:
+//   (a) every scene-read / raster / front-layer resource is declared with its table name, and that name resolves to
+//       the slot the C++ binder reserves for the resource (one name for one resource everywhere it is declared);
+//   (b) no file that reads the table also spells a literal number inside the reserved scene-read range - the
+//       collision the range exists to prevent, now only possible by writing a number by hand next to the names;
+//   (c) no shader defines a table name itself - a hand copy of the generated header.
+// A program of its own (the deferred composite, the path tracer) numbers its own set-0 slots and reads no table
+// name, so its literals are its pass's own slots (lead decision RT-LOCAL-SHADOWS-8). Text, not reflection, because a
+// resource that only collides inside one cell would need that cell compiled to be seen; the after-compile half is
+// ShaderReflection::ReflectStage, which refuses a slot claimed twice by name. Mutation: spell SceneDepthTexture
+// `binding = kObjectBonesBinding` in SurfaceTypes.glslh, or `binding = 26` beside the include -> red.
 TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
 {
     const auto       shaders = Desert::TestSupport::RepositoryRoot() / "Editor/Resources/Shaders";
-    const std::regex declaration(
-         R"(binding\s*=\s*(\d+)\s*\)\s*(?:readonly\s+|writeonly\s+)?(?:uniform|buffer)\s+(?:\w+\s+)?(\w+))"
+    const std::regex literal(
+         R"(binding\s*=\s*(\d+)\s*\)\s*(?:restrict\s+)?(?:readonly\s+|writeonly\s+)?)"
+         R"((?:uniform|buffer)\s+(?:\w+\s+)?(\w+))"
          R"(|\b(?:Uniform|Buffer|ReadBuffer|WriteBuffer)\s*\(\s*(\d+)\s*\)\s*(?:\w+\s+)?(\w+))" );
+    const std::regex named(
+         R"(binding\s*=\s*(k\w+)\s*(?:\+\s*(\d+)\s*)?(?:,\s*\w+\s*)?\)\s*(?:restrict\s+)?(?:readonly\s+|writeonly\s+)?)"
+         R"((?:uniform|buffer)\s+(?:\w+\s+)?(\w+))" );
+    const std::regex handDefine( R"(#\s*define\s+(k\w+))" );
+    const auto       tableValue = []( const std::string& name ) -> std::optional<uint32_t>
+    {
+        for ( const Desert::Core::SceneBindingName& row : Desert::Core::kSceneBindingNames )
+            if ( row.Name == name )
+                return row.Value;
+        return std::nullopt;
+    };
 
-    std::map<std::string, uint32_t> sceneRead; // resource -> number, from GpuScene.glslh
-    std::size_t                     files = 0;
+    std::map<std::string, std::set<uint32_t>> declaredAt; // resource -> every slot a table name gives it
+    std::size_t                               files = 0;
     for ( const auto& entry : std::filesystem::recursive_directory_iterator( shaders ) )
     {
         const auto ext = entry.path().extension().string();
@@ -270,87 +289,93 @@ TEST( VelocityTarget, OnlyTheSceneReadResourcesSitInTheReservedRange )
             continue;
         ++files;
         const std::string text = ReadFile( entry.path() );
-        std::vector<std::pair<uint32_t, std::string>> declared;
-        for ( std::sregex_iterator it( text.begin(), text.end(), declaration ), end; it != end; ++it )
+
+        for ( std::sregex_iterator it( text.begin(), text.end(), named ), end; it != end; ++it )
         {
-            const auto& m = *it;
-            declared.emplace_back( static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) ),
-                                   m[2].matched ? m[2].str() : m[4].str() );
+            const auto&                   m     = *it;
+            const std::optional<uint32_t> value = tableValue( m[1].str() );
+            if ( !value.has_value() )
+                continue; // a program's own macro (GI_TRACER_BINDING-style names are upper case; k* not in the table)
+            const uint32_t offset = m[2].matched ? static_cast<uint32_t>( std::stoul( m[2].str() ) ) : 0u;
+            declaredAt[m[3].str()].insert( *value + offset );
         }
-        // The view's light grid and local shadows: the forward cell declares their five resources at their numbers
-        // of the range. Judged PER PASS LAYOUT (lead decision RT-LOCAL-SHADOWS-8): a file that declares one of them
-        // at its reserved number is a view-pass layout and holds the range; a file that declares them elsewhere
-        // (the deferred composite at set-0 slots 13/14, 22/23 and 32, the grid build shader's compute layout from
-        // 0) is a program of its own that reads no view-pass cell's reservation, so its number is its pass's own
-        // slot and not an exception granted by name.
-        const std::map<std::string, uint32_t> forwardSceneRead{
-             { "LightGridParamsUB", Desert::Core::kLightGridParamsBinding },
-             { "LightGridCellsUB", Desert::Core::kLightGridCellsBinding },
-             { "LocalShadowAtlasTexture", Desert::Core::kLocalShadowAtlasBinding },
-             { "LocalShadowViewsUB", Desert::Core::kLocalShadowViewsBinding },
-             { "LocalShadowMasksTexture", Desert::Core::kLocalShadowMasksBinding } };
-        const bool viewPassLayout = std::any_of(
-             declared.begin(), declared.end(),
-             [&forwardSceneRead]( const std::pair<uint32_t, std::string>& d )
-             {
-                 const auto forward = forwardSceneRead.find( d.second );
-                 return forward != forwardSceneRead.end() && forward->second == d.first;
-             } );
-        for ( const auto& [binding, name] : declared )
+        for ( std::sregex_iterator it( text.begin(), text.end(), handDefine ), end; it != end; ++it )
+            EXPECT_FALSE( tableValue( ( *it )[1].str() ).has_value() )
+                 << entry.path().string() << " defines '" << ( *it )[1].str()
+                 << "' itself - a hand copy of Generated/SceneBindings.glslh, which the includer generates from "
+                    "Core::kSceneBindingNames";
+
+        if ( text.find( "Generated/SceneBindings.glslh" ) == std::string::npos )
+            continue;
+        for ( std::sregex_iterator it( text.begin(), text.end(), literal ), end; it != end; ++it )
         {
-            const bool sceneReadHeader = entry.path().filename() == "GpuScene.glslh" ||
-                                         ( entry.path().filename() == "SurfaceTypes.glslh" &&
-                                           ( name == "SceneDepthTexture" || name == "SceneShadingWordTexture" ) ) ||
-                                         entry.path().filename() == "MegaLightsVolume.glslh" ||
-                                         entry.path().filename() == "SceneFog.glslh";
-            if ( const auto forward = forwardSceneRead.find( name ); forward != forwardSceneRead.end() )
-            {
-                if ( viewPassLayout )
-                {
-                    EXPECT_EQ( binding, forward->second )
-                         << entry.path().string() << " declares '" << name << "' at binding " << binding
-                         << " beside the view-pass reservation of the light grid / local shadows";
-                    sceneRead[name] = binding;
-                }
-            }
-            else if ( sceneReadHeader )
-                sceneRead[name] = binding;
-            else
-                EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
-                     << entry.path().string() << " declares '" << name << "' at binding " << binding
-                     << ", inside the reserved scene-read range — it would share a slot with the scene's "
-                        "GpuScene rows in every view-pass cell";
+            const auto&    m       = *it;
+            const uint32_t binding = static_cast<uint32_t>( std::stoul( m[1].matched ? m[1].str() : m[3].str() ) );
+            EXPECT_FALSE( Desert::Core::IsSceneReadBinding( binding ) )
+                 << entry.path().string() << " reads the slot table and declares '"
+                 << ( m[2].matched ? m[2].str() : m[4].str() ) << "' at the literal binding " << binding
+                 << ", inside the reserved scene-read range — it would share a slot with a scene read in every "
+                    "view-pass cell";
         }
     }
     EXPECT_GT( files, 100u ) << "the walk did not find the shader tree";
-    ASSERT_EQ( sceneRead.size(), 20u );
-    EXPECT_EQ( sceneRead["GpuSceneInstances"], Desert::Core::kGpuSceneInstancesBinding );
-    EXPECT_EQ( sceneRead["GpuSceneVisibleInstances"], Desert::Core::kGpuSceneVisibleInstancesBinding );
-    EXPECT_EQ( sceneRead["GpuSceneDrawSlots"], Desert::Core::kGpuSceneDrawSlotsBinding );
-    EXPECT_EQ( sceneRead["GpuSceneSubmeshTransforms"], Desert::Core::kGpuSceneSubmeshTransformsBinding );
-    EXPECT_EQ( sceneRead["LocalShadowAtlasTexture"], Desert::Core::kLocalShadowAtlasBinding );
-    EXPECT_EQ( sceneRead["LocalShadowViewsUB"], Desert::Core::kLocalShadowViewsBinding );
-    EXPECT_EQ( sceneRead["MegaLightsVolumeUB"], Desert::Core::kMegaLightsVolumeParamsBinding );
-    EXPECT_EQ( sceneRead["MegaLightsVolumeRTexture"], Desert::Core::kMegaLightsVolumeFirstBinding );
-    EXPECT_EQ( sceneRead["MegaLightsVolumeGTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 1u );
-    EXPECT_EQ( sceneRead["MegaLightsVolumeBTexture"], Desert::Core::kMegaLightsVolumeFirstBinding + 2u );
-    EXPECT_EQ( sceneRead["LightGridParamsUB"], Desert::Core::kLightGridParamsBinding );
-    EXPECT_EQ( sceneRead["LightGridCellsUB"], Desert::Core::kLightGridCellsBinding );
-    EXPECT_EQ( sceneRead["GpuScenePrimitives"], Desert::Core::kGpuScenePrimitivesBinding );
-    EXPECT_EQ( sceneRead["ObjectBones"], Desert::Core::kObjectBonesBinding );
-    EXPECT_EQ( sceneRead["SceneDepthTexture"], Desert::Core::kSceneDepthBinding );
-    EXPECT_EQ( sceneRead["SceneShadingWordTexture"], Desert::Core::kSceneShadingWordBinding );
+
+    namespace C = Desert::Core;
+    // The raster and the reader each declare their own copy of three VSM tables (ShaderGraphBindings.hpp), so those
+    // names may sit at either reservation; every other name has exactly one slot.
+    const std::map<std::string, std::set<uint32_t>> expected{
+         { "GpuScenePrimitives", { C::kGpuScenePrimitivesBinding } },
+         { "ObjectBones", { C::kObjectBonesBinding } },
+         { "SceneDepthTexture", { C::kSceneDepthBinding } },
+         { "SceneShadingWordTexture", { C::kSceneShadingWordBinding } },
+         { "LightGridParamsUB", { C::kLightGridParamsBinding } },
+         { "LightGridCellsUB", { C::kLightGridCellsBinding } },
+         { "MegaLightsVolumeUB", { C::kMegaLightsVolumeParamsBinding } },
+         { "MegaLightsVolumeRTexture", { C::kMegaLightsVolumeFirstBinding } },
+         { "MegaLightsVolumeGTexture", { C::kMegaLightsVolumeFirstBinding + 1u } },
+         { "MegaLightsVolumeBTexture", { C::kMegaLightsVolumeFirstBinding + 2u } },
+         { "WorldParameters", { C::kWorldParametersBinding } },
+         { "RainOcclusionMapTexture", { C::kRainOcclusionMapBinding } },
+         { "RainOcclusionUB", { C::kRainOcclusionBlockBinding } },
+         { "LocalShadowAtlasTexture", { C::kLocalShadowAtlasBinding } },
+         { "LocalShadowViewsUB", { C::kLocalShadowViewsBinding } },
+         { "LocalShadowMasksTexture", { C::kLocalShadowMasksBinding } },
+         { "GpuSceneInstances", { C::kGpuSceneInstancesBinding } },
+         { "GpuSceneVisibleInstances", { C::kGpuSceneVisibleInstancesBinding } },
+         { "GpuSceneDrawSlots", { C::kGpuSceneDrawSlotsBinding } },
+         { "GpuSceneSubmeshTransforms", { C::kGpuSceneSubmeshTransformsBinding } },
+         { "SceneFogAerialPerspectiveTexture", { C::kSceneFogAerialPerspectiveBinding } },
+         { "SceneFogDistantSkyLightTexture", { C::kSceneFogDistantSkyLightBinding } },
+         { "SceneFogVolumeTexture", { C::kSceneFogVolumeBinding } },
+         { "VsmFrameData", { C::kVsmFrameDataBinding, C::kVsmReadFrameDataBinding } },
+         { "VsmPageTable", { C::kVsmPageTableBinding, C::kVsmReadPageTableBinding } },
+         { "PhysicalPoolTexture", { C::kVsmPhysicalPoolBinding, C::kVsmReadPhysicalPoolBinding } },
+         { "VsmRasterLevel", { C::kVsmRasterLevelBinding } },
+         { "VsmInstanceRemap", { C::kVsmInstanceRemapBinding } },
+         { "VgRasterClusters", { C::kVgRasterClustersBinding } },
+         { "VgRasterDags", { C::kVgRasterDagsBinding } },
+         { "VgRasterVisibleClusters", { C::kVgRasterVisibleClustersBinding } },
+         { "VgRasterPrimitiveDraws", { C::kVgRasterPrimitiveDrawsBinding } },
+         { "FrontLayerNormalTexture", { C::kSsrFrontLayerNormalBinding } },
+         { "FrontLayerDepthTexture", { C::kSsrFrontLayerDepthBinding } } };
+    for ( const auto& [resource, slots] : expected )
+    {
+        const auto found = declaredAt.find( resource );
+        ASSERT_NE( found, declaredAt.end() ) << "no shader declares '" << resource << "' by its table name";
+        for ( const uint32_t at : found->second )
+            EXPECT_EQ( slots.count( at ), 1u )
+                 << "'" << resource << "' is declared at a table name giving slot " << at << ", not its own";
+    }
     // VOLFOG-2: the view's fog a translucent surface applies at its own depth (Mesh/Surface/SceneFog.glslh). Its
     // parameter block is declared through Common/FogParams.glslh at FOG_PARAMS_BINDING, which the header defines
-    // first - a macro the declaration walk above cannot read, so the define itself is checked.
-    EXPECT_EQ( sceneRead["SceneFogAerialPerspectiveTexture"], Desert::Core::kSceneFogAerialPerspectiveBinding );
-    EXPECT_EQ( sceneRead["SceneFogDistantSkyLightTexture"], Desert::Core::kSceneFogDistantSkyLightBinding );
-    EXPECT_EQ( sceneRead["SceneFogVolumeTexture"], Desert::Core::kSceneFogVolumeBinding );
+    // first to the table name - a macro the declaration walk above cannot follow, so the define itself is checked.
     const std::string sceneFog = ReadFile( shaders / "Mesh/Surface/SceneFog.glslh" );
-    EXPECT_NE(
-         sceneFog.find( std::format( "#define FOG_PARAMS_BINDING {}", Desert::Core::kSceneFogParamsBinding ) ),
-         std::string::npos )
+    EXPECT_NE( sceneFog.find( "#define FOG_PARAMS_BINDING kSceneFogParamsBinding" ), std::string::npos )
          << "Mesh/Surface/SceneFog.glslh does not put the fog block at Core::kSceneFogParamsBinding";
+    // The front layer reads sit in SSR's own set 1, outside every set-0 range (ShaderGraphBindings.hpp).
+    const std::string ssrTrace = ReadFile( shaders / "Common/SSRTrace.glslh" );
+    EXPECT_NE( ssrTrace.find( "set = kSsrFrontLayerSet, binding = kSsrFrontLayerNormalBinding" ), std::string::npos );
+    EXPECT_NE( ssrTrace.find( "set = kSsrFrontLayerSet, binding = kSsrFrontLayerDepthBinding" ), std::string::npos );
 }
 
 TEST( VelocityTarget, GlslVelocityIsTheCpuTwinExpression )

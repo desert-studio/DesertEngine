@@ -1,5 +1,6 @@
 #ifndef DESERT_SURFACE_TYPES_GLSLH
 #define DESERT_SURFACE_TYPES_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // The contract between a surface template and the engine (Core/ShaderCompiler/DShader/DShaderParser.hpp):
 // the author writes `SurfaceOutput EvaluateSurface( SurfaceInput )`, the engine's vertex header for the
@@ -120,7 +121,7 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
      ( ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_DEPTH_FADE ) ) ||                      \
        ( defined( DESERT_SURFACE_PASS_Forward ) && !defined( DESERT_SURFACE_PARTICLE_SPRITE ) ) )
 Uniform sampler PointClampSampler;
-layout( binding = 27 ) uniform texture2D SceneDepthTexture; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture; // the scene-read range's third slot (ShaderGraphBindings.hpp)
 #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
 #endif
 // THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
@@ -128,7 +129,7 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture; // 27 = Core::kScene
 // with texelFetch through the same point-clamped state.
 #if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward ) &&                          \
      !defined( DESERT_SURFACE_PARTICLE_SPRITE )
-layout( binding = 28 ) uniform utexture2D SceneShadingWordTexture; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWordTexture; // the range's fourth slot
 #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
 #endif
 

@@ -44,7 +44,8 @@ layout( binding = 19 ) uniform texture2D SceneColorTexture;
 #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
 // The opaque scene's device depth (reversed-Z): the water's bottom (SceneViewInputs::SceneDepth, Core::kSceneDepthBinding).
 #ifndef DESERT_SURFACE_DEPTH_FADE
-layout( binding = 27 ) uniform texture2D SceneDepthTexture;
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture;
 #endif
 #define WaterSceneDepth sampler2D(SceneDepthTexture, PointClampSampler)
 

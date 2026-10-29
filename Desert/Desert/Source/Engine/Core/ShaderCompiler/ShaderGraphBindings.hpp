@@ -1,6 +1,9 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace Desert::Core
 {
@@ -57,7 +60,8 @@ namespace Desert::Core
      * A hope is not a guarantee, so two seams hold it: DShaderParser refuses a Properties `Binding(n)` /
      * `TextureBinding(n)` whose row or texture run reaches into this range (a named parse error), and
      * Tests/Engine/VelocityTarget asserts that over the whole shipped tree nothing but the two scene-read
-     * resources is declared at these numbers, and that Common/GpuScene.glslh spells exactly these numbers.
+     * resources is declared at these numbers, and that every scene read is declared by its table name
+     * (kSceneBindingNames below; shaders never spell the numbers).
      */
     inline constexpr uint32_t kSceneReadBindingFirst = 25u;
     inline constexpr uint32_t kGpuScenePrimitivesBinding = kSceneReadBindingFirst;      // Common/GpuScene.glslh
@@ -109,8 +113,6 @@ namespace Desert::Core
     inline constexpr uint32_t kGpuSceneVisibleInstancesBinding  = kSceneReadBindingFirst + 17u;
     inline constexpr uint32_t kGpuSceneDrawSlotsBinding         = kSceneReadBindingFirst + 18u;
     inline constexpr uint32_t kGpuSceneSubmeshTransformsBinding = kSceneReadBindingFirst + 19u;
-    static_assert( kGpuSceneInstancesBinding == 41u && kGpuSceneSubmeshTransformsBinding == 44u,
-                   "Common/GpuScene.glslh spells 41-44" );
     // The view's FOG, which a translucent surface applies at its own depth (UE: translucency fogs itself, it is
     // not fogged by the opaque depth behind it): the height fog's parameter block (`FogParamsBuffer`), the sky's
     // aerial perspective volume, its distant sky light and the volumetric fog's integrated froxels. Declared by
@@ -120,8 +122,6 @@ namespace Desert::Core
     inline constexpr uint32_t kSceneFogAerialPerspectiveBinding = kSceneReadBindingFirst + 21u;
     inline constexpr uint32_t kSceneFogDistantSkyLightBinding   = kSceneReadBindingFirst + 22u;
     inline constexpr uint32_t kSceneFogVolumeBinding            = kSceneReadBindingFirst + 23u;
-    static_assert( kSceneFogParamsBinding == 45u && kSceneFogVolumeBinding == 48u,
-                   "Mesh/Surface/SceneFog.glslh spells 45-48" );
     // THE VIEW'S VIRTUAL SHADOW MAP AS A READER SEES IT (Shadows.Method VirtualMaps, DESERT_LOCAL_SHADOW_VSM): the
     // frame's level table (`VsmFrameData`), the page table (`VsmPageTable`), the physical pool
     // (`PhysicalPoolTexture`, read only) and the frame's shadowed point / spot lights (`VsmLocalLightsUB`, indexed
@@ -134,8 +134,6 @@ namespace Desert::Core
     inline constexpr uint32_t kVsmReadPageTableBinding    = kSceneReadBindingFirst + 25u;
     inline constexpr uint32_t kVsmReadPhysicalPoolBinding = kSceneReadBindingFirst + 26u;
     inline constexpr uint32_t kVsmReadLocalLightsBinding  = kSceneReadBindingFirst + 27u;
-    static_assert( kVsmReadFrameDataBinding == 49u && kVsmReadLocalLightsBinding == 52u,
-                   "Mesh/ForwardLocalLights.glslh spells 49-52" );
     inline constexpr uint32_t kSceneReadBindingCount = 28u;
 
     [[nodiscard]] constexpr bool IsSceneReadBinding( uint32_t binding )
@@ -162,8 +160,6 @@ namespace Desert::Core
     inline constexpr uint32_t kVsmRasterLevelBinding           = kVirtualShadowRasterBindingFirst + 3u;
     inline constexpr uint32_t kVsmInstanceRemapBinding         = kVirtualShadowRasterBindingFirst + 4u;
     inline constexpr uint32_t kVirtualShadowRasterBindingCount = 5u;
-    static_assert( kVsmFrameDataBinding == 53u && kVsmInstanceRemapBinding == 57u,
-                   "Common/VirtualShadowRaster.glslh and Mesh/Surface/Vertex_Instanced.glslh spell 53-57" );
 
     [[nodiscard]] constexpr bool IsVirtualShadowRasterBinding( uint32_t binding )
     {
@@ -188,8 +184,6 @@ namespace Desert::Core
     inline constexpr uint32_t kVgRasterVisibleClustersBinding = kVirtualGeometryRasterBindingFirst + 2u;
     inline constexpr uint32_t kVgRasterPrimitiveDrawsBinding  = kVirtualGeometryRasterBindingFirst + 3u;
     inline constexpr uint32_t kVirtualGeometryRasterBindingCount = 4u;
-    static_assert( kVgRasterClustersBinding == 58u && kVgRasterPrimitiveDrawsBinding == 61u,
-                   "Common/GpuScene.glslh spells 58-61 under DESERT_GPU_SCENE_VIRTUAL_GEOMETRY" );
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
     // shading word and the light grid joined it), then from 31 (the MegaLights volume joined it), then from 35
@@ -206,4 +200,96 @@ namespace Desert::Core
          kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
     static_assert( kGraphOwnedBindingFirst == 62u,
                    "the graph's window opens right above the virtual geometry raster's range" );
+
+    /**
+     * THE SSR PROGRAM'S FRONT-LAYER READS (Programs/Deferred/SSR.shader under DESERT_REFLECTIONS_FRONT_LAYER,
+     * Common/SSRTrace.glslh): the translucent front layer's normal/roughness (`FrontLayerNormalTexture`) and device
+     * depth (`FrontLayerDepthTexture`), bound by name (SSRRenderer DeclareFrontLayerReads).
+     *
+     * SET 1, because set 0 has no slot for them outside every shared range: the traced permutation they ride on
+     * fills set 0 from 0 to 40 (its G-buffer inputs, the GI frame, lights, light grid, radiance cache, the GI tracer
+     * at 23..33 and the surface cache at 34..40), 25..61 are the scene-read and raster ranges, and 62 up is the
+     * graph's window, which nothing shipped may declare into (Tests/Engine/ShaderCacheKey). They had sat at 50/51,
+     * inside the scene-read range. Set 1 is a program's own set (BindlessSetIndex.hpp) and no header SSR.shader
+     * includes declares into it; the deferred composite parks its own extra reads there the same way
+     * (Programs/Deferred/DeferredLighting.shader GiBackfaceTexture).
+     */
+    inline constexpr uint32_t kSsrFrontLayerSet           = 1u;
+    inline constexpr uint32_t kSsrFrontLayerNormalBinding = 0u;
+    inline constexpr uint32_t kSsrFrontLayerDepthBinding  = 1u;
+
+    /**
+     * THE TABLE SHADERS READ: every slot above, by its C++ name, as Generated/SceneBindings.glslh hands it to GLSL
+     * (`#define kSceneFogVolumeBinding 48`; Graphic::ShaderProtocols::SceneBindingsGlsl, served by the shader
+     * includer and hashed by the cache key like every generated protocol include - there is no file on disk to
+     * edit). A shader never spells one of these numbers: it includes that header and writes
+     * `layout( binding = kSceneFogVolumeBinding )`, so moving a range here moves every declaration with it, and the
+     * changed generated text recompiles every program that reads one. One name in both languages, so
+     * sym.sh --refs finds the C++ binder and the GLSL declaration together. A slot added above without a row here
+     * is a name no shader can spell: the shader that needs it fails to compile, naming it.
+     */
+    struct SceneBindingName
+    {
+        std::string_view Name;
+        uint32_t         Value = 0;
+    };
+#define DESERT_SCENE_BINDING_ROW( constant ) SceneBindingName{ #constant, constant }
+    inline constexpr std::array kSceneBindingNames = {
+         DESERT_SCENE_BINDING_ROW( kSceneReadBindingFirst ),
+         DESERT_SCENE_BINDING_ROW( kGpuScenePrimitivesBinding ),
+         DESERT_SCENE_BINDING_ROW( kObjectBonesBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneDepthBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneShadingWordBinding ),
+         DESERT_SCENE_BINDING_ROW( kLightGridParamsBinding ),
+         DESERT_SCENE_BINDING_ROW( kLightGridCellsBinding ),
+         DESERT_SCENE_BINDING_ROW( kMegaLightsVolumeParamsBinding ),
+         DESERT_SCENE_BINDING_ROW( kMegaLightsVolumeFirstBinding ),
+         DESERT_SCENE_BINDING_ROW( kWorldParametersBinding ),
+         DESERT_SCENE_BINDING_ROW( kRainOcclusionMapBinding ),
+         DESERT_SCENE_BINDING_ROW( kRainOcclusionBlockBinding ),
+         DESERT_SCENE_BINDING_ROW( kLocalShadowAtlasBinding ),
+         DESERT_SCENE_BINDING_ROW( kLocalShadowViewsBinding ),
+         DESERT_SCENE_BINDING_ROW( kLocalShadowMasksBinding ),
+         DESERT_SCENE_BINDING_ROW( kGpuSceneInstancesBinding ),
+         DESERT_SCENE_BINDING_ROW( kGpuSceneVisibleInstancesBinding ),
+         DESERT_SCENE_BINDING_ROW( kGpuSceneDrawSlotsBinding ),
+         DESERT_SCENE_BINDING_ROW( kGpuSceneSubmeshTransformsBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneFogParamsBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneFogAerialPerspectiveBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneFogDistantSkyLightBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneFogVolumeBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmReadFrameDataBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmReadPageTableBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmReadPhysicalPoolBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmReadLocalLightsBinding ),
+         DESERT_SCENE_BINDING_ROW( kSceneReadBindingCount ),
+         DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingFirst ),
+         DESERT_SCENE_BINDING_ROW( kVsmFrameDataBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmPageTableBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmPhysicalPoolBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmRasterLevelBinding ),
+         DESERT_SCENE_BINDING_ROW( kVsmInstanceRemapBinding ),
+         DESERT_SCENE_BINDING_ROW( kVirtualShadowRasterBindingCount ),
+         DESERT_SCENE_BINDING_ROW( kVirtualGeometryRasterBindingFirst ),
+         DESERT_SCENE_BINDING_ROW( kVgRasterClustersBinding ),
+         DESERT_SCENE_BINDING_ROW( kVgRasterDagsBinding ),
+         DESERT_SCENE_BINDING_ROW( kVgRasterVisibleClustersBinding ),
+         DESERT_SCENE_BINDING_ROW( kVgRasterPrimitiveDrawsBinding ),
+         DESERT_SCENE_BINDING_ROW( kVirtualGeometryRasterBindingCount ),
+         DESERT_SCENE_BINDING_ROW( kGraphOwnedBindingFirst ),
+         DESERT_SCENE_BINDING_ROW( kSsrFrontLayerSet ),
+         DESERT_SCENE_BINDING_ROW( kSsrFrontLayerNormalBinding ),
+         DESERT_SCENE_BINDING_ROW( kSsrFrontLayerDepthBinding ),
+    };
+#undef DESERT_SCENE_BINDING_ROW
+
+    [[nodiscard]] consteval bool SceneBindingNamesAreUnique()
+    {
+        for ( std::size_t i = 0; i < kSceneBindingNames.size(); ++i )
+            for ( std::size_t j = i + 1; j < kSceneBindingNames.size(); ++j )
+                if ( kSceneBindingNames[i].Name == kSceneBindingNames[j].Name )
+                    return false;
+        return true;
+    }
+    static_assert( SceneBindingNamesAreUnique(), "a slot is listed twice in kSceneBindingNames" );
 } // namespace Desert::Core

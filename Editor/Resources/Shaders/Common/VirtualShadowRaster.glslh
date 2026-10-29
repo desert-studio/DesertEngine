@@ -14,24 +14,25 @@
 // reads as no occluder (VirtualShadowMapProject: occluder = 1 - bits).
 #ifndef VIRTUAL_SHADOW_RASTER_GLSLH
 #define VIRTUAL_SHADOW_RASTER_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 #include <Common/VirtualShadowMap.glslh>
 
-layout( std430, binding = 53 ) restrict readonly buffer VsmFrameData
+layout( std430, binding = kVsmFrameDataBinding ) restrict readonly buffer VsmFrameData
 {
     VsmFrame Frame;
     VsmLevel Levels[];
 };
-layout( std430, binding = 54 ) restrict readonly buffer VsmPageTable
+layout( std430, binding = kVsmPageTableBinding ) restrict readonly buffer VsmPageTable
 {
     VsmPageEntry Entries[];
 };
-layout( binding = 55, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
+layout( binding = kVsmPhysicalPoolBinding, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
 // The level this fragment rasterizes: the draw's (VirtualShadowMapFrame::RasterLevel, x = level index), unless the
 // includer names it per primitive first (VSM_RASTER_LEVEL: the cluster raster of every level in one pass,
 // Mesh/Surface/Pass_VirtualShadowDepth.glslh).
 #ifndef VSM_RASTER_LEVEL
-layout( std430, binding = 56 ) restrict readonly buffer VsmRasterLevel
+layout( std430, binding = kVsmRasterLevelBinding ) restrict readonly buffer VsmRasterLevel
 {
     uvec4 RasterLevel;
 };
