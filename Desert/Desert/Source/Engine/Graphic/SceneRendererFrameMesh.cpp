@@ -429,12 +429,6 @@ namespace Desert::Graphic
         // The glass samples the scene copy for its refraction and the scene/view inputs its shader has slots for:
         // its binding block, declared here (the block entries are the node's reads), resolved in the body.
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
-        // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-        if ( meshRenderer == nullptr )
-            return;
-        const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
         // No front layer this frame: the graph's black texture for both, which the glass reads as "the sky alone".
         const RDG::TextureRef                              black = textures.GraphRefs().System.Black;
         const System::MeshRenderer::GlassFrontLayer glassFront{
