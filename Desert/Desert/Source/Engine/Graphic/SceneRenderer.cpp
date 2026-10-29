@@ -2217,12 +2217,14 @@ namespace Desert::Graphic
         // capture (the environment) and the cloud shadow map (the sun), so the layer's sky-occlusion volume,
         // which the capture marches through, is still written.
         // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
-        // scene copy (AddFrameOpaqueFog); a path-traced frame added none, so its sky LUTs are added here.
-        if ( !pathTraced )
+        // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); a path-traced frame
+        // added none, so its sky LUTs are added here. A G-buffer view (IsGBufferView) composites no cloud layer.
+        if ( !pathTraced && !IsGBufferView( m_DebugView.DeferredDebug ) )
             AddFrameVolumetricClouds( graph, textures, frame );
         else
         {
-            AddFrameSkyAtmosphereLuts( graph, textures );
+            if ( pathTraced )
+                AddFrameSkyAtmosphereLuts( graph, textures );
             AddFrameCloudSkyOcclusion( graph, textures );
         }
 

@@ -841,6 +841,8 @@ namespace Desert::Editor
             if ( !fresh && slot.ColorSpace == ::Desert::Core::Formats::TextureColorSpace::SRGB )
                 at->second = ::Desert::Core::Formats::TextureColorSpace::SRGB;
         }
+        // The asset each slot ended on, for the colour atlas's dilation mask below.
+        std::map<std::string, std::pair<std::filesystem::path, Common::Content::AssetGuid>, std::less<>> slotAssets;
         for ( const ImportedTextureSlot& slot : fill.Textures )
         {
             std::filesystem::path image = slot.Parts.front().Source;
@@ -915,6 +917,32 @@ namespace Desert::Editor
                                                              key.IsSuccess() ? "null GUID" : key.GetError() ) );
             data.Textures.push_back( { slot.Slot, Common::Content::AssetGuidToText( key.GetValue().Guid ),
                                        Common::AssetHandle::StableKeyForPath( asset ), slot.Sampler } );
+            slotAssets[slot.Slot] = { asset, key.GetValue().Guid };
+        }
+        // THE COLOUR IS PADDED UNDER A SEPARATE OPACITY MAP (GRASS-ASSET p5, TextureDilationMask). A masked
+        // material whose opacity is ANOTHER image than its albedo (Poly Haven foliage: `*_diff` + `*_alpha`) gets
+        // its albedo marked with that mask at the clip value, so the matte under the cut-away never reaches a mip.
+        if ( const auto albedo = slotAssets.find( "AlbedoTexture" ), opacity = slotAssets.find( "OpacityTexture" );
+             albedo != slotAssets.end() && opacity != slotAssets.end() &&
+             albedo->second.second != opacity->second.second )
+        {
+            const auto clip    = std::ranges::find( data.Params, std::string_view( "OpacityMaskClipValue" ),
+                                                    &Assets::MaterialShaderParam::Name );
+            const auto channel = std::ranges::find( data.Params, std::string_view( "OpacityChannel" ),
+                                                    &Assets::MaterialShaderParam::Name );
+            if ( clip != data.Params.end() && clip->Value.x > 0.0f )
+            {
+                Assets::TextureDilationMask mask;
+                mask.Texture   = opacity->second.second;
+                mask.Channel   = static_cast<uint32_t>(
+                     std::clamp( channel != data.Params.end() ? static_cast<int>( channel->Value.x ) : 3, 0, 3 ) );
+                mask.Threshold = std::clamp( clip->Value.x, 0.0f, 1.0f );
+                if ( const auto set = Assets::SetTextureColorDilationMask( albedo->second.first, mask ); !set )
+                    return Common::MakeError<bool>( std::format( "material '{}' in '{}': texture '{}': {}",
+                                                                 material.Name, sourcePath.generic_string(),
+                                                                 albedo->second.first.generic_string(),
+                                                                 set.GetError() ) );
+            }
         }
         data.Header     = Common::Content::MakeTextHeader( Common::Content::ContentKind::Material, material.Guid,
                                                            Assets::MaterialTextSubsystems() );
