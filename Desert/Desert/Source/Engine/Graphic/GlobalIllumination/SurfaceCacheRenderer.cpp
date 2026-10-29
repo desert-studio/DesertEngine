@@ -9,6 +9,7 @@
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/ViewTargetFormats.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
@@ -167,8 +168,11 @@ namespace Desert::Graphic::SurfaceCache
         }
     } // namespace
 
+    SurfaceCacheRenderer::SurfaceCacheRenderer( const ResourceOwnerInstance owner ) : m_LedgerInstance( owner ) {}
+
     Common::BoolResultStr SurfaceCacheRenderer::Initialize()
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         const auto shaders = Runtime::ResourceRegistry::GetShaderService();
         m_CopyShader       = shaders->GetByName( "SurfaceCacheCardCopy" );
         m_AtlasViewShader  = shaders->GetByName( "SurfaceCacheAtlasView" );
@@ -230,6 +234,7 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::BoolResultStr SurfaceCacheRenderer::Configure( const SurfaceCacheBudget& budget )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         m_Scene.Configure( budget, kCaptureAtlasSize, kMaxCapturesPerFrame );
         if ( budget.AtlasSize == m_AtlasSize )
             return BOOLSUCCESS;
@@ -298,31 +303,51 @@ namespace Desert::Graphic::SurfaceCache
         return BOOLSUCCESS;
     }
 
+    void SurfaceCacheRenderer::BeginFrame( const uint64_t engineFrame, std::vector<glm::vec3> origins,
+                                           const entt::registry& registry, const bool deferred )
+    {
+        const Common::Scalability::ResolvedQuality&   quality = Common::Scalability::QualityState::Resolved();
+        const Common::Scalability::CapabilityCatalog& catalog = Common::Scalability::QualityState::Catalog();
+        // THE SCENE'S GI METHOD: its unbound volumes (no view position: a volume around one camera is that view's
+        // grade, not the scene's), under the machine's ceiling and the device - the resolution a view runs.
+        const Core::PostProcessSettings scenePost = ResolveViewSettings( registry, std::nullopt ).Post;
+        const RenderMethods methods = ResolveRenderMethods( scenePost, quality, catalog, deferred, m_Refusals );
+        GlobalIllumination::Pipeline tracer =
+             GlobalIllumination::PipelineFor( methods.GlobalIllumination.Effective, quality, catalog );
+        if ( !tracer.Traced )
+        {
+            // An untraced scene method (the cards serve the traced reflections or a view mode): the software walk,
+            // the one every device runs.
+            tracer        = GlobalIllumination::Pipeline{};
+            tracer.Traced = true;
+        }
+        m_FrameViews = FrameViews{ .Frame   = engineFrame,
+                                   .Origins = std::move( origins ),
+                                   .Budget  = MakeSurfaceCacheBudget( quality ),
+                                   .Tracer  = tracer };
+    }
+
+    void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer )
+    {
+        for ( const Common::Scalability::GIMethod method : GlobalIllumination::TraceProgramGIMethods( tracer, false ) )
+            AddRefusal( m_Refusals.GlobalIllumination, method, "SurfaceCacheDirectLighting" );
+    }
+
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>
-    SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const glm::vec3& camera,
-                                       const uint64_t                                 engineFrame,
+    SurfaceCacheRenderer::UpdateScene( const std::vector<SceneInstance>& instances, const uint64_t engineFrame,
                                        const GlobalIllumination::DirectionalLighting& lighting )
     {
-        // What this call asks for: the camera and the instance list's identity (key, placement, surface and
-        // capture readiness of each, in order) - the once-per-frame rule compares it with the frame's update.
-        uint64_t inputs = 0xCBF29CE484222325ULL ^ static_cast<uint64_t>( instances.size() );
-        for ( const auto& instance : instances )
-        {
-            inputs = ( inputs ^ instance.Key ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ SurfaceCacheScene::PlacementKey( instance.Mesh, instance.World ) ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ instance.SurfaceKey ) * 0x100000001B3ULL;
-            inputs = ( inputs ^ ( instance.CaptureReady ? 1ULL : 0ULL ) ) * 0x100000001B3ULL;
-        }
-        if ( m_FrameUpdate && m_FrameUpdate->Frame == engineFrame )
-        {
-            if ( camera != m_FrameUpdate->Camera || inputs != m_FrameUpdate->Instances )
-                return Common::MakeFormattedError<SceneUpdate>(
-                     "surface cache: updated once per frame - frame {} was updated for another camera or instance "
-                     "set (its captures and relit pages are what that frame's earlier graph writes and reads)",
-                     engineFrame );
-            // The frame's update already ran: this graph reads the same cache, nothing is updated.
+        // The frame's update already ran (another view of the scene, earlier this frame): this graph reads the
+        // same cache - the records that view's graph wrote the atlases from - and nothing is updated. Its own
+        // camera and instance list do not re-pick the frame's captures (SurfaceCacheRenderer, the class comment).
+        if ( UpdatedIn( engineFrame ) )
             return Common::MakeSuccess( SceneUpdate{ .Scene = m_FrameUpdate->Scene, .Updated = false } );
-        }
+        // The frame's views were stated before any of them opened (BeginFrame): the update is cut from all of them.
+        const FrameViews* const views = ViewsOf( engineFrame );
+        if ( views == nullptr || views->Origins.empty() )
+            return Common::MakeFormattedError<SceneUpdate>(
+                 "surface cache: no view origins stated for frame {} (BeginFrame must run before the frame's views)",
+                 engineFrame );
 
         if ( !m_LitBy || GlobalIllumination::InvalidatesLightingHistory( *m_LitBy, lighting ) )
         {
@@ -331,8 +356,8 @@ namespace Desert::Graphic::SurfaceCache
             m_LitBy          = lighting;
             m_ResetRadiosity = true;
         }
-        SceneFrame scene = m_Scene.Update( instances, camera );
-        m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Camera = camera, .Instances = inputs, .Scene = scene };
+        SceneFrame scene = m_Scene.Update( instances, views->Origins );
+        m_FrameUpdate    = FrameUpdate{ .Frame = engineFrame, .Scene = scene };
         return Common::MakeSuccess( SceneUpdate{ .Scene = std::move( scene ), .Updated = true } );
     }
 
@@ -399,6 +424,7 @@ namespace Desert::Graphic::SurfaceCache
          const std::shared_ptr<Shader>& shader, const Core::Formats::ImageFormat format, const uint32_t samples,
          const bool depth, const std::string_view name )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         const auto key = std::make_pair( static_cast<int>( format ), samples );
         if ( const auto it = cache.find( key ); it != cache.end() )
             return Common::MakeSuccess( it->second );
@@ -585,6 +611,7 @@ namespace Desert::Graphic::SurfaceCache
 
     Common::BoolResultStr SurfaceCacheRenderer::EnsureRadiosityProgram( const GlobalIllumination::Pipeline& tracer )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         if ( m_RadiosityPipeline && tracer == m_RadiosityProgramFor )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(
@@ -620,6 +647,7 @@ namespace Desert::Graphic::SurfaceCache
     Common::BoolResultStr SurfaceCacheRenderer::EnsureLightingProgram( const GlobalIllumination::Pipeline& tracer,
                                                                        const bool virtualLocalShadows )
     {
+        const ResourceAttributionScope ownerRows( ResourceOwner::SceneRenderer, m_LedgerInstance );
         if ( m_LightingPipeline && tracer == m_LightingProgramFor && virtualLocalShadows == m_LightingProgramVsm )
             return BOOLSUCCESS;
         auto acquired = Runtime::ResourceRegistry::GetShaderService()->AcquireVariant(

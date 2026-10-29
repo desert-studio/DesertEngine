@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -141,8 +142,12 @@ namespace Desert::Graphic::SurfaceCache
         void Configure( const SurfaceCacheBudget& budget, uint32_t captureAtlasSize,
                         uint32_t maxCapturesPerFrame );
 
-        // One frame: add / remove / move instances, choose resolutions, allocate, pick captures.
-        [[nodiscard]] SceneFrame Update( const std::vector<SceneInstance>& instances, const glm::vec3& viewer );
+        // One frame: add / remove / move instances, choose resolutions, allocate, pick captures. @p viewers: the
+        // origins of every view of the scene this frame (UE: the Lumen scene update's ViewOrigins, up to
+        // MAX_LUMEN_VIEW_ORIGINS): a card's distance - its resolution and its capture priority - is the nearest
+        // viewer's, so the cards in front of a second viewport are captured as those of the first. Never empty.
+        [[nodiscard]] SceneFrame Update( const std::vector<SceneInstance>& instances,
+                                         std::span<const glm::vec3>        viewers );
         // The lit layers no longer hold the scene's light (a significant change of the directional lights,
         // GlobalIllumination::InvalidatesLightingHistory): the next Update relights every visible page in its
         // frame instead of one in DirectLightingUpdateFactor (UE: the scene lighting's full relight).
