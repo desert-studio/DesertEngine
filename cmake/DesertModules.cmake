@@ -1,12 +1,11 @@
-# The CMake port of BuildScripts/DesertModuleLibs.lua: the engine's module table and the one way to link the
-# engine (one static library per module).
+# The engine's module table (cmake/DesertModuleTable.cmake) turned into the build: one static library per module,
+# the engine include paths, and the one way to link the engine.
 #
-# ONE SOURCE OF TRUTH. The module table and the placement rows stay in BuildScripts/DesertModules.lua, which
-# DesertHeaderTool also reads (`--modules`). This file PARSES that table instead of restating it, so adding a
-# module or a placement row is still one edit, seen by premake, by the header tool and by CMake alike. The
-# parser accepts exactly the shapes the table is written in -- `M( "Name", { deps }, "ue" [, { Folder = "...",
-# Reflected = true }] )` and `P( "Module", [[pattern]] )` -- and fails configure on anything else it meets
-# inside the two tables, never skipping a row silently.
+# ONE SOURCE OF TRUTH. The rows live in cmake/DesertModuleTable.cmake, written as desert_module() /
+# desert_placement() calls. This file collects them, validates the layering, places every legacy file, and writes
+# <build>/DesertModules.json (DESERT_MODULE_TABLE_JSON) for the two C++ readers, DesertHeaderTool (`--modules`) and
+# the ModuleBoundary suite: the rows as written plus the module CMake placed each legacy file into, so the C++ side
+# can check its std::regex placement against the build's instead of keeping a second table.
 #
 # Placement patterns are the table's regex subset (literal chars, `.`, `\w`, `\d`, escapes, groups, `|`,
 # `*`/`+`/`?`, `^`/`$`, unanchored search). CMake's regex has the same operators except the classes, so
@@ -14,103 +13,85 @@
 
 include_guard(GLOBAL)
 
-set(DESERT_MODULE_TABLE "${DESERT_ROOT}/BuildScripts/DesertModules.lua")
+set(DESERT_MODULE_TABLE "${DESERT_ROOT}/cmake/DesertModuleTable.cmake")
+set(DESERT_MODULE_TABLE_JSON "${CMAKE_BINARY_DIR}/DesertModules.json")
 set(DESERT_LEGACY_ROOT "Desert/Desert/Source")
 set(DESERT_LEGACY_REFLECT_DIR "Engine")
-set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${DESERT_MODULE_TABLE}")
 
-# ── PARSE THE TABLE ────────────────────────────────────────────────────────────────────────────────
-file(READ "${DESERT_MODULE_TABLE}" _table)
-# Drop Lua line comments; the tables' strings never contain "--".
-string(REGEX REPLACE "--[^\n]*" "" _table "${_table}")
-# CMake lists split on ';' -- the table has none in code; guard anyway.
-if(_table MATCHES ";")
-    message(FATAL_ERROR "DesertModules.cmake: ${DESERT_MODULE_TABLE} has a ';' outside a comment, which this parser cannot carry")
-endif()
-
-string(FIND "${_table}" "DesertModules.Modules = {" _mstart)
-string(FIND "${_table}" "DesertModules.Placement = {" _pstart)
-if(_mstart EQUAL -1 OR _pstart EQUAL -1)
-    message(FATAL_ERROR "DesertModules.cmake: ${DESERT_MODULE_TABLE} has no `DesertModules.Modules = {` or `DesertModules.Placement = {`")
-endif()
-math(EXPR _mlen "${_pstart} - ${_mstart}")
-string(SUBSTRING "${_table}" ${_mstart} ${_mlen} _modules_block)
-string(SUBSTRING "${_table}" ${_pstart} -1 _placement_block)
-string(FIND "${_placement_block}" "\n}" _pend)
-string(SUBSTRING "${_placement_block}" 0 ${_pend} _placement_block)
-
-# Each M( ... ) row: the only ')' inside one is in the Unreal-name string ("CoreUObject (reflection)"), so a
-# parenthesised part of a quoted string is unwrapped first (the Unreal name is not used here).
-string(REGEX REPLACE "\"([^\"()]*)\\(([^\"()]*)\\)([^\"()]*)\"" "\"\\1\\2\\3\"" _modules_block "${_modules_block}")
-string(REGEX MATCHALL "M\\([^)]*\\)" _rows "${_modules_block}")
-string(REGEX MATCHALL "[^A-Za-z_]M\\(" _row_starts "${_modules_block}")
-list(LENGTH _rows _nrows)
-list(LENGTH _row_starts _nstarts)
-if(NOT _nrows EQUAL _nstarts OR _nrows EQUAL 0)
-    message(FATAL_ERROR "DesertModules.cmake: parsed ${_nrows} module rows out of ${_nstarts} `M(` calls in ${DESERT_MODULE_TABLE}")
-endif()
-
+# ── THE ROWS ───────────────────────────────────────────────────────────────────────────────────────
 set(DESERT_MODULES "")
-foreach(row IN LISTS _rows)
-    if(NOT row MATCHES "^M\\([ \t\r\n]*\"([A-Za-z0-9]+)\"[ \t\r\n]*,[ \t\r\n]*{([^}]*)}[ \t\r\n]*,[ \t\r\n]*\"[^\"]*\"[ \t\r\n]*(,[ \t\r\n]*{([^}]*)})?[ \t\r\n]*\\)$")
-        message(FATAL_ERROR "DesertModules.cmake: cannot parse module row: ${row}")
-    endif()
-    set(_name "${CMAKE_MATCH_1}")
-    set(_deps_text "${CMAKE_MATCH_2}")
-    set(_options "${CMAKE_MATCH_4}")
-    string(REGEX MATCHALL "\"[A-Za-z0-9]+\"" _deps "${_deps_text}")
-    string(REPLACE "\"" "" _deps "${_deps}")
-    set(_folder "Desert/${_name}/Source/${_name}")
-    if(_options MATCHES "Folder[ \t]*=[ \t]*\"([^\"]+)\"")
-        set(_folder "${CMAKE_MATCH_1}")
-    endif()
-    set(_reflected OFF)
-    if(_options MATCHES "Reflected[ \t]*=[ \t]*true")
-        set(_reflected ON)
-    endif()
-    if(NOT _folder MATCHES "^(.+)/([^/]+)$")
-        message(FATAL_ERROR "DesertModules.cmake: module '${_name}' has Folder '${_folder}', which is not <source root>/<dir>")
-    endif()
-    set(DESERT_MODULE_${_name}_SOURCE_ROOT "${CMAKE_MATCH_1}")
-    set(DESERT_MODULE_${_name}_SCAN_DIR "${CMAKE_MATCH_2}")
-    foreach(dep IN LISTS _deps)
-        if(NOT dep IN_LIST DESERT_MODULES)
-            message(FATAL_ERROR "DesertModules.cmake: '${_name}' depends on '${dep}', which is not listed before it")
-        endif()
-    endforeach()
-    if(_name IN_LIST DESERT_MODULES)
-        message(FATAL_ERROR "DesertModules.cmake: module '${_name}' is listed twice")
-    endif()
-    list(APPEND DESERT_MODULES "${_name}")
-    set(DESERT_MODULE_${_name}_DEPS "${_deps}")
-    set(DESERT_MODULE_${_name}_FOLDER "${_folder}")
-    set(DESERT_MODULE_${_name}_REFLECTED ${_reflected})
-endforeach()
-
-# Placement rows, the generated-reflection rows first (in module order), as DesertModules.lua inserts them.
 set(DESERT_PLACEMENT_MODULES "")
 set(DESERT_PLACEMENT_PATTERNS "")
-foreach(name IN LISTS DESERT_MODULES)
-    list(APPEND DESERT_PLACEMENT_MODULES "${name}")
-    list(APPEND DESERT_PLACEMENT_PATTERNS "Engine/Generated/Reflection_${name}\\.gen\\.cpp$")
-endforeach()
-string(REGEX MATCHALL "P\\([ \t]*\"[A-Za-z0-9]+\"[ \t]*,[ \t]*\\[\\[[^]]*\\]\\][ \t]*\\)" _prows "${_placement_block}")
-string(REGEX MATCHALL "[^A-Za-z_]P\\(" _prow_starts "${_placement_block}")
-list(LENGTH _prows _np)
-list(LENGTH _prow_starts _nps)
-if(NOT _np EQUAL _nps OR _np EQUAL 0)
-    message(FATAL_ERROR "DesertModules.cmake: parsed ${_np} placement rows out of ${_nps} `P(` calls in ${DESERT_MODULE_TABLE}")
-endif()
-foreach(row IN LISTS _prows)
-    string(REGEX MATCH "^P\\([ \t]*\"([A-Za-z0-9]+)\"[ \t]*,[ \t]*\\[\\[([^]]*)\\]\\]" _ "${row}")
-    set(_module "${CMAKE_MATCH_1}")
-    set(_pattern "${CMAKE_MATCH_2}")
-    if(NOT _module IN_LIST DESERT_MODULES)
-        message(FATAL_ERROR "DesertModules.cmake: placement row names '${_module}', which is not a module")
+set(DESERT_PLACEMENT_SOURCE_PATTERNS "")
+
+# desert_module(<Name> [DEPS <module>...] UE "<Unreal module>" [FOLDER <repo-relative dir>] [REFLECTED])
+macro(desert_module name)
+    cmake_parse_arguments(_m "REFLECTED" "UE;FOLDER" "DEPS" ${ARGN})
+    if(_m_UNPARSED_ARGUMENTS OR NOT _m_UE)
+        message(FATAL_ERROR "DesertModuleTable.cmake: module '${name}': unexpected '${_m_UNPARSED_ARGUMENTS}' or no UE")
     endif()
+    if(NOT "${name}" MATCHES "^[A-Za-z0-9]+$")
+        message(FATAL_ERROR "DesertModuleTable.cmake: module name '${name}' is not alphanumeric")
+    endif()
+    if("${name}" IN_LIST DESERT_MODULES)
+        message(FATAL_ERROR "DesertModuleTable.cmake: module '${name}' is listed twice")
+    endif()
+    foreach(_dep IN LISTS _m_DEPS)
+        if(NOT _dep IN_LIST DESERT_MODULES)
+            message(FATAL_ERROR "DesertModuleTable.cmake: '${name}' depends on '${_dep}', which is not listed before it")
+        endif()
+    endforeach()
+    set(_folder "Desert/${name}/Source/${name}")
+    if(_m_FOLDER)
+        set(_folder "${_m_FOLDER}")
+    endif()
+    if(NOT _folder MATCHES "^(.+)/([^/]+)$")
+        message(FATAL_ERROR "DesertModuleTable.cmake: module '${name}' has FOLDER '${_folder}', which is not <source root>/<dir>")
+    endif()
+    set(DESERT_MODULE_${name}_SOURCE_ROOT "${CMAKE_MATCH_1}")
+    set(DESERT_MODULE_${name}_SCAN_DIR "${CMAKE_MATCH_2}")
+    list(APPEND DESERT_MODULES "${name}")
+    set(DESERT_MODULE_${name}_DEPS "${_m_DEPS}")
+    set(DESERT_MODULE_${name}_FOLDER "${_folder}")
+    set(DESERT_MODULE_${name}_REFLECTED ${_m_REFLECTED})
+    # Generated reflection of a module lives in the legacy root and belongs to it: these rows come before the
+    # table's own placement rows (collected separately and appended after the table is read).
+    list(APPEND _desert_generated_modules "${name}")
+endmacro()
+
+# desert_placement(<Module> [[<ECMAScript pattern>]])
+# A function, not a macro: a macro would re-read the pattern's backslashes as escape sequences.
+function(desert_placement module pattern)
+    if(NOT "${module}" IN_LIST DESERT_MODULES)
+        message(FATAL_ERROR "DesertModuleTable.cmake: placement row names '${module}', which is not a module listed above it")
+    endif()
+    if(pattern MATCHES ";")
+        message(FATAL_ERROR "DesertModuleTable.cmake: placement row of '${module}' has a ';', which a CMake list cannot carry")
+    endif()
+    list(APPEND _desert_table_placement_modules "${module}")
+    list(APPEND _desert_table_placement_patterns "${pattern}")
+    set(_desert_table_placement_modules "${_desert_table_placement_modules}" PARENT_SCOPE)
+    set(_desert_table_placement_patterns "${_desert_table_placement_patterns}" PARENT_SCOPE)
+endfunction()
+
+set(_desert_generated_modules "")
+set(_desert_table_placement_modules "")
+set(_desert_table_placement_patterns "")
+include("${DESERT_MODULE_TABLE}")
+if(NOT DESERT_MODULES OR NOT _desert_table_placement_modules)
+    message(FATAL_ERROR "DesertModuleTable.cmake declares no module or no placement row")
+endif()
+
+# Placement rows: the generated-reflection rows first (in module order), then the table's rows in order.
+foreach(name IN LISTS _desert_generated_modules)
+    list(APPEND DESERT_PLACEMENT_MODULES "${name}")
+    list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS "Engine/Generated/Reflection_${name}\\.gen\\.cpp$")
+endforeach()
+list(APPEND DESERT_PLACEMENT_MODULES ${_desert_table_placement_modules})
+list(APPEND DESERT_PLACEMENT_SOURCE_PATTERNS ${_desert_table_placement_patterns})
+foreach(_pattern IN LISTS DESERT_PLACEMENT_SOURCE_PATTERNS)
     string(REPLACE "\\w" "[A-Za-z0-9_]" _pattern "${_pattern}")
     string(REPLACE "\\d" "[0-9]" _pattern "${_pattern}")
-    list(APPEND DESERT_PLACEMENT_MODULES "${_module}")
     list(APPEND DESERT_PLACEMENT_PATTERNS "${_pattern}")
 endforeach()
 list(LENGTH DESERT_PLACEMENT_PATTERNS _nplace)
@@ -187,6 +168,55 @@ foreach(name IN LISTS DESERT_MODULES)
     set(DESERT_MODULE_${name}_LIBRARIES "${_libs}")
 endforeach()
 
+# ── THE TABLE FOR THE C++ READERS ──────────────────────────────────────────────────────────────────
+# <build>/DesertModules.json: the rows as written (placement patterns before the \w / \d rewrite), the module each
+# legacy file was placed into here, and the table library of each module with legacy files. Rewritten only when
+# its text changes, so a reconfigure does not rerun the header tool.
+function(_desert_json_string out text)
+    string(REPLACE "\\" "\\\\" text "${text}")
+    string(REPLACE "\"" "\\\"" text "${text}")
+    set(${out} "\"${text}\"" PARENT_SCOPE)
+endfunction()
+function(_desert_write_module_json)
+    set(_modules "")
+    foreach(name IN LISTS DESERT_MODULES)
+        set(_deps "")
+        foreach(dep IN LISTS DESERT_MODULE_${name}_DEPS)
+            list(APPEND _deps "\"${dep}\"")
+        endforeach()
+        list(JOIN _deps ", " _deps)
+        list(APPEND _modules "    { \"Name\": \"${name}\", \"Folder\": \"${DESERT_MODULE_${name}_FOLDER}\", \"Deps\": [${_deps}] }")
+    endforeach()
+    list(JOIN _modules ",\n" _modules)
+    set(_placement "")
+    foreach(i RANGE ${DESERT_PLACEMENT_LAST})
+        list(GET DESERT_PLACEMENT_MODULES ${i} _module)
+        list(GET DESERT_PLACEMENT_SOURCE_PATTERNS ${i} _pattern)
+        _desert_json_string(_pattern "${_pattern}")
+        list(APPEND _placement "    { \"Module\": \"${_module}\", \"Pattern\": ${_pattern} }")
+    endforeach()
+    list(JOIN _placement ",\n" _placement)
+    set(_files "")
+    set(_libraries "")
+    foreach(name IN LISTS DESERT_MODULES)
+        foreach(rel IN LISTS DESERT_MODULE_${name}_LEGACY)
+            _desert_json_string(_rel "${rel}")
+            list(APPEND _files "    ${_rel}: \"${name}\"")
+        endforeach()
+        if(DESERT_MODULE_${name}_LEGACY)
+            list(APPEND _libraries "    \"${name}\": \"Desert${name}\"")
+        endif()
+    endforeach()
+    list(SORT _files)
+    list(JOIN _files ",\n" _files)
+    list(JOIN _libraries ",\n" _libraries)
+    set(_text "{\n  \"RepoRoot\": \"${DESERT_ROOT}\",\n  \"LegacyRoot\": \"${DESERT_LEGACY_ROOT}\",\n  \"Modules\": [\n${_modules}\n  ],\n")
+    string(APPEND _text "  \"Placement\": [\n${_placement}\n  ],\n  \"LegacyFiles\": {\n${_files}\n  },\n")
+    string(APPEND _text "  \"LegacyLibraries\": {\n${_libraries}\n  }\n}\n")
+    desert_write_generated("${DESERT_MODULE_TABLE_JSON}" "${_text}")
+endfunction()
+_desert_write_module_json()
+
 # CodegenLib: the first module (in table order) that builds a table library; the header tool runs before it.
 set(DESERT_CODEGEN_LIB "")
 foreach(name IN LISTS DESERT_MODULES)
@@ -259,7 +289,7 @@ function(desert_depend_on_codegen target)
     add_dependencies(${target} ${DESERT_CODEGEN_LIB})
 endfunction()
 
-# DesertModuleLibs.Link(): every module library, top of the table first, then the Vulkan SDK libraries.
+# DesertModuleLibs.Link(): every module library, top of the table first, then SPIRV-Cross and the Vulkan SDK libraries.
 function(desert_link_engine target)
     set(_names "")
     set(_reversed ${DESERT_MODULES})
@@ -267,14 +297,14 @@ function(desert_link_engine target)
     foreach(name IN LISTS _reversed)
         list(APPEND _names ${DESERT_MODULE_${name}_LIBRARIES})
     endforeach()
-    target_link_libraries(${target} PRIVATE ${_names} ${DESERT_VULKAN_LIBRARIES})
+    target_link_libraries(${target} PRIVATE ${_names} ${DESERT_DESERTSPECIFIC_LIBRARIES})
 endfunction()
 
 # The header tool invocation the engine's codegen library runs before it compiles (Desert/Desert/premake5.lua).
 function(desert_engine_header_tool_command out)
     set(_cmd "$<TARGET_FILE:DesertHeaderTool>"
         --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates"
-        --modules "${DESERT_MODULE_TABLE}")
+        --modules "${DESERT_MODULE_TABLE_JSON}")
     set(_first ON)
     set(_reflect_roots "")
     if(DESERT_HAS_LEGACY_FILES)

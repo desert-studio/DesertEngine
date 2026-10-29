@@ -1,13 +1,13 @@
 // DesertHeaderTool — a lightweight Unreal-Header-Tool-style code generator.
 //
 // Scans C++ headers for REFLECT() / PROPERTY(...) annotations and emits, per engine module of
-// BuildScripts/DesertModules.lua, one translation unit with RegisterReflection_<Module>() that registers the
+// cmake/DesertModuleTable.cmake, one translation unit with RegisterReflection_<Module>() that registers the
 // module's reflected types (with field offsets, types and editor metadata) into
 // Desert::Reflection::ReflectionRegistry, plus the module list <output-file> that calls them in the table's
 // order at static-init time and resolves struct links once (plan C11).
 //
 // Usage:
-//   DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]
+//   DesertHeaderTool --templates <dir> [--modules <build>/DesertModules.json]
 //                    [--reflect <source-root> <scan-subdir> <output-file> [--reflect-anchor <Name>]
 //                               [--reflect-root <source-root> <scan-subdir>]...
 //                               [--reflect-enums <scan-dir>]...
@@ -192,7 +192,7 @@ namespace
         std::vector<Function> functions;
         std::vector<Event>    events;
         std::string        headerInclude; // include path relative to source root
-        std::string           module;        // BuildScripts/DesertModules.lua module of the header
+        std::string           module;        // cmake/DesertModuleTable.cmake module of the header
     };
 
     // --------------------------------------------------------------------- helpers
@@ -1653,7 +1653,7 @@ static int RunTool( int argc, char** argv )
     }
     if ( !templateDir || ( !reflect && checkRoots.empty() ) )
     {
-        std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <DesertModules.lua>]\n"
+        std::cerr << "Usage: DesertHeaderTool --templates <dir> [--modules <build>/DesertModules.json]\n"
                      "       [--reflect <source-root> <scan-subdir> <output> [--reflect-anchor <Name>]\n"
                      "                  [--reflect-root <source-root> <scan-subdir>]...\n"
                      "                  [--reflect-enums <scan-dir>]...\n"
@@ -1717,8 +1717,7 @@ static int RunTool( int argc, char** argv )
         std::cerr << "[DesertHeaderTool] " << modules.GetError() << "\n";
         return 1;
     }
-    return Reflect( *templateDir, *reflect, &modules.GetValue(),
-                    fs::absolute( *moduleTable ).parent_path().parent_path() );
+    return Reflect( *templateDir, *reflect, &modules.GetValue(), modules.GetValue().RepoRoot() );
 }
 
 // The entry point, one line. Anything this tool throws is named on stderr with the tool's own name

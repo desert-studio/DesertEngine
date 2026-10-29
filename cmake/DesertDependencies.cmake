@@ -18,7 +18,7 @@ set(_tp "${DESERT_ROOT}/ThirdParty")
 # ── VULKAN SDK ─────────────────────────────────────────────────────────────────────────────────────
 # Same search order as findVulkanSDK(): $VULKAN_SDK, then (Windows) the newest Program Files\VulkanSDK\*,
 # (macOS) the newest ~/VulkanSDK/*/macOS then Homebrew, (Linux) /usr/local/vulkan. A missing SDK is an error:
-# the engine links shaderc and spirv-cross out of the SDK's Lib directory.
+# the engine links shaderc out of the SDK's Lib directory (SPIRV-Cross is vendored: cmake/ThirdParty/SPIRVCross.cmake).
 set(DESERT_VULKAN_INCLUDE "")
 set(DESERT_VULKAN_LIB "")
 if(DEFINED ENV{VULKAN_SDK} AND NOT "$ENV{VULKAN_SDK}" STREQUAL "")
@@ -60,23 +60,24 @@ if(NOT DESERT_VULKAN_INCLUDE)
     message(FATAL_ERROR
         "Vulkan SDK not found.\n"
         "  macOS:   run scripts/MacOS/Setup.sh (Homebrew vulkan-headers + vulkan-loader + molten-vk +\n"
-        "           shaderc + spirv-cross), or install the LunarG SDK into ~/VulkanSDK.\n"
+        "           shaderc), or install the LunarG SDK into ~/VulkanSDK.\n"
         "  Windows: run scripts\\Windows\\Setup.bat, which installs the pinned LunarG SDK and sets\n"
         "           VULKAN_SDK. A headers-only install is not enough: the engine links shaderc*.lib\n"
-        "           and spirv-cross-*.lib out of the SDK's Lib directory.")
+        "           out of the SDK's Lib directory (SPIRV-Cross is vendored).")
 endif()
 message(STATUS "[Vulkan] SDK include: ${DESERT_VULKAN_INCLUDE}")
 
-# deps.DesertSpecific.Libraries.{Debug,Release}: the Vulkan loader, shaderc and spirv-cross. Debug links the
+# DESERT_DESERTSPECIFIC_LIBRARIES: the vendored SPIRV-Cross, then the Vulkan loader and shaderc. Debug links the
 # SDK's `d` archives on Windows; Release AND Shipping link the plain ones (premake `Release or Shipping`).
 if(DESERT_IS_WINDOWS)
     set(DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/vulkan-1.lib")
-    foreach(lib shaderc shaderc_combined shaderc_util spirv-cross-core spirv-cross-glsl)
+    foreach(lib shaderc shaderc_combined shaderc_util)
         list(APPEND DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/${lib}$<$<CONFIG:Debug>:d>.lib")
     endforeach()
 else()
-    set(DESERT_VULKAN_LIBRARIES vulkan shaderc_combined spirv-cross-glsl spirv-cross-core)
+    set(DESERT_VULKAN_LIBRARIES vulkan shaderc_combined) # shaderc + glslang + SPIRV-Tools in one archive
 endif()
+set(DESERT_DESERTSPECIFIC_LIBRARIES SPIRVCross ${DESERT_VULKAN_LIBRARIES})
 
 # ── THE TABLES ─────────────────────────────────────────────────────────────────────────────────────
 # deps.Common.IncludeDir, sorted by key: GLFW, glm, optick, spdlog.
@@ -103,7 +104,7 @@ set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
     "${_tp}/OpenSubdiv"                                         # opensubdiv
     "${_tp}/reflect-cpp/include"                                # reflect_cpp
     "${DESERT_VULKAN_INCLUDE}/shaderc"                          # shaderc
-    "${DESERT_VULKAN_INCLUDE}/spirv_cross"                      # spirv_cross
+    "${_tp}/SPIRV-Cross"                                        # spirv_cross (vendored, included flat: <spirv_glsl.hpp>)
     "${_tp}/stb/include"                                        # stb
     "${_tp}/VulkanAllocator")                                   # vkallocator
 

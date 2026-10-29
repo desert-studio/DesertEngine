@@ -22,4 +22,4 @@ desert_external_includes(TextureCook
     ${DESERT_COMMON_INCLUDE_DIRS}
     ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 desert_config_platform_defines(TextureCook)
-target_link_libraries(TextureCook PRIVATE Common Optick OpenEXRCore ReflectCpp ${DESERT_VULKAN_LIBRARIES})
+target_link_libraries(TextureCook PRIVATE Common Optick OpenEXRCore ReflectCpp ${DESERT_DESERTSPECIFIC_LIBRARIES})

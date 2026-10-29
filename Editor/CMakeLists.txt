@@ -19,7 +19,7 @@ function(_desert_editor_compile_settings target)
         "${DESERT_ROOT}/ThirdParty/")
     desert_editorspecific_includes(${target})
     desert_external_includes(${target}
-        "${DESERT_VULKAN_INCLUDE}" "${DESERT_VULKAN_INCLUDE}/shaderc" "${DESERT_VULKAN_INCLUDE}/spirv_cross")
+        "${DESERT_VULKAN_INCLUDE}" "${DESERT_VULKAN_INCLUDE}/shaderc" "${DESERT_ROOT}/ThirdParty/SPIRV-Cross")
     target_compile_definitions(${target} PRIVATE USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0)
     if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
         target_compile_definitions(${target} PRIVATE DESERT_WITH_DLIB)
@@ -89,5 +89,5 @@ if(DESERT_IS_MACOS)
         Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
         "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
         "-framework CoreMedia" "-framework AVFoundation" "-framework QuartzCore"
-        ${DESERT_VULKAN_LIBRARIES})
+        ${DESERT_DESERTSPECIFIC_LIBRARIES})
 endif()

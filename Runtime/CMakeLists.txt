@@ -36,5 +36,5 @@ if(DESERT_IS_MACOS)
         Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp
         "-framework Cocoa" "-framework IOKit" "-framework CoreFoundation" "-framework CoreVideo"
         "-framework QuartzCore"
-        ${DESERT_VULKAN_LIBRARIES})
+        ${DESERT_DESERTSPECIFIC_LIBRARIES})
 endif()

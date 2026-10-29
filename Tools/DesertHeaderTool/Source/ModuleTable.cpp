@@ -1,143 +1,79 @@
 #include "ModuleTable.hpp"
 
-extern "C"
-{
-#include <lauxlib.h>
-#include <lua.h>
-#include <lualib.h>
-}
+#include <Common/Json/Json.hpp>
 
 #include <algorithm>
 #include <format>
-#include <memory>
 #include <utility>
 
 namespace Desert::HeaderTool
 {
     namespace
     {
-        struct LuaStateDeleter
+        // <build>/DesertModules.json as cmake/DesertModules.cmake writes it.
+        struct ModuleRow
         {
-            void operator()( lua_State* state ) const
-            {
-                lua_close( state );
-            }
+            std::string              Name;
+            std::string              Folder;
+            std::vector<std::string> Deps;
         };
-        using LuaState = std::unique_ptr<lua_State, LuaStateDeleter>;
-
-        // The string field `key` of the table at the top of the stack; empty when it is absent.
-        std::string StringField( lua_State* L, const char* key )
+        struct PlacementRow
         {
-            lua_getfield( L, -1, key );
-            std::string value = ( lua_isstring( L, -1 ) != 0 ) ? lua_tostring( L, -1 ) : "";
-            lua_pop( L, 1 );
-            return value;
-        }
-
-        // Calls `visit` with each element of the array field `key` of the table at the top of the stack, the
-        // element pushed on top of the stack.
-        template <typename Visit>
-        void ForEachInArray( lua_State* L, const char* key, Visit&& visit )
+            std::string Module;
+            std::string Pattern;
+        };
+        struct TableDocument
         {
-            lua_getfield( L, -1, key );
-            if ( lua_istable( L, -1 ) )
-            {
-                const lua_Integer count = luaL_len( L, -1 );
-                for ( lua_Integer i = 1; i <= count; ++i )
-                {
-                    lua_geti( L, -1, i );
-                    visit();
-                    lua_pop( L, 1 );
-                }
-            }
-            lua_pop( L, 1 );
-        }
-
-        std::string TopError( lua_State* L )
-        {
-            return ( lua_isstring( L, -1 ) != 0 ) ? lua_tostring( L, -1 ) : "(no message)";
-        }
+            std::string                        RepoRoot;
+            std::string                        LegacyRoot;
+            std::vector<ModuleRow>             Modules;
+            std::vector<PlacementRow>          Placement;
+            std::map<std::string, std::string> LegacyFiles;
+            std::map<std::string, std::string> LegacyLibraries;
+        };
     } // namespace
 
     Common::ResultStr<ModuleTable> ModuleTable::Load( const std::filesystem::path& tableFile )
     {
-        LuaState const owned( luaL_newstate() );
-        lua_State*     L = owned.get();
-        luaL_openlibs( L );
-        if ( luaL_dofile( L, tableFile.string().c_str() ) != LUA_OK )
-            return Common::MakeError<ModuleTable>(
-                 std::format( "module table {}: {}", tableFile.string(), TopError( L ) ) );
-        if ( !lua_istable( L, -1 ) )
-            return Common::MakeError<ModuleTable>(
-                 std::format( "module table {} does not return a table", tableFile.string() ) );
-
-        lua_getfield( L, -1, "Validate" );
-        if ( lua_pcall( L, 0, 0, 0 ) != LUA_OK )
-            return Common::MakeError<ModuleTable>( TopError( L ) );
+        auto read = ::Common::Json::ReadFile<TableDocument>( tableFile );
+        if ( !read )
+            return Common::MakeError<ModuleTable>( std::format( "module table {}", read.GetError() ) );
+        TableDocument document = read.ExtractValue();
+        const auto    refuse   = [&]( const std::string& why )
+        { return Common::MakeError<ModuleTable>( std::format( "module table {}: {}", tableFile.string(), why ) ); };
+        if ( document.Modules.empty() || document.Placement.empty() || document.LegacyRoot.empty() ||
+             document.RepoRoot.empty() )
+            return refuse( "lacks Modules, Placement, LegacyRoot or RepoRoot" );
 
         ModuleTable table;
-        table.m_LegacyRoot = StringField( L, "LegacyRoot" );
-        ForEachInArray( L, "Modules",
-                        [&]
-                        {
-                            ModuleInfo module{ StringField( L, "Name" ), StringField( L, "Folder" ), {} };
-                            ForEachInArray( L, "Deps",
-                                            [&] { module.Deps.emplace_back( lua_tostring( L, -1 ) ); } );
-                            table.m_Modules.push_back( std::move( module ) );
-                        } );
-        std::string badPattern;
-        ForEachInArray( L, "Placement",
-                        [&]
-                        {
-                            std::string module  = StringField( L, "Module" );
-                            std::string pattern = StringField( L, "Pattern" );
-                            try
-                            {
-                                std::regex regex( pattern, std::regex::ECMAScript );
-                                table.m_Placement.push_back(
-                                     { std::move( module ), std::move( pattern ), std::move( regex ) } );
-                            }
-                            catch ( const std::regex_error& error )
-                            {
-                                badPattern = std::format( "placement row of '{}': {} ({})", module, error.what(),
-                                                          pattern );
-                            }
-                        } );
-        if ( !badPattern.empty() )
-            return Common::MakeError<ModuleTable>(
-                 std::format( "module table {}: {}", tableFile.string(), badPattern ) );
-        if ( table.m_Modules.empty() || table.m_Placement.empty() || table.m_LegacyRoot.empty() )
-            return Common::MakeError<ModuleTable>(
-                 std::format( "module table {} lacks Modules, Placement or LegacyRoot", tableFile.string() ) );
-        return Common::MakeSuccess( std::move( table ) );
-    }
-
-    Common::ResultStr<std::vector<std::string>>
-    ModuleTable::CallForEach( const std::filesystem::path& tableFile, const char* function,
-                              const std::vector<std::string>& arguments )
-    {
-        LuaState const owned( luaL_newstate() );
-        lua_State*     L = owned.get();
-        luaL_openlibs( L );
-        if ( luaL_dofile( L, tableFile.string().c_str() ) != LUA_OK || !lua_istable( L, -1 ) )
-            return Common::MakeError<std::vector<std::string>>(
-                 std::format( "module table {}: {}", tableFile.string(), TopError( L ) ) );
-        std::vector<std::string> results;
-        results.reserve( arguments.size() );
-        for ( const std::string& argument : arguments )
+        table.m_LegacyRoot = std::move( document.LegacyRoot );
+        table.m_RepoRoot   = std::filesystem::path( document.RepoRoot );
+        for ( ModuleRow& row : document.Modules )
         {
-            lua_getfield( L, -1, function );
-            if ( !lua_isfunction( L, -1 ) )
-                return Common::MakeError<std::vector<std::string>>(
-                     std::format( "module table {} has no function {}", tableFile.string(), function ) );
-            lua_pushstring( L, argument.c_str() );
-            if ( lua_pcall( L, 1, 1, 0 ) != LUA_OK || lua_isstring( L, -1 ) == 0 )
-                return Common::MakeError<std::vector<std::string>>(
-                     std::format( "{}( {} ): {}", function, argument, TopError( L ) ) );
-            results.emplace_back( lua_tostring( L, -1 ) );
-            lua_pop( L, 1 );
+            if ( table.Find( row.Name ) != nullptr )
+                return refuse( std::format( "module '{}' is listed twice", row.Name ) );
+            for ( const std::string& dep : row.Deps )
+                if ( table.Find( dep ) == nullptr )
+                    return refuse( std::format( "'{}' depends on '{}', which is not listed before it", row.Name, dep ) );
+            table.m_Modules.push_back( { std::move( row.Name ), std::move( row.Folder ), std::move( row.Deps ) } );
         }
-        return Common::MakeSuccess( std::move( results ) );
+        for ( PlacementRow& row : document.Placement )
+        {
+            if ( table.Find( row.Module ) == nullptr )
+                return refuse( std::format( "placement row names '{}', which is not a module", row.Module ) );
+            try
+            {
+                std::regex regex( row.Pattern, std::regex::ECMAScript );
+                table.m_Placement.push_back( { std::move( row.Module ), std::move( row.Pattern ), std::move( regex ) } );
+            }
+            catch ( const std::regex_error& error )
+            {
+                return refuse( std::format( "placement row of '{}': {} ({})", row.Module, error.what(), row.Pattern ) );
+            }
+        }
+        table.m_BuildPlacement  = std::move( document.LegacyFiles );
+        table.m_LegacyLibraries = std::move( document.LegacyLibraries );
+        return Common::MakeSuccess( std::move( table ) );
     }
 
     const ModuleInfo* ModuleTable::Find( std::string_view name ) const
