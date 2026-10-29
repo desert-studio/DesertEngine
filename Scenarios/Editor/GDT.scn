@@ -12,7 +12,12 @@
 # The view's centre picks what it looks at while nothing is selected; selecting Ground makes it the target.
 Когда select 9810771712317175157
 Когда advance 0.5
-Тогда-вид 1_physics_ground the panel at the top-left names Ground; its category list reads "1 Basic [on]  2 Physics [on]  3 Script [on]"; Physics shows "Body Static, profile BlockAll", "State static (never simulated)", "Contacts N this frame" with the player / Cube hits listed; Script shows "no scripts"; 0 VUID in editor.log
+Тогда-вид 1_physics_ground the panel at the top-left names Ground; its category list reads "1 Basic [on]  2 Physics [on]  3 Script [on]  4 Rendering [on]"; Physics shows "Body Static, profile BlockAll", "State static (never simulated)", "Contacts N this frame" with the player / Cube hits listed; Script shows "no scripts"; 0 VUID in editor.log
 Когда select GameplayDebuggerDemo
 Когда advance 1.0
 Тогда-вид 2_script_demo the panel names GameplayDebuggerDemo; Basic is off (the script turned it off at 1 s); Physics shows "no physics: neither a RigidBody nor a CharacterController"; Script shows "Slot 0 GameplayDebuggerDemo.lua running" and "BasicOffAfter = 1.000"; 0 VUID in editor.log
+# [gdt_rendering] GDT-3: the Rendering category (digit 4, on by default) about a static mesh: the renderer's answer
+# to SceneRenderer::WatchPrimitive, one frame late (the first collected frame says "waiting for the renderer").
+Когда select Cube
+Когда advance 0.5
+Тогда-вид 3_gdt_rendering the panel names Cube; Rendering shows "[0] Static queue, slot 0", "LOD 0/N (auto)", "Draw path CPU walk -> G-buffer base pass" (Deferred) or "-> forward", "Material <instance> (<template>)", "Blend Opaque", "Shading model DefaultLit", "Shadows casts -> CSM|VSM|RT", "In frustum yes"; a coloured bounds box with "[0] LOD 0" sits around the Cube; 0 VUID in editor.log
