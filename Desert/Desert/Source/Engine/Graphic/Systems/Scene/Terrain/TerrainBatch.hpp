@@ -92,8 +92,8 @@ namespace Desert::Graphic::System
         // layers' height x Magnitude around Center, faded out with distance). x = DisplacementMagnitude (cm; 0 = the
         // tile is drawn flat), y = DisplacementCenter, z = DisplacementFadeStart, w = DisplacementFadeEnd (cm).
         glm::vec4 Displacement{ 0.0f };
-        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every caster view, so a cascade sees the
-        // surface the camera sees. w = 1: the tile is drawn diced in rings (DiceRings), 0: its plain LOD grid.
+        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every caster view, so a cascade sees
+        // the surface the camera sees. w = 1: the tile is drawn diced in rings (DiceRings), 0: its plain LOD grid.
         glm::vec4 DisplacementView{ 0.0f };
         // THE DICE RINGS (LandscapeDisplacement.glslh), square rings of cells around the main camera on the tile's
         // LOD-0 grid, each diced finer than the ring outside it (UE Nanite: finer where a triangle is larger on
@@ -120,24 +120,21 @@ namespace Desert::Graphic::System
          sizeof( TerrainInstance ) == 37 * sizeof( glm::vec4 ),
          "TerrainInstance must stay thirty-seven 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
          "reads these offsets" );
-    static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
-                        offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
-                        offsetof( TerrainInstance, LandscapeTile ) == 64 &&
-                        offsetof( TerrainInstance, LodEdges ) == 80 &&
-                        offsetof( TerrainInstance, LodCorners ) == 96 &&
-                        offsetof( TerrainInstance, LayerColors ) == 112 &&
-                        offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
-                        offsetof( TerrainInstance, LayerInput ) == 272 &&
-                        offsetof( TerrainInstance, InputSlices ) == 304 &&
-                        offsetof( TerrainInstance, GroundInput ) == 432 &&
-                        offsetof( TerrainInstance, Displacement ) == 448 &&
-                        offsetof( TerrainInstance, DisplacementView ) == 464 &&
-                        offsetof( TerrainInstance, DiceWindow ) == 480 &&
-                        offsetof( TerrainInstance, DisplacementTiling ) == 496 &&
-                        offsetof( TerrainInstance, InputTileSize ) == 512 &&
-                        offsetof( TerrainInstance, InputBlend ) == 544 &&
-                        offsetof( TerrainInstance, DiceRings ) == 576,
-                   "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
+    static_assert(
+         offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
+              offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
+              offsetof( TerrainInstance, LandscapeTile ) == 64 && offsetof( TerrainInstance, LodEdges ) == 80 &&
+              offsetof( TerrainInstance, LodCorners ) == 96 && offsetof( TerrainInstance, LayerColors ) == 112 &&
+              offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
+              offsetof( TerrainInstance, LayerInput ) == 272 && offsetof( TerrainInstance, InputSlices ) == 304 &&
+              offsetof( TerrainInstance, GroundInput ) == 432 &&
+              offsetof( TerrainInstance, Displacement ) == 448 &&
+              offsetof( TerrainInstance, DisplacementView ) == 464 &&
+              offsetof( TerrainInstance, DiceWindow ) == 480 &&
+              offsetof( TerrainInstance, DisplacementTiling ) == 496 &&
+              offsetof( TerrainInstance, InputTileSize ) == 512 &&
+              offsetof( TerrainInstance, InputBlend ) == 544 && offsetof( TerrainInstance, DiceRings ) == 576,
+         "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
     // apart from LandscapeTileDraw: that one feeds the LOD/seam keys, and painting must not touch them.
@@ -298,8 +295,8 @@ namespace Desert::Graphic::System
         return cells * cells * 6u;
     }
 
-    // The dice rings (LandscapeDisplacement.glslh): dice 1, 2, 4, 8, 16 sub-cells a side - the finest puts a vertex
-    // every 6.25 cm on a 1 m landscape.
+    // The dice rings (LandscapeDisplacement.glslh): dice 1, 2, 4, 8, 16 sub-cells a side - the finest puts a
+    // vertex every 6.25 cm on a 1 m landscape.
     constexpr int kLandscapeDiceLevels = 5;
 
     // Dice ring @p level (dice 1 << level) of a row, clamped to the tile's @p cells x @p cells grid: [x0, x1) x
@@ -324,7 +321,8 @@ namespace Desert::Graphic::System
     // The draw's vertex count with the row's dice rings (LandscapeDisplacement.glslh decodes the same order: the
     // ring diced 16, then 8, 4, 2, 1 - each the cells of its square outside the finer one, dice x dice sub-cells
     // a cell - then every cell outside the fade's square, undiced; six vertices a (sub-)cell).
-    inline uint32_t LandscapeDicedVertexCount( uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row )
+    inline uint32_t LandscapeDicedVertexCount( uint32_t quadsPerTile, uint32_t gridLod,
+                                               const TerrainInstance& row )
     {
         const uint32_t all = LandscapeLodVertexCount( quadsPerTile, gridLod );
         if ( gridLod != 0u || row.DisplacementView.w < 0.5f )

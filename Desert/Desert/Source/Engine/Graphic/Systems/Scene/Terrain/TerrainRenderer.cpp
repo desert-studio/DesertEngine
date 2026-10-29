@@ -101,10 +101,10 @@ namespace Desert::Graphic::System
             return instance;
         }
 
-        // THE LANDSCAPE DISPLACEMENT of a tile's camera row (UE 5.4+ landscape displacement): the material's values
-        // (Terrain.shader Displacement*), the main camera the fade is measured from, and the dice rings around it -
-        // every cell of the LOD-0 grid the fade's square reaches, diced finer the larger it is on screen. A grid
-        // past LOD 0 is never diced: its vertices are past LOD 1, where the relief is zero
+        // THE LANDSCAPE DISPLACEMENT of a tile's camera row (UE 5.4+ landscape displacement): the material's
+        // values (Terrain.shader Displacement*), the main camera the fade is measured from, and the dice rings
+        // around it - every cell of the LOD-0 grid the fade's square reaches, diced finer the larger it is on
+        // screen. A grid past LOD 0 is never diced: its vertices are past LOD 1, where the relief is zero
         // (LandscapeDisplacementLodScale).
         void ApplyLandscapeDisplacement( TerrainInstance& instance, const LandscapeTileDraw& l,
                                          const DataDrivenMaterial& surface, const glm::vec3& camera,
@@ -129,18 +129,19 @@ namespace Desert::Graphic::System
             const float fadeStart = std::max( read( "DisplacementFadeStart" ), 1.0f );
             const float fadeEnd   = std::max( read( "DisplacementFadeEnd" ), fadeStart + 1.0f );
             instance.Displacement     = glm::vec4( magnitude, read( "DisplacementCenter" ), fadeStart, fadeEnd );
-            instance.DisplacementView = glm::vec4( camera, 0.0f );
+            instance.DisplacementView   = glm::vec4( camera, 0.0f );
             instance.DiceWindow       = glm::vec4( 0.0f );
-            instance.DiceRings        = glm::vec4( -1.0f );
+            instance.DiceRings          = glm::vec4( -1.0f );
             if ( magnitude <= 0.0f || instance.Params.w > 0.5f || l.SpacingCm <= 0.0f )
                 return;
 
             // THE RINGS (UE r.Nanite.DicingRate: no sub-cell edge covers fewer than DicingRate pixels). A cell
             // edge at distance d covers S * K / d pixels, so dice 2^j holds out to d_j = S * K / (rate * 2^j):
             // square rings of cells around the camera's cell, each half-extent a whole number of cells, the same
-            // integers for every tile (global cell of the camera minus the tile's first sample), so a cell's dice -
-            // and the edge factor min(dice, neighbour's dice) the decode stitches with - agrees across tiles. The
-            // outermost square (dice 1, displaced) covers the fade: every vertex that moves is in a diced cell.
+            // integers for every tile (global cell of the camera minus the tile's first sample), so a cell's dice
+            // - and the edge factor min(dice, neighbour's dice) the decode stitches with - agrees across tiles.
+            // The outermost square (dice 1, displaced) covers the fade: every vertex that moves is in a diced
+            // cell.
             const float pixelsAtCm = projection[1][1] * 0.5f * static_cast<float>( viewHeight ) * l.SpacingCm;
             const float fadeCells  = std::ceil( fadeEnd / l.SpacingCm );
             const auto  globalX    = std::floor( ( camera.x - l.OriginX ) / l.SpacingCm );
@@ -148,16 +149,18 @@ namespace Desert::Graphic::System
             const float cx         = globalX - static_cast<float>( l.FirstSampleX );
             const float cz         = globalZ - static_cast<float>( l.FirstSampleZ );
             const float cells      = static_cast<float>( l.QuadsPerTile );
-            if ( cx + fadeCells < 0.0f || cz + fadeCells < 0.0f || cx - fadeCells >= cells || cz - fadeCells >= cells )
+            if ( cx + fadeCells < 0.0f || cz + fadeCells < 0.0f || cx - fadeCells >= cells ||
+                 cz - fadeCells >= cells )
                 return;
-            instance.DiceWindow         = glm::vec4( cx, cz, fadeCells,
-                                             static_cast<float>( dicingRate ) * l.SpacingCm / pixelsAtCm );
+            instance.DiceWindow =
+                 glm::vec4( cx, cz, fadeCells, static_cast<float>( dicingRate ) * l.SpacingCm / pixelsAtCm );
             instance.DisplacementView.w = 1.0f;
             float outer                 = fadeCells;
             for ( int level = 1; level < kLandscapeDiceLevels; ++level )
             {
-                const float reach = pixelsAtCm / ( static_cast<float>( dicingRate ) * static_cast<float>( 1 << level ) );
-                const float half  = std::min( std::floor( reach / l.SpacingCm ), outer );
+                const float reach =
+                     pixelsAtCm / ( static_cast<float>( dicingRate ) * static_cast<float>( 1 << level ) );
+                const float half = std::min( std::floor( reach / l.SpacingCm ), outer );
                 if ( half < 0.0f || reach < 0.5f * l.SpacingCm )
                     break;
                 instance.DiceRings[static_cast<glm::length_t>( level - 1 )] = half;
