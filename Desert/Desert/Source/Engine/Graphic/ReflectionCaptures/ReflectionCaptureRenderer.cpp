@@ -392,7 +392,8 @@ namespace Desert::Graphic
                                                         const std::function<void( SceneRenderer& )>& record,
                                                         Common::Timestep timestep, Common::Timestep realTimestep,
                                                         const ShaderProtocols::DirectionLight& dirLights,
-                                                        const std::optional<Environment>&      environment )
+                                                        const std::optional<Environment>&      environment,
+                                                        const bool skyRecapturesForSun )
     {
         m_WriteCapture = false;
 
@@ -465,10 +466,22 @@ namespace Desert::Graphic
             // The round starts at capture 0: the one after the "last", which is the final index.
             m_LastCaptured = m_Captures.empty() ? 0u : static_cast<uint32_t>( m_Captures.size() - 1u );
         }
-        else if ( lighting != m_LightingSignature ||
-                  ReflectionCaptureSunChanged( m_ReferenceSuns, dirLights.DirectionLights,
-                                               SunAngleThreshold( scene.GetRegistry() ) ) )
+        else if ( const bool sunChanged = ReflectionCaptureSunChanged( m_ReferenceSuns, dirLights.DirectionLights,
+                                                                       SunAngleThreshold( scene.GetRegistry() ) );
+                  lighting == m_LightingSignature && sunChanged && skyRecapturesForSun )
         {
+            // ONE ROUND PER LIGHTING STATE: the sun moved, and the sky light is being captured again for it. A
+            // round now would write the new sun under the old sky and be relit again when the bake lands (two
+            // rounds per sun change, the first one wrong); the bake landing relights, with both.
+            if ( !m_SunHeldForSky )
+                LOG_INFO( "[ReflectionCaptures] sun moved at frame {}: relit when the sky light captured for it "
+                          "lands",
+                          frames.GetAbsoluteFrameCount() );
+            m_SunHeldForSky = true;
+        }
+        else if ( lighting != m_LightingSignature || sunChanged )
+        {
+            m_SunHeldForSky = false;
             // RELIT: every cube is stale but still the best answer there is - it stays readable while the round
             // renders it again. The capture in flight is finished under the suns it started with (restarting it
             // would never finish under a lighting that changes faster than six faces settle) and stays stale.
