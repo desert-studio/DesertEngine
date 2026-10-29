@@ -388,6 +388,11 @@ namespace Common::Scalability
              { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
                "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)",
                131072, Vis::Advanced },
+             { P::ViewDistanceVirtualGeometryMaxPixelsPerEdge, G::ViewDistance,
+               "ViewDistance.VirtualGeometryMaxPixelsPerEdge", 1, 1000, CL::None,
+               "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD cut, "
+               "tenths of a pixel)",
+               10, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

@@ -35,16 +35,18 @@ namespace Desert::Graphic::VirtualGeometry
         uint32_t FirstCluster     = 0; // 36 its clusters: Clusters[FirstCluster, +ClusterCount)
         uint32_t ClusterCount     = 0; // 40
         uint32_t Submesh          = 0; // 44 the submesh index: GBuffer draw slot (lod 0, submesh) -> MaterialRow
-        // Submesh::Transform relative to the primitive: its row in DrawCommandCache::SubmeshTransforms[]
-        // (the same row the binned path's GpuDrawSlot::SubmeshTransform names: one source).
-        uint32_t SubmeshTransform = 0; // 48
-        uint32_t VertexStride     = 0; // 52 bytes between two vertices at VertexAddress (sizeof( Desert::Vertex ))
-        uint32_t Pad1             = 0; // 56
-        uint32_t Pad2             = 0; // 60
+        // NO SUBMESH TRANSFORM HERE. This row is the mesh's (one VirtualMeshTable for the process), the
+        // DrawCommandCache that places a primitive is a view's (one per MeshRenderer), so a cache row written here
+        // would be the last view's. The cut reads it where the cache put it when it placed the primitive: the
+        // GpuDrawSlot of (lod 0, Submesh) of the view's main pass -> SubmeshTransforms[slot.SubmeshTransform]
+        // (Common/VirtualGeometry.glslh VgSubmeshToWorld), the row the binned draw of the same submesh reads.
+        uint32_t Pad0         = 0; // 48
+        uint32_t VertexStride = 0; // 52 bytes between two vertices at VertexAddress (sizeof( Desert::Vertex ))
+        uint32_t Pad1         = 0; // 56
+        uint32_t Pad2         = 0; // 60
     };
     static_assert( sizeof( GpuClusterDag ) == 64, "std430 twin in Common/VirtualGeometry.glslh" );
     static_assert( offsetof( GpuClusterDag, RootNode ) == 32, "Common/VirtualGeometry.glslh" );
-    static_assert( offsetof( GpuClusterDag, SubmeshTransform ) == 48, "Common/VirtualGeometry.glslh" );
     static_assert( offsetof( GpuClusterDag, VertexStride ) == 52, "Common/VirtualGeometry.glslh" );
 
     // ONE ROW PER RESIDENT VIRTUAL-GEOMETRY MESH: its submesh DAGs. GpuScenePrimitive::VirtualMesh names it.

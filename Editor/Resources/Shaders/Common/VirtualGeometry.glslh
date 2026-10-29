@@ -15,7 +15,7 @@ struct VgClusterDag
     uint  FirstCluster;     // 36
     uint  ClusterCount;     // 40
     uint  Submesh;          // 44
-    uint  SubmeshTransform; // 48
+    uint  Pad0;             // 48 (no submesh transform: VgSubmeshToWorld reads the view's draw slot)
     uint  VertexStride;     // 52 bytes
     uint  Pad1;             // 56
     uint  Pad2;             // 60
@@ -64,6 +64,75 @@ vec3 VgClusterCornerPosition( VgClusterDag dag, VgCluster c, uint triangle, uint
     VgFloats vertices = VgFloats( dag.VertexAddress );
     uint     first    = ref * ( dag.VertexStride / 4u );
     return vec3( vertices.Floats[first], vertices.Floats[first + 1u], vertices.Floats[first + 2u] );
+}
+
+// One BVH node over cluster groups, 4 children (GpuClusterHierarchyNode). A leaf child (Child bit 31) names
+// its group's first cluster row (Child & 0x7FFFFFFF) and ClusterCount; its LodBounds and BoxExtent.w are THAT
+// group's sphere and ParentLodError - the very pair its clusters' children carry as LodBounds / LodError.
+#define VG_HIERARCHY_LEAF 0x80000000u
+#define VG_INVALID_INDEX  0xFFFFFFFFu
+struct VgHierarchyNode
+{
+    vec4 BoxCenter[4];    // 0   w = MinLodError below the child
+    vec4 BoxExtent[4];    // 64  w = MaxParentLodError below the child
+    vec4 LodBounds[4];    // 128
+    uint Child[4];        // 192 node row | VG_HIERARCHY_LEAF + cluster row, VG_INVALID_INDEX = empty
+    uint ClusterCount[4]; // 208
+};
+
+struct VgClusterCandidate
+{
+    uint Instance; // 0 GpuScene Instances[] row
+    uint Dag;      // 4 Dags[] row
+    uint Node;     // 8 the node the traversal starts at (the DAG's RootNode)
+    uint View;     // 12
+};
+
+struct VgVisibleCluster
+{
+    uint Instance; // 0
+    uint Cluster;  // 4 Clusters[] row
+    uint View;     // 8
+    uint Flags;    // 12
+};
+
+struct VgRasterArgs
+{
+    uint SwDispatch[3]; // 0
+    uint SwCount;       // 12
+    uint HwDraw[4];     // 16 VkDrawIndirectCommand: vertexCount, instanceCount (= HW clusters), firstVertex, firstInstance
+};
+
+// The largest axis scale of a world matrix: a submesh-space length (sphere radius, LOD error) in world cm.
+float VgMaxScale( mat4 world )
+{
+    return sqrt( max( max( dot( world[0].xyz, world[0].xyz ), dot( world[1].xyz, world[1].xyz ) ),
+                      dot( world[2].xyz, world[2].xyz ) ) );
+}
+
+// UE Nanite GetProjectedEdgeScales, the sphere's nearest point: a world LOD error @p error seen from @p origin
+// in pixels (@p lodScale = 0.5 x view height x Projection[1][1]). Error 0 (level 0) projects to 0; a view inside
+// the sphere sees any positive error as infinitely large (refine). THE ONE FUNCTION both sides of the cut call:
+// a group's (LodBounds, ParentLodError) in the parent test is bit-for-bit its children's (LodBounds, LodError)
+// in the own test, so a group and the clusters generated from it can never both draw or both hide (no crack).
+float VgProjectedError( vec4 sphere, float error, mat4 world, float worldScale, vec3 origin, float lodScale )
+{
+    if ( error <= 0.0 )
+        return 0.0;
+    const vec3  center = ( world * vec4( sphere.xyz, 1.0 ) ).xyz;
+    const float near   = distance( center, origin ) - sphere.w * worldScale;
+    if ( near <= 0.0 )
+        return 3.0e38;
+    return error * worldScale * lodScale / near;
+}
+
+// A submesh-space box (centre, half size) as a world AABB under @p world.
+void VgWorldBox( vec3 center, vec3 extent, mat4 world, out vec3 boxMin, out vec3 boxMax )
+{
+    const vec3 c = ( world * vec4( center, 1.0 ) ).xyz;
+    const vec3 e = abs( world[0].xyz ) * extent.x + abs( world[1].xyz ) * extent.y + abs( world[2].xyz ) * extent.z;
+    boxMin       = c - e;
+    boxMax       = c + e;
 }
 
 #endif

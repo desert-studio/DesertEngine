@@ -60,10 +60,12 @@
         },
         "ViewDistance": {
             "Low": {
+                "ViewDistance.VirtualGeometryMaxPixelsPerEdge": 20,
                 "ViewDistance.DisplacementDicingRate": 0,
                 "ViewDistance.DisplacementPoolMiB": 64
             },
             "Medium": {
+                "ViewDistance.VirtualGeometryMaxPixelsPerEdge": 15,
                 "ViewDistance.DisplacementDicingRate": 4,
                 "ViewDistance.DisplacementPoolMiB": 128
             },
@@ -73,6 +75,7 @@
             "Epic": {},
             "Cinematic": {
                 "ViewDistance.MeshLOD": 0,
+                "ViewDistance.VirtualGeometryMaxPixelsPerEdge": 5,
                 "ViewDistance.DisplacementDicingRate": 1,
                 "ViewDistance.DisplacementPoolMiB": 1024
             }

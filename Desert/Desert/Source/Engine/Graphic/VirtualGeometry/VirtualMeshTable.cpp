@@ -360,8 +360,6 @@ namespace Desert::Graphic::VirtualGeometry
             row.ClusterCount = static_cast<uint32_t>( dag.Clusters.size() );
             row.Submesh      = static_cast<uint32_t>( i );
             row.VertexStride = vertexStride;
-            // The DrawCommandCache row is the GPU scene's to name when it places the primitive (cull step).
-            row.SubmeshTransform = kInvalidIndex;
 
             for ( std::size_t c = 0; c < dag.Clusters.size(); ++c )
             {

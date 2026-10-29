@@ -328,6 +328,10 @@ namespace Common::Scalability
         // pool slots (emitter Capacity) every playing system of a world may hold together; over it, the least
         // significant systems are refused (their effect type's CullReaction). 0 = no budget.
         EffectsMaxWorldParticles, // 0..4194304
+        // VIRT-GEOM (UE r.Nanite.MaxPixelsPerEdge): the screen-space error, in TENTHS of a pixel, a virtual-geometry
+        // cluster may show before the cluster cut refines below it (VirtualGeometryRenderer::AddClusterCull's
+        // threshold, x the view's LOD scale). Lower = finer. 1..1000
+        ViewDistanceVirtualGeometryMaxPixelsPerEdge,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
