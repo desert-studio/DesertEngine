@@ -425,6 +425,116 @@ namespace Desert::Assets::Serialization
              std::string( whatFor ) );
     }
 
+    Common::ResultStr<uint64_t> DilateColorUnderMask( const uint32_t width, const uint32_t height,
+                                                      const Core::Formats::ImageFormat format,
+                                                      std::vector<unsigned char>& base, std::span<const float> mask,
+                                                      const float threshold, const Core::Formats::TextureColorSpace space )
+    {
+        using Fmt         = Core::Formats::ImageFormat;
+        const size_t area = static_cast<size_t>( width ) * height;
+        if ( format != Fmt::RGBA8F && format != Fmt::RGBA32F )
+            return Common::MakeError<uint64_t>( "colour dilation knows RGBA8 and RGBA32F sources only" );
+        if ( mask.size() != area || base.size() != area * ( format == Fmt::RGBA8F ? 4u : 16u ) )
+            return Common::MakeFormattedError<uint64_t>(
+                 "colour dilation was handed a {}-texel mask and {} bytes for a {}x{} image", mask.size(),
+                 base.size(), width, height );
+        const bool srgb    = space == Core::Formats::TextureColorSpace::SRGB && format == Fmt::RGBA8F;
+        auto       readRgb = [&]( const size_t i, const int c ) -> float {
+            if ( format == Fmt::RGBA32F )
+                return reinterpret_cast<const float*>( base.data() )[i * 4 + c];
+            const float v = static_cast<float>( base[i * 4 + c] ) / 255.0f;
+            return srgb ? SRGBToLinear( v ) : v;
+        };
+
+        // PULL: level 0 = premultiplied kept colour + weight; each coarser level sums its 2x2 (clamped at odd edges).
+        struct Level
+        {
+            uint32_t           W = 0, H = 0;
+            std::vector<float> Rgbw; // premultiplied RGB, weight
+        };
+        std::vector<Level> levels( 1 );
+        levels[0]     = { width, height, std::vector<float>( area * 4, 0.0f ) };
+        uint64_t kept = 0;
+        for ( size_t i = 0; i < area; ++i )
+        {
+            if ( !( mask[i] >= threshold ) )
+                continue;
+            ++kept;
+            for ( int c = 0; c < 3; ++c )
+                levels[0].Rgbw[i * 4 + c] = readRgb( i, c );
+            levels[0].Rgbw[i * 4 + 3] = 1.0f;
+        }
+        if ( kept == 0 )
+            return Common::MakeFormattedError<uint64_t>(
+                 "colour dilation: no texel of the mask reaches {}, so there is no colour to pad with", threshold );
+        if ( kept == area )
+            return Common::MakeSuccess( uint64_t{ 0 } );
+        while ( levels.back().W > 1 || levels.back().H > 1 )
+        {
+            const Level& src = levels.back();
+            Level        dst{ std::max( 1u, src.W / 2 ), std::max( 1u, src.H / 2 ), {} };
+            dst.Rgbw.assign( static_cast<size_t>( dst.W ) * dst.H * 4, 0.0f );
+            for ( uint32_t y = 0; y < dst.H; ++y )
+                for ( uint32_t x = 0; x < dst.W; ++x )
+                    for ( uint32_t dy = 0; dy < 2; ++dy )
+                        for ( uint32_t dx = 0; dx < 2; ++dx )
+                        {
+                            const uint32_t sx = std::min( src.W - 1, x * 2 + dx );
+                            const uint32_t sy = std::min( src.H - 1, y * 2 + dy );
+                            for ( int c = 0; c < 4; ++c )
+                                dst.Rgbw[( static_cast<size_t>( y ) * dst.W + x ) * 4 + c] +=
+                                     src.Rgbw[( static_cast<size_t>( sy ) * src.W + sx ) * 4 + c];
+                        }
+            levels.push_back( std::move( dst ) );
+        }
+
+        // PUSH: from the coarsest level down, a texel with no kept weight takes its parent's average.
+        for ( size_t l = levels.size() - 1; l-- > 0; )
+        {
+            Level&       child  = levels[l];
+            const Level& parent = levels[l + 1];
+            for ( uint32_t y = 0; y < child.H; ++y )
+                for ( uint32_t x = 0; x < child.W; ++x )
+                {
+                    float*       t = &child.Rgbw[( static_cast<size_t>( y ) * child.W + x ) * 4];
+                    const float* p = &parent.Rgbw[( static_cast<size_t>( std::min( parent.H - 1, y / 2 ) ) *
+                                                         parent.W +
+                                                    std::min( parent.W - 1, x / 2 ) ) *
+                                                   4];
+                    if ( t[3] > 0.0f )
+                        continue;
+                    for ( int c = 0; c < 3; ++c )
+                        t[c] = p[c] / p[3];
+                    t[3] = 1.0f;
+                }
+            // Normalise the kept texels too, so the next level down reads plain colour from this one.
+            for ( size_t i = 0; i < static_cast<size_t>( child.W ) * child.H; ++i )
+                if ( child.Rgbw[i * 4 + 3] != 1.0f )
+                {
+                    for ( int c = 0; c < 3; ++c )
+                        child.Rgbw[i * 4 + c] /= child.Rgbw[i * 4 + 3];
+                    child.Rgbw[i * 4 + 3] = 1.0f;
+                }
+        }
+
+        for ( size_t i = 0; i < area; ++i )
+        {
+            if ( mask[i] >= threshold )
+                continue;
+            for ( int c = 0; c < 3; ++c )
+            {
+                const float v = levels[0].Rgbw[i * 4 + c];
+                if ( format == Fmt::RGBA32F )
+                    reinterpret_cast<float*>( base.data() )[i * 4 + c] = v;
+                else
+                    base[i * 4 + c] = srgb ? LinearToSRGBByte( v )
+                                           : static_cast<unsigned char>(
+                                                  std::clamp( v * 255.0f + 0.5f, 0.0f, 255.0f ) );
+            }
+        }
+        return Common::MakeSuccess( static_cast<uint64_t>( area - kept ) );
+    }
+
     Common::ResultStr<std::vector<TextureLevel>> BuildMipChain( const uint32_t width, const uint32_t height,
                                                                 const Core::Formats::ImageFormat       format,
                                                                 const std::vector<unsigned char>&      base,

@@ -94,6 +94,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -437,6 +438,17 @@ namespace Desert::Assets::Serialization
                    const std::vector<unsigned char>& base, std::vector<unsigned char>& chainOut,
                    Core::Formats::TextureColorSpace space = Core::Formats::TextureColorSpace::Linear,
                    const std::array<float, 4>& alphaCoverageThresholds = {} );
+
+    /// COLOUR DILATION UNDER A MASK (GRASS-ASSET p5; Megascans/Substance "padding", UE ships such atlases dilated).
+    /// Every texel of @p base whose @p mask value (one float per texel, row-major, @p width x @p height) is below
+    /// @p threshold gets its RGB from the masked average of the nearest coarser level of a push-pull pyramid that
+    /// only kept texels contribute to; kept texels and the alpha channel are untouched. Averaged in linear light when
+    /// @p space is sRGB, like the mip filter. Run on level 0 BEFORE BuildMipChain so no mip mixes a blade with the
+    /// matte colour under its cut-away. Returns the number of texels it filled; an error when no texel is kept.
+    [[nodiscard]] Common::ResultStr<uint64_t>
+    DilateColorUnderMask( uint32_t width, uint32_t height, Core::Formats::ImageFormat format,
+                          std::vector<unsigned char>& base, std::span<const float> mask, float threshold,
+                          Core::Formats::TextureColorSpace space );
 
     /// Header `Flags` bit 0: the stored values are sRGB (`TextureAssetData::ColorSpace`). No other bit is defined.
     inline constexpr uint32_t kTextureFlagSRGB = 1u;
