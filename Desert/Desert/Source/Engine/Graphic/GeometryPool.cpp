@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <format>
+#include <iterator>
+#include <string>
 #include <limits>
 #include <numeric>
 #include <utility>
@@ -156,33 +158,103 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    namespace
+    {
+        constexpr const char* ArenaName( const GeometryArena which )
+        {
+            return which == GeometryArena::Static ? "static" : "skinned";
+        }
+        constexpr double ToMiB( const uint64_t bytes )
+        {
+            return static_cast<double>( bytes ) / ( 1024.0 * 1024.0 );
+        }
+    } // namespace
+
+    Common::ResultStr<uint32_t> GeometryPool::RT_AddVertexPage( Arena& arena, const GeometryArena which,
+                                                                const uint64_t capacity, const char* reason )
+    {
+        const uint64_t stride = GeometryArenaVertexStride( which );
+        auto vertices = RT_CreateVertexPage( capacity * stride, which == GeometryArena::Static ? "static vertex"
+                                                                                               : "skinned vertex" );
+        if ( !vertices.IsSuccess() )
+            return Common::MakeError<uint32_t>( vertices.GetError() );
+        auto streams = RT_CreateVertexPage( capacity * kGeometryStreamStride,
+                                            which == GeometryArena::Static ? "static stream" : "skinned stream" );
+        if ( !streams.IsSuccess() )
+            return Common::MakeError<uint32_t>( streams.GetError() );
+        VertexPage page;
+        page.Vertices = std::move( vertices.GetValue() );
+        page.Streams  = std::move( streams.GetValue() );
+        page.Spans.Extend( capacity );
+        // A slot a released page left keeps every other page's index (allocations address pages by index).
+        auto     slot  = std::find_if( arena.Pages.begin(), arena.Pages.end(),
+                                       []( const VertexPage& p ) { return p.Vertices == nullptr; } );
+        uint32_t index = 0;
+        if ( slot != arena.Pages.end() )
+        {
+            index = static_cast<uint32_t>( slot - arena.Pages.begin() );
+            *slot = std::move( page );
+        }
+        else
+        {
+            index = static_cast<uint32_t>( arena.Pages.size() );
+            arena.Pages.push_back( std::move( page ) );
+        }
+        LOG_INFO( "[GeometryPool] page +{} {} vertex page #{}: {} vertices, {:.1f} MiB vertex + {:.1f} MiB stream "
+                  "(no copy)",
+                  reason, ArenaName( which ), index, capacity, ToMiB( capacity * stride ),
+                  ToMiB( capacity * kGeometryStreamStride ) );
+        return Common::MakeSuccess( index );
+    }
+
+    Common::ResultStr<uint32_t> GeometryPool::RT_AddIndexPage( const uint64_t capacity, const char* reason )
+    {
+        const uint64_t bytes = capacity * kGeometryIndexStride;
+        if ( bytes > kMaxBufferBytes )
+            return Common::MakeFormattedError<uint32_t>( "GeometryPool: an index page would pass 2^32 bytes ({} bytes)",
+                                                         bytes );
+        IndexPage page;
+        page.Indices = IndexBuffer::Create( static_cast<uint32_t>( bytes ), BufferUsage::Pooled );
+        page.Indices->ClaimOwnership( ResourceOwner::AssetService );
+        if ( const auto built = page.Indices->RT_Invalidate(); !built.IsSuccess() )
+            return Common::MakeFormattedError<uint32_t>( "GeometryPool: an index page was not created: {}",
+                                                         built.GetError() );
+        page.Indices->RecordDeviceBytes( static_cast<std::size_t>( bytes ) );
+        page.Spans.Extend( capacity );
+        auto     slot  = std::find_if( m_IndexPages.begin(), m_IndexPages.end(),
+                                       []( const IndexPage& p ) { return p.Indices == nullptr; } );
+        uint32_t index = 0;
+        if ( slot != m_IndexPages.end() )
+        {
+            index = static_cast<uint32_t>( slot - m_IndexPages.begin() );
+            *slot = std::move( page );
+        }
+        else
+        {
+            index = static_cast<uint32_t>( m_IndexPages.size() );
+            m_IndexPages.push_back( std::move( page ) );
+        }
+        LOG_INFO( "[GeometryPool] page +{} index page #{}: {} indices, {:.1f} MiB (no copy)", reason, index, capacity,
+                  ToMiB( bytes ) );
+        return Common::MakeSuccess( index );
+    }
+
     Common::ResultStr<GeometryPool::PageSpan> GeometryPool::RT_TakeVertices( Arena& arena, const GeometryArena which,
                                                                              const uint64_t count )
     {
         for ( std::size_t page = 0; page < arena.Pages.size(); ++page )
             if ( const auto first = arena.Pages[page].Spans.Take( count ) )
                 return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( page ), *first } );
-        const uint64_t stride   = GeometryArenaVertexStride( which );
-        const uint64_t granule  = VertexGranule( which );
-        const uint64_t capacity = RoundUp( std::max( kPageBytes / stride, count ), granule );
-        VertexPage     page;
-        auto           vertices =
-             RT_CreateVertexPage( capacity * stride, which == GeometryArena::Static ? "static vertex" : "skinned vertex" );
-        if ( !vertices.IsSuccess() )
-            return Common::MakeError<PageSpan>( vertices.GetError() );
-        auto streams = RT_CreateVertexPage( capacity * kGeometryStreamStride,
-                                            which == GeometryArena::Static ? "static stream" : "skinned stream" );
-        if ( !streams.IsSuccess() )
-            return Common::MakeError<PageSpan>( streams.GetError() );
-        page.Vertices = std::move( vertices.GetValue() );
-        page.Streams  = std::move( streams.GetValue() );
-        page.Spans.Extend( capacity );
-        const auto first = page.Spans.Take( count );
+        const uint64_t capacity =
+             RoundUp( std::max( kPageBytes / GeometryArenaVertexStride( which ), count ), VertexGranule( which ) );
+        const auto added = RT_AddVertexPage( arena, which, capacity, "load" );
+        if ( !added.IsSuccess() )
+            return Common::MakeError<PageSpan>( added.GetError() );
+        const auto first = arena.Pages[added.GetValue()].Spans.Take( count );
         if ( !first )
             return Common::MakeFormattedError<PageSpan>( "GeometryPool: {} vertices do not fit a page of {}", count,
                                                          capacity );
-        arena.Pages.push_back( std::move( page ) );
-        return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( arena.Pages.size() - 1 ), *first } );
+        return Common::MakeSuccess( PageSpan{ added.GetValue(), *first } );
     }
 
     Common::ResultStr<GeometryPool::PageSpan> GeometryPool::RT_TakeIndices( const uint64_t count )
@@ -192,24 +264,14 @@ namespace Desert::Graphic
                 return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( page ), *first } );
         const uint64_t capacity =
              RoundUp( std::max( kPageBytes / kGeometryIndexStride, count ), Granule( kGeometryIndexStride ) );
-        const uint64_t bytes = capacity * kGeometryIndexStride;
-        if ( bytes > kMaxBufferBytes )
-            return Common::MakeFormattedError<PageSpan>( "GeometryPool: an index page would pass 2^32 bytes ({} bytes)",
-                                                         bytes );
-        IndexPage page;
-        page.Indices = IndexBuffer::Create( static_cast<uint32_t>( bytes ), BufferUsage::Pooled );
-        page.Indices->ClaimOwnership( ResourceOwner::AssetService );
-        if ( const auto built = page.Indices->RT_Invalidate(); !built.IsSuccess() )
-            return Common::MakeFormattedError<PageSpan>( "GeometryPool: an index page was not created: {}",
-                                                         built.GetError() );
-        page.Indices->RecordDeviceBytes( static_cast<std::size_t>( bytes ) );
-        page.Spans.Extend( capacity );
-        const auto first = page.Spans.Take( count );
+        const auto added = RT_AddIndexPage( capacity, "load" );
+        if ( !added.IsSuccess() )
+            return Common::MakeError<PageSpan>( added.GetError() );
+        const auto first = m_IndexPages[added.GetValue()].Spans.Take( count );
         if ( !first )
             return Common::MakeFormattedError<PageSpan>( "GeometryPool: {} indices do not fit a page of {}", count,
                                                          capacity );
-        m_IndexPages.push_back( std::move( page ) );
-        return Common::MakeSuccess( PageSpan{ static_cast<uint32_t>( m_IndexPages.size() - 1 ), *first } );
+        return Common::MakeSuccess( PageSpan{ added.GetValue(), *first } );
     }
 
     void GeometryPool::GiveBack( const GeometryPoolRange& range )
@@ -302,6 +364,117 @@ namespace Desert::Graphic
         return Common::MakeSuccess( GeometryPoolAllocation( this, range ) );
     }
 
+    Common::BoolResultStr GeometryPool::RT_Reserve( const std::string_view                           scene,
+                                                    const std::array<uint64_t, kGeometryArenaCount>& vertices,
+                                                    const uint64_t                                   indices )
+    {
+        std::lock_guard lock( m_Mutex );
+        // Pages emptied by the scene that is closing go first, so the reservation never sits beside them.
+        ReleaseEmptyPages();
+        std::string summary;
+        uint32_t    added = 0;
+        for ( std::size_t i = 0; i < kGeometryArenaCount; ++i )
+        {
+            const auto     which   = static_cast<GeometryArena>( i );
+            const uint64_t granule = VertexGranule( which );
+            const uint64_t want    = RoundUp( vertices[i] + vertices[i] / 8, granule );
+            uint64_t       free    = 0;
+            for ( const VertexPage& page : m_Arenas[i].Pages )
+                free += page.Spans.Capacity - page.Spans.Used;
+            const uint64_t stride  = GeometryArenaVertexStride( which );
+            const uint64_t perPage = ( kMaxBufferBytes / std::max<uint64_t>( stride, kGeometryStreamStride ) ) /
+                                     granule * granule;
+            uint64_t missing = want > free ? want - free : 0;
+            if ( missing != 0 )
+                missing = std::max( RoundUp( missing, granule ), RoundUp( kPageBytes / stride, granule ) );
+            std::format_to( std::back_inserter( summary ), "{}{} {} vertices ({:.1f} MiB, free {})",
+                            summary.empty() ? "" : " + ", ArenaName( which ), vertices[i],
+                            ToMiB( vertices[i] * ( stride + kGeometryStreamStride ) ), free );
+            while ( missing != 0 )
+            {
+                const uint64_t capacity = std::min( missing, perPage );
+                const auto page = RT_AddVertexPage( m_Arenas[i], which, capacity, "reserve" );
+                if ( !page.IsSuccess() )
+                    return Common::MakeError<bool>( page.GetError() );
+                m_Arenas[i].Pages[page.GetValue()].Reserved = true;
+                missing -= capacity;
+                ++added;
+            }
+        }
+        {
+            const uint64_t granule = Granule( kGeometryIndexStride );
+            const uint64_t want    = RoundUp( indices + indices / 8, granule );
+            uint64_t       free    = 0;
+            for ( const IndexPage& page : m_IndexPages )
+                free += page.Spans.Capacity - page.Spans.Used;
+            const uint64_t perPage = kMaxBufferBytes / kGeometryIndexStride / granule * granule;
+            uint64_t       missing = want > free ? want - free : 0;
+            if ( missing != 0 )
+                missing = std::max( RoundUp( missing, granule ), RoundUp( kPageBytes / kGeometryIndexStride, granule ) );
+            std::format_to( std::back_inserter( summary ), " + {} indices ({:.1f} MiB, free {})", indices,
+                            ToMiB( indices * kGeometryIndexStride ), free );
+            while ( missing != 0 )
+            {
+                const uint64_t capacity = std::min( missing, perPage );
+                const auto page = RT_AddIndexPage( capacity, "reserve" );
+                if ( !page.IsSuccess() )
+                    return Common::MakeError<bool>( page.GetError() );
+                m_IndexPages[page.GetValue()].Reserved = true;
+                missing -= capacity;
+                ++added;
+            }
+        }
+        LOG_INFO( "[GeometryPool] RT_Reserve {}: {} = sum of meshes + 1/8, {} new page(s)", scene, summary, added );
+        return Common::MakeSuccess( true );
+    }
+
+    void GeometryPool::RequestReleaseEmptyPages()
+    {
+        std::lock_guard lock( m_Mutex );
+        if ( m_ShutDown )
+            return;
+        // The closing scene's reservation is spent: its pages are ordinary from here on.
+        for ( Arena& arena : m_Arenas )
+            for ( VertexPage& page : arena.Pages )
+                page.Reserved = false;
+        for ( IndexPage& page : m_IndexPages )
+            page.Reserved = false;
+        // The window covers the dropped meshes' own retire queue and then the pool's retire margin.
+        m_ReleaseEmptyUntil = m_Frame + 3 * kRetireFrames;
+        ReleaseEmptyPages();
+    }
+
+    void GeometryPool::ReleaseEmptyPages()
+    {
+        uint32_t freed = 0;
+        uint64_t bytes = 0;
+        for ( std::size_t i = 0; i < kGeometryArenaCount; ++i )
+        {
+            auto& pages = m_Arenas[i].Pages;
+            for ( VertexPage& page : pages )
+                if ( page.Vertices != nullptr && !page.Reserved && page.Spans.Used == 0 )
+                {
+                    bytes += page.Spans.Capacity * ( GeometryArenaVertexStride( static_cast<GeometryArena>( i ) ) +
+                                                     kGeometryStreamStride );
+                    page = VertexPage{}; // the slot stays: allocations address pages by index
+                    ++freed;
+                }
+            while ( !pages.empty() && pages.back().Vertices == nullptr )
+                pages.pop_back();
+        }
+        for ( IndexPage& page : m_IndexPages )
+            if ( page.Indices != nullptr && !page.Reserved && page.Spans.Used == 0 )
+            {
+                bytes += page.Spans.Capacity * kGeometryIndexStride;
+                page = IndexPage{};
+                ++freed;
+            }
+        while ( !m_IndexPages.empty() && m_IndexPages.back().Indices == nullptr )
+            m_IndexPages.pop_back();
+        if ( freed != 0 )
+            LOG_INFO( "[GeometryPool] released {} empty page(s), {:.1f} MiB returned", freed, ToMiB( bytes ) );
+    }
+
     MeshGeometry GeometryPool::Describe( const GeometryPoolAllocation& allocation,
                                          const bool                    authoredStreams ) const
     {
@@ -347,6 +520,13 @@ namespace Desert::Graphic
                            --m_Allocations;
                            return true;
                        } );
+        // A release request stays armed for its window and then until every retiring span is back.
+        if ( m_ReleaseEmptyUntil != 0 )
+        {
+            ReleaseEmptyPages();
+            if ( m_Frame >= m_ReleaseEmptyUntil && m_Retired.empty() )
+                m_ReleaseEmptyUntil = 0;
+        }
     }
 
     void GeometryPool::RecordBind( const bool shared )
@@ -365,12 +545,16 @@ namespace Desert::Graphic
         for ( std::size_t i = 0; i < kGeometryArenaCount; ++i )
             for ( const VertexPage& page : m_Arenas[i].Pages )
             {
+                if ( page.Vertices == nullptr )
+                    continue;
                 stats.VertexCapacity[i] += page.Spans.Capacity;
                 stats.VerticesUsed[i] += page.Spans.Used;
                 ++stats.Pages;
             }
         for ( const IndexPage& page : m_IndexPages )
         {
+            if ( page.Indices == nullptr )
+                continue;
             stats.IndexCapacity += page.Spans.Capacity;
             stats.IndicesUsed += page.Spans.Used;
             ++stats.Pages;
@@ -390,6 +574,7 @@ namespace Desert::Graphic
             arena = Arena{};
         m_IndexPages.clear();
         m_Retired.clear();
+        m_ReleaseEmptyUntil = 0;
         m_Allocations = 0;
         m_ShutDown    = true;
     }

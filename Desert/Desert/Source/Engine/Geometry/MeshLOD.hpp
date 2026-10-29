@@ -8,6 +8,23 @@
 
 namespace Desert::Geometry
 {
+    // Ratios for the auto LOD chain (LOD0 = original). A level that cannot beat the previous one yields an
+    // empty set so the assembler reuses that range, keeping LOD selection monotonic.
+    inline constexpr float kLODRatios[] = { 0.5f, 0.25f, 0.1f };
+
+    // The indices BuildLODIndexBuffer appends for a submesh of @p baseIndexCount indices with no baked LODs,
+    // at the chain's targets (each level its ratio of the base; a level stopping short of its target adds
+    // more, a level that cannot improve adds none). Sizes the geometry pool before the chain is generated.
+    [[nodiscard]] constexpr uint64_t AutoLODIndexTarget( const uint64_t baseIndexCount )
+    {
+        if ( baseIndexCount / 3 < 8 )
+            return 0; // BuildLODIndexBuffer generates no chain below eight triangles
+        uint64_t total = 0;
+        for ( const float ratio : kLODRatios )
+            total += static_cast<uint64_t>( static_cast<double>( baseIndexCount / 3 ) * ratio ) * 3;
+        return total;
+    }
+
     // Simplifies ONE submesh into its LOD levels (meshopt), returning the simplified TRIANGLE sets
     // (submesh-local indices, coarsest last; an empty level = "this ratio didn't improve, reuse the previous").
     // Used at COOK time to BAKE LODs into the asset, and by BuildLODIndexBuffer when a submesh has no baked
