@@ -94,6 +94,7 @@ project "GamePackager"
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
         "MikkTSpace",
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder

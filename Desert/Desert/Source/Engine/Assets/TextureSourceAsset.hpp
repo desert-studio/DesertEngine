@@ -226,7 +226,8 @@ namespace Desert::Assets
     // The block encoder's own version -- an input of every texture key, so it lives beside the deriver and
     // not in the editor that runs the encoder: the runtime computes the same key to find the entry.
     // 2: a DDS source keeps its blocks or is encoded by intent without the gates (IMP-DDS-BLOCKS).
-    inline constexpr uint32_t kTextureBlockEncoderVersion = 2;
+    // 3: BC7 searches all eight modes (Compressonator CMP_Core, ThirdParty/compressonator) instead of mode 6 only.
+    inline constexpr uint32_t kTextureBlockEncoderVersion = 3;
     // Revision of how the block-format gate grades a colour under a ColorDilationMask (1 = only texels the mask
     // keeps visible, plus their bilinear neighbours, at every level). Part of the DDC key of masked textures only.
     inline constexpr uint32_t kTextureMaskedGateVersion = 1;

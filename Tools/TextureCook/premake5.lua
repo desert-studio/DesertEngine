@@ -60,6 +60,7 @@ project "TextureCook"
 
     links { "Common", "Optick" } -- Common's JobSystem registers its workers with Optick
     links { "OpenEXRCore" } -- .exr texture sources (BuildScripts/ThirdParty/OpenEXR.lua)
+    links { "Compressonator" } -- the BC7 encode in BlockCompression.cpp (BuildScripts/ThirdParty/Compressonator.lua)
 
     filter "system:not windows"
         links { "ReflectCpp" }

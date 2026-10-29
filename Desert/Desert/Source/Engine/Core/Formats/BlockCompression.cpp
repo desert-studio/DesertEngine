@@ -11,6 +11,27 @@
 #include <cstring>
 #include <limits>
 
+// The BC7 encode (all eight modes) and its decode, both vendored, MIT; see the BC7 section below.
+#include "../../../../../../ThirdParty/compressonator/cmp_core/source/cmp_core.h"
+// BCDEC_STATIC keeps bcdec's symbols internal to this translation unit, as in Editor/Import/DdsSource.cpp, which
+// compiles its own copy for the .dds sources; the two never meet at link time.
+// Every entry point but bcdec_bc7 is then an unused static.
+#define BCDEC_STATIC
+#define BCDEC_IMPLEMENTATION
+#if defined( __clang__ ) || defined( __GNUC__ )
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#elif defined( _MSC_VER )
+#pragma warning( push )
+#pragma warning( disable : 4505 )
+#endif
+#include "../../../../../../ThirdParty/bcdec/bcdec.h" // vendored, MIT (ThirdParty/bcdec/LICENSE)
+#if defined( __clang__ ) || defined( __GNUC__ )
+#pragma GCC diagnostic pop
+#elif defined( _MSC_VER )
+#pragma warning( pop )
+#endif
+
 namespace Desert::Core::Formats
 {
     namespace
@@ -284,222 +305,45 @@ namespace Desert::Core::Formats
             return true;
         }
 
-        // ── BC7, MODE 6 ──────────────────────────────────────────────────────────────────────────
+        // ── BC7, ALL EIGHT MODES ─────────────────────────────────────────────────────────────────────
         //
-        // One subset, four RGBA endpoint channels at 7 bits plus one shared p-bit each, sixteen 4-bit
-        // indices. 7 + 56 + 2 + 63 = 128, and the missing bit of index 0 is the ANCHOR: its high bit is
-        // implicit zero, so the encoder must arrange for texel 0 to fall in the lower half of the ramp
-        // (by swapping the endpoints and inverting every index if it does not). Getting that wrong
-        // produces a block that decodes, looks nearly right, and is wrong in one texel of sixteen.
+        // The encode is AMD Compressonator's CMP_Core BC7 kernel (ThirdParty/compressonator, MIT), which
+        // searches every mode the format has: the one-subset modes 4/5/6, the two-subset modes 1/3/7 over
+        // their 64 partitions and the three-subset modes 0/2. A block that holds a yellow petal, a green
+        // blade and a dry tip is three colours that sit on no single line in RGBA, and only a partitioned
+        // mode keeps all three; the mode-6-only encoder this replaced could not, and six of FieldBarn's
+        // nine masked albedos failed the gate on exactly those blocks (GRASS-ASSET p7). UE's cook does the
+        // same search (ISPC texcomp / Oodle Texture).
+        //
+        // QUALITY 1.0 IS THE KERNEL'S FULL SEARCH, measured on celandine_01_diff_2k (whole image, bcdec):
+        // 0.05 -> 50.51 dB / worst 24 in 0.6 s, 0.5 -> 51.41 / 23 in 2.0 s, 1.0 -> 52.33 / 23 in 9.1 s on
+        // ten cores. The cook runs once per source and lands in the DDC; the frame lives with the result.
+        constexpr float kBc7Quality = 1.0f;
 
-        struct Bc7Endpoints
+        /// The kernel's options, built once: it reads them and never writes them, so every worker
+        /// encoding a row shares the one instance.
+        const void* Bc7Options()
         {
-            int Low[4];
-            int High[4];
-            int PBit[2];
-        };
-
-        /// A 7-bit code plus a p-bit reconstructs to `(code << 1) | p`. Given the p-bit we must use,
-        /// this is the code that lands nearest @p value.
-        int QuantizeSevenPlusP( const int value, const int pbit )
-        {
-            const int code = ( std::clamp( value, 0, 255 ) - pbit + 1 ) >> 1;
-            return std::clamp( code, 0, 127 );
+            static void* const options = []
+            {
+                void* created = nullptr;
+                CreateOptionsBC7( &created );
+                SetQualityBC7( created, kBc7Quality );
+                return created;
+            }();
+            return options;
         }
 
-        void Bc7Palette( const Bc7Endpoints& endpoints, int palette[16][4] )
+        void EncodeBc7Block( const unsigned char rgba[16 * 4], unsigned char* out )
         {
-            int low[4], high[4];
-            for ( int c = 0; c < 4; ++c )
-            {
-                low[c]  = ( endpoints.Low[c] << 1 ) | endpoints.PBit[0];
-                high[c] = ( endpoints.High[c] << 1 ) | endpoints.PBit[1];
-            }
-            for ( int i = 0; i < 16; ++i )
-                for ( int c = 0; c < 4; ++c )
-                    palette[i][c] = Interpolate( low[c], high[c], kWeight4[i] );
+            CompressBlockBC7( rgba, 4u * 4u, out, Bc7Options() );
         }
 
-        uint64_t Bc7ChooseIndices( const int texels[16][4], const int palette[16][4], int indices[16] )
+        /// The decode is bcdec's (ThirdParty/bcdec, MIT), which implements every mode — so what the gate
+        /// measures is what any conforming GPU would sample, whichever mode the encoder chose.
+        void DecodeBc7Block( const unsigned char* in, unsigned char rgba[16 * 4] )
         {
-            uint64_t total = 0;
-            for ( int t = 0; t < 16; ++t )
-            {
-                uint64_t best   = ~0ull;
-                int      bestAt = 0;
-                for ( int i = 0; i < 16; ++i )
-                {
-                    uint64_t error = 0;
-                    for ( int c = 0; c < 4; ++c )
-                    {
-                        const int64_t d = texels[t][c] - palette[i][c];
-                        error += static_cast<uint64_t>( d * d );
-                    }
-                    if ( error < best )
-                    {
-                        best   = error;
-                        bestAt = i;
-                    }
-                }
-                indices[t] = bestAt;
-                total += best;
-            }
-            return total;
-        }
-
-        void EncodeBc7Block( const int texels[16][4], unsigned char* out )
-        {
-            float points[16][4];
-            for ( int t = 0; t < 16; ++t )
-                for ( int c = 0; c < 4; ++c )
-                    points[t][c] = static_cast<float>( texels[t][c] );
-
-            float low[4], high[4];
-            DiagonalEndpoints<4>( points, low, high );
-
-            Bc7Endpoints best{};
-            int          bestIndices[16] = {};
-            uint64_t     bestError       = ~0ull;
-
-            // ── THE P-BIT IS SHARED BY ALL FOUR CHANNELS, AND THAT IS WHY ALPHA GETS TO CHOOSE ──
-            //
-            // Mode 6 stores each endpoint as four 7-bit values plus ONE p-bit, and the p-bit is the
-            // low bit of all four reconstructed 8-bit channels at once. So an endpoint can express
-            // every even value or every odd value, never both — and a block of (200,200,200,255)
-            // cannot be exact: 200 needs an even endpoint and 255 an odd one.
-            //
-            // MEASURED BY SQUARED ERROR ALONE, THE ENCODER PICKS EVEN AND SHIPS ALPHA 254. Three
-            // channels off by one is a worse number than one channel off by one, so the search is
-            // right and the ANSWER is wrong: almost every LDR texture in a project is fully opaque,
-            // and "alpha is 254 everywhere" is a systematic bias in the one channel whose exact value
-            // a material may branch on, paid to save an invisible LSB in three channels that are
-            // about to be filtered, tonemapped and quantized to eight bits anyway.
-            //
-            // So when the block's alpha is CONSTANT — which is what opaque means, and what a fully
-            // transparent cut-out means — its parity is fixed first and the colour pays the LSB. When
-            // alpha varies the trade does not arise and the search runs over all four combinations.
-            const bool constantAlpha = [&]( const int( *t )[4] )
-            {
-                for ( int i = 1; i < 16; ++i )
-                    if ( t[i][3] != t[0][3] )
-                        return false;
-                return true;
-            }( texels );
-            const int forcedPBit = texels[0][3] & 1;
-
-            for ( int pass = 0; pass < 2; ++pass )
-            {
-                for ( int p0 = constantAlpha ? forcedPBit : 0; p0 < ( constantAlpha ? forcedPBit + 1 : 2 ); ++p0 )
-                {
-                    for ( int p1 = constantAlpha ? forcedPBit : 0; p1 < ( constantAlpha ? forcedPBit + 1 : 2 );
-                          ++p1 )
-                    {
-                        Bc7Endpoints candidate{};
-                        candidate.PBit[0] = p0;
-                        candidate.PBit[1] = p1;
-                        for ( int c = 0; c < 4; ++c )
-                        {
-                            candidate.Low[c] = QuantizeSevenPlusP( static_cast<int>( std::lround( low[c] ) ), p0 );
-                            candidate.High[c] =
-                                 QuantizeSevenPlusP( static_cast<int>( std::lround( high[c] ) ), p1 );
-                        }
-
-                        int palette[16][4];
-                        Bc7Palette( candidate, palette );
-                        int            indices[16];
-                        const uint64_t error = Bc7ChooseIndices( texels, palette, indices );
-                        if ( error < bestError )
-                        {
-                            bestError = error;
-                            best      = candidate;
-                            std::memcpy( bestIndices, indices, sizeof( indices ) );
-                        }
-                    }
-                }
-
-                // Refit once against the indices the first pass chose, then try the four p-bit
-                // combinations again around the better line.
-                if ( pass == 0 )
-                {
-                    float refitLow[4], refitHigh[4];
-                    if ( !RefitEndpoints<4>( points, bestIndices, refitLow, refitHigh ) )
-                        break;
-                    for ( int c = 0; c < 4; ++c )
-                    {
-                        low[c]  = std::clamp( refitLow[c], 0.0f, 255.0f );
-                        high[c] = std::clamp( refitHigh[c], 0.0f, 255.0f );
-                    }
-                }
-            }
-
-            // THE ANCHOR. Index 0 is written in three bits, so its high bit must be zero. When it is
-            // not, the SAME block is expressed by exchanging the endpoints and mirroring every index.
-            if ( bestIndices[0] >= 8 )
-            {
-                for ( int c = 0; c < 4; ++c )
-                    std::swap( best.Low[c], best.High[c] );
-                std::swap( best.PBit[0], best.PBit[1] );
-                for ( int t = 0; t < 16; ++t )
-                    bestIndices[t] = 15 - bestIndices[t];
-            }
-
-            BlockBits bits;
-            bits.Put( 1u << 6, 7 ); // mode 6: six zeroes then a one
-            for ( int c = 0; c < 4; ++c )
-            {
-                bits.Put( static_cast<uint32_t>( best.Low[c] ), 7 );
-                bits.Put( static_cast<uint32_t>( best.High[c] ), 7 );
-            }
-            bits.Put( static_cast<uint32_t>( best.PBit[0] ), 1 );
-            bits.Put( static_cast<uint32_t>( best.PBit[1] ), 1 );
-            bits.Put( static_cast<uint32_t>( bestIndices[0] ), 3 );
-            for ( int t = 1; t < 16; ++t )
-                bits.Put( static_cast<uint32_t>( bestIndices[t] ), 4 );
-            bits.CopyOut( out );
-        }
-
-        /// Decodes ONLY what this encoder writes. A mode this file does not produce is not decoded —
-        /// it is filled with magenta, which is a visible refusal rather than a plausible colour.
-        void DecodeBc7Block( const unsigned char* in, int texels[16][4] )
-        {
-            BlockBits bits;
-            bits.CopyIn( in );
-
-            int mode = 0;
-            while ( mode < 8 && bits.Get( 1 ) == 0 )
-                ++mode;
-            if ( mode != 6 )
-            {
-                for ( int t = 0; t < 16; ++t )
-                {
-                    texels[t][0] = 255;
-                    texels[t][1] = 0;
-                    texels[t][2] = 255;
-                    texels[t][3] = 255;
-                }
-                return;
-            }
-
-            Bc7Endpoints endpoints{};
-            for ( int c = 0; c < 4; ++c )
-            {
-                endpoints.Low[c]  = static_cast<int>( bits.Get( 7 ) );
-                endpoints.High[c] = static_cast<int>( bits.Get( 7 ) );
-            }
-            endpoints.PBit[0] = static_cast<int>( bits.Get( 1 ) );
-            endpoints.PBit[1] = static_cast<int>( bits.Get( 1 ) );
-
-            int palette[16][4];
-            Bc7Palette( endpoints, palette );
-
-            int indices[16];
-            indices[0] = static_cast<int>( bits.Get( 3 ) );
-            for ( int t = 1; t < 16; ++t )
-                indices[t] = static_cast<int>( bits.Get( 4 ) );
-
-            for ( int t = 0; t < 16; ++t )
-                for ( int c = 0; c < 4; ++c )
-                    texels[t][c] = palette[indices[t]][c];
+            bcdec_bc7( in, rgba, 4 * 4 );
         }
 
         // ── BC6H, MODE 11 ────────────────────────────────────────────────────────────────────────
@@ -640,7 +484,7 @@ namespace Desert::Core::Formats
             bits.CopyOut( out );
         }
 
-        /// Decodes ONLY mode 11, for the same reason and with the same visible refusal as BC7's.
+        /// Decodes ONLY mode 11, the one mode the encoder above writes; any other mode is a visible refusal.
         void DecodeBc6hBlock( const unsigned char* in, uint16_t texels[16][3] )
         {
             BlockBits bits;
@@ -897,7 +741,7 @@ namespace Desert::Core::Formats
 
                 if ( blockFormat == ImageFormat::BC7_UNORM )
                 {
-                    int texels[16][4];
+                    unsigned char texels[16 * 4];
                     for ( uint32_t y = 0; y < 4; ++y )
                     {
                         for ( uint32_t x = 0; x < 4; ++x )
@@ -905,8 +749,7 @@ namespace Desert::Core::Formats
                             const uint32_t sx   = ClampedIndex( bx * 4 + x, width );
                             const uint32_t sy   = ClampedIndex( by * 4 + y, height );
                             const auto*    rgba = source + ( static_cast<std::size_t>( sy ) * width + sx ) * 4u;
-                            for ( int c = 0; c < 4; ++c )
-                                texels[y * 4 + x][c] = rgba[c];
+                            std::memcpy( texels + ( y * 4 + x ) * 4u, rgba, 4u );
                         }
                     }
                     EncodeBc7Block( texels, block );
@@ -1007,7 +850,7 @@ namespace Desert::Core::Formats
 
                 if ( blockFormat == ImageFormat::BC7_UNORM )
                 {
-                    int texels[16][4];
+                    unsigned char texels[16 * 4];
                     DecodeBc7Block( block, texels );
                     for ( uint32_t y = 0; y < 4; ++y )
                     {
@@ -1018,8 +861,7 @@ namespace Desert::Core::Formats
                             if ( dx >= width || dy >= height )
                                 continue;
                             auto* rgba = out.data() + ( static_cast<std::size_t>( dy ) * width + dx ) * 4u;
-                            for ( int c = 0; c < 4; ++c )
-                                rgba[c] = static_cast<unsigned char>( texels[y * 4 + x][c] );
+                            std::memcpy( rgba, texels + ( y * 4 + x ) * 4u, 4u );
                         }
                     }
                 }

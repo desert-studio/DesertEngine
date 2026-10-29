@@ -194,6 +194,7 @@ end
         "Optick",
         "MeshOptimizer",
         "Voro",
+        "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "Dav1d",
