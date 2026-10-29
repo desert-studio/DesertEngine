@@ -235,6 +235,12 @@ namespace Desert::Graphic
         {
             return m_ViewProfile.Shadows;
         }
+        // Scalability ViewDistance.DisplacementDicingRate: pixels a diced edge covers (0 = runtime displacement off),
+        // read by the mesh displacement (DisplacementCache) and the landscape's (TerrainRenderer) alike.
+        [[nodiscard]] int GetDisplacementDicingRate() const
+        {
+            return m_DisplacementDicingRate;
+        }
         // The view is a reflection capture's face (ViewProfile::SceneCapture), not a level's viewport.
         [[nodiscard]] bool IsSceneCapture() const
         {

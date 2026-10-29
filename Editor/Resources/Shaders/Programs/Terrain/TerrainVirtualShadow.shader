@@ -14,6 +14,8 @@ Shader "TerrainVirtualShadow"
     {
         Texture2D   HeightmapTexture ("Heightmap", EngineSet)
         Texture2D   WeightmapTexture ("Weightmap", EngineSet)
+        // The landscape material's layer height array: the displaced vertex reads it (LandscapeDisplacement.glslh).
+        Texture2DArray LayerHeightTexture ("Layer Height", EngineSet)
     }
 
     State
