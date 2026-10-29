@@ -2162,7 +2162,8 @@ namespace Desert::Graphic::System
             uint32_t            InstanceCount = 0;
             uint32_t            FirstInstance = 0;
             uint32_t            MaterialIndex = 0;
-            uint64_t            HiddenSubmeshMask = 0; // the batch's section group (one mask for every instance)
+            SubmeshMask         HiddenSubmeshMask{}; // the batch's section group (one mask for every instance; a VG
+                                                     // entry's walk adds the submeshes its cluster raster draws)
             // A draw call carries ONE index range, so a batch carries ONE level. Before this field the
             // batched path drew at the default 0 while the per-object path next to it computed a level
             // and passed it — the same object at two detail levels depending on whether it batched.
