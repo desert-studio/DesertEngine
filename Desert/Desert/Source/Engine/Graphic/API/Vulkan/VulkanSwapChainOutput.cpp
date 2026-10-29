@@ -73,6 +73,7 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanSwapChainOutput::Present()
     {
+        DESERT_PROFILE_SCOPE( "Vulkan: Present" ); // a row of its own (FPS-CPU-2): a driver may block here
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 

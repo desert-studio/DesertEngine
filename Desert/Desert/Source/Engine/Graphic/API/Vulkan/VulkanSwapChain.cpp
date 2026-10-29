@@ -2,6 +2,7 @@
 #include <Engine/Core/GlfwVulkan.hpp> // glfwCreateWindowSurface: called here, so named here
 
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
 #include <Common/Settings/DisplaySettings.hpp>
@@ -202,9 +203,14 @@ namespace Desert::Graphic::API::Vulkan
         swapChainCreateInfo.imageUsage = ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
         if ( m_SupportsFrameReadback )
             swapChainCreateInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        swapChainCreateInfo.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
-        swapChainCreateInfo.queueFamilyIndexCount = 0;
-        swapChainCreateInfo.pQueueFamilyIndices   = NULL;
+        // The device's sharing rule, as for every image the engine creates (VulkanResourceSharing.hpp): the render
+        // graph realises its fork/join pairs without family indices, which is valid only on a CONCURRENT image,
+        // and the backbuffer is a graph resource like any other. The info points into the device's own copy.
+        const VulkanResourceSharing& sharing      = vkLogicalDevice->GetPhysicalDevice()->GetResourceSharing();
+        swapChainCreateInfo.imageSharingMode      = sharing.IsConcurrent() ? VK_SHARING_MODE_CONCURRENT
+                                                                           : VK_SHARING_MODE_EXCLUSIVE;
+        swapChainCreateInfo.queueFamilyIndexCount = sharing.IsConcurrent() ? sharing.FamilyCount : 0u;
+        swapChainCreateInfo.pQueueFamilyIndices   = sharing.IsConcurrent() ? sharing.Families.data() : nullptr;
         swapChainCreateInfo.preTransform          = (VkSurfaceTransformFlagBitsKHR)preTransform;
         swapChainCreateInfo.clipped               = VK_TRUE;
         swapChainCreateInfo.compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -413,6 +419,8 @@ namespace Desert::Graphic::API::Vulkan
         // SUBOPTIMAL IS AN IMAGE, NOT A FAILURE (see Engine/Graphic/SwapchainAcquire.hpp). It used to leave
         // through VK_RETURN_RESULT as an error, and the caller then rebuilt and acquired again on the
         // semaphore this call had already signalled -- the GPU timeout every editor launch died of.
+        // A row of its own (FPS-CPU-2): under FIFO the acquire is where a vsync-bound frame waits.
+        DESERT_PROFILE_SCOPE( "Vulkan: AcquireNextImage" );
         const VkResult res =
              vkLogicalDevice->GetPresentationDispatch().vkAcquireNextImageKHR(
                   vkLogicalDevice->GetVulkanLogicalDevice(), m_SwapChain, UINT64_MAX, presentCompleteSemaphore,

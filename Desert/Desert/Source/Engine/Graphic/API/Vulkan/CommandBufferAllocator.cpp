@@ -4,6 +4,7 @@
 
 #include <Common/Core/Profiler.hpp>
 
+#include <atomic>
 #include <format>
 #include <mutex>
 #include <string>
@@ -22,6 +23,29 @@ namespace Desert::Graphic::API::Vulkan
            m_TransferOpsQueue( device->m_TransferQueue ), m_LogicalDevice( device->m_LogicalDevice ),
            m_Device( device.get() )
     {
+        // The upload timeline (NewestUploadSync). timelineSemaphore is a Required device capability
+        // (DeviceCaps.cpp), so a refusal here is a driver failure: logged, and every graphics one-off submit
+        // then refuses by name rather than leaving another queue unordered behind the uploads.
+        VkSemaphoreTypeCreateInfo timeline{ .sType         = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO,
+                                            .pNext         = nullptr,
+                                            .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE,
+                                            .initialValue  = 0 };
+        const VkSemaphoreCreateInfo info{
+             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &timeline, .flags = 0 };
+        if ( const VkResult created = vkCreateSemaphore( m_LogicalDevice, &info, nullptr, &m_UploadTimeline );
+             created != VK_SUCCESS )
+        {
+            m_UploadTimeline = VK_NULL_HANDLE;
+            LOG_ERROR( "[CommandBuffers] vkCreateSemaphore (upload timeline) failed: {}; graphics one-off "
+                       "submissions will be refused.",
+                       VkResultToString( created ) );
+        }
+    }
+
+    CommandBufferAllocator::UploadSyncPoint CommandBufferAllocator::NewestUploadSync() const
+    {
+        return UploadSyncPoint{ .Timeline = m_UploadTimeline,
+                                .Value    = m_UploadSubmittedValue.load( std::memory_order_acquire ) };
     }
 
     Common::ResultStr<VkCommandBuffer> CommandBufferAllocator::AllocateOneShot( uint32_t family, bool begin )
@@ -196,23 +220,30 @@ namespace Desert::Graphic::API::Vulkan
             return refuse( std::format( "vkCreateFence failed: {}", VkResultToString( created ) ),
                            VK_NULL_HANDLE );
 
+        // ORDERING ACROSS QUEUES. An upload is submitted to the graphics queue and not waited for
+        // (RT_SubmitGraphicThenRelease); a later submit to the SAME queue is ordered after it by submission
+        // order, but a one-off on the compute or transfer queue is not, and may read the resource before its
+        // copy lands. UE orders such a reader behind the upload's sync point: this submit waits the upload
+        // timeline on the GPU (NewestUploadSync), the same wait the frame's async-compute pipe makes. Same
+        // VkQueue (one family, as on MoltenVK): submission order already covers it.
+        const UploadSyncPoint      uploads    = NewestUploadSync();
+        const bool                 waitUpload = queue != m_GraphicsQueue && uploads.Value != 0;
+        const VkPipelineStageFlags waitStage  = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        const VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                                                          .pNext = nullptr,
+                                                          .waitSemaphoreValueCount   = 1,
+                                                          .pWaitSemaphoreValues      = &uploads.Value,
+                                                          .signalSemaphoreValueCount = 0,
+                                                          .pSignalSemaphoreValues    = nullptr };
         const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                          .pNext                = nullptr,
-                                          .waitSemaphoreCount   = 0,
-                                          .pWaitSemaphores      = nullptr,
-                                          .pWaitDstStageMask    = nullptr,
+                                          .pNext                = waitUpload ? &timelineInfo : nullptr,
+                                          .waitSemaphoreCount   = waitUpload ? 1u : 0u,
+                                          .pWaitSemaphores      = waitUpload ? &uploads.Timeline : nullptr,
+                                          .pWaitDstStageMask    = waitUpload ? &waitStage : nullptr,
                                           .commandBufferCount   = 1,
                                           .pCommandBuffers      = &commandBuffer,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores    = nullptr };
-        // ORDERING ACROSS QUEUES. An image's first upload is submitted to the graphics queue and not waited
-        // for (RT_SubmitGraphicThenRelease); a later submit to the SAME queue is ordered after it by
-        // submission order, but a one-off on the compute or transfer queue is not, and may read the image
-        // before its copy lands. UE orders such a reader behind the upload's sync point; the one-off path
-        // here waits on the host anyway, so it waits the uploads still in flight first. Same VkQueue (one
-        // family, as on MoltenVK): submission order already covers it.
-        if ( queue != m_GraphicsQueue )
-            WaitInFlightUploads();
         if ( const VkResult submitted = m_Device->SubmitToQueue( queue, 1, &submitInfo, fence );
              submitted != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( submitted ) ), fence );
@@ -282,6 +313,9 @@ namespace Desert::Graphic::API::Vulkan
         };
         if ( !Graphic::DeviceLost::AllowWork() )
             return refuse( "the device is lost; the one-off command buffer is dropped rather than submitted." );
+        if ( m_UploadTimeline == VK_NULL_HANDLE )
+            return refuse( "the upload timeline semaphore was never created (see the startup error); a graphics "
+                           "one-off would be unordered against the compute and transfer queues." );
 
         if ( const VkResult ended = vkEndCommandBuffer( commandBuffer ); ended != VK_SUCCESS )
             return refuse( std::format( "vkEndCommandBuffer failed: {}", VkResultToString( ended ) ) );
@@ -293,18 +327,31 @@ namespace Desert::Graphic::API::Vulkan
             submitted.Fence = VK_NULL_HANDLE;
             return refuse( std::format( "vkCreateFence failed: {}", VkResultToString( created ) ) );
         }
+        // SIGNALS THE UPLOAD TIMELINE (NewestUploadSync) with the next value. The pick and the submit are one
+        // step under m_UploadSubmitMutex, so values reach the queue in increasing order whichever thread
+        // uploads; the value is published only once the submit returned, so no reader waits on a value whose
+        // signal was never submitted. A refused submit publishes nothing, and the next one reuses the value.
+        const std::scoped_lock ordered( m_UploadSubmitMutex );
+        const uint64_t         value = m_UploadSubmittedValue.load( std::memory_order_relaxed ) + 1;
+        const VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+                                                          .pNext = nullptr,
+                                                          .waitSemaphoreValueCount   = 0,
+                                                          .pWaitSemaphoreValues      = nullptr,
+                                                          .signalSemaphoreValueCount = 1,
+                                                          .pSignalSemaphoreValues    = &value };
         const VkSubmitInfo submitInfo = { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                          .pNext                = nullptr,
+                                          .pNext                = &timelineInfo,
                                           .waitSemaphoreCount   = 0,
                                           .pWaitSemaphores      = nullptr,
                                           .pWaitDstStageMask    = nullptr,
                                           .commandBufferCount   = 1,
                                           .pCommandBuffers      = &commandBuffer,
-                                          .signalSemaphoreCount = 0,
-                                          .pSignalSemaphores    = nullptr };
+                                          .signalSemaphoreCount = 1,
+                                          .pSignalSemaphores    = &m_UploadTimeline };
         if ( const VkResult result = m_Device->SubmitToQueue( m_GraphicsQueue, 1, &submitInfo, submitted.Fence );
              result != VK_SUCCESS )
             return refuse( std::format( "vkQueueSubmit failed: {}", VkResultToString( result ) ) );
+        m_UploadSubmittedValue.store( value, std::memory_order_release );
         return Common::MakeSuccess( submitted );
     }
 
@@ -365,20 +412,6 @@ namespace Desert::Graphic::API::Vulkan
         return finished.size();
     }
 
-    void CommandBufferAllocator::WaitInFlightUploads()
-    {
-        // Waited UNDER the lock: CollectFinished destroys a fence once it has taken it out of m_InFlight,
-        // so a copied handle could be destroyed mid-wait. The fences stay owned by m_InFlight.
-        const std::scoped_lock inFlight( m_InFlightMutex );
-        std::vector<VkFence>   fences;
-        fences.reserve( m_InFlight.size() );
-        for ( const InFlight& upload : m_InFlight )
-            fences.push_back( upload.Upload.Fence );
-        if ( !fences.empty() )
-            VK_CHECK_RESULT( vkWaitForFences( m_LogicalDevice, static_cast<uint32_t>( fences.size() ),
-                                              fences.data(), VK_TRUE, UINT64_MAX ) );
-    }
-
     void CommandBufferAllocator::WaitAndReleaseInFlight()
     {
         std::vector<InFlight> all;
@@ -408,6 +441,11 @@ namespace Desert::Graphic::API::Vulkan
         // Before the pools go: the in-flight buffers are freed into them, and their staging copies released
         // while the VMA allocator still exists (VulkanContext::Shutdown destroys it after this call).
         WaitAndReleaseInFlight();
+        // Every signal of the upload timeline was in a submission WaitAndReleaseInFlight just waited, and the
+        // frame loop has drained (VulkanContext::Shutdown), so no queue still references it.
+        if ( m_UploadTimeline != VK_NULL_HANDLE )
+            vkDestroySemaphore( m_LogicalDevice, m_UploadTimeline, nullptr );
+        m_UploadTimeline = VK_NULL_HANDLE;
 
         const std::scoped_lock pools( m_PoolMutex );
 

@@ -61,18 +61,21 @@ namespace Desert::Graphic::API::Vulkan
             info.samples       = static_cast<VkSampleCountFlagBits>( std::max( 1u, desc.Samples ) );
             info.tiling        = VK_IMAGE_TILING_OPTIMAL;
             info.usage         = RdgImageUsage( accessMask );
-            info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
             info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            // The device's sharing rule (VulkanResourceSharing.hpp); the info points into @p device.Sharing.
+            device.Sharing.ApplyTo( info );
             return info;
         }
 
-        VkBufferCreateInfo RdgBufferInfo( const RDG::BufferDesc& desc, uint32_t accessMask )
+        VkBufferCreateInfo RdgBufferInfo( const VulkanRdgDevice& device, const RDG::BufferDesc& desc,
+                                          uint32_t accessMask )
         {
             VkBufferCreateInfo info{};
-            info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-            info.size        = desc.Bytes;
-            info.usage       = RdgBufferUsage( accessMask );
-            info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            info.size  = desc.Bytes;
+            info.usage = RdgBufferUsage( accessMask );
+            // The device's sharing rule (VulkanResourceSharing.hpp); the info points into @p device.Sharing.
+            device.Sharing.ApplyTo( info );
             return info;
         }
 
@@ -604,7 +607,7 @@ namespace Desert::Graphic::API::Vulkan
                                                                                  std::string_view       name )
     {
         using Out                     = std::shared_ptr<VulkanRdgBuffer>;
-        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        const VkBufferCreateInfo info = RdgBufferInfo( device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
             return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes, usage from access mask {:#x} is empty",
                                                     name, desc.Bytes, accessMask );
@@ -642,7 +645,7 @@ namespace Desert::Graphic::API::Vulkan
                                    VmaAllocation memory, uint64_t offset, std::string_view name )
     {
         using Out                     = std::shared_ptr<VulkanRdgBuffer>;
-        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        const VkBufferCreateInfo info = RdgBufferInfo( device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
             return Common::MakeFormattedError<Out>( "buffer '{}': {} bytes, usage from access mask {:#x} is empty",
                                                     name, desc.Bytes, accessMask );
@@ -845,7 +848,7 @@ namespace Desert::Graphic::API::Vulkan
         const std::string key = fmt::format( "b{}:{:x}", desc.Bytes, accessMask );
         if ( const auto found = m_Cache.find( key ); found != m_Cache.end() )
             return Common::MakeSuccess( found->second );
-        const VkBufferCreateInfo info = RdgBufferInfo( desc, accessMask );
+        const VkBufferCreateInfo info = RdgBufferInfo( m_Device, desc, accessMask );
         if ( info.size == 0 || info.usage == 0 )
             return Common::MakeFormattedError<RDG::MemoryRequirements>( "{} bytes, no usage (access mask {:#x})",
                                                                         desc.Bytes, accessMask );
@@ -1212,6 +1215,41 @@ namespace Desert::Graphic::API::Vulkan
         if ( graph.Result == nullptr )
             return Common::MakeFormattedError( "graph '{}': no compile result to place transients from",
                                                graph.Name );
+        // THE CROSSING RULE'S PRECONDITION (RecordBarriers): a graph with an AsyncCompute segment crosses queue
+        // families, and its release / acquire pairs name no family - valid only when every resource is CONCURRENT
+        // across both pipes' families (VulkanResourceSharing.hpp). A device set up otherwise is refused by name,
+        // never recorded with ownership the GPU does not have.
+        const bool crossesQueues = std::any_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
+                                                []( const RDG::PipeSegment& segment )
+                                                { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
+        if ( crossesQueues && ( !m_Device.Sharing.Contains( m_Queues->FamilyOf( RDG::Pipe::Graphics ) ) ||
+                                !m_Device.Sharing.Contains( m_Queues->FamilyOf( RDG::Pipe::AsyncCompute ) ) ||
+                                !m_Device.Sharing.IsConcurrent() ) )
+            return Common::MakeFormattedError( "graph '{}': it has an AsyncCompute segment, but the device's resources "
+                                               "are not CONCURRENT across the graphics and compute families "
+                                               "(VulkanRdgDevice::Sharing)",
+                                               graph.Name );
+        // THE ASYNC SEGMENTS, NAMED (FPS-CPU-6): which passes this graph runs on the compute queue, logged when the
+        // set changes, so a log shows what overlapped the graphics queue (and an empty async frame shows nothing).
+        m_Result = graph.Result;
+        if ( crossesQueues )
+        {
+            std::string line;
+            for ( const RDG::PipeSegment& segment : graph.Result->Segments )
+            {
+                if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
+                    continue;
+                line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
+                        graph.Result->Passes[segment.LastPosition].Name + ": " +
+                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes]";
+            }
+            std::string& logged = m_AsyncSegmentsLogged[graph.Name];
+            if ( line != logged )
+            {
+                LOG_INFO( "[RDG] graph '{}' async compute segments:{}", graph.Name, line );
+                logged = std::move( line );
+            }
+        }
         // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
         const Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
@@ -1238,9 +1276,7 @@ namespace Desert::Graphic::API::Vulkan
         // A graph only on the graphics queue holds the slot's shared heaps in turn with the slot's other graphs
         // (BISTRO-MEM-2 p5); one with an async-compute segment keeps its own (a compute submission is ordered
         // after the earlier graphs only by the semaphores it waits on).
-        const bool graphicsOnly = std::none_of( graph.Result->Segments.begin(), graph.Result->Segments.end(),
-                                                []( const RDG::PipeSegment& segment )
-                                                { return segment.OnPipe == RDG::Pipe::AsyncCompute; } );
+        const bool graphicsOnly = !crossesQueues;
         const Common::ResultStr<bool> reserved =
              m_Transients->ReserveGraphHeaps( graph.Name, plan.Heaps, graphicsOnly );
         if ( !reserved )
@@ -1369,11 +1405,22 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanRdgBackend::RecordBarriers( std::span<const RDG::Barrier> barriers )
     {
-        // At most TWO vkCmdPipelineBarrier: the queue family ownership transfers first, then everything else.
-        // A transfer may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
-        // 09633/09634), and a resource whose ownership returns before a plain barrier hands it on (an async
+        // At most TWO vkCmdPipelineBarrier: the halves of the graph's cross-pipe pairs first, then everything
+        // else. A pair half may not share a call with a HOST-stage barrier (VUID-vkCmdPipelineBarrier-srcStageMask-
+        // 09633/09634), and a resource that returns to Graphics before a plain barrier hands it on (an async
         // result read back by the host) needs the two in that order. Within a call the stage masks are the
         // union over the batch, each resource keeps its own access masks and layouts.
+        //
+        // THE CROSSING RULE (graphics -> async compute -> graphics). RDGCompile emits a release / acquire pair at
+        // every crossing of a resource it sees (TrackUse crossPipes, CollectFinalBarriers), the semaphore between
+        // the queues orders them. Every resource is CONCURRENT across the device's families whenever there is an
+        // async pipe (VulkanResourceSharing.hpp; refused otherwise in Execute), so the pair names no families:
+        //   release, on the source queue: the whole transition - the source's writes made available, the layout
+        //            changed - ending at BOTTOM_OF_PIPE; the semaphore signal after it covers it.
+        //   acquire, on the destination queue: chained to the semaphore wait through ALL_COMMANDS, it makes the
+        //            contents visible to the destination's stages in the layout the release left (old == new).
+        // A family-indexed transfer would be invalid on a CONCURRENT resource (VUID-VkImageMemoryBarrier-image-
+        // 04071), and an EXCLUSIVE one could not cover a read the graph never saw (a bindless upload).
         for ( const bool ownershipCall : { true, false } )
         {
             VkPipelineStageFlags               srcStages = 0;
@@ -1382,26 +1429,12 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<VkBufferMemoryBarrier> buffers;
             for ( const RDG::Barrier& barrier : barriers )
             {
-                const bool isOwnership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
-                                         barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
-                if ( isOwnership != ownershipCall )
-                    continue;
-                // Queue family ownership transfer (Vulkan 1.0): the release names the families and makes the
-                // source's writes available (dstAccess 0); the acquire repeats them with srcAccess 0. The acquire
-                // chains to the semaphore wait before it through ALL_COMMANDS (its first scope must meet the
-                // wait's stages, whatever they are).
-                const bool ownership = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease ||
-                                       barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
-                const uint32_t srcFamily =
-                     ownership ? m_Queues->FamilyOf( barrier.SrcPipe ) : VK_QUEUE_FAMILY_IGNORED;
-                const uint32_t dstFamily =
-                     ownership ? m_Queues->FamilyOf( barrier.DstPipe ) : VK_QUEUE_FAMILY_IGNORED;
-                srcStages |= barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire
-                                  ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
-                                  : RdgVulkanStages( barrier.Before.Stages );
-                // A release's second scope is on the other queue: on this one it only ends the barrier.
                 const bool release = barrier.BarrierType == RDG::BarrierKind::OwnershipRelease;
                 const bool acquire = barrier.BarrierType == RDG::BarrierKind::OwnershipAcquire;
+                if ( ( release || acquire ) != ownershipCall )
+                    continue;
+                srcStages |= acquire ? VK_PIPELINE_STAGE_ALL_COMMANDS_BIT : RdgVulkanStages( barrier.Before.Stages );
+                // A release's second scope is on the other queue: on this one it only ends the barrier.
                 dstStages |=
                      release ? VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT : RdgVulkanStages( barrier.After.Stages );
                 // A write-free source has nothing to make available: its stages only order the work. An acquire
@@ -1416,11 +1449,13 @@ namespace Desert::Graphic::API::Vulkan
                     image.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
                     image.srcAccessMask       = srcAccess;
                     image.dstAccessMask       = dstAccess;
-                    image.oldLayout           = barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
-                                                                        : RdgVulkanLayout( barrier.Before.Layout );
+                    // The acquire's layout is already the release's newLayout: it transitions nothing.
+                    image.oldLayout           = acquire                   ? RdgVulkanLayout( barrier.After.Layout )
+                                                : barrier.DiscardContents ? VK_IMAGE_LAYOUT_UNDEFINED
+                                                                          : RdgVulkanLayout( barrier.Before.Layout );
                     image.newLayout           = RdgVulkanLayout( barrier.After.Layout );
-                    image.srcQueueFamilyIndex = srcFamily;
-                    image.dstQueueFamilyIndex = dstFamily;
+                    image.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    image.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     image.image               = texture.GetImage();
                     image.subresourceRange = { texture.GetAspect(), barrier.Range.BaseMip, barrier.Range.MipCount,
                                                barrier.Range.BaseLayer, barrier.Range.LayerCount };
@@ -1432,8 +1467,8 @@ namespace Desert::Graphic::API::Vulkan
                     buffer.sType               = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
                     buffer.srcAccessMask       = srcAccess;
                     buffer.dstAccessMask       = dstAccess;
-                    buffer.srcQueueFamilyIndex = srcFamily;
-                    buffer.dstQueueFamilyIndex = dstFamily;
+                    buffer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                    buffer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
                     const VulkanRdgBuffer& physical = *m_Buffers[barrier.Resource];
                     buffer.buffer                   = physical.GetBuffer();
                     buffer.offset                   = physical.GetOffset();
@@ -1656,6 +1691,7 @@ namespace Desert::Graphic::API::Vulkan
             RecordBarriers( finalBarriers );
         Release();
         m_Segments.EndGraph();
+        m_Result = nullptr;
         return Common::MakeSuccess( true );
     }
 
@@ -1665,6 +1701,10 @@ namespace Desert::Graphic::API::Vulkan
             EndRenderPass();
         while ( !m_ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
+        if ( m_SegmentScope >= 0 && m_Device.Profiler != nullptr )
+            m_Device.Profiler->EndScope( m_SegmentScope );
+        m_SegmentScope = -1;
+        m_Result       = nullptr;
         Release();
         m_Segments.AbandonGraph();
         SetRecording( VK_NULL_HANDLE );
@@ -1698,6 +1738,15 @@ namespace Desert::Graphic::API::Vulkan
         SetRecording( begun.GetValue() );
         if ( begun.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( begun.GetValue() );
+        // The async segment's own GPU row. Only a segment that waits on a fork: the frame's query reset is
+        // recorded at the head of the graphics queue, and only a fork orders this queue after it.
+        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
+             m_Device.Profiler != nullptr && m_Result != nullptr )
+        {
+            m_SegmentScopeName = "RDG Async: " + m_Result->Passes[segment.FirstPosition].Name + " .. " +
+                                 m_Result->Passes[segment.LastPosition].Name;
+            m_SegmentScope     = m_Device.Profiler->BeginScope( m_SegmentScopeName.c_str() );
+        }
         return Common::MakeSuccess( true );
     }
 
@@ -1718,6 +1767,11 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_OpenRenderPass )
             return Common::MakeError( "a render pass is open across a segment boundary" );
+        if ( m_SegmentScope >= 0 )
+        {
+            m_Device.Profiler->EndScope( m_SegmentScope );
+            m_SegmentScope = -1;
+        }
         const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )

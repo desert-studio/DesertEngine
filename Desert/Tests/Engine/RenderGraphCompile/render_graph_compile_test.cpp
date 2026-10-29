@@ -2508,11 +2508,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
     };
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
-    // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings,
-    // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
-    // delegates.
+    // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings declares
+    // them Access::SampledCompute, the AO a storage write; DeferredLightingRenderer::DeclareCompositeBindings
+    // Access::SampledGraphics); the node delegates. FPS-CPU-7: GTAO is a compute pass on the async pipe (UE
+    // r.AmbientOcclusion.Compute), its block uploaded by the graph.
     declares( "AddFrameSSAO",
-              { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
+              { "PassFlags::Compute|RDG::PassFlags::AsyncCompute", "SSAORenderer::UploadUniforms(graph,",
+                "ssao->DeclareBindings(pass,depth,normal,ao,uniforms)" } );
     // TAA1-B: the temporal resolve reads the scene colour, the scene depth, the frame's velocity, the previous
     // adapted luminance and the registered history, and hands its output back as the post input.
     declares( "AddFrameTemporal",
@@ -2630,7 +2632,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
              std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
                         .find( ".Texture(SSAOBindingShaderParameters::GBufferDepthTexture,depth,RDG::Access::"
-                               "SampledGraphics" ),
+                               "SampledCompute" ),
                    std::string::npos );
         EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
                         .find( ".Texture(DeferredLightingCompositeShaderParameters::SsaoTexture,inputs.SSAO,kRead,"
