@@ -208,14 +208,19 @@ namespace Desert::Graphic
                            glm::max( m_SunVolumetricScatteringIntensity, 0.0f );
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        // The sun is directional-shadow slot 0, published by the mesh renderer exactly as every receiver packs it.
         if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-             mesh != nullptr && mesh->AreShadowsEnabled() && mesh->GetCascadeViewProj() != nullptr )
+             mesh != nullptr && mesh->AreShadowsEnabled() )
         {
-            sun.CascadeCount = std::min<uint32_t>( mesh->GetValidCascadeCount(), 4u );
-            for ( uint32_t c = 0; c < sun.CascadeCount; ++c )
-                sun.CascadeViewProj[c] = mesh->GetCascadeViewProj()[c];
-            sun.CascadeWorldPerTexel = mesh->GetCascadeWorldPerTexel();
-            sun.CascadeDepthRange    = mesh->GetCascadeDepthRange();
+            const SceneResources::DirectionalShadowView view = mesh->DirectionalShadows()[0];
+            if ( view.CastShadows && view.CascadeVP != nullptr )
+            {
+                sun.CascadeCount = std::min<uint32_t>( view.Count, static_cast<uint32_t>( sun.CascadeViewProj.size() ) );
+                for ( uint32_t c = 0; c < sun.CascadeCount; ++c )
+                    sun.CascadeViewProj[c] = view.CascadeVP[c];
+                sun.CascadeWorldPerTexel = view.CascadeWorldPerTexel;
+                sun.CascadeDepthRange    = view.CascadeDepthRange;
+            }
         }
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         AddComputeNodes( graph, textures, volume->DeclareFrameNodes( textures.GraphRefs(), frame, sun ) );

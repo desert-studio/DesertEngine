@@ -932,7 +932,8 @@ namespace Desert::Graphic::System
         m_FrameClusterCandidates.clear();
         std::erase_if( m_BinnedCarriers, []( const auto& entry ) { return entry.second.Program.expired(); } );
         if ( !m_DrawCommandCache )
-            return Common::MakeFormattedError( "no draw command cache (SyncGpuScene has not fed it)" );
+            return Common::MakeError<GpuDriven::DrawCommandBuffers>(
+                 "[MeshRenderer] no draw command cache (SyncGpuScene has not fed it)" );
         return m_DrawCommandCache->AddUploadPass( graph );
     }
 
