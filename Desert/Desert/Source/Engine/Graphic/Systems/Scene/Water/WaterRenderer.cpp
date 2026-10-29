@@ -188,7 +188,8 @@ namespace Desert::Graphic::System
             if ( handle == 0 || std::find_if( kRippleMaps.begin(), kRippleMaps.end(), [&name]( const char* slot )
                                               { return name == slot; } ) == kRippleMaps.end() )
                 continue;
-            auto* property = program.Material->Get<Texture2DProperty>( name );
+            auto* property = program.Material->Get<Texture2DProperty>(
+                 RDG::ShaderParameterOf<MaterialPropertyKind<Texture2DProperty>>{ std::string_view( name ) } );
             auto* texture  = Runtime::ResourceRegistry::GetTextureService()->Get( Common::UUID( handle ) );
             if ( property == nullptr || texture == nullptr )
                 continue; // still loading: picked up the frame it lands
