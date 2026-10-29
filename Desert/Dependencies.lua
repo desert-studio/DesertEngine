@@ -215,6 +215,63 @@ function DesertCopyStreamlineRuntime()
     filter {}
 end
 
+-- INTEL OPEN IMAGE DENOISE 2.x (the path tracer's PathTracing.Denoiser OIDN), Windows x64 and macOS arm64. The
+-- headers and the Apache-2.0 licence are committed under ThirdParty/OIDN; the runtime libraries are DOWNLOADED from
+-- Intel's release, never committed: ThirdParty/OIDN/manifest.<platform>.json pins the archive and every file's
+-- SHA-256 and scripts/Windows/FetchVendorBinaries.py (Setup.bat, scripts/MacOS/Setup.sh) fetches them. The engine
+-- compiles against the headers and LOADS the library at run time (Engine/Graphic/Denoise/OidnDenoiser.cpp): Windows
+-- OpenImageDenoise.dll beside the executable, macOS lib/libOpenImageDenoise.2.dylib under it (the dylibs find each
+-- other through their own @loader_path/../lib rpath, which is their own directory only when it is named lib). OIDN
+-- loads its device modules (CPU, CUDA, HIP, SYCL, Metal) from its own directory. Like UE's OpenImageDenoise plugin
+-- it is an editor / movie-render tool: copied beside the editor and the runtime (whose dev build renders movies),
+-- not shipped by the game packager.
+DesertOidnManifests = {
+    windows = { manifest = "ThirdParty/OIDN/manifest.windows.json", dir = "ThirdParty/OIDN/bin/x64" },
+    macosx  = { manifest = "ThirdParty/OIDN/manifest.macos.json", dir = "ThirdParty/OIDN/bin/macos-arm64/lib" },
+}
+
+local function DesertManifestFileNames(manifestRelative)
+    local text = io.readfile(path.join(_MAIN_SCRIPT_DIR, manifestRelative))
+    if text == nil then
+        error(manifestRelative .. " is missing: it pins the runtime the build copies")
+    end
+    local manifest, decodeError = json.decode(text)
+    if manifest == nil then
+        error(manifestRelative .. ": " .. tostring(decodeError))
+    end
+    local names = {}
+    for _, entry in ipairs(manifest.Files) do
+        table.insert(names, path.getname(entry.Archive))
+    end
+    return names
+end
+
+-- Called inside an executable's project: copies the OIDN runtime beside its target after the link. A file not
+-- fetched yet is not copied and the build names it: the executable runs and PathTracing.Denoiser OIDN reports the
+-- library missing by name.
+function DesertCopyOidnRuntime()
+    filter "system:windows"
+        for _, name in ipairs(DesertManifestFileNames(DesertOidnManifests.windows.manifest)) do
+            local source = path.translate(path.join(_MAIN_SCRIPT_DIR, DesertOidnManifests.windows.dir, name), "\\")
+            postbuildcommands {
+                'if exist "' .. source .. '" {COPYFILE} "' .. source .. '" "%{cfg.targetdir}"',
+                'if not exist "' .. source .. '" echo ' .. DesertOidnManifests.windows.dir .. '/' .. name ..
+                    ' is not fetched, PathTracing.Denoiser OIDN will be unavailable: run python scripts/Windows/FetchVendorBinaries.py',
+            }
+        end
+    filter "system:macosx"
+        postbuildcommands { 'mkdir -p "%{cfg.targetdir}/lib"' }
+        for _, name in ipairs(DesertManifestFileNames(DesertOidnManifests.macosx.manifest)) do
+            local source = path.join(_MAIN_SCRIPT_DIR, DesertOidnManifests.macosx.dir, name)
+            postbuildcommands {
+                'if [ -f "' .. source .. '" ]; then cp -f "' .. source .. '" "%{cfg.targetdir}/lib/"; else echo ' ..
+                    DesertOidnManifests.macosx.dir .. '/' .. name ..
+                    ' is not fetched, PathTracing.Denoiser OIDN will be unavailable: run python3 scripts/Windows/FetchVendorBinaries.py; fi',
+            }
+        end
+    filter {}
+end
+
 function DesertSortedPairs(t)
     local keys = {}
     for key in pairs(t) do

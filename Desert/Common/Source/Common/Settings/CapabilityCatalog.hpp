@@ -229,16 +229,24 @@ namespace Common::Scalability
     // Reconstruction - the view keeps that upscaler whatever AntiAliasing.Method says, and the paths go to it raw
     // with their own guides (PathTracedGuides). Auto: RR where the device offers DLSS Ray Reconstruction, else
     // ReLAX; Resolve settles it against the catalog, so a resolved quality never holds Auto. 0 and 1 keep the
-    // values the former on/off switch stored (Off, the engine denoiser).
+    // values the former on/off switch stored (Off, the engine denoiser). OIDN: Intel Open Image Denoise on the
+    // CONVERGED image (UE's OpenImageDenoise plugin, which denoises the path tracer once its samples per pixel are
+    // reached): while the sum still grows the view is ReLAX's, and once PathTracing.SamplesPerPixel paths are summed
+    // OIDN filters the accumulation once with the paths' albedo and normal (System::PathTracer, Graphic/Denoise/
+    // OidnDenoiser) on the GPU it finds for this device, else on the CPU. Offered on every device: the CPU device
+    // always exists; a missing library is an error the view reports, not a lowering. Auto never settles to it (a
+    // still-frame denoiser, not a real-time one).
     enum class PathTracingDenoiserMethod : int
     {
         Off   = 0,
         ReLAX = 1,
         RR    = 2,
         Auto  = 3,
+        OIDN  = 4,
     };
-    inline constexpr std::array<std::string_view, 4> kPathTracingDenoiserNames{ "Off", "ReLAX", "RR", "Auto" };
-    static_assert( static_cast<std::size_t>( PathTracingDenoiserMethod::Auto ) + 1 ==
+    inline constexpr std::array<std::string_view, 5> kPathTracingDenoiserNames{ "Off", "ReLAX", "RR", "Auto",
+                                                                                 "OIDN" };
+    static_assert( static_cast<std::size_t>( PathTracingDenoiserMethod::OIDN ) + 1 ==
                    kPathTracingDenoiserNames.size() );
 
     // WHAT ENDS A PATH-TRACED PATH EARLY (Parameter::PathTracingRadianceCache). Stored by name. Off: every path

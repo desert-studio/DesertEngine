@@ -931,4 +931,58 @@ Shader "PathTracerDenoise"
             }
         }
     }
+
+    // PATH TRACING DENOISER OIDN (System::PathTracer::AddOidnPackPass): the converged sum handed to Intel Open Image
+    // Denoise (Graphic/Denoise/OidnDenoiser) as three planes of tightly packed float3, row-major from the top row -
+    // the beauty, the albedo guide, the normal guide - in one buffer the host reads back:
+    //   color  = sum / count (the radiance the resolve would show, not pre-exposed: OIDN's hdr mode is
+    //            scale-invariant);
+    //   albedo = (sum D_d + sum D_s + paths that met no surface) / count, in [0, 1]: OIDN's albedo is the total
+    //            reflectance of the first surface (both lobes, Common/PathTracingDenoise.glslh), and a path that
+    //            left the scene reads 1 - what it brought back is the sky itself, with no texture to separate from
+    //            its lighting (OIDN's documentation: the albedo of what the primary ray saw);
+    //   normal = sum first-surface normal / count, unnormalised (OIDN accepts averages; a sky path adds none).
+    Pass "OidnPack"
+    {
+        Compute
+        {
+            LocalSize(8, 8, 1);
+
+            layout(binding = 1, rgba32f) readonly uniform image2D AccumulationTexture;
+            layout(binding = 2, rgba32f) readonly uniform image2D GuideAlbedoTexture;
+            layout(binding = 3, rgba32f) readonly uniform image2D GuideNormalTexture;
+            layout(binding = 4, rgba32f) readonly uniform image2D GuideSpecularTexture;
+            layout(std430, binding = 5) writeonly buffer PathTracingOidnPackUB
+            {
+                float oidnPlanes[];
+            };
+
+            void main()
+            {
+                const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+                const ivec2 size  = imageSize(AccumulationTexture);
+                if (pixel.x >= size.x || pixel.y >= size.y)
+                    return;
+                const vec4  sum       = imageLoad(AccumulationTexture, pixel);
+                const float count     = max(sum.a, 1.0);
+                const vec4  diffuse   = imageLoad(GuideAlbedoTexture, pixel);
+                const vec3  specular  = imageLoad(GuideSpecularTexture, pixel).rgb;
+                const vec3  normalSum = imageLoad(GuideNormalTexture, pixel).xyz;
+                const float misses    = max(sum.a - diffuse.a, 0.0);
+
+                const vec3 color  = max(sum.rgb / count, vec3(0.0));
+                const vec3 albedo = clamp((diffuse.rgb + specular + vec3(misses)) / count, vec3(0.0), vec3(1.0));
+                const vec3 normal = clamp(normalSum / count, vec3(-1.0), vec3(1.0));
+
+                const uint plane = uint(size.x) * uint(size.y) * 3u;
+                const uint base  = (uint(pixel.y) * uint(size.x) + uint(pixel.x)) * 3u;
+                for (uint c = 0u; c < 3u; ++c)
+                {
+                    oidnPlanes[base + c]              = color[c];
+                    oidnPlanes[plane + base + c]      = albedo[c];
+                    oidnPlanes[2u * plane + base + c] = normal[c];
+                }
+            }
+        }
+    }
 }

@@ -34,6 +34,7 @@
 #include "Editor/Core/CommandHistory.hpp"
 
 #include <Engine/Core/Camera.hpp>
+#include <Engine/Graphic/Denoise/OidnDenoiser.hpp>
 #include <Engine/Graphic/GeometryPool.hpp>
 #include <Engine/Core/CameraEntityView.hpp>
 #include <Engine/Core/Scene.hpp>
@@ -1639,6 +1640,17 @@ namespace Desert::Editor
             device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
+
+            const Graphic::Denoise::OidnStatus oidn = Graphic::Denoise::OidnDenoiser::Status();
+            device.OidnCreated                      = oidn.Created;
+            device.OidnDevice                       = oidn.Device;
+            device.OidnReason                       = oidn.Reason;
+            device.OidnError                        = oidn.Error;
+            device.OidnRuns                         = oidn.Runs;
+            device.OidnLastPaths                    = oidn.LastPaths;
+            device.OidnLastWidth                    = oidn.LastWidth;
+            device.OidnLastHeight                   = oidn.LastHeight;
+            device.OidnLastMilliseconds             = oidn.LastMilliseconds;
 
             // Ray tracing: the catalog's modes (what every RT consumer branches on), why rt is off, and what the
             // main viewport resolved to - its SceneRenderer's RenderMethods, the rows its overlay and the log

@@ -286,7 +286,7 @@ namespace Common::Scalability
         // What denoises the path-traced view (UE r.PathTracing.Denoiser): PathTracingDenoiserMethod
         // (CapabilityCatalog.hpp) - Off, ReLAX (System::PathTracer's own denoiser), RR (DLSS Ray Reconstruction,
         // the paths raw with their own guides), Auto (RR where offered, else ReLAX; never left in a resolved
-        // quality).
+        // quality), OIDN (ReLAX while the sum grows, Intel Open Image Denoise once it converged).
         PathTracingDenoiser,
         // 0/1: the ReLAX denoiser's anti-firefly (NRD ReLAX enableAntiFirefly, System::PathTracer "Denoise
         // AntiFirefly"): a lobe's luminance above its 3 x 3 neighbourhood is handed to that neighbourhood before
