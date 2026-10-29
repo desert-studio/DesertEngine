@@ -20,13 +20,14 @@ namespace Desert::Reflection
         // The asset types a reflected field stores as {"Guid", "Path"}: skyboxes since SCNE 29, textures
         // (the UI sprites and the splash) since SCNE 30, the level's Default Pawn prefab since SCNE 40, the Audio
         // Source's sound since SCNE 42, static meshes and materials since asset-reference format v1 (AREF,
-        // STATICMESH-FORMAT: the Static Mesh's MeshHandle / MaterialSlots and every Asset<MaterialAsset> field).
+        // STATICMESH-FORMAT: the Static Mesh's MeshHandle / MaterialSlots and every Asset<MaterialAsset> field), a
+        // water body's wave set (WaterBodyData::WaterWaves) as its material beside it.
         // Every other type still stores its key alone.
         bool IsStoredByGuid( const std::string& assetType )
         {
             return assetType == "SkyboxAsset" || assetType == "TextureAsset" || assetType == "PrefabAsset" ||
                    assetType == "FoliageTypeAsset" || assetType == "SoundAsset" || assetType == "StaticMeshAsset" ||
-                   assetType == "MaterialAsset";
+                   assetType == "MaterialAsset" || assetType == "WaterWavesAsset";
         }
 
         void WriteVec( Common::Json::Object& out, const std::string& name, const float* v, int count )
