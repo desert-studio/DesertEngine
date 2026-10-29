@@ -1052,9 +1052,10 @@ namespace Desert::Graphic
                                                        const ViewFrame&                    frame, RDG::TextureRef screenHzb );
         bool                       EnsureMegaLightsResources();
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
-        // MegaLightsVolume, sliced over @p lightGrid's depth range: on under Stochastic with a local light, the
-        // neutral block (System::AddMegaLightsVolumeOff) otherwise or - logged - when its pass could not be
-        // declared.
+        // MegaLightsVolume, sliced over @p lightGrid's depth range, its froxels' visibility the frame's
+        // StochasticVisibility (rayquery: the TLAS; vsm+screen: the local lights' virtual pages, so it runs after
+        // AddFrameVirtualShadows; screen: unshadowed): on under Stochastic with a local light; otherwise, or -
+        // logged - when its pass could not be declared, the neutral block OnUpdate set stays.
         void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
                                        const LightGridParamsPayload& lightGrid );
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
@@ -1717,7 +1718,6 @@ namespace Desert::Graphic
         // BeginScene.
         System::MegaLightsVolumeRenderer m_MegaLightsVolume;
         System::MegaLightsVolumeQuality  m_MegaLightsVolumeQuality;
-        bool                             m_MegaLightsVolumeReady = false;
         // "Shadows: Virtual Shadow Map" (per view: the page cache is this view's), created on the first frame that
         // resolves the sun to VirtualMaps; its quality (Shadows.Virtual*) taken each BeginScene.
         System::VirtualShadowMapRenderer m_VirtualShadowMap;

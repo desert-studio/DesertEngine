@@ -30,12 +30,12 @@ void main()
 	for (uint k = 0u; k < samples; ++k)
 	{
 		const ivec2         texel = MegaLightsReservoirTexel(pixel, k);
-		MegaLightsReservoir r     = MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, texel, 0));
+		RisReservoir r     = RisUnpackReservoir(texelFetch(ReservoirsTexture, texel, 0));
 		if (!p.Valid)
-			r = MegaLightsEmptyReservoir();
+			r = RisEmptyReservoir();
 		else if (r.Light >= 0 && r.W > 0.0)
 			r.W *= MegaLightsVisibility(p, r.Light, random);
-		imageStore(OutReservoirsTexture, texel, MegaLightsPackReservoir(r));
+		imageStore(OutReservoirsTexture, texel, RisPackReservoir(r));
 	}
 	imageStore(OutSurfaceTexture, pixel, p.Valid ? vec4(p.N, p.ViewDepth) : vec4(0.0));
 }

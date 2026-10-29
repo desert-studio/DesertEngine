@@ -67,26 +67,26 @@ Shader "MegaLightsTemporalResampling"
         	uint random = MegaLightsSeed(pixel, 1u);
         	for (uint k = 0u; k < samples; ++k)
         	{
-        		const MegaLightsReservoir current =
-        		     MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(pixel, k), 0));
+        		const RisReservoir current =
+        		     RisUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(pixel, k), 0));
         		if (!reprojected)
         		{
-        			imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), MegaLightsPackReservoir(current));
+        			imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k), RisPackReservoir(current));
         			continue;
         		}
-        		MegaLightsMerge merge = MegaLightsBeginMerge();
-        		MegaLightsMergeReservoir(merge, current, current.TargetPdf, current.M, MegaLightsRandom(random));
-        		const MegaLightsReservoir history =
-        		     MegaLightsUnpackReservoir(texelFetch(HistoryReservoirsTexture, MegaLightsReservoirTexel(previous, k), 0));
+        		RisMerge merge = RisBeginMerge();
+        		RisMergeReservoir(merge, current, current.TargetPdf, current.M, MegaLightsRandom(random));
+        		const RisReservoir history =
+        		     RisUnpackReservoir(texelFetch(HistoryReservoirsTexture, MegaLightsReservoirTexel(previous, k), 0));
         		// The history's confidence, capped relative to this frame's (ReSTIR's M clamp).
         		const float historyM = min(history.M, Params.x * max(current.M, 1.0));
         		if (history.Light >= 0 && history.Light < MegaLightsLightCount())
-        			MegaLightsMergeReservoir(merge, history, MegaLightsTargetPdf(p, history.Light), historyM,
+        			RisMergeReservoir(merge, history, MegaLightsTargetPdf(p, history.Light), historyM,
         			                         MegaLightsRandom(random));
         		else
         			merge.Result.M += historyM; // an empty history still says how often nothing was found
         		imageStore(OutReservoirsTexture, MegaLightsReservoirTexel(pixel, k),
-        		           MegaLightsPackReservoir(MegaLightsEndMerge(merge)));
+        		           RisPackReservoir(RisEndMerge(merge)));
         	}
         }
     }

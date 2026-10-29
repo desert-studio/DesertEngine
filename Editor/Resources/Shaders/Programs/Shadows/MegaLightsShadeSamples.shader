@@ -41,8 +41,8 @@ Shader "MegaLightsShadeSamples"
         	vec3        specular    = vec3(0.0);
         	for (uint k = 0u; k < samples; ++k)
         	{
-        		const MegaLightsReservoir r =
-        		     MegaLightsUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(samplePixel, k), 0));
+        		const RisReservoir r =
+        		     RisUnpackReservoir(texelFetch(ReservoirsTexture, MegaLightsReservoirTexel(samplePixel, k), 0));
         		if (r.Light < 0 || r.Light >= MegaLightsLightCount() || r.W <= 0.0)
         			continue;
         		vec3 d;

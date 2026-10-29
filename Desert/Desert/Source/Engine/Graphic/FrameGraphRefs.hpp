@@ -75,7 +75,8 @@ namespace Desert::Graphic
     // translucent surfaces read their local lights from it, shadowed, under Shadows Stochastic. Off (any other
     // Shadows method, or no local light) it is a block whose Size.w is 0 and System.Black3D in the three slots:
     // the forward cell then loops the light grid, the glass adds nothing. Set by
-    // SceneRenderer::AddFrameMegaLightsVolume right after the light grid; invalid refs before it, as the grid's.
+    // SceneRenderer::OnUpdate right after the light grid (off), then lit by SceneRenderer::AddFrameMegaLightsVolume
+    // once its visibility source is drawn; invalid refs before the grid, as the grid's.
     struct MegaLightsVolumeRefs
     {
         RDG::BufferRef                 Params;   // "MegaLights.Volume.Params", MegaLightsVolumeReadParams

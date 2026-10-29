@@ -35,6 +35,7 @@
 #include <Mesh/Spotlight.glslh>  // binding 16
 #include <Mesh/MegaLightsDemodulation.glslh>
 #include <Common/LightSourceSampling.glslh>
+#include <Common/RisReservoir.glslh>
 
 // The most reservoirs a pixel keeps (MegaLights.hpp kMegaLightsMaxSamplesPerPixel; Scalability
 // Shadows.MegaLightsSamplesPerPixel 1..4). The reservoir textures stack the layers vertically: layer k of sample
@@ -259,68 +260,8 @@ float MegaLightsTargetPdf(MegaLightsPixel p, int light)
 }
 #endif
 
-// ---- The reservoir (RTXDI's RIS reservoir) -----------------------------------------------------------------------
-// Stored RGBA32F: x = the light (-1 = none; an index of the light grid's space, kept as a float - exact below 2^24),
-// y = W (the unbiased contribution weight: wSum / (M * p^(light))), z = M (the confidence: frames and neighbours it
-// summarises), w = p^ of the light at the pixel that holds it.
-struct MegaLightsReservoir
-{
-	int   Light;
-	float W;
-	float M;
-	float TargetPdf;
-};
-
-MegaLightsReservoir MegaLightsEmptyReservoir()
-{
-	return MegaLightsReservoir(-1, 0.0, 0.0, 0.0);
-}
-
-vec4 MegaLightsPackReservoir(MegaLightsReservoir r)
-{
-	return vec4(float(r.Light), r.W, r.M, r.TargetPdf);
-}
-
-MegaLightsReservoir MegaLightsUnpackReservoir(vec4 v)
-{
-	return MegaLightsReservoir(int(floor(v.x + 0.5)), v.y, v.z, v.w);
-}
-
-// The combination in progress: the reservoir being built and its running weight sum.
-struct MegaLightsMerge
-{
-	MegaLightsReservoir Result;
-	float               WeightSum;
-};
-
-MegaLightsMerge MegaLightsBeginMerge()
-{
-	return MegaLightsMerge(MegaLightsEmptyReservoir(), 0.0);
-}
-
-// Streams reservoir @p s into @p merge (ReSTIR's combine): its weight is p^ AT THE RECEIVING PIXEL (@p targetHere)
-// times its W times its confidence @p m; the light is taken with the probability of that weight among the stream.
-void MegaLightsMergeReservoir(inout MegaLightsMerge merge, MegaLightsReservoir s, float targetHere, float m,
-                              float random)
-{
-	const float w = targetHere * s.W * m;
-	merge.WeightSum += w;
-	merge.Result.M += m;
-	if (w > 0.0 && random * merge.WeightSum < w)
-	{
-		merge.Result.Light     = s.Light;
-		merge.Result.TargetPdf = targetHere;
-	}
-}
-
-MegaLightsReservoir MegaLightsEndMerge(MegaLightsMerge merge)
-{
-	MegaLightsReservoir r = merge.Result;
-	r.W = (r.Light >= 0 && r.TargetPdf > 1e-12 && r.M > 0.0) ? merge.WeightSum / (r.M * r.TargetPdf) : 0.0;
-	if (r.W <= 0.0)
-		r.Light = -1;
-	return r;
-}
+// ---- The reservoir: Common/RisReservoir.glslh (RisReservoir, RisMerge), shared with the path tracer's light
+// grid; MegaLights stores it RGBA32F (RisPackReservoir), one layer per sample (MegaLightsReservoirTexel).
 
 // ---- Visibility --------------------------------------------------------------------------------------------------
 #ifdef MEGALIGHTS_TRACE

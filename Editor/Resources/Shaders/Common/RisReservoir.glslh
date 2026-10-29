@@ -1,0 +1,99 @@
+#ifndef RIS_RESERVOIR_GLSLH
+#define RIS_RESERVOIR_GLSLH
+
+// THE RIS RESERVOIR (resampled importance sampling; RTXDI's RIS reservoir, Talbot et al. 2005, ReSTIR - Bitterli et
+// al. 2020), ONE definition for every light sampler of the engine: MegaLights' surface samples and volume
+// (Common/MegaLights.glslh, Programs/Shadows/MegaLights*.shader) and the path tracer's light grid
+// (Programs/PathTracing/PathTracerLightGrid.shader, NVIDIA ReGIR). The includer keeps its own TARGET FUNCTION p^
+// (MegaLights: the unshadowed luminance at the receiving pixel; the light grid: the light's luminance at the cell)
+// and its own random stream - a draw is passed in as a float in [0, 1).
+//
+// A reservoir is a light (-1 = none), W (the unbiased contribution weight: wSum / (M * p^(light))), M (the
+// confidence: the candidates, frames and neighbours it summarises) and p^ of the light where the reservoir lives.
+
+struct RisReservoir
+{
+	int   Light;
+	float W;
+	float M;
+	float TargetPdf;
+};
+
+RisReservoir RisEmptyReservoir()
+{
+	return RisReservoir(-1, 0.0, 0.0, 0.0);
+}
+
+// Stored RGBA32F: x = the light as a float (exact below 2^24), y = W, z = M, w = p^.
+vec4 RisPackReservoir(RisReservoir r)
+{
+	return vec4(float(r.Light), r.W, r.M, r.TargetPdf);
+}
+
+RisReservoir RisUnpackReservoir(vec4 v)
+{
+	return RisReservoir(int(floor(v.x + 0.5)), v.y, v.z, v.w);
+}
+
+// A reservoir being built - from a stream of candidates (RisStreamCandidate), from other reservoirs
+// (RisMergeReservoir, ReSTIR's combine), or both - and the running weight sum of everything streamed into it.
+struct RisMerge
+{
+	RisReservoir Result;
+	float        WeightSum;
+};
+
+RisMerge RisBeginMerge()
+{
+	return RisMerge(RisEmptyReservoir(), 0.0);
+}
+
+// Weighted reservoir sampling of one item of weight @p w carrying @p light and its p^ @p target: kept with the
+// probability of its weight among the stream so far (@p random in [0, 1)).
+void RisStreamWeighted(inout RisMerge merge, int light, float target, float w, float random)
+{
+	if (w <= 0.0)
+		return;
+	merge.WeightSum += w;
+	if (random * merge.WeightSum < w)
+	{
+		merge.Result.Light     = light;
+		merge.Result.TargetPdf = target;
+	}
+}
+
+// A NEW CANDIDATE (initial RIS): @p light drawn with source density 1 / @p invSourcePdf, weighed by its p^ @p target
+// over that density. The candidate count is not added here: the stream's M is the caller's (RisEndStream) - a stream
+// over every light of a set has M = 1 and @p invSourcePdf = 1, M uniform draws of N lights have M = M and
+// @p invSourcePdf = N.
+void RisStreamCandidate(inout RisMerge merge, int light, float target, float invSourcePdf, float random)
+{
+	RisStreamWeighted(merge, light, target, target * invSourcePdf, random);
+}
+
+// RESERVOIR @p s STREAMED IN (ReSTIR's combine): its weight is p^ AT THE RECEIVING POINT (@p targetHere) times its W
+// times its confidence @p m, which adds to the result's M.
+void RisMergeReservoir(inout RisMerge merge, RisReservoir s, float targetHere, float m, float random)
+{
+	merge.Result.M += m;
+	RisStreamWeighted(merge, s.Light, targetHere, targetHere * s.W * m, random);
+}
+
+// The finished reservoir at confidence @p M: W = wSum / (M * p^); no light when W vanishes.
+RisReservoir RisEndStream(RisMerge merge, float M)
+{
+	RisReservoir r = merge.Result;
+	r.M            = M;
+	r.W            = (r.Light >= 0 && r.TargetPdf > 1e-12 && M > 0.0) ? merge.WeightSum / (M * r.TargetPdf) : 0.0;
+	if (r.W <= 0.0)
+		r.Light = -1;
+	return r;
+}
+
+// The finished combine: its M is the sum of the merged confidences.
+RisReservoir RisEndMerge(RisMerge merge)
+{
+	return RisEndStream(merge, merge.Result.M);
+}
+
+#endif // RIS_RESERVOIR_GLSLH
