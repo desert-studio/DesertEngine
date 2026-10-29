@@ -717,7 +717,7 @@ namespace Desert::Editor
             auto submitted = Neural::FusedMlpCheckRun::Submit( *m_NnCompute, caps, path );
             if ( !submitted )
                 return Control::Response::Failure( id, std::format( "nn-check {}: {}", name, submitted.GetError() ) );
-            pending.Runs.push_back( std::move( submitted.GetValue() ) );
+            pending.Runs.push_back( submitted.ExtractValue() );
         }
         if ( pending.Runs.empty() )
             return Control::Response::Failure( id, "nn-check ran no path: the device can run none of them" );
