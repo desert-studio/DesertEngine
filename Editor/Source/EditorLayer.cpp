@@ -86,6 +86,8 @@
 #include <Common/Core/KeyCodes.hpp>
 #include <Common/Core/Version.hpp>
 #include <Common/Settings/MachineSettings.hpp>
+#include <fstream>
+#include <iterator>
 #include <Engine/Graphic/QualityBoot.hpp>
 #include "Editor/Core/ImGuiUtilities.hpp"
 #include <ImGui/imgui_internal.h>
@@ -164,6 +166,13 @@ namespace Desert::Editor
 {
     namespace
     {
+        // The file's raw bytes ("" when absent) — compared, never parsed: the question is "did anything write it".
+        std::string ReadWholeFile( const std::filesystem::path& file )
+        {
+            std::ifstream in( file, std::ios::binary );
+            return std::string( std::istreambuf_iterator<char>( in ), std::istreambuf_iterator<char>() );
+        }
+
         // The scene-open loading line (LOAD-SHOW): the stage, the read a worker is on, the count and its bar,
         // centred over the editor's window. Drawn only from loader counters (ContentProgressLine), never from a
         // timer, so a frame where nothing moves is a frame where nothing landed.
@@ -221,8 +230,20 @@ namespace Desert::Editor
         // renderer initialises its own copy of these values from this store, so one built before the load
         // would hold the schema defaults and push two of them into global sampler state.
         // The device exists here (the layer attaches after it), so the quality starts in one step.
-        m_QualityStart = Graphic::QualityBoot::Start( std::filesystem::path( ProjectContext::ConfigDirectory() ) /
-                                                      "machine.json" );
+        // An unattended run (scenario / capture) changes quality for this process only: a scenario's
+        // "Quality: GlobalIllumination.Method Off" must not become the machine's ceiling for every later run.
+        const std::filesystem::path machineJson =
+             std::filesystem::path( ProjectContext::ConfigDirectory() ) / "machine.json";
+        const bool unattended = Editor::IsUnattendedSession( Editor::ShotOptions::Get(),
+                                                             Control::ControlChannelOptions::Get().Requested() );
+        if ( unattended )
+        {
+            m_UnattendedMachineJson  = machineJson;
+            m_UnattendedMachineBytes = ReadWholeFile( machineJson );
+        }
+        m_QualityStart = Graphic::QualityBoot::Start(
+             machineJson, unattended ? Graphic::QualityBoot::Persistence::ThisProcess
+                                     : Graphic::QualityBoot::Persistence::MachineFile );
 
         // Filled by the "Indexing animation clips" stage above, from the registry's clip rows.
         m_AnimationLibrary = std::make_unique<Animation::AnimationLibrary>( m_AssetManager.get() );
@@ -883,6 +904,17 @@ namespace Desert::Editor
         // A scene names its views' renderers by raw pointer and owns none of them, so every renderer dies
         // after the scene that names it (FIX6) — the order is SceneWorkspace::Teardown's.
         m_Workspace.Teardown();
+
+        // The unattended run's promise (QualityBoot::Persistence::ThisProcess), checked on the way out.
+        if ( !m_UnattendedMachineJson.empty() )
+        {
+            if ( ReadWholeFile( m_UnattendedMachineJson ) == m_UnattendedMachineBytes )
+                LOG_INFO( "[Machine] unattended run: {} is byte-identical to its state at start ({} bytes)",
+                          m_UnattendedMachineJson.string(), m_UnattendedMachineBytes.size() );
+            else
+                LOG_ERROR( "[Machine] unattended run CHANGED {} — a quality or machine setting leaked to disk",
+                           m_UnattendedMachineJson.string() );
+        }
 
         return BOOLSUCCESS;
     }
