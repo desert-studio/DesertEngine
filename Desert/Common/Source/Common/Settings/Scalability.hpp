@@ -292,6 +292,9 @@ namespace Common::Scalability
         // AntiFirefly"): a lobe's luminance above its 3 x 3 neighbourhood is handed to that neighbourhood before
         // the a-trous, by at most two deviations of its mean (energy-conserving; the converged image is untouched)
         PathTracingDenoiserAntiFirefly,
+        // What ends a path-traced path early: PathTracingRadianceCacheMethod (CapabilityCatalog.hpp) - Off, Nrc
+        // (the neural radiance cache, System::PathTracer + Graphic::NeuralRadianceCache).
+        PathTracingRadianceCache,
         // How the path tracer chooses the one light of each vertex (System::PathTracer::LightSampling): 0 = every
         // light by its estimate at the vertex (UE EstimateLight, O(lights) per vertex), 1 = the light grid (NVIDIA
         // RTXDI ReGIR: per-cell light reservoirs built each frame, a few resampled at the vertex). Both unbiased.

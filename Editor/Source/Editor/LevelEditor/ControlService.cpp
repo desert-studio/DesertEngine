@@ -1679,6 +1679,40 @@ namespace Desert::Editor
             }
         }
 
+        // The main view's neural radiance cache (System::PathTracer's read-back), absent = inactive.
+        if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
+        {
+            const auto status = renderer->GetRadianceCacheStatus();
+            const auto name   = []( const Common::Scalability::PathTracingRadianceCacheMethod method ) {
+                return std::string(
+                     Common::Scalability::kPathTracingRadianceCacheNames[static_cast<size_t>( method )] );
+            };
+            snapshot.Nrc.Requested = name( status.Requested );
+            snapshot.Nrc.Status    = name( status.Effective );
+            snapshot.Nrc.Reason    = status.Reason;
+            snapshot.Nrc.RetryOn   = status.RetryOn;
+            snapshot.Nrc.Rebuilds  = status.Rebuilds;
+            for ( const auto& stamp : status.ProgramGenerations )
+                snapshot.Nrc.ProgramGenerations.emplace_back( stamp.Program, stamp.Generation );
+            if ( const Engine::Neural::NrcStats* stats = renderer->GetRadianceCacheStats() )
+            {
+                Control::NrcSnapshot& nrc = snapshot.Nrc;
+                nrc.Active                = stats->Active;
+                nrc.KernelPath            = stats->KernelPath;
+                nrc.TrainingSteps         = stats->TrainingSteps;
+                nrc.TrainingSamples       = stats->TrainingSamples;
+                nrc.TrainingPaths         = stats->TrainingPaths;
+                nrc.SelfQueries           = stats->SelfQueries;
+                nrc.RenderQueries         = stats->RenderQueries;
+                nrc.QueryCapacity         = stats->QueryCapacity;
+                nrc.QueryMemoryBytes      = stats->QueryMemoryBytes;
+                nrc.TrainLoss             = stats->TrainLoss;
+                nrc.FirstTrainLoss        = stats->FirstTrainLoss;
+                nrc.LossHistory           = stats->LossHistory;
+                nrc.Error                 = stats->Error;
+            }
+        }
+
         snapshot.LogInfoCount    = LogsPanel::InfoCount();
         snapshot.LogWarningCount = LogsPanel::WarningCount();
         snapshot.LogErrorCount   = LogsPanel::ErrorCount();

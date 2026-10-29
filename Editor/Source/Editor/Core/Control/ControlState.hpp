@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Desert::Editor::Control
@@ -162,6 +163,34 @@ namespace Desert::Editor::Control
         std::vector<std::pair<std::string, std::string>> NnLastCheck;
     };
 
+    /// THE NEURAL RADIANCE CACHE OF THE MAIN VIEW (PathTracing.RadianceCache Nrc; Engine::Neural::NrcStats as
+    /// plain values, read back from the GPU a few frames late). A scenario judges the cache's training by
+    /// TrainLoss falling below FirstTrainLoss. Active false: no Nrc frame ran since the last reset (or never).
+    struct NrcSnapshot
+    {
+        bool               Active = false;
+        std::string        KernelPath;          ///< NeuralKernelPathName of the path the MLP runs
+        uint64_t           TrainingSteps   = 0; ///< Adam steps since the last reset
+        uint32_t           TrainingSamples = 0; ///< training samples of the last read-back frame
+        uint32_t           TrainingPaths   = 0;
+        uint32_t           SelfQueries     = 0;
+        uint32_t           RenderQueries   = 0; ///< paths of the image that asked to end in the cache (demand)
+        uint32_t           QueryCapacity   = 0; ///< render queries per path segment (live-sized)
+        uint64_t           QueryMemoryBytes = 0; ///< Queries buffer + one inference chunk's input and output
+        float              TrainLoss       = 0; ///< mean relative L2 of the last read-back frame's steps
+        float              FirstTrainLoss  = 0; ///< the first read-back after the last reset
+        std::vector<float> LossHistory;         ///< the last read-backs, oldest first
+        std::string        Error;               ///< the cache's last refusal, empty when none
+        std::string        Requested = "Off";   ///< PathTracing.RadianceCache as set (kPathTracingRadianceCacheNames)
+        std::string        Status    = "Off";   ///< what the paths ran: Off when the cache was not asked or refused
+        std::string        Reason;              ///< why the cache that was asked is Off (its standing refusal)
+        std::string        RetryOn; ///< what the held refusal waits for (PathTracer RadianceCacheStatus::RetryOn)
+        uint32_t           Rebuilds = 0; ///< running caches rebuilt on a changed kernel path / own program recompile
+        /// (program, ShaderService::ProgramGeneration) the running cache was built under - a held refusal: refused
+        /// under (PathTracer RadianceCacheStatus::ProgramGenerations); Rebuilds moves when one of these does.
+        std::vector<std::pair<std::string, uint64_t>> ProgramGenerations;
+    };
+
     /// The whole picture, gathered in one pass. Every list is in the order the editor itself shows it —
     /// the documents most-recently-used first, exactly as Ctrl+Tab walks them — so a client reading this
     /// and a person reading the screen are reading the same sequence.
@@ -213,6 +242,8 @@ namespace Desert::Editor::Control
 
         DeviceSnapshot Device;
 
+        NrcSnapshot Nrc;
+
         EditorQuiescence Quiescence;
     };
 
@@ -220,7 +251,7 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "quiescence",
+         "scene", "selection", "authoring", "documents", "panels", "views", "log", "device", "nrc", "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -488,6 +519,39 @@ namespace Desert::Editor::Control
             section["tlasUpdates"]    = count( device.TlasUpdates );
             section["tlasMovedRows"]  = count( device.TlasMovedRows );
             root["device"]  = Common::Json::Value( section );
+        }
+
+        if ( Wanted( sections, "nrc" ) )
+        {
+            const NrcSnapshot&         nrc = snapshot.Nrc;
+            Common::Json::Value::Array history;
+            for ( const float loss : nrc.LossHistory )
+                history.push_back( Num( loss ) );
+
+            Common::Json::Object section;
+            section["requested"]       = Str( nrc.Requested );
+            section["status"]          = Str( nrc.Status );
+            section["reason"]          = Str( nrc.Reason );
+            section["retryOn"]         = Str( nrc.RetryOn );
+            section["rebuilds"]        = Num( static_cast<double>( nrc.Rebuilds ) );
+            Common::Json::Object generations;
+            for ( const auto& [program, generation] : nrc.ProgramGenerations )
+                generations[program] = Num( static_cast<double>( generation ) );
+            section["programGenerations"] = Common::Json::Value( generations );
+            section["active"]          = Common::Json::Value( nrc.Active );
+            section["kernelPath"]      = Str( nrc.KernelPath );
+            section["trainingSteps"]   = Num( static_cast<double>( nrc.TrainingSteps ) );
+            section["trainingSamples"] = Num( nrc.TrainingSamples );
+            section["trainingPaths"]   = Num( nrc.TrainingPaths );
+            section["selfQueries"]     = Num( nrc.SelfQueries );
+            section["renderQueries"]   = Num( nrc.RenderQueries );
+            section["queryCapacity"]   = Num( nrc.QueryCapacity );
+            section["queryMemoryMB"]   = Num( static_cast<double>( nrc.QueryMemoryBytes ) / ( 1024.0 * 1024.0 ) );
+            section["trainLoss"]       = Num( nrc.TrainLoss );
+            section["firstTrainLoss"]  = Num( nrc.FirstTrainLoss );
+            section["lossHistory"]     = Common::Json::Value( history );
+            section["error"]           = Str( nrc.Error );
+            root["nrc"]                = Common::Json::Value( section );
         }
 
         if ( Wanted( sections, "quiescence" ) )

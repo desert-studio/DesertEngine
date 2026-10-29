@@ -337,6 +337,10 @@ namespace Common::Scalability
                "before "
                "the a-trous)",
                1, Vis::Advanced },
+             { P::PathTracingRadianceCache, G::PathTracing, "PathTracing.RadianceCache", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths cut early into the neural "
+               "radiance cache: Off or Nrc)",
+               Of( PathTracingRadianceCacheMethod::Off ), Vis::Advanced },
              { P::PathTracingLightSampling, G::PathTracing, "PathTracing.LightSampling", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the light choice at each vertex: "
                "every "
@@ -429,6 +433,8 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter == Parameter::PathTracingRadianceCache )
+                return kPathTracingRadianceCacheNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&

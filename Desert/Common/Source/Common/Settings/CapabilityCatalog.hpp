@@ -241,6 +241,20 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( PathTracingDenoiserMethod::Auto ) + 1 ==
                    kPathTracingDenoiserNames.size() );
 
+    // WHAT ENDS A PATH-TRACED PATH EARLY (Parameter::PathTracingRadianceCache). Stored by name. Off: every path
+    // runs to its last bounce. Nrc: the neural radiance cache (Graphic/Neural/NeuralRadianceCache.hpp, Muller et
+    // al. 2021) - a path is cut where its spread passes the threshold and the cache's prediction stands for the
+    // rest, trained every frame from a sparse set of longer training paths. Runs on every device (the MLP picks
+    // its kernel path by MachineSettings, the float path is everywhere), so no catalog list narrows it.
+    enum class PathTracingRadianceCacheMethod : int
+    {
+        Off = 0,
+        Nrc = 1,
+    };
+    inline constexpr std::array<std::string_view, 2> kPathTracingRadianceCacheNames{ "Off", "Nrc" };
+    static_assert( static_cast<std::size_t>( PathTracingRadianceCacheMethod::Nrc ) + 1 ==
+                   kPathTracingRadianceCacheNames.size() );
+
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
     // exists, so "the best this device offers" is front() and a fallback walks the list.

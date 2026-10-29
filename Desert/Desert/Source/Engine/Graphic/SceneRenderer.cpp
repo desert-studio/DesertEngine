@@ -1109,6 +1109,8 @@ namespace Desert::Graphic
                                 .Denoiser =
                   quality.As<Common::Scalability::PathTracingDenoiserMethod>( Parameter::PathTracingDenoiser ),
                                 .AntiFirefly   = quality.As<bool>( Parameter::PathTracingDenoiserAntiFirefly ),
+                                .RadianceCache = quality.As<Common::Scalability::PathTracingRadianceCacheMethod>(
+                  Parameter::PathTracingRadianceCache ),
                                 .LightSampling = static_cast<System::PathTracer::LightSamplingMethod>(
                   quality.As<uint32_t>( Parameter::PathTracingLightSampling ) ) };
         m_SunSourceAngleDegrees = shadows.SourceAngleDegrees;
@@ -3425,6 +3427,22 @@ namespace Desert::Graphic
         if ( found == m_RenderSystems.end() )
             return 0;
         return static_cast<const System::MeshRenderer*>( found->second.get() )->GetIsmInstancesDrawn();
+    }
+
+    const Engine::Neural::NrcStats* SceneRenderer::GetRadianceCacheStats() const
+    {
+        const auto found = m_RenderSystems.find( "PathTracerSystem" );
+        if ( found == m_RenderSystems.end() )
+            return nullptr;
+        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStats();
+    }
+
+    System::PathTracer::RadianceCacheStatus SceneRenderer::GetRadianceCacheStatus() const
+    {
+        const auto found = m_RenderSystems.find( "PathTracerSystem" );
+        if ( found == m_RenderSystems.end() )
+            return {};
+        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
     }
 
     uint32_t SceneRenderer::GetStandInDraws() const
