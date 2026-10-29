@@ -97,7 +97,10 @@ namespace Desert::Graphic::QualityBoot
                                                        std::move( initial ), &SaveSelection );
         const bool thisProcess = persistence == Persistence::ThisProcess;
         if ( thisProcess )
+        {
             Common::Scalability::QualityState::KeepInSession( "unattended run" );
+            MachineSettings::KeepInSession( "unattended run" );
+        }
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
         // Quality.Levels was read from the former positional list or missed a group of this build: the file is
         // rewritten by group name, with the level each group actually starts on (no legacy form kept on disk).
