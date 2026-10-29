@@ -373,7 +373,10 @@ namespace Desert::Engine::Neural
         run->m_Path    = path;
         run->m_Problem = MakeSeededFusedMlpProblem( kFusedMlpCheckShape, kFusedMlpCheckBatch, kFusedMlpCheckSeed );
         if ( path == NeuralKernelPath::CoopMatFp16 )
-            run->m_Tile = FormatCooperativeMatrixShape( caps.Tile );
+        {
+            run->m_Tile           = FormatCooperativeMatrixShape( caps.Tile );
+            run->m_AccumulateFp16 = caps.Tile.C == NeuralScalar::Float16; // the kernel's NN_ACC_FP16
+        }
         const FusedMlpProblem& problem = run->m_Problem;
 
         RDG::Builder graph( "NeuralFusedMlpCheck" );
@@ -466,11 +469,10 @@ namespace Desert::Engine::Neural
         gpu.Activations = FromStored( activations.GetValue(), m_Path );
 
         // The fp16 networks hold fp16 weights and inputs: their reference is the exact MLP of those values. Its
-        // backward runs through the kernel's own stored ReLU masks: an fp16-stored h_l that rounds a near-zero
-        // pre-activation across 0 flips the mask and moves that unit's gradient by O(1) (19 flips put the fp16
-        // weight gradient at rel 3e-2, all of it from the flips; against the kernel's masks it is 5e-4). The
-        // gradient check measures the backward arithmetic; the flips are a forward rounding, reported apart.
-        const std::optional<FusedMlpResult> reference = RunFusedMlpReferenceWithMask(
+        // backward and weight gradient run on the kernel's own stored h_l (masks and values): those two kernels
+        // are measured on the inputs they were given, the forward by Output, and the ReLU flips the fp16 forward
+        // makes are counted apart (RunFusedMlpReferenceOnActivations says why the reference's own h_l cannot be).
+        const std::optional<FusedMlpResult> reference = RunFusedMlpReferenceOnActivations(
              m_Path == NeuralKernelPath::Fp32 ? problem : QuantizedToFp16( problem ), gpu.Activations );
         if ( !reference )
             return Common::MakeFormattedError<FusedMlpPathCheck>(
@@ -485,7 +487,7 @@ namespace Desert::Engine::Neural
         check.MaskFlips =
              CountReluMaskFlips( gpu.Activations, reference->Activations, problem.Shape, problem.Batch );
         check.Tolerance         = FusedMlpTolerance( m_Path );
-        check.GradientTolerance = FusedMlpGradientTolerance( m_Path, problem.Batch );
+        check.GradientTolerance = FusedMlpGradientTolerance( m_Path, m_AccumulateFp16, problem.Shape, problem.Batch );
         check.Pass = check.Output.Rel <= check.Tolerance && check.WeightGrad.Rel <= check.GradientTolerance;
         return Common::MakeSuccess( std::move( check ) );
     }

@@ -129,10 +129,10 @@ namespace Desert::Engine::Neural
         NeuralKernelPath Path = NeuralKernelPath::Fp32;
         std::string      Tile;              ///< FormatCooperativeMatrixShape for coopmat_fp16, empty otherwise
         FusedMlpError    Output;            ///< the network outputs
-        FusedMlpError    WeightGrad;        ///< dL/dW of every matrix
+        FusedMlpError    WeightGrad;        ///< dL/dW of every matrix, Worst = the element that set Rel
         uint64_t         MaskFlips = 0;     ///< hidden units whose ReLU mask differs from the reference's
         double           Tolerance         = 0;     ///< FusedMlpTolerance( Path ), for Output
-        double           GradientTolerance = 0;     ///< FusedMlpGradientTolerance( Path, Batch ), for WeightGrad
+        double           GradientTolerance = 0;     ///< FusedMlpGradientTolerance (derived), for WeightGrad
         bool             Pass              = false; ///< each relative error within its tolerance
     };
 
@@ -167,6 +167,7 @@ namespace Desert::Engine::Neural
 
         NeuralKernelPath             m_Path = NeuralKernelPath::Fp32;
         std::string                  m_Tile;
+        bool                         m_AccumulateFp16 = false; ///< coopmat_fp16 on a tile with an fp16 C
         FusedMlpProblem              m_Problem;
         uint64_t                     m_SubmittedFrame = 0;
         Graphic::RDG::ExternalBuffer m_Output;

@@ -60,7 +60,9 @@ namespace Desert::Engine::Neural
     {
         std::vector<float> Output;      ///< Batch * 64
         std::vector<float> WeightGrad;  ///< MatrixCount * 64 * 64
-        std::vector<float> WeightGradMagnitude; ///< MatrixCount * 64 * 64: sum over the batch of |g| * |h|
+        /// MatrixCount * 64 * 64: sum over the batch of m * |h|, m the gradient's propagated magnitude
+        /// (m_last = |dL/dy|, m_{l-1} = [h_l > 0] |W_l|^T m_l), what every rounding of g and of the sum is a part of
+        std::vector<float> WeightGradMagnitude;
         std::vector<float> Activations; ///< MatrixCount * Batch * 64: h_l, the input of matrix l (h_0 = input)
     };
 
@@ -86,14 +88,18 @@ namespace Desert::Engine::Neural
     // define (sums accumulate in double so the reference is not the thing being measured).
     [[nodiscard]] FusedMlpResult RunFusedMlpReference( const FusedMlpProblem& problem );
 
-    // The same reference with the backward's ReLU mask taken from `maskActivations` (MatrixCount * Batch * 64,
-    // the layout of FusedMlpResult::Activations): [h_l > 0] of the KERNEL's stored activations. A unit whose
-    // pre-activation sits within fp16 rounding of zero flips its mask, which moves the gradient through it by
-    // O(1); that is a rounding of the forward, not an error of the backward arithmetic, so the gradient check
-    // runs against the kernel's own masks and reports the flips separately (CountReluMaskFlips). Output and
-    // Activations stay the reference's own forward. nullopt when the mask tensor is not that size.
+    // The same reference with the backward run on `kernelActivations` (MatrixCount * Batch * 64, the layout of
+    // FusedMlpResult::Activations), the KERNEL's stored h_l: both the ReLU masks [h_l > 0] and the h_l of every
+    // dW_l = sum g_l (x) h_l. The backward and weight-gradient kernels are measured on the inputs they were
+    // given. The fp16 forward's h_l carries an absolute error of a few fp16 ulps of sum |W| |h| (the forward
+    // pre-activation's terms), which a near-zero unit turns into an O(1) relative one or a flipped mask; a
+    // column k active in a handful of batch rows then has a weight gradient of a few terms, all of them
+    // carrying that forward error, which the reference's own h_l would charge to the backward (the 3.4e-2 of
+    // run 10-29 with masks alone). The forward is checked by Output and the flips are counted apart
+    // (CountReluMaskFlips); Output and Activations stay the reference's own forward. nullopt when the tensor is
+    // not that size.
     [[nodiscard]] std::optional<FusedMlpResult>
-    RunFusedMlpReferenceWithMask( const FusedMlpProblem& problem, const std::vector<float>& maskActivations );
+    RunFusedMlpReferenceOnActivations( const FusedMlpProblem& problem, const std::vector<float>& kernelActivations );
 
     // max |gpu - ref| and that divided by max |ref| (the error relative to the tensor's scale: an element-wise
     // ratio is meaningless where a ReLU zeroes the reference).
@@ -102,19 +108,36 @@ namespace Desert::Engine::Neural
         double MaxAbs = 0.0;
         double MaxRef = 0.0;
         double Rel    = 0.0;
+
+        // CompareFusedMlpSum: the element that set Rel, matrix l, dW_l[Row][Column] (the next run names it).
+        struct Element
+        {
+            bool     Valid     = false;
+            uint32_t Matrix    = 0;
+            uint32_t Row       = 0;
+            uint32_t Column    = 0;
+            double   Gpu       = 0.0;
+            double   Reference = 0.0;
+            double   Magnitude = 0.0;
+        } Worst;
     };
 
     [[nodiscard]] FusedMlpError CompareFusedMlp( const std::vector<float>& gpu,
                                                  const std::vector<float>& reference );
     // A SUM IS MEASURED AGAINST ITS TERMS, NOT ITS RESULT: a weight gradient is a sum over the batch whose
     // signed terms cancel, so its rounding is bounded by the sum of the terms' magnitudes (Higham: |error| <=
-    // gamma_n * sum |g| |h|), not by |sum|. Rel is the largest |gpu - reference| / magnitude over the elements.
+    // gamma_n * sum |g| |h|), not by |sum|. Rel is the largest |gpu - reference| / magnitude over the elements;
+    // the reference's WeightGradMagnitude also carries the rounding the backward put into g (see there).
     [[nodiscard]] FusedMlpError CompareFusedMlpSum( const std::vector<float>& gpu, const std::vector<float>& reference,
                                                     const std::vector<float>& magnitude );
 
     // The relative tolerance a path's outputs are held to: 1e-2 for the fp16 paths, 1e-5 for fp32.
     [[nodiscard]] double FusedMlpTolerance( NeuralKernelPath path );
-    // The weight gradient is a sum over the batch, whose fp32 rounding grows with its length (Higham's
-    // gamma_n = n * 2^-24): the output tolerance, widened to that bound for a batch of `batch` rows.
-    [[nodiscard]] double FusedMlpGradientTolerance( NeuralKernelPath path, uint32_t batch );
+    // THE WEIGHT GRADIENT'S BOUND, derived, relative to WeightGradMagnitude: every backward layer rounds the
+    // products, a 64-long sum and the store of g; the weight gradient rounds the product g h and a batch-long sum.
+    // One ulp per rounding of the format it rounds to (products and stores: fp16 on the fp16 paths; sums: the
+    // accumulator, fp16 when `accumulateFp16` = the coopmat tile accumulates in fp16). The 5-hidden-layer,
+    // batch-1024 check: fp16 1.09e-2, fp32 1.6e-4; with an fp16 accumulator the batch sum alone is 1.0.
+    [[nodiscard]] double FusedMlpGradientTolerance( NeuralKernelPath path, bool accumulateFp16,
+                                                    const FusedMlpShape& shape, uint32_t batch );
 } // namespace Desert::Engine::Neural

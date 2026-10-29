@@ -808,6 +808,17 @@ namespace Desert::Editor
                 object["maxAbs"] = Control::StateDetail::Num( error.MaxAbs );
                 object["maxRef"] = Control::StateDetail::Num( error.MaxRef );
                 object["rel"]    = Control::StateDetail::Num( error.Rel );
+                if ( error.Worst.Valid )
+                {
+                    Common::Json::Object worst;
+                    worst["matrix"]    = Control::StateDetail::Num( error.Worst.Matrix );
+                    worst["j"]         = Control::StateDetail::Num( error.Worst.Row );
+                    worst["k"]         = Control::StateDetail::Num( error.Worst.Column );
+                    worst["gpu"]       = Control::StateDetail::Num( error.Worst.Gpu );
+                    worst["ref"]       = Control::StateDetail::Num( error.Worst.Reference );
+                    worst["magnitude"] = Control::StateDetail::Num( error.Worst.Magnitude );
+                    object["worst"]    = Common::Json::Value( worst );
+                }
                 return Common::Json::Value( object );
             };
             Common::Json::Object run;
@@ -823,17 +834,21 @@ namespace Desert::Editor
 
             const char* tileLabel = check.Tile.empty() ? "" : " tile=";
             const char* verdict   = check.Pass ? "PASS" : "FAIL";
+            const Neural::FusedMlpError::Element& worst = check.WeightGrad.Worst;
+            const std::string worstText = std::format( "worst dW[{}][{}][{}] gpu={:.6e} ref={:.6e} magnitude={:.6e}",
+                                                       worst.Matrix, worst.Row, worst.Column, worst.Gpu,
+                                                       worst.Reference, worst.Magnitude );
             const std::string line = std::format(
-                 "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} | maskFlips={} | "
-                 "tolerance={:.0e} gradientTolerance={:.1e} {}",
+                 "path={}{}{} output abs={:.3e} rel={:.3e} | weightGrad abs={:.3e} rel={:.3e} {} | maskFlips={} | "
+                 "tolerance={:.0e} gradientTolerance={:.2e} {}",
                  name, tileLabel, check.Tile, check.Output.MaxAbs, check.Output.Rel, check.WeightGrad.MaxAbs,
-                 check.WeightGrad.Rel, check.MaskFlips, check.Tolerance, check.GradientTolerance, verdict );
+                 check.WeightGrad.Rel, worstText, check.MaskFlips, check.Tolerance, check.GradientTolerance, verdict );
             LOG_INFO( "[nn_check6] {}", line );
             appendSummary( line );
             verdicts.emplace_back( name, check.Pass ? std::string( "pass" )
-                                                    : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} "
-                                                                   "maskFlips={} tolerance={:.0e} gradientTolerance={:.1e}",
-                                                                   check.Output.Rel, check.WeightGrad.Rel,
+                                                    : std::format( "fail: output rel={:.3e} weightGrad rel={:.3e} ({}) "
+                                                                   "maskFlips={} tolerance={:.0e} gradientTolerance={:.2e}",
+                                                                   check.Output.Rel, check.WeightGrad.Rel, worstText,
                                                                    check.MaskFlips, check.Tolerance,
                                                                    check.GradientTolerance ) );
         }
