@@ -1,8 +1,15 @@
-# FIELD-MEM: FIELD_Barn opens under the editor's memory limit (was killed at 6189 MB > 6144: GrassInstances x8 932 MB
-# sized by density x area, and the geometry pool's resize-and-copy peak). Proof: the frame, and editor.log's
-# [Memory] census peak < 5000 MB with the GrassInstances / Pooled* rows.
+# FIELD-MEM p2: the geometry pool is sized for the scene at open and gives empty pages back at a scene change.
+# Proof: editor.log - at each open ONE "[GeometryPool] RT_Reserve ... = sum of meshes + 1/8" line and no
+# "[GeometryPool] page +load" line; after leaving FIELD_Barn "[GeometryPool] released N empty page(s)";
+# 0 [error], 0 VUID; the field frame as in p1.
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,900,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
-Тогда 1_first the scene opened: the field is drawn (grass to the far edge), the editor alive; log census peak < 5000 MB
+Тогда 1_barn the scene opened: the field is drawn (grass to the far edge), the editor alive
+Когда run Scene "Open Scene Starter.desce"
+Тогда 2_starter the second scene opened and draws; FIELD_Barn's pool pages released in the log
+Когда run Scene "Open Scene FIELD_Barn.desce"
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда 3_barn_again FIELD_Barn again: the field as in 1_barn, one RT_Reserve line for this open, no page +load

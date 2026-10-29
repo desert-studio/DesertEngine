@@ -14,8 +14,13 @@
 #include <Engine/ECS/Components.hpp>
 
 #include <Engine/Core/Scene.hpp>
+#include <Engine/Geometry/MeshLOD.hpp>
+#include <Engine/Graphic/GeometryPool.hpp>
 
 #include <algorithm>
+#include <array>
+#include <format>
+#include <string>
 #include <vector>
 
 namespace Desert::Runtime
@@ -179,6 +184,50 @@ namespace Desert::Runtime
                 Assets::AsyncAssetLoader::Get().AwaitOne( read );
             return awaited.size();
         }
+
+        // THE POOL IS SIZED FOR THE CLOSURE BEFORE ITS FIRST MESH IS BUILT (FIELD-MEM): one reservation of the
+        // geometry the read-but-unbuilt meshes will upload (vertices per arena, indices with the static LOD chain:
+        // baked levels as cooked, generated ones at their targets), so the builds that follow add no page.
+        // Meshes already built (shared with the scene before) upload nothing and are not counted.
+        void ReserveClosureGeometry( const MeshService&                                      meshes,
+                                     const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
+        {
+            std::array<uint64_t, Graphic::kGeometryArenaCount> vertices{};
+            uint64_t                                            indices = 0;
+            std::vector<Assets::AssetHandle>                    seen    = meshes.BuiltHandles();
+            std::size_t                                         counted = 0;
+            for ( const auto& row : closure )
+            {
+                if ( !IsMeshKind( row.Kind ) || std::find( seen.begin(), seen.end(), row.Handle ) != seen.end() )
+                    continue;
+                seen.push_back( row.Handle );
+                const Assets::MeshAsset* asset = meshes.GetAsset( row.Handle );
+                if ( asset == nullptr )
+                    continue; // its read failed: the build refuses it by name, nothing is uploaded
+                const bool skinned = asset->IsSkinned();
+                auto&      arena   = vertices[static_cast<std::size_t>(
+                     skinned ? Graphic::GeometryArena::Skinned : Graphic::GeometryArena::Static )];
+                for ( const Submesh& submesh : asset->GetSubmeshes() )
+                {
+                    arena += submesh.VertexCount;
+                    indices += submesh.IndexCount;
+                    if ( skinned )
+                        continue; // a skinned mesh uploads no LOD chain (SkinnedMesh.cpp)
+                    if ( submesh.BakedLODs.empty() )
+                        indices += Geometry::AutoLODIndexTarget( submesh.IndexCount );
+                    else
+                        for ( const auto& level : submesh.BakedLODs )
+                            indices += level.size() * 3;
+                }
+                ++counted;
+            }
+            if ( counted == 0 )
+                return;
+            const std::string what = std::format( "{} mesh(es)", counted );
+            if ( const auto reserved = Graphic::GeometryPool::Get().RT_Reserve( what, vertices, indices );
+                 !reserved.IsSuccess() )
+                LOG_ERROR( "[GeometryPool] RT_Reserve for {} refused: {}", what, reserved.GetError() );
+        }
     } // namespace
 
     ClosureResidency AwaitClosure( const std::vector<Assets::ContentRegistry::ClosureRow>& closure )
@@ -220,6 +269,8 @@ namespace Desert::Runtime
             }
         }
         outcome.Rows = all.size();
+        if ( meshes != nullptr )
+            ReserveClosureGeometry( *meshes, all );
 
         // A rig arrives with its mesh, so the skinned ones may have become buildable only now.
         if ( meshes != nullptr )
