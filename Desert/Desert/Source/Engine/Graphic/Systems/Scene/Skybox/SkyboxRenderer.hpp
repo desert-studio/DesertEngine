@@ -208,6 +208,32 @@ namespace Desert::Graphic::System
             return SkyLightState::NoSky;
         }
 
+        /// Whether the scene's sky light is being, or is about to be, captured again for a sun TOWARD @p sunDir:
+        /// a capture in flight, or Auto Rebake on and @p sunDir past the rebake threshold from the sun the
+        /// environment was captured under (ShouldRebakeSkyEnvironment's sun test, without the debounce: a sun
+        /// that keeps moving is captured anyway within kSkyRebakeMaxDeferSeconds). Asked BEFORE this frame's
+        /// EnsureProceduralEnvironment has seen @p sunDir, by what is lit by sun AND sky together (the reflection
+        /// captures): it waits for the sky that will be captured for this sun instead of rendering the new sun
+        /// under the old sky. False without a procedural sky, a lent one, no environment yet, Auto Rebake off,
+        /// or a physical sky whose LUTs failed -- the sky will not follow the sun then.
+        [[nodiscard]] bool SkyLightRecapturesFor( const glm::vec3& sunDir ) const
+        {
+            if ( !m_UseProceduralSky || m_BorrowsEnvironment )
+                return false;
+            const std::shared_ptr<SceneSkyLight> skyLight = m_SceneSkyLight.lock();
+            if ( !skyLight || !skyLight->HasEnvironment() )
+                return false;
+            if ( skyLight->IsCapturing() )
+                return true;
+            if ( !m_Sky.AutoRebakeEnvironment )
+                return false;
+            if ( m_Sky.Model == ECS::SkyModel::PhysicalAtmosphere &&
+                 ( !m_TransmittanceLutPipeline || !m_MultiScatterLutPipeline || m_LutResourcesFailed ) )
+                return false;
+            return ShouldRebakeSkyEnvironment( skyLight->GetCaptured().SunDir, sunDir,
+                                               m_Sky.RebakeSunAngleThreshold, true, true, false, 0, 0, 0, 0 );
+        }
+
         // The sky draw, the first pass of SceneRenderer::AddFrameBasePass: it CLEARS the scene target (colour and
         // depth) and the geometry after it loads. Empty (no TargetFramebuffer) without a target.
         [[nodiscard]] SystemRasterPass SkyPass();

@@ -202,10 +202,14 @@ namespace Desert::Graphic
         /// never interleave (Core::Scene's view loop). @p record replays the scene's recorded draws into a face
         /// renderer. @p environment is the scene's sky light as the reading view holds it: lent to the face view
         /// (it lights the face), and a new bake recaptures everything.
+        /// @p skyRecapturesForSun: the sky light is being, or will be, captured again for this frame's sun
+        /// (SceneRenderer::SkyLightRecapturesFor). The sun alone then relights nothing: the new bake does, so
+        /// one round renders the new sun under the sky captured for it. Without a sky that follows the sun
+        /// (none, Auto Rebake off, an HDR cube) the sun's own threshold relights.
         void RenderCaptureViews( const Core::Scene& scene, const std::function<void( SceneRenderer& )>& record,
                                  Common::Timestep timestep, Common::Timestep realTimestep,
                                  const ShaderProtocols::DirectionLight& dirLights,
-                                 const std::optional<Environment>&      environment );
+                                 const std::optional<Environment>& environment, bool skyRecapturesForSun );
 
         /// In a view's graph, before any lit node: the scene's array and capture list published to @p textures
         /// (SceneViewInputs). @p readsCaptures false (ViewProfile::ReflectionCaptures), or the programs did not
@@ -295,6 +299,10 @@ namespace Desert::Graphic
         // The lighting the captures were last triggered under: the exact part (the sky bake, the local lights)
         // and the suns, compared by ReflectionCaptureSunChanged.
         uint64_t                                            m_LightingSignature = 0;
+        // Its two parts, kept apart so a relight names which one moved: the sky bake's EnvironmentIdentity and
+        // the visible point and spot lights (LightingSignature with no sky).
+        uint64_t                                            m_LightingEnvironment  = 0;
+        uint64_t                                            m_LocalLightsSignature = 0;
         std::vector<ShaderProtocols::DirectionLightPayload> m_ReferenceSuns;
         uint32_t                                            m_LastCaptured = 0; // the round-robin's last capture
 
@@ -308,6 +316,7 @@ namespace Desert::Graphic
         static constexpr uint32_t       kNoCapture = 0xFFFFFFFFu;
         uint32_t                        m_Pending  = kNoCapture;
         ShaderProtocols::DirectionLight m_PendingSuns;
+        bool m_SunHeldForSky = false; // a sun change waits for the sky captured for it (said once)
         bool                            m_PendingRelit = false; // relit while rendered: still stale once written
         std::array<uint32_t, 6>         m_FaceRenders{};
         std::array<uint32_t, 6>         m_FaceHeld{};

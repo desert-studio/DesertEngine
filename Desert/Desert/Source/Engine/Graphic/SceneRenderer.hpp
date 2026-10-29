@@ -553,6 +553,10 @@ namespace Desert::Graphic
         // the frame graph from the view's first frame. What tells a defined black ambient (no sky) from a fault.
         [[nodiscard]] SkyLightState GetSkyLightState() const;
 
+        // Whether the scene's sky light is being, or will be, captured again for a sun TOWARD @p sunDir
+        // (SkyboxRenderer::SkyLightRecapturesFor); false without a sky system.
+        [[nodiscard]] bool SkyLightRecapturesFor( const glm::vec3& sunDir ) const;
+
         // Whether this view draws a cloud layer: a picture that reprojects a history and converges over frames (a
         // reflection capture's face waits for it: ReflectionCaptureRenderer).
         [[nodiscard]] bool DrawsVolumetricClouds() const;

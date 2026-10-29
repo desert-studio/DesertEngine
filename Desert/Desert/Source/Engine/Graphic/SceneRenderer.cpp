@@ -3408,6 +3408,16 @@ namespace Desert::Graphic
         return sky ? sky->GetSkyLightState() : SkyLightState::NoSky;
     }
 
+    bool SceneRenderer::SkyLightRecapturesFor( const glm::vec3& sunDir ) const
+    {
+        const auto it = m_RenderSystems.find( "SkyboxSystem" );
+        if ( it == m_RenderSystems.end() )
+            return false;
+
+        const auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, it->second );
+        return sky && sky->SkyLightRecapturesFor( sunDir );
+    }
+
     float SceneRenderer::CloudVolumeBakeProgress() const
     {
         const auto it = m_RenderSystems.find( "VolumetricCloudSystem" );
