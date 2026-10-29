@@ -477,7 +477,7 @@ namespace Desert::Editor::Tools
                 if ( ECS::IsLocked( reg, e.GetHandle() ) )
                     continue;
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
-                m_DragSnapshots.push_back( { id, tc.Translation, tc.Rotation, tc.Scale } );
+                m_DragSnapshots.push_back( { id, tc.GetTranslation(), tc.GetRotation(), tc.GetScale() } );
             }
         }
 

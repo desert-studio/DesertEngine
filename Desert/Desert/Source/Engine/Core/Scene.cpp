@@ -631,6 +631,14 @@ namespace Desert::Core
         // snapshots them. The service logged a refusal once; the instance then holds none.
         (void)SyncWorldParameters();
 
+        // THE RENDER-STATE FRAME BOUNDARY: what the previous frame (its systems, its editor edits, its views)
+        // dirtied is latched for scene.renderDirty and the next frame starts from an empty set.
+        {
+            std::lock_guard lock( m_RenderStateDirtyMutex );
+            m_RenderStateDirtyLastFrame = m_RenderStateDirty.size();
+            m_RenderStateDirty.clear();
+        }
+
         // A pinned camera is driven from OUTSIDE the scene (the Details preview orbits its own), so the
         // play-state rule must not hand the view back to the EditorCamera behind its back — that is a
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
@@ -1318,6 +1326,67 @@ namespace Desert::Core
         // across registry.clear(), so re-connecting without this accumulates duplicate handler invocations.
         m_Registry.on_construct<ECS::CameraComponent>().disconnect( this );
         m_Registry.on_construct<ECS::CameraComponent>().connect<&Scene::OnEntityCreated_Camera>( this );
+
+        // The render-state dirty set (MarkRenderStateDirty), fed at the source.
+        m_Registry.on_construct<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_update<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_destroy<ECS::TransformComponent>().disconnect( this );
+        m_Registry.on_construct<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        m_Registry.on_update<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        m_Registry.on_destroy<ECS::TransformComponent>().connect<&Scene::OnTransformRenderStateChanged>( this );
+        const auto connect = [this]<typename Component>()
+        {
+            m_Registry.on_construct<Component>().disconnect( this );
+            m_Registry.on_update<Component>().disconnect( this );
+            m_Registry.on_destroy<Component>().disconnect( this );
+            m_Registry.on_construct<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+            m_Registry.on_update<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+            m_Registry.on_destroy<Component>().template connect<&Scene::OnRenderStateChanged>( this );
+        };
+        connect.template operator()<ECS::StaticMeshComponent>();
+        connect.template operator()<ECS::SkinnedMeshComponent>();
+        connect.template operator()<ECS::InstancedStaticMeshComponent>();
+        connect.template operator()<ECS::MaterialComponent>();
+        connect.template operator()<ECS::VisibilityComponent>();
+        {
+            std::lock_guard lock( m_RenderStateDirtyMutex );
+            m_RenderStateDirty.clear();
+            m_RenderStateDirtyLastFrame = 0;
+        }
+    }
+
+    void Scene::OnTransformRenderStateChanged( entt::registry&, entt::entity entity )
+    {
+        MarkRenderStateDirty( entity, true );
+    }
+
+    void Scene::OnRenderStateChanged( entt::registry&, entt::entity entity )
+    {
+        MarkRenderStateDirty( entity, false );
+    }
+
+    void Scene::MarkRenderStateDirty( entt::entity entity, bool subtree )
+    {
+        std::lock_guard lock( m_RenderStateDirtyMutex );
+        if ( !subtree )
+        {
+            m_RenderStateDirty.insert( entity );
+            return;
+        }
+        // Iterative, so a deep hierarchy cannot overflow the stack. An entity already in the set had its
+        // subtree dirtied when it entered — unless it entered alone (a mesh / material / visibility change),
+        // so the walk goes on below every entity regardless.
+        std::vector<entt::entity> pending{ entity };
+        while ( !pending.empty() )
+        {
+            const entt::entity current = pending.back();
+            pending.pop_back();
+            m_RenderStateDirty.insert( current );
+            if ( !m_Registry.valid( current ) )
+                continue;
+            if ( const auto* relation = m_Registry.try_get<ECS::RelationshipComponent>( current ) )
+                pending.insert( pending.end(), relation->Children.begin(), relation->Children.end() );
+        }
     }
 
     void Scene::Attach( ECS::Entity parent, ECS::Entity child )
@@ -1346,6 +1415,8 @@ namespace Desert::Core
 
         childRel.Parent = parent.GetHandle();
         parentRel.Children.push_back( child.GetHandle() );
+        // A new parent is a new world transform for the child and everything under it.
+        MarkRenderStateDirty( child.GetHandle(), true );
     }
 
     void Scene::ArrangeRoots( const std::vector<ECS::Entity>& roots )
@@ -1373,6 +1444,7 @@ namespace Desert::Core
                             siblings.end() );
         }
         childRel.Parent = entt::null;
+        MarkRenderStateDirty( child.GetHandle(), true );
     }
 
     void Scene::SetVisibleRecursive( ECS::Entity entity, bool visible )

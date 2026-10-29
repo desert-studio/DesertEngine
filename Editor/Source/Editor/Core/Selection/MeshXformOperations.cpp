@@ -68,7 +68,7 @@ namespace Desert::Editor::Core
                                                             static_cast<uint64_t>( id ), target.GetError() );
                 const auto& tc = e.GetComponent<ECS::TransformComponent>();
                 out.push_back( { id, e, target.GetValue().Mesh,
-                                 Geometry::Trs{ tc.Translation, tc.Rotation, tc.Scale },
+                                 Geometry::Trs{ tc.GetTranslation(), tc.GetRotation(), tc.GetScale() },
                                  e.HasComponent<ECS::TagComponent>() ? e.GetComponent<ECS::TagComponent>().Tag
                                                                      : std::string( "Mesh" ) } );
             }

@@ -71,7 +71,7 @@ TEST( LevelSequenceKeys, AutoKeyedGizmoReleaseIsOneUndoStep )
     T::Sequence               sequence = AuthoredDoor();
     const auto                door     = sequence.Bindings.front().Guid;
     World                     world;
-    auto&                     moved = world.registry.get<ECS::TransformComponent>( world.door ).Translation;
+    auto&                     moved = world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation();
     ECS::LevelSequenceAutoKey autoKey;
     const A::FrameNumber      at{ 40 };
 

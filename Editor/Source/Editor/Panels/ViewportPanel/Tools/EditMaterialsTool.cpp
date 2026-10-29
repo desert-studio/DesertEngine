@@ -314,8 +314,8 @@ namespace Desert::Editor::Tools
         // The component goes back to the "before" first, so the one recorded step holds before and after.
         Restore( scene );
         const auto&                     tc = ref->get().GetComponent<ECS::TransformComponent>();
-        const Commands::XformEntityState after{ m_Session->Entity, m_Session->Preview, tc.Translation,
-                                                tc.Rotation,       tc.Scale,           m_Session->Slots,
+        const Commands::XformEntityState after{ m_Session->Entity, m_Session->Preview, tc.GetTranslation(),
+                                                tc.GetRotation(),       tc.GetScale(),           m_Session->Slots,
                                                 std::nullopt };
         if ( auto done = Commands::ApplyXformEdit( "Modeling: Edit Materials", { after }, {}, {} ); !done.IsSuccess() )
         {

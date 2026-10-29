@@ -157,9 +157,10 @@ namespace Desert::Editor
                         const glm::vec3 eye   = glm::vec3( world[3] );
                         const glm::vec3 fwd   = -glm::normalize( glm::vec3( world[2] ) );
 
-                        auto& tf       = e.GetComponent<ECS::TransformComponent>();
-                        tf.Translation = eye + fwd * 4.0f;
-                        tf.Rotation    = glm::eulerAngles( glm::quatLookAt( fwd, glm::vec3( 0.0f, 1.0f, 0.0f ) ) );
+                        ECS::LocalTransform tf = e.GetComponent<ECS::TransformComponent>().GetLocal();
+                        tf.Translation         = eye + fwd * 4.0f;
+                        tf.Rotation = glm::eulerAngles( glm::quatLookAt( fwd, glm::vec3( 0.0f, 1.0f, 0.0f ) ) );
+                        e.SetLocalTransform( tf );
                     }
                     Track( e );
                     break;

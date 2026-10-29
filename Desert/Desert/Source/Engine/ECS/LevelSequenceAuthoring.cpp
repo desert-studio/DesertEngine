@@ -35,9 +35,9 @@ namespace Desert::ECS
     Animation::BoneTransform EntityPose( const TransformComponent& transform )
     {
         Animation::BoneTransform pose;
-        pose.Translation = transform.Translation;
-        pose.Rotation    = glm::quat( transform.Rotation );
-        pose.Scale       = transform.Scale;
+        pose.Translation = transform.GetTranslation();
+        pose.Rotation    = glm::quat( transform.GetRotation() );
+        pose.Scale       = transform.GetScale();
         return pose;
     }
 

@@ -418,12 +418,14 @@ namespace Desert::ECS
                 return;
             }
 
-            auto* transform = registry.try_get<ECS::TransformComponent>( entity );
+            const auto* transform = registry.try_get<ECS::TransformComponent>( entity );
             if ( transform == nullptr )
                 return;
-            const glm::quat rotation( transform->Rotation );
-            transform->Translation += rotation * ( transform->Scale * delta.Translation );
-            transform->Rotation = glm::eulerAngles( glm::normalize( rotation * delta.Rotation ) );
+            const glm::quat     rotation( transform->GetRotation() );
+            ECS::LocalTransform moved = transform->GetLocal();
+            moved.Translation += rotation * ( transform->GetScale() * delta.Translation );
+            moved.Rotation = glm::eulerAngles( glm::normalize( rotation * delta.Rotation ) );
+            ECS::SetLocalTransform( registry, entity, moved );
         }
 
         /**

@@ -591,8 +591,8 @@ namespace Desert::Editor::Tools
         // A goes back to what it held; the result lands on a copy of A, in A's frame (the operator ran there).
         Restore( scene );
         const auto&                tc = refA->get().GetComponent<ECS::TransformComponent>();
-        Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.Translation, tc.Rotation,
-                                          tc.Scale,          std::nullopt,       std::nullopt };
+        Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.GetTranslation(), tc.GetRotation(),
+                                          tc.GetScale(),          std::nullopt,       std::nullopt };
         std::vector<Commands::XformEntityState> changes;
         std::vector<Commands::XformNewEntity>   creates{
                { m_Session->Entity, std::format( "{} {}", m_Session->NameA, tool ), std::move( state ) } };
@@ -612,7 +612,7 @@ namespace Desert::Editor::Tools
             {
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 changes.push_back(
-                     { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+                     { in.Id, in.Committed, itc.GetTranslation(), itc.GetRotation(), itc.GetScale(), std::nullopt, false } );
             }
         }
         const std::string label   = std::format( "Modeling: {} {}", tool,

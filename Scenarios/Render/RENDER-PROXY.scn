@@ -1,0 +1,4 @@
+# RENDER-PROXY: the render-state dirty set is fed at the source - only the orbiting glass is dirtied per frame.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night_MovingEmitter.desce
+Дано run View "View mode: Lit"
+Тогда-вид 1_render_dirty after 120 frames with nothing edited: DesertCtl state --sections scene -> scene.renderDirty == 1 (the moving glass); a gizmo drag of a parent raises it by its children; editor.log has 0 error lines

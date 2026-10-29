@@ -648,8 +648,8 @@ namespace Desert::Editor
             if ( edit.Activated )
             {
                 const auto& t = en.GetComponent<::Desert::ECS::TransformComponent>();
-                s_Before      = { { en.GetComponent<::Desert::ECS::UUIDComponent>().UUID, t.Translation, t.Rotation,
-                                    t.Scale } };
+                s_Before      = { { en.GetComponent<::Desert::ECS::UUIDComponent>().UUID, t.GetTranslation(), t.GetRotation(),
+                                    t.GetScale() } };
             }
             if ( edit.Changed )
             {

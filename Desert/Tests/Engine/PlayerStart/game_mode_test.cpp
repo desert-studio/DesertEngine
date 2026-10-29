@@ -23,7 +23,7 @@ namespace
     entt::entity Start( Scene& scene, const char* name, const char* tag, glm::vec3 at )
     {
         ECS::Entity& e                                        = scene.CreateEntityWithUUID( Common::UUID(), name );
-        e.GetComponent<ECS::TransformComponent>().Translation = at;
+        e.SetLocalTranslation( at );
         e.AddComponent<ECS::PlayerStartComponent>().Data.Tag  = tag;
         return e.GetHandle();
     }
@@ -35,7 +35,7 @@ namespace
         {
             ++spawned;
             ECS::Entity& e = scene.CreateEntityWithUUID( Common::UUID(), "Pawn" );
-            e.GetComponent<ECS::TransformComponent>().Translation = glm::vec3( at[3] );
+            e.SetLocalTranslation( glm::vec3( at[3] ) );
             e.AddComponent<ECS::CharacterControllerComponent>();
             e.AddComponent<ECS::CameraComponent>();
             return Common::MakeSuccess( e.GetHandle() );
@@ -85,7 +85,7 @@ TEST( GameMode, RestartSpawnsThePrefabAtTheStartAndPossessesItsCamera )
     const entt::entity pawn = scene.GetPlayerPawn();
     ASSERT_TRUE( pawn != entt::null );
     auto& reg = scene.GetRegistry();
-    EXPECT_EQ( reg.get<ECS::TransformComponent>( pawn ).Translation, glm::vec3( 300.0f, 50.0f, -20.0f ) );
+    EXPECT_EQ( reg.get<ECS::TransformComponent>( pawn ).GetTranslation(), glm::vec3( 300.0f, 50.0f, -20.0f ) );
     EXPECT_TRUE( ( reg.has<ECS::CharacterControllerComponent, ECS::CameraComponent>( pawn ) ) );
     const auto view = scene.ResolveViewTarget();
     ASSERT_TRUE( view ) << view.GetError();
@@ -109,7 +109,7 @@ TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
     ASSERT_TRUE( mode.RestartPlayer( scene, spawn ) );
     (void)mode.TakeEvents();
     const entt::entity first                              = scene.GetPlayerPawn();
-    reg.get<ECS::TransformComponent>( first ).Translation = glm::vec3( 5000.0f, 0.0f, 0.0f ); // walked away
+    ECS::SetLocalTranslation( reg, first, glm::vec3( 5000.0f, 0.0f, 0.0f ) ); // walked away
 
     ASSERT_TRUE( mode.Kill( scene, first ) );
     EXPECT_TRUE( scene.GetPlayerPawn() == entt::null ) << "a dead pawn is no longer possessed";
@@ -133,7 +133,7 @@ TEST( GameMode, KillUnpossessesAndRestartsAfterTheDelayAtTheStart )
     EXPECT_FALSE( reg.valid( first ) ) << "the dead body must be destroyed by the restart";
     const entt::entity second = scene.GetPlayerPawn();
     ASSERT_TRUE( second != entt::null );
-    EXPECT_EQ( reg.get<ECS::TransformComponent>( second ).Translation, glm::vec3( 0.0f, 0.0f, 900.0f ) );
+    EXPECT_EQ( reg.get<ECS::TransformComponent>( second ).GetTranslation(), glm::vec3( 0.0f, 0.0f, 900.0f ) );
     EXPECT_FALSE( mode.RespawnRemaining().has_value() );
     const auto back = mode.TakeEvents();
     ASSERT_EQ( back.size(), 1u );

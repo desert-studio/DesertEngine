@@ -1742,10 +1742,7 @@ namespace Desert::Editor
              id, name,
              [&]( ECS::Entity& volume )
              {
-                 auto& transform       = volume.GetComponent<ECS::TransformComponent>();
-                 transform.Translation = world.Translation;
-                 transform.Rotation    = world.Rotation;
-                 transform.Scale       = glm::vec3( 1.0f );
+                 volume.SetLocalTransform( ECS::LocalTransform{ world.Translation, world.Rotation, glm::vec3( 1.0f ) } );
 
                  ECS::VolumeComponent component;
                  component.Data.Type        = type.Type;

@@ -226,7 +226,7 @@ namespace Desert::ECS
                 const auto& transform = characters.get<TransformComponent>( entity );
 
                 if ( const auto created = CharacterMovement::CreateCharacter(
-                          cc, *m_World, transform.Translation ); // capsule centre
+                          cc, *m_World, transform.GetTranslation() ); // capsule centre
                      !created )
                 {
                     m_RefusedCharacters.insert( entity );
@@ -303,9 +303,10 @@ namespace Desert::ECS
                 auto& cc = characters.get<CharacterControllerComponent>( entity );
                 if ( cc.HasRootMotion )
                 {
-                    auto& transform    = characters.get<TransformComponent>( entity );
-                    transform.Rotation = glm::eulerAngles(
-                         glm::normalize( cc.RootMotionRotation * glm::quat( transform.Rotation ) ) );
+                    const auto& transform = characters.get<TransformComponent>( entity );
+                    SetLocalRotation( registry, entity,
+                                      glm::eulerAngles( glm::normalize( cc.RootMotionRotation *
+                                                                        glm::quat( transform.GetRotation() ) ) ) );
                 }
                 cc.HasRootMotion      = false;
                 cc.RootMotionRotation = glm::quat( 1.0f, 0.0f, 0.0f, 0.0f );
@@ -328,9 +329,10 @@ namespace Desert::ECS
                 if ( rb.RuntimeBody == Physics::kInvalidBody || rb.Data.Type != Physics::BodyType::Dynamic )
                     continue;
 
-                auto& transform       = bodies.get<TransformComponent>( entity );
-                transform.Translation = m_World->GetInterpolatedPosition( rb.RuntimeBody );
-                transform.Rotation    = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+                LocalTransform transform = bodies.get<TransformComponent>( entity ).GetLocal();
+                transform.Translation    = m_World->GetInterpolatedPosition( rb.RuntimeBody );
+                transform.Rotation       = glm::eulerAngles( m_World->GetInterpolatedRotation( rb.RuntimeBody ) );
+                SetLocalTransform( registry, entity, transform );
             }
 
             for ( auto entity : characters )
@@ -338,8 +340,8 @@ namespace Desert::ECS
                 const auto& cc = characters.get<CharacterControllerComponent>( entity );
                 if ( cc.RuntimeCharacter == Physics::kInvalidCharacter )
                     continue;
-                characters.get<TransformComponent>( entity ).Translation =
-                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter );
+                SetLocalTranslation( registry, entity,
+                                     m_World->GetInterpolatedCharacterPosition( cc.RuntimeCharacter ) );
             }
 
             // Projectiles after the step and its writeback (UE: UProjectileMovementComponent ticks in the frame

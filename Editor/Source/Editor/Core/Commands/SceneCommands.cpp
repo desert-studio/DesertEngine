@@ -281,10 +281,7 @@ namespace Desert::Editor::Commands
                 auto e = FindEntity( m_Entity );
                 if ( !e || !e->HasComponent<ECS::TransformComponent>() )
                     return false;
-                auto& tc       = e->GetComponent<ECS::TransformComponent>();
-                tc.Translation = trs.T;
-                tc.Rotation    = trs.R;
-                tc.Scale       = trs.S;
+                e->SetLocalTransform( ECS::LocalTransform{ trs.T, trs.R, trs.S } );
                 return true;
             }
 
@@ -615,10 +612,7 @@ namespace Desert::Editor::Commands
                 smc.RuntimeSlots.reset();
                 smc.SeenMaterialsVersion = 0;
             }
-            auto& tc       = e->GetComponent<ECS::TransformComponent>();
-            tc.Translation = state.Translation;
-            tc.Rotation    = state.Rotation;
-            tc.Scale       = state.Scale;
+            e->SetLocalTransform( ECS::LocalTransform{ state.Translation, state.Rotation, state.Scale } );
             if ( state.Visible )
             {
                 if ( e->HasComponent<ECS::VisibilityComponent>() )
@@ -638,8 +632,8 @@ namespace Desert::Editor::Commands
                 return std::nullopt;
             const auto&      smc = e->GetComponent<ECS::StaticMeshComponent>();
             const auto&      tc  = e->GetComponent<ECS::TransformComponent>();
-            XformEntityState out{ id,       smc.EditableMesh, tc.Translation, tc.Rotation,
-                                  tc.Scale, std::nullopt,     std::nullopt };
+            XformEntityState out{ id,       smc.EditableMesh, tc.GetTranslation(), tc.GetRotation(),
+                                  tc.GetScale(), std::nullopt,     std::nullopt };
             if ( withSlots )
                 out.MaterialSlots = smc.MaterialSlots;
             // No component reads as shown (ECS::IsHidden), so undoing a hide leaves it shown either way.
@@ -1404,14 +1398,14 @@ namespace Desert::Editor::Commands
 
         const auto& tc      = e->GetComponent<ECS::TransformComponent>();
         const float epsilon = 1e-6f;
-        if ( glm::all( glm::epsilonEqual( tc.Translation, oldTranslation, epsilon ) ) &&
-             glm::all( glm::epsilonEqual( tc.Rotation, oldRotation, epsilon ) ) &&
-             glm::all( glm::epsilonEqual( tc.Scale, oldScale, epsilon ) ) )
+        if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), oldTranslation, epsilon ) ) &&
+             glm::all( glm::epsilonEqual( tc.GetRotation(), oldRotation, epsilon ) ) &&
+             glm::all( glm::epsilonEqual( tc.GetScale(), oldScale, epsilon ) ) )
             return; // click without an actual drag
 
         CommandHistory::Get().PushEntityEdit(
-             std::make_unique<TransformCommand>( uuid, oldTranslation, oldRotation, oldScale, tc.Translation,
-                                                 tc.Rotation, tc.Scale ),
+             std::make_unique<TransformCommand>( uuid, oldTranslation, oldRotation, oldScale, tc.GetTranslation(),
+                                                 tc.GetRotation(), tc.GetScale() ),
              { uuid } );
     }
 
@@ -1428,13 +1422,13 @@ namespace Desert::Editor::Commands
             if ( !e || !e->HasComponent<ECS::TransformComponent>() )
                 continue;
             const auto& tc = e->GetComponent<ECS::TransformComponent>();
-            if ( glm::all( glm::epsilonEqual( tc.Translation, snap.Translation, epsilon ) ) &&
-                 glm::all( glm::epsilonEqual( tc.Rotation, snap.Rotation, epsilon ) ) &&
-                 glm::all( glm::epsilonEqual( tc.Scale, snap.Scale, epsilon ) ) )
+            if ( glm::all( glm::epsilonEqual( tc.GetTranslation(), snap.Translation, epsilon ) ) &&
+                 glm::all( glm::epsilonEqual( tc.GetRotation(), snap.Rotation, epsilon ) ) &&
+                 glm::all( glm::epsilonEqual( tc.GetScale(), snap.Scale, epsilon ) ) )
                 continue;
             composite->Add( std::make_unique<TransformCommand>( snap.Entity, snap.Translation,
-                                                                snap.Rotation, snap.Scale, tc.Translation,
-                                                                tc.Rotation, tc.Scale ) );
+                                                                snap.Rotation, snap.Scale, tc.GetTranslation(),
+                                                                tc.GetRotation(), tc.GetScale() ) );
         }
         if ( composite->Empty() )
             return false;
@@ -1544,7 +1538,7 @@ namespace Desert::Editor::Commands
         // Keep the instance's place in the world: same translation, same parent.
         glm::vec3 translation( 0.0f );
         if ( root->HasComponent<ECS::TransformComponent>() )
-            translation = root->GetComponent<ECS::TransformComponent>().Translation;
+            translation = root->GetComponent<ECS::TransformComponent>().GetTranslation();
         const Common::UUID parentId = ParentUUIDOf( *root );
 
         auto composite = std::make_unique<CompositeCommand>();
@@ -1641,9 +1635,9 @@ namespace Desert::Editor::Commands
             if ( old.HasComponent<ECS::TransformComponent>() )
             {
                 const auto& tc = old.GetComponent<ECS::TransformComponent>();
-                translation    = tc.Translation;
-                rotation       = tc.Rotation;
-                scale          = tc.Scale;
+                translation    = tc.GetTranslation();
+                rotation       = tc.GetRotation();
+                scale          = tc.GetScale();
             }
             const std::string tag =
                  old.HasComponent<ECS::TagComponent>() ? old.GetComponent<ECS::TagComponent>().Tag : std::string();
@@ -1671,10 +1665,7 @@ namespace Desert::Editor::Commands
             ECS::Entity fresh = placed.GetValue();
             if ( fresh.HasComponent<ECS::TransformComponent>() )
             {
-                auto& tc       = fresh.GetComponent<ECS::TransformComponent>();
-                tc.Translation = translation;
-                tc.Rotation    = rotation;
-                tc.Scale       = scale;
+                fresh.SetLocalTransform( ECS::LocalTransform{ translation, rotation, scale } );
             }
             if ( !tag.empty() && fresh.HasComponent<ECS::TagComponent>() )
                 fresh.GetComponent<ECS::TagComponent>().Tag = tag;

@@ -351,8 +351,7 @@ namespace Desert::Editor
                                   smc.Primitive = Geometry::PrimitiveType::Cube;
                                   // The primitive cube is one metre, centred on its pivot: lift it by half
                                   // along the surface normal so it stands on the surface, not in it.
-                                  e.GetComponent<ECS::TransformComponent>().Translation =
-                                       hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre );
+                                  e.SetLocalTranslation( hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre ) );
                                   const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
                                   Core::SelectionManager::SetSelected( uuid );
                                   Commands::NotifyCreated( { uuid } );

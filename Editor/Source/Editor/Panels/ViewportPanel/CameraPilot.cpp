@@ -118,9 +118,9 @@ namespace Desert::Editor
             if ( !m_InSegment )
             {
                 m_InSegment          = true;
-                m_SegmentTranslation = tc.Translation;
-                m_SegmentRotation    = tc.Rotation;
-                m_SegmentScale       = tc.Scale;
+                m_SegmentTranslation = tc.GetTranslation();
+                m_SegmentRotation    = tc.GetRotation();
+                m_SegmentScale       = tc.GetScale();
             }
 
             // The viewport's pose becomes the entity's WORLD pose; the parent chain is peeled off so the

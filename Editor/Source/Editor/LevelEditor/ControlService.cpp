@@ -843,10 +843,8 @@ namespace Desert::Editor
                              request.Id, fmt::format( "the selected entity {} is not in the scene",
                                                       static_cast<uint64_t>( uuid ) ) );
                     const ECS::Entity entity = ref->get();
-                    auto&             tc     = entity.GetComponent<ECS::TransformComponent>();
-                    tc.Translation           = after.GetValue().Translation;
-                    tc.Rotation              = after.GetValue().Rotation;
-                    tc.Scale                 = after.GetValue().Scale;
+                    entity.SetLocalTransform( ECS::LocalTransform{
+                         after.GetValue().Translation, after.GetValue().Rotation, after.GetValue().Scale } );
                     Commands::RecordTransformEdit( uuid, before.Translation, before.Rotation, before.Scale );
                     return Control::Response::Success( request.Id );
                 }
@@ -1175,7 +1173,7 @@ namespace Desert::Editor
                                                        static_cast<uint64_t>( uuid ) );
         const auto& tc = entity.GetComponent<ECS::TransformComponent>();
         return Common::MakeSuccess(
-             Result{ uuid, Core::SelectionTransform{ tc.Translation, tc.Rotation, tc.Scale } } );
+             Result{ uuid, Core::SelectionTransform{ tc.GetTranslation(), tc.GetRotation(), tc.GetScale() } } );
     }
 
     Control::Response ControlService::SetViewportCameraProperty( const Control::Request& request )
@@ -1251,6 +1249,8 @@ namespace Desert::Editor
         snapshot.SceneName = m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetSceneName() : std::string();
         snapshot.SceneHasUnsavedChanges = m_SceneFiles.HasUnsavedChanges();
         snapshot.InPlayMode             = m_Play.InPlayMode();
+        snapshot.SceneRenderDirty =
+             m_Workspace.ActiveScene() ? m_Workspace.ActiveScene()->GetRenderStateDirtyCount() : 0;
 
         for ( const Common::UUID& uuid : Core::SelectionManager::GetSelection() )
         {

@@ -71,64 +71,64 @@ namespace Desert::Libraries
     glm::vec3 EntityLibrary::GetPosition( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->Translation : glm::vec3( 0.0f );
+        return t != nullptr ? t->GetTranslation() : glm::vec3( 0.0f );
     }
 
     void EntityLibrary::SetPosition( ECS::Entity entity, const glm::vec3& position )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Translation = position;
+        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
+            entity.SetLocalTranslation( position );
     }
 
     void EntityLibrary::Translate( ECS::Entity entity, const glm::vec3& offset )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Translation += offset;
+        if ( const auto* t = Get<ECS::TransformComponent>( entity ) )
+            entity.SetLocalTranslation( t->GetTranslation() + offset );
     }
 
     glm::vec3 EntityLibrary::GetRotation( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->Rotation : glm::vec3( 0.0f );
+        return t != nullptr ? t->GetRotation() : glm::vec3( 0.0f );
     }
 
     void EntityLibrary::SetRotation( ECS::Entity entity, const glm::vec3& euler )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Rotation = euler;
+        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
+            entity.SetLocalRotation( euler );
     }
 
     glm::vec3 EntityLibrary::GetScale( ECS::Entity entity )
     {
         const auto* t = Get<ECS::TransformComponent>( entity );
-        return t != nullptr ? t->Scale : glm::vec3( 1.0f );
+        return t != nullptr ? t->GetScale() : glm::vec3( 1.0f );
     }
 
     void EntityLibrary::SetScale( ECS::Entity entity, const glm::vec3& scale )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Scale = scale;
+        if ( Get<ECS::TransformComponent>( entity ) != nullptr )
+            entity.SetLocalScale( scale );
     }
 
     glm::vec3 EntityLibrary::Forward( ECS::Entity entity )
     {
         const auto*     t = Get<ECS::TransformComponent>( entity );
         const glm::vec3 forward( 0.0f, 0.0f, -1.0f );
-        return t != nullptr ? glm::quat( t->Rotation ) * forward : forward;
+        return t != nullptr ? glm::quat( t->GetRotation() ) * forward : forward;
     }
 
     glm::vec3 EntityLibrary::Right( ECS::Entity entity )
     {
         const auto*     t = Get<ECS::TransformComponent>( entity );
         const glm::vec3 right( 1.0f, 0.0f, 0.0f );
-        return t != nullptr ? glm::quat( t->Rotation ) * right : right;
+        return t != nullptr ? glm::quat( t->GetRotation() ) * right : right;
     }
 
     float EntityLibrary::DistanceTo( ECS::Entity entity, ECS::Entity other )
     {
         const auto* a = Get<ECS::TransformComponent>( entity );
         const auto* b = Get<ECS::TransformComponent>( other );
-        return ( a != nullptr && b != nullptr ) ? glm::distance( a->Translation, b->Translation ) : -1.0f;
+        return ( a != nullptr && b != nullptr ) ? glm::distance( a->GetTranslation(), b->GetTranslation() ) : -1.0f;
     }
 
     // ── CharacterLibrary ──
@@ -183,8 +183,12 @@ namespace Desert::Libraries
 
     void CharacterLibrary::AddYaw( ECS::Entity entity, float radians )
     {
-        if ( auto* t = Get<ECS::TransformComponent>( entity ) )
-            t->Rotation.y += radians;
+        if ( const auto* t = Get<ECS::TransformComponent>( entity ) )
+        {
+            glm::vec3 rotation = t->GetRotation();
+            rotation.y += radians;
+            entity.SetLocalRotation( rotation );
+        }
     }
 
     void CharacterLibrary::AddCameraPitch( ECS::Entity entity, float radians )
@@ -200,8 +204,9 @@ namespace Desert::Libraries
             if ( ( reg.has<ECS::SpringArmComponent>( child ) || reg.has<ECS::CameraComponent>( child ) ) &&
                  reg.has<ECS::TransformComponent>( child ) )
             {
-                auto& rot = reg.get<ECS::TransformComponent>( child ).Rotation;
-                rot.x     = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );
+                glm::vec3 rot = reg.get<ECS::TransformComponent>( child ).GetRotation();
+                rot.x         = glm::clamp( rot.x + radians, glm::radians( -85.0f ), glm::radians( 85.0f ) );
+                ECS::SetLocalRotation( reg, child, rot );
                 break;
             }
         }
@@ -392,9 +397,10 @@ namespace Desert::Libraries
             return {};
         ECS::Entity e                                        = context->World->CreateNewEntity( "Marker" );
         e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Sphere;
-        auto& t                                              = e.GetComponent<ECS::TransformComponent>();
+        ECS::LocalTransform t                                = e.GetComponent<ECS::TransformComponent>().GetLocal();
         t.Translation                                        = position;
         t.Scale                                              = glm::vec3( scale <= 0.0f ? 0.15f : scale );
+        e.SetLocalTransform( t );
         const auto debugColor =
              context->Assets != nullptr
                   ? Assets::FindTemplateByRole( *context->Assets, Common::Content::kDebugColorRole )

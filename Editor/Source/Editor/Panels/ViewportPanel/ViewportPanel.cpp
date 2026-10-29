@@ -422,7 +422,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}': the prefab instantiated no root", path );
         // A world prefab lands on the surface met; a UI prefab keeps the layout its canvas gives it.
         if ( !parentEntity && surface && root.HasComponent<ECS::TransformComponent>() )
-            root.GetComponent<ECS::TransformComponent>().Translation = *surface;
+            root.SetLocalTranslation( *surface );
         const auto uuid = root.GetComponent<ECS::UUIDComponent>().UUID;
         Core::SelectionManager::SetSelected( uuid );
         Commands::NotifyCreated( { uuid } );
@@ -461,7 +461,7 @@ namespace Desert::Editor
         const std::string name = std::filesystem::path( path ).stem().string();
         auto&             e    = m_Scene->CreateNewEntity( std::string( name ) );
         e.AddComponent<ECS::StaticMeshComponent>(); // pending: no MeshHandle until the cook completes
-        e.GetComponent<ECS::TransformComponent>().Translation = target.Point;
+        e.SetLocalTranslation( target.Point );
         const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
         m_PendingDrops[static_cast<uint64_t>( uuid )]         = target;
         Core::SelectionManager::SetSelected( uuid );
@@ -557,7 +557,7 @@ namespace Desert::Editor
                     if ( const auto* meshAsset =
                               Runtime::ResourceRegistry::GetMeshService()->GetAsset( resolved.Handle ) )
                         transform.Translation = ActorDrop::PlacedOrigin(
-                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.Scale );
+                             *dropTarget, Geometry::LocalBounds( meshAsset->GetSubmeshes() ), transform.GetScale() );
                 PlaceRecordedLights( *m_Scene, done.UserData, done.SourcePath );
             }
         }
@@ -3087,7 +3087,7 @@ namespace Desert::Editor
         // its placement, in the engine's space (ImportRecord.hpp `Bounds`). A root the user already moved keeps
         // where they put it.
         auto& transform = root.GetComponent<ECS::TransformComponent>();
-        if ( !dropTarget || transform.Translation != dropTarget->Point )
+        if ( !dropTarget || transform.GetTranslation() != dropTarget->Point )
             return;
         const auto record = Assets::Serialization::ReadImportRecord( sourcePath );
         if ( !record )
@@ -3100,7 +3100,7 @@ namespace Desert::Editor
              ActorDrop::PlacedOrigin( *dropTarget,
                                       ::Common::Math::AABB{ glm::vec3( box.Min[0], box.Min[1], box.Min[2] ),
                                                             glm::vec3( box.Max[0], box.Max[1], box.Max[2] ) },
-                                      transform.Scale );
+                                      transform.GetScale() );
     }
 
     void ViewportPanel::ApplySidecarMaterial( ECS::Entity& entity, const std::string& meshSourcePath )

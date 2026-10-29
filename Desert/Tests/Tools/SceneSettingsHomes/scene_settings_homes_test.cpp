@@ -98,7 +98,7 @@ namespace
         if ( const auto* sun = FindTag( scene, "Sun" ) )
         {
             const entt::entity e                                  = reg.create();
-            reg.emplace<ECS::TransformComponent>( e ).Translation = sun->Translation.value_or( glm::vec3( 0.0f ) );
+            reg.emplace<ECS::TransformComponent>( e, ECS::LocalTransform{ .Translation = sun->Translation.value_or( glm::vec3( 0.0f ) ) } );
             reg.emplace<ECS::DirectionLightComponent>(
                  e, ECS::DirectionLightComponent{
                          Read<ECS::DirectionalLightData>( *sun, "DirectionLight", "DirectionalLightData" ) } );
@@ -109,7 +109,7 @@ namespace
     entt::entity AddVolume( entt::registry& reg, const glm::vec3& at, const ECS::PostProcessVolumeData& data )
     {
         const entt::entity e                                  = reg.create();
-        reg.emplace<ECS::TransformComponent>( e ).Translation = at;
+        reg.emplace<ECS::TransformComponent>( e, ECS::LocalTransform{ .Translation = at } );
         reg.emplace<ECS::PostProcessVolumeComponent>( e, ECS::PostProcessVolumeComponent{ data } );
         return e;
     }
@@ -366,7 +366,7 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
     reg.emplace<ECS::VisibilityComponent>( v ).Visible = false;
 
     const entt::entity hidden                                            = reg.create();
-    reg.emplace<ECS::TransformComponent>( hidden ).Translation           = glm::vec3( 0.0f, -1.0f, 0.0f );
+    reg.emplace<ECS::TransformComponent>( hidden, ECS::LocalTransform{ .Translation = glm::vec3( 0.0f, -1.0f, 0.0f ) } );
     reg.emplace<ECS::DirectionLightComponent>( hidden ).Data.CastShadows = false;
     reg.emplace<ECS::VisibilityComponent>( hidden ).Visible              = false;
 

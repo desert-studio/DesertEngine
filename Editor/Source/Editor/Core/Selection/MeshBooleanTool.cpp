@@ -218,8 +218,8 @@ namespace Desert::Editor::Core
         OperandMeshPtr mesh = std::move( result.ExtractValue().Mesh );
 
         const auto&                tc = operated.Entity.GetComponent<ECS::TransformComponent>();
-        Commands::XformEntityState state{ operated.Id, mesh,         tc.Translation, tc.Rotation,
-                                          tc.Scale,    std::nullopt, std::nullopt };
+        Commands::XformEntityState state{ operated.Id, mesh,         tc.GetTranslation(), tc.GetRotation(),
+                                          tc.GetScale(),    std::nullopt, std::nullopt };
         if ( !bTrim )
             state.MaterialSlots = std::move( table );
         const std::string detail = bTrim ? fmt::format( "{} {}", ToString( args.Trimmed ), ToString( args.Side ) )
@@ -244,7 +244,7 @@ namespace Desert::Editor::Core
                 const auto& itc = in.Entity.GetComponent<ECS::TransformComponent>();
                 // The entity's own mesh, not the tool target: a lifted asset keeps drawing its asset.
                 changes.push_back(
-                     { in.Id, in.Committed, itc.Translation, itc.Rotation, itc.Scale, std::nullopt, false } );
+                     { in.Id, in.Committed, itc.GetTranslation(), itc.GetRotation(), itc.GetScale(), std::nullopt, false } );
             }
         }
 

@@ -741,9 +741,10 @@ namespace Desert::Editor
 
         constexpr float kFitSpan = 4.0f;
         const float     scale    = extent > 1e-4f ? kFitSpan / extent : kFitSpan;
-        auto&           tc       = m_PreviewTarget.GetComponent<ECS::TransformComponent>();
+        ECS::LocalTransform tc   = m_PreviewTarget.GetComponent<ECS::TransformComponent>().GetLocal();
         tc.Scale                 = glm::vec3( scale );
         tc.Translation           = -center * scale;
+        m_PreviewTarget.SetLocalTransform( tc );
     }
 
     void PhotogrammetryPanel::RenderPreview( uint32_t w, uint32_t h )
@@ -760,7 +761,7 @@ namespace Desert::Editor
 
         // Slow orbit by spinning the model (the preview camera is fixed).
         m_Spin += 0.01f;
-        m_PreviewTarget.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f, m_Spin, 0.0f );
+        m_PreviewTarget.SetLocalRotation( glm::vec3( 0.0f, m_Spin, 0.0f ) );
 
         // The scene brackets its own renderer now, so a frame that refuses cannot leave the editor's
         // command buffer holding half a pass — it is reported here and the preview skips a frame.

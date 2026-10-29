@@ -29,7 +29,7 @@ namespace Desert::Editor
         // Stored in RADIANS (TransformComponent feeds glm::quat directly) but shown in degrees with the
         // degree sign, like UE and like the Sequencer's key editor — nobody authors a rotation in radians.
         Utils::ImGuiUtilities::BeginPropertyRow( "Rotation", "Euler angles in degrees" );
-        glm::vec3 degrees = glm::degrees( transform.Rotation );
+        glm::vec3 degrees = glm::degrees( transform.GetRotation() );
         if ( Utils::ImGuiUtilities::VectorField( "rot", &degrees.x, 3, 0.5f, "%.1f\xc2\xb0" ) )
             transform.Rotation = glm::radians( degrees );
         Utils::ImGuiUtilities::EndPropertyRow();

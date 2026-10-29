@@ -887,18 +887,106 @@ namespace Desert::ECS
         return Revision;
     }
 
-    struct TransformComponent
+    // A parent-relative transform AS A VALUE: what a TransformComponent holds, what a caller builds before
+    // handing it to SetLocalTransform, and what code that never touches a registry (gizmo maths, prefab
+    // records, tests) passes around. UE's FTransform next to USceneComponent::RelativeLocation/Rotation/Scale.
+    struct LocalTransform
     {
         glm::vec3 Translation = { 0.0f, 0.0f, 0.0f };
         glm::vec3 Rotation    = { 0.0f, 0.0f, 0.0f };
         glm::vec3 Scale       = { 1.0f, 1.0f, 1.0f };
 
-        glm::mat4 GetTransform() const
+        [[nodiscard]] glm::mat4 GetTransform() const
         {
             return glm::translate( glm::mat4( 1.0f ), Translation ) * glm::toMat4( glm::quat( Rotation ) ) *
                    glm::scale( glm::mat4( 1.0f ), Scale );
         }
+
+        [[nodiscard]] bool operator==( const LocalTransform& other ) const
+        {
+            return Translation == other.Translation && Rotation == other.Rotation && Scale == other.Scale;
+        }
+        [[nodiscard]] bool operator!=( const LocalTransform& other ) const
+        {
+            return !( *this == other );
+        }
     };
+
+    class TransformComponent;
+    bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
+
+    // THE ENTITY'S LOCAL TRANSFORM, READ-ONLY. Nothing may write it in place: every write goes through
+    // SetLocalTransform (below), which is a registry.patch, so EnTT's on_update<TransformComponent> fires for
+    // every change and Core::Scene's render-state dirty set (UE MarkRenderStateDirty) sees it at the source —
+    // a direct field write would move the entity on screen while the dirty set, and every persistent render
+    // proxy fed from it, said nothing changed. Construction (emplace / AddComponent with a LocalTransform) is
+    // not a write: it fires on_construct. Whole-object assignment stays possible only because EnTT's storage
+    // moves components by assignment; replace a component with registry.replace, which fires on_update.
+    class TransformComponent
+    {
+    public:
+        TransformComponent() = default;
+        TransformComponent( const LocalTransform& local ) : m_Local( local ) {}
+
+        [[nodiscard]] const LocalTransform& GetLocal() const
+        {
+            return m_Local;
+        }
+        [[nodiscard]] const glm::vec3& GetTranslation() const
+        {
+            return m_Local.Translation;
+        }
+        [[nodiscard]] const glm::vec3& GetRotation() const
+        {
+            return m_Local.Rotation;
+        }
+        [[nodiscard]] const glm::vec3& GetScale() const
+        {
+            return m_Local.Scale;
+        }
+        [[nodiscard]] glm::mat4 GetTransform() const
+        {
+            return m_Local.GetTransform();
+        }
+
+    private:
+        LocalTransform m_Local;
+
+        friend bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local );
+    };
+
+    // THE ONE WRITER of a TransformComponent (UE USceneComponent::SetRelativeTransform, which ends in
+    // MarkRenderTransformDirty). An unchanged value is not a write (UE early-outs the same way): no on_update,
+    // so a system that re-asserts the same pose every frame (attachments, physics at rest) dirties nothing.
+    // Returns whether the transform changed.
+    inline bool SetLocalTransform( entt::registry& registry, entt::entity entity, const LocalTransform& local )
+    {
+        if ( registry.get<TransformComponent>( entity ).m_Local == local )
+            return false;
+        registry.patch<TransformComponent>( entity, [&local]( TransformComponent& component )
+                                            { component.m_Local = local; } );
+        return true;
+    }
+
+    // One field of the local transform; each is SetLocalTransform with the other two fields kept.
+    inline bool SetLocalTranslation( entt::registry& registry, entt::entity entity, const glm::vec3& translation )
+    {
+        LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
+        local.Translation    = translation;
+        return SetLocalTransform( registry, entity, local );
+    }
+    inline bool SetLocalRotation( entt::registry& registry, entt::entity entity, const glm::vec3& rotation )
+    {
+        LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
+        local.Rotation       = rotation;
+        return SetLocalTransform( registry, entity, local );
+    }
+    inline bool SetLocalScale( entt::registry& registry, entt::entity entity, const glm::vec3& scale )
+    {
+        LocalTransform local = registry.get<TransformComponent>( entity ).GetLocal();
+        local.Scale          = scale;
+        return SetLocalTransform( registry, entity, local );
+    }
 
     // ON THE TWO PAIRS OF SUN NUMBERS. Colour x Intensity here is the ILLUMINANCE arriving at scene
     // surfaces — what every lit surface integrates. SkyAtmosphereData::SunColor x SunIntensity is the

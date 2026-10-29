@@ -530,7 +530,7 @@ namespace Desert::Editor
 
         // Upright, like the material preview sets it: the target entity is reused across previews, so a
         // rotation left by an earlier one would tilt this mesh for no reason.
-        m_Target.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f );
+        m_Target.SetLocalRotation( glm::vec3( 0.0f ) );
 
         // One kind of content at a time (same line as in SetMaterial).
         if ( m_CubemapPass )
@@ -880,7 +880,7 @@ namespace Desert::Editor
         vfx.RequestRestart    = true;
         // On the floor's top (the floor entity sits at y = -50, ApplySetup).
         const glm::vec3 origin( 0.0f, -50.0f, 0.0f );
-        m_Effect.GetComponent<ECS::TransformComponent>().Translation = origin;
+        m_Effect.SetLocalTranslation( origin );
 
         m_MeshHandle      = Assets::AssetHandle( static_cast<uint64_t>( 0 ) );
         m_Fill            = Fill::Object;
@@ -991,7 +991,7 @@ namespace Desert::Editor
         m_Focus           = glm::vec3( 0.0f );
         m_FrameHalfExtent = glm::vec3( 50.0f ); // stand-in until the bounds are known (see TryFrameMesh)
         m_FrameRadius     = RadiusOfHalfExtent( m_FrameHalfExtent );
-        m_Target.GetComponent<ECS::TransformComponent>().Rotation = glm::vec3( 0.0f );
+        m_Target.SetLocalRotation( glm::vec3( 0.0f ) );
         ResetView();
         m_Framed = TryFrameMesh();
         ++m_ContentRevision;

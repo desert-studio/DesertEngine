@@ -147,7 +147,7 @@ namespace Desert::ECS
             m_Refusals.push_back( std::format( "track '{}': its entity has no Transform", property ) );
             return;
         }
-        auto& transform = m_Registry.get<TransformComponent>( entity );
+        LocalTransform transform = m_Registry.get<TransformComponent>( entity ).GetLocal();
 
         if ( property == "Transform" )
         {
@@ -182,7 +182,11 @@ namespace Desert::ECS
             transform.Rotation = glm::eulerAngles( *rotation );
         }
         else
+        {
             refuse();
+            return;
+        }
+        SetLocalTransform( m_Registry, entity, transform );
     }
 
     void LevelSequenceEntityHost::Fire( const T::FiredEvent&                     event,

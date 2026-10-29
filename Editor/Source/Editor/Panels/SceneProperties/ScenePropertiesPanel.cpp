@@ -264,7 +264,7 @@ namespace Desert::Editor
                     {
                         std::optional<glm::vec3> savedPos;
                         if ( selectedEntity.HasComponent<ECS::TransformComponent>() )
-                            savedPos = selectedEntity.GetComponent<ECS::TransformComponent>().Translation;
+                            savedPos = selectedEntity.GetComponent<ECS::TransformComponent>().GetTranslation();
 
                         ECS::Entity parentEntity;
                         if ( selectedEntity.HasComponent<ECS::RelationshipComponent>() )

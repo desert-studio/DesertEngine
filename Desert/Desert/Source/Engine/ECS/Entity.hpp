@@ -43,6 +43,24 @@ namespace Desert::ECS
             return m_Registry->get<EntityT>( m_Handle );
         }
 
+        // The entity's TransformComponent writers: ECS::SetLocalTransform and its one-field forms.
+        bool SetLocalTransform( const LocalTransform& local ) const
+        {
+            return ECS::SetLocalTransform( *m_Registry, m_Handle, local );
+        }
+        bool SetLocalTranslation( const glm::vec3& translation ) const
+        {
+            return ECS::SetLocalTranslation( *m_Registry, m_Handle, translation );
+        }
+        bool SetLocalRotation( const glm::vec3& rotation ) const
+        {
+            return ECS::SetLocalRotation( *m_Registry, m_Handle, rotation );
+        }
+        bool SetLocalScale( const glm::vec3& scale ) const
+        {
+            return ECS::SetLocalScale( *m_Registry, m_Handle, scale );
+        }
+
         template <typename EntityT>
         void RemoveComponent() const
         {
