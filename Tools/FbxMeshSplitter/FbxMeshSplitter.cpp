@@ -269,7 +269,7 @@ namespace FbxSplit
         // Both writers below go through this, and this is the only place a stream is decided about. The
         // rest of the tree writes files through Common::Utils::FileSystem::WriteContentToFileAtomic —
         // there is exactly one write primitive and that is it — but this tool deliberately links NO
-        // engine code (see FbxMeshSplitter's premake5.lua: Assimp plus one header-only Editor constant
+        // engine code (see Tools/FbxMeshSplitter/CMakeLists.txt: Assimp plus one header-only Editor constant
         // table, and the file list is what CHECKS that). Reaching the primitive means linking libCommon,
         // and with it spdlog, the JobSystem and, on macOS, AppKit and the Objective-C runtime, into a
         // splitter that needs none of them.

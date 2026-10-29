@@ -206,7 +206,7 @@ TEST( ComponentPools, TheTypeIndexCounterIsAtomic )
 {
 #ifndef ENTT_USE_ATOMIC
     FAIL() << "ENTT_USE_ATOMIC is not defined for this translation unit. It is set at WORKSPACE scope in "
-              "BuildScripts/Workspace.lua because the macro changes the type of a shared static: it has "
+              "cmake/DesertWorkspace.cmake because the macro changes the type of a shared static: it has "
               "to be every project or none, or two objects disagree about that static's layout.";
 #else
     SUCCEED();

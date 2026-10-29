@@ -31,7 +31,7 @@
  * Two reasons, and the second is the load-bearing one:
  *
  *   1. It names the QUESTION ("is this a development build") rather than the answer's cause ("which
- *      premake configuration am I"), so a site reads as what it is.
+ *      build configuration am I"), so a site reads as what it is.
  *   2. It is ONE token, so it can be counted. Desert/Tests/Runtime/ShippingBoundary is a source-text
  *      census that walks the instruments' own files and asserts each one is behind this macro — and a
  *      census can only pin a spelling it can grep for. `#ifdef DESERT_CONFIG_SHIPPING`, `#if
@@ -90,7 +90,7 @@
  * reason instead of the surprise.
  */
 
-// Set by BuildScripts/Configurations.lua at WORKSPACE scope, so no project can fail to receive it.
+// Set by cmake/DesertWorkspace.cmake at WORKSPACE scope, so no project can fail to receive it.
 #if defined( DESERT_CONFIG_SHIPPING )
 #define DESERT_DEV_INSTRUMENTS 0
 #else

@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/Embree.lua: Embree 4.4.1 for the mesh distance-field builder -- triangles and ONE ISA
+# Embree: Embree 4.4.1 for the mesh distance-field builder -- triangles and ONE ISA
 # (SSE2, the lowest), internal tasking, static. The configured headers (config.h, rtcore_config.h, hash.h) are
 # checked in under BuildScripts/ThirdParty/EmbreeConfig/, generated once from the tag's *.h.in.
 # ThirdParty/embree's own CMakeLists.txt is not used: it builds every ISA and geometry type and needs ISPC/TBB options.
@@ -37,7 +37,7 @@ set(_c
     lexers/stringstream.cpp lexers/tokenstream.cpp tasking/taskschedulerinternal.cpp)
 list(TRANSFORM _c PREPEND "${_root}/common/")
 desert_add_library(Embree FOLDER ThirdParty SOURCES ${_k} ${_c})
-desert_warnings_off(Embree)  # premake: warnings "Off"
+desert_warnings_off(Embree)
 set_target_properties(Embree PROPERTIES CXX_STANDARD 17)
 target_include_directories(Embree PRIVATE
     "${_config}/kernels/common" "${_config}/include/embree4" "${_root}/include" "${_root}")

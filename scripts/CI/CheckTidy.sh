@@ -92,7 +92,7 @@ ChangedFiles() {   # repo-relative, sorted, the whole push (not one shard)
 # HOW MANY SHARDS. Every changed file is one clang-tidy process (a header is analysed as its own unit
 # through the derived database below), so the work is the file count. CI 37580217727 is the measurement
 # that forced this: 254 changed files (127 units + headers) on a 3-core macos-14 were cancelled at the
-# 45-minute ceiling after ~10 minutes of Homebrew and premake, i.e. well over 20 s of runner CPU a file
+# 45-minute ceiling after ~10 minutes of Homebrew and the CMake configure, i.e. well over 20 s of runner CPU a file
 # rather than the 13 s a developer machine shows. 60 files a shard is ~7 minutes of analysis at 20 s,
 # ~14 at 40 s: under a third of the ceiling with room for the runner to be twice as slow again. There is
 # no upper bound on N on purpose — a bigger push gets more shards rather than a timeout.
@@ -357,8 +357,8 @@ N_CHANGED=$(printf '%s\n' "$CHANGED" | grep -c .)
 # not found` — a clang-diagnostic-error, which WarningsAsErrors then reports with exit 1, i.e. as a
 # finding about your code. That is precisely the instrument-answering-a-different-question shape this
 # gate exists to catch, so absence is reported as an environment failure and named file by file.
-# It happens for two reasons and the message names both: premake was not re-run after the file was
-# added, or the build was generated without test projects while the change is in Desert/Tests.
+# It happens for two reasons and the message names both: the tree was not re-configured after the file was
+# added, or it was configured with DESERT_WITH_TESTS=OFF while the change is in Desert/Tests.
 #
 # BOTH SIDES ARE RESOLVED BEFORE THEY ARE COMPARED. The database is clang-shaped: `directory` is where
 # the build compiles (build/Projects), `file` is absolute; the changed list is "$ROOT/<git path>". A
@@ -379,10 +379,10 @@ echo "changed C++ files vs $BASE: $N_CHANGED, of which $COVERED are translation 
 
 # A THIRD CAUSE OF ABSENCE, AND THE MESSAGE BELOW USED TO BLAME THE WRONG TWO.
 #
-# `Desert/Common/premake5.lua:99` carries `filter { "system:not windows" } removefiles
-# { "Source/Common/Platform/Windows/**" }`, and this gate runs on macOS by deliberate design. So a
-# Windows-only source can NEVER appear in this database: it is not "premake was not re-run" and not
-# "missing from a premake5.lua" — this platform does not compile that file, by construction, and no
+# `Editor/CMakeLists.txt` drops `/Source/Editor/(Splash|Platform)/Windows/` off Windows
+# (`list(FILTER ... EXCLUDE ...)`), and this gate runs on macOS by deliberate design. So a
+# Windows-only source can NEVER appear in this database: it is not "the tree was not re-configured" and not
+# "missing from a CMakeLists.txt" — this platform does not compile that file, by construction, and no
 # amount of re-running changes it.
 #
 # The gate already separates "I found violations" from "I could not run". This is the distinction one
@@ -397,7 +397,7 @@ PLATFORM_FOREIGN=""
 TRUE_ORPHANS=""
 for f in $ORPHANS; do
     case "$f" in
-        # Any directory named Windows/Linux, not only Platform/: Editor/premake5.lua removes
+        # Any directory named Windows/Linux, not only Platform/: Editor/CMakeLists.txt removes
         # Source/Editor/Splash/Windows/** off Windows, and the narrower pattern called the splash an
         # orphan — exit 2 on every push that touched it (SP1), reported as an environment failure.
         */Windows/*|*/Linux/*) PLATFORM_FOREIGN="$PLATFORM_FOREIGN $f" ;;
@@ -407,18 +407,18 @@ done
 
 if [ -n "$PLATFORM_FOREIGN" ]; then
     echo "clang-tidy: NOT ANALYSABLE ON THIS RUNNER — these sources belong to a platform this host"
-    echo "does not compile, so premake removed them from the build and they cannot be in the database:"
+    echo "does not compile, so the CMake targets leave them out of the build and they cannot be in the database:"
     printf '    %s\n' $PLATFORM_FOREIGN
-    echo "They are skipped, not passed. Re-running premake will not change this; only running the gate"
+    echo "They are skipped, not passed. Re-configuring will not change this; only running the gate"
     echo "on that platform would. This is a GAP IN COVERAGE, stated rather than hidden."
 fi
 
 if [ -n "$TRUE_ORPHANS" ]; then
-    echo "clang-tidy: these changed sources are in NO premake project, so nothing compiles them and" >&2
+    echo "clang-tidy: these changed sources are in NO CMake target, so nothing compiles them and" >&2
     echo "the gate cannot know their flags:" >&2
     printf '    %s\n' $TRUE_ORPHANS >&2
-    echo "Re-generate with 'CI=true premake5 gmake2' — test projects exist only with CI set or" >&2
-    echo "--with-tests. If a file is still absent afterwards, it is missing from a premake5.lua and" >&2
+    echo "Re-configure with 'scripts/MacOS/BuildMacOS.sh Debug --gen-only' — test targets exist only with" >&2
+    echo "DESERT_WITH_TESTS=ON (the presets' default). If a file is still absent afterwards, it is missing from a CMakeLists.txt and" >&2
     echo "is not being built at all. This is an environment failure, NOT an analysis finding." >&2
     exit 2
 fi

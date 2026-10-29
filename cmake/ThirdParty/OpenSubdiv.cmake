@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/OpenSubdiv.lua: the CPU refiner only (sdc/vtr/far + version), no OSD GPU evaluators.
+# OpenSubdiv: the CPU refiner only (sdc/vtr/far + version), no OSD GPU evaluators.
 set(_root "${DESERT_ROOT}/ThirdParty/OpenSubdiv")
 if(NOT EXISTS "${_root}/opensubdiv/far/topologyRefiner.h")
     message(FATAL_ERROR "ThirdParty/OpenSubdiv sources are missing. Run `git submodule update --init ThirdParty/OpenSubdiv`.")
@@ -10,7 +10,7 @@ file(GLOB _src CONFIGURE_DEPENDS
 list(SORT _src)
 desert_add_library(OpenSubdiv FOLDER ThirdParty SOURCES
     "${_root}/opensubdiv/version.cpp" "${_root}/opensubdiv/version.h" ${_src})
-desert_warnings_off(OpenSubdiv)  # premake: warnings "Off"
+desert_warnings_off(OpenSubdiv)
 set_target_properties(OpenSubdiv PROPERTIES CXX_STANDARD 17)
 target_include_directories(OpenSubdiv PRIVATE "${_root}")
 if(DESERT_IS_WINDOWS)

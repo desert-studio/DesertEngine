@@ -74,7 +74,7 @@ namespace Desert::Editor
          { TargetPlatform::Windows, "Windows x64", "Runtime.exe", "run.bat", false,
            "scripts\\Windows\\BuildWindows.bat", "build the editor on Windows" },
          // No build script, and that is the honest entry rather than an invented path: there is no
-         // scripts/Linux, no Linux filter in Editor/premake5.lua and no Linux job in CI. The row exists
+         // scripts/Linux, no Linux branch in Editor/CMakeLists.txt and no Linux job in CI. The row exists
          // so the panel can say that, which is more than "Linux x64 (planned)" ever said.
          { TargetPlatform::Linux, "Linux x64", "Runtime", "run.sh", false, nullptr,
            "the engine has no Linux build" },

@@ -976,7 +976,7 @@ namespace Desert::Editor
             // THE VENDOR UPSCALER RUNTIMES (UE: a plugin's RuntimeDependencies, staged beside the game). DLSS
             // loads NVIDIA Streamline from the executable's directory at run time (Graphic/API/Vulkan/Streamline/
             // StreamlineRuntime), so without these files the packaged game has no DLSS. The manifest's Files are the
-            // list — the build copies the same list beside every executable (Desert/Dependencies.lua:
+            // list — the build copies the same list beside every executable (cmake/DesertDependencies.cmake:
             // DesertCopyStreamlineRuntime) — and it carries NVIDIA's redistribution licence, which must ship with
             // nvngx_dlss.dll. The files are downloaded, not committed: one that was never fetched refuses the package
             // by name, because a shipped game without them would only say so on the player's machine. FSR needs

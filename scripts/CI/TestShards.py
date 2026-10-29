@@ -21,7 +21,7 @@ Subcommands:
           Writes DIR/shard-<i>.txt (i = 1..N, heaviest first so the long suites start first) and
           DIR/expected.txt. Fails unless the shards are disjoint and their union is the expected list.
           The suites in --vulkan-device-suites (build/TestNeedsVulkanDevice.txt, written by
-          Desert/Tests/premake5.lua from its one `vulkan_device_suites` list) need a real Vulkan
+          Desert/Tests/CMakeLists.txt from its one `_vulkan_device_suites` list) need a real Vulkan
           device. Unless the environment variable NAME is 'true' they are NOT expected on this runner:
           they are named in a ::notice and in DIR/needs-vulkan-device.txt, and verify fails if one of
           them reported anyway. With NAME 'true' they are planned like every other suite.
@@ -48,7 +48,7 @@ def read_list(path):
 
 
 def read_manifest(path):
-    # build/TestManifest.txt: `<Executable> <Suite>` per line (Desert/Tests/premake5.lua). Shards name suites.
+    # build/TestManifest.txt: `<Executable> <Suite>` per line (Desert/Tests/CMakeLists.txt). Shards name suites.
     suites = []
     for line in read_list(path):
         fields = line.split()

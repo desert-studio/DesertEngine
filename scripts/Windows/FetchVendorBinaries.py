@@ -20,7 +20,7 @@ Exit codes (each failure is also printed by name):
     3  ManifestInvalid   a manifest is missing, unreadable, or names a file the archive does not contain
     4  NotFetched        --check found a missing or differing file
 
-Used by scripts/Windows/Setup.bat (step 4b). The engine copes with an absent directory: premake still generates,
+Used by scripts/Windows/Setup.bat (step 4b). The engine copes with an absent directory: the configure still succeeds,
 the build copies nothing and says so, the packager refuses by name and the runtime reports DLSS unavailable.
 """
 

@@ -1,9 +1,9 @@
-# Workspace-wide settings shared by every target: the CMake port of BuildScripts/Platform.lua,
-# Workspace.lua, Configurations.lua, PlatformWindows.lua, PlatformMacOS.lua and UnityBuild.lua.
+# Workspace-wide settings shared by every target: configurations, compile flags, output directories,
+# platform settings, the unity switch and the target helpers every CMakeLists.txt declares through.
 #
 # Everything set here at directory scope reaches every target below the root, first-party and vendored
-# alike, exactly as premake's workspace scope did. The warning level, optimisation and runtime checks are set
-# per TARGET, and premake's per-file rules (`filter "files:..."`: warnings off for vendored files, the Debug-optimised
+# alike. The warning level, optimisation and runtime checks are set
+# per TARGET, and the per-file rules (warnings off for vendored files, the Debug-optimised
 # builders, the unity opt-out list) become per-target settings of split OBJECT libraries; both are applied once,
 # after every target exists, by desert_finalize_targets() (called from the root CMakeLists.txt through
 # cmake_language(DEFER)).
@@ -14,7 +14,7 @@ if(NOT DESERT_ROOT)
   set(DESERT_ROOT "${CMAKE_SOURCE_DIR}")
 endif()
 
-# ── PLATFORM (BuildScripts/Platform.lua) ───────────────────────────────────────────────────────────
+# ── PLATFORM ───────────────────────────────────────────────────────────
 set(DESERT_IS_WINDOWS OFF)
 set(DESERT_IS_MACOS OFF)
 set(DESERT_IS_LINUX OFF)
@@ -37,11 +37,11 @@ if(DESERT_IS_MACOS)
     endforeach()
 endif()
 
-# ── CONFIGURATIONS (BuildScripts/Configurations.lua) ───────────────────────────────────────────────
+# ── CONFIGURATIONS ───────────────────────────────────────────────
 # Debug, Release and Shipping. Shipping is the player's artifact: DESERT_CONFIG_SHIPPING is what the
-# sources test to leave the development instruments out (see Configurations.lua for the full reasoning).
-# Flags spell premake's choices out explicitly instead of inheriting CMake's per-config defaults, so the
-# two build systems compile the same way:
+# sources test to leave the development instruments out, so it is a configuration and not a Release flag.
+# Flags are spelled out explicitly instead of inheriting CMake's per-config defaults, so a CMake upgrade
+# cannot change how a configuration compiles:
 #   Debug     runtime Debug,  symbols On (/Zi or /Z7, never /ZI), no optimisation (MSVC /Od /RTC1 per target)
 #   Release   runtime Release, optimize On  (MSVC /Ox /Oi /Gy /GF per target, clang -O2), NDEBUG
 #   Shipping  runtime Release, optimize Full (MSVC /Ox, clang -O3), symbols Off, NDEBUG + DESERT_CONFIG_SHIPPING
@@ -56,8 +56,8 @@ endif()
 foreach(lang C CXX)
     if(MSVC)
         # The optimisation level and /RTC1 are per TARGET (desert_finalize_targets, _desert_target_flags): a target
-        # premake optimises for speed must not also get /Od or /Ox from here (cl D9025). No /DWIN32 /D_WINDOWS:
-        # MSBuild projects never had them.
+        # optimised for speed must not also get /Od or /Ox from here (cl D9025). No /DWIN32 /D_WINDOWS:
+        # no source tests them.
         set(CMAKE_${lang}_FLAGS_DEBUG    "" CACHE STRING "" FORCE)
         set(CMAKE_${lang}_FLAGS_RELEASE  "/DNDEBUG" CACHE STRING "" FORCE)
         set(CMAKE_${lang}_FLAGS_SHIPPING "/DNDEBUG" CACHE STRING "" FORCE)
@@ -81,8 +81,8 @@ if(MSVC)
     # is added per configuration below.
     set(CMAKE_C_FLAGS "/EHsc /Zc:inline /FC" CACHE STRING "" FORCE)
     set(CMAKE_CXX_FLAGS "/EHsc /Zc:inline /FC" CACHE STRING "" FORCE)
-    # Debug and Release write a .pdb (MSBuild's defaults under premake's `symbols` Default/On: DesertCrashReporter
-    # symbolises with it); Shipping writes none (`symbols "Off"`). Optimised links fold and drop (/OPT:REF,ICF).
+    # Debug and Release write a .pdb (DesertCrashReporter
+    # symbolises with it); Shipping writes none. Optimised links fold and drop (/OPT:REF,ICF).
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG    "/DEBUG /INCREMENTAL" CACHE STRING "" FORCE)
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE  "/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "" FORCE)
     set(CMAKE_EXE_LINKER_FLAGS_SHIPPING "/INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "" FORCE)
@@ -96,12 +96,12 @@ endif()
 # also never joins a unity batch.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
-# /MDd for Debug, /MD for Release and Shipping (premake `runtime "Debug"/"Release"`, dynamic CRT).
+# /MDd for Debug, /MD for Release and Shipping (dynamic CRT, one runtime across every target).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
-# Debug information: Debug and Release (MSBuild's default ProgramDatabase where premake says nothing), never Shipping. /Zi and not /ZI (Configurations.lua, BUILD1 P3). With a compiler
-# launcher (sccache/ccache) the information is embedded (/Z7), which is what BuildScripts/MSBuild/Ccache.targets
-# did for CI: a cache cannot share the one vc143.pdb every compile of a project writes into.
+# Debug information: Debug and Release never Shipping. /Zi and not /ZI (edit-and-continue defeats a cache, BUILD1 P3). With a compiler
+# launcher (sccache/ccache) the information is embedded (/Z7):
+# a cache cannot share the one vc143.pdb every compile of a project writes into.
 if(DESERT_COMPILER_LAUNCHER)
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<NOT:$<CONFIG:Shipping>>:Embedded>")
 else()
@@ -110,7 +110,7 @@ endif()
 
 add_compile_definitions(
     $<$<CONFIG:Shipping>:DESERT_CONFIG_SHIPPING>
-    # EnTT's type-index counter must be atomic in every target or none (Workspace.lua).
+    # EnTT's type-index counter must be atomic in every target or none.
     ENTT_USE_ATOMIC
 )
 
@@ -122,36 +122,36 @@ set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 set(CMAKE_OBJCXX_EXTENSIONS OFF)
 
-# ── OUTPUT DIRECTORIES (Workspace.lua targetdir) ───────────────────────────────────────────────────
-# build/Bin/<Config> for executables AND libraries, as premake wrote them: DesertPlatform.BuiltToolPath and
+# ── OUTPUT DIRECTORIES ───────────────────────────────────────────────────
+# build/Bin/<Config> for executables AND libraries: DesertPlatform.BuiltToolPath and
 # every script that starts a built tool read this path. Objects stay in the CMake binary directory
-# (premake's build/Intermediates/<Config> is MSBuild/gmake's own layout).
+# (build/cmake/<preset>).
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${DESERT_ROOT}/build/Bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${DESERT_ROOT}/build/Bin/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${DESERT_ROOT}/build/Bin/$<CONFIG>")
 set(CMAKE_PDB_OUTPUT_DIRECTORY     "${DESERT_ROOT}/build/Bin/$<CONFIG>")
 
-# ── FIRST-PARTY CODE UNDER ThirdParty/ (Workspace.lua) ─────────────────────────────────────────────
+# ── FIRST-PARTY CODE UNDER ThirdParty/ ─────────────────────────────────────────────
 # desert-shared is our own submodule: an ordinary include directory, never a SYSTEM one.
 include_directories("${DESERT_ROOT}/ThirdParty/desert-shared/Include")
 
-# ── WINDOWS (PlatformWindows.lua, Workspace.lua) ───────────────────────────────────────────────────
+# ── WINDOWS ───────────────────────────────────────────────────
 if(DESERT_IS_WINDOWS)
     if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-        message(FATAL_ERROR "DesertEngine builds x64 only on Windows (PlatformWindows.lua `architecture \"x64\"`); "
+        message(FATAL_ERROR "DesertEngine builds x64 only on Windows; "
                             "configure from an x64 developer environment (vcvars64)")
     endif()
-    # <windows.h> min/max macros break std::max and reflect-cpp (PlatformWindows.lua).
+    # <windows.h> min/max macros break std::max and reflect-cpp.
     add_compile_definitions(NOMINMAX)
-    # premake's default `characterset` on Visual Studio is Unicode, i.e. /DUNICODE /D_UNICODE in every project,
-    # except one that says `characterset "ASCII"` (Embree): added per target by desert_finalize_targets().
+    # Unicode character set, i.e. /DUNICODE /D_UNICODE in every target,
+    # except one marked desert_ascii_characterset (Embree): added per target by desert_finalize_targets().
     # /utf-8: source AND execution charset UTF-8. /bigobj: every target, C1128 is per object, not per project.
     add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8;/bigobj>")
     # The running process is UTF-8 as well: every executable embeds this manifest (desert_add_executable).
     set(DESERT_WINDOWS_MANIFEST "${DESERT_ROOT}/BuildScripts/Windows/Utf8CodePage.manifest")
 endif()
 
-# ── macOS (PlatformMacOS.lua) ──────────────────────────────────────────────────────────────────────
+# ── macOS ──────────────────────────────────────────────────────────────────────
 if(DESERT_IS_MACOS)
     if(NOT CMAKE_OSX_ARCHITECTURES)
         set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "" FORCE)
@@ -172,11 +172,11 @@ if(DESERT_IS_MACOS)
         link_directories("$ENV{VULKAN_SDK}/lib")
     endif()
     # An archive is exactly its current object list: CMake's Ninja and Makefile rules delete the archive
-    # before `ar qc`, which is what PlatformMacOS.lua's `rm -f` prelink step did for gmake.
+    # before `ar qc`, so a deleted source cannot leave a stale object behind.
 endif()
 
-# ── WARNINGS (Workspace.lua) ───────────────────────────────────────────────────────────────────────
-# First-party sources: /W3 on MSVC (a measured choice, see Workspace.lua), -Wall -Wextra on clang/gcc.
+# ── WARNINGS ───────────────────────────────────────────────────────────────────────
+# First-party sources: /W3 on MSVC (a measured choice: /W4 buried the real warnings), -Wall -Wextra on clang/gcc.
 # Vendored sources (any path containing /ThirdParty/): warnings off. A vendored .cpp compiled INTO a first-party
 # target (vk_mem_alloc.cpp, stb_image.cpp, miniaudio.cpp, ImGuizmo.cpp) moves to the OBJECT library
 # <target>-ThirdParty so both levels stay target-wide. Applied by desert_finalize_targets(); no warning level is
@@ -189,9 +189,9 @@ else()
     set(DESERT_WARNINGS_OFF -w)
 endif()
 
-# ── UNITY BUILD (UnityBuild.lua) ───────────────────────────────────────────────────────────────────
-# Off by default for the reason UnityBuild.lua gives: a developer build must compile the code as written.
-# Unlike premake (Visual Studio only), CMake's unity build works with every generator, so the switch is not
+# ── UNITY BUILD ───────────────────────────────────────────────────────────────────
+# Off by default: a developer build must compile the code as written.
+# CMake's unity build works with every generator, so the switch is not
 # refused for Ninja.
 option(DESERT_UNITY "Compile Common, the engine module libraries and the editor libraries as unity files (CI speed)" OFF)
 set(DESERT_UNITY_BATCH_SIZE 12)
@@ -238,7 +238,7 @@ endfunction()
 
 # ── TARGET HELPERS ─────────────────────────────────────────────────────────────────────────────────
 
-# Recursive glob, re-run on every build so a new file is picked up as premake's regeneration picked it up.
+# Recursive glob, re-run on every build so a new file is picked up without a manual re-configure.
 # Patterns are relative to the calling CMakeLists.txt's directory unless absolute.
 function(desert_glob out)
     file(GLOB_RECURSE _files LIST_DIRECTORIES false CONFIGURE_DEPENDS ${ARGN})
@@ -246,7 +246,7 @@ function(desert_glob out)
     set(${out} ${_files} PARENT_SCOPE)
 endfunction()
 
-# The project-level settings premake spelled out in five or more project scripts, in one place:
+# The target-level settings five or more targets need, in one place:
 #   DESERT_CONFIG_DEBUG / DESERT_CONFIG_RELEASE (never Shipping), DESERT_PLATFORM_<OS>.
 function(desert_config_platform_defines target)
     target_compile_definitions(${target} PRIVATE
@@ -261,7 +261,7 @@ function(desert_config_platform_defines target)
     endif()
 endfunction()
 
-# add_library(STATIC) for a first-party or vendored static library. FOLDER mirrors premake's `group`.
+# add_library(STATIC) for a first-party or vendored static library. FOLDER groups it in an IDE.
 function(desert_add_library name)
     cmake_parse_arguments(ARG "" "FOLDER" "SOURCES" ${ARGN})
     add_library(${name} STATIC ${ARG_SOURCES})
@@ -270,9 +270,9 @@ function(desert_add_library name)
     endif()
 endfunction()
 
-# add_executable for a ConsoleApp / WindowedApp. WINDOWED is premake's `kind "WindowedApp"` (Windows
-# subsystem; the entry stays mainCRTStartup where the premake script said so, via LINK_OPTIONS).
-# Every executable gets the UTF-8 code-page manifest on Windows (PlatformWindows.lua).
+# add_executable for a ConsoleApp / WindowedApp. WINDOWED selects the Windows
+# subsystem; the entry stays mainCRTStartup where the target's CMakeLists.txt says so, via LINK_OPTIONS).
+# Every executable gets the UTF-8 code-page manifest on Windows (BuildScripts/Windows/Utf8CodePage.manifest).
 function(desert_add_executable name)
     cmake_parse_arguments(ARG "WINDOWED" "FOLDER" "SOURCES" ${ARGN})
     set(_win "")
@@ -288,7 +288,7 @@ function(desert_add_executable name)
     endif()
 endfunction()
 
-# premake `externalincludedirs`: SYSTEM include directories (MSVC /external:I + /external:W0).
+# SYSTEM include directories (MSVC /external:I + /external:W0).
 # The directories are also recorded in DESERT_SYSTEM_INCLUDES: CMake keeps a target's SYSTEM set internally (the
 # SYSTEM_INCLUDE_DIRECTORIES property reads back empty), and desert_finalize_targets() needs it to order the list and
 # to give a split OBJECT library the same SYSTEM directories.
@@ -312,7 +312,7 @@ function(desert_link_whole_archive target)
     endforeach()
 endfunction()
 
-# premake `prebuildcommands` that must run on EVERY build before the target's sources compile (the header
+# Commands that must run on EVERY build before the target's sources compile (the header
 # tool, GenVersion). A custom command whose output is a SYMBOLIC file is never up to date, so it runs every
 # build, and as a source of the target it orders before every object of that target -- and only of that
 # target, which adds no target to the build (a custom target would).
@@ -341,19 +341,19 @@ function(_desert_collect_targets dir out)
     set(${out} ${_targets} PARENT_SCOPE)
 endfunction()
 
-# Compile flags premake set at PROJECT scope (Configurations.lua, Workspace.lua), applied ONCE PER TARGET so the
+# Compile flags applied ONCE PER TARGET so the
 # target's PCH (cmake_pch.cxx) and its unity files compile exactly like its sources, and no source carries a
 # per-file flag that conflicts with a target flag: cl answers /Od+/O2 and /W3+/W0 with D9025 and /RTC1+/O2 with
 # the error D8016, and CMake never puts a source with its own COMPILE_OPTIONS into a unity file. Three choices:
-#   warnings   ON: /W3 (-Wall -Wextra). OFF: /W0 (-w), for a project premake marks `warnings "Off"`
+#   warnings   ON: /W3 (-Wall -Wextra). OFF: /W0 (-w), for a target marked
 #              (desert_warnings_off) and for a target whose every source is vendored (a path under /ThirdParty/).
-#   speed      premake `optimize "Speed"` (desert_optimize_speed): /O2 /Oi /Gy /GF in EVERY configuration and
+#   speed      desert_optimize_speed: /O2 /Oi /Gy /GF in EVERY configuration and
 #              no Debug runtime checks (clang -O3).
-#   debug_opt  premake `optimize "Speed"` + `runtimechecks "Off"` filtered to Debug on single files
+#   debug_opt  speed with no runtime checks, Debug only, on single files
 #              (DESERT_DEBUG_OPTIMIZE, the mesh card/distance field builders): Debug /O2 (clang -O2).
-# Otherwise: Debug /Od /RTC1 (MSBuild's Optimization Disabled + EnableFastChecks under UseDebugLibraries),
-# Release and Shipping /Ox /Oi /Gy /GF (premake `optimize "On"/"Full"` on MSBuild: Full, IntrinsicFunctions,
-# FunctionLevelLinking, StringPooling). clang's per-configuration level stays in CMAKE_<LANG>_FLAGS_<CONFIG>.
+# Otherwise: Debug /Od /RTC1 (no optimisation, fast runtime checks),
+# Release and Shipping /Ox /Oi /Gy /GF (full optimisation, intrinsics,
+# function-level linking, string pooling). clang's per-configuration level stays in CMAKE_<LANG>_FLAGS_<CONFIG>.
 function(_desert_target_flags target warnings speed debug_opt)
     set(_cc "$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>")
     if(warnings)
@@ -382,10 +382,10 @@ function(_desert_target_flags target warnings speed debug_opt)
 endfunction()
 
 # Moves <sources> (absolute paths) of <owner> into the OBJECT library <owner>-<suffix>: compiled with the owner's
-# include directories (already in premake order), definitions, options and usage requirements (the same link
+# include directories (in declaration order), definitions, options and usage requirements (the same link
 # libraries), and archived/linked into the owner through $<TARGET_OBJECTS>, so the owner's binary holds the same
-# objects premake's project did. The split target gets its OWN target-level flags (_desert_target_flags): this is
-# how a premake per-file setting (a vendored file's warnings off, a Debug-optimised builder) is expressed without
+# objects as if nothing were split. The split target gets its OWN target-level flags (_desert_target_flags): this is
+# how a per-file setting (a vendored file's warnings off, a Debug-optimised builder) is expressed without
 # a conflicting per-source flag. <pch_holder> (may be empty): the target whose PCH the split target reuses.
 function(_desert_split_objects owner suffix pch_holder out)
     set(_obj "${owner}-${suffix}")
@@ -458,8 +458,8 @@ function(_desert_split_objects owner suffix pch_holder out)
     set(${out} ${_obj} PARENT_SCOPE)
 endfunction()
 
-# Runs once, after every target is declared: the per-target rules premake expressed at project scope plus the
-# workspace `filter "files:..."` rules (Workspace.lua, UnityBuild.lua, Configurations.lua).
+# Runs once, after every target is declared: the per-target rules plus the
+# per-file rules (vendored files, unity opt-outs, Debug-optimised builders).
 function(desert_finalize_targets)
     _desert_collect_targets("${CMAKE_SOURCE_DIR}" _targets)
     foreach(target IN LISTS _targets)
@@ -471,7 +471,7 @@ function(desert_finalize_targets)
         if(DESERT_IS_WINDOWS AND NOT _ascii)
             target_compile_definitions(${target} PRIVATE UNICODE _UNICODE)
         endif()
-        # premake's list fields keep the LAST occurrence of a repeated directory (CMake keeps the first): rebuild the
+        # A repeated directory keeps its LAST position (CMake keeps the first), which the include order relies on: rebuild the
         # include list that way, ordinary directories (/I) before SYSTEM ones (/external:I), as MSBuild orders them.
         get_target_property(_incs ${target} INCLUDE_DIRECTORIES)
         get_target_property(_sys ${target} DESERT_SYSTEM_INCLUDES)
@@ -484,7 +484,7 @@ function(desert_finalize_targets)
             set(_system "")
             list(REVERSE _incs)
             foreach(dir IN LISTS _incs)
-                # "Source/" and "Source" are one directory to premake: compare without the trailing slash.
+                # "Source/" and "Source" are one directory: compare without the trailing slash.
                 if(NOT dir MATCHES "^\\$<")
                     string(REGEX REPLACE "/+$" "" dir "${dir}")
                 endif()
@@ -536,7 +536,7 @@ function(desert_finalize_targets)
         if(_speed AND _debug_opt)
             message(FATAL_ERROR "${target}: DESERT_DEBUG_OPTIMIZE sources in a desert_optimize_speed target")
         endif()
-        # Warnings off for the whole target: premake `warnings "Off"`, or nothing of ours in it (a vendored library).
+        # Warnings off for the whole target: desert_warnings_off, or nothing of ours in it (a vendored library).
         set(_warnings ON)
         if(_off OR NOT _ours)
             set(_warnings OFF)
@@ -545,7 +545,7 @@ function(desert_finalize_targets)
         endif()
 
         # A target that splits sources off and has a PCH: the PCH moves to <target>-Pch with the target's pchsource
-        # (premake's `pchsource`, the source named like the header), and the target and its split parts all reuse
+        # (the pchsource, the source named like the header), and the target and its split parts all reuse
         # it -- the split parts cannot reuse the target's own PCH, the target links their objects (a cycle).
         set(_holder "")
         set(_pch_abs "")
@@ -564,7 +564,7 @@ function(desert_finalize_targets)
                 endif()
                 list(APPEND _pch_abs "${hdr}")
             endforeach()
-            # The pchsource stays its own translation unit in every target (premake compiles it with /Yc; in a target that
+            # The pchsource stays its own translation unit in every target (compiled with /Yc; in a target that
             # splits sources off it moves to <target>-Pch, which is never a unity target).
             if(_unity AND _pch_src)
                 list(APPEND _no_unity ${_pch_src})
@@ -574,7 +574,7 @@ function(desert_finalize_targets)
             list(LENGTH _pch_src _n)
             if(NOT _n EQUAL 1)
                 message(FATAL_ERROR "${target}: splits sources off but has ${_n} PCH sources named like its "
-                                    "precompiled header (${_pch}); premake's pchsource must be one of its sources")
+                                    "precompiled header (${_pch}); the pchsource must be one of its sources")
             endif()
             list(REMOVE_ITEM _ours ${_pch_src})
             _desert_split_objects(${target} Pch "" _holder ${_pch_src})
@@ -584,12 +584,12 @@ function(desert_finalize_targets)
             _desert_target_flags(${_holder} ${_warnings} "${_speed}" OFF)
         endif()
         # Vendored single files compiled into a first-party target (stb_image, vk_mem_alloc, ImGuizmo, ...):
-        # warnings off for them only (Workspace.lua `filter "files:**/ThirdParty/**"`).
+        # warnings off for them only.
         if(_vendored)
             _desert_split_objects(${target} ThirdParty "${_holder}" _split ${_vendored})
             _desert_target_flags(${_split} OFF "${_speed}" OFF)
         endif()
-        # Sources optimised in Debug. MSVC: premake's Debug `NotUsing` PCH with pch.hpp still force-included is the
+        # Sources optimised in Debug. MSVC: Debug compiles them without the PCH but with pch.hpp still force-included, i.e. the
         # reused PCH ignored (/Y-) with cmake_pch.hxx still force-included; Release/Shipping use the PCH. clang has
         # no per-configuration PCH switch: the header is force-included in every configuration instead.
         if(_debug_opt)
@@ -611,20 +611,20 @@ function(desert_finalize_targets)
     endforeach()
 endfunction()
 
-# premake `characterset "ASCII"`: <CharacterSet>NotSet</CharacterSet>, so MSBuild defines neither UNICODE/_UNICODE
+# ASCII character set: defines neither UNICODE/_UNICODE
 # nor _MBCS (only MultiByte would add _MBCS).
 function(desert_ascii_characterset target)
     set_property(TARGET ${target} PROPERTY DESERT_ASCII ON)
 endfunction()
 
-# premake `optimize "Speed"` on a vendored project: optimised in EVERY configuration (MSVC /O2 /Oi /Gy /GF, clang -O3)
-# and without the Debug runtime checks /O2 cannot be combined with (`runtimechecks "Off"`). Applied per target by
+# A vendored target optimised in EVERY configuration (MSVC /O2 /Oi /Gy /GF, clang -O3)
+# and without the Debug runtime checks /O2 cannot be combined with (no /RTC1). Applied per target by
 # desert_finalize_targets().
 function(desert_optimize_speed target)
     set_property(TARGET ${target} PROPERTY DESERT_OPTIMIZE_SPEED ON)
 endfunction()
 
-# premake `warnings "Off"` on a project: /W0 (-w) for every source of the target, including the ones outside
+# Warnings off for a whole target: /W0 (-w) for every source of the target, including the ones outside
 # ThirdParty/ (Dav1d's generated bitdepth instances). Applied per target by desert_finalize_targets().
 function(desert_warnings_off target)
     set_property(TARGET ${target} PROPERTY DESERT_WARNINGS_OFF ON)
@@ -643,7 +643,7 @@ function(desert_write_generated path text)
     file(WRITE "${path}" "${text}")
 endfunction()
 
-# Only DESERT_PLATFORM_<OS>, for the tools whose premake script defines the platform and no configuration.
+# Only DESERT_PLATFORM_<OS>, for the tools that need the platform and no configuration.
 function(desert_platform_defines target)
     if(DESERT_IS_WINDOWS)
         target_compile_definitions(${target} PRIVATE DESERT_PLATFORM_WINDOWS)
@@ -654,9 +654,9 @@ function(desert_platform_defines target)
     endif()
 endfunction()
 
-# premake `removeconfigurations { "<Config>" }`: the target is absent from that configuration's build. Ninja
+# The target is absent from that configuration's build. Ninja
 # Multi-Config (the presets' generator) honours a per-configuration EXCLUDE_FROM_ALL; the target stays declared,
-# so a build that names it explicitly still builds it, which premake's missing project could not.
+# so a build that names it explicitly still builds it.
 function(desert_remove_configuration target config)
     set_property(TARGET ${target} PROPERTY EXCLUDE_FROM_ALL "$<CONFIG:${config}>")
 endfunction()

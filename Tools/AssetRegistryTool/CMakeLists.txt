@@ -1,5 +1,5 @@
-# Tools/AssetRegistryTool/premake5.lua: the asset registry CLI; StartupLayout.cpp for ResolveEngineDir, links
-# Common. No DESERT_PLATFORM_LINUX: premake defines Windows and macOS only.
+# AssetRegistryTool: the asset registry CLI; StartupLayout.cpp for ResolveEngineDir, links
+# Common. No DESERT_PLATFORM_LINUX: only Windows and macOS are built.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(AssetRegistryTool FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/StartupLayout.cpp")

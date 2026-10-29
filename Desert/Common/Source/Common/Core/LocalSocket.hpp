@@ -22,7 +22,7 @@
 // What lives here is what is genuinely not the same.
 //
 // The guard is `_WIN32` and not DESERT_PLATFORM_WINDOWS on purpose: the compiler always defines it, while
-// the project define has to be remembered by every premake file that reaches this header — and the failure
+// the project define has to be remembered by every CMakeLists.txt that reaches this header — and the failure
 // mode of forgetting it here is a Windows build that compiles the POSIX branch. Common/Core/ErrnoText.hpp
 // chose it first, for the same reason.
 //
@@ -91,7 +91,7 @@ namespace Common::LocalSocket
 #if defined( _WIN32 )
             // THE WIDE CALL AND THEN UTF-8, not FormatMessageA. The narrow one answers in the machine's ANSI
             // codepage, and this codebase's narrow strings are UTF-8 everywhere (/utf-8 is set workspace-wide
-            // in BuildScripts/PlatformWindows.lua) -- the log, the channel's JSON replies and desertctl's
+            // in cmake/DesertWorkspace.cmake) -- the log, the channel's JSON replies and desertctl's
             // stderr all read as UTF-8. Measured on this machine, whose messages are Russian: `desertctl`
             // against a dead socket printed "?????????? ?? ???????????" where the reason should have been.
             // The number survived that, which is why it is always appended, but a diagnostic nobody can read

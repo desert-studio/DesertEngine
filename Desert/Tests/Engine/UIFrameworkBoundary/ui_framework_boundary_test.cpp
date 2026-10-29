@@ -3,7 +3,7 @@
 // DesertUI (Desert/UI/Source/UI) reads its element tree through UI::IUITree + NodeId and its resources through
 // interfaces; the ECS-backed implementations are the ENGINE's (Engine/UI/Ecs/). Render2DCore
 // (Desert/Render2DCore/Source/Render2DCore) is the recorded half of 2D drawing the framework fills. The layering
-// is Common <- Render2DCore <- DesertUI <- Desert, the same order BuildScripts/DesertModules.lua declares.
+// is Common <- Render2DCore <- DesertUI <- Desert, the same order cmake/DesertModuleTable.cmake declares.
 //
 // WHY A SOURCE CENSUS WHEN THE BUILD ALREADY PROVES IT. The build proves today's binary. It does not notice the
 // day an `#include <Engine/...>` is written into the framework: the include directories every consumer passes
@@ -123,7 +123,7 @@ namespace
             return "Vulkan: the GPU playback of a draw list is Render2D's, in the engine";
         if ( path.find( "GLFW" ) != std::string::npos || path.find( "glfw" ) != std::string::npos )
             return "GLFW: the window is the host's (Engine/UI/Ecs/UIWindowClipboard.hpp)";
-        return "not a dependency of this library (BuildScripts/DesertModules.lua)";
+        return "not a dependency of this library (cmake/DesertModuleTable.cmake)";
     }
 
     std::vector<std::string> Offenders( const fs::path& root, const Library& library )

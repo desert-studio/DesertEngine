@@ -1,4 +1,4 @@
-# Tools/DShaderTool/premake5.lua: the Desert Shader Language checker; compiles the engine's DShader parser and
+# DShaderTool: the Desert Shader Language checker; compiles the engine's DShader parser and
 # shading-model registry straight in, and StartupLayout.cpp for ResolveEngineDir.
 desert_glob(_sources "Source/*.cpp")
 set(_engine "${DESERT_ROOT}/Desert/Desert/Source/Engine/Core/ShaderCompiler")

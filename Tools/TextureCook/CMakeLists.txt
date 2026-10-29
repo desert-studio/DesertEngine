@@ -1,4 +1,4 @@
-# Tools/TextureCook/premake5.lua: cooks texture sources; compiles the editor's TextureImporter/DdsSource and the
+# TextureCook: cooks texture sources; compiles the editor's TextureImporter/DdsSource and the
 # engine's texture sources straight in, links Common, Optick, OpenEXRCore, ReflectCpp and the Vulkan SDK libraries
 # (deps.DesertSpecific.Libraries; on Windows that table is where ReflectCpp comes from, elsewhere it is named).
 desert_glob(_sources "Source/*.cpp")

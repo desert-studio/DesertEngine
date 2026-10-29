@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/Lua.lua: PUC Lua as a C library, archive named LuaPuc. `lua_ident` is renamed so it
+# Lua: PUC Lua as a C library, archive named LuaPuc. `lua_ident` is renamed so it
 # cannot collide with Luau's symbol of the same name in one binary.
 set(_root "${DESERT_ROOT}/ThirdParty/lua")
 file(GLOB _src CONFIGURE_DEPENDS "${_root}/*.c" "${_root}/*.h")

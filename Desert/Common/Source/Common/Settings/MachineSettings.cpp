@@ -773,8 +773,8 @@ namespace Common::Settings
         // the package folder with (ProductName.hpp) rather than being trusted.
         const std::string safe = SanitizeProductName( product );
 
-        // ASKED OF THE COMPILER, NOT OF THE BUILD SYSTEM. `DESERT_PLATFORM_*` comes from a per-project
-        // premake block that every test suite forgets (Common/Core/Core.hpp §DESERT_DEBUG_BREAK records
+        // ASKED OF THE COMPILER, NOT OF THE BUILD SYSTEM. `DESERT_PLATFORM_*` comes from a per-target
+        // build setting that a test suite can forget (Common/Core/Core.hpp §DESERT_DEBUG_BREAK records
         // what that cost there), and a suite compiled without it would silently be told this machine is
         // Linux. `_WIN32` and `__APPLE__` are the compiler's own and cannot go missing.
         const char* home = std::getenv( "HOME" );

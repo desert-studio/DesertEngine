@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/ReflectCpp.lua: reflect-cpp v0.19.0, core + JSON backend + yyjson (the engine only uses rfl::json).
+# ReflectCpp: reflect-cpp v0.19.0, core + JSON backend + yyjson (the engine only uses rfl::json).
 set(_root "${DESERT_ROOT}/ThirdParty/reflect-cpp")
 if(NOT EXISTS "${_root}/src/reflectcpp.cpp")
     message(FATAL_ERROR "ThirdParty/reflect-cpp/src is missing. Run scripts/MacOS/Setup.sh (or scripts\\Windows\\Setup.bat) "

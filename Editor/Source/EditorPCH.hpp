@@ -1,6 +1,6 @@
 #pragma once
 
-// THE EDITOR LIBRARIES' PRECOMPILED HEADER (Editor/premake5.lua, EditorLibrary), force-included into every
+// THE EDITOR LIBRARIES' PRECOMPILED HEADER (cmake/DesertEditorLibs.cmake), force-included into every
 // source of every editor library. What is here is what the editor's translation units include most - counted
 // over Editor/Source when this was written: the standard headers a third to a half of them name, ImGui, glm,
 // the Common result/log/constant headers, and the four engine headers (scene, components, asset manager,

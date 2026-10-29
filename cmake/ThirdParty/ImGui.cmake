@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/ImGui.lua: Dear ImGui core + demo, C++17.
+# ImGui: Dear ImGui core + demo, C++17.
 # `staticruntime "On"` is carried over as written: the library compiles against the STATIC CRT (/MT, /MTd)
 # while everything else uses the DLL CRT. It links only because imgui.cpp includes no STL header, so no
 # RuntimeLibrary mismatch record reaches the linker.

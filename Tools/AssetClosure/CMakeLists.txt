@@ -1,5 +1,5 @@
-# Tools/AssetClosure/premake5.lua: the asset dependency closure; compiles the editor's AssetReferences TUs
-# straight in, links Common. No DESERT_PLATFORM_LINUX: premake defines Windows and macOS only.
+# AssetClosure: the asset dependency closure; compiles the editor's AssetReferences TUs
+# straight in, links Common. No DESERT_PLATFORM_LINUX: only Windows and macOS are built.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(AssetClosure FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Editor/Source/Editor/Core/AssetReferences.cpp"

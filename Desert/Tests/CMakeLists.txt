@@ -1,11 +1,11 @@
-# Desert/Tests/premake5.lua: ONE TEST RUNNER PER LAYER (BUILD1 P1, BuildScripts/BUILD1-CONTRACT.md §4).
+# ONE TEST RUNNER PER LAYER (BUILD1 P1, BuildScripts/BUILD1-CONTRACT.md §4).
 #
 # A suite is a directory Desert/Tests/<Layer>/<Suite>/ whose *.cpp (that directory, not below it) are compiled into
 # the layer's runner <Layer>Tests, with TestSupport/RunnerMain.cpp as the only main. What a suite needs beyond that
-# goes into its runner's settings below, once, with the reason (the reasons are in premake5.lua's kRunners).
-# The runners and the two aggregates are absent from Shipping (premake `removeconfigurations { "Shipping" }`; the
-# reasoning is premake5.lua's "THE TEST SUITES ARE NOT PART OF THE SHIPPING CONFIGURATION").
-# Generated at configure time, as premake wrote them at generation time: build/TestManifest.txt
+# goes into its runner's settings below, once, with the reason beside it.
+# The runners and the two aggregates are absent from Shipping (desert_remove_configuration): the player's
+# configuration ships no test code, and a Shipping build that compiled the suites would hide that it links none.
+# Generated at configure time: build/TestManifest.txt
 # ("<Executable> <Suite>" per suite) and build/TestNeedsVulkanDevice.txt. RunAllTests writes run_tests.bat.
 
 set(_tests_dir "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -13,10 +13,10 @@ set(_layers Common Engine Editor Runtime Tools)
 set(_runner_layers Common Runtime Tools Engine Editor) # the layers kRunners configures (all of them)
 file(MAKE_DIRECTORY "${DESERT_TEST_REPORTS_DIR}")
 
-# premake --dev-suites=A,B: DevTests, one runner of only these suites (agent builds; CI never sets it).
+# -DDESERT_DEV_SUITES=A,B: DevTests, one runner of only these suites (agent builds; CI never sets it).
 set(DESERT_DEV_SUITES "" CACHE STRING "Also generate DevTests: one runner of only these test suites (comma list)")
 
-# Every runner is absent from Shipping and writes to build/Bin/Tests/<Config> (premake targetdir).
+# Every runner is absent from Shipping and writes to build/Bin/Tests/<Config>.
 function(_desert_tests_common_settings target)
     set_target_properties(${target} PROPERTIES FOLDER Tests
         RUNTIME_OUTPUT_DIRECTORY "${DESERT_ROOT}/build/Bin/Tests/$<CONFIG>")
@@ -55,7 +55,7 @@ function(_desert_runner_settings target)
     target_link_libraries(${target} PRIVATE ReflectCpp)
 endfunction()
 
-# The header tool run before a runner compiles (premake prebuildcommands + dependson DesertHeaderTool).
+# The header tool run before a runner compiles (desert_prebuild, after DesertHeaderTool is built).
 function(_desert_tests_header_tool target name)
     add_dependencies(${target} DesertHeaderTool)
     desert_prebuild(${target} ${name}
@@ -282,12 +282,12 @@ if(_vulkan_device_suites)
 endif()
 desert_write_generated("${DESERT_ROOT}/build/TestNeedsVulkanDevice.txt" "${_vulkan_text}")
 
-# premake Utility projects: present in Debug and Release, absent from Shipping. BuildAllTests carries no edges,
-# exactly as in premake (its dependson has been commented out there since before BUILD1).
+# Aggregate targets: present in Debug and Release, absent from Shipping. BuildAllTests carries no edges
+# (no dependencies of its own).
 add_custom_target(BuildAllTests ALL)
 # On Windows RunAllTests writes run_tests.bat, the shim that hands the built configuration to
 # scripts/Windows/RunTests.ps1 (cmake/WriteRunTestsBat.cmake; the text is data, no line passes through cmd's echo).
-# Elsewhere it does nothing: ci.yml runs scripts/MacOS/RunTests.sh itself (premake5.lua, "NO `else` BRANCH").
+# Elsewhere it does nothing: ci.yml runs scripts/MacOS/RunTests.sh itself, so a post-build run here would run the tests twice.
 set(_write_runner "")
 if(DESERT_IS_WINDOWS)
     set(_write_runner COMMAND "${CMAKE_COMMAND}" -D "OUTPUT=${DESERT_ROOT}/run_tests.bat" -D "CONFIG=$<CONFIG>"
@@ -298,7 +298,7 @@ foreach(t BuildAllTests RunAllTests)
     set_target_properties(${t} PROPERTIES FOLDER Tests)
     desert_remove_configuration(${t} Shipping)
 endforeach()
-# RunAllTests means "every test suite is built" (premake dependson every runner), so it runs after them.
+# RunAllTests means "every test suite is built" (it depends on every runner), so it runs after them.
 if(_test_projects)
     add_dependencies(RunAllTests ${_test_projects})
 endif()

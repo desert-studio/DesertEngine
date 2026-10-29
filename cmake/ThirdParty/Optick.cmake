@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/Optick.lua: the Optick profiler, CPU only (GPU and tracing off, as every consumer defines).
+# Optick: the Optick profiler, CPU only (GPU and tracing off, as every consumer defines).
 # ThirdParty/optick's own CMakeLists.txt is not used: it declares OptickCore (another name) and its own options.
 set(_root "${DESERT_ROOT}/ThirdParty/optick")
 if(NOT EXISTS "${_root}/src/optick.h")

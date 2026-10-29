@@ -143,7 +143,7 @@ namespace Desert::Graphic
     // Fullscreen deferred-lighting material: binds the scene renderer's G-buffer color targets (albedo/metallic,
     // normal/roughness, world-position) + the sun (+ its CSM shadow maps) + ALL point & spot lights (uploaded
     // into the shared SSBO layout the mesh lit shader also uses) + a debug-mode selector, driving
-    // DeferredLighting.shader. Header-only (no new .cpp -> no premake regen).
+    // DeferredLighting.shader. Header-only.
     class MaterialDeferredLighting final : public Material
     {
     public:

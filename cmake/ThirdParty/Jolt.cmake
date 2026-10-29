@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/Jolt.lua: Jolt Physics, every source under Jolt/, C++17.
+# Jolt: Jolt Physics, every source under Jolt/, C++17.
 set(_root "${DESERT_ROOT}/ThirdParty/JoltPhysics")
 desert_glob(_src "${_root}/Jolt/*.cpp" "${_root}/Jolt/*.h")
 desert_add_library(Jolt FOLDER ThirdParty SOURCES ${_src})

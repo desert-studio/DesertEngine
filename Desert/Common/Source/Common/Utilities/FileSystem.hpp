@@ -70,7 +70,7 @@ namespace Common::Utils
         // checked this for you"; the check is still yours to write. `[[nodiscard]]` below catches
         // only a WHOLLY discarded call — but it does now catch that one: this comment used to end
         // "and even that is silent in this workspace, which builds every target with -w", which
-        // stopped being true on 2026-09-06 when Workspace.lua replaced `warnings "Off"` with
+        // stopped being true on 2026-09-06 when cmake/DesertWorkspace.cmake replaced `warnings "Off"` with
         // `warnings "Extra"`. Verified 2026-09-07 by discarding a NO_DISCARD result on purpose and
         // watching -Wunused-result fire, so the attribute is a real gate now and worth reaching for.
         //

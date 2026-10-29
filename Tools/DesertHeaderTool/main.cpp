@@ -1554,8 +1554,8 @@ namespace
         const fs::path        outputDir = request.Output.parent_path();
         std::set<std::string> written;
         // EVERY module of the table gets its file, the ones without a reflected type an empty registration: the
-        // set of files is then fixed by the table, which premake reads, so the source glob premake expands at
-        // generation time always holds the file a newly reflected type lands in.
+        // set of files is then fixed by the table, which the configure reads, so the source glob it expands at
+        // configure time always holds the file a newly reflected type lands in.
         Common::Json::Value::Array listed; // in the module table's order: dependencies register first
         for ( const std::string& module : moduleNames )
         {

@@ -10,7 +10,7 @@
 # WHY IT DERIVES THE ANSWER INSTEAD OF CARRYING A LIST. Same reason DEV_CONTRACT §2.4.5a deleted its list of
 # tool names: a list has to be maintained, and a list that is one entry out of date lies in exactly the
 # direction nobody checks. The configured build already states every source each test runner compiles
-# (compile_commands.json) and every library it links whole (the Ninja link lines) — the build IS the ground
+# (compile_commands.json) and every library it links (the Ninja link lines) — the build IS the ground
 # truth, and this is a set difference over it.
 #
 # It is a REPORT, not a gate. There is no threshold to fail against: some of these files cannot be reached
@@ -50,12 +50,13 @@ fi
 SUITES=$(grep -c . "$MANIFEST")
 awk 'NF { print $1 }' "$MANIFEST" | sort -u > "$TMP/runners"
 
-# --- Every source file those runners compile, plus every source of a static library a runner links WHOLE
-#     (desert_link_whole_archive: $<LINK_LIBRARY:WHOLE_ARCHIVE,..>, i.e. -force_load / --whole-archive /
-#     /WHOLEARCHIVE: on its Debug link line -- the five editor libraries in EditorTests): such a library's objects
-#     are all in the runner, as if compiled there. A library linked by reference (Desert, Common) contributes only
-#     the objects something pulls, which the build cannot tell, so its sources are not counted. A target's
-#     sources are the compile_commands.json entries whose object lies under `<Target>.dir/Debug/`.
+# --- Every source file those runners compile, plus every source of every first-party static library on a runner's
+#     Debug link line, linked whole (desert_link_whole_archive) or by reference (Desert*, Common): ONE measure,
+#     "a suite can execute this file". A library linked by reference contributes the objects something pulls, and
+#     which ones the build cannot tell without a linker map; counting the whole library says the file is in reach
+#     of a suite's link, which is what a planted defect needs to be found or missed. A target's sources are the
+#     compile_commands.json entries whose object lies under `<Target>.dir/Debug/` or `<Target>-<Part>.dir/Debug/`
+#     (the OBJECT libraries desert_finalize_targets splits off, archived into <Target>).
 MISSING=$(BUILD_DIR="$BUILD_DIR" RUNNERS="$TMP/runners" OUT="$TMP/compiled" python3 - <<'PY'
 import json, os, re
 build = os.environ["BUILD_DIR"]
@@ -81,19 +82,22 @@ for line in open(os.path.join(build, "CMakeFiles", "impl-Debug.ninja"), encoding
         links[current] = line
     elif not line.startswith("  "):
         current = None
-whole = re.compile(r"(?:-force_load,|-force_load |--whole-archive |/WHOLEARCHIVE:)(\S+)")
+archive = re.compile(r"([^\s,:]+)\.(?:a|lib)\b")
 compiled, missing = set(), []
+def add(target):
+    # The target's own sources plus its split OBJECT parts (<target>-<Part>), whose objects it archives.
+    for name, files in sources.items():
+        if name == target or name.startswith(target + "-"):
+            compiled.update(files)
 for runner in open(os.environ["RUNNERS"]).read().split():
     if runner not in sources:
         missing.append(runner)
         continue
-    compiled |= sources[runner]
-    for lib in whole.findall(links.get(runner, "")):
-        name = re.sub(r"^lib", "", os.path.splitext(os.path.basename(lib.replace("\\", "/")))[0])
-        if name in sources:
-            compiled |= sources[name]
-        else:
-            missing.append(name)
+    add(runner)
+    for lib in archive.findall(links.get(runner, "")):
+        name = re.sub(r"^lib", "", os.path.basename(lib.replace("\\", "/")))
+        if name in sources:  # a system or SDK library (vulkan-1, dbghelp) is not ours: not counted
+            add(name)
 # newline="\n": on Windows text mode writes CRLF, and a "path<CR>" never equals find's "path" in comm,
 # which is how every source read as unreached (0 of 1029).
 open(os.environ["OUT"], "w", newline="\n").write("".join(p + "\n" for p in sorted(compiled)))

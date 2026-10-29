@@ -469,7 +469,7 @@ TEST( AssimpBoundary, TheImporterRegisterGivesEveryFormatAReason )
     const auto        root = RepositoryRoot();
     const std::string text = ReadFile( root / "BuildScripts" / "ThirdParty" / "AssimpImporters.txt" );
     ASSERT_FALSE( text.empty() ) << "BuildScripts/ThirdParty/AssimpImporters.txt is missing. It is what "
-                                    "Assimp.lua derives the disable list from; without it the build "
+                                    "Assimp.cmake derives the disable list from; without it the build "
                                     "would ship every format assimp has.";
 
     std::istringstream lines( text );

@@ -1,4 +1,4 @@
-# Runtime/premake5.lua: the player executable. Links the engine module libraries, never the editor.
+# Runtime: the player executable. Links the engine module libraries, never the editor.
 desert_glob(_sources "Source/*.cpp" "Source/*.hpp")
 desert_add_executable(Runtime SOURCES ${_sources})
 set_target_properties(Runtime PROPERTIES

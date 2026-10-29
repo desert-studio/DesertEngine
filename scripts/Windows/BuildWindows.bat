@@ -105,11 +105,22 @@ if errorlevel 1 (
         exit /b 1
     )
 )
+REM CMake and Ninja: PATH first ^(a Developer Command Prompt, CI's msvc-dev-cmd, a standalone install^),
+REM then the copies Visual Studio bundles with its "C++ CMake tools for Windows" component, searched in
+REM EVERY instance vswhere knows ^(any edition, Build Tools and previews included, newest first^).
+REM vcvars64.bat puts them on PATH only for its OWN instance, and the instance that has the C++ toolset
+REM is not necessarily the one that has the CMake component.
+set "VS_CMAKE_REL=Common7\IDE\CommonExtensions\Microsoft\CMake"
+where cmake >NUL 2>&1
+if errorlevel 1 call :find_vs_tool "CMake\bin\cmake.exe"
+where ninja >NUL 2>&1
+if errorlevel 1 call :find_vs_tool "Ninja\ninja.exe"
 for %%t in (cmake ninja) do (
     where %%t >NUL 2>&1
     if errorlevel 1 (
-        echo [ERROR] %%t not found on PATH. Run scripts\Windows\Setup.bat, which installs the Visual 1>&2
-        echo         Studio C++ CMake tools ^(CMake 3.28+ and Ninja^). 1>&2
+        echo [ERROR] %%t not found: not on PATH and in no Visual Studio instance. Install the Visual Studio 1>&2
+        echo         component "C++ CMake tools for Windows" ^(Microsoft.VisualStudio.Component.VC.CMake.Project: 1>&2
+        echo         CMake 3.28+ and Ninja^); scripts\Windows\Setup.bat installs it. 1>&2
         exit /b 1
     )
 )
@@ -225,4 +236,18 @@ exit /b 1
 REM Reached ONLY by the not-implemented-on-this-platform branch above. The build succeeded and was
 REM not analysed, and the line that says so has already been printed to stderr.
 endlocal
+exit /b 0
+
+:find_vs_tool
+REM %~1: the tool under an instance's bundled CMake directory. The newest instance that has it wins and
+REM its folder is prepended to PATH ^(same environment: a `call :label` has no setlocal of its own^).
+REM The -find path is UNQUOTED on purpose: it has no spaces, and a second quoted pair inside for /f's
+REM backquotes makes cmd strip the outer quotes, so "vswhere.exe" stops being a command.
+set "_VS_TOOL="
+if not exist "%VSWHERE%" exit /b 0
+for /f "usebackq delims=" %%i in (`"%VSWHERE%" -all -prerelease -products * -sort -find %VS_CMAKE_REL%\%~1 2^>NUL`) do (
+    if not defined _VS_TOOL set "_VS_TOOL=%%i"
+)
+if defined _VS_TOOL for %%d in ("!_VS_TOOL!") do set "PATH=%%~dpd;!PATH!"
+set "_VS_TOOL="
 exit /b 0

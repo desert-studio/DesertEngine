@@ -5,7 +5,7 @@
 // floats live in the G-buffer shading word (RG32_UINT) — on both sides of the C++/GLSL boundary; they hold from
 // the contract alone. The registry tests pin the RULES — Guid identity, Unlit = 0, at most 16, at most four
 // payload floats, Inputs within SurfaceOutput, a Guid-stable index — over the shipped files and over built-up
-// manifests; they need the implementation (ShadingModels/*.cpp, compiled in by the premake match).
+// manifests; they need the implementation (ShadingModels/*.cpp, compiled in by the runner's source glob).
 
 #include "../../TestSupport/scratch_dir.hpp"
 #include <gtest/gtest.h>

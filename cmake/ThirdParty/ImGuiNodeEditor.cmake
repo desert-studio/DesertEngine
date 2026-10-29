@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/ImGuiNodeEditor.lua: imgui-node-editor, C++17, against our ImGui.
+# ImGuiNodeEditor: imgui-node-editor, C++17, against our ImGui.
 set(_root "${DESERT_ROOT}/ThirdParty/imgui-node-editor")
 set(_src crude_json.cpp crude_json.h imgui_bezier_math.h imgui_canvas.cpp imgui_canvas.h imgui_extra_math.h
          imgui_node_editor.cpp imgui_node_editor.h imgui_node_editor_api.cpp imgui_node_editor_internal.h)

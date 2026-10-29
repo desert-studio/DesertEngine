@@ -37,7 +37,7 @@ namespace Common::Content
     //
     // Four programs have to agree on this list and only one of them links the engine: the editor's cook
     // writes the rows, both hosts read them, the standalone `AssetRegistryTool` bootstraps a project
-    // that has never been cooked (Tools link `Common` only — see Tools/PakTool/premake5.lua), and the
+    // that has never been cooked (Tools link `Common` only — see Tools/PakTool/CMakeLists.txt), and the
     // cook gate in CI holds the list against the content tree. A census one of them could not include
     // would be a census with a copy, which is the shape this file exists to end.
     //

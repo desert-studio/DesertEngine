@@ -255,7 +255,7 @@ namespace
         return n;
     }
 
-    // THE PLAYER'S OWN SOURCE SET, derived from the three roots the `Runtime` premake compiles and links:
+    // THE PLAYER'S OWN SOURCE SET, derived from the three roots the `Runtime` target compiles and links:
     // its own sources, the engine library and Common. The editor is deliberately NOT here — it is not
     // built in the Shipping configuration at all, so an editor file consuming a development instrument is
     // not a violation of anything and listing editor exceptions would be a register nobody could finish.

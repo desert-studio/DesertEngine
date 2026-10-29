@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/OpenEXR.lua: OpenEXRCore (the C core: .exr texture sources) with its bundled zstd
+# OpenEXR: OpenEXRCore (the C core: .exr texture sources) with its bundled zstd
 # (decoder + encoder C sources, no asm) and OpenJPH (portable code, every SIMD variant removed), one static library.
 # The config headers OpenEXR's and Imath's own CMake would configure are written into build/generated/openexr/include
 # at configure time -- the path the Editor, GamePackager and TextureCook include.
@@ -22,7 +22,7 @@ function(_desert_exr_define path name out)
     set(${out} ${CMAKE_MATCH_1} PARENT_SCOPE)
 endfunction()
 
-# configure_file's job, with the same refusal premake had: an @VAR@ without a value fails configure.
+# configure_file's job, with a refusal: an @VAR@ without a value fails configure.
 # Values are variables named _v_<NAME>; a #cmakedefine is on when _d_<NAME> is true.
 function(_desert_exr_substitute template out)
     set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${template}")
@@ -129,7 +129,7 @@ set(_zstd_src
     decompress/huf_decompress.c decompress/zstd_ddict.c decompress/zstd_decompress.c decompress/zstd_decompress_block.c)
 list(TRANSFORM _zstd_src PREPEND "${_zstd}/")
 desert_add_library(OpenEXRCore FOLDER ThirdParty SOURCES ${_core_src} ${_zstd_src} ${_ojph_src})
-desert_warnings_off(OpenEXRCore)  # premake: warnings "Off"
+desert_warnings_off(OpenEXRCore)
 set_target_properties(OpenEXRCore PROPERTIES CXX_STANDARD 17 C_STANDARD 11)
 target_include_directories(OpenEXRCore PRIVATE
     "${_core}" "${_generated}" "${_imath}/src/Imath" "${_zstd}" "${_ojph}" "${_ojph}/openjph" "${_ojph}/shared")

@@ -1,4 +1,4 @@
-# Tools/CloudLayoutBaker/premake5.lua: bakes the cloud layout; compiles the engine's CloudLayout.cpp and
+# CloudLayoutBaker: bakes the cloud layout; compiles the engine's CloudLayout.cpp and
 # stb_image straight in, links Common.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(CloudLayoutBaker FOLDER Tools SOURCES ${_sources}

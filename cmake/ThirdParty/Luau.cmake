@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/Luau.lua: Luau 0.741 as six static libraries (VM, Compiler, CodeGen and their
+# Luau: Luau 0.741 as six static libraries (VM, Compiler, CodeGen and their
 # Ast/Bytecode/Common), each C++17, headers under <module>/include, sources <module>/src/*.cpp (not recursive).
 set(_root "${DESERT_ROOT}/ThirdParty/luau")
 if(NOT EXISTS "${_root}/VM/include/lua.h")
@@ -9,7 +9,7 @@ function(_desert_luau name module)
     file(GLOB _src CONFIGURE_DEPENDS "${_root}/${module}/src/*.cpp" "${_root}/${module}/src/*.h")
     list(SORT _src)
     desert_add_library(Luau${name} FOLDER ThirdParty SOURCES ${_headers} ${_src})
-    desert_warnings_off(Luau${name})  # premake: warnings "Off"
+    desert_warnings_off(Luau${name})
     set_target_properties(Luau${name} PROPERTIES CXX_STANDARD 17)
     set(_inc "")
     foreach(dir IN LISTS ARGN)

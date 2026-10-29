@@ -1,6 +1,6 @@
-# One static library per engine module, built from the module table (Desert/Desert/premake5.lua).
+# One static library per engine module, built from the module table (cmake/DesertModuleTable.cmake).
 # The libraries are named Desert<Module> (DesertModules.LegacyLibName); which files each one compiles is decided
-# by BuildScripts/DesertModules.lua's placement rows (cmake/DesertModules.cmake).
+# by cmake/DesertModuleTable.cmake's placement rows (cmake/DesertModules.cmake).
 
 # Vendored single-file implementations compiled INTO a module library, each into the module that uses it.
 set(_vendored_RenderCore
@@ -25,7 +25,7 @@ function(_desert_engine_module_library name)
     set(_common "${_source}/pch.cpp" "${_source}/pch.hpp")
     set(_windows "")
     set(_mac "")
-    # Platform split by path, as the premake script's Add() did.
+    # Platform split by path: a Windows/ or MacOS/ directory compiles on that platform only.
     macro(_desert_add rel abs)
         if("${rel}" MATCHES "^Platform/Windows/" OR "${rel}" MATCHES "^Engine/Graphic/Upscalers/"
            OR "${rel}" MATCHES "/Streamline/" OR "${rel}" MATCHES "/FidelityFX/")
@@ -50,7 +50,7 @@ function(_desert_engine_module_library name)
 
     # pch.hpp, force-included into every source (pchheader/pchsource/forceincludes).
     target_precompile_headers(${target} PRIVATE "${_source}/pch.hpp")
-    # Objective-C++ sources build without it (premake's .mm filter: NoPCH).
+    # Objective-C++ sources build without it: the PCH is C++, not Objective-C++.
     set(_no_pch "")
     foreach(src IN LISTS _mac)
         if(src MATCHES "\\.mm$")
@@ -62,7 +62,7 @@ function(_desert_engine_module_library name)
     endif()
     # The distance-field and card builders are optimised even in Debug (a Debug bake is otherwise unusable):
     # desert_finalize_targets() compiles them as <target>-DebugOptimized with Debug /O2, no runtime checks and the
-    # PCH off in Debug only, as premake's per-file Debug filter did.
+    # PCH off in Debug only.
     foreach(src IN LISTS _common)
         if(src MATCHES "/Engine/Assets/(MeshDistanceFieldBuild|MeshCardBuild)\\.cpp$")
             set_property(SOURCE "${src}" PROPERTY DESERT_DEBUG_OPTIMIZE ON)

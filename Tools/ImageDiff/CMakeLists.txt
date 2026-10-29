@@ -1,4 +1,4 @@
-# Tools/ImageDiff/premake5.lua: a dependency-free image tool (stb only, vendored header).
+# ImageDiff: a dependency-free image tool (stb only, vendored header).
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(ImageDiff FOLDER Tools SOURCES ${_sources})
 target_include_directories(ImageDiff PRIVATE "${DESERT_ROOT}/Tools/Shared")

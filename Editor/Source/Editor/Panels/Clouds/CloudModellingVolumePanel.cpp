@@ -630,7 +630,7 @@ namespace Desert::Editor
         }
 
         // FULLY QUALIFIED, and it has to stay that way: this file compiles inside an MSBuild unity
-        // group (BuildScripts/UnityBuild.lua), where a `using namespace Desert::Editor` in an earlier
+        // group (cmake/DesertWorkspace.cmake), where a `using namespace Desert::Editor` in an earlier
         // member of the group rebinds a bare `Core::` to Desert::Editor::Core -- C3083 on every name
         // below. Qualifying is what takes this file off that file's opt-out list.
         const ::Desert::Core::Formats::Image2DSpecification spec{

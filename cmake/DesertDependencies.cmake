@@ -1,15 +1,15 @@
-# The CMake port of Desert/Dependencies.lua and Editor/Dependencies.lua: the include directories, defines and
+# The dependency tables: the include directories, defines and
 # prebuilt libraries every engine-facing target shares, the Vulkan SDK lookup, and the Streamline runtime copy.
 #
-# The four premake tables become lists with the same names, so a target script reads like its premake one:
+# The four dependency tables, as lists named after them, so a target script names the table it uses:
 #   deps.Common.IncludeDir / .Defines          DESERT_COMMON_INCLUDE_DIRS / DESERT_COMMON_DEFINES
 #   deps.CommonSpecific.IncludeDir / .Libraries DESERT_COMMONSPECIFIC_INCLUDE_DIRS / DESERT_COMMONSPECIFIC_LIBRARIES
 #   deps.DesertSpecific.IncludeDir             DESERT_DESERTSPECIFIC_INCLUDE_DIRS
 #   deps.DesertSpecific.Libraries.Debug/Release DESERT_VULKAN_LIBRARIES (one list, per-config generator expressions)
 #   deps.TestSpecific.*                        DESERT_TEST_INCLUDE_DIRS / DESERT_TEST_LIBRARIES / DESERT_TEST_DEFINES
 #   Editor deps.EditorSpecific.IncludeDir      DESERT_EDITORSPECIFIC_INCLUDE_DIRS (relative entries made absolute
-#                                              against the target's own directory by the caller, as premake did)
-# Lists are in premake's DesertSortedPairs order (keys sorted), so include order matches.
+#                                              against the target's own directory by the caller)
+# Lists are sorted by key, so the include order is fixed and does not depend on declaration order.
 
 include_guard(GLOBAL)
 
@@ -68,7 +68,7 @@ endif()
 message(STATUS "[Vulkan] SDK include: ${DESERT_VULKAN_INCLUDE}")
 
 # DESERT_DESERTSPECIFIC_LIBRARIES: the vendored SPIRV-Cross, then the Vulkan loader and shaderc. Debug links the
-# SDK's `d` archives on Windows; Release AND Shipping link the plain ones (premake `Release or Shipping`).
+# SDK's `d` archives on Windows; Release AND Shipping link the plain ones.
 if(DESERT_IS_WINDOWS)
     set(DESERT_VULKAN_LIBRARIES "${DESERT_VULKAN_LIB}/vulkan-1.lib")
     foreach(lib shaderc shaderc_combined shaderc_util)
@@ -91,7 +91,7 @@ set(DESERT_COMMON_DEFINES USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING
 set(DESERT_COMMONSPECIFIC_INCLUDE_DIRS "${_tp}/reflect-cpp/include")
 set(DESERT_COMMONSPECIFIC_LIBRARIES ReflectCpp)
 
-# deps.DesertSpecific.IncludeDir, sorted by key (premake sorts with Lua's `<`, upper case before lower case).
+# deps.DesertSpecific.IncludeDir, sorted by key (byte order: upper case before lower case).
 set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
     "${DESERT_VULKAN_INCLUDE}"                                  # Vulkan
     "${_tp}"                                                    # base
@@ -130,11 +130,11 @@ set(DESERT_TEST_DEFINES
     "DESERT_TEST_ENGINE_DIR=\"${DESERT_ROOT}/Editor\""
     "DESERT_TEST_REPO_ROOT=\"${DESERT_ROOT}\""
     "DESERT_TEST_DATA_DIR=\"${DESERT_ROOT}/Desert/Tests/Data\"")
-# deps.TestSpecific.EnvVars: the environment a suite runs in (premake wrote it into the debugger settings).
+# deps.TestSpecific.EnvVars: the environment a suite runs in.
 set(DESERT_TEST_REPORTS_DIR "${DESERT_ROOT}/build/TestReports")
 
-# Editor/Dependencies.lua EditorSpecific.IncludeDir, sorted: assimp, assimpGen, imGuizmo, reflect_cpp, stb.
-# imGuizmo is RELATIVE ("ThirdParty/ImGuizmo"): premake resolved it against the including project's own
+# EditorSpecific include directories, sorted: assimp, assimpGen, imGuizmo, reflect_cpp, stb.
+# imGuizmo is RELATIVE ("ThirdParty/ImGuizmo"): it resolves against the including target's own
 # directory, so for Editor/ it is Editor/ThirdParty/ImGuizmo and for any other project a path that does not
 # exist. desert_editorspecific_includes() keeps that meaning.
 set(DESERT_EDITORSPECIFIC_INCLUDE_DIRS

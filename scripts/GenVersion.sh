@@ -6,7 +6,7 @@
 # scripts/MacOS/BuildMacOS.sh, so every `make` run by hand, by an agent or by the BuildSlot queue
 # compiled whatever header happened to be lying on disk: this tree carried commit 492 while the
 # repository was at 1233, a month stale. The caller is now the `Common` project itself
-# (Desert/Common/premake5.lua), which every target that shows a version reaches through its link to
+# (desert_prebuild in Desert/Common/CMakeLists.txt), which every target that shows a version reaches through its link to
 # Common — including Windows, where BuildMacOS.sh was never in the picture at all.
 #
 # The file is rewritten ONLY when its content actually changes, so an unchanged version never

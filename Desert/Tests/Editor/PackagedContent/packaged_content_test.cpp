@@ -1114,7 +1114,7 @@ TEST( PackagedContent, PackageGameRefusesAMissingChunkSchemeBeforeTheCookAndWrit
 // SO THE RELATION IS WHAT THESE TWO TESTS ASSERT, and they assert it by REPLAYING the player's own
 // sequence over the packager's own output rather than by checking that a file exists: a file existing
 // under a name nobody looks for is precisely the state that shipped. `Runtime/Source/PackagedContent.cpp`
-// is compiled into this suite for that reason (see its premake5.lua) — it is the real discovery, not a
+// is compiled into this suite for that reason (see Tests/CMakeLists.txt) — it is the real discovery, not a
 // mirror of it.
 namespace
 {
@@ -1335,7 +1335,7 @@ TEST( PackagedContent, TheArchiveSitsBesideThePlayerBinaryInWhicheverLayoutTheHo
 // patch has to be diffed against, not a description of it.
 //
 // THESE TESTS HOLD BOTH ENDS AT ONCE, which is possible here and nowhere else: this suite compiles the
-// packager AND the player's own discovery (see premake5.lua), and `BuildPatchPak` is the same function
+// packager AND the player's own discovery (see Tests/CMakeLists.txt), and `BuildPatchPak` is the same function
 // `PakTool patch` runs. So the whole cycle is one process — package, record, diff, patch, mount, read —
 // with no mirror of any step anywhere in it.
 namespace

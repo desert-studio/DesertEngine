@@ -5,7 +5,7 @@
 # them. Adding an importer means adding a row WITH ITS REASON here; nothing else in the tree names a format.
 #
 # WHO READS THIS FILE, and it is deliberately more than one reader:
-#   * BuildScripts/ThirdParty/Assimp.lua — takes the FULL list of formats from assimp's own
+#   * cmake/ThirdParty/Assimp.cmake — takes the FULL list of formats from assimp's own
 #     code/CMakeLists.txt (`ADD_ASSIMP_IMPORTER( NAME )`) and defines ASSIMP_BUILD_NO_<NAME>_IMPORTER for
 #     every format that is NOT named below. A format assimp adds in a future version is therefore OFF by
 #     default rather than silently shipped.

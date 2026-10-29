@@ -1,7 +1,7 @@
-# BuildScripts/ThirdParty/FidelityFX.lua: FidelityFX SDK, the FSR3 upscaler with the Vulkan backend. Windows only.
+# FidelityFX: FidelityFX SDK, the FSR3 upscaler with the Vulkan backend. Windows only.
 # The SDK ships no pre-built permutation headers for Vulkan, so each FSR3 upscaler pass is compiled by the SDK's own
-# FidelityFX_SC.exe into build/generated/FidelityFX/<pass><variant>_permutations.h at CONFIGURE time, as premake did
-# at generation time, and only when a pass or a GPU header is newer than its output.
+# FidelityFX_SC.exe into build/generated/FidelityFX/<pass><variant>_permutations.h at CONFIGURE time
+# (never during the build), and only when a pass or a GPU header is newer than its output.
 if(NOT DESERT_IS_WINDOWS)
     return()
 endif()
@@ -99,7 +99,7 @@ set(_src
     backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK_UiComposition.cpp)
 list(TRANSFORM _src PREPEND "${_root}/src/")
 desert_add_library(FidelityFX FOLDER ThirdParty SOURCES ${_src})
-desert_warnings_off(FidelityFX)  # premake: warnings "Off"
+desert_warnings_off(FidelityFX)
 set_target_properties(FidelityFX PROPERTIES CXX_STANDARD 17)
 target_include_directories(FidelityFX PRIVATE
     "${_root}/include" "${_root}/src/shared" "${_root}/src/components" "${_root}/src/backends/shared" "${_generated}")

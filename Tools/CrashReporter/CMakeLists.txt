@@ -1,4 +1,4 @@
-# Tools/CrashReporter/premake5.lua: DesertCrashReporter links NOTHING of the engine (it must survive the engine's
+# CrashReporter: DesertCrashReporter links NOTHING of the engine (it must survive the engine's
 # crash): GLFW + Dear ImGui compiled straight in with the GLFW/OpenGL3 backends. Fonts copied next to it.
 desert_glob(_sources "Source/*.hpp" "Source/*.cpp")
 set(_imgui "${DESERT_ROOT}/ThirdParty/ImGui")

@@ -1,6 +1,6 @@
-# BuildScripts/ThirdParty/Dav1d.lua: dav1d (AV1 decoder for Engine/Media) as a C11 library without assembly.
-# meson's configure step is replaced by the headers written below into build/generated/dav1d (same path premake
-# wrote), and each bit-depth template is instantiated twice (8 and 16 bpc) by a generated one-line .c file.
+# Dav1d: dav1d (AV1 decoder for Engine/Media) as a C11 library without assembly.
+# meson's configure step is replaced by the headers written below into build/generated/dav1d (the include
+# path the engine reads), and each bit-depth template is instantiated twice (8 and 16 bpc) by a generated one-line .c file.
 set(_root "${DESERT_ROOT}/ThirdParty/dav1d")
 set(_generated "${DESERT_ROOT}/build/generated/dav1d")
 if(NOT EXISTS "${_root}/include/dav1d/dav1d.h")
@@ -14,11 +14,11 @@ if(NOT _meson MATCHES "version[
     message(FATAL_ERROR "Dav1d.cmake: cannot read the version from ${_root}/meson.build")
 endif()
 desert_write_generated("${_generated}/vcs_version.h"
-    "/* written by BuildScripts/ThirdParty/Dav1d.lua */
+    "/* written by cmake/ThirdParty/Dav1d.cmake */
 #define DAV1D_VERSION \"${CMAKE_MATCH_1}\"
 ")
 desert_write_generated("${_generated}/config.h" [==[
-/* written by BuildScripts/ThirdParty/Dav1d.lua: the header meson's configure step would write */
+/* written by cmake/ThirdParty/Dav1d.cmake: the header meson's configure step would write */
 #pragma once
 #define CONFIG_8BPC 1
 #define CONFIG_16BPC 1
@@ -94,13 +94,13 @@ set(_instances "")
 foreach(name IN LISTS _templates)
     foreach(depth 8 16)
         desert_write_generated("${_generated}/${name}_${depth}bpc.c"
-            "/* written by BuildScripts/ThirdParty/Dav1d.lua */
+            "/* written by cmake/ThirdParty/Dav1d.cmake */
 #define BITDEPTH ${depth}
 #include \"src/${name}.c\"
 ")
     endforeach()
 endforeach()
-# premake listed the instances by glob (*_8bpc.c, *_16bpc.c) over the generated directory.
+# The instances, by glob (*_8bpc.c, *_16bpc.c) over the generated directory, sorted so the order is fixed.
 file(GLOB _instances_8 "${_generated}/*_8bpc.c")
 file(GLOB _instances_16 "${_generated}/*_16bpc.c")
 list(SORT _instances_8)
@@ -112,7 +112,7 @@ if(DESERT_IS_WINDOWS)
 endif()
 list(TRANSFORM _src PREPEND "${_root}/src/")
 desert_add_library(Dav1d FOLDER ThirdParty SOURCES ${_src} ${_instances_8} ${_instances_16})
-desert_warnings_off(Dav1d)  # premake: warnings "Off"
+desert_warnings_off(Dav1d)
 set_target_properties(Dav1d PROPERTIES C_STANDARD 11)
 target_include_directories(Dav1d PRIVATE "${_generated}" "${_root}" "${_root}/include" "${_root}/include/dav1d")
 desert_optimize_speed(Dav1d)

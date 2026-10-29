@@ -3,7 +3,7 @@
 // The ReflectedFunctions suite's fixture: one REFLECT() type whose FUNCTION(...) members cover every shape the
 // thunks distinguish — member / const member / static, void / value result, every Value kind, a default
 // argument, a narrow integer. DesertHeaderTool generates Generated/FunctionFixture.gen.cpp from this header
-// in the Tools runner's prebuild (Desert/Tests/premake5.lua), exactly as it generates the engine's.
+// in the Tools runner's prebuild (Desert/Tests/CMakeLists.txt), exactly as it generates the engine's.
 
 #include <CoreReflection/ReflectionMacros.hpp>
 

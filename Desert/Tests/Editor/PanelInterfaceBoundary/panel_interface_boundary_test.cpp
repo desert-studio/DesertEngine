@@ -9,7 +9,7 @@
 //
 // A type in a signature is not an implementation detail: naming it obliged the header to open
 // <ImGui/imgui.h>, and therefore obliged EVERY consumer of the header to find the toolkit on its
-// include path -- including test suites that draw nothing at all. Eleven test premakes carried
+// include path -- including test suites that draw nothing at all. Eleven test build scripts carried
 // `externalincludedirs { "%{wks.location}/ThirdParty" }` for that reason and two of them said so in
 // their own comments: "the ImGui and glm include paths are here because IPanel.hpp declares ImVec2
 // members, not because any ImGui function is called." The toolkit was a cost paid by everything that
@@ -22,7 +22,7 @@
 // are declared through -- plus every repository header it opens, transitively -- the half a scan of one file
 // cannot see. A census that said both things would be a census whose red means two different repairs.
 //
-// THE WALK REPLACES THE BUILD ROWS. Four suites used to compile IPanel.hpp from premakes that carried no
+// THE WALK REPLACES THE BUILD ROWS. Four suites used to compile IPanel.hpp from build scripts that carried no
 // ThirdParty root, so a toolkit include arriving through any header the interface opens stopped them
 // building. The suites now build inside the EditorTests runner, whose include path holds the toolkit for
 // the editor sources it compiles, so no build can say this any more; the walk over the headers the

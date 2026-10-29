@@ -24,7 +24,7 @@ namespace Desert::Assets
         // GLSL has no `inline` — this translation unit gets its own copy and exports none of it.
         //
         // The shader root is on this project's include path for exactly this kind of include
-        // (Desert/Desert/premake5.lua says so).
+        // (Desert/Desert/CMakeLists.txt adds it).
         using vec3 = glm::vec3;
         using vec4 = glm::vec4;
 

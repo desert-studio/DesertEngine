@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/GoogleTest.lua: googletest v1.17.0, vendored, one amalgamated TU. Included on Windows
+# GoogleTest: googletest v1.17.0, vendored, one amalgamated TU. Included on Windows
 # only (macOS links Homebrew's gtest).
 set(_root "${DESERT_ROOT}/ThirdParty/google-test")
 if(NOT EXISTS "${_root}/src/gtest-all.cc")

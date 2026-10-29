@@ -1,4 +1,4 @@
-# Tools/CloudVolumeBaker/premake5.lua: bakes the cloud modelling volume; compiles the engine's volume and
+# CloudVolumeBaker: bakes the cloud modelling volume; compiles the engine's volume and
 # catalogue sources straight in, links Common.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(CloudVolumeBaker FOLDER Tools SOURCES ${_sources}

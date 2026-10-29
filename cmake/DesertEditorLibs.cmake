@@ -1,4 +1,4 @@
-# The CMake port of BuildScripts/EditorLibs.lua: the editor's five layered static libraries, which source
+# The editor libraries: the editor's five layered static libraries, which source
 # belongs to which, and the one way to link them.
 #
 # Each source under Editor/Source/Editor/ belongs to the layer whose directory is the LONGEST prefix of its path;

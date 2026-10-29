@@ -12,7 +12,7 @@
 #include <psapi.h>
 // clang-format on
 // LINKED FROM HERE RATHER THAN FROM THE BUILD SCRIPT. `GetProcessMemoryInfo` lives in psapi.lib, and
-// declaring that in `Desert/Common/premake5.lua` would put a Windows-only link line in a shared build
+// declaring that in `Desert/Common/CMakeLists.txt` would put a Windows-only link line in a shared build
 // file for the benefit of one function — and every test suite that links Common would depend on somebody
 // having remembered to propagate it. The pragma travels with the translation unit that needs it, which
 // is the only place that can be wrong about it.

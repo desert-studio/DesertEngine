@@ -72,7 +72,7 @@ fi
 # deleting a line somebody has to sign for.
 #
 # `Optick` is a row even though nothing in the engine calls it any more: it is still on the shipping link
-# line (BuildScripts/ThirdParty/Optick.lua builds in every configuration), and the claim being made is
+# line (cmake/ThirdParty/Optick.cmake builds in every configuration), and the claim being made is
 # precisely that an unreferenced archive contributes nothing. That claim is worth checking rather than
 # assuming — it is the difference between "we stopped calling it" and "it is not there".
 FORBIDDEN=(

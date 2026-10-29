@@ -553,7 +553,7 @@ jobs:
       # object files, so ASan reports in a shard name functions but not lines; reproduce locally for lines.
       - name: Bundle the test binaries
         run: |
-          # AssimpLibraryPin compares the linked assimp with build/generated/assimp/VERSION.txt (Assimp.lua).
+          # AssimpLibraryPin compares the linked assimp with build/generated/assimp/VERSION.txt (cmake/ThirdParty/Assimp.cmake).
           tar -czf "$RUNNER_TEMP/test-bundle.tgz" build/Bin/Tests/Debug build/TestManifest.txt build/TestPlan \
             build/generated/assimp/VERSION.txt
           du -sh build/Bin/Tests/Debug "$RUNNER_TEMP/test-bundle.tgz"

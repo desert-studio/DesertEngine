@@ -2,7 +2,7 @@
 //
 // WHAT WAS ACTUALLY WRONG. Dear ImGui is the EDITOR's interface toolkit. It was nevertheless compiled
 // into `libDesert.a` -- Engine/imgui/ and Engine/Graphic/API/Vulkan/imgui/ held the integration layer,
-// Desert/Desert/premake5.lua linked the library, and TWO edges made the engine depend on it rather than
+// the engine's build script linked the library, and TWO edges made the engine depend on it rather than
 // merely contain it: Application.hpp (the header every layer host opens) included ImGuiLayer.hpp, and
 // Graphic::UICacheTexture::Create() constructed the ImGui implementation. Measured on the Debug archive
 // before the move: 14 724 ImGui symbol lines in `nm libDesert.a`, and a packaged player that links that

@@ -339,7 +339,7 @@ TEST( SkyMedium, TransmittanceIsBoundedAndGrowsWithAltitude )
 // so the relations below are the relations a viewer sees on lit geometry: a neutral, barely dimmed sun
 // overhead, a red and much darker one at the horizon, and a smooth walk between the two.
 //
-// Graphic::SunTransmittanceAtGround is the ENGINE's function, compiled into this suite (premake5.lua
+// Graphic::SunTransmittanceAtGround is the ENGINE's function, compiled into this suite (Tests/CMakeLists.txt
 // says why). It is tested here rather than mirrored because the whole point of the arrangement is that
 // there is one implementation: it packs the SkySettings exactly as the GPU reads them and marches the
 // same text as the LUT.

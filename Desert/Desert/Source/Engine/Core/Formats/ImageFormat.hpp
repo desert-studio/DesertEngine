@@ -212,7 +212,7 @@ namespace Desert::Core::Formats
     //
     // Adding a format without extending them has to break the BUILD, not a test somebody may not run.
     // The obvious mechanism — -Wswitch on a switch with no `default:` — does NOT work here and is worth
-    // knowing about: the workspace compiles with `warnings "Off"` (BuildScripts/Workspace.lua:22), which
+    // knowing about: the workspace compiles with `warnings "Off"` (cmake/DesertWorkspace.cmake), which
     // becomes `-w`, and `-w` overrides -Wswitch AND every `#pragma diagnostic error` that tries to
     // promote it back (verified, clang 17, 2026-08). So the guard is the language instead of a flag:
     // these are `constexpr`, and LookupsAreTotal() below constant-evaluates them for every enumerator.

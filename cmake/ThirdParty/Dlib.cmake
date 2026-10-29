@@ -1,4 +1,4 @@
-# BuildScripts/ThirdParty/Dlib.lua.
+# Dlib.
 # compile only under DESERT_WITH_DLIB, which the editor sets by the same condition).
 set(_root "${DESERT_ROOT}/ThirdParty/dlib")
 if(EXISTS "${_root}/dlib/all/source.cpp")

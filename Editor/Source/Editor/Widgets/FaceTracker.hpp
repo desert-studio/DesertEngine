@@ -10,7 +10,7 @@
 namespace Desert::Editor
 {
     // Optional face-landmark tracker backed by dlib — compiled in only when ThirdParty/dlib is present and
-    // the build defines DESERT_WITH_DLIB (see BuildScripts/ThirdParty/Dlib.lua). Feed it RGBA frames; it
+    // the build defines DESERT_WITH_DLIB (see cmake/ThirdParty/Dlib.cmake). Feed it RGBA frames; it
     // returns up to 68 landmark points (image-pixel coordinates) for the most prominent face. Without dlib,
     // or without a loaded model, it is a no-op that reports Ready()==false so callers draw a placeholder.
     class FaceTracker

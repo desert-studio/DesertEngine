@@ -1,4 +1,4 @@
-# Editor/premake5.lua: the five editor libraries (cmake/DesertEditorLibs.cmake), EditorObjC on macOS, and the
+# The five editor libraries (cmake/DesertEditorLibs.cmake), EditorObjC on macOS, and the
 # Editor executable, which is nothing but the entry point linked against them.
 
 # The settings every editor library, EditorObjC and the Editor executable compile with (EditorCompileSettings).
@@ -78,7 +78,7 @@ if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
     target_link_libraries(Editor PRIVATE Dlib)
 endif()
 if(DESERT_IS_WINDOWS)
-    # A windowed app that still enters through main() (premake: WindowedApp + /ENTRY:mainCRTStartup).
+    # A windowed app that still enters through main() (WINDOWED + /ENTRY:mainCRTStartup).
     target_link_options(Editor PRIVATE /ENTRY:mainCRTStartup)
     target_sources(Editor PRIVATE "Resources/Branding/Editor.rc")
     target_link_libraries(Editor PRIVATE ws2_32 advapi32 comdlg32 shell32 ole32)

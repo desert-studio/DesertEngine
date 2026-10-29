@@ -1,6 +1,6 @@
-# Tools/UIMockup/premake5.lua: renders the editor theme to a PNG with no engine linked; ThemeManager.cpp and Dear
+# UIMockup: renders the editor theme to a PNG with no engine linked; ThemeManager.cpp and Dear
 # ImGui (GLFW + OpenGL3 backends) compiled straight in, fonts copied next to it. Absent from Shipping
-# (premake `removeconfigurations { "Shipping" }`).
+# (desert_remove_configuration).
 desert_glob(_sources "Source/*.hpp" "Source/*.cpp")
 set(_imgui "${DESERT_ROOT}/ThirdParty/ImGui")
 desert_add_executable(UIMockup FOLDER Tools SOURCES ${_sources}

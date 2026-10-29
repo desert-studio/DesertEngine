@@ -1,4 +1,4 @@
-# Tools/DesertCtl/premake5.lua: the editor control-socket client (scenarios, MCP).
+# DesertCtl: the editor control-socket client (scenarios, MCP).
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(DesertCtl FOLDER Tools SOURCES ${_sources} "${DESERT_ROOT}/Desert/Common/Source/Common/Json/Json.cpp")
 target_include_directories(DesertCtl PRIVATE "${DESERT_ROOT}/Tools/Shared" "${DESERT_ROOT}/Desert/Common/Source")

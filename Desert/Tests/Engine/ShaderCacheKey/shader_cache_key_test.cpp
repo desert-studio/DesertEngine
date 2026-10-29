@@ -2159,7 +2159,7 @@ TEST( ShaderCacheKeyProfile, TheRuntimeDefaultIsThisBuildsProfile )
 // The packager maps its target-config STRING through SpirvDebugInfoForConfigName; the engine compiles
 // under DESERT_CONFIG_DEBUG. Both spellings of "which configuration is this" must agree — this test
 // runs in both configurations in CI, so each side of the mapping is pinned by a real build of the
-// other. (This suite defines DESERT_CONFIG_DEBUG for Debug exactly as the engine's own premake does.)
+// other. (This suite defines DESERT_CONFIG_DEBUG for Debug exactly as the engine's own build does.)
 TEST( ShaderCacheKeyProfile, TheConfigNameMappingMatchesTheBuildThatCarriesIt )
 {
 #ifdef DESERT_CONFIG_DEBUG

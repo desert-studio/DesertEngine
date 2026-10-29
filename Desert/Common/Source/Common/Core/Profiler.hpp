@@ -248,7 +248,7 @@ namespace Common::Profiling
 //   * no `ScopedTimer` is constructed, so `Common::Profiling::Profiler` has no caller and `Profiler.o`
 //     is never pulled out of libCommon.a — the aggregator is not in the binary, not merely idle;
 //   * no `GpuScopedTimer` is constructed, so the backend's timestamp sink has no caller either;
-//   * no `OPTICK_*` expands, so Optick is not linked (the premakes drop both the library and
+//   * no `OPTICK_*` expands, so Optick is not linked (the build drops both the library and
 //     `USE_OPTICK` under this configuration).
 //
 // `do {} while(0)` is NOT used: every one of these is a declaration-shaped statement whose whole job is

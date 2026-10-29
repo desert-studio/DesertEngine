@@ -16,7 +16,7 @@
 #include <string_view>
 #include <vector>
 
-// NVIDIA STREAMLINE, MANUALLY HOOKED (Windows only: premake compiles every Streamline/ directory on Windows alone
+// NVIDIA STREAMLINE, MANUALLY HOOKED (Windows only: the build compiles Streamline/ directories on Windows alone
 // and defines DESERT_UPSCALER_DLSS there).
 //
 // UE's DLSS plugin owns the SDK in one module and hands the renderer an upscaler; this is that module's runtime

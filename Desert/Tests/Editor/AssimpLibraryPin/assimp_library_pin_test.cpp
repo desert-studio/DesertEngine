@@ -303,7 +303,7 @@ TEST( AssimpLibraryPin, TheLibraryParsesExactlyTheFormatsTheRegisterNames )
 // П3. ONE VERSION, AND IT IS OBSERVABLE. Until D40 nothing anywhere pinned an assimp version — Windows
 // linked a July binary, macOS linked Homebrew's — which is the single reason two machines could build a
 // different engine from one commit. The pin lives in the submodule; this asserts that what got LINKED
-// is what the pin says, by comparing the running library against the version Assimp.lua read out of the
+// is what the pin says, by comparing the running library against the version Assimp.cmake read out of the
 // submodule's own PROJECT() line and wrote down.
 TEST( AssimpLibraryPin, TheLinkedLibraryIsTheVersionThePinnedSubmoduleDeclares )
 {

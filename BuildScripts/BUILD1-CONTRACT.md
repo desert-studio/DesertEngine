@@ -10,7 +10,7 @@ No project was built for this step.
 
 | brief | measured | consequence |
 |---|---|---|
-| "no `pchheader` anywhere" | `Desert` HAS one (`Desert/Desert/premake5.lua:5-7`, `pch.hpp` = 14 std headers + `Common/Core/Core.hpp`, forced include); Common, Editor, Runtime, tools and all 366 suites have none | PCH work = widen Desert's, add Editor's and the runners'; not "introduce" |
+| "no `pchheader` anywhere" | `Desert` HAS one (`Desert/Desert/CMakeLists.txt:52` target_precompile_headers, `pch.hpp` = 14 std headers + `Common/Core/Core.hpp`, forced include); Common, Editor, Runtime, tools and all 366 suites have none | PCH work = widen Desert's, add Editor's and the runners'; not "introduce" |
 | "each suite links the huge Desert.lib" | **1 of 366** links Desert.lib (`EngineHost`). 267 link Common.lib, 98 link neither; they compile engine sources into themselves | the cost is not the link of Desert.lib, it is **1,267 compiles of 221 distinct engine sources** (1,046 redundant), all without any PCH |
 | "Debug link: add incremental" | Debug links are already `/INCREMENTAL /DEBUG` (366 suite `.ilk`, `Editor.ilk` 1.7 GB) | the link item is about `/DEBUG` kind and `/ZI`, not incremental |
 | (not in the brief) | **No intra-project compile parallelism locally.** `Ccache.props` turns on `UseMultiToolTask` only when `DESERT_MSVC_CCACHE` is set (CI); `/MP` is absent on purpose (`Workspace.lua:143`). A local `msbuild -m` compiles Desert's 394 TUs **one at a time** in one `cl.exe` | the largest single local lever; added as step P0 |
@@ -74,11 +74,8 @@ properties (not `/MP`): one `cl.exe` per source, one machine-wide process budget
 `msbuild -m` node, so `-m` x `/MP` cannot multiply (the hazard `Workspace.lua:143-178` describes).
 `Ccache.props` keeps only what is ccache's (`CLToolExe`, `CLToolPath`, `TrackFileAccess`).
 
-Wiring: premake 5.0-beta8 has no spelling for these (`Ccache.props:11`); emit them through
-`premake.override(premake.vstudio.vc2010, "configurationProperties", ...)` in a new
-`BuildScripts/MSBuildProperties.lua` included by `Workspace.lua`, so every generated `.vcxproj` carries
-them — a developer's Visual Studio build included. Census: a premake-time check that every generated
-`.vcxproj` has `<UseMultiToolTask>true` (the `BuildAllTests` Utility project excepted by kind).
+Wiring: superseded by the CMake + Ninja build. Ninja runs one compiler process per source under one `-j`
+budget for the whole build, so there is no `.vcxproj` to carry these properties and no census of them.
 
 Expected: Desert 696 s serial -> ~696/12 on this machine's 12 logical cores (~1-2 min when nothing else
 builds), bounded by the slowest TU (17.7 s). CI already runs this way (ccache + MultiToolTask, run
@@ -89,8 +86,8 @@ Verify: `msbuild Desert.vcxproj -t:Rebuild` wall time, before/after, same tree, 
 
 ### Shape
 
-`Desert/Tests/<Layer>/<Suite>/*.cpp` stays as it is on disk. The 366 `premake5.lua` files under
-`Desert/Tests/**` are deleted. `Desert/Tests/premake5.lua` defines five projects:
+`Desert/Tests/<Layer>/<Suite>/*.cpp` stays as it is on disk. The 366 per-suite build scripts under
+`Desert/Tests/**` are deleted. `Desert/Tests/CMakeLists.txt` defines five targets:
 
 | runner | sources | links |
 |---|---|---|
@@ -115,8 +112,8 @@ the message) — an empty selection is an error, never "0 tests passed".
 
 ### How suites are run
 
-- `build/TestManifest.txt` becomes `<Runner> <Suite>` per line, written by premake from the directory
-  listing exactly as today (`Desert/Tests/premake5.lua:70-74`).
+- `build/TestManifest.txt` becomes `<Runner> <Suite>` per line, written at configure time from the directory
+  listing (`Desert/Tests/CMakeLists.txt`, desert_write_generated).
 - `scripts/Windows/RunTests.ps1` keeps one PROCESS per suite (same parallelism `-Jobs`, same
   `build/TestScratch/<Config>/<Suite>` working directory, same per-suite xml/log, same timeout):
   `<Runner>.exe --desert-suite=<Suite> --gtest_output=xml:...`. Process-per-suite keeps today's
@@ -143,12 +140,12 @@ the message) — an empty selection is an error, never "0 tests passed".
 
 ### Census that keeps it from regressing
 
-- `TestRunnerLayout` (in `CommonTests`, text census): no `premake5.lua` under `Desert/Tests/<Layer>/`,
+- `TestRunnerLayout` (in `CommonTests`, text census): no `CMakeLists.txt` under `Desert/Tests/<Layer>/`,
   no `int main` under `Desert/Tests/` except `TestSupport/RunnerMain.cpp`, no gtest test-suite name used
   in two suite directories, no class/struct at namespace scope outside an anonymous namespace in a
   test `.cpp` (ODR across a shared binary).
 - RunnerMain self-check: every manifest suite selects >= 1 test (an empty suite is a failure).
-- Mutations to prove it: add a `premake5.lua` to one suite dir; add an `int main`; duplicate
+- Mutations to prove it: add a `CMakeLists.txt` to one suite dir; add an `int main`; duplicate
   `ShaderRootFixture`; misspell a suite in `--desert-suite` -> each must go red.
 
 Expected: test compiles 1,799 -> ~437 test TUs + 41 Editor + 23 others (~500), every engine source
@@ -158,37 +155,37 @@ the sum of tests run per suite in the reports equals today's (5,278).
 
 ### Adding a suite (and converting one that arrives the old way)
 
-A suite is a directory `Desert/Tests/<Layer>/<Suite>/` with `*.cpp` and nothing else: no `premake5.lua`, no
-`int main`. Generation lists it in `build/TestManifest.txt` as `<Layer>Tests <Suite>` and compiles it into
+A suite is a directory `Desert/Tests/<Layer>/<Suite>/` with `*.cpp` and nothing else: no `CMakeLists.txt`, no
+`int main`. The configure lists it in `build/TestManifest.txt` as `<Layer>Tests <Suite>` and compiles it into
 the layer runner. A suite merged in from a branch that still has its own script converts in one minute:
 
-1. delete `Desert/Tests/<Layer>/<Suite>/premake5.lua` and the suite's `int main` (RunnerMain is the main).
+1. delete the suite's own build script and the suite's `int main` (RunnerMain is the main).
    What the main did before or after `RUN_ALL_TESTS` goes into a `::testing::Environment` registered with
    `namespace { const Desert::TestSupport::SuiteEnvironment kX{ &MakeX }; }` (runs only for that suite); a
    mode in which the suite re-launches itself becomes a `TestSupport::ChildEntry` (`--desert-child=<name>`,
    a name unique in the runner) and the binary path comes from `FileSystem::ExecutablePath()`, never argv[0];
 2. anything the script added beyond the template (an include dir, a library, a tool or editor source,
-   a `dependson`) goes into `kRunners.<Layer>` in `Desert/Tests/premake5.lua`, with its reason; an
+   a `dependson`) goes into the runner's settings (`_desert_runner_<Layer>`) in `Desert/Tests/CMakeLists.txt`, with its reason; an
    engine source the script compiled is NOT copied: the runner links `Desert.lib`;
 3. file-local types into `namespace { }`, and a gtest test-suite name no other suite of the layer uses.
 
 `Desert/Tests/Common/TestRunnerLayout` names the suite and the rule it breaks if a step is missed, and
-generation itself refuses a suite `premake5.lua` with the same instructions (P1-B3 removed the transition
+the configure itself refuses a suite `CMakeLists.txt` with the same instructions (P1-B3 removed the transition
 branch: every suite of every layer is in its runner).
 
 Mac one-liners (gmake; the same runners and manifest as Windows):
 
-- build + run suite X: `CI=true premake5 gmake && scripts/Dev/suite.sh X`
-- all suites: `CI=true premake5 gmake && make -C build/Projects config=debug -j4 BuildAllTests && scripts/MacOS/RunTests.sh "$PWD" Debug`
+- build + run suite X: `scripts/MacOS/BuildMacOS.sh Debug --gen-only && scripts/Dev/suite.sh X`
+- all suites: `scripts/MacOS/BuildMacOS.sh Debug --gen-only && cmake --build --preset macos-clang-ninja-debug --target BuildAllTests && scripts/MacOS/RunTests.sh "$PWD" Debug`
 - ASan: the CI job's ASan options on the same commands; the manifest drives the shards.
 
 Run one suite / all suites:
 
 - Windows: `build\Bin\Tests\Debug\CommonTests.exe --desert-suite=Pak` (any gtest flag works with it);
   all: build the `BuildAllTests` target, then `run_tests.bat` (RunTests.ps1 reads the manifest).
-- macOS: `CI=true premake5 gmake && scripts/Dev/suite.sh Pak` (resolves the runner from the manifest, builds
-  only that runner, runs `--desert-suite=Pak`); all: `CI=true premake5 gmake`, then
-  `make -C build/Projects config=debug BuildAllTests` (with your usual -j), then `scripts/MacOS/RunTests.sh "$PWD" Debug`.
+- macOS: `scripts/MacOS/BuildMacOS.sh Debug --gen-only && scripts/Dev/suite.sh Pak` (resolves the runner from the manifest, builds
+  only that runner, runs `--desert-suite=Pak`); all: `scripts/MacOS/BuildMacOS.sh Debug --gen-only`, then
+  `cmake --build --preset macos-clang-ninja-debug --target BuildAllTests`, then `scripts/MacOS/RunTests.sh "$PWD" Debug`.
 - The ASan/CI shard planner (`scripts/CI/TestShards.py plan --expected build/TestManifest.txt`) and both
   runners take the suite list from the manifest only; nothing globs the output directory any more.
 
@@ -224,17 +221,11 @@ header that includes it (the GLFW native / platform path) and confine it to the 
 the OS. Putting `windows.h` in a PCH would hide the leak and its macros (`min`, `max`, `near`, `far`,
 `CreateWindow`) from every translation unit's author.
 
-### Wiring (premake)
+### Wiring (CMake)
 
-```lua
--- each of Desert, Editor, the runners:
-pchheader "pch.hpp"
-pchsource "Source/pch.cpp"
-forceincludes { "pch.hpp" }
-filter "options:no-pch"            -- the census build
-    flags { "NoPCH" }
-    removeforceincludes { "pch.hpp" }
-filter {}
+```cmake
+# each of Desert, Editor, the runners (forced include, no #include "pch.hpp" line in a source):
+target_precompile_headers(${target} PRIVATE "${_source}/pch.hpp")
 ```
 
 ### What keeps it honest: a standalone-TU census, not the forced include alone
@@ -244,7 +235,7 @@ without touching a source. But it also makes every PCH header silently available
 forgets `#include <glm/glm.hpp>` compiles. Two options were weighed:
 - "sources include pch.hpp explicitly, no /FI" — same rot (the explicit line supplies everything) and
   every source gains a line that is not about its content; rejected.
-- **chosen**: `/FI` + a `--no-pch` premake option and a CI step that compiles every TU of Desert,
+- **chosen**: `/FI` + a no-PCH configure switch and a CI step that compiles every TU of Desert,
   Editor and the runners WITHOUT the PCH, syntax-only (`clang -fsyntax-only` on the Linux/macOS leg, or
   `cl /Zs` on Windows), in parallel. It runs on every push; a missing include fails it with the file
   name. Mutation: delete one `#include <glm/...>` from a source that relies on the PCH copy -> red.

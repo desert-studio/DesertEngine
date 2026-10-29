@@ -239,7 +239,7 @@ clone_dep "$ROOT/ThirdParty/optick/src/optick.h" \
     https://github.com/bombomby/optick.git
 
 # meshoptimizer (mesh simplification / LOD generation), pinned to v1.3 - the version
-# BuildScripts/ThirdParty/MeshOptimizer.lua checks. A tree holding another version is re-fetched.
+# cmake/ThirdParty/MeshOptimizer.cmake checks. A tree holding another version is re-fetched.
 MESHOPT_DIR="$ROOT/ThirdParty/meshoptimizer"
 if [ -f "$MESHOPT_DIR/src/meshoptimizer.h" ] &&
     ! grep -q "define MESHOPTIMIZER_VERSION 1030" "$MESHOPT_DIR/src/meshoptimizer.h"; then
@@ -263,7 +263,7 @@ fi
 # ---------------------------------------------------------------------------
 # 4. reflect-cpp compiled sources. The vendored include/ headers are reflect-cpp
 #    v0.19.0 and need rfl::Generic / rfl::json / yyjson built from the matching
-#    sources (all platforms compile them via BuildScripts/ThirdParty/ReflectCpp.lua).
+#    sources (all platforms compile them via cmake/ThirdParty/ReflectCpp.cmake).
 #    These sources are committed to the repo, so this normally does nothing.
 # ---------------------------------------------------------------------------
 RCPP_SRC="$ROOT/ThirdParty/reflect-cpp/src"

@@ -1,6 +1,6 @@
-# Tools/GamePackager/premake5.lua: cooks and packages a project. Links the editor libraries (not whole: nothing
-# here needs their self-registering editors), the third-party libraries they use and the engine. The stale
-# "MikkTSpace" link premake carried is gone from both scripts: mikktspace.cpp is compiled into GeometryCore.
+# GamePackager: cooks and packages a project. Links the editor libraries (not whole: nothing
+# here needs their self-registering editors), the third-party libraries they use and the engine. The
+# MikkTSpace is not linked: mikktspace.cpp is compiled into GeometryCore.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(GamePackager FOLDER Tools SOURCES ${_sources})
 target_include_directories(GamePackager PRIVATE "${DESERT_ROOT}/Tools/Shared")

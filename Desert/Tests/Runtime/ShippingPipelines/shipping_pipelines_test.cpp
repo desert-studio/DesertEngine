@@ -197,7 +197,7 @@ namespace
 
     // ── THE PLAYER'S OWN SOURCE SET ─────────────────────────────────────────────────────────────────
     //
-    // The three roots the `Runtime` premake compiles and links, exactly as ShippingBoundary derives
+    // The three roots the `Runtime` target compiles and links, exactly as ShippingBoundary derives
     // them. The editor is not here: it is a development tool, so a pipeline it creates for itself is not
     // a violation of anything — and EditorGridPass, EditorColliderPass and EditorCubemapPreviewPass are
     // compiled into the Editor target and into nothing else, so they have never been able to reach a

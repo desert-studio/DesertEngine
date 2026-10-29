@@ -193,9 +193,9 @@ ALIASES = {
 # Roots whose tracked sources are scanned. Tools/ is in: its mains are compiled by the same makefiles.
 SCAN_ROOTS = ("Desert", "Editor", "Runtime", "Tools")
 
-# Where an `#include <...>` of OUR OWN headers resolves from -- the projects' premake `includedirs`,
-# never `externalincludedirs` (those are ThirdParty, which by construction supplies nothing here).
-# `Desert/Common/Source/Common` is a root in its own right: Common/premake5.lua lists both "Source/"
+# Where an `#include <...>` of OUR OWN headers resolves from -- the targets' ordinary include directories,
+# never the SYSTEM ones (desert_external_includes) (those are ThirdParty, which by construction supplies nothing here).
+# `Desert/Common/Source/Common` is a root in its own right: Desert/Common/CMakeLists.txt lists both "Source/"
 # and "Source/Common", which is why `#include <Core/Layer.hpp>` resolves. Missing a root would make
 # the gate STRICTER than intended rather than blinder, but it would also misreport where a symbol
 # comes from, so they are listed rather than guessed.

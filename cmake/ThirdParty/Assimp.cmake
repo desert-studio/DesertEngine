@@ -1,7 +1,7 @@
-# BuildScripts/ThirdParty/Assimp.lua: assimp from the Editor/ThirdParty/assimp submodule, built with ONLY the
+# Assimp: assimp from the Editor/ThirdParty/assimp submodule, built with ONLY the
 # importers BuildScripts/ThirdParty/AssimpImporters.txt names (every other ASSIMP_BUILD_NO_<X>_IMPORTER defined),
 # no exporter, bundled zlib/unzip. The headers assimp's own CMake configure would write (config.h, revision.h,
-# zconf.h, VERSION.txt) are written into build/generated/assimp at configure time, as premake wrote them.
+# zconf.h, VERSION.txt) are written into build/generated/assimp at configure time.
 # Assimp's own CMakeLists.txt is not used: it builds every importer and exporter, and adds zlib/unzip/test targets.
 set(_root "${DESERT_ROOT}/Editor/ThirdParty/assimp")
 set(_generated "${DESERT_ROOT}/build/generated/assimp/include")

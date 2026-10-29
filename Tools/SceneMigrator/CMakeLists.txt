@@ -1,4 +1,4 @@
-# Tools/SceneMigrator/premake5.lua: compiles the engine sources it needs straight in, data-only reflection
+# SceneMigrator: compiles the engine sources it needs straight in, data-only reflection
 # (DESERT_REFLECTION_DATA_ONLY); built after the engine codegen library, whose header tool writes Reflection*.gen.cpp.
 desert_glob(_sources "Source/*.cpp")
 file(GLOB _generated CONFIGURE_DEPENDS "${DESERT_ROOT}/Desert/Desert/Source/Engine/Generated/Reflection_*.gen.cpp")

@@ -17,7 +17,7 @@ Windows (MSVC, LunarG Vulkan SDK).
 ## Quick start (Windows)
 
 ```bat
-scripts\Windows\Setup.bat                       :: one-time: MSVC v143 + Vulkan SDK + submodules + build\Projects\Desert.sln
+scripts\Windows\Setup.bat                       :: one-time: MSVC v143 + Vulkan SDK + submodules + CMake/Ninja check
 scripts\Windows\BuildWindows.bat Debug          :: generate project files and build everything
 scripts\Windows\RunEditor.bat    Debug          :: no --project = the built-in Desert Sandbox
 ```
@@ -57,7 +57,7 @@ Package          [Release|Debug] — the downloadable engine drop into dist/
 This repository commits **no prebuilt third-party binary**. assimp was the last one — two MSVC import
 libraries whose toolset was typed into the link line and whose DLL half was never committed at all — and
 since D40 it is a pinned submodule (`Editor/ThirdParty/assimp`, v6.0.5) compiled from source by
-`BuildScripts/ThirdParty/Assimp.lua` on every platform, like the eight dependencies beside it. The
+`cmake/ThirdParty/Assimp.cmake` on every platform, like the eight dependencies beside it. The
 formats it is built with are one named row each in `BuildScripts/ThirdParty/AssimpImporters.txt`, and
 `Desert/Tests/Editor/{AssimpBoundary,AssimpLibraryPin}` assert that the register, the build and the
 linked library still agree.
@@ -73,10 +73,10 @@ gate would be red forever and would simply be switched off. Run it on its own wi
 code is its interface: **0 clean, 1 findings, 2 the gate could not run** — and the build script fails
 on 2 exactly as it fails on 1, because "no verdict" must never read as "clean". The compiler
 database it needs is not a separate ritual: the gate regenerates `compile_commands.json` itself, from
-the makefiles premake already generated for the build you just ran.
+the database the CMake configure already wrote for the build you just ran.
 
-Windows has no entry point for the analyser yet (`--no-analyze` is required there): the database is
-derived from premake's gmake2 makefiles, which describe a toolchain MSVC does not use.
+Windows has no entry point for the analyser yet (`--no-analyze` is required there): the MSVC database
+exists (build/cmake/<preset>/compile_commands.json); the CheckTidy.bat gate that reads it does not.
 
 ## CI
 

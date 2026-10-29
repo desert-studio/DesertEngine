@@ -18,7 +18,7 @@ namespace Desert::Graphic
     };
 
     // Fullscreen SSAO material: reads the G-buffer depth + normal and writes the ground-truth ambient occlusion
-    // (GTAO, SSAO.shader). Header-only (no new .cpp -> no premake regen).
+    // (GTAO, SSAO.shader). Header-only.
     class MaterialSSAO final : public Material
     {
     public:

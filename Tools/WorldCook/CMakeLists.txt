@@ -1,8 +1,8 @@
-# Tools/WorldCook/premake5.lua: cooks a world's streaming cells; links the third-party libraries and the engine.
-# The stale "MikkTSpace" link premake carried is gone from both scripts: mikktspace.cpp is compiled into GeometryCore.
+# WorldCook: cooks a world's streaming cells; links the third-party libraries and the engine.
+# MikkTSpace is not linked: mikktspace.cpp is compiled into GeometryCore.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(WorldCook FOLDER Tools SOURCES ${_sources})
-# premake's order: the engine roots, then Tools/Shared.
+# Include order: the engine roots, then Tools/Shared.
 desert_engine_includes(WorldCook)
 target_include_directories(WorldCook PRIVATE "${DESERT_ROOT}/Tools/Shared")
 desert_external_includes(WorldCook ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})

@@ -1,4 +1,4 @@
-# Desert/Common/premake5.lua: the Common static library (module "Common", own project).
+# Common: the Common static library (module "Common", own project).
 desert_glob(_sources "Source/Common/*.cpp" "Source/Common/*.hpp")
 desert_add_library(Common SOURCES
     ${_sources}

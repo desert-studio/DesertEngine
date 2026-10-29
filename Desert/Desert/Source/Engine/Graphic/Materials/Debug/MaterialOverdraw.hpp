@@ -8,8 +8,7 @@
 namespace Desert::Graphic
 {
     // Overdraw accumulation material: only feeds the shared camera UB (the per-mesh transform is pushed
-    // automatically by Renderer::RenderMesh). Drives Overdraw.shader. Header-only (no new .cpp -> no premake
-    // regen).
+    // automatically by Renderer::RenderMesh). Drives Overdraw.shader. Header-only.
     class MaterialOverdraw final : public Material
     {
     public:

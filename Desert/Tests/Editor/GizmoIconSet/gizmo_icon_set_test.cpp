@@ -143,7 +143,7 @@ TEST( GizmoIconSet, TheLicenceIsStillBesideTheArtwork )
     EXPECT_GT( fs::file_size( licence ), 0u ) << licence << " is empty";
 }
 
-// The suites here link gtest WITHOUT gtest_main (Desert/Dependencies.lua lists only `gtest`), so
+// The suites here link gtest WITHOUT gtest_main (cmake/DesertDependencies.cmake lists only `gtest`), so
 // every one of them owns its entry point. This file did not, and nothing could say so until the
 // makefile existed: the link failed with `_main` undefined the first time it was generated.
 

@@ -1,6 +1,6 @@
 // The ENGINE's half of the shared-format contract. The conformance suite itself lives in the
 // desert-shared submodule (Tests/project_format_test.cpp — compiled into EngineTests by
-// Desert/Tests/premake5.lua and adopted below, and by the launcher's runner on its side); this file asserts the
+// Desert/Tests/CMakeLists.txt and adopted below, and by the launcher's runner on its side); this file asserts the
 // one relation the submodule cannot know about: its content-folder census against the engine's own Constants::Path
 // globals.
 

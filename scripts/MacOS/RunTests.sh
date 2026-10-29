@@ -2,8 +2,8 @@
 # Run every built test binary. Unix counterpart of scripts/Windows/RunTests.ps1.
 #
 # Called by ci.yml's "Run tests" steps, and by hand. NOT by a postbuild: the RunAllTests project used
-# to list this script in `postbuildcommands` and that line never executed once — see the note in
-# Desert/Tests/premake5.lua where it was removed.
+# to run this script as a post-build step and that line never executed once, so the RunAllTests
+# target runs nothing off Windows (Desert/Tests/CMakeLists.txt).
 #
 # THE LIST OF SUITES IS build/TestManifest.txt, AS ON WINDOWS (BUILD1). Each line is `<Executable> <Suite>`:
 # the layer's runner (one process per suite, `--desert-suite=<Suite>`) or, for a suite not converted to a
@@ -169,7 +169,7 @@ if [ -n "${TEST_LIST:-}" ]; then
         COUNT=$((COUNT + 1))
     done <"$TEST_LIST"
 else
-    [ -f "$MANIFEST" ] || { echo "[ERROR] test manifest not found: $MANIFEST (run premake)"; exit 1; }
+    [ -f "$MANIFEST" ] || { echo "[ERROR] test manifest not found: $MANIFEST (configure first: scripts/MacOS/BuildMacOS.sh Debug --gen-only)"; exit 1; }
     while read -r exe name extra || [ -n "${exe:-}" ]; do
         [ -n "${exe:-}" ] || continue
         if [ -z "${name:-}" ] || [ -n "${extra:-}" ]; then

@@ -300,7 +300,7 @@ function(desert_link_engine target)
     target_link_libraries(${target} PRIVATE ${_names} ${DESERT_DESERTSPECIFIC_LIBRARIES})
 endfunction()
 
-# The header tool invocation the engine's codegen library runs before it compiles (Desert/Desert/premake5.lua).
+# The header tool invocation the engine's codegen library runs before it compiles (Desert/Desert/CMakeLists.txt).
 function(desert_engine_header_tool_command out)
     set(_cmd "$<TARGET_FILE:DesertHeaderTool>"
         --templates "${DESERT_ROOT}/Tools/DesertHeaderTool/Templates"

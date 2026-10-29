@@ -1,4 +1,4 @@
-# Desert/Render2DCore/premake5.lua: the Render2DCore static library (module "Render2DCore", own project).
+# Render2DCore: the Render2DCore static library (module "Render2DCore", own project).
 desert_glob(_sources "Source/Render2DCore/*.cpp" "Source/Render2DCore/*.hpp")
 desert_add_library(Render2DCore SOURCES "Source/pch.cpp" "Source/pch.hpp" ${_sources})
 desert_enable_unity(Render2DCore)

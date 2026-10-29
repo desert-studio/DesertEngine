@@ -960,7 +960,7 @@ namespace Desert::Core
         //
         //   1. `type_index<T>::value()` calls `internal::type_index::next()`, whose counter is
         //      `ENTT_MAYBE_ATOMIC(id_type) value{}` -- and ENTT_USE_ATOMIC is defined for this workspace
-        //      in BuildScripts/Workspace.lua precisely so that `value++` is not a plain read-modify-write
+        //      in cmake/DesertWorkspace.cmake precisely so that `value++` is not a plain read-modify-write
         //      on a global. Without it two types can be handed the SAME index and then read each other's
         //      storage;
         //   2. `pools.resize( index + 1 )` -- a std::vector grow;

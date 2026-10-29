@@ -1,4 +1,4 @@
-# Tools/LatticePeak/premake5.lua: measures the procedural cloud lattice; compiles the engine's cloud volume
+# LatticePeak: measures the procedural cloud lattice; compiles the engine's cloud volume
 # sources straight in (CloudProceduralVolume.cpp compiles Shaders/Common/CloudNoise.glslh), links Common.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(LatticePeak FOLDER Tools SOURCES ${_sources}

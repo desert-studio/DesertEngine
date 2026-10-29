@@ -9,7 +9,7 @@ namespace Desert::Core
     namespace
     {
         // Where the build this message came from actually put the tool. NDEBUG is the only configuration
-        // marker the workspace defines (Desert/Configurations.lua), so this is the whole choice - and
+        // marker the workspace defines (cmake/DesertWorkspace.cmake), so this is the whole choice - and
         // naming the wrong directory would send the reader to a binary that is not there, which is the same
         // dead end as naming no command at all.
 #ifdef NDEBUG

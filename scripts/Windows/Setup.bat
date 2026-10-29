@@ -102,7 +102,7 @@ REM ---------------------------------------------------------------------------
 call :clone_dep "ThirdParty\optick\src\optick.h" "ThirdParty\optick" ^
     "https://github.com/bombomby/optick.git" ""
 
-REM meshoptimizer pinned to v1.3, the version BuildScripts/ThirdParty/MeshOptimizer.lua checks.
+REM meshoptimizer pinned to v1.3, the version cmake/ThirdParty/MeshOptimizer.cmake checks.
 REM A tree holding another version is re-fetched.
 if exist "ThirdParty\meshoptimizer\src\meshoptimizer.h" (
     findstr /C:"define MESHOPTIMIZER_VERSION 1030" "ThirdParty\meshoptimizer\src\meshoptimizer.h" >nul || (
@@ -115,7 +115,7 @@ call :clone_dep "ThirdParty\meshoptimizer\src\meshoptimizer.h" "ThirdParty\mesho
 
 REM reflect-cpp compiled sources. The header of this script used to claim Windows needs none of this
 REM because it "links the prebuilt ThirdParty/reflect-cpp/lib". There is no such directory and there
-REM never was: BuildScripts/ThirdParty/ReflectCpp.lua builds one ReflectCpp project on EVERY platform
+REM never was: cmake/ThirdParty/ReflectCpp.cmake builds one ReflectCpp project on EVERY platform
 REM and errors out if src/ is absent. The sources are committed, so this normally does nothing — but a
 REM tree that lost them must be repairable from Windows, not only from a Mac.
 call :fetch_reflectcpp
