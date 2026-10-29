@@ -160,7 +160,7 @@ ALWAYS_ALLOWED_AFTER_LIMIT =re.compile(r"^\s*(cd [^;&]+&&\s*)?git\s")
 # Owner 2026-09-29: every refused call re-sends the whole context (~2.9k refusals = ~7 % of spend). The four
 # commonest refusals (tree search 81, cat 53, push without handoff 46, code before map 36 in 24 h) are answered
 # BEFORE the agent tries them: the allowed form of each is put into its context with the map, after call 1.
-CHEAT_SHEET = """[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (UE или лучше; UE — ориентир, не эталон: где UE архитектурно хуже — НЕ копируй молча, в REMAINDER «в UE так, лучше так» для владельца; где берём архитектуру UE — портируй код и шейдеры UE с адаптацией), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
+CHEAT_SHEET = """[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА — АРХИТЕКТУРА И NEXTGEN (владелец 10-29: лучшее качество картинки, ориентир UE 5.5+/поздние AAA, не заплатка). А Р Х И Т Е К Т У Р А ПЕРВОЙ (владелец 09-29): делай как ПРАВИЛЬНО устроено (UE или лучше; UE — ориентир, не эталон: где UE архитектурно хуже — НЕ копируй молча, в REMAINDER «в UE так, лучше так» для владельца; где берём архитектуру UE — портируй код и шейдеры UE с адаптацией), без бюджетов, урезанных охватов, угадываний и мостов; не влезает — REMAINDER, не компромисс.\n[agent_guard] РАЗРЕШЁННЫЕ ФОРМЫ (каждый отказ хука стоит полного вызова — не пробуй запрещённое):
 - где определено имя: scripts/Dev/sym.sh <Имя>; где используется: scripts/Dev/sym.sh --refs <Имя>. НЕ grep -r / rg / git grep / find без -maxdepth.
 - чтение кода: grep -n <шаблон> <известный файл> → sed -n 'A,Bp' <файл> (≤150 строк) или Read(offset, limit≤150). НЕ cat / Read целиком.
 - новые тесты НЕ пишешь (владелец 10-10: тесты после фич); затронутые существующие сюиты гоняешь сам: scripts/Dev/suite.sh в фоне; tidy/склейки/handoff — тимлид. Сдача: последний коммит с темой «wip: …» → git push (полный handoff_check гоняет тимлид; не-wip без .cache/handoff/<HEAD>.ok хук откажет).
@@ -449,7 +449,7 @@ def self_check():
         except OSError:
             pass
     rules = ", ".join(cases)
-    msg = (f"[agent_guard] А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше; где UE архитектурно хуже — сказать владельцу ДО кода, владелец 10-12), не замер/бюджет/урезанный охват "
+    msg = (f"[agent_guard] ДВА ПАРАМЕТРА ВСЕГДА: АРХИТЕКТУРА И NEXTGEN (владелец 10-29). А Р Х И Т Е К Т У Р А ПЕРВОЙ: решение = как правильно устроено (UE или лучше; где UE архитектурно хуже — сказать владельцу ДО кода, владелец 10-12), не замер/бюджет/урезанный охват "
            f"(LEAD_PROTOCOL, DEV_CONTRACT §00). ПАУЗЫ НЕТ (владелец 10-05: «кончились токены»): незаконченные задачи обязательны, игра — параллельно; граф рендера не трогать. Бриф = ОДИН результат (хук: ≤ 2 пункта / 900 знаков в «## Сделать»). Запуск/доска — по ~/.claude/tools/lead_templates.md (process_event.py launch на запуск); приём — одним ~/.claude/tools/accept.sh. self-check OK: {len(cases)} known-bad calls refused ({rules})." if not failed else
            f"[agent_guard] SELF-CHECK FAILED — these rules no longer bite: {', '.join(failed)}. "
            f"Restore .claude/tools/agent_guard.py from git history BEFORE launching any agent.")
