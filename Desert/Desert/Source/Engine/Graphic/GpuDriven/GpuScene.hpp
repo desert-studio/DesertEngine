@@ -195,6 +195,8 @@ namespace Desert::Graphic::GpuDriven
         // The scene material table (AddMaterialRow): what a mesh cell's `Materials` block is lent (LendViewBuffer).
         // Null until the first upload.
         [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetMaterialsBuffer() const;
+        // GRASS-SETTLE p17 probe (temporary): the CPU image of the material table.
+        [[nodiscard]] const std::vector<glm::vec4>& DebugMaterialSlots() const { return m_MaterialSlots; }
 
         // One persistent device table and its CPU image's upload state (implementation detail of the upload).
         struct Table;
