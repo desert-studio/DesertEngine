@@ -30,11 +30,6 @@ Shader "GrassBladeSurface"
         // The occlusion at a blade's root, where its neighbours shade it, rising to 1 at the tip (UE grass
         // materials darken toward the root by the vertex's height the same way).
         Float       RootOcclusion ("Root Occlusion", Range(0,1), Category("Field")) = 1
-        // The scan's mean colour over the cards the blades draw (AlbedoTexture weighted by OpacityTexture, linear):
-        // what the landscape's far grass cover (Common/LandscapeGrassCover.glslh) carries on once the blades are
-        // thinned out. A value derived from the textures, not authored: measured from the scan for now, the cook
-        // is to derive it (GRASS-ASSET REMAINDER).
-        Color       CoverAlbedo ("Cover Albedo", Category("Field")) = (0, 0, 0, 1)
         // Material half of the sun-shadow receive decision (as StandardSurface).
         Float       ReceiveSunShadows ("Receive Sun Shadows", Range(0,1), Category("Shadows")) = 1
         // The light a blade lets through, as a tint of its own albedo (UE's SubsurfaceColor pin).

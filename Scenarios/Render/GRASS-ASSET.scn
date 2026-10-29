@@ -11,7 +11,8 @@
 Тогда-вид 1_eye camera at 1.7 m: the near blades carry the scan's texture (veins, ragged edge, dry tips from the albedo/mask), not flat single-colour strips
 Когда --subject viewport set Camera.Position 0,600,2500
 Когда --subject viewport set Camera.Direction 0.15,-0.12,-1
-Тогда-вид 2_high camera at 6 m: dense grass, then the cover of the same tone with no seam; mesh grass and blades one colour with the cover
+Тогда-вид 2_high camera at 6 m: dense grass, then the cover of the same tone with no seam, the far lowland the tone of the near grass (not dark grey); mesh grass and blades one colour with the cover, whose colour the cook derives from the albedo maps (no CoverAlbedo in the .demat)
 Когда run Entity "Sun"
-Когда --subject selection set SunAzimuth 290
-Тогда-вид 3_backlit sun against the camera: blades and far cover glow through by the asset's subsurface colour
+Когда --subject selection set SunElevation 12
+Когда --subject selection set SunAzimuth 171
+Тогда-вид 3_backlit sun 12 deg high straight against the camera (azimuth 171 = the view's): blades and far cover glow through by the asset's subsurface colour

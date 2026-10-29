@@ -82,15 +82,6 @@
             ]
         },
         {
-            "Name": "CoverAlbedo",
-            "Value": [
-                0.328,
-                0.307,
-                0.157,
-                1.0
-            ]
-        },
-        {
             "Name": "SubsurfaceColor",
             "Value": [
                 1.0,

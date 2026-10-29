@@ -12,6 +12,8 @@
 #include <Engine/Graphic/Render/Commands/DrawLandscapeGrassCommand.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/ECS/System/WindField.hpp>
+#include <Engine/Assets/ContentRegistry.hpp>
+#include <Engine/Assets/GrassCoverLook.hpp>
 #include <Engine/Assets/Mesh/MeshAsset.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
@@ -564,12 +566,16 @@ namespace Desert::ECS
                         sections.Version      = materials->GetInvalidationVersion();
                         sections.TypeRevision = type->Revision();
                         sections.Sections.clear();
+                        std::vector<uint64_t> sectionMaterials; // each section's material handle
                         if ( blade )
                         {
                             // The blade's one material, drawn through its template's GrassBlade cells.
                             if ( auto instance = materials->CreateRuntimeInstance(
                                       materials->GetAssetHandleByExternal( handle ) ) )
+                            {
                                 sections.Sections.push_back( { std::move( instance ), 0 } );
+                                sectionMaterials.push_back( static_cast<uint64_t>( handle ) );
+                            }
                             else if ( m_WarnedGrass.insert( ref.Path ).second )
                                 LOG_WARN(
                                      "[Landscape] grass blade material '{}' does not resolve; the variety does "
@@ -600,7 +606,52 @@ namespace Desert::ECS
                                     continue;
                                 }
                                 sections.Sections.push_back( { std::move( instance ), hidden } );
+                                sectionMaterials.push_back( static_cast<uint64_t>( slots[slot] ) );
                             }
+                        }
+                        // The cover's look, from the same section materials the blades or meshes draw with.
+                        sections.Cover.reset();
+                        if ( const auto manager = materials->LockAssetManager() )
+                        {
+                            std::vector<glm::vec4> rects;
+                            if ( blade )
+                                for ( const auto& c : v.Blade->Cards )
+                                    rects.emplace_back( c[0], c[1], c[2], c[3] );
+                            GrassSections::CoverLook sum;
+                            float                    count = 0.0f;
+                            for ( size_t si = 0; si < sections.Sections.size(); ++si )
+                            {
+                                const std::optional<Common::Content::AssetGuid> material =
+                                     Assets::ContentRegistry::GuidForHandle( sectionMaterials[si] );
+                                if ( !material )
+                                    continue;
+                                auto input = Assets::ResolveGrassCoverLookInput( *manager, *material, rects );
+                                if ( input.IsSuccess() && !input.GetValue() )
+                                    continue; // no albedo map: the section has no texture look to carry on
+                                auto look = input.IsSuccess()
+                                                 ? Assets::LoadGrassCoverLook( *input.GetValue() )
+                                                 : Common::MakeError<Assets::GrassCoverLook>( input.GetError() );
+                                if ( !look.IsSuccess() )
+                                {
+                                    if ( m_WarnedGrass.insert( ref.Path + "#cover" ).second )
+                                        LOG_ERROR( "[Landscape] grass '{}': its cover look is not derived ({}); "
+                                                   "the far cover does not carry this variety's colour",
+                                                   ref.Path, look.GetError() );
+                                    continue;
+                                }
+                                // Tinted as the surface tints the map: AlbedoColor, and a blade's clump tint mean.
+                                const auto& m = *sections.Sections[si].Material;
+                                sum.Albedo += look.GetValue().Albedo *
+                                              glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) ) * 0.5f *
+                                              ( glm::vec3( m.GetVec4( "ClumpTintCool", glm::vec4( 1.0f ) ) ) +
+                                                glm::vec3( m.GetVec4( "ClumpTintWarm", glm::vec4( 1.0f ) ) ) );
+                                sum.Subsurface += glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
+                                sum.Roughness += m.GetFloat( "RoughnessFactor", 1.0f );
+                                count += 1.0f;
+                            }
+                            if ( count > 0.0f )
+                                sections.Cover = GrassSections::CoverLook{ sum.Albedo / count, sum.Subsurface / count,
+                                                                           sum.Roughness / count };
                         }
                     }
                     Graphic::System::GrassVarietyDraw variety;
@@ -682,20 +733,13 @@ namespace Desert::ECS
                         sum.Start += lai * v.StartCullDistance;
                         sum.End += lai * v.EndCullDistance;
                         sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
-                        if ( blade && !sections.Sections.empty() && sections.Sections.front().Material )
+                        if ( sections.Cover )
                         {
-                            // The blade's look is its material's scan: the cover takes the scan's mean colour
-                            // over the cards (CoverAlbedo, the opacity-weighted mean of AlbedoTexture over them),
-                            // tinted as the blades are - AlbedoColor and the clump tint's mean.
-                            const auto& m      = *sections.Sections.front().Material;
-                            glm::vec3   colour = glm::vec3( m.GetVec4( "CoverAlbedo", glm::vec4( 0.0f ) ) ) *
-                                               glm::vec3( m.GetVec4( "AlbedoColor", glm::vec4( 1.0f ) ) ) * 0.5f *
-                                               ( glm::vec3( m.GetVec4( "ClumpTintCool", glm::vec4( 1.0f ) ) ) +
-                                                 glm::vec3( m.GetVec4( "ClumpTintWarm", glm::vec4( 1.0f ) ) ) );
+                            // Blades and meshes alike: the look their assets derive (GrassSections::Cover).
                             sum.ColourLai += lai;
-                            sum.Albedo += lai * colour;
-                            sum.Subsurface += lai * glm::vec3( m.GetVec4( "SubsurfaceColor", glm::vec4( 1.0f ) ) );
-                            sum.Roughness += lai * m.GetFloat( "RoughnessFactor", 1.0f );
+                            sum.Albedo += lai * sections.Cover->Albedo;
+                            sum.Subsurface += lai * sections.Cover->Subsurface;
+                            sum.Roughness += lai * sections.Cover->Roughness;
                         }
                     }
                     variety.Wind =
@@ -707,8 +751,8 @@ namespace Desert::ECS
         for ( size_t k = 0; k < grassLayers.size(); ++k )
         {
             const CoverSum& sum = coverSums[k];
-            // A layer with no blade variety has no colour of its own to cover the ground with (a mesh's look is
-            // its textures', GRASS-ASSET): it keeps its meshes only.
+            // A layer whose varieties derive no look (no albedo map) has no colour of its own to cover the ground
+            // with: it keeps its blades and meshes only.
             if ( sum.Lai <= 0.0f || sum.ColourLai <= 0.0f )
                 continue;
             GrassCoverValues& c = covers[grassLayers[k]->LayerName];
