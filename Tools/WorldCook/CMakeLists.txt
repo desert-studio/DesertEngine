@@ -2,8 +2,9 @@
 # The stale "MikkTSpace" link premake carried is gone from both scripts: mikktspace.cpp is compiled into GeometryCore.
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(WorldCook FOLDER Tools SOURCES ${_sources})
-target_include_directories(WorldCook PRIVATE "${DESERT_ROOT}/Tools/Shared")
+# premake's order: the engine roots, then Tools/Shared.
 desert_engine_includes(WorldCook)
+target_include_directories(WorldCook PRIVATE "${DESERT_ROOT}/Tools/Shared")
 desert_external_includes(WorldCook ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 desert_config_platform_defines(WorldCook)
 target_link_libraries(WorldCook PRIVATE GLFW Optick MeshOptimizer Voro OpenSubdiv Embree OpenEXRCore Dav1d Opus)

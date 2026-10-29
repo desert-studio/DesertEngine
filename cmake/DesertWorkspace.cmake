@@ -74,14 +74,25 @@ foreach(kind EXE SHARED MODULE STATIC)
     set(CMAKE_${kind}_LINKER_FLAGS_SHIPPING "${CMAKE_${kind}_LINKER_FLAGS_RELEASE}" CACHE STRING "" FORCE)
 endforeach()
 if(MSVC)
-    set(CMAKE_C_FLAGS "" CACHE STRING "" FORCE)
-    set(CMAKE_CXX_FLAGS "/EHsc" CACHE STRING "" FORCE)
+    # MSBuild's ClCompile defaults that differ from cl's own: ExceptionHandling Sync (/EHsc, passed to .c too),
+    # RemoveUnreferencedCodeData (/Zc:inline), UseFullPaths (/FC). SupportJustMyCode (/JMC) under UseDebugLibraries
+    # is added per configuration below.
+    set(CMAKE_C_FLAGS "/EHsc /Zc:inline /FC" CACHE STRING "" FORCE)
+    set(CMAKE_CXX_FLAGS "/EHsc /Zc:inline /FC" CACHE STRING "" FORCE)
     # Debug and Release write a .pdb (MSBuild's defaults under premake's `symbols` Default/On: DesertCrashReporter
     # symbolises with it); Shipping writes none (`symbols "Off"`). Optimised links fold and drop (/OPT:REF,ICF).
     set(CMAKE_EXE_LINKER_FLAGS_DEBUG    "/DEBUG /INCREMENTAL" CACHE STRING "" FORCE)
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE  "/DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "" FORCE)
     set(CMAKE_EXE_LINKER_FLAGS_SHIPPING "/INCREMENTAL:NO /OPT:REF /OPT:ICF" CACHE STRING "" FORCE)
 endif()
+
+# MSBuild's SupportJustMyCode default under UseDebugLibraries (Debug): /JMC.
+if(MSVC)
+    add_compile_options("$<$<AND:$<CONFIG:Debug>,$<COMPILE_LANGUAGE:C,CXX>>:/JMC>")
+endif()
+# MSBuild never scans for C++20 module dependencies (ScanSourceForModuleDependencies false); a scanned source
+# also never joins a unity batch.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # /MDd for Debug, /MD for Release and Shipping (premake `runtime "Debug"/"Release"`, dynamic CRT).
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
@@ -330,6 +341,34 @@ function(desert_finalize_targets)
         if(DESERT_IS_WINDOWS AND NOT _ascii)
             target_compile_definitions(${target} PRIVATE UNICODE _UNICODE)
         endif()
+        # premake's list fields keep the LAST occurrence of a repeated directory (CMake keeps the first): rebuild the
+        # include list that way, ordinary directories (/I) before SYSTEM ones (/external:I), as MSBuild orders them.
+        get_target_property(_incs ${target} INCLUDE_DIRECTORIES)
+        get_target_property(_sys ${target} SYSTEM_INCLUDE_DIRECTORIES)
+        if(_incs)
+            if(NOT _sys)
+                set(_sys "")
+            endif()
+            list(TRANSFORM _sys REPLACE "/+$" "")
+            set(_plain "")
+            set(_system "")
+            list(REVERSE _incs)
+            foreach(dir IN LISTS _incs)
+                # "Source/" and "Source" are one directory to premake: compare without the trailing slash.
+                if(NOT dir MATCHES "^\$<")
+                    string(REGEX REPLACE "/+$" "" dir "${dir}")
+                endif()
+                if(dir IN_LIST _sys)
+                    if(NOT dir IN_LIST _system)
+                        list(PREPEND _system "${dir}")
+                    endif()
+                elseif(NOT dir IN_LIST _plain)
+                    list(PREPEND _plain "${dir}")
+                endif()
+            endforeach()
+            set_property(TARGET ${target} PROPERTY INCLUDE_DIRECTORIES ${_plain} ${_system})
+            set_property(TARGET ${target} PROPERTY SYSTEM_INCLUDE_DIRECTORIES ${_sys})
+        endif()
         get_target_property(_sources ${target} SOURCES)
         get_target_property(_srcdir ${target} SOURCE_DIR)
         get_target_property(_unity ${target} DESERT_UNITY_TARGET)
@@ -341,16 +380,18 @@ function(desert_finalize_targets)
                 continue()
             endif()
             cmake_path(ABSOLUTE_PATH src BASE_DIRECTORY "${_srcdir}" OUTPUT_VARIABLE _abs)
+            # Absolute: a relative SOURCE path given to set_property() here resolves against the root directory
+            # (this call is deferred there), not the target's, and silently names a different file.
             if(_abs MATCHES "/ThirdParty/")
-                list(APPEND _vendored "${src}")
+                list(APPEND _vendored "${_abs}")
             else()
-                list(APPEND _ours "${src}")
+                list(APPEND _ours "${_abs}")
             endif()
             if(_unity)
                 foreach(pattern IN LISTS DESERT_UNITY_OPT_OUT)
                     string(FIND "${_abs}" "${pattern}" _at)
                     if(NOT _at EQUAL -1)
-                        list(APPEND _no_unity "${src}")
+                        list(APPEND _no_unity "${_abs}")
                         break()
                     endif()
                 endforeach()
@@ -382,12 +423,10 @@ function(desert_finalize_targets)
     endforeach()
 endfunction()
 
-# premake `characterset "ASCII"` (MultiByte): the project compiles with _MBCS instead of UNICODE/_UNICODE.
+# premake `characterset "ASCII"`: <CharacterSet>NotSet</CharacterSet>, so MSBuild defines neither UNICODE/_UNICODE
+# nor _MBCS (only MultiByte would add _MBCS).
 function(desert_ascii_characterset target)
     set_property(TARGET ${target} PROPERTY DESERT_ASCII ON)
-    if(DESERT_IS_WINDOWS)
-        target_compile_definitions(${target} PRIVATE _MBCS)
-    endif()
 endfunction()
 
 # premake `optimize "Speed"` on a vendored project: optimised in EVERY configuration (MSVC /O2, clang -O3), and on

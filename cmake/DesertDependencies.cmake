@@ -92,12 +92,12 @@ set(DESERT_COMMONSPECIFIC_LIBRARIES ReflectCpp)
 
 # deps.DesertSpecific.IncludeDir, sorted by key (premake sorts with Lua's `<`, upper case before lower case).
 set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
-    "${_tp}/JoltPhysics"                                        # jolt
     "${DESERT_VULKAN_INCLUDE}"                                  # Vulkan
     "${_tp}"                                                    # base
     "${_tp}/embree/include"                                     # embree
     "${DESERT_ROOT}/BuildScripts/ThirdParty/EmbreeConfig/include/embree4" # embree_config
     "${_tp}/entt/include"                                       # entt
+    "${_tp}/JoltPhysics"                                        # jolt
     "${_tp}/lua"                                                # lua
     "${_tp}/meshoptimizer/src"                                  # meshoptimizer
     "${_tp}/OpenSubdiv"                                         # opensubdiv

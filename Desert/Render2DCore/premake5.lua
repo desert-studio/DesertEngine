@@ -23,11 +23,11 @@ project "Render2DCore"
 
     links { "Common" }
 
-    for name, path in pairs(deps.Common.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
     end
 
-    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
+    for name, path in DesertSortedPairs(deps.CommonSpecific.IncludeDir) do
         externalincludedirs { path }
     end
 
