@@ -113,6 +113,11 @@ namespace Desert::Graphic::API::Vulkan
 
         // The ledger keys a row by the allocation's address: VmaAllocation is an opaque pointer and its
         // value is the identity, never dereferenced through the integer.
+        // RELEASE THE ROW BEFORE vmaDestroy*, everywhere. A staging copy is destroyed by whichever thread runs
+        // CommandBufferAllocator::CollectFinished (the render thread or a loader thread), while other loader
+        // threads allocate. VMA may hand the freed VmaAllocation to the next vmaCreate* at once; destroyed first,
+        // a concurrent Record of the reused key could land before this Release and be erased by it, leaving a
+        // live allocation out of the census. The ledger itself is locked (AllocationLedger::m_Mutex).
         uint64_t LedgerKey( VmaAllocation allocation )
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -161,8 +166,8 @@ namespace Desert::Graphic::API::Vulkan
             // longer has a reader.
             if ( m_ZeroBufferAllocation != VK_NULL_HANDLE )
             {
-                vmaDestroyBuffer( s_VmaAllocator, m_ZeroBuffer, m_ZeroBufferAllocation );
                 m_Ledger.Release( LedgerKey( m_ZeroBufferAllocation ) );
+                vmaDestroyBuffer( s_VmaAllocator, m_ZeroBuffer, m_ZeroBufferAllocation );
                 m_ZeroBuffer           = VK_NULL_HANDLE;
                 m_ZeroBufferAllocation = VK_NULL_HANDLE;
             }
@@ -190,8 +195,8 @@ namespace Desert::Graphic::API::Vulkan
             MappedMemory mapped = MapMemory( allocation );
             if ( const auto filled = mapped.Fill( 0, kBytes ); !filled.IsSuccess() )
             {
-                vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
                 m_Ledger.Release( LedgerKey( allocation ) );
+                vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
                 return Common::MakeFormattedError<VkBuffer>( "zeroing the zero buffer failed: {}",
                                                              filled.GetError() );
             }
@@ -199,8 +204,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( const VkResult flushed = vmaFlushAllocation( s_VmaAllocator, allocation, 0, VK_WHOLE_SIZE );
              flushed != VK_SUCCESS )
         {
-            vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
             m_Ledger.Release( LedgerKey( allocation ) );
+            vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
             return Common::MakeFormattedError<VkBuffer>( "flushing the zero buffer failed: {}",
                                                          VkResultToString( flushed ) );
         }
@@ -350,8 +355,8 @@ namespace Desert::Graphic::API::Vulkan
             RT_DestroyBuffer( buffer, allocation );
             return;
         }
-        vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
         m_Ledger.Release( LedgerKey( allocation ) );
+        vmaDestroyBuffer( s_VmaAllocator, buffer, allocation );
     }
 
     void VulkanAllocator::LogCensusIfDue()
@@ -761,8 +766,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             if ( takeFrame( it->FrameIndex ) )
             {
-                vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
                 m_Ledger.Release( LedgerKey( it->Allocation ) );
+                vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
                 it = m_BufferDeletionQueue.erase( it );
                 ++destroyed;
             }
@@ -777,8 +782,8 @@ namespace Desert::Graphic::API::Vulkan
                     vkDestroyImageView( device, it->ImageView, nullptr );
                 for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
 
-                vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
                 m_Ledger.Release( LedgerKey( it->Allocation ) );
+                vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
                 it = m_ImageDeletionQueue.erase( it );
                 ++destroyed;
             }

@@ -60,8 +60,8 @@ namespace Desert::Graphic::API::Vulkan
         // plus the barriers the caller recorded is the whole dependency: TransitionLayout takes the stage and
         // access of the layout being left (ALL_COMMANDS for a read-only or GENERAL image, so a frame still
         // sampling it finishes first) and of the layout being entered (ALL_COMMANDS / SHADER_READ for a sampled
-        // image). A one-off on another queue waits the in-flight uploads first (CommandBufferAllocator::
-        // FlushOneShot). @p staging, when there is one, is released once the fence is seen signalled; on a
+        // image). A reader on another queue waits the upload timeline on the GPU (CommandBufferAllocator::
+        // NewestUploadSync: FlushOneShot, VulkanFrameLoop::Submit). @p staging, when there is one, is released once the fence is seen signalled; on a
         // refused submit it is released at once, since nothing reads it. Also how a begun buffer is handed back
         // on an error path: empty, it costs one submit and no wait (the blocking flush it replaced waited the
         // whole queue ahead of it for nothing).

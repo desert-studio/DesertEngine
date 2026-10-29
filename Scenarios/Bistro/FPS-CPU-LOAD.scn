@@ -10,6 +10,16 @@
 #   - the "Vulkan: FlushOneShot fence wait" row's total (cpu ms x count) is lower on the branch than on dev;
 #   - 0 VUID lines in the branch log;
 #   - fps_load_last.png pixel-diff vs the dev one < 0.5 % (scripts/Dev/frames_compare.py).
+# [fps_load_async] (FPS-CPU-4): the same headless command with ASYNC COMPUTE ON and SYNCHRONIZATION VALIDATION ON.
+#   Async compute has no switch: it is on whenever the GPU has a compute queue family apart from graphics and is not
+#   a portability (MoltenVK) device (VulkanCapabilityCatalog.cpp:151 catalog.AsyncCompute). On the Windows NVIDIA box
+#   it is on; the proof is the ABSENCE of the line "RDG: no separate compute queue family" in editor.log. On a box
+#   that prints that line this check does not apply (the async pipe is the graphics queue), so it is not a PASS.
+#   Sync validation: run with the environment variable DESERT_VULKAN_VALIDATION=1 (VulkanContext.cpp:147-151 enables
+#   VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT; about 1.4 GB extra on Bistro).
+#     DESERT_VULKAN_VALIDATION=1 Editor <the headless command above> --shot <dir>/fps_load_async_last.png
+# [fps_load_async] PASS when: editor.log has no "RDG: no separate compute queue family" line; 0 VUID lines
+#   (SYNC-HAZARD-* included); fps_load_async_last.png pixel-diff vs the dev fps_load_last.png < 0.5 %.
 # The interactive half below walks the camera across the street while the scene streams in, and checks the frames.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
 Дано run View "View mode: Lit"

@@ -1,6 +1,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanFrameLoop.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/API/Vulkan/CommandBufferAllocator.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
 #include <Engine/Graphic/DeviceLost.hpp>
@@ -57,10 +58,23 @@ namespace Desert::Graphic::API::Vulkan
 
         const auto device        = SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
         bool       waitedOnImage = false;
+        // THE ASYNC-COMPUTE PIPE WAITS THE UPLOADS (UE: the async compute pipe waits on the graphics fence of
+        // the work submitted before it). One-off uploads go to the graphics queue unwaited
+        // (CommandBufferAllocator::RT_SubmitGraphicThenRelease); a graphics entry of this frame is ordered after
+        // them by submission order, but an AsyncCompute entry on a separate compute queue is not, and the first
+        // one may run before any graphics entry of the frame and read a buffer or image whose copy has not
+        // landed. Read ONCE, here: every resource the frame recorded had its upload submitted before this call,
+        // so this value covers them all. Only the FIRST async-compute entry waits; the later ones follow it on
+        // the same queue. ALL_COMMANDS, not COMPUTE_SHADER: an async segment also copies and reads indirect
+        // arguments, and at the head of the batch the wider stage costs nothing.
+        const CommandBufferAllocator::UploadSyncPoint uploads =
+             CommandBufferAllocator::GetInstance().NewestUploadSync();
+        bool waitedOnUploads = uploads.Value == 0; // nothing uploaded yet: nothing to wait
         for ( size_t i = 0; i < frame.size(); ++i )
         {
             const VulkanRdgSubmission&        entry   = frame[i];
             const bool                        last    = i + 1 == frame.size();
+            const VkQueue target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
             std::vector<VkSemaphore>          waits   = entry.WaitSemaphores;
             std::vector<VkPipelineStageFlags> stages  = entry.WaitStages;
             std::vector<VkSemaphore>          signals = entry.SignalSemaphores;
@@ -69,6 +83,20 @@ namespace Desert::Graphic::API::Vulkan
                 waits.push_back( output->ImageAcquired );
                 stages.push_back( output->ImageFirstUse );
                 waitedOnImage = true;
+            }
+            // The wait values of a submission that waits a timeline: one per wait, ignored for the binary ones.
+            std::vector<uint64_t>         waitValues;
+            VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            if ( !waitedOnUploads && entry.OnPipe == RDG::Pipe::AsyncCompute &&
+                 target != device->GetGraphicsQueue() )
+            {
+                waitValues.assign( waits.size(), 0 );
+                waits.push_back( uploads.Timeline );
+                stages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
+                waitValues.push_back( uploads.Value );
+                timelineInfo.waitSemaphoreValueCount = static_cast<uint32_t>( waitValues.size() );
+                timelineInfo.pWaitSemaphoreValues    = waitValues.data();
+                waitedOnUploads                      = true;
             }
             if ( last && output != nullptr )
                 signals.push_back( output->RenderComplete );
@@ -93,6 +121,7 @@ namespace Desert::Graphic::API::Vulkan
 
             VkSubmitInfo submitInfo{};
             submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submitInfo.pNext                = waitValues.empty() ? nullptr : &timelineInfo;
             submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( waits.size() );
             submitInfo.pWaitSemaphores      = waits.data();
             submitInfo.pWaitDstStageMask    = stages.data();
@@ -100,7 +129,6 @@ namespace Desert::Graphic::API::Vulkan
             submitInfo.pCommandBuffers      = &entry.CommandBuffer;
             submitInfo.signalSemaphoreCount = static_cast<uint32_t>( signals.size() );
             submitInfo.pSignalSemaphores    = signals.data();
-            VkQueue        target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
             const VkResult submitted =
                  device->SubmitToQueue( target, 1, &submitInfo, last ? m_Fences[slot] : VK_NULL_HANDLE );
             if ( submitted != VK_SUCCESS )
