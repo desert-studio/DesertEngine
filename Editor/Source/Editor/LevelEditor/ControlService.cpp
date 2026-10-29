@@ -48,6 +48,7 @@
 #include <ImGui/imgui.h>
 #include <ImGui/imgui_internal.h>
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <glm/gtc/quaternion.hpp>
@@ -1368,6 +1369,30 @@ namespace Desert::Editor
             device.NnMaxComputeSharedMemorySize            = neural.MaxComputeSharedMemorySize;
             for ( const Engine::CooperativeMatrixShape& shape : neural.CooperativeMatrixShapes )
                 device.NnCooperativeMatrixShapes.push_back( Engine::FormatCooperativeMatrixShape( shape ) );
+
+            // Ray tracing: the catalog's modes (what every RT consumer branches on), why rt is off, and what the
+            // main viewport resolved to - its SceneRenderer's RenderMethods, the rows its overlay and the log print.
+            const Common::Scalability::CapabilityCatalog& catalog = capabilities.Catalog;
+            const bool rtOffered = std::any_of( catalog.RayTracingModes.begin(), catalog.RayTracingModes.end(),
+                                                []( Common::Scalability::RayTracingMode m )
+                                                { return m != Common::Scalability::RayTracingMode::None; } );
+            device.Rt = rtOffered ? "on" : ( capabilities.RayTracingHidden ? "hidden" : "off" );
+            for ( const Common::Scalability::RayTracingMode mode : catalog.RayTracingModes )
+                device.RtModes.emplace_back(
+                     Common::Scalability::kRayTracingModeNames[static_cast<std::size_t>( mode )] );
+            device.PathTracingRefusal = std::string( Graphic::PathTracingRefusal( catalog ) );
+            if ( const Graphic::SceneRenderer* renderer = m_Workspace.PrimaryRenderer() )
+            {
+                const Graphic::RenderMethods& methods = renderer->GetRenderMethods();
+                device.MethodRows                     = Graphic::FormatRenderMethods( methods );
+                device.PathTracingActive              = Graphic::PathTraced( methods );
+                const auto name = []( const auto& names, const auto method )
+                { return std::string( names[static_cast<std::size_t>( method )] ); };
+                device.GIMethod = name( Common::Scalability::kGIMethodNames, methods.GlobalIllumination.Effective );
+                device.ReflectionsMethod =
+                     name( Common::Scalability::kReflectionMethodNames, methods.Reflections.Effective );
+                device.ShadowsMethod = name( Common::Scalability::kShadowMethodNames, methods.Shadows.Effective );
+            }
         }
 
         snapshot.LogInfoCount    = LogsPanel::InfoCount();

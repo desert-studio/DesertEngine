@@ -67,6 +67,8 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
         // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
         m_Capabilities.Neural = m_DeviceCaps.Neural;
+        // machine.json HideRayTracing, applied at the probe (DeviceCaps::RayTracingHidden): the reason rt is off.
+        m_Capabilities.RayTracingHidden = m_DeviceCaps.RayTracingHidden;
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
