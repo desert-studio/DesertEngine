@@ -88,6 +88,21 @@ namespace Desert::Graphic::System
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> InputSlices{};
         // x = the input the GROUND draws with (the root's first layer, by name; -1 = none), yzw unused.
         glm::vec4 GroundInput{ -1.0f, 0.0f, 0.0f, 0.0f };
+        // LANDSCAPE DISPLACEMENT (UE 5.4+ landscape Nanite displacement: the material's Displacement output, the
+        // layers' height x Magnitude around Center, faded out with distance). x = DisplacementMagnitude (cm; 0 = the
+        // tile is drawn flat), y = DisplacementCenter, z = DisplacementFadeStart, w = DisplacementFadeEnd (cm).
+        glm::vec4 Displacement{ 0.0f };
+        // xyz = the MAIN camera (cm): the fade's origin for the camera AND every caster view, so a cascade sees the
+        // surface the camera sees. w = the dice: sub-cells per cell side inside DiceWindow (1 = not diced).
+        glm::vec4 DisplacementView{ 0.0f, 0.0f, 0.0f, 1.0f };
+        // The cells of the tile's LOD grid drawn diced: [x0, x1) x [z0, z1) as (x, y, z, w). Empty = none.
+        glm::vec4 DiceWindow{ 0.0f };
+        // x = FarTilingDistance (cm), y = FarTilingScale: the layer height's far fetch, as the surface blends it.
+        glm::vec4 DisplacementTiling{ 0.0f };
+        // Per material input k (four to a vec4): LayerKTileSize (cm) and LayerKBlend, the material values the
+        // displaced vertex needs in every program (the casters have no landscape material).
+        std::array<glm::vec4, 2> InputTileSize{};
+        std::array<glm::vec4, 2> InputBlend{};
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
@@ -95,8 +110,8 @@ namespace Desert::Graphic::System
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
     static_assert(
-         sizeof( TerrainInstance ) == 28 * sizeof( glm::vec4 ),
-         "TerrainInstance must stay twenty-eight 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         sizeof( TerrainInstance ) == 35 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay thirty-five 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
          "reads these offsets" );
     static_assert( offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
                         offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
@@ -107,7 +122,13 @@ namespace Desert::Graphic::System
                         offsetof( TerrainInstance, LayerAlphaBlend ) == 240 &&
                         offsetof( TerrainInstance, LayerInput ) == 272 &&
                         offsetof( TerrainInstance, InputSlices ) == 304 &&
-                        offsetof( TerrainInstance, GroundInput ) == 432,
+                        offsetof( TerrainInstance, GroundInput ) == 432 &&
+                        offsetof( TerrainInstance, Displacement ) == 448 &&
+                        offsetof( TerrainInstance, DisplacementView ) == 464 &&
+                        offsetof( TerrainInstance, DiceWindow ) == 480 &&
+                        offsetof( TerrainInstance, DisplacementTiling ) == 496 &&
+                        offsetof( TerrainInstance, InputTileSize ) == 512 &&
+                        offsetof( TerrainInstance, InputBlend ) == 544,
                    "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -267,6 +288,20 @@ namespace Desert::Graphic::System
         const uint32_t stride = 1u << gridLod;
         const uint32_t cells  = ( quadsPerTile + stride - 1u ) / stride;
         return cells * cells * 6u;
+    }
+
+    // The draw's vertex count with the row's dice window (LandscapeDisplacement.glslh decodes the same order: the
+    // window's cells, each split into dice x dice sub-cells, then every other cell of the grid undiced).
+    inline uint32_t LandscapeDicedVertexCount( uint32_t quadsPerTile, uint32_t gridLod, const glm::vec4& window,
+                                               uint32_t dice )
+    {
+        const uint32_t all = LandscapeLodVertexCount( quadsPerTile, gridLod );
+        if ( dice <= 1u )
+            return all;
+        const auto     wx       = static_cast<uint32_t>( window.z - window.x + 0.5f );
+        const auto     wz       = static_cast<uint32_t>( window.w - window.y + 0.5f );
+        const uint32_t windowed = wx * wz * 6u;
+        return all - windowed + windowed * dice * dice;
     }
 
     // The texture half of a terrain material's identity. Two terrains may share one material only if

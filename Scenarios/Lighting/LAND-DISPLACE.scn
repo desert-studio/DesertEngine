@@ -1,0 +1,18 @@
+# LAND-DISPLACE: landscape displacement (UE 5.4+ landscape displacement) - the layers' height maps move the ground's
+# vertices (diced near cells, LandscapeDisplacement.glslh); M_FieldBarn_Landscape: Magnitude 12 cm, Center 0.5,
+# Fade 8..15 m. Off = Scalability ViewDistance Low (DisplacementDicingRate 0), as mesh displacement (DISPLACE).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: ViewDistance Cinematic"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 20
+Дано --subject selection set SunAzimuth 110
+Дано --subject viewport set Camera.Position 1200,730,-2300
+Дано --subject viewport set Camera.Direction 0.25,-0.22,-1
+Тогда 1_on ground 2-15 m ahead shows raised bumps: uneven silhouette at the ridge line, bumps cast short shadows on the ground beside them, grass/props stand on the surface (no floating)
+Когда run Quality "Quality: ViewDistance Low"
+Тогда 2_off same view, flat ground (dicing rate 0), the difference to 1_on obvious
+Когда run Quality "Quality: ViewDistance Cinematic"
+Когда --subject viewport set Camera.Position 1200,3500,1500
+Когда --subject viewport set Camera.Direction 0.1,-0.5,-1
+Тогда 3_far from 30-80 m: no seams or cracks between tiles, no step at the fade's end

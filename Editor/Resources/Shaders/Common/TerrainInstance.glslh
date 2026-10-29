@@ -20,6 +20,13 @@ struct TerrainInstance
     vec4 LayerInput[2];      // per page, per channel: the material input naming the layer's LayerName (-1 none)
     vec4 InputSlices[8];     // per material input: its slice in the albedo / normal / ARM / height arrays (-1 none)
     vec4 GroundInput;        // x = the ground's material input (the root's first layer; -1 none)
+    // LANDSCAPE DISPLACEMENT (Programs/Terrain/LandscapeDisplacement.glslh; UE 5.4+ landscape Nanite displacement)
+    vec4 Displacement;       // x = magnitude (cm), y = center (0..1), z = fade start (cm), w = fade end (cm); x 0 = off
+    vec4 DisplacementView;   // xyz = the MAIN camera (cm; the fade's origin for every view), w = dice (sub-cells per cell side, 1 = none)
+    vec4 DiceWindow;         // the diced cells on the tile's LOD grid: [x, z) .. [z, w) as x0, z0, x1, z1
+    vec4 DisplacementTiling; // x = FarTilingDistance (cm), y = FarTilingScale: the far fetch the surface blends in
+    vec4 InputTileSize[2];   // per material input, four to a vec4: LayerKTileSize (cm)
+    vec4 InputBlend[2];      // per material input, four to a vec4: LayerKBlend (0 weight, 1 height, 2 alpha)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH
