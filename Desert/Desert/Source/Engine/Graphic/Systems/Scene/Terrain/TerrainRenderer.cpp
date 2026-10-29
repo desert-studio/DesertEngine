@@ -90,6 +90,9 @@ namespace Desert::Graphic::System
             instance.LodCorners = lod.Corners;
             instance.LayerColors     = t.Weights.Colors;
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
+            instance.GrassCover      = t.Weights.GrassCover;
+            instance.GrassCoverLight = t.Weights.GrassCoverLight;
+            instance.GrassCoverRange = t.Weights.GrassCoverRange;
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
@@ -99,6 +102,73 @@ namespace Desert::Graphic::System
             instance.InputSlices   = layers.Slices;
             instance.GroundInput.x = static_cast<float>( layers.InputOf( t.Weights.GroundLayer ) );
             return instance;
+        }
+
+        // THE LANDSCAPE DISPLACEMENT of a tile's camera row (UE 5.4+ landscape displacement): the material's
+        // values (Terrain.shader Displacement*), the main camera the fade is measured from, and the dice rings
+        // around it - every cell of the LOD-0 grid the fade's square reaches, diced finer the larger it is on
+        // screen. A grid past LOD 0 is never diced: its vertices are past LOD 1, where the relief is zero
+        // (LandscapeDisplacementLodScale).
+        void ApplyLandscapeDisplacement( TerrainInstance& instance, const LandscapeTileDraw& l,
+                                         const DataDrivenMaterial& surface, const glm::vec3& camera,
+                                         const glm::mat4& projection, uint32_t viewHeight, int dicingRate )
+        {
+            const auto read = [&]( const std::string& name )
+            {
+                return MaterialBinder::ReadRowParam( surface.GetMaterialLayout(), surface.GetParamRow(), name )
+                     .value_or( glm::vec4( 0.0f ) )
+                     .x;
+            };
+            for ( uint32_t k = 0; k < World::Landscape::kLandscapeMaxWeightLayers; ++k )
+            {
+                const std::string layer = std::format( "Layer{}", k );
+                instance.InputTileSize[k / 4][static_cast<glm::length_t>( k % 4 )] = read( layer + "TileSize" );
+                // LayerKBlend is an Int: the row holds its bits (MaterialRowSlotValue).
+                instance.InputBlend[k / 4][static_cast<glm::length_t>( k % 4 )] =
+                     static_cast<float>( std::bit_cast<int32_t>( read( layer + "Blend" ) ) );
+            }
+            instance.DisplacementTiling = glm::vec4( read( "FarTilingDistance" ), read( "FarTilingScale" ), 0.0f, 0.0f );
+            const float magnitude = dicingRate > 0 ? read( "DisplacementMagnitude" ) : 0.0f;
+            const float fadeStart = std::max( read( "DisplacementFadeStart" ), 1.0f );
+            const float fadeEnd   = std::max( read( "DisplacementFadeEnd" ), fadeStart + 1.0f );
+            instance.Displacement     = glm::vec4( magnitude, read( "DisplacementCenter" ), fadeStart, fadeEnd );
+            instance.DisplacementView   = glm::vec4( camera, 0.0f );
+            instance.DiceWindow       = glm::vec4( 0.0f );
+            instance.DiceRings          = glm::vec4( -1.0f );
+            if ( magnitude <= 0.0f || instance.Params.w > 0.5f || l.SpacingCm <= 0.0f )
+                return;
+
+            // THE RINGS (UE r.Nanite.DicingRate: no sub-cell edge covers fewer than DicingRate pixels). A cell
+            // edge at distance d covers S * K / d pixels, so dice 2^j holds out to d_j = S * K / (rate * 2^j):
+            // square rings of cells around the camera's cell, each half-extent a whole number of cells, the same
+            // integers for every tile (global cell of the camera minus the tile's first sample), so a cell's dice
+            // - and the edge factor min(dice, neighbour's dice) the decode stitches with - agrees across tiles.
+            // The outermost square (dice 1, displaced) covers the fade: every vertex that moves is in a diced
+            // cell.
+            const float pixelsAtCm = projection[1][1] * 0.5f * static_cast<float>( viewHeight ) * l.SpacingCm;
+            const float fadeCells  = std::ceil( fadeEnd / l.SpacingCm );
+            const auto  globalX    = std::floor( ( camera.x - l.OriginX ) / l.SpacingCm );
+            const auto  globalZ    = std::floor( ( camera.z - l.OriginZ ) / l.SpacingCm );
+            const float cx         = globalX - static_cast<float>( l.FirstSampleX );
+            const float cz         = globalZ - static_cast<float>( l.FirstSampleZ );
+            const float cells      = static_cast<float>( l.QuadsPerTile );
+            if ( cx + fadeCells < 0.0f || cz + fadeCells < 0.0f || cx - fadeCells >= cells ||
+                 cz - fadeCells >= cells )
+                return;
+            instance.DiceWindow =
+                 glm::vec4( cx, cz, fadeCells, static_cast<float>( dicingRate ) * l.SpacingCm / pixelsAtCm );
+            instance.DisplacementView.w = 1.0f;
+            float outer                 = fadeCells;
+            for ( int level = 1; level < kLandscapeDiceLevels; ++level )
+            {
+                const float reach =
+                     pixelsAtCm / ( static_cast<float>( dicingRate ) * static_cast<float>( 1 << level ) );
+                const float half = std::min( std::floor( reach / l.SpacingCm ), outer );
+                if ( half < 0.0f || reach < 0.5f * l.SpacingCm )
+                    break;
+                instance.DiceRings[static_cast<glm::length_t>( level - 1 )] = half;
+                outer                                                       = half;
+            }
         }
 
         // The landscape material a tile drew with, for the landscape's ray tracing hit group: the values the
@@ -452,6 +522,12 @@ namespace Desert::Graphic::System
                     if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
                          !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
+                // The displaced vertex reads the layer heights in the casters too (LandscapeDisplacement.glslh).
+                if ( !layers.ArrayNames[3].empty() && layers.Arrays[3] )
+                {
+                    materials.Shadow->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
+                    materials.VirtualShadow->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
+                }
                 surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
@@ -470,13 +546,16 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            const TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
+            TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
+            ApplyLandscapeDisplacement( instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection,
+                                        m_SceneRenderer->GetViewExtent().Height,
+                                        m_SceneRenderer->GetDisplacementDicingRate() );
 
             FrameDraw draw;
             draw.Group       = it->second;
             draw.Row         = static_cast<uint32_t>( group.Instances.size() );
-            draw.VertexCount =
-                 LandscapeLodVertexCount( t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ) );
+            draw.VertexCount = LandscapeDicedVertexCount( t.Landscape.QuadsPerTile,
+                                                          static_cast<uint32_t>( instance.Params.w ), instance );
             m_FrameDraws.push_back( draw );
 
             group.ParamRows.insert( group.ParamRows.end(), surface->GetParamRow().begin(),
@@ -872,6 +951,14 @@ namespace Desert::Graphic::System
                 add( instance.Params.w );
                 add( glm::floor( instance.LodEdges ) );
                 add( glm::floor( instance.LodCorners ) );
+                // A displaced tile's depth follows the main camera (the fade, the dice window).
+                if ( instance.DisplacementView.w > 0.5f )
+                {
+                    add( instance.Displacement );
+                    add( instance.DisplacementView );
+                    add( instance.DiceWindow );
+                    add( instance.DiceRings );
+                }
             }
 
             const VsmTileBox box = TileBox( at );

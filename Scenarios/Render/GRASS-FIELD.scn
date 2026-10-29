@@ -1,0 +1,16 @@
+# GRASS-FIELD: one grass field - full blades near, simplified wider blades to ~100 m, and beyond that the landscape
+# itself is shaded as grass cover (coverage from the same layer weights + grass-type density the generator reads,
+# colour from the grass assets' textures), so the field reaches the landscape edge with no line (owner 10-29).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 20
+Дано --subject selection set SunAzimuth 110
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Тогда-вид 1_eye camera at 1.7 m: the field is green out to the landscape edge, no line or step at 30-60 m
+Когда --subject viewport set Camera.Position 0,600,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.12,-1
+Тогда-вид 2_high camera at 6 m: the same; the far cover is darker in the trees' shadow
+Когда --subject selection set SunAzimuth 290
+Тогда-вид 3_backlit sun against the camera: the far cover glows at the rim like the near blades

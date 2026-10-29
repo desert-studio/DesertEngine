@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Common/Settings/NeuralKernelPath.hpp>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -49,12 +51,8 @@ namespace Desert::Engine
         bool         SubgroupScope          = false; ///< VK_SCOPE_SUBGROUP_KHR (the only scope the kernels use)
     };
 
-    enum class NeuralKernelPath : uint8_t
-    {
-        Fp32,
-        Fp16,
-        CoopMatFp16,
-    };
+    // Declared in Common (the machine's forced path is written by these names, MachineSettings).
+    using NeuralKernelPath = ::Common::Settings::NeuralKernelPath;
 
     struct NeuralComputeCaps
     {
@@ -65,6 +63,7 @@ namespace Desert::Engine
         bool StorageBuffer8BitAccess  = false; ///< int8 weights in storage buffers
         bool SubgroupSizeControl      = false; ///< subgroupSizeControl + computeFullSubgroups
         bool CooperativeMatrix        = false; ///< VK_KHR_cooperative_matrix, feature cooperativeMatrix
+        bool VulkanMemoryModel        = false; ///< vulkanMemoryModel: every coopmat module glslang emits uses it
 
         // Device limits (VkPhysicalDeviceLimits / subgroup properties).
         uint32_t SubgroupSize                  = 0;     ///< VkPhysicalDeviceSubgroupProperties::subgroupSize
@@ -89,7 +88,8 @@ namespace Desert::Engine
     [[nodiscard]] const char* NeuralScalarName( NeuralScalar scalar );
 
     // PURE. Sets Path, Tile and Reason from the fields above:
-    //   CoopMatFp16 iff CooperativeMatrix, CooperativeMatrixInCompute, ShaderFloat16, StorageBuffer16BitAccess and
+    //   CoopMatFp16 iff CooperativeMatrix, VulkanMemoryModel, CooperativeMatrixInCompute, ShaderFloat16,
+    //               StorageBuffer16BitAccess and
     //   a
     //               subgroup-scope shape with A = B = fp16 and C = Result = fp32 or fp16 (fp32 accumulation
     //               preferred, then the largest M*N*K, then the smallest K);

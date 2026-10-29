@@ -1,0 +1,17 @@
+// The clump tint a procedural grass blade's colour is multiplied by (GRASS-BLADE): cool and dark to warm and light by
+// the clump's draw, so clumps read as patches of one meadow and not as one green. One statement for the blade's vertex
+// stage (Mesh/Surface/Vertex_GrassBlade.glslh) and the grass field's far cover (Common/LandscapeGrassCover.glslh),
+// which carries the same blades' mean colour on once they are thinned out - the draw is uniform, its mean is the
+// middle of the two.
+#ifndef GRASS_BLADE_LOOK_GLSLH
+#define GRASS_BLADE_LOOK_GLSLH
+
+const vec3 kGrassClumpTintCool = vec3( 0.75, 0.9, 0.85 );
+const vec3 kGrassClumpTintWarm = vec3( 1.2, 1.1, 0.8 );
+
+vec3 GrassClumpTint( float draw )
+{
+    return mix( kGrassClumpTintCool, kGrassClumpTintWarm, draw );
+}
+
+#endif // GRASS_BLADE_LOOK_GLSLH

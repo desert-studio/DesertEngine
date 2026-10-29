@@ -18,7 +18,9 @@
 #include <Engine/Graphic/API/Vulkan/VulkanShaderResource.hpp>
 #include <Engine/Graphic/VertexBuffer.hpp>
 
-#include <spirv_cross/spirv_glsl.hpp>
+// The vendored SPIRV-Cross (ThirdParty/SPIRV-Cross), flat: <spirv_cross/...> would resolve to the Vulkan SDK's
+// copy.
+#include <spirv_glsl.hpp>
 
 #include <optional>
 #include <string>
