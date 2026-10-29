@@ -503,7 +503,8 @@ namespace Desert::Runtime
                  if ( outcome != Assets::LoadOutcome::Loaded )
                  {
                      LOG_ERROR( "[MaterialService] '{}' is BROKEN: {} — every mesh slot naming it draws the "
-                                "engine's Default Surface material until the file is fixed and reloaded.",
+                                "engine's Default Surface material (a particle renderer row its path's engine "
+                                "default cell) until the file is fixed and reloaded.",
                                 loaded->GetMetadata().Filepath.string(), error );
                      ++m_InvalidationVersion; // the slots waiting on it build their default instance now
                      return;
@@ -890,6 +891,12 @@ namespace Desert::Runtime
         if ( it == m_MaterialAssets.end() || !it->second )
             return {};
         return it->second->GetMetadata().Filepath.stem().string();
+    }
+
+    bool MaterialService::IsBroken( const Assets::AssetHandle& handle ) const
+    {
+        const auto it = FindOrDiscover( handle );
+        return it != m_MaterialAssets.end() && it->second && it->second->IsBroken();
     }
 
     const Assets::SurfaceMaterialAsset* MaterialService::BaseOf( const Assets::AssetHandle& handle ) const

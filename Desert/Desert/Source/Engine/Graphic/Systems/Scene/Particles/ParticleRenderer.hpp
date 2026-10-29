@@ -244,6 +244,10 @@ namespace Desert::Graphic::System
             Common::AssetHandle Refused;
             bool                HasRefused  = false;
             bool                MeshRefused = false; // a Mesh row whose mesh or materials do not resolve, said once
+            // The row's material ASSET's own cell (MaterialService::Get), this frame; null = the engine default
+            // cell draws. Its param row carries the asset's values and its textures' bindless slots — the shared
+            // SpriteDraw's Material is the template's defaults, so a row built off it drew the template's white.
+            const DataDrivenMaterial* Cell = nullptr;
             MeshInstances       Meshes;              // a Mesh row's GPU instances
         };
         // One renderer row's material: (the emitter's index in its system, the row's index in its Renderers).
@@ -255,6 +259,7 @@ namespace Desert::Graphic::System
         {
             SpriteDraw*       Sprite   = nullptr;
             MaterialInstance* Instance = nullptr; // the row's own (null = the cell's defaults)
+            const DataDrivenMaterial* Material = nullptr; // the row's material asset's cell (null = the cell's own)
             uint32_t          Row      = 0;       // the draw's row in Sprite->Rows this frame
         };
 
