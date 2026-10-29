@@ -8,6 +8,7 @@
 #include <Engine/Graphic/ViewMemory.hpp>
 
 #include <Common/Core/Profiler.hpp>
+#include <Common/Settings/MachineSettings.hpp>
 
 #include <Engine/Core/Glfw.hpp>
 
@@ -46,7 +47,12 @@ namespace Desert::Engine
         // 2. Partially initialize EngineContext
         EngineContext::CreateInstance().Initialize( m_Window, nullptr, m_RendererContext );
 
-        // 3. Create Device
+        // 3. The machine's store, then the device: the device is created from what machine.json withholds
+        // (HideRayTracing), so the store cannot wait for QualityBoot, which runs after the device exists.
+        if ( !appInfo.MachineSettingsFile.empty() )
+            ::Common::Settings::MachineSettings::Load( appInfo.MachineSettingsFile );
+
+        // 3b. Create Device
         // A REFUSED DEVICE IS AN ERROR WITH A LIST, NOT A CRASH. DeviceCaps names every required capability
         // the GPU lacks; construction stops here, EntryPoint sees StartupRefusal() and skips OnCreate/Run,
         // and the process ends with that message and a failing exit code. Not std::exit: worker threads

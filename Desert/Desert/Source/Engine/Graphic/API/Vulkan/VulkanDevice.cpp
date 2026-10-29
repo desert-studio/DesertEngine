@@ -67,6 +67,8 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
         // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
         m_Capabilities.Neural = m_DeviceCaps.Neural;
+        // machine.json HideRayTracing, applied at the probe (DeviceCaps::RayTracingHidden): the reason rt is off.
+        m_Capabilities.RayTracingHidden = m_DeviceCaps.RayTracingHidden;
 
         // --- Identity ---
         m_Capabilities.Name = deviceProperties.deviceName;
@@ -256,9 +258,17 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> VulkanLogicalDevice::Create()
     {
-        auto probed = SelectDevice( VulkanContext::GetBootstrapInstance() );
+        // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,
+        // before the probe, so the device is created as the restricted card would create it.
+        const DeviceRestrictions restrictions{ .HideRayTracing =
+                                                    Common::Settings::MachineSettings::Get().HideRayTracing };
+        auto                     probed = SelectDevice( VulkanContext::GetBootstrapInstance(), restrictions );
         if ( !probed )
             return Common::MakeError<std::shared_ptr<VulkanLogicalDevice>>( probed.GetError() );
+        if ( restrictions.HideRayTracing )
+            LOG_WARN( "[Vulkan] ray tracing hidden by {} (HideRayTracing): acceleration_structure, ray_query and "
+                      "ray_tracing_pipeline are not enabled; the renderer runs the non-RT methods",
+                      Common::Settings::MachineSettings::File().string() );
         // THE START-UP TABLE, ONE LINE: which device, which driver, which version, and every row of
         // DeviceCaps as core / ext / no ("!" marks the required set).
         LOG_INFO( "[Vulkan] {}", FormatCapsTable( probed.GetValue().Caps ) );
