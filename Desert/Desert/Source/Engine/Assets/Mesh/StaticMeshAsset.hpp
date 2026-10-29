@@ -47,11 +47,11 @@ namespace Desert::Assets
             return false;
         }
 
-        // THE CPU RENDER DATA (UE FStaticMeshLODResources' vertex/index arrays, bAllowCPUAccess): resident from the
-        // load until the GPU copy is made (ReleaseCpuGeometry, MeshFactory), then dropped - the GPU buffers are the
-        // render data. A consumer that reads it after that (collision, picking, a spline mesh, the rigging tools)
-        // is an explicit CPU-access request: the arrays are read back from the mesh's derived data (the same key)
-        // and kept for the rest of this load, as UE keeps them for a mesh flagged bAllowCPUAccess.
+        // THE CPU RENDER DATA (UE FStaticMeshLODResources' vertex/index arrays, bAllowCPUAccess): resident from
+        // the load until the GPU copy is made (ReleaseCpuGeometry, MeshFactory), then dropped - the GPU buffers
+        // are the render data. A consumer that reads it after that (collision, picking, a spline mesh, the rigging
+        // tools) is an explicit CPU-access request: the arrays are read back from the mesh's derived data (the
+        // same key) and kept for the rest of this load, as UE keeps them for a mesh flagged bAllowCPUAccess.
         const std::vector<Vertex>& GetVertices() const
         {
             EnsureCpuGeometry();
@@ -66,8 +66,9 @@ namespace Desert::Assets
         // triangle sets are freed unless a consumer already asked for CPU access. The distance field, cards and
         // displacement jobs own copies of their input taken in ResolveDependencies, before this.
         void ReleaseCpuGeometry();
-        // The uploader's read (MeshFactory::CreateStatic rebuilding the GPU mesh after a release): the arrays are read
-        // back for that one upload and released again after it, not kept as a CPU-access request would keep them.
+        // The uploader's read (MeshFactory::CreateStatic rebuilding the GPU mesh after a release): the arrays are
+        // read back for that one upload and released again after it, not kept as a CPU-access request would keep
+        // them.
         void AcquireCpuGeometryForUpload()
         {
             EnsureCpuGeometry( false );
@@ -138,7 +139,8 @@ namespace Desert::Assets
     private:
         // Fills the CPU arrays (vertices, indices, streams, each submesh's baked LODs) from the decoded container.
         void FillCpuGeometry( const Serialization::MeshAssetData& data );
-        // Reads the CPU arrays back after ReleaseCpuGeometry (an explicit CPU-access request); no-op when resident.
+        // Reads the CPU arrays back after ReleaseCpuGeometry (an explicit CPU-access request); no-op when
+        // resident.
         // @p keep: a CPU reader's request (kept for this load) or the uploader's (released again after it).
         void EnsureCpuGeometry( bool keep = true ) const;
 

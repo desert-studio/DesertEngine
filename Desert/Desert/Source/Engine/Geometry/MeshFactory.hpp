@@ -65,7 +65,8 @@ namespace Desert::Graphic
             staticMesh->SetDisplacementTopology( asset->GetDisplacementTopology() );
             staticMesh->SetDisplacedMesh( asset->GetDisplacedMesh() );
             // The GPU copy is staged (StageGeometry copied the bytes): the asset's CPU arrays are released, UE
-            // bAllowCPUAccess=false. The distance-field/cards/displacement job took its copy in ResolveDependencies.
+            // bAllowCPUAccess=false. The distance-field/cards/displacement job took its copy in
+            // ResolveDependencies.
             asset->ReleaseCpuGeometry();
 
             return staticMesh;

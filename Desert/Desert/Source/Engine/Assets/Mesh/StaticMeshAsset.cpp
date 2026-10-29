@@ -182,10 +182,10 @@ namespace Desert::Assets
             return;
         // A CPU reader after the GPU upload: read the same render data back (the key the load decoded) and keep it
         // for the rest of this load. A different key is a different mesh behind the same arrays' ranges - refused.
-        auto* self = const_cast<StaticMeshAsset*>( this );
+        auto* self                  = const_cast<StaticMeshAsset*>( this );
         self->m_CpuAccessRequested  = self->m_CpuAccessRequested || keep;
         self->m_CpuGeometryReleased = false;
-        const auto raw = LoadMeshPlatformDataKeyed( m_Metadata.Filepath );
+        const auto raw              = LoadMeshPlatformDataKeyed( m_Metadata.Filepath );
         if ( !raw )
         {
             LOG_ERROR( "StaticMeshAsset '{}': CPU access after the GPU upload could not re-read the render data "
@@ -203,14 +203,16 @@ namespace Desert::Assets
         const auto data = Serialization::ReadMeshAssetData( raw.GetValue().Bytes, m_Metadata.Filepath.string() );
         if ( !data )
         {
-            LOG_ERROR( "StaticMeshAsset '{}': CPU access after the GPU upload could not decode the render data ({})",
-                       m_Metadata.Filepath.string(), data.GetError() );
+            LOG_ERROR(
+                 "StaticMeshAsset '{}': CPU access after the GPU upload could not decode the render data ({})",
+                 m_Metadata.Filepath.string(), data.GetError() );
             return;
         }
         self->FillCpuGeometry( data.GetValue() );
         if ( keep )
-            LOG_INFO( "StaticMeshAsset '{}': CPU geometry read back for a CPU reader ({} vertices); kept for this load",
-                      m_Metadata.Filepath.string(), m_Vertices.size() );
+            LOG_INFO(
+                 "StaticMeshAsset '{}': CPU geometry read back for a CPU reader ({} vertices); kept for this load",
+                 m_Metadata.Filepath.string(), m_Vertices.size() );
     }
 
     Common::BoolResultStr StaticMeshAsset::Unload()
