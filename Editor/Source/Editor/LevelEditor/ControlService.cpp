@@ -1405,6 +1405,7 @@ namespace Desert::Editor
                                                                     .ShadowClustersDrawn = vg.ShadowClustersDrawn,
                                                                     .VsmClustersDrawn    = vg.VsmClustersDrawn,
                                                                     .VsmRefusedGroups    = vg.VsmRefusedGroups,
+                                                                    .VsmFallbackSubmeshes = vg.VsmFallbackSubmeshes,
                                                                     .Overflow         = vg.Overflow,
                                                                     .OccludedClusters = vg.OccludedClusters,
                                                                     .BinnedVgInstances = vg.BinnedVgInstances };

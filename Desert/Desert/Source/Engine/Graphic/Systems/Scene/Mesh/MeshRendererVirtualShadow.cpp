@@ -338,6 +338,35 @@ namespace Desert::Graphic::System
         return result;
     }
 
+    uint32_t MeshRenderer::CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const
+    {
+        // Per static queue entry (one per section material: Rules::SplitMeshSlotDraws), each VG submesh it shows
+        // that the VirtualShadow table bins at lod 0 into a fallback group - the lookup VsmClusteredSubmeshes reads
+        // its twin through, so clustered, fallback and refused partition an entry's VG submeshes.
+        uint32_t count = 0;
+        for ( const StaticMeshRenderData& rd : m_StaticQueue )
+        {
+            if ( rd.Mesh == nullptr || !rd.CastShadows )
+                continue;
+            const auto* registration = rd.Mesh->GetVirtualMesh();
+            if ( registration == nullptr || !*registration )
+                continue;
+            const std::size_t submeshes = rd.Mesh->GetSubmeshes().size();
+            const SubmeshMask own{ rd.HiddenSubmeshes };
+            for ( const VirtualGeometry::VirtualMeshDagSpan& span :
+                  VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
+            {
+                if ( span.Submesh >= submeshes || own.Hides( span.Submesh ) )
+                    continue;
+                const std::optional<uint32_t> group = m_DrawCommandCache->SubmeshGroup(
+                     GpuDriven::MeshPass::VirtualShadow, rd.GpuPrimitive, span.Submesh );
+                if ( group && *group < fallbackGroups.size() && fallbackGroups[*group] != 0u )
+                    ++count;
+            }
+        }
+        return count;
+    }
+
     void MeshRenderer::VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const
     {
         words.clear();
@@ -383,7 +412,8 @@ namespace Desert::Graphic::System
     void MeshRenderer::ResetVirtualShadowGeometry()
     {
         m_VsmGeometry.reset();
-        m_VsmRefusedGroups = 0;
+        m_VsmRefusedGroups     = 0;
+        m_VsmFallbackSubmeshes = 0;
         m_VsmHiddenWords.clear();
     }
 
@@ -395,7 +425,8 @@ namespace Desert::Graphic::System
         using Result                        = std::vector<uint8_t>;
         constexpr GpuDriven::MeshPass kPass = GpuDriven::MeshPass::VirtualShadow;
         m_VsmGeometry.reset();
-        m_VsmRefusedGroups = 0;
+        m_VsmRefusedGroups     = 0;
+        m_VsmFallbackSubmeshes = 0;
         if ( !m_DrawCommandCache )
             return Common::MakeError<Result>( "virtual shadow map clusters: no draw command cache to bin them by" );
         if ( auto pipelines = EnsureVirtualShadowPipelines(); !pipelines.IsSuccess() )
@@ -404,7 +435,9 @@ namespace Desert::Graphic::System
         if ( issue.GroupCount != table.Groups.size() )
             return Common::MakeError<Result>( std::format( "virtual shadow map clusters: {} cluster bins for {} groups",
                                                            issue.GroupCount, table.Groups.size() ) );
-        Result drawn( table.Groups.size(), uint8_t{ 0 } );
+        Result               drawn( table.Groups.size(), uint8_t{ 0 } );
+        std::vector<uint8_t> fallback( table.Groups.size(), uint8_t{ 0 } );
+        bool                 anyFallback = false;
         for ( size_t group = 0; group < table.Groups.size(); ++group )
         {
             const GpuDriven::IndirectGroup& indirect = table.Groups[group];
@@ -419,12 +452,22 @@ namespace Desert::Graphic::System
             const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
             if ( MeshCellPath( cell ) != MeshVertexPath::Static )
                 continue;
+            // The template has no `.VirtualGeometry` permutation: the fallback (UE: no Nanite path -> the fallback
+            // mesh), a known state - its submeshes are counted below, nothing is logged.
+            if ( !DeclaresVirtualGeometryTwin( cell ) )
+            {
+                fallback[group] = 1u;
+                anyFallback     = true;
+                continue;
+            }
             ++m_VsmRefusedGroups;
             if ( m_BinnedRefused.insert( cell + "|vsm-vg" ).second )
                 LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` twin (no such cell, or it is compiling): "
                           "its virtual-geometry meshes cast into the virtual shadow map through the CPU walk",
                           cell );
         }
+        if ( anyFallback )
+            m_VsmFallbackSubmeshes = CountVsmFallbackSubmeshes( fallback );
         issue.GroupCarriers.assign( table.Groups.size(), nullptr );
         MeshRendererDetail::BinnedIssue binned;
         binned.Table             = &table;

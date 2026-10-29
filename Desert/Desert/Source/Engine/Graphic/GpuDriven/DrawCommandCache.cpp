@@ -518,22 +518,31 @@ namespace Desert::Graphic::GpuDriven
         return any;
     }
 
-    const GraphicsPipeline* DrawCommandCache::SubmeshVirtualGeometryPipeline( const MeshPass       pass,
-                                                                              const PrimitiveIndex primitive,
-                                                                              const uint32_t       submesh ) const
+    std::optional<uint32_t> DrawCommandCache::SubmeshGroup( const MeshPass pass, const PrimitiveIndex primitive,
+                                                            const uint32_t submesh ) const
     {
         // RasterBinning.shader GroupOf, on the host mirrors: lod-0 slot -> bin -> group.
         const PassDrawTable& table = m_Passes[static_cast<uint32_t>( pass )];
         if ( primitive >= table.PrimitiveDraws.size() )
-            return nullptr;
+            return std::nullopt;
         const GpuPrimitivePassDraws& draws = table.PrimitiveDraws[primitive];
         if ( submesh >= draws.SubmeshCount )
-            return nullptr;
+            return std::nullopt;
         const size_t slot = size_t{ draws.FirstDrawSlot } + submesh;
         if ( slot >= table.DrawSlots.size() || table.DrawSlots[slot].Bin >= table.Bins.size() )
-            return nullptr;
+            return std::nullopt;
         const uint32_t group = table.Bins[table.DrawSlots[slot].Bin].Group;
-        return group < table.Groups.size() ? table.Groups[group].VirtualGeometryPipeline : nullptr;
+        if ( group >= table.Groups.size() )
+            return std::nullopt;
+        return group;
+    }
+
+    const GraphicsPipeline* DrawCommandCache::SubmeshVirtualGeometryPipeline( const MeshPass       pass,
+                                                                              const PrimitiveIndex primitive,
+                                                                              const uint32_t       submesh ) const
+    {
+        const std::optional<uint32_t> group = SubmeshGroup( pass, primitive, submesh );
+        return group ? m_Passes[static_cast<uint32_t>( pass )].Groups[*group].VirtualGeometryPipeline : nullptr;
     }
 
     Common::ResultStr<DrawCommandBuffers> DrawCommandCache::AddUploadPass( RDG::Builder& graph )

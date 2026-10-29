@@ -7,7 +7,7 @@
 # phase's carried clusters packed 64 per workgroup, cascade cuts LOD by the cascade's own texel size.
 # Step 13: post phase (a cluster the previous frame's HZB hid is re-cut against this frame's HZB and drawn by the
 # GBuffer post pass) and the shadow cascades' own cuts (VG instances out of the cascade bins too).
-Дано run Scene "Open Scene Bistro.desce"
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/B16_Bistro_Street.desce
 Когда run Assets "Drop into the viewport: Meshes/Bistro/Bistro_Exterior_Lantern.fbx"
 Когда run Assets "Import Options: Virtual Geometry On"
 Когда run Assets "Import Options: Import"
@@ -27,23 +27,27 @@
 Тогда-вид [vg_raster] the lit frame at frame 120 shows the lantern and its shadow as in the bins-only frame: frame mean within 1%
 Тогда [vg_raster_views] (step 14: candidates compacted per cut view, post clusters 64 per workgroup, cascade LOD by the cascade's own texel) vg_raster_cut60.png differs from the bins-only frame by < 1% of pixels; views.virtualGeometry.clustersDrawn > 0 and shadowClustersDrawn > 0; editor.log 0 VUID
 Тогда [vg_vsm] (step 16: the VSM clipmap levels are cluster cut views, their clusters rastered into the pages; Shadows.Method VirtualMaps, Bistro, 120 frames) views.virtualGeometry.vsmClustersDrawn[level] > 0 on every level that drew pages; the sun shadow (lit frame 120) differs from the bins-only VSM frame by < 1% of pixels (pixel diff); editor.log 0 VUID, no "the virtual shadow map draws its virtual geometry on the CPU walk"
-# Step 18/19 [vg_vsm_mixed]: a MIXED primitive - VG clusters on some submeshes only - casts into the VSM from BOTH parts.
-# UNVERIFIED SETUP: a cooked mesh carries a DAG on every submesh or none (VirtualMeshTable.cpp:276-288, import gate
-# VirtualGeometryGate.cpp:62-90), so the mix exists only per entry: a lantern section whose slot material is swapped
-# (Details) to a template without a `.VirtualGeometry` twin stays on the levels' CPU walk (MeshRenderer::VsmWalkHidden)
-# while its other sections are clustered. That section is a held refusal (vsmRefusedGroups counts it) - the step
-# below states 0 per the brief; the agent that runs it names the setup that gives a twin-less group no refusal or
-# changes the expected count (REMAINDER-VIRT-GEOM-19 item 3).
-Когда run Scene "Set Shadows Method: VirtualMaps"
+# Step 18-20 [vg_vsm_mixed]: the VSM levels' cluster raster beside their CPU walk. Shadows method = the PPV's request
+# (PostProcessVolumeData.Settings.ShadowsMethod: 0 CascadedMaps, 1 VirtualMaps - Common::Scalability::ShadowMethod);
+# the quality override `Quality: Shadows.Method` is only a ceiling (default HardwareTraced) and writes machine.json, so
+# it is not used. 6039035132485441499 = B16_Bistro_Street's PPV (LOCAL-EXPOSURE-FUSION.scn).
+# Step 20 (lead decision, UE: a material with no Nanite path renders the fallback mesh): a VG submesh binned into a VSM
+# group whose template declares no `.VirtualGeometry` twin is a FALLBACK (vsmFallbackSubmeshes, walked, no log);
+# vsmRefusedGroups counts only a twin the template declares and that has no pipeline. A cooked mesh carries a DAG on
+# every submesh or none (VirtualMeshTable.cpp:276-288), so the mix is per section: a section whose VSM caster template
+# has no twin. DShaderParser emits the twin for every non-translucent template, and an opaque section casts through
+# the default template's shared cell (ShadowCasterCellFor), so a section swapped to any opaque or masked surface stays
+# CLUSTERED: the swapped-sections count of fallbacks is 0 for every shipped template (REMAINDER-VIRT-GEOM-20).
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
 Когда 120 frames render
 Когда shot viewport "vg_vsm_mixed120.png"
 Когда DesertCtl state views.virtualGeometry
-Тогда [vg_vsm_mixed] views.virtualGeometry.vsmClustersDrawn: one entry per clipmap level (17), > 0 on every level that drew pages (named per level in the report); views.virtualGeometry.vsmRefusedGroups == 0
+Тогда [vg_vsm_mixed] views.virtualGeometry.vsmClustersDrawn: one entry per clipmap level (17), > 0 on every level that drew pages (named per level in the report); views.virtualGeometry.vsmRefusedGroups == 0; views.virtualGeometry.vsmFallbackSubmeshes == the lantern's sections whose VSM caster template declares no `.VirtualGeometry` twin (0 with the shipped templates); overflow == 0 (the cut of 17 levels fits kMaxVisibleClustersPerCut)
 Тогда [vg_vsm_mixed] editor.log: 0 VUID, no "has no `.VirtualGeometry` twin", no "the virtual shadow map draws its virtual geometry on the CPU walk"
-Тогда-вид [vg_vsm_mixed] vg_vsm_mixed120.png: the lantern's shadow holds BOTH its clustered (metal frame) and walked (glass/masked) parts - pixel diff of the shadow vs the bins-only VSM frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
-Когда run Scene "Set Shadows Method: Cascades"
+Тогда-вид [vg_vsm_mixed] vg_vsm_mixed120.png: the lantern's shadow - pixel diff of the shadow vs the bins-only VSM frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
 Когда 2 frames render
 Когда DesertCtl state views.virtualGeometry
-Тогда [vg_vsm_mixed] after switching back to cascades: views.virtualGeometry.vsmRefusedGroups == 0 (reset every frame the method is not VirtualMaps)
+Тогда [vg_vsm_mixed] after switching back to cascades: views.virtualGeometry.vsmRefusedGroups == 0 and vsmFallbackSubmeshes == 0 (reset every frame the method is not VirtualMaps)
 Когда run View "View mode: Virtual Geometry Clusters"
 Тогда-вид [vg_raster] the lantern shows per-cluster colours on the same silhouette as the lit frame

@@ -106,7 +106,8 @@ namespace Desert::Editor::Control
         uint32_t ShadowClustersDrawn = 0; // every shadow cascade's raster drew
         // Per virtual shadow map clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew into it.
         std::vector<uint32_t> VsmClustersDrawn;
-        uint32_t VsmRefusedGroups = 0; // VSM groups with binned VG clusters and no VG twin (must be 0)
+        uint32_t VsmRefusedGroups = 0; // VSM groups whose template declares a VG twin that has no pipeline (must be 0)
+        uint32_t VsmFallbackSubmeshes = 0; // VG submeshes in a VSM group whose template has no VG twin (walked, no error)
         uint32_t Overflow         = 0;
         uint32_t OccludedClusters = 0;
         uint32_t BinnedVgInstances = 0; // VG instances the bins of a cut view still drew (must be 0)
@@ -424,6 +425,7 @@ namespace Desert::Editor::Control
                 vsmClustersDrawn.push_back( Num( drawn ) );
             virtualGeometry["vsmClustersDrawn"] = Common::Json::Value( vsmClustersDrawn );
             virtualGeometry["vsmRefusedGroups"] = Num( snapshot.VirtualGeometry.VsmRefusedGroups );
+            virtualGeometry["vsmFallbackSubmeshes"] = Num( snapshot.VirtualGeometry.VsmFallbackSubmeshes );
             virtualGeometry["overflow"]         = Num( snapshot.VirtualGeometry.Overflow );
             virtualGeometry["occludedClusters"] = Num( snapshot.VirtualGeometry.OccludedClusters );
             virtualGeometry["binnedVgInstances"] = Num( snapshot.VirtualGeometry.BinnedVgInstances );

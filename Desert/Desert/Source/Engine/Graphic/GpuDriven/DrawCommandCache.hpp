@@ -234,6 +234,11 @@ namespace Desert::Graphic::GpuDriven
         // pass, a fallback) or the group has no twin (no such cell, still compiling). Valid after Rebuild.
         [[nodiscard]] const GraphicsPipeline* SubmeshVirtualGeometryPipeline( MeshPass pass, PrimitiveIndex primitive,
                                                                               uint32_t submesh ) const;
+        // The group (index into Pass( @p pass ).Groups) @p submesh of @p primitive is binned into at lod 0 - the
+        // lookup SubmeshVirtualGeometryPipeline reads its twin from. Empty: no bin there (not in the cache, not in
+        // the pass, a fallback). Valid after Rebuild.
+        [[nodiscard]] std::optional<uint32_t> SubmeshGroup( MeshPass pass, PrimitiveIndex primitive,
+                                                            uint32_t submesh ) const;
         [[nodiscard]] std::span<const glm::mat4> SubmeshTransforms() const
         {
             return m_SubmeshTransforms;

@@ -437,9 +437,13 @@ namespace Desert::Graphic
             uint32_t ShadowClustersDrawn = 0;
             // Per VSM clipmap level (index = level): the clusters "VSM: Raster VirtualGeometry" drew into it.
             std::vector<uint32_t> VsmClustersDrawn;
-            // VSM material groups with binned VG clusters and no `.VirtualGeometry` twin (held refusals: their
-            // primitives stay in the levels' CPU walk; MeshRenderer::VsmRefusedGroups). Must be 0.
+            // VSM material groups with binned VG clusters whose template declares a `.VirtualGeometry` twin and has
+            // no pipeline of it (held refusals: their primitives stay in the levels' CPU walk;
+            // MeshRenderer::VsmRefusedGroups). Must be 0.
             uint32_t VsmRefusedGroups = 0;
+            // VG submeshes binned into a VSM group whose template has no `.VirtualGeometry` twin: the fallback, walked
+            // by design (MeshRenderer::VsmFallbackSubmeshes; UE: a material without a Nanite path draws the fallback).
+            uint32_t VsmFallbackSubmeshes = 0;
             uint32_t Overflow         = 0;
             uint32_t OccludedClusters = 0;
             // VG instances still drawn by the bins of a view with a cut (main or cascade; must be 0: the cluster

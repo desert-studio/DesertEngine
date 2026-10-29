@@ -68,8 +68,8 @@ namespace Desert::Graphic
         // (one entry per material slot: their union), appended for EVERY cull view of the draw bins (the main view
         // and the drawn shadow cascades), cull view v as cut view v. Capacity = instances x DAGs, the rows of EACH
         // cut view's region (InstanceCulling compacts the append per cut view); VisibleCapacity = instances x the DAGs' ClusterCount, the bound of ONE view's cut (AddFrameVirtualGeometry
-        // cuts each view in its own dispatch; a cut never draws more clusters than its DAG holds). Refused when
-        // that bound passes the visible-list index range.
+        // cuts each view in its own dispatch; a cut never draws more clusters than its DAG holds), saturated to
+        // the cut's budget kMaxVisibleClustersPerCut. Refused when the candidate rows pass the uint32 index range.
         Common::ResultStr<VirtualGeometryCandidateTables>
         MakeVirtualGeometryCandidates( RDG::Builder& graph, System::MeshRenderer& meshes,
                                        const GpuDriven::GpuScene& gpuScene, const uint32_t primitiveRows,
@@ -120,11 +120,11 @@ namespace Desert::Graphic
                 instancesTotal += instances;
             }
             const uint32_t views = std::max( viewCount, 1u );
-            if ( visible > VirtualGeometry::kMaxVisibleClusters || capacity * views > UINT32_MAX )
-                return Common::MakeError<Result>( std::format(
-                     "VirtualGeometry: {} drawn VG instances hold {} clusters / {} candidates, past the visible-list "
-                     "index range {}",
-                     instancesTotal, visible, capacity * views, VirtualGeometry::kMaxVisibleClusters ) );
+            if ( capacity * views > UINT32_MAX )
+                return Common::MakeError<Result>(
+                     std::format( "VirtualGeometry: {} drawn VG instances hold {} candidates, past the candidate-row "
+                                  "index range",
+                                  instancesTotal, capacity * views ) );
             if ( capacity == 0u || visible == 0u )
                 return Common::MakeSuccess( std::move( out ) );
 
@@ -145,7 +145,10 @@ namespace Desert::Graphic
             out.Input.Capacity      = static_cast<uint32_t>( capacity );
             out.Input.CutViews      = views;
             out.Instances           = static_cast<uint32_t>( std::min<uint64_t>( instancesTotal, UINT32_MAX ) );
-            out.VisibleCapacity     = static_cast<uint32_t>( visible );
+            // The exact bound, past the cut's budget saturated to it (AddClusterCut caps each dispatch by
+            // kMaxVisibleClustersPerCut and counts what does not fit).
+            out.VisibleCapacity =
+                 static_cast<uint32_t>( std::min<uint64_t>( visible, VirtualGeometry::kMaxVisibleClustersPerCut ) );
             return Common::MakeSuccess( std::move( out ) );
         }
     } // namespace
@@ -786,9 +789,13 @@ namespace Desert::Graphic
                                                              .Count           = appended.Count,
                                                              .Capacity        = appended.Capacity,
                                                              // One cut of every level: each level may emit every
-                                                             // cluster its candidates' DAGs hold.
-                                                             .VisibleCapacity = vgTables.GetValue().VisibleCapacity *
-                                                                                System::kVsmClipmapLevelCount,
+                                                             // cluster its candidates' DAGs hold, within the one
+                                                             // dispatch's budget (kMaxVisibleClustersPerCut, UE
+                                                             // MaxVisibleClusters; past it counted as overflow).
+                                                             .VisibleCapacity = static_cast<uint32_t>( std::min<uint64_t>(
+                                                                  uint64_t{ vgTables.GetValue().VisibleCapacity } *
+                                                                       System::kVsmClipmapLevelCount,
+                                                                  VirtualGeometry::kMaxVisibleClustersPerCut ) ),
                                                              .Layout   = VirtualGeometry::ClusterCandidateLayout::PerCutView,
                                                              .CutViews = appended.CutViews };
         const VirtualGeometry::VirtualMeshBuffers vgMeshes = VirtualGeometry::VirtualMeshTable::Get().Import( graph );
@@ -847,13 +854,16 @@ namespace Desert::Graphic
 
     SceneRenderer::VirtualGeometryCounts SceneRenderer::GetVirtualGeometryCounts() const
     {
-        const auto     meshSystem = m_RenderSystems.find( "MeshSystem" );
-        const uint32_t refused =
-             meshSystem == m_RenderSystems.end()
-                  ? 0u
-                  : static_cast<const System::MeshRenderer*>( meshSystem->second.get() )->VsmRefusedGroups();
+        const auto                  meshSystem = m_RenderSystems.find( "MeshSystem" );
+        const System::MeshRenderer* meshes =
+             meshSystem == m_RenderSystems.end() ? nullptr
+                                                 : static_cast<const System::MeshRenderer*>( meshSystem->second.get() );
+        const uint32_t refused  = meshes != nullptr ? meshes->VsmRefusedGroups() : 0u;
+        const uint32_t fallback = meshes != nullptr ? meshes->VsmFallbackSubmeshes() : 0u;
         if ( !m_ClusterCutCounts )
-            return { .Instances = m_VirtualGeometryInstances, .VsmRefusedGroups = refused };
+            return { .Instances            = m_VirtualGeometryInstances,
+                     .VsmRefusedGroups     = refused,
+                     .VsmFallbackSubmeshes = fallback };
         const VirtualGeometry::ClusterCutCount& last = m_ClusterCutCounts->LastCount();
         return { .Instances           = m_VirtualGeometryInstances,
                  .ClustersVisible     = last.ClustersVisible,
@@ -861,6 +871,7 @@ namespace Desert::Graphic
                  .ShadowClustersDrawn = last.ShadowClustersDrawn,
                  .VsmClustersDrawn    = last.VsmClustersDrawn,
                  .VsmRefusedGroups    = refused,
+                 .VsmFallbackSubmeshes = fallback,
                  .Overflow         = last.Status.StackOverflow + last.Status.VisibleOverflow + last.Status.MissingSlot,
                  .OccludedClusters  = last.Status.OccludedClusters,
                  .BinnedVgInstances = last.Status.BinnedVgInstances };

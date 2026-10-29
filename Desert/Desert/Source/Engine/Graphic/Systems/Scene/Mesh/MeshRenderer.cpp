@@ -1064,9 +1064,11 @@ namespace Desert::Graphic::System
                 continue;
             if ( indirect.VirtualGeometryPipeline == nullptr )
             {
-                // The binning still places a VG cluster of this group here: it is not drawn.
+                // The binning still places a VG cluster of this group here: it is not drawn. A template without the
+                // permutation is a fallback (its meshes draw through the bins), not an error: said only for a twin
+                // the template declares.
                 const std::string& cell = indirect.Pipeline->GetSpecification().Shader->GetName();
-                if ( m_BinnedRefused.insert( cell + "|vg" ).second )
+                if ( DeclaresVirtualGeometryTwin( cell ) && m_BinnedRefused.insert( cell + "|vg" ).second )
                     LOG_WARN( "[MeshRenderer] '{}' has no `.VirtualGeometry` pipeline (no such cell, or it is "
                                  "compiling): virtual-geometry clusters drawn with it are not rastered",
                                  cell );
@@ -1092,12 +1094,17 @@ namespace Desert::Graphic::System
         if ( !shader || !IsBinnedCell( shader->GetName() ) ||
              MeshCellPath( shader->GetName() ) != MeshVertexPath::Static )
             return nullptr;
-        const std::string cell = VirtualGeometryCellOf( shader->GetName() );
-        // Only opaque templates emit the permutation (DShaderParser): a missing one is not an error here.
-        if ( !Runtime::ResourceRegistry::GetShaderService()->GetByName( cell ) )
+        // A template without the permutation is a fallback (DeclaresVirtualGeometryTwin), not an error here.
+        if ( !DeclaresVirtualGeometryTwin( shader->GetName() ) )
             return nullptr;
         // The group's own state (its two-sided cull mode included), the cell swapped.
-        return BinnedCellPipeline( cell, &group, false );
+        return BinnedCellPipeline( VirtualGeometryCellOf( shader->GetName() ), &group, false );
+    }
+
+    bool MeshRenderer::DeclaresVirtualGeometryTwin( const std::string& binnedCell )
+    {
+        return Runtime::ResourceRegistry::GetShaderService()->GetByName( VirtualGeometryCellOf( binnedCell ) ) !=
+               nullptr;
     }
 
     bool MeshRenderer::SetFramePostOcclusion( const GpuDriven::MeshPass pass, const uint32_t viewKey,

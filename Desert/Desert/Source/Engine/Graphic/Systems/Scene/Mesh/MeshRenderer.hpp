@@ -630,9 +630,14 @@ namespace Desert::Graphic::System
         // and fragment stage the level's page table from the cluster's view. The carriers are made by
         // AddVirtualShadowRasterPasses; from then the levels' CPU walk leaves out every submesh whose clusters a
         // twin draws (VsmWalkHidden). Returns per group whether its clusters are drawn. A group with clusters
-        // binned and no twin is a HELD REFUSAL: logged once per cell, counted (VsmRefusedGroups), and its
-        // submeshes stay in the CPU walk (no shadow is lost). Refused without the VSM caster pipelines, a draw
-        // command cache or for bins of another group count; nothing is attached then.
+        // binned and no twin is one of two states, both kept in the CPU walk (no shadow is lost):
+        //  - a FALLBACK (UE: a material with no Nanite path renders the fallback mesh - a known state, not an
+        //    error) when its template declares no `.VirtualGeometry` twin (DeclaresVirtualGeometryTwin): counted per
+        //    VG submesh binned into it (VsmFallbackSubmeshes), never logged;
+        //  - a HELD REFUSAL when the template declares the twin and no pipeline was made of it: logged once per
+        //    cell, counted (VsmRefusedGroups; must be 0).
+        // Refused without the VSM caster pipelines, a draw command cache or for bins of another group count;
+        // nothing is attached then.
         [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
         SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                   const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
@@ -644,12 +649,15 @@ namespace Desert::Graphic::System
         // The levels' CPU walk hides exactly these submeshes (VsmWalkHidden) and draws the rest (a mesh with VG on
         // some submeshes keeps both shadows; a held refusal stays walked). @p words is resized to the mesh's words.
         void VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const;
+        // VsmFallbackSubmeshes of this frame: the static queue's VG submeshes binned into a group flagged in
+        // @p fallbackGroups (index = VirtualShadow table group). Called by SetVirtualShadowGeometry.
+        [[nodiscard]] uint32_t CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const;
         // The submeshes a VSM level's CPU walk hides of @p rd: the entry's own (HiddenSubmeshes) plus
         // VsmClusteredSubmeshes. The words past the first 64 submeshes are interned in m_VsmHiddenWords (kept until
         // the next ResetVirtualShadowGeometry), so equal masks share one view and their entries batch together.
         [[nodiscard]] SubmeshMask VsmWalkHidden( const StaticMeshRenderData& rd );
-        // A new frame of the virtual shadow map's cluster path: drops the last frame's issue, its refusal count
-        // and its interned walk masks. Called by SceneRenderer before every frame's graph, so a frame whose
+        // A new frame of the virtual shadow map's cluster path: drops the last frame's issue, its refusal and
+        // fallback counts and its interned walk masks. Called by SceneRenderer before every frame's graph, so a frame whose
         // method is not VirtualMaps (or whose VSM cut is refused) reports no refused groups.
         void ResetVirtualShadowGeometry();
         // Groups of the VirtualShadow table holding bins but no `.VirtualGeometry` twin in this frame's VSM cluster
@@ -657,6 +665,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] uint32_t VsmRefusedGroups() const
         {
             return m_VsmRefusedGroups;
+        }
+        // VG submeshes (one per static queue entry showing it) binned this frame into a VirtualShadow group whose
+        // template declares no `.VirtualGeometry` twin: walked on the CPU by design (SetVirtualShadowGeometry).
+        [[nodiscard]] uint32_t VsmFallbackSubmeshes() const
+        {
+            return m_VsmFallbackSubmeshes;
         }
 
         // The GpuScene is THIS FRAME's: SyncGpuScene binds it, SceneRenderer::EndScene forgets it. A capture that
@@ -1693,7 +1707,8 @@ namespace Desert::Graphic::System
         // submeshes whose clusters it draws (VsmClusteredSubmeshes).
         std::optional<MeshRendererDetail::BinnedIssue> m_VsmGeometry;
         MeshRendererDetail::MeshDrawList               m_VsmGeometryDraws;
-        uint32_t                                       m_VsmRefusedGroups = 0;
+        uint32_t                                       m_VsmRefusedGroups     = 0;
+        uint32_t                                       m_VsmFallbackSubmeshes = 0;
         // VsmWalkHidden's interned words past submesh 63 (a std::set: its elements never move, so the views the
         // levels' draws hold stay valid until ResetVirtualShadowGeometry), and its scratch.
         std::set<std::vector<uint64_t>> m_VsmHiddenWords;
@@ -2018,9 +2033,15 @@ namespace Desert::Graphic::System
         const GraphicsPipeline* BinnedCellPipeline( const std::string& cellShader, const GraphicsPipeline* passState,
                                                     bool twoSided );
         // DrawCommandCache's GroupPipelineResolver: @p group's PSO with the `.VirtualGeometry` permutation of its
-        // Static `.Binned` cell (GBuffer / Forward / ShadowCascade), null when the cell has none registered (another
-        // path, a masked or translucent template) or it is still compiling.
+        // Static `.Binned` cell (GBuffer / Forward / ShadowCascade / VirtualShadow), null when the template declares
+        // none (DeclaresVirtualGeometryTwin: another path, a translucent template) or no pipeline could be made.
         const GraphicsPipeline* ResolveVirtualGeometryPipeline( GpuDriven::MeshPass pass, const GraphicsPipeline& group );
+        // THE ONE RULE "this binned cell's template has a `.VirtualGeometry` twin": the twin cell
+        // (VirtualGeometryCellOf) is registered. ShaderService registers every pass a template's parse emits when the
+        // template registers (an uncompiled one too), and DShaderParser emits the twin for every non-translucent
+        // template; so a missing name is a template WITHOUT the permutation (a fallback), and a registered one with
+        // no pipeline is a refusal.
+        [[nodiscard]] static bool DeclaresVirtualGeometryTwin( const std::string& binnedCell );
         // The view's carrier of @p shader's scene blocks (m_BinnedCarriers), written for this frame; null + @p error
         // when it has no material table.
         const MaterialExecutor* PrepareBinnedCarrier( const std::shared_ptr<Shader>& shader, uint32_t viewKey,

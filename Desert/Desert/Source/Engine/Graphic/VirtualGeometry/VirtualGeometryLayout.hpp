@@ -144,6 +144,12 @@ namespace Desert::Graphic::VirtualGeometry
     inline constexpr uint32_t        kVisTriangleBits    = 7u;  // kClusterMaxTriangles = 128
     inline constexpr uint32_t        kVisClusterBits     = 25u; // 33.5 M visible clusters per view
     inline constexpr uint32_t        kMaxVisibleClusters = 1u << kVisClusterBits;
+    // THE BUDGET OF ONE CLUSTER CUT DISPATCH (UE r.Nanite.MaxVisibleClusters, 4 M): the visible list of a cut is
+    // sized min(the caller's exact bound, this) - VirtualGeometryRenderer::AddClusterCut. The VSM cuts all 17 clipmap
+    // levels in one dispatch, so its exact bound is 17 x one view's; past the budget a cluster is not emitted and is
+    // counted (ClusterCutStatus::VisibleOverflow -> views.virtualGeometry.overflow), never written out of range.
+    inline constexpr uint32_t kMaxVisibleClustersPerCut = 1u << 22;
+    static_assert( kMaxVisibleClustersPerCut <= kMaxVisibleClusters, "the budget is inside the visibility word" );
     [[nodiscard]] constexpr uint64_t PackVisibility( const uint32_t depthBits, const uint32_t visibleCluster,
                                                      const uint32_t triangle )
     {

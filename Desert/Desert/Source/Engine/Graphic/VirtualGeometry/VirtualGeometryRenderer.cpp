@@ -274,10 +274,9 @@ namespace Desert::Graphic::VirtualGeometry
             return Common::MakeError<Result>(
                  std::format( "VirtualGeometry: Cluster Cut: cut views [{}, {}) past the candidates' {} regions",
                               firstView, uint64_t{ firstView } + views.size(), candidates.CutViews ) );
-        if ( candidates.VisibleCapacity > kMaxVisibleClusters )
-            return Common::MakeError<Result>(
-                 std::format( "VirtualGeometry: Cluster Cut: {} visible clusters pass the visibility word's {}",
-                              candidates.VisibleCapacity, kMaxVisibleClusters ) );
+        // The visible list: the caller's exact bound, capped by the dispatch's budget (kMaxVisibleClustersPerCut,
+        // UE MaxVisibleClusters). A cluster past it is counted (ClusterCutStatus::VisibleOverflow), not emitted.
+        const uint32_t visibleCapacity = std::min( candidates.VisibleCapacity, kMaxVisibleClustersPerCut );
         if ( const Common::BoolResultStr ready = m_Programs->ClusterCut.Ensure(
                   kClusterCutShader, "Editor/Resources/Shaders/Programs/VirtualGeometry/ClusterCut.shader" );
              !ready )
@@ -321,7 +320,7 @@ namespace Desert::Graphic::VirtualGeometry
         b.Views             = Upload( graph, "VirtualGeometry.CutViews", Bytes( rows ) );
         b.ViewLods          = Upload( graph, "VirtualGeometry.CutViewLods", Bytes( lods ) );
         b.Visible           = graph.CreateBuffer(
-             RDG::BufferDesc{ .Bytes = uint64_t{ candidates.VisibleCapacity } * sizeof( GpuVisibleCluster ) },
+             RDG::BufferDesc{ .Bytes = uint64_t{ visibleCapacity } * sizeof( GpuVisibleCluster ) },
              "VirtualGeometry.VisibleClusters" );
         // HwDraw: kClusterMaxTriangles * 3 vertices per HW cluster instance, instances counted by the cut.
         GpuClusterRasterArgs args;
@@ -340,7 +339,7 @@ namespace Desert::Graphic::VirtualGeometry
         // The post carry (ClusterCandidateLayout::PostCarry): every entry the main phase finds occluded is a
         // disjoint subtree or a cluster of a candidate's cut, so the visible capacity bounds each region: node
         // children from row 0, clusters from row carryCapacity (packed 64 per post workgroup).
-        const uint32_t carryCapacity = !post && hasHzb ? candidates.VisibleCapacity : 0u;
+        const uint32_t carryCapacity = !post && hasHzb ? visibleCapacity : 0u;
         b.OccludedCount              = Upload( graph, post ? "VirtualGeometry.CutOccludedSlot" : "VirtualGeometry.OccludedCount",
                                                Bytes( zeros ) );
         b.OccludedCandidates         = graph.CreateBuffer(
@@ -352,7 +351,7 @@ namespace Desert::Graphic::VirtualGeometry
         for ( const uint32_t step : { kStepArgs, kStepCut } )
         {
             const bool    indirect = step == kStepCut;
-            const CutPush push{ glm::uvec4( step, candidates.VisibleCapacity, primitiveRows, candidates.Capacity ),
+            const CutPush push{ glm::uvec4( step, visibleCapacity, primitiveRows, candidates.Capacity ),
                                 glm::uvec4( hasHzb ? 1u : 0u, carryCapacity, post ? 1u : 0u, 0u ),
                                 glm::uvec4( firstView, static_cast<uint32_t>( views.size() ), 0u, 0u ) };
             graph.AddPass(
@@ -375,7 +374,7 @@ namespace Desert::Graphic::VirtualGeometry
         result.VisibleClusters = b.Visible;
         result.RasterArgs      = b.RasterArgs;
         result.Status          = b.Status;
-        result.VisibleCapacity = candidates.VisibleCapacity;
+        result.VisibleCapacity = visibleCapacity;
         if ( carryCapacity != 0u )
         {
             result.OccludedCandidates = b.OccludedCandidates;
