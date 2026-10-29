@@ -203,9 +203,14 @@ namespace Desert::Graphic::API::Vulkan
         swapChainCreateInfo.imageUsage = ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT );
         if ( m_SupportsFrameReadback )
             swapChainCreateInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-        swapChainCreateInfo.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
-        swapChainCreateInfo.queueFamilyIndexCount = 0;
-        swapChainCreateInfo.pQueueFamilyIndices   = NULL;
+        // The device's sharing rule, as for every image the engine creates (VulkanResourceSharing.hpp): the render
+        // graph realises its fork/join pairs without family indices, which is valid only on a CONCURRENT image,
+        // and the backbuffer is a graph resource like any other. The info points into the device's own copy.
+        const VulkanResourceSharing& sharing      = vkLogicalDevice->GetPhysicalDevice()->GetResourceSharing();
+        swapChainCreateInfo.imageSharingMode      = sharing.IsConcurrent() ? VK_SHARING_MODE_CONCURRENT
+                                                                           : VK_SHARING_MODE_EXCLUSIVE;
+        swapChainCreateInfo.queueFamilyIndexCount = sharing.IsConcurrent() ? sharing.FamilyCount : 0u;
+        swapChainCreateInfo.pQueueFamilyIndices   = sharing.IsConcurrent() ? sharing.Families.data() : nullptr;
         swapChainCreateInfo.preTransform          = (VkSurfaceTransformFlagBitsKHR)preTransform;
         swapChainCreateInfo.clipped               = VK_TRUE;
         swapChainCreateInfo.compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;

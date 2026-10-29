@@ -141,6 +141,7 @@ namespace Desert::Graphic::API::Vulkan
         allocatorInfo.device                 = device->GetVulkanLogicalDevice();
         allocatorInfo.instance               = instance;
         m_DeviceCaps                         = device->GetPhysicalDevice()->GetDeviceCaps();
+        m_Sharing                            = device->GetPhysicalDevice()->GetResourceSharing();
         // A buffer created with SHADER_DEVICE_ADDRESS (a BLAS build input, an acceleration structure, its
         // scratch) must be bound to memory allocated with VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT; VMA adds it
         // only when told. Only where the device enabled bufferDeviceAddress — the flag is invalid otherwise.
@@ -229,6 +230,10 @@ namespace Desert::Graphic::API::Vulkan
 
         VkBufferCreateInfo localInfo = bufferCreateInfo;
         if ( localInfo.size == 0 ) localInfo.size = 1; // Vulkan requires size > 0
+        // THE ONE PLACE a buffer's queue-family sharing is decided, whatever the caller's create info said
+        // (VulkanResourceSharing.hpp: CONCURRENT across the device's families, so a read on async compute that no
+        // graph declared - an upload, a device address - is never a read on a family that does not own it).
+        m_Sharing.ApplyTo( localInfo );
 
         // Initialised, because a caller that ignores the result below must get a NULL handle rather
         // than a stack value: null is refused by the validation layers at the point of use and names
@@ -311,8 +316,13 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocationCreateInfo allocInfo = {};
         allocInfo.usage                   = usage;
 
+        // The image's queue-family sharing is decided here and only here, as for RT_AllocateBuffer: an uploaded
+        // texture a bindless read on async compute reaches is CONCURRENT (VulkanResourceSharing.hpp).
+        VkImageCreateInfo localInfo = imageCreateInfo;
+        m_Sharing.ApplyTo( localInfo );
+
         VmaAllocation allocation = VK_NULL_HANDLE; // see RT_AllocateBuffer above
-        VkResult res = vmaCreateImage( s_VmaAllocator, &imageCreateInfo, &allocInfo, &outImage, &allocation, nullptr );
+        VkResult res = vmaCreateImage( s_VmaAllocator, &localInfo, &allocInfo, &outImage, &allocation, nullptr );
         if ( res != VK_SUCCESS )
         {
             // Same reasoning as RT_AllocateBuffer above, and the same defect it fixes.

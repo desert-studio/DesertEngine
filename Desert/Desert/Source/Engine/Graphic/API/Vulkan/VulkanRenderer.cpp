@@ -1516,6 +1516,8 @@ namespace Desert::Graphic::API::Vulkan
             VkPhysicalDeviceProperties properties{};
             vkGetPhysicalDeviceProperties( device->GetPhysicalDevice()->GetVulkanPhysicalDevice(), &properties );
             m_RdgDevice.Limits        = properties.limits;
+            // The same sharing rule VulkanAllocator creates every engine resource with (VulkanResourceSharing.hpp).
+            m_RdgDevice.Sharing       = device->GetPhysicalDevice()->GetResourceSharing();
             m_RdgPool                 = std::make_unique<VulkanRdgPool>( m_RdgDevice, slots );
             m_RdgBackend              = std::make_unique<VulkanRdgBackend>( m_RdgDevice, *m_RdgPool );
             // B2: while a graph runs, every renderer's Record() goes through this API, so this API records

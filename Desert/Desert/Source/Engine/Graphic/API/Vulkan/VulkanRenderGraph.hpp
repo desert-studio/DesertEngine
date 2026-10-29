@@ -4,6 +4,7 @@
 #include <Common/Core/ResultStr.hpp>
 
 #include <Engine/Graphic/API/Vulkan/VulkanRdgQueues.hpp>
+#include <Engine/Graphic/API/Vulkan/VulkanResourceSharing.hpp>
 #include <Engine/Graphic/AllocationLedger.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanSamplerCache.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
@@ -45,6 +46,11 @@ namespace Desert::Graphic::API::Vulkan
         VkFormat DepthStencilFormat = VK_FORMAT_UNDEFINED;
         // The physical device's limits: a RenderArea pass is refused by name past its framebuffer / viewport size.
         VkPhysicalDeviceLimits Limits{};
+        // The queue-family sharing every transient and extracted resource is created with: the device's rule
+        // (VulkanPhysicalDevice::GetResourceSharing, VulkanResourceSharing.hpp). A graph with an AsyncCompute
+        // segment is refused unless it is CONCURRENT across both pipes' families, because the backend realises the
+        // graph's fork/join release / acquire pairs without family indices (RecordBarriers).
+        VulkanResourceSharing Sharing;
 
         // Debug labels exist only on an instance with VK_EXT_debug_utils; null means no labels.
         PFN_vkCmdBeginDebugUtilsLabelEXT CmdBeginLabel = nullptr;
