@@ -6,7 +6,7 @@
             "LGRT": 3
         },
         "Dependencies": [
-            "f3364a91ebcb413d9b85098c064492be",
+            "0f729185ea454070b585abdd399769ff",
             "d3bd81114a742dcc6b7a3037c7dd83d7",
             "d3bd83114a7431326b7a3237c7dd873d",
             "9cf601bde61059a737e2cbfe2972b75a",
@@ -18,36 +18,17 @@
         {
             "Kind": "Blade",
             "Material": {
-                "Guid": "f3364a91ebcb413d9b85098c064492be",
-                "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBlade.demat"
+                "Guid": "0f729185ea454070b585abdd399769ff",
+                "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBladeDry.demat"
             },
             "Blade": {
                 "Height": 28,
-                "Width": 1.0,
-                "Taper": 0.9,
                 "Curvature": 0.5,
                 "CurvatureSpread": 0.8,
                 "BendSpread": 0.4,
                 "Tilt": 30.0,
                 "FacingJitter": 90.0,
                 "Stiffness": 0.3,
-                "BaseColor": [
-                    0.05,
-                    0.05,
-                    0.018
-                ],
-                "TipColor": [
-                    0.22,
-                    0.2,
-                    0.08
-                ],
-                "DryTipColor": [
-                    0.4,
-                    0.33,
-                    0.17
-                ],
-                "DryTipShare": 0.6,
-                "DryTipLength": 0.5,
                 "Clumping": 0.8,
                 "ClumpSize": 60.0,
                 "ClumpPull": 0.0,
@@ -55,7 +36,39 @@
                 "Patchiness": 0.5,
                 "PatchSize": 700.0,
                 "Segments": 6,
-                "LodDistance": 500
+                "LodDistance": 500,
+                "Cards": [
+                    [
+                        0.873,
+                        0.035,
+                        0.979,
+                        0.998
+                    ],
+                    [
+                        0.033,
+                        0.037,
+                        0.15,
+                        0.963
+                    ],
+                    [
+                        0.451,
+                        0.057,
+                        0.611,
+                        0.762
+                    ],
+                    [
+                        0.795,
+                        0.262,
+                        0.85,
+                        0.619
+                    ],
+                    [
+                        0.551,
+                        0.449,
+                        0.631,
+                        0.803
+                    ]
+                ]
             },
             "Density": 26000.0,
             "PlacementJitter": 1.0,
@@ -92,41 +105,54 @@
         {
             "Kind": "Blade",
             "Material": {
-                "Guid": "f3364a91ebcb413d9b85098c064492be",
-                "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBlade.demat"
+                "Guid": "0f729185ea454070b585abdd399769ff",
+                "Path": "Materials/Environments/FieldBarn/Grass/M_GrassBladeDry.demat"
             },
             "Blade": {
                 "Height": 60,
-                "Width": 1.4,
-                "Taper": 0.92,
                 "Curvature": 0.55,
                 "CurvatureSpread": 0.6,
                 "BendSpread": 0.5,
                 "Tilt": 20.0,
                 "FacingJitter": 60.0,
                 "Stiffness": 0.2,
-                "BaseColor": [
-                    0.06,
-                    0.055,
-                    0.02
-                ],
-                "TipColor": [
-                    0.26,
-                    0.23,
-                    0.1
-                ],
-                "DryTipColor": [
-                    0.45,
-                    0.37,
-                    0.2
-                ],
-                "DryTipShare": 0.75,
-                "DryTipLength": 0.55,
                 "Clumping": 0.9,
                 "ClumpSize": 120.0,
                 "ClumpPull": 0.4,
                 "Segments": 6,
-                "LodDistance": 600
+                "LodDistance": 600,
+                "Cards": [
+                    [
+                        0.873,
+                        0.035,
+                        0.979,
+                        0.998
+                    ],
+                    [
+                        0.033,
+                        0.037,
+                        0.15,
+                        0.963
+                    ],
+                    [
+                        0.451,
+                        0.057,
+                        0.611,
+                        0.762
+                    ],
+                    [
+                        0.795,
+                        0.262,
+                        0.85,
+                        0.619
+                    ],
+                    [
+                        0.551,
+                        0.449,
+                        0.631,
+                        0.803
+                    ]
+                ]
             },
             "Density": 650.0,
             "PlacementJitter": 1.0,
