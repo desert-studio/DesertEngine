@@ -2985,8 +2985,10 @@ namespace Desert::Graphic
             const Common::ResultStr<RDG::TextureRef> mask =
                  m_VirtualShadowMap.AddProjection( graph, pages.GetValue(), view );
             if ( !mask )
+            {
                 LOG_ERROR( "[SceneRenderer] {}: {}; the sun casts no shadow this frame", m_ViewResources.GetName(),
                            mask.GetError() );
+            }
             else
                 result.SunMask = mask.GetValue();
         }
@@ -2999,8 +3001,10 @@ namespace Desert::Graphic
             if ( const Common::BoolResultStr projected =
                       m_VirtualShadowMap.AddLocalProjection( graph, pages.GetValue(), view, masks );
                  !projected.IsSuccess() )
+            {
                 LOG_ERROR( "[SceneRenderer] {}: {}; the local lights cast no virtual shadow this frame",
                            m_ViewResources.GetName(), projected.GetError() );
+            }
             else
                 result.LocalMasks = masks;
         }

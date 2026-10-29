@@ -217,7 +217,7 @@ namespace Desert::Graphic
                  !program )
             {
                 // The cache resolves its next tracer without it; the view lowers its own GI off it.
-                cache->RefuseLightingTracer( cardTracer );
+                cache->RefuseLightingTracer( cardTracer, program.GetError() );
                 RefuseProgramMethods( GlobalIllumination::TraceProgramGIMethods( cardTracer, false ),
                                       "SurfaceCacheDirectLighting", program.GetError() );
                 if ( cardTracer.Tracer != GlobalIllumination::Tracer::HardwareRayQuery )

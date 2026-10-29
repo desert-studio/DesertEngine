@@ -74,6 +74,11 @@ namespace Desert::Graphic::RayTracing
     // weight.
     inline constexpr std::string_view kSurfaceEmissiveColorParam     = "EmissiveColor";
     inline constexpr std::string_view kSurfaceEmissiveIntensityParam = "EmissiveIntensity";
+    // The emissive map and the UV transform EvaluateSurface applies before sampling it (StandardSurface.shader).
+    inline constexpr std::string_view kSurfaceEmissiveTextureParam = "EmissiveTexture";
+    inline constexpr std::string_view kSurfaceUvOffsetParam        = "UVOffset";
+    inline constexpr std::string_view kSurfaceUvTilingParam        = "UVTiling";
+    inline constexpr std::string_view kSurfaceUvRotationParam      = "UVRotation";
 
     // A segment whose material has no emissive texture (its estimate is the colour x intensity alone).
     inline constexpr uint32_t kNoEmissiveTexture = 0xFFFFFFFFu;

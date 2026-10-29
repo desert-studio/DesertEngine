@@ -407,7 +407,8 @@ namespace Desert::Engine::Neural
                                                        const float hashScale,
                                                        const RDG::BufferRef source, const uint32_t strideVec4,
                                                        const uint32_t firstRow, const uint32_t rows,
-                                                       const RDG::BufferRef counters, const uint32_t countIndex )
+                                                       const RDG::BufferRef counters, const uint32_t countIndex,
+                                                       uint32_t capacity, const uint32_t countBase )
     {
         // The records a row may encode: the counter's appended rows (capped at its capacity) for the training
         // samples and the self queries, every query of the chunk for the render queries. Rows past them are zero.

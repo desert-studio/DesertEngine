@@ -286,7 +286,12 @@ namespace Desert::Libraries
                               name ) );
             return;
         }
-        UpsertParam( smc->GetScriptSlotParams(), name, value );
+        // Through the component's one writer (ECS::SetStaticMesh): the slots are unchanged, so the runtime
+        // instances survive and take the value directly below.
+        ECS::StaticMeshDesc meshDesc = smc->GetDesc();
+        UpsertParam( meshDesc.ScriptSlotParams, name, value );
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), meshDesc );
+        smc = Get<ECS::StaticMeshComponent>( entity );
         if ( !smc->RuntimeMaterialInstances().empty() && smc->RuntimeMaterialInstances()[0] )
             smc->RuntimeMaterialInstances()[0]->SetParamFromVec4( name, value );
     }

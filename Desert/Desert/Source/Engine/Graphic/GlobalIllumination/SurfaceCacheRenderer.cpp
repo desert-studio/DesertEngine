@@ -352,10 +352,11 @@ namespace Desert::Graphic::SurfaceCache
                                    .Tracer  = tracer };
     }
 
-    void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer )
+    void SurfaceCacheRenderer::RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer,
+                                                     const std::string_view reason )
     {
         for ( const Common::Scalability::GIMethod method : GlobalIllumination::TraceProgramGIMethods( tracer, false ) )
-            AddRefusal( m_Refusals.GlobalIllumination, method, "SurfaceCacheDirectLighting" );
+            AddRefusal( m_Refusals.GlobalIllumination, method, "SurfaceCacheDirectLighting", reason );
     }
 
     Common::ResultStr<SurfaceCacheRenderer::SceneUpdate>

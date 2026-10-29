@@ -178,8 +178,8 @@ namespace Desert::Graphic::SurfaceCache
             return m_FrameViews && m_FrameViews->Frame == engineFrame ? &*m_FrameViews : nullptr;
         }
         // @p tracer's lighting program did not build (EnsureLightingProgram failed): the GI methods it serves are
-        // refused for the cache's tracer from the next BeginFrame on (the view refuses them for its own GI).
-        void RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer );
+        // refused (for @p reason) for the cache's tracer from the next BeginFrame on (the view refuses them for its own GI).
+        void RefuseLightingTracer( const GlobalIllumination::Pipeline& tracer, std::string_view reason );
 
         // The frame's budget (FrameViews::Budget); a new atlas side recreates the layers and drops every capture.
         // Asked by the view that updates the cache this frame (UpdatedIn false).

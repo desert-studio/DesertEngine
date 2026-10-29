@@ -209,13 +209,19 @@ namespace Desert::Graphic
         }
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( const auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
-             mesh != nullptr && mesh->AreShadowsEnabled() && mesh->GetCascadeViewProj() != nullptr )
+             mesh != nullptr && mesh->AreShadowsEnabled() )
         {
-            sun.CascadeCount = std::min<uint32_t>( mesh->GetValidCascadeCount(), 4u );
-            for ( uint32_t c = 0; c < sun.CascadeCount; ++c )
-                sun.CascadeViewProj[c] = mesh->GetCascadeViewProj()[c];
-            sun.CascadeWorldPerTexel = mesh->GetCascadeWorldPerTexel();
-            sun.CascadeDepthRange    = mesh->GetCascadeDepthRange();
+            // The sun is directional slot 0 (DirLights[0]); its cascades as this frame publishes them, the same
+            // value the opaque receivers pack (MeshRenderer::DirectionalShadows).
+            const SceneResources::DirectionalShadowView view = mesh->DirectionalShadows()[0];
+            if ( view.CastShadows && view.CascadeVP != nullptr && view.FirstLayer == 0 )
+            {
+                sun.CascadeCount = std::min<uint32_t>( view.Count, 4u );
+                for ( uint32_t c = 0; c < sun.CascadeCount; ++c )
+                    sun.CascadeViewProj[c] = view.CascadeVP[c];
+                sun.CascadeWorldPerTexel = view.CascadeWorldPerTexel;
+                sun.CascadeDepthRange    = view.CascadeDepthRange;
+            }
         }
         // Inactive (fog off, VolumetricFog off, machine ceiling 0): no node, and the frame result says so.
         // The froxels read the local lights' shadows by the opaque lighting's rule (atlas, or virtual maps).
