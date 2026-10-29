@@ -1,5 +1,5 @@
 # NN-RUNTIME-1: the device facts the NN layer selects its kernel path from (Engine/Graphic/API/NeuralComputeCaps.hpp),
 # probed and enabled in DeviceCapsProbe.cpp, logged once at start-up and served by DesertCtl `state device`.
-Дано: Projects/Desert, default scene, this Windows machine (RTX).
-Когда: Editor start; DesertCtl state device.
+Дано Projects/Desert, default scene, this Windows machine (RTX).
+Когда Editor start; DesertCtl state device.
 Тогда [nn_caps]: editor.log has one "[Vulkan] [nn_caps] path=coopmat_fp16 tile=..." line listing shaderFloat16, shaderInt8, storageBuffer16BitAccess, storageBuffer8BitAccess, subgroupSizeControl, cooperativeMatrix, cooperativeMatrixCompute = yes, subgroupSize 32, min/max subgroup size, maxPushConstantsSize, maxComputeSharedMemorySize and every cooperative-matrix shape the driver lists; the "[Vulkan] device ..." caps line shows the six new rows as core1.1/core1.2/core1.3/ext; `state device` returns device.nn.path "coopmat_fp16" with the same values; 0 VUID in the log.
