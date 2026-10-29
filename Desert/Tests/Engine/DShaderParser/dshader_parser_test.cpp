@@ -102,6 +102,7 @@ TEST( DShaderParser, EveryDefaultTextureNameParsesAndAnUnknownOneIsRefusedByName
 Shader "DefaultTextureProbe"
 {
     Domain Surface
+    State { Blend On }
     Properties Binding(1) TextureBinding(2)
     {
         Texture2D u_Slot ("Slot") = ")" ) +
@@ -1023,6 +1024,7 @@ namespace
         return R"(Shader "ImportMock"
 {
     Domain Surface
+    State { Blend On }
     Import
     {
 )" + importBody +
@@ -1112,6 +1114,7 @@ TEST( DShaderParser, ATexturesSamplerAttributeIsTheTemplateStateAndABadOneIsRefu
 Shader "SamplerProbe"
 {
     Domain Surface
+    State { Blend On }
     Properties Binding(1) TextureBinding(2)
     {
         )" + property + R"(

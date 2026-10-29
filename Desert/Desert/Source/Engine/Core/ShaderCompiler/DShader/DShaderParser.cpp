@@ -2889,9 +2889,10 @@ namespace Desert::Core::Preprocess
             fragmentCode.Content   = std::format(
                  "{}#include <{}>\nDESERT_SURFACE_VARYINGS( in )\n#line {}\n{}\n", defines, kSurfaceTypesInclude,
                  fragment->second.StartLine > 0 ? fragment->second.StartLine - 1 : 0, fragment->second.Content );
-            const std::string fragmentDecls = binned ? std::format( "#define {} v_Surface.MaterialRow\n{}",
-                                                                    kSurfaceMaterialRowMacro, autoDecls )
-                                                     : autoDecls;
+            std::string fragmentDecls = autoDecls;
+            if ( binned )
+                fragmentDecls =
+                     std::format( "#define {} v_Surface.MaterialRow\n{}", kSurfaceMaterialRowMacro, autoDecls );
             out.Stages.emplace( ShaderStage::Fragment, AssembleStage( ShaderStage::Fragment, fragmentCode,
                                                                       includeBlock, fragmentDecls ) );
             return out;
@@ -3217,15 +3218,21 @@ namespace Desert::Core::Preprocess
         // The default program is the top-level stage set; when a shader consists solely of
         // named passes, the first pass IS the default program (ShaderProgramMeta::DefaultPassName, below).
         if ( !defaultPass.Blocks.empty() )
-            result.Passes.push_back(
-                 genericProgram ? assembleGenericPass( defaultPass, defaultPass.State, defaultPass.Name, false )
-                                : assemblePass( defaultPass, defaultPass.State ) );
+        {
+            if ( genericProgram )
+                result.Passes.push_back(
+                     assembleGenericPass( defaultPass, defaultPass.State, defaultPass.Name, false ) );
+            else
+                result.Passes.push_back( assemblePass( defaultPass, defaultPass.State ) );
+        }
 
         for ( const auto& pass : namedPasses )
         {
             const ShaderRenderState state = MergeState( defaultPass.State, pass.State );
-            result.Passes.push_back( genericProgram ? assembleGenericPass( pass, state, pass.Name, false )
-                                                    : assemblePass( pass, state ) );
+            if ( genericProgram )
+                result.Passes.push_back( assembleGenericPass( pass, state, pass.Name, false ) );
+            else
+                result.Passes.push_back( assemblePass( pass, state ) );
             result.Meta.PassNames.push_back( pass.Name );
             if ( std::any_of( result.Passes.back().Stages.begin(), result.Passes.back().Stages.end(),
                               []( const auto& stage ) { return Formats::IsRayTracingStage( stage.first ); } ) )
@@ -3263,8 +3270,9 @@ namespace Desert::Core::Preprocess
             }
             const auto twin = [&]( const PendingPass& pending, const std::string_view name )
             {
-                const ShaderRenderState state =
-                     &pending == &defaultPass ? defaultPass.State : MergeState( defaultPass.State, pending.State );
+                ShaderRenderState state = defaultPass.State;
+                if ( &pending != &defaultPass )
+                    state = MergeState( defaultPass.State, pending.State );
                 result.Passes.push_back( assembleGenericPass( pending, state, std::string( name ), true ) );
                 result.Meta.PassNames.emplace_back( name );
             };
