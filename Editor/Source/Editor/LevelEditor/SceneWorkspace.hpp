@@ -117,6 +117,14 @@ namespace Desert::Editor
         // (PlaySession::Stop, as UE's EndPlayMap selects the PIE selection's editor counterparts).
         void ActiveSceneReplaced();
 
+        // THE ACTIVE SCENE'S OLD WORLD IS GONE (its entities cleared, Scene::Clear): every view of it releases
+        // what it built from that world (SceneRenderer::ReleaseWorldResources), the device is idled and the
+        // deferred deletions are drained - UE's world teardown (GC + FlushRenderingCommands) before the next world
+        // loads. Called by the opener between Clear and the load; without it the old world's device memory was
+        // still resident, or owed deletion, at the next world's peak (FIELD-MEM p3: a reopen peaked 1080 MB
+        // higher).
+        void ReleaseActiveWorld();
+
         // The standard ECS systems, shared by the primary scene and every extra document.
         void BuildSceneSystems( Desert::Core::Scene& scene );
 

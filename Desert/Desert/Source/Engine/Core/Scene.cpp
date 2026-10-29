@@ -1289,6 +1289,15 @@ namespace Desert::Core
         // The GPU scene is keyed by entity (MotionKey): the restarted ids would inherit the old world's
         // primitives and previous transforms, so the reloaded world gets a registry of its own.
         m_GpuScene     = std::make_unique<Graphic::GpuDriven::GpuSceneRegistry>();
+        // THE OLD WORLD'S RENDERER STATE GOES WITH IT (UE: the FScene is destroyed with its world, and the next
+        // world's is built empty). Kept, the distance-field brick atlas, the captures' cubes, the cached shadow
+        // depth and the ray-tracing variants of the old world stayed resident under the next scene and were
+        // still there when a reopen built the same ones again (FIELD-MEM p3). Their device objects are queued for
+        // deletion here; the opener drains the queue before the new world loads (SceneWorkspace).
+        m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
+        m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
+        m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
+        m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
         m_PlayerPawn   = entt::null;
         m_ViewTarget   = entt::null;
         m_PlayerController = entt::null;
