@@ -50,6 +50,7 @@ namespace Desert::Graphic::System
         DESERT_SHADER_PARAMETER( AccelerationStructure, SceneTlas );
         DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingGeometryRecords );
         DESERT_SHADER_PARAMETER( StorageBuffer, RayTracingMaterialRecords );
+        DESERT_SHADER_PARAMETER( Texture, HzbTexture );
     };
 
     // The most traced samples a froxel takes per frame: the shader's MEGALIGHTS_VOLUME_MAX_SAMPLES
@@ -71,12 +72,14 @@ namespace Desert::Graphic::System
     struct MegaLightsVolumeInputs
     {
         // The visibility sources the frame's casting lights resolved to (never empty; each froxel sample tests its
-        // light's own, the payload's ShadowVisibility) and what they read: the TLAS and its records (RayQuery),
-        // the virtual shadow map's reader tables with the local lights' pages (VirtualMaps); a Screen light reads
-        // nothing (a froxel is not on the screen: unshadowed).
+        // light's own, the payload's ShadowVisibility, as the surface samples do) and what they read: the TLAS and
+        // its records (RayQuery), the closest HZB of the opaque scene depth (VirtualMaps, Screen: the screen trace
+        // from the froxel point, SceneRenderer::AddFrameHZB - the surface trace's) and the virtual shadow map's
+        // reader tables with the local lights' pages (VirtualMaps).
         Common::Scalability::StochasticSources Sources;
         RDG::BufferRef                      Tlas;
         RayTracing::RayTracingMetadataFrame Metadata;
+        RDG::TextureRef                     Hzb;
         VirtualShadowMapReadRefs            Vsm;
         ViewLightBuffers                    Lights;  // the rows and the light grid (AddFrameLightGrid)
         RDG::TextureRef                     Black3D; // System.Black3D: the history before one exists
@@ -102,8 +105,11 @@ namespace Desert::Graphic::System
         glm::uvec4 Size;        // froxels xyz, frame index
         glm::uvec4 Counts;      // points, spots, samples per froxel, history readable
         glm::vec4  Params;      // history weight, ray bias (cm), render extent (px)
+        glm::mat4  JitteredViewProjection;    // the screen trace: the matrices the HZB's depth was drawn with
+        glm::mat4  InvJitteredViewProjection;
+        glm::vec4  CameraPosition; // xyz
     };
-    static_assert( sizeof( MegaLightsVolumeUniforms ) == 336 );
+    static_assert( sizeof( MegaLightsVolumeUniforms ) == 480 );
 
     // MegaLightsVolumeUB (Common/MegaLightsVolume.glslh), std430: what a reader maps a fragment with.
     struct MegaLightsVolumeReadParams
@@ -149,6 +155,9 @@ namespace Desert::Graphic::System
                  ( !in.Tlas.IsValid() || !in.Metadata.Geometry.IsValid() || !in.Metadata.Materials.IsValid() ) )
                 return Common::MakeError<MegaLightsVolumeRefs>(
                      "MegaLights: Volume: a light's visibility is rayquery but the frame has no TLAS" );
+            if ( in.Sources.ScreenTrace() && !in.Hzb.IsValid() )
+                return Common::MakeError<MegaLightsVolumeRefs>(
+                     "MegaLights: Volume: a light's visibility traces the screen but the frame has no closest HZB" );
             if ( in.Sources.VirtualMaps && !in.Vsm.IsValid() )
                 return Common::MakeError<MegaLightsVolumeRefs>(
                      "MegaLights: Volume: a light's visibility is vsm+screen but the frame drew no virtual shadow "
@@ -197,7 +206,10 @@ namespace Desert::Graphic::System
                                        readable ? 1u : 0u ),
                  .Params =
                       glm::vec4( 1.0f / static_cast<float>( quality.MaxHistory + 1u ), kMegaLightsVolumeRayBias,
-                                 static_cast<float>( in.Width ), static_cast<float>( in.Height ) ) };
+                                 static_cast<float>( in.Width ), static_cast<float>( in.Height ) ),
+                 .JitteredViewProjection    = frame.JitteredViewProjection,
+                 .InvJitteredViewProjection = frame.InvJitteredViewProjection,
+                 .CameraPosition            = glm::vec4( frame.CameraPosition, 1.0f ) };
             const RDG::BufferRef view = graph.CreateBuffer( RDG::BufferDesc{ sizeof( MegaLightsVolumeUniforms ) },
                                                             "MegaLights.Volume.ViewUB" );
             graph.QueueBufferUpload( view,
@@ -236,6 +248,9 @@ namespace Desert::Graphic::System
                                         in.Metadata.Materials, RDG::Access::StorageRead );
                      if ( in.Sources.VirtualMaps )
                          BindVirtualShadowMapReads( block, in.Vsm, layout );
+                     if ( in.Sources.ScreenTrace() )
+                         block.Texture( MegaLightsVolumeShaderParameters::HzbTexture, in.Hzb,
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() );
                      for ( std::size_t channel = 0; channel < 3; ++channel )
                          block.Texture( kHistoryInputs[channel], history[channel], RDG::Access::SampledCompute,
                                         RDG::SubresourceRange::All() )
@@ -257,24 +272,28 @@ namespace Desert::Graphic::System
         }
 
     private:
-        // The programs, one per set of visibility sources (ProgramOf); each branches per light on its payload's
-        // ShadowVisibility (Common/MegaLightsVolumeWrite.glslh VolumeVisibility). A Screen light needs no program
-        // of its own: a froxel is not on the screen, it is unshadowed in every program.
+        // The programs, one per set of visibility sources (ProgramOf: the surface trace's set, MegaLights.hpp
+        // TraceProgramOf); each branches per light on its payload's ShadowVisibility
+        // (Common/MegaLightsVolumeWrite.glslh VolumeVisibility). Every program but the ray query alone holds the
+        // screen trace from the froxel point (the HZB bound: StochasticSources::ScreenTrace).
         static constexpr std::size_t                                 kProgramRayQuery               = 0;
         static constexpr std::size_t                                 kProgramVirtualMaps            = 1;
         static constexpr std::size_t                                 kProgramScreen                 = 2;
-        static constexpr std::size_t                                 kProgramRayQueryAndVirtualMaps = 3;
-        static constexpr std::size_t                                 kProgramCount                  = 4;
+        static constexpr std::size_t                                 kProgramRayQueryAndScreen      = 3;
+        static constexpr std::size_t                                 kProgramRayQueryAndVirtualMaps = 4;
+        static constexpr std::size_t                                 kProgramCount                  = 5;
         static constexpr std::array<std::string_view, kProgramCount> kShaderNames                   = {
              "MegaLightsVolume", "MegaLightsVolumeVirtual", "MegaLightsVolumeScreen",
-             "MegaLightsVolumeRayQueryVirtual" };
+             "MegaLightsVolumeRayQueryScreen", "MegaLightsVolumeRayQueryVirtual" };
 
         // The one program that holds every source of @p sources (not empty).
         [[nodiscard]] static constexpr std::size_t
         ProgramOf( const Common::Scalability::StochasticSources& sources )
         {
             if ( sources.RayQuery )
-                return sources.VirtualMaps ? kProgramRayQueryAndVirtualMaps : kProgramRayQuery;
+                return sources.VirtualMaps ? kProgramRayQueryAndVirtualMaps
+                       : sources.Screen    ? kProgramRayQueryAndScreen
+                                           : kProgramRayQuery;
             return sources.VirtualMaps ? kProgramVirtualMaps : kProgramScreen;
         }
         static constexpr std::string_view                kPassName          = "MegaLights: Volume";

@@ -1069,15 +1069,18 @@ namespace Desert::Graphic
         // System.Black (no local light that frame).
         System::MegaLightsLighting AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
                                                        const std::vector<RDG::TextureRef>& gbuffer,
-                                                       const ViewFrame&                    frame, RDG::TextureRef screenHzb );
+                                                       const ViewFrame&                    frame );
         bool                       EnsureMegaLightsResources();
         // The MegaLights translucency volume (System::MegaLightsVolumeRenderer) into FrameTransients::
         // MegaLightsVolume, sliced over @p lightGrid's depth range, its froxels' visibility the frame's
-        // StochasticVisibility (rayquery: the TLAS; vsm+screen: the local lights' virtual pages, so it runs after
-        // AddFrameVirtualShadows; screen: unshadowed): on under Stochastic with a local light; otherwise, or -
-        // logged - when its pass could not be declared, the neutral block OnUpdate set stays.
+        // StochasticVisibility per light (rayquery: the TLAS; vsm+screen: the screen trace from the froxel point
+        // over the closest HZB, then the local lights' virtual pages, so it runs after AddFrameVirtualShadows;
+        // screen: the screen trace): on under Stochastic with a local light; otherwise, or - logged - when its pass
+        // could not be declared, the neutral block OnUpdate set stays. @p hzbDepth: the single-sample opaque depth
+        // the HZB is built from on the forward path (the depth prepass's); invalid on the deferred path (the
+        // G-buffer's).
         void AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame,
-                                       const LightGridParamsPayload& lightGrid );
+                                       const LightGridParamsPayload& lightGrid, RDG::TextureRef hzbDepth );
         // This frame's sun shadow is the virtual shadow map (the Shadows method resolved to VirtualMaps).
         [[nodiscard]] bool SunShadowIsVirtual() const;
         // THE ONE ANSWER TO "is the sun shadowed from a screen mask this frame" (the ray-traced sun or the virtual
@@ -1388,8 +1391,11 @@ namespace Desert::Graphic
                                                   const std::vector<RDG::TextureRef>& sceneColor,
                                                   System::CopyRenderer* copy, RDG::TextureRef into,
                                                   std::function<void()> recorded );
-        // The closest-depth hierarchy of the G-buffer depth (HZBRenderer), invalid when it was not built.
-        RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures );
+        // The closest-depth hierarchy (HZBRenderer) of the opaque scene depth, built once per graph by its first
+        // caller into FrameTransients::ClosestHzb and returned from there to every later one: of @p depth (the
+        // forward path's single-sample prepass depth) or, invalid, of the G-buffer depth. Invalid when it was not
+        // built.
+        RDG::TextureRef AddFrameHZB( RDG::Builder& graph, FrameTextures& textures, RDG::TextureRef depth = {} );
         // SSR's trace + denoiser over @p screenTrace, before the lighting. Resolved: the reflection the lighting
         // composes (SsrTexture); invalid when SSR did not run.
         // Reflections.TranslucentFrontLayer of the resolved quality.

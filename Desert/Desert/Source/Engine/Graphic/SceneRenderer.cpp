@@ -2033,20 +2033,22 @@ namespace Desert::Graphic
         if ( m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer )
         {
             const RDG::TextureRef sceneDepth = AddFrameForwardDepthPrepass( graph, textures );
+            // "VSM: Mark Local" and the MegaLights volume's screen trace (its HZB) read a single-sample depth: at
+            // MSAA the prepass's multisampled depth through its own resolve, once (the base pass writes no depth,
+            // so this is the opaque depth the receivers read).
+            const bool volumeTracesScreen = LocalLightsAreStochastic() && StochasticTraceSources().ScreenTrace();
+            const RDG::TextureRef prepassDepth =
+                 sceneDepth.IsValid() && ( LocalLightsReadVirtualPages() || volumeTracesScreen )
+                      ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
+                      : RDG::TextureRef{};
             // Stochastic with vsm+screen: the volume's froxels read the same local pages (MegaLightsVolumeVirtual).
             if ( LocalLightsReadVirtualPages() )
             {
                 m_FrameVsmPages.reset();
-                // "VSM: Mark Local" samples a single-sample depth: at MSAA the prepass's multisampled depth through
-                // its own resolve (the base pass writes no depth, so this is the opaque depth the receivers read).
-                const RDG::TextureRef markDepth =
-                     sceneDepth.IsValid()
-                          ? AddFrameSceneDepthResolve( graph, textures, "Forward: Prepass DepthResolve" )
-                          : RDG::TextureRef{};
-                (void)AddFrameVirtualShadows( graph, textures, markDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ), frame,
-                                              {} );
+                (void)AddFrameVirtualShadows( graph, textures, prepassDepth, {}, glm::vec3( 0.0f, 1.0f, 0.0f ),
+                                              frame, {} );
             }
-            AddFrameMegaLightsVolume( graph, textures, frame, lightGrid );
+            AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
@@ -2109,7 +2111,7 @@ namespace Desert::Graphic
                                           : FrameVirtualShadows{};
                 // The MegaLights volume after its visibility source (the TLAS, or the local pages just drawn) and
                 // before its first reader (the front layer, the glass).
-                AddFrameMegaLightsVolume( graph, textures, frame, lightGrid );
+                AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, {} );
 
                 AddFrameSSAO( graph, textures, gbuffer, frame );
                 AddFrameSurfaceCache( graph, textures, frame );
@@ -2168,7 +2170,7 @@ namespace Desert::Graphic
                 // Shadows Stochastic: the local lights sampled, traced and denoised by MegaLights, which the
                 // composite's MegaLights program reads in place of its light-grid loop.
                 const System::MegaLightsLighting megaLights =
-                     LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame, screenTrace.HZB )
+                     LocalLightsAreStochastic() ? AddFrameMegaLights( graph, textures, gbuffer, frame )
                                                 : System::MegaLightsLighting{};
                 // Shadows HardwareTraced: the point/spot lights' ray-traced masks, one layer per ShadowMaskSlot.
                 // Shadows VirtualMaps: the same layers, from "VSM: Project Local".
@@ -2666,8 +2668,7 @@ namespace Desert::Graphic
 
     System::MegaLightsLighting SceneRenderer::AddFrameMegaLights( RDG::Builder& graph, FrameTextures& textures,
                                                                   const std::vector<RDG::TextureRef>& gbuffer,
-                                                                  const ViewFrame&                    frame,
-                                                                  const RDG::TextureRef               screenHzb )
+                                                                  const ViewFrame&                    frame )
     {
         using Common::Scalability::StochasticVisibility;
         if ( !EnsureMegaLightsResources() )
@@ -2687,12 +2688,10 @@ namespace Desert::Graphic
         // without rays the closest HZB (the screen traces' when they built one this frame) and, vsm+screen, the
         // virtual map AddFrameVirtualShadows drew this frame.
         // Per light its own source (payload ShadowVisibility): the program holds every source present
-        // (StochasticTraceSources), the HZB built whenever one of them traces the screen (a ray-query frame with a
-        // Screen or VirtualMaps lamp too).
+        // (StochasticTraceSources), the HZB (the frame's one, AddFrameHZB: the screen traces' and the volume's)
+        // whenever one of them traces the screen (a ray-query frame with a Screen or VirtualMaps lamp too).
         const Common::Scalability::StochasticSources sources = StochasticTraceSources();
-        const RDG::TextureRef                        hzb     = !sources.ScreenTrace() ? RDG::TextureRef{}
-                                                               : screenHzb.IsValid()  ? screenHzb
-                                                                                     : AddFrameHZB( graph, textures );
+        const RDG::TextureRef hzb = sources.ScreenTrace() ? AddFrameHZB( graph, textures ) : RDG::TextureRef{};
         const RayTracing::RayTracingSceneFrame& scene = m_RayTracingScene.GetFrame();
         const FrameGraphRefs                    refs  = textures.GraphRefs();
         const System::MegaLightsInputs               inputs{
@@ -2728,7 +2727,8 @@ namespace Desert::Graphic
     }
 
     void SceneRenderer::AddFrameMegaLightsVolume( RDG::Builder& graph, FrameTextures& textures,
-                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid )
+                                                  const ViewFrame& frame, const LightGridParamsPayload& lightGrid,
+                                                  const RDG::TextureRef hzbDepth )
     {
         const FrameGraphRefs refs            = textures.GraphRefs();
         const auto           pointCount      = static_cast<uint32_t>( GetPointLights().PointLights.size() );
@@ -2738,16 +2738,24 @@ namespace Desert::Graphic
         if ( !LocalLightsAreStochastic() || pointCount + spotCount == 0 || PathTraced( m_RenderMethods ) )
             return; // the forward cells loop their light grid; the glass adds no local light
         // The froxels' visibility is the frame's StochasticVisibility (LowerShadowsForFrame): the TLAS only when
-        // this frame built it, the local lights' virtual pages under vsm+screen (AddFrameVirtualShadows drew them
-        // before this call), none under screen.
+        // this frame built it; under vsm+screen and screen the closest HZB (the frame's one, AddFrameHZB - of the
+        // forward prepass's depth on the forward path) and, vsm+screen, the local lights' virtual pages
+        // (AddFrameVirtualShadows drew them before this call).
         // Each froxel sample tests its light's own source (payload ShadowVisibility); the program holds them all.
         const Common::Scalability::StochasticSources  sources = StochasticTraceSources();
         const bool                                    rays    = sources.RayQuery;
+        // The forward path has no G-buffer depth to fall back on: without its prepass depth no HZB (AddPasses
+        // refuses the frame, logged below).
+        const bool            forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
+        const RDG::TextureRef hzb     = !sources.ScreenTrace() || ( forward && !hzbDepth.IsValid() )
+                                             ? RDG::TextureRef{}
+                                             : AddFrameHZB( graph, textures, hzbDepth );
         const RayTracing::RayTracingSceneFrame&       scene   = m_RayTracingScene.GetFrame();
         const System::MegaLightsVolumeInputs          inputs{ .Sources     = sources,
                                                               .Tlas        = rays ? scene.Tlas : RDG::BufferRef{},
                                                               .Metadata    = rays ? scene.Metadata
                                                                                   : RayTracing::RayTracingMetadataFrame{},
+                                                              .Hzb         = hzb,
                                                               .Vsm         = textures.Transients.Vsm,
                                                               .Lights      = textures.Transients.Lights,
                                                               .Black3D     = refs.System.Black3D,

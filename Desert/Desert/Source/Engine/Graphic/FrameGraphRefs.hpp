@@ -94,6 +94,10 @@ namespace Desert::Graphic
         // LocalExposureRenderer, Fusion: level 0 of the blended pyramid (fused display value, R32F) -> Tonemap
         RDG::TextureRef ExposureFusion;
         RDG::TextureRef SSAO;           // SSAO factor                        -> deferred lighting
+        // The closest-depth HZB of the opaque scene depth (the G-buffer's; on the forward path the depth prepass's,
+        // single-sample), built once per graph by its first reader (SceneRenderer::AddFrameHZB)   -> the screen
+        // traces (SSR, screen probes), MegaLights' trace and its volume
+        RDG::TextureRef ClosestHzb;
         // SSR's full-resolution trace ray (xyz the point each pixel's reflection came from, w log2 pdf, -126 no
         // ray), set only when the temporal upscaler takes the reflection raw  -> TemporalUpscalerInputs
         RDG::TextureRef ReflectionRay;

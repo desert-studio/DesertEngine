@@ -13,8 +13,9 @@ Shader "MegaLightsVolume"
     //  4) blended with the previous frame's volume at the point's reprojected froxel (an exponential average of
     //     1 / (Shadows.MegaLightsMaxHistory + 1)), unless the point was outside it or the history is unreadable.
     // The result is next frame's history and what the forward and translucent cells read. This is the ray-query
-    // program (StochasticVisibility::RayQuery); the body is Common/MegaLightsVolumeWrite.glslh, shared with
-    // MegaLightsVolumeVirtual.shader (vsm+screen) and MegaLightsVolumeScreen.shader (screen).
+    // program (StochasticVisibility::RayQuery, every casting light); the body is Common/MegaLightsVolumeWrite.glslh,
+    // shared with MegaLightsVolumeRayQueryScreen.shader, MegaLightsVolumeVirtual.shader (vsm+screen),
+    // MegaLightsVolumeRayQueryVirtual.shader and MegaLightsVolumeScreen.shader (screen).
 
     Compute
     {

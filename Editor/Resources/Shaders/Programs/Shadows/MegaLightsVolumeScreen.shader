@@ -2,13 +2,14 @@
 Shader "MegaLightsVolumeScreen"
 {
     // "MegaLights: Volume" on a device with neither ray query nor virtual shadow maps (StochasticVisibility::Screen):
-    // the froxel samples are unshadowed - a froxel is not on the screen, so it has no screen trace (UE MegaLights'
-    // volume takes none either). The body is Common/MegaLightsVolumeWrite.glslh, shared with the ray-query and
-    // virtual programs.
+    // each froxel sample inside the frustum marches the closest HZB from the froxel point toward its light (the
+    // surface's screen trace, Common/MegaLightsScreenTrace.glslh); off the screen it is unshadowed (UE MegaLights'
+    // volume takes no screen trace at all). The body is Common/MegaLightsVolumeWrite.glslh, shared with the
+    // ray-query and virtual programs.
 
     Compute
     {
-        #define MEGALIGHTS_VOLUME_VISIBILITY_NONE
+        #define MEGALIGHTS_VOLUME_VISIBILITY_SCREEN
         #include <Common/MegaLightsVolumeWrite.glslh>
     }
 }

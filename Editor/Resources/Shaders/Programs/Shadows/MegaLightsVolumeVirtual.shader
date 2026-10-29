@@ -2,10 +2,11 @@
 Shader "MegaLightsVolumeVirtual"
 {
     // "MegaLights: Volume" without ray tracing, on a device with virtual shadow maps
-    // (StochasticVisibility::VirtualMapsAndScreen): each froxel sample's light tested against the light's virtual
-    // shadow map pages (VSM-LOCAL), the same pages MegaLights' surface trace reads; a froxel no G-buffer pixel marked
-    // reads the light's coarse mip. The body is Common/MegaLightsVolumeWrite.glslh, shared with the ray-query and
-    // screen programs.
+    // (StochasticVisibility::VirtualMapsAndScreen, Screen lamps beside): each froxel sample's light marched from the
+    // froxel point over the closest HZB (the surface's screen trace), then, a vsm+screen light, tested against its
+    // virtual shadow map pages (VSM-LOCAL), the same pages MegaLights' surface trace reads; a froxel no G-buffer pixel
+    // marked reads the light's coarse mip. The body is Common/MegaLightsVolumeWrite.glslh, shared with the ray-query
+    // and screen programs.
 
     Compute
     {
@@ -28,6 +29,7 @@ Shader "MegaLightsVolumeVirtual"
         };
         #define DESERT_VSM_READ
         #include <Common/VirtualShadowMap.glslh>
+        #define MEGALIGHTS_VOLUME_VISIBILITY_SCREEN
         #define MEGALIGHTS_VOLUME_VISIBILITY_VSM
         #include <Common/MegaLightsVolumeWrite.glslh>
     }

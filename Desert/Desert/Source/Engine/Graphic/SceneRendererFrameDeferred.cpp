@@ -1248,20 +1248,25 @@ namespace Desert::Graphic
         return sceneCopy;
     }
 
-    RDG::TextureRef SceneRenderer::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures )
+    RDG::TextureRef SceneRenderer::AddFrameHZB( RDG::Builder& graph, FrameTextures& textures,
+                                                const RDG::TextureRef depth )
     {
+        if ( textures.Transients.ClosestHzb.IsValid() )
+            return textures.Transients.ClosestHzb; // one hierarchy per graph: its first caller built it
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* hzb = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
         if ( hzb == nullptr )
             return {};
-        const RDG::TextureRef depth = textures.Depth( m_GBuffer, "GBuffer" );
-        const auto            desc  = graph.GetTextureDesc( depth );
+        const RDG::TextureRef source = depth.IsValid() ? depth : textures.Depth( m_GBuffer, "GBuffer" );
+        const auto            desc   = graph.GetTextureDesc( source );
         if ( !desc )
         {
             LOG_ERROR( "[SceneRenderer] HZB: {}", desc.GetError() );
             return {};
         }
-        return hzb->AddPasses( graph, depth, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        textures.Transients.ClosestHzb =
+             hzb->AddPasses( graph, source, desc.GetValue().Size.Width, desc.GetValue().Size.Height );
+        return textures.Transients.ClosestHzb;
     }
 
     SceneRenderer::FrameScreenTrace
