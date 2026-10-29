@@ -1229,6 +1229,27 @@ namespace Desert::Graphic::API::Vulkan
                                                "are not CONCURRENT across the graphics and compute families "
                                                "(VulkanRdgDevice::Sharing)",
                                                graph.Name );
+        // THE ASYNC SEGMENTS, NAMED (FPS-CPU-6): which passes this graph runs on the compute queue, logged when the
+        // set changes, so a log shows what overlapped the graphics queue (and an empty async frame shows nothing).
+        m_Result = graph.Result;
+        if ( crossesQueues )
+        {
+            std::string line;
+            for ( const RDG::PipeSegment& segment : graph.Result->Segments )
+            {
+                if ( segment.OnPipe != RDG::Pipe::AsyncCompute )
+                    continue;
+                line += " [" + graph.Result->Passes[segment.FirstPosition].Name + " .. " +
+                        graph.Result->Passes[segment.LastPosition].Name + ": " +
+                        std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes]";
+            }
+            std::string& logged = m_AsyncSegmentsLogged[graph.Name];
+            if ( line != logged )
+            {
+                LOG_INFO( "[RDG] graph '{}' async compute segments:{}", graph.Name, line );
+                logged = std::move( line );
+            }
+        }
         // B(3): what records before the first segment (a graph with no segment: the tail for its final barriers).
         const Common::ResultStr<VkCommandBuffer> first = m_Segments.BeginGraph( *graph.Result, *m_Queues );
         if ( !first )
@@ -1670,6 +1691,7 @@ namespace Desert::Graphic::API::Vulkan
             RecordBarriers( finalBarriers );
         Release();
         m_Segments.EndGraph();
+        m_Result = nullptr;
         return Common::MakeSuccess( true );
     }
 
@@ -1679,6 +1701,10 @@ namespace Desert::Graphic::API::Vulkan
             EndRenderPass();
         while ( !m_ProfilerScopes.empty() )
             EndPass( RDG::CompiledPass{} );
+        if ( m_SegmentScope >= 0 && m_Device.Profiler != nullptr )
+            m_Device.Profiler->EndScope( m_SegmentScope );
+        m_SegmentScope = -1;
+        m_Result       = nullptr;
         Release();
         m_Segments.AbandonGraph();
         SetRecording( VK_NULL_HANDLE );
@@ -1712,6 +1738,15 @@ namespace Desert::Graphic::API::Vulkan
         SetRecording( begun.GetValue() );
         if ( begun.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( begun.GetValue() );
+        // The async segment's own GPU row. Only a segment that waits on a fork: the frame's query reset is
+        // recorded at the head of the graphics queue, and only a fork orders this queue after it.
+        if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
+             m_Device.Profiler != nullptr && m_Result != nullptr )
+        {
+            m_SegmentScopeName = "RDG Async: " + m_Result->Passes[segment.FirstPosition].Name + " .. " +
+                                 m_Result->Passes[segment.LastPosition].Name;
+            m_SegmentScope     = m_Device.Profiler->BeginScope( m_SegmentScopeName.c_str() );
+        }
         return Common::MakeSuccess( true );
     }
 
@@ -1732,6 +1767,11 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( m_OpenRenderPass )
             return Common::MakeError( "a render pass is open across a segment boundary" );
+        if ( m_SegmentScope >= 0 )
+        {
+            m_Device.Profiler->EndScope( m_SegmentScope );
+            m_SegmentScope = -1;
+        }
         const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )

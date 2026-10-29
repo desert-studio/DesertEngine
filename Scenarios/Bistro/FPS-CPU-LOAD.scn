@@ -20,6 +20,15 @@
 #     DESERT_VULKAN_VALIDATION=1 Editor <the headless command above> --shot <dir>/fps_load_async_last.png
 # [fps_load_async] PASS when: editor.log has no "RDG: no separate compute queue family" line; 0 VUID lines
 #   (SYNC-HAZARD-* included); fps_load_async_last.png pixel-diff vs the dev fps_load_last.png < 0.5 %.
+# [fps_async_passes] (FPS-CPU-6): production passes declare PassFlags::AsyncCompute - the particle simulation run
+#   (Compact / Dispatch Args / Spawn+Update / readbacks / sort / Mesh Instances+LOD), the "Clouds" shadow-map nodes,
+#   "LightGrid", "LightGridWorld". One switch: RenderPipeline.AsyncCompute (Scalability, default 1, resolved to 0 on a
+#   device without CapabilityCatalog::AsyncCompute). Run the headless command twice with DESERT_VULKAN_VALIDATION=1:
+#   once as is (async on), once with the machine.json Quality override "RenderPipeline.AsyncCompute": 0 (async off).
+# [fps_async_passes] PASS when: the async-on editor.log has "[RDG] graph 'SceneView' async compute segments:" naming
+#   the runs above; 0 VUID and 0 SYNC-HAZARD lines in both logs; the two last frames differ < 0.5 %
+#   (scripts/Dev/frames_compare.py); "GPU: Frame Total" in the async-on [Profiler] dump is not above the async-off one
+#   ("RDG Async: <first> .. <last>" rows are the compute-queue spans that overlap the graphics rows).
 # The interactive half below walks the camera across the street while the scene streams in, and checks the frames.
 Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
 Дано run View "View mode: Lit"

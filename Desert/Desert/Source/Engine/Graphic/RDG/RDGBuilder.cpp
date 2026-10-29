@@ -302,8 +302,12 @@ namespace Desert::Graphic::RDG
                           ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
         PassRecord record;
-        record.Name  = std::string( name );
-        record.Flags = flags;
+        record.Name = std::string( name );
+        // SetAsyncCompute( false ): the request is dropped here, before Compile sees it (the declaration check
+        // below still reads what the caller declared).
+        record.Flags = m_AsyncCompute ? flags
+                                      : static_cast<PassFlags>( static_cast<uint8_t>( flags ) &
+                                                                ~static_cast<uint8_t>( PassFlags::AsyncCompute ) );
         m_Passes.push_back( std::move( record ) );
         const auto pass = static_cast<uint32_t>( m_Passes.size() - 1 );
         // A malformed pass faults itself (RDG-FAULT1), the graph goes on without it.

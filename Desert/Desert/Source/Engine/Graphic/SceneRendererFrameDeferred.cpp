@@ -401,7 +401,10 @@ namespace Desert::Graphic
         // UE LightGridInjection (ComputeLightGrid, before the base pass): every froxel lists the lights that reach
         // it, before any lit node reads the lists.
         graph.AddPass(
-             "LightGrid", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             // ASYNC COMPUTE: reads only the light uploads above, its first reader (MegaLights volume when it runs,
+             // else the forward base pass or the deferred composite) comes after the G-buffer fill.
+             "LightGrid", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, lights]( RDG::PassBuilder& pass )
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::Frustum ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
@@ -720,7 +723,9 @@ namespace Desert::Graphic
                                                                       GetPointLights(), GetSpotLights() );
         System::DeferredLightingRenderer::UploadWorldGrid( graph, grid, lights );
         graph.AddPass(
-             "LightGridWorld", RDG::PassFlags::Compute, [deferred, lights]( RDG::PassBuilder& pass )
+             // ASYNC COMPUTE: reads the world-grid upload above; read first by the traced GI after the G-buffer.
+             "LightGridWorld", RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute,
+             [deferred, lights]( RDG::PassBuilder& pass )
              { deferred->DeclareGridBindings( pass, lights, LightGridLayout::WorldClipmaps ); },
              [deferred, cells = glm::uvec3( grid.Size )]( RDG::PassContext& context ) -> Common::BoolResultStr
              { return deferred->RecordGrid( context, cells ); } );
