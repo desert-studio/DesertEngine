@@ -223,6 +223,18 @@ namespace Desert::Graphic
                methods.Reflections.Effective == ReflectionMethod::PathTraced;
     }
 
+    std::string_view PathTracingRefusal( const CapabilityCatalog& catalog )
+    {
+        // WalkDown's device checks, in its order, on the PathTraced rung.
+        const DeviceOffers device = OffersOf( catalog );
+        std::string        unused;
+        if ( NeedsRayQuery( GIMethod::PathTraced ) && !device.RayQuery )
+            return LimitText( MethodLimit::Device, kGIKey, unused, {}, {} );
+        if ( NeedsRayTracingPipeline( GIMethod::PathTraced ) && !device.Pipeline )
+            return LimitText( MethodLimit::DevicePipeline, kGIKey, unused, {}, {} );
+        return {};
+    }
+
     void LowerPathTracingForFrame( RenderMethods& methods, const bool rayTracedSceneReady )
     {
         if ( rayTracedSceneReady || !PathTraced( methods ) )

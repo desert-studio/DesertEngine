@@ -1115,7 +1115,8 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      # The engine links shaderc*.lib and spirv-cross-*.lib out of the SDK's Lib directory, so a
+      # The engine links shaderc*.lib out of the SDK's Lib directory (SPIR-V reflection is the vendored
+      # ThirdParty/SPIRV-Cross, built from source), so a
       # headers-only Vulkan install is not enough — this is the real LunarG SDK. Pinned so a new SDK
       # release cannot change the build under us, and cached because it is a ~200 MB download.
       # The cache only restores; scripts/CI/EnsureVulkanSdk.ps1 judges the restored TREE and installs
@@ -1456,7 +1457,7 @@ jobs:
         run: ./build/Bin/${{ matrix.config }}/GamePackager.exe Projects/Desert/Desert.deproj --config ${{ matrix.config }} --out "$GITHUB_WORKSPACE/dist/Game-${{ matrix.config }}"
 
       # THE GAME MUST START ON A CLEAN MACHINE: no Visual C++ Redistributable installed. The workspace
-      # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc/spirv-cross are MD_DynamicRelease) and
+      # builds with the DLL CRT (/MD; the Vulkan SDK's shaderc libraries are MD_DynamicRelease) and
       # GamePackager copies the VC++ runtime DLLs Runtime.exe imports next to it. This reads the packaged
       # binaries' own import tables, refuses any DLL outside scripts/CI/windows_allowed_dlls.txt, and
       # refuses an `app-local` DLL that is imported but not present in the package.

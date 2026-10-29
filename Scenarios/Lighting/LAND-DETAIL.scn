@@ -1,0 +1,12 @@
+# LAND-DETAIL: field ground — per-layer normal strength, far detail normal, macro hue variation.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 25
+Дано --subject selection set SunAzimuth 110
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда 1_lit ground between the grass and beyond 45 m shows readable relief (light and shade from normals), no visible transition at 25 m
+Когда --subject viewport set Camera.Position 0,600,4500
+Когда --subject viewport set Camera.Direction 0,-0.03,-1
+Тогда 2_far at 60-120 m soft hue patches (warmer/cooler) 10-40 m across, no repeating tile

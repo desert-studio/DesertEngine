@@ -1,8 +1,15 @@
-# FIELD-MEM: FIELD_Barn opens under the editor's memory limit (was killed at 6189 MB > 6144: GrassInstances x8 932 MB
-# sized by density x area, and the geometry pool's resize-and-copy peak). Proof: the frame, and editor.log's
-# [Memory] census peak < 5000 MB with the GrassInstances / Pooled* rows.
+# FIELD-MEM p4: every scene open is its own device-memory window. Proof: editor.log - one
+# "[Memory] scene open #N '<scene>' ... (window opened)" per open; the last "scene open #3 'FIELD_Barn.desce' peak" <=
+# the "scene open #1 'FIELD_Barn.desce' peak ... (window closed ...)" + 100 MB, owed at that peak < 50 MB.
+# A driven session (--control-socket) shows no "Recover unsaved work?" modal ([Recovery] driven session line instead).
 Дано run Scene "Open Scene FIELD_Barn.desce"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,900,2500
 Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
-Тогда 1_first the scene opened: the field is drawn (grass to the far edge), the editor alive; log census peak < 5000 MB
+Тогда 1_barn the scene opened: the field is drawn (grass to the far edge), no modal window, the editor alive
+Когда run Scene "Open Scene Starter.desce"
+Тогда 2_starter the second scene opened and draws, no modal window
+Когда run Scene "Open Scene FIELD_Barn.desce"
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда 3_barn_again FIELD_Barn again: the field as in 1_barn, no modal window; open #3 peak <= open #1 peak + 100 MB in the log

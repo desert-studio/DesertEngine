@@ -192,8 +192,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // RETURNS THE MEMBER, and the member exists because of what `return {};` did here. That built a
         // temporary, bound the returned reference to it, and destroyed it before the caller could look —
-        // every read of this getter was a read of freed memory. ShaderLibraryPanel does that read on
-        // every frame a shader node is expanded, then iterates the "vector" it got back.
+        // every read of this getter was a read of freed memory.
         virtual const ShaderVariant& GetVariant() const override
         {
             return m_Variant;

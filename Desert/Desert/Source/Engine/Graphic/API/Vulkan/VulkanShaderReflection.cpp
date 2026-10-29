@@ -125,8 +125,17 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
                             image.arrayed ? "Array" : "" );
     }
 
+    // A FUNCTION-TRY-BLOCK, because SPIRV-Cross reports a module it cannot take by THROWING
+    // (spirv_cross::CompilerError, a std::runtime_error), from the parse in the constructor below and from any
+    // query after it. An escaped one ended the editor: the SDK 1.3.296 parser has no SPV_KHR_cooperative_matrix,
+    // and the NN layer's coopmat_fp16 kernels threw "Currently no block to insert opcode." out of
+    // ShaderService::AcquireVariant (NN-RUNTIME step 5). Caught here it is one more refusal, through the channel
+    // every refused resource already takes: VulkanShader::Reflect names the shader and stage, the compile fails,
+    // the variant is refused by name. `data` may hold part of this stage; the caller reflects into a scratch
+    // copy and drops it on any refusal, so nothing half-reflected survives.
     std::vector<std::string> ReflectStage( const std::vector<uint32_t>& spirv, Core::Formats::ShaderStage stage,
                                            ShaderResource::ReflectionData& data )
+    try
     {
         std::vector<std::string> diagnostics;
 
@@ -488,6 +497,14 @@ namespace Desert::Graphic::API::Vulkan::ShaderReflection
             data.FragmentOutputLocations = ReflectFragmentOutputLocations( spirv );
 
         return diagnostics;
+    }
+    catch ( const spirv_cross::CompilerError& error )
+    {
+        return { std::format( "SPIRV-Cross cannot reflect this stage's SPIR-V: {}", error.what() ) };
+    }
+    catch ( const std::exception& error )
+    {
+        return { std::format( "reflecting this stage's SPIR-V failed: {}", error.what() ) };
     }
 
     std::vector<uint32_t> ReflectVertexInputLocations( const std::vector<uint32_t>& spirv )

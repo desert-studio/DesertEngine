@@ -1186,9 +1186,20 @@ namespace Desert::Graphic
             return nullptr;
         }
         // "" is the default program (AcquireVariant refuses the empty variant); otherwise DefinesVariant.
-        const std::shared_ptr<Shader> shader = defines.empty()
-                                                    ? service->GetByName( shaderName )
-                                                    : service->AcquireVariant( shaderName, DefinesVariant( defines ) );
+        std::shared_ptr<Shader> shader;
+        if ( defines.empty() )
+            shader = service->GetByName( shaderName );
+        else
+        {
+            auto acquired = service->AcquireVariant( shaderName, DefinesVariant( defines ) );
+            if ( !acquired )
+            {
+                error = std::format( "TSR: the shader '{}' ({}) was refused: {}", shaderName, defines,
+                                     acquired.GetError() );
+                return nullptr;
+            }
+            shader = acquired.ExtractValue();
+        }
         if ( !shader )
         {
             error = std::format( "TSR: the shader '{}' ({}) did not compile — expected "

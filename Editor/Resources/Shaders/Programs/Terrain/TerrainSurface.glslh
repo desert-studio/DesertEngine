@@ -65,6 +65,7 @@
         #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
 
         #include <Common/LandscapeSurface.glslh>
+        #include <Common/LandscapeGrassCover.glslh>
 
         // THE LANDSCAPE MATERIAL'S LAYER INPUTS (UE: LandscapeLayerBlend's per-layer inputs). Up to eight inputs,
         // each matched to the tile channels painted with its layer info's LayerName (TerrainInstance.LayerInput,
@@ -113,6 +114,8 @@
             LandscapeMaterial m;
             m.Tiling = vec4( Material.FarTilingDistance, Material.FarTilingScale, Material.MacroVariationSize,
                              Material.MacroVariationStrength );
+            m.Detail = vec4( Material.DetailNormalScale, Material.DetailNormalStrength, Material.MacroHueSize,
+                             Material.MacroHueStrength );
             m.LayerTint[0]   = Material.Layer0Tint;
             m.LayerTint[1]   = Material.Layer1Tint;
             m.LayerTint[2]   = Material.Layer2Tint;
@@ -121,14 +124,14 @@
             m.LayerTint[5]   = Material.Layer5Tint;
             m.LayerTint[6]   = Material.Layer6Tint;
             m.LayerTint[7]   = Material.Layer7Tint;
-            m.LayerParams[0] = vec4( Material.Layer0TileSize, float( Material.Layer0Blend ), 0.0, 0.0 );
-            m.LayerParams[1] = vec4( Material.Layer1TileSize, float( Material.Layer1Blend ), 0.0, 0.0 );
-            m.LayerParams[2] = vec4( Material.Layer2TileSize, float( Material.Layer2Blend ), 0.0, 0.0 );
-            m.LayerParams[3] = vec4( Material.Layer3TileSize, float( Material.Layer3Blend ), 0.0, 0.0 );
-            m.LayerParams[4] = vec4( Material.Layer4TileSize, float( Material.Layer4Blend ), 0.0, 0.0 );
-            m.LayerParams[5] = vec4( Material.Layer5TileSize, float( Material.Layer5Blend ), 0.0, 0.0 );
-            m.LayerParams[6] = vec4( Material.Layer6TileSize, float( Material.Layer6Blend ), 0.0, 0.0 );
-            m.LayerParams[7] = vec4( Material.Layer7TileSize, float( Material.Layer7Blend ), 0.0, 0.0 );
+            m.LayerParams[0] = vec4( Material.Layer0TileSize, float( Material.Layer0Blend ), Material.Layer0NormalStrength, 0.0 );
+            m.LayerParams[1] = vec4( Material.Layer1TileSize, float( Material.Layer1Blend ), Material.Layer1NormalStrength, 0.0 );
+            m.LayerParams[2] = vec4( Material.Layer2TileSize, float( Material.Layer2Blend ), Material.Layer2NormalStrength, 0.0 );
+            m.LayerParams[3] = vec4( Material.Layer3TileSize, float( Material.Layer3Blend ), Material.Layer3NormalStrength, 0.0 );
+            m.LayerParams[4] = vec4( Material.Layer4TileSize, float( Material.Layer4Blend ), Material.Layer4NormalStrength, 0.0 );
+            m.LayerParams[5] = vec4( Material.Layer5TileSize, float( Material.Layer5Blend ), Material.Layer5NormalStrength, 0.0 );
+            m.LayerParams[6] = vec4( Material.Layer6TileSize, float( Material.Layer6Blend ), Material.Layer6NormalStrength, 0.0 );
+            m.LayerParams[7] = vec4( Material.Layer7TileSize, float( Material.Layer7Blend ), Material.Layer7NormalStrength, 0.0 );
             return m;
         }
 
@@ -136,10 +139,10 @@
         // (the texel centre of sample i is (i + 0.5) / size, so the filter blends neighbouring samples as the mesh
         // interpolates them); UE's Landscape Visibility Mask discards a hole (the shadow casters,
         // TerrainShadow.shader, discard on the same test).
-        TerrainSurface EvaluateTerrainSurface()
+        TerrainSurface EvaluateTerrainSurfaceHere( out vec4 w0, out vec4 w1, out float dist )
         {
-            vec4 w0 = vec4( 0.0 );
-            vec4 w1 = vec4( 0.0 );
+            w0 = vec4( 0.0 );
+            w1 = vec4( 0.0 );
             if ( LandscapeTileHasLayers( CurrentTerrain ) )
             {
                 vec2  g     = LandscapeTileSampleCoord( CurrentTerrain, v_WorldPos );
@@ -152,6 +155,29 @@
                     discard;
             }
             // Distance to the camera for the far tiling: the view-space length, from the matrix the frame has.
-            float dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            dist = length( ( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
             return EvaluateLandscapeSurface( CurrentTerrain, TerrainMaterial(), v_WorldPos, normalize( v_Normal ), dist, w0, w1 );
+        }
+        TerrainSurface EvaluateTerrainSurface()
+        {
+            vec4  w0, w1;
+            float dist;
+            return EvaluateTerrainSurfaceHere( w0, w1, dist );
+        }
+
+        // GRASS-FIELD: the ground with the grass field's far cover over it (Common/LandscapeGrassCover.glslh) - the
+        // blades the generator thinned out by this distance, carried on by the ground. @p tint is the landscape
+        // material's Tint: it colours the ground beneath, not the blades. Returns the surface with the tinted
+        // albedo; @p transmission is the pixel's TwoSidedFoliage SubsurfaceColor, @p cover the cover's share.
+        TerrainSurface EvaluateTerrainSurfaceCovered( vec3 tint, out vec3 transmission, out float cover )
+        {
+            vec4           w0, w1;
+            float          dist;
+            TerrainSurface s = EvaluateTerrainSurfaceHere( w0, w1, dist );
+            s.Albedo *= tint;
+            // Towards the eye, in world space: the view-space position turned back by the view's rotation.
+            vec3 V = normalize( transpose( mat3( u.View ) ) * -( u.View * vec4( v_WorldPos, 1.0 ) ).xyz );
+            cover  = LandscapeApplyGrassCover( LandscapeGrassCoverAt( CurrentTerrain, w0, w1, dist ), V,
+                                               normalize( v_Normal ), s.Albedo, s.N, s.Roughness, s.AO, transmission );
+            return s;
         }

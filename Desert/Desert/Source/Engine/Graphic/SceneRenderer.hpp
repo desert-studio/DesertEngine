@@ -236,6 +236,12 @@ namespace Desert::Graphic
         {
             return m_ViewProfile.Shadows;
         }
+        // Scalability ViewDistance.DisplacementDicingRate: pixels a diced edge covers (0 = runtime displacement off),
+        // read by the mesh displacement (DisplacementCache) and the landscape's (TerrainRenderer) alike.
+        [[nodiscard]] int GetDisplacementDicingRate() const
+        {
+            return m_DisplacementDicingRate;
+        }
         // The view is a reflection capture's face (ViewProfile::SceneCapture), not a level's viewport.
         [[nodiscard]] bool IsSceneCapture() const
         {
@@ -334,6 +340,15 @@ namespace Desert::Graphic
         // so it is legal between any two frames. Not tied to any one caller: the headless capture calls it
         // when its frame count starts, a camera cut or a teleport asks for the same thing.
         void ResetTemporalHistory();
+
+        // THE WORLD THIS VIEW DREW WAS TORN DOWN (UE: the FSceneViewState and the Lumen/distance-field scene data
+        // die with their FScene). Releases everything this view built FROM the old world - its surface cache,
+        // radiance cache, probe gathers, global distance field and the terrain's materials and layer arrays - and
+        // cuts the temporal history. Each is made again on first use by the next world. Called between frames by
+        // the opener, after the world is cleared and before the next one loads
+        // (SceneWorkspace::ReleaseActiveWorld), so the old world's device memory is given back before the new
+        // one's is asked for (FIELD-MEM p3).
+        void ReleaseWorldResources();
 
         [[nodiscard]] const ViewExtent& GetViewExtent() const
         {
@@ -547,6 +562,10 @@ namespace Desert::Graphic
         // the frame graph from the view's first frame. What tells a defined black ambient (no sky) from a fault.
         [[nodiscard]] SkyLightState GetSkyLightState() const;
 
+        // Whether the scene's sky light is being, or will be, captured again for a sun TOWARD @p sunDir
+        // (SkyboxRenderer::SkyLightRecapturesFor); false without a sky system.
+        [[nodiscard]] bool SkyLightRecapturesFor( const glm::vec3& sunDir ) const;
+
         // Whether this view draws a cloud layer: a picture that reprojects a history and converges over frames (a
         // reflection capture's face waits for it: ReflectionCaptureRenderer).
         [[nodiscard]] bool DrawsVolumetricClouds() const;
@@ -758,6 +777,9 @@ namespace Desert::Graphic
         /// SSS-PROFILE: this view scatters and its Burley history has not yet averaged its full window (a Scale
         /// change, a camera cut, the first frames) - the control gate's PendingWork::SubsurfaceHistory.
         [[nodiscard]] bool SubsurfaceHistoryConverging() const;
+        /// GRASS-SETTLE p14: this view's last frame drew a grass variety that may hold fewer instances than its
+        /// generator keeps (GrassRenderer::InstancesSettling) - the control gate's PendingWork::GrassInstances.
+        [[nodiscard]] bool GrassInstancesSettling() const;
 
     private:
         // THIS VIEW in the resource ledger (RT-LEDGER-2). Its RT rows — the TLAS storage, the landscape tiles'
@@ -1543,15 +1565,37 @@ namespace Desert::Graphic
         RenderMethods           m_RenderMethods;
         // The methods the view's renderers could not build a program for on this device, an input of every
         // ResolveRenderMethods: Shadows from the DeferredLightingRenderer's initialisation, GI and Reflections
-        // from their renderers' programs as each is first built (RefuseProgramMethods). Never cleared: a program
-        // that did not build on this device is not retried.
+        // from their renderers' programs as each is first built (RefuseProgramMethods), PathTraced on both from
+        // the path tracer's bring-up (RefusePathTracer). Every refusal stands until the shader service recompiles
+        // a program (RetryRefusedProgramsAfterRecompile): the same bytes fail the same way, new bytes are tried
+        // again on the next frame.
         ProgramRefusals m_ProgramRefusals;
         bool            m_DeferredWithoutGBufferLogged = false; // BeginScene's lowering of Deferred, said once
+        // The refusals that stood when the shader service last recompiled, and the
+        // ShaderService::RecompileGeneration they were dropped at. A method refused again for the same program
+        // and the same reason (another shader was recompiled, not this one) is NOT said again.
+        ProgramRefusals m_RetriedProgramRefusals;
+        std::uint64_t   m_ProgramRefusalsGeneration = 0;
+        // At BeginScene, before the resolution: when the shader service has recompiled since the standing refusals
+        // were made, they are moved to m_RetriedProgramRefusals, the renderers' latched failures cleared and the
+        // deferred composite's refused permutations built again, so each refused method is resolved again and its
+        // programs asked for again.
+        void RetryRefusedProgramsAfterRecompile();
         // A program only @p methods need did not build (@p program: its name, static storage; @p error: why). Each
-        // method not yet refused is added to m_ProgramRefusals with one ERROR line naming it and the program; the
-        // next BeginScene resolves the method below it (MethodLimit::Program), the rest of the frame is untouched.
+        // method not yet refused is added to m_ProgramRefusals with one ERROR line naming it and the program (none
+        // when it is the same refusal retried after a recompile); the next BeginScene resolves the method below it
+        // (MethodLimit::Program), the rest of the frame is untouched.
         void RefuseProgramMethods( std::span<const Common::Scalability::GIMethod> methods,
                                    std::string_view program, std::string_view error );
+        void RefuseProgramMethods( std::span<const Common::Scalability::ShadowMethod> methods,
+                                   std::string_view program, std::string_view error );
+        // The DeferredLightingRenderer's refused Shadows programs (its Refusals) through RefuseProgramMethods.
+        void RefuseShadowPrograms( const ProgramRefusals& deferred );
+        // The path tracer (@p program: "PathTracer" or "EmissiveLightList", static storage) could not be brought
+        // up: GI and Reflections PathTraced are refused together with one ERROR line (none when it is the same
+        // refusal retried after a recompile); EnsurePathTracerResources is asked again once a recompile retries
+        // it.
+        void RefusePathTracer( std::string_view program, std::string_view error );
         void RefuseProgramMethods( std::span<const Common::Scalability::ReflectionMethod> methods,
                                    std::string_view program, std::string_view error );
         // The Reflections methods each reflection program serves. The screen trace (SSR's programs, the HZB, the
@@ -1627,8 +1671,7 @@ namespace Desert::Graphic
         // PathTracing.SamplesPerPixel / PathsPerFrame / MaxBounces / MaxPathIntensity (Scalability), taken each
         // BeginScene.
         System::PathTracer::Settings m_PathTracingSettings;
-        bool                         m_PathTracerReady  = false;
-        bool                         m_PathTracerFailed = false;
+        bool                         m_PathTracerReady = false;
         // The mesh distance-field brick pool, MiB (Scalability GlobalIllumination.DistanceFieldPoolMiB): this
         // view's request to its scene's pool (DistanceFieldSceneData::BeginViewFrame) - a scene budget, counted
         // once in the scene's ledger rows, not per view.
@@ -1729,6 +1772,35 @@ namespace Desert::Graphic
         std::optional<System::VirtualShadowMapFrame> m_FrameVsmPages;
         // The last cull refusal logged (AddFrameGpuCull): the same message is not logged again every frame.
         std::string m_GpuCullLastError;
+        // One per-frame step that can be refused: Claim answers true for a reason that is not the one last said
+        // (the caller logs it), false for the same reason again; Clear when the step records again, so a later
+        // failure - even with the old reason - is said once more.
+        class RepeatedRefusal
+        {
+        public:
+            [[nodiscard]] bool Claim( std::string reason )
+            {
+                if ( reason == m_Last )
+                    return false;
+                m_Last = std::move( reason );
+                return true;
+            }
+            void Clear()
+            {
+                m_Last.clear();
+            }
+            [[nodiscard]] const std::string& Last() const
+            {
+                return m_Last;
+            }
+
+        private:
+            std::string m_Last;
+        };
+        // AddFrameTracedGI's refusals that skip the frame's GI (a frame input missing, the cache update or the
+        // gather refused - ScreenProbeLayoutFits among them), and its card-lighting refusal, which does not.
+        RepeatedRefusal m_TracedGIRefusal;
+        RepeatedRefusal m_TracedGICardLightingRefusal;
         // The sun path the cascade budget was taken for (ShadowQualityOf): a ray-traced sun's cascades are the
         // low-detail ones. Re-budgeted when it or the quality generation moves.
         bool m_ShadowBudgetSunRayTraced = false;

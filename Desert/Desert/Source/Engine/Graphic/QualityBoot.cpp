@@ -59,8 +59,17 @@ namespace Desert::Graphic::QualityBoot
             return Common::MakeError<bool>( std::format( "{} is not a valid level table", tableFile.string() ) );
         }
 
+        // Loaded by the Application before the device (ApplicationInfo::MachineSettingsFile): the device already
+        // read it, so a second Load here could start the quality from a file the device never saw.
         using Common::Settings::MachineSettings;
-        MachineSettings::Load( machineJson );
+        if ( MachineSettings::File() != machineJson )
+        {
+            LOG_ERROR( "[Scalability] the quality starts from {} but the application loaded '{}' "
+                       "(ApplicationInfo::MachineSettingsFile)",
+                       machineJson.string(), MachineSettings::File().string() );
+            return Common::MakeError<bool>(
+                 std::format( "{} was not loaded before the device was created", machineJson.string() ) );
+        }
         const MachineSettings& machine = MachineSettings::Get();
 
         // The present pacing lives in machine.json beside the quality (DisplaySettings.hpp); the window rebuilds
@@ -88,7 +97,10 @@ namespace Desert::Graphic::QualityBoot
                                                        std::move( initial ), &SaveSelection );
         const bool thisProcess = persistence == Persistence::ThisProcess;
         if ( thisProcess )
+        {
             Common::Scalability::QualityState::KeepInSession( "unattended run" );
+            MachineSettings::KeepInSession( "unattended run" );
+        }
         Common::Scalability::QualityState::Subscribe( &PushSamplerState, nullptr );
         // Quality.Levels was read from the former positional list or missed a group of this build: the file is
         // rewritten by group name, with the level each group actually starts on (no legacy form kept on disk).

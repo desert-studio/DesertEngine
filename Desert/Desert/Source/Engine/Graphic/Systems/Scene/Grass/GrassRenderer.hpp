@@ -67,11 +67,13 @@ namespace Desert::Graphic::System
     // tilt, the facing jitter and the levels.
     struct GrassBladeDraw
     {
-        float     Height = 45.0f, Width = 1.2f, Taper = 0.9f, Curvature = 0.35f, CurvatureSpread = 0.4f;
-        float     BendSpread = 0.0f, Tilt = 0.0f, FacingJitter = 0.0f, Stiffness = 0.3f;
-        glm::vec3 BaseColor{ 0.06f, 0.10f, 0.03f }, TipColor{ 0.25f, 0.33f, 0.09f },
-             DryTipColor{ 0.45f, 0.38f, 0.2f };
-        float    DryTipShare = 0.25f, DryTipLength = 0.3f, Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
+        float Height = 45.0f, Curvature = 0.35f, CurvatureSpread = 0.4f;
+        float BendSpread = 0.0f, Tilt = 0.0f, FacingJitter = 0.0f, Stiffness = 0.3f;
+        /// The material atlas's cards (u0, v tip, u1, v root) the blades draw from, and the widest one's width,
+        /// cm at scale 1 (the bounds).
+        std::vector<glm::vec4> Cards;
+        float                  MaxWidth = 0.0f;
+        float                  Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
         float    Scatter = 0.0f, Patchiness = 0.0f, PatchSize = 800.0f;
         uint32_t Segments    = 6;
         float    LodDistance = 700.0f;
@@ -139,6 +141,18 @@ namespace Desert::Graphic::System
             return m_BladeRayTracing;
         }
 
+        // THE CONTROL GATE'S QUESTION (PendingWork::GrassInstances, GRASS-SETTLE p14): the last AddFrame drew a
+        // variety whose instance buffer may hold fewer instances than its generator keeps - its first count has
+        // not come back yet (capacity zero), or a read-back count overflowed the capacity the frame was drawn with
+        // (a camera cut: the buffers are sized by the PREVIOUS view's count, and GrassGenerate drops everything
+        // past them, a straight-edged block of cells losing its meshes). Clears once every drawn variety has had
+        // the swapchain's frames in flight worth of read-backs within its capacity since the last overflow. UE's
+        // automated screenshot waits for the grass builds the same way (the async grass tasks must finish).
+        [[nodiscard]] bool InstancesSettling() const noexcept
+        {
+            return m_Settling;
+        }
+
     private:
         struct FieldGpu
         {
@@ -163,6 +177,10 @@ namespace Desert::Graphic::System
             // capacity has been at least two steps above what the counts ask for (the shrink's hysteresis).
             std::shared_ptr<ShaderResources::StorageBuffer> Feedback;
             std::vector<uint32_t>                           LowFrames;
+            // Read-backs still to come, after the last one that overflowed a bucket, before this variety's draw is
+            // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
+            uint32_t                                        SettleReads = 0;
+            bool                                            Truncated   = false;
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
@@ -182,6 +200,7 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
+        bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
         mutable ShaderBindingLayoutCache m_GenerateLayout;

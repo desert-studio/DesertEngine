@@ -165,6 +165,16 @@ namespace Desert::Graphic::System
             return m_FrameMaterials;
         }
 
+        // THE WORLD WAS TORN DOWN (SceneRenderer::ReleaseWorldResources): the landscape materials and their layer
+        // arrays belong to the old world's landscapes. Kept, a reopen of the same scene rebuilt every array from
+        // its re-read textures while the old ones were still owed deletion (FIELD-MEM p3: 4 x 64.5 MB twice).
+        void ReleaseWorldCaches()
+        {
+            ClearQueue();
+            m_Materials.clear();
+            m_LayerInputs.clear();
+        }
+
         void ClearQueue()
         {
             m_Queue.clear();
