@@ -880,10 +880,10 @@ namespace Desert::Core
                 // ONE LIGHTING STATE, NOT EACH INPUT: a sun the sky light is being (or will be) captured again for
                 // is rendered into the captures with that sky, not under the old one. Index 0 is the atmosphere
                 // sun (ECS::Rules::AtmosphereSunDirection, the one negation).
-                const auto& suns       = sceneRendererInfo.DirLights.DirectionLights;
-                const bool  skyFollows = !suns.empty() && view.Renderer->SkyLightRecapturesFor(
-                                                               ECS::Rules::AtmosphereSunDirection(
-                                                                    glm::vec3( suns.front().Direction ) ) );
+                const auto& suns = sceneRendererInfo.DirLights.DirectionLights;
+                const bool  skyFollows =
+                     !suns.empty() && view.Renderer->SkyLightRecapturesFor( ECS::Rules::AtmosphereSunDirection(
+                                           glm::vec3( suns.front().Direction ) ) );
                 m_ReflectionCaptures->RenderCaptureViews(
                      *this,
                      [this]( Graphic::SceneRenderer& face )
