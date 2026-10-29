@@ -188,7 +188,7 @@ namespace Desert::Editor
                    if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
                        return PaletteCommandOutcome( false, "the selected entity has no static mesh" );
                    auto written =
-                        Editor::CommitEditableMeshToAsset( ref->get().GetComponent<ECS::StaticMeshComponent>() );
+                        Editor::CommitEditableMeshToAsset( *ref->get().GetRegistry(), ref->get().GetHandle() );
                    if ( !written.IsSuccess() )
                        return PaletteCommandOutcome( false, written.GetError() );
                    LOG_INFO( "[Modeling] the edit was written into '{}'", written.GetValue().generic_string() );

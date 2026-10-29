@@ -480,7 +480,7 @@ namespace Desert::ECS
             registry.patch<StaticMeshComponent>( entity,
                                     [&desc]( StaticMeshComponent& c )
                                     {
-                                        if ( c.MaterialSlots != desc.MaterialSlots )
+                                        if ( c.GetMaterialSlots() != desc.MaterialSlots )
                                         {
                                             c.m_RuntimeMaterialInstances.clear();
                                             c.m_RuntimeSlots.reset();
@@ -658,7 +658,7 @@ namespace Desert::ECS
             registry.patch<SkinnedMeshComponent>( entity,
                                     [&desc]( SkinnedMeshComponent& c )
                                     {
-                                        if ( c.MaterialSlots != desc.MaterialSlots )
+                                        if ( c.GetMaterialSlots() != desc.MaterialSlots )
                                         {
                                             c.m_RuntimeMaterialInstances.clear();
                                             c.m_RuntimeDisplacedInstances.clear();
@@ -882,7 +882,7 @@ namespace Desert::ECS
             registry.patch<InstancedStaticMeshComponent>( entity,
                                     [&desc]( InstancedStaticMeshComponent& c )
                                     {
-                                        if ( c.MaterialSlots != desc.MaterialSlots )
+                                        if ( c.GetMaterialSlots() != desc.MaterialSlots )
                                         {
                                             c.m_RuntimeMaterialInstances.clear();
                                             c.m_RuntimeDisplacedInstances.clear();

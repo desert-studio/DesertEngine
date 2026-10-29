@@ -63,7 +63,13 @@ namespace Desert::Editor
         if ( entity.HasComponent<ECS::StaticMeshComponent>() )
         {
             auto& c               = entity.GetComponent<ECS::StaticMeshComponent>();
-            host.Slots            = &c.MaterialSlots;
+            host.Slots            = &c.GetMaterialSlots();
+            host.WriteSlots       = [entity]( std::vector<Assets::AssetHandle> slots ) mutable
+            {
+                ECS::StaticMeshDesc desc = entity.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+                desc.MaterialSlots = std::move( slots );
+                ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+            };
             host.RuntimeInstances = &c.RuntimeMaterialInstances();
             host.MeshHandle       = c.GetMeshHandle();
             host.Mesh             = c.GetRuntimeMesh() ? static_cast<::Desert::Mesh*>( c.GetRuntimeMesh().get() )
@@ -72,7 +78,13 @@ namespace Desert::Editor
         else if ( entity.HasComponent<ECS::SkinnedMeshComponent>() )
         {
             auto& c               = entity.GetComponent<ECS::SkinnedMeshComponent>();
-            host.Slots            = &c.MaterialSlots;
+            host.Slots            = &c.GetMaterialSlots();
+            host.WriteSlots       = [entity]( std::vector<Assets::AssetHandle> slots ) mutable
+            {
+                ECS::SkinnedMeshDesc desc = entity.GetComponent<ECS::SkinnedMeshComponent>().GetDesc();
+                desc.MaterialSlots = std::move( slots );
+                ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+            };
             host.RuntimeInstances = &c.RuntimeMaterialInstances();
             host.MeshHandle       = c.GetMeshHandle();
             host.Mesh             = c.GetRuntimeMesh() ? static_cast<::Desert::Mesh*>( c.GetRuntimeMesh().get() )
@@ -88,12 +100,18 @@ namespace Desert::Editor
             //
             // A primitive ISM has no asset mesh, so `Mesh` resolves through the generated RuntimeMesh
             // the same way the static twin's does.
-            auto& c               = entity.GetComponent<ECS::InstancedStaticMeshComponent>();
-            host.Slots            = &c.MaterialSlots;
-            host.RuntimeInstances = &c.RuntimeMaterialInstances();
-            host.MeshHandle       = c.GetMeshHandle();
-            host.Mesh             = c.RuntimeMesh() ? static_cast<::Desert::Mesh*>( c.RuntimeMesh().get() )
-                                                  : Runtime::ResourceRegistry::GetMeshService()->Get( c.GetMeshHandle() );
+            auto& ism             = entity.GetComponent<ECS::InstancedStaticMeshComponent>();
+            host.Slots            = &ism.GetMaterialSlots();
+            host.WriteSlots       = [entity]( std::vector<Assets::AssetHandle> slots ) mutable
+            {
+                ECS::InstancedStaticMeshDesc desc = entity.GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                desc.MaterialSlots = std::move( slots );
+                ECS::SetInstancedStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+            };
+            host.RuntimeInstances = &ism.RuntimeMaterialInstances();
+            host.MeshHandle       = ism.GetMeshHandle();
+            host.Mesh             = ism.RuntimeMesh() ? static_cast<::Desert::Mesh*>( ism.RuntimeMesh().get() )
+                                                    : Runtime::ResourceRegistry::GetMeshService()->Get( ism.GetMeshHandle() );
         }
         return host;
     }
@@ -139,18 +157,27 @@ namespace Desert::Editor
             if ( entity.HasComponent<ECS::SkinnedMeshComponent>() &&
                  Utils::ImGuiUtilities::SectionHeader( ICON_MDI_EYE "  Rendering", false ) )
             {
-                auto& skinnedComp = entity.GetComponent<ECS::SkinnedMeshComponent>();
+                const auto& skinnedComp = entity.GetComponent<ECS::SkinnedMeshComponent>();
                 Utils::ImGuiUtilities::ResetPropertyRows();
                 Utils::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
                                                          "Skip this mesh in the shadow (depth) passes" );
-                ImGui::Checkbox( "##castshadows", &skinnedComp.CastShadows );
+                bool castShadows = skinnedComp.GetCastShadows();
+                if ( ImGui::Checkbox( "##castshadows", &castShadows ) )
+                {
+                    ECS::SkinnedMeshDesc desc = skinnedComp.GetDesc();
+                    desc.CastShadows          = castShadows;
+                    ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+                }
                 Utils::ImGuiUtilities::EndPropertyRow();
             }
             return;
         }
 
-        auto&           materialComp = entity.GetComponent<ECS::StaticMeshComponent>();
+        const auto&     materialComp = entity.GetComponent<ECS::StaticMeshComponent>();
         ::Desert::Mesh* lodMesh      = host.Mesh;
+        // The rows below draw on a copy; it is stated once through the writer at the end (no write when
+        // nothing changed).
+        ECS::StaticMeshDesc edited = materialComp.GetDesc();
 
         if ( Utils::ImGuiUtilities::SectionHeader( ICON_MDI_LAYERS_TRIPLE "  Level of Detail", false ) )
         {
@@ -180,13 +207,13 @@ namespace Desert::Editor
             int         cur     = materialComp.GetForcedLOD() < 0 ? 0 : materialComp.GetForcedLOD() + 1;
             Utils::ImGuiUtilities::BeginPropertyRow( "Force LOD" );
             if ( ImGui::Combo( "##forcelod", &cur, items, 5 ) )
-                materialComp.ForcedLOD = ( cur == 0 ) ? -1 : cur - 1;
+                edited.ForcedLOD = ( cur == 0 ) ? -1 : cur - 1;
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
                  "LOD Bias",
                  "Shifts the automatic LOD pick (+coarser, -finer). No effect while a LOD is forced." );
-            ImGui::SliderInt( "##lodbias", &materialComp.LODBias, -3, 3 );
+            ImGui::SliderInt( "##lodbias", &edited.LODBias, -3, 3 );
             Utils::ImGuiUtilities::EndPropertyRow();
         }
 
@@ -199,17 +226,17 @@ namespace Desert::Editor
 
             Utils::ImGuiUtilities::BeginPropertyRow(
                  "Draw Outline", "Always draw the outline for this mesh, even when it is not selected" );
-            ImGui::Checkbox( "##outline", &materialComp.OutlineDraw );
+            ImGui::Checkbox( "##outline", &edited.OutlineDraw );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow( "Cast Shadows",
                                                      "Skip this mesh in the shadow (depth) passes" );
-            ImGui::Checkbox( "##castshadows", &materialComp.CastShadows );
+            ImGui::Checkbox( "##castshadows", &edited.CastShadows );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
                  "Receive Shadows", "Sun (directional) shadows are not applied to this mesh when off" );
-            ImGui::Checkbox( "##recvshadows", &materialComp.ReceiveShadows );
+            ImGui::Checkbox( "##recvshadows", &edited.ReceiveShadows );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
@@ -217,7 +244,7 @@ namespace Desert::Editor
                  "A light's contact-shadow ray that hits this mesh darkens with the light's Contact Shadow "
                  "Casting "
                  "Intensity; off = its Non Casting Intensity (0 by default: no contact shadow from this mesh)" );
-            ImGui::Checkbox( "##castcontactshadow", &materialComp.CastContactShadow );
+            ImGui::Checkbox( "##castcontactshadow", &edited.CastContactShadow );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
@@ -225,16 +252,16 @@ namespace Desert::Editor
                  "cm from the camera to the mesh's bounds centre beyond which it is not drawn and casts no "
                  "shadow (0 = no limit); scaled by the camera's field of view, so a zoomed-in camera draws "
                  "farther" );
-            ImGui::DragFloat( "##maxdrawdistance", &materialComp.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
-                              materialComp.GetMaxDrawDistance() > 0.0f ? "%.0f cm" : "No limit" );
-            materialComp.MaxDrawDistance = std::max( materialComp.GetMaxDrawDistance(), 0.0f );
+            ImGui::DragFloat( "##maxdrawdistance", &edited.MaxDrawDistance, 10.0f, 0.0f, 1.0e9f,
+                              edited.MaxDrawDistance > 0.0f ? "%.0f cm" : "No limit" );
+            edited.MaxDrawDistance = std::max( edited.MaxDrawDistance, 0.0f );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             Utils::ImGuiUtilities::BeginPropertyRow(
                  "Translucency Sort Priority",
                  "Translucent materials only: a lower value draws first (behind a higher one) regardless of "
                  "distance; equal values sort back to front from the camera" );
-            ImGui::DragInt( "##translucencysort", &materialComp.TranslucencySortPriority, 0.1f );
+            ImGui::DragInt( "##translucencysort", &edited.TranslucencySortPriority, 0.1f );
             Utils::ImGuiUtilities::EndPropertyRow();
 
             const size_t subCount = lodMesh ? lodMesh->GetSubmeshes().size() : 0;
@@ -245,17 +272,18 @@ namespace Desert::Editor
                 for ( size_t i = 0; i < subCount && i < 64; ++i )
                 {
                     const uint64_t bit     = ( 1ull << i );
-                    bool           visible = ( materialComp.GetHiddenSubmeshes() & bit ) == 0;
+                    bool           visible = ( edited.HiddenSubmeshes & bit ) == 0;
                     const auto&    sm      = lodMesh->GetSubmeshes()[i];
                     const std::string label   = sm.Name.empty() ? std::format( "Submesh {}", i ) : sm.Name;
                     ImGui::PushID( static_cast<int>( i ) );
                     if ( ImGui::Checkbox( label.c_str(), &visible ) )
-                        materialComp.HiddenSubmeshes =
-                             visible ? ( materialComp.GetHiddenSubmeshes() & ~bit ) : ( materialComp.GetHiddenSubmeshes() | bit );
+                        edited.HiddenSubmeshes =
+                             visible ? ( edited.HiddenSubmeshes & ~bit ) : ( edited.HiddenSubmeshes | bit );
                     ImGui::PopID();
                 }
             }
         }
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), edited );
     }
 
     size_t MaterialComponentWidget::GetSubmeshCount( const MaterialHost& host ) const
@@ -381,12 +409,15 @@ namespace Desert::Editor
 
     void MaterialComponentWidget::MakeSlotExplicit( const MaterialHost& host, size_t slot )
     {
-        auto& meshComp = *host.Slots;
+        if ( host.Slots->size() > slot )
+            return;
+        std::vector<Assets::AssetHandle> slots = *host.Slots;
         // Extend the slot array up to `slot` by repeating the last handle — exactly the renderer's
         // min(i, slots-1) mapping — so materializing a row never changes the rendered look. With no
         // slots at all the fill is Null (the engine default), same as what those rows showed before.
-        while ( meshComp.size() <= slot )
-            meshComp.push_back( meshComp.empty() ? Common::UUID::Null() : meshComp.back() );
+        while ( slots.size() <= slot )
+            slots.push_back( slots.empty() ? Common::UUID::Null() : slots.back() );
+        host.WriteSlots( std::move( slots ) );
     }
 
     void MaterialComponentWidget::AssignMaterialFromPath( const MaterialHost& host, size_t slot,
@@ -405,14 +436,8 @@ namespace Desert::Editor
         if ( !Runtime::ResourceRegistry::GetMaterialService()->Get( handle ) )
             Runtime::ResourceRegistry::GetMaterialService()->Register( asset );
 
-        if ( slot < host.Slots->size() )
-            ( *host.Slots )[slot] = handle;
-        else
-            host.Slots->push_back( handle );
-
-        // Force MeshECSSystem to rebuild the runtime instances (it only rebuilds on slot-count change,
-        // so an in-place handle swap needs an explicit reset).
-        host.Invalidate();
+        // The writer drops the runtime instances on any slot change, an in-place handle swap included.
+        host.SetSlot( slot, handle );
     }
 
     MaterialComponentWidget::SlotSwatch
@@ -680,8 +705,13 @@ namespace Desert::Editor
                 const std::string path( static_cast<const char*>( p->Data ),
                                         p->DataSize > 0 ? p->DataSize - 1 : 0 );
                 const size_t      count = GetSubmeshCount( host );
-                while ( host.Slots->size() < count )
-                    host.Slots->push_back( Common::UUID::Null() );
+                if ( host.Slots->size() < count )
+                {
+                    std::vector<Assets::AssetHandle> slots = *host.Slots;
+                    while ( slots.size() < count )
+                        slots.push_back( Common::UUID::Null() );
+                    host.WriteSlots( std::move( slots ) );
+                }
                 for ( size_t s = 0; s < host.Slots->size(); ++s )
                     AssignMaterialFromPath( host, s, path );
             }
@@ -802,8 +832,7 @@ namespace Desert::Editor
                         if ( const auto h = CreateAndRegisterMaterial( matBaseName ) )
                         {
                             MakeSlotExplicit( host, i );
-                            ( *host.Slots )[i] = h;
-                            host.Invalidate();
+                            host.SetSlot( i, h );
                         }
                         break;
                     }
@@ -813,8 +842,7 @@ namespace Desert::Editor
                         {
                             if ( const auto h = CreateAndRegisterMaterialInstance( *asset ) )
                             {
-                                ( *host.Slots )[i] = h;
-                                host.Invalidate();
+                                host.SetSlot( i, h );
                             }
                         }
                         break;
@@ -842,8 +870,7 @@ namespace Desert::Editor
 
                     if ( hasOwnSlot && ImGui::Selectable( "None (use the engine default)" ) )
                     {
-                        ( *host.Slots )[i] = Common::UUID::Null();
-                        host.Invalidate();
+                        host.SetSlot( i, Common::UUID::Null() );
                     }
 
                     if ( m_AssetManager )
@@ -858,8 +885,7 @@ namespace Desert::Editor
                             if ( ImGui::Selectable( matName.c_str(), candidate == handle ) )
                             {
                                 MakeSlotExplicit( host, i );
-                                ( *host.Slots )[i] = candidate;
-                                host.Invalidate();
+                                host.SetSlot( i, candidate );
                             }
                         }
                     }

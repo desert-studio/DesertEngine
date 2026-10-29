@@ -1469,18 +1469,20 @@ namespace Desert::Core::Serialize
                 auto  resolver = MakeAssetResolver( assetManager );
                 // MeshHandle / MaterialSlots: the reflected fields, read by reflection ({Guid, Path} each).
                 Reflection::DeserializeReflected( *type, &smc, g, issues, &resolver );
-                smc.Primitive = meshData.Primitive;
+                // The rest of the value is built on a copy and stated once through the writer below.
+                ECS::StaticMeshDesc desc = smc.GetDesc();
+                desc.Primitive           = meshData.Primitive;
 
-                smc.OutlineDraw     = meshData.OutlineDraw.value_or( smc.GetOutlineDraw() );
-                smc.ForcedLOD       = meshData.ForcedLOD.value_or( smc.GetForcedLOD() );
-                smc.LODBias         = meshData.LODBias.value_or( smc.GetLODBias() );
-                smc.CastShadows     = meshData.CastShadows.value_or( smc.GetCastShadows() );
-                smc.ReceiveShadows  = meshData.ReceiveShadows.value_or( smc.GetReceiveShadows() );
-                smc.CastContactShadow = meshData.CastContactShadow.value_or( smc.GetCastContactShadow() );
-                smc.TranslucencySortPriority =
-                     meshData.TranslucencySortPriority.value_or( smc.GetTranslucencySortPriority() );
-                smc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( smc.GetMaxDrawDistance() );
-                smc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( smc.GetHiddenSubmeshes() );
+                desc.OutlineDraw       = meshData.OutlineDraw.value_or( desc.OutlineDraw );
+                desc.ForcedLOD         = meshData.ForcedLOD.value_or( desc.ForcedLOD );
+                desc.LODBias           = meshData.LODBias.value_or( desc.LODBias );
+                desc.CastShadows       = meshData.CastShadows.value_or( desc.CastShadows );
+                desc.ReceiveShadows    = meshData.ReceiveShadows.value_or( desc.ReceiveShadows );
+                desc.CastContactShadow = meshData.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.TranslucencySortPriority =
+                     meshData.TranslucencySortPriority.value_or( desc.TranslucencySortPriority );
+                desc.MaxDrawDistance = meshData.MaxDrawDistance.value_or( desc.MaxDrawDistance );
+                desc.HiddenSubmeshes = meshData.HiddenSubmeshes.value_or( desc.HiddenSubmeshes );
 
                 if ( meshData.EditMesh )
                 {
@@ -1497,7 +1499,7 @@ namespace Desert::Core::Serialize
                                    tag, loaded.GetError() );
                     }
                     else if ( auto set = ECS::SetEditableMesh(
-                                   smc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
+                                   desc, std::make_shared<const Geometry::DynamicMesh3>( loaded.ExtractValue() ) );
                               !set.IsSuccess() )
                     {
                         LOG_ERROR(
@@ -1505,6 +1507,7 @@ namespace Desert::Core::Serialize
                              tag, set.GetError() );
                     }
                 }
+                ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1575,14 +1578,14 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& data = parsed.value();
 
-                auto& ism      = entity.AddComponent<ECS::InstancedStaticMeshComponent>();
-                auto  resolver = MakeAssetResolver( assetManager );
+                ECS::InstancedStaticMeshDesc desc;
+                auto                         resolver = MakeAssetResolver( assetManager );
 
                 const uint64_t meshHandle =
                      ResolveMeshRef( resolver, data.MeshGuid, data.MeshPath, "StaticMeshAsset" );
                 if ( meshHandle != 0 )
                 {
-                    ism.MeshHandle = Common::UUID( meshHandle );
+                    desc.MeshHandle = Common::UUID( meshHandle );
                 }
 
                 size_t slotCount = 0;
@@ -1596,28 +1599,28 @@ namespace Desert::Core::Serialize
                 }
                 if ( slotCount > 0 )
                 {
-                    ism.MaterialSlots.clear();
+                    desc.MaterialSlots.reserve( slotCount );
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        ism.MaterialSlots.emplace_back(
+                        desc.MaterialSlots.emplace_back(
                              ResolveSlotRef( resolver, data.MaterialGuids, data.MaterialPaths, i ) );
                     }
                 }
-                ism.Primitive   = data.Primitive;
-                ism.CastShadows     = data.CastShadows.value_or( ism.GetCastShadows() );
-                ism.CastContactShadow = data.CastContactShadow.value_or( ism.GetCastContactShadow() );
-                ism.MaxDrawDistance = data.MaxDrawDistance.value_or( ism.GetMaxDrawDistance() );
+                desc.Primitive         = data.Primitive;
+                desc.CastShadows       = data.CastShadows.value_or( desc.CastShadows );
+                desc.CastContactShadow = data.CastContactShadow.value_or( desc.CastContactShadow );
+                desc.MaxDrawDistance   = data.MaxDrawDistance.value_or( desc.MaxDrawDistance );
                 if ( data.InstanceTransforms.has_value() )
                 {
-                    ism.InstanceTransforms.clear();
-                    ism.InstanceTransforms.reserve( data.InstanceTransforms->size() );
+                    desc.InstanceTransforms.reserve( data.InstanceTransforms->size() );
                     for ( const auto& a : *data.InstanceTransforms )
                     {
                         glm::mat4 m( 1.0f );
                         std::memcpy( &m[0][0], a.data(), sizeof( float ) * 16 );
-                        ism.InstanceTransforms.push_back( m );
+                        desc.InstanceTransforms.push_back( m );
                     }
                 }
+                ECS::SetInstancedStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );
@@ -1793,28 +1796,29 @@ namespace Desert::Core::Serialize
                     return;
                 const auto& meshData = parsed.value();
 
-                auto& smc      = entity.AddComponent<ECS::SkinnedMeshComponent>();
-                auto  resolver = MakeAssetResolver( assetManager );
+                ECS::SkinnedMeshDesc desc;
+                auto                 resolver = MakeAssetResolver( assetManager );
 
                 const uint64_t meshHandle =
                      ResolveMeshRef( resolver, meshData.MeshGuid, meshData.MeshPath, "SkinnedMeshAsset" );
                 if ( meshHandle != 0 )
-                    smc.MeshHandle = Common::UUID( meshHandle );
+                    desc.MeshHandle = Common::UUID( meshHandle );
 
                 const size_t slotCount = meshData.MaterialGuids
                                               ? meshData.MaterialGuids->size()
                                               : ( meshData.MaterialPaths ? meshData.MaterialPaths->size() : 0 );
                 if ( slotCount > 0 )
                 {
-                    smc.MaterialSlots.clear();
+                    desc.MaterialSlots.reserve( slotCount );
                     for ( size_t i = 0; i < slotCount; ++i )
                     {
-                        smc.MaterialSlots.push_back( Common::UUID(
+                        desc.MaterialSlots.push_back( Common::UUID(
                              ResolveSlotRef( resolver, meshData.MaterialGuids, meshData.MaterialPaths, i ) ) );
                     }
                 }
 
-                smc.CastShadows = meshData.CastShadows.value_or( smc.GetCastShadows() );
+                desc.CastShadows = meshData.CastShadows.value_or( desc.CastShadows );
+                ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
             };
 
             Register( std::move( s ) );

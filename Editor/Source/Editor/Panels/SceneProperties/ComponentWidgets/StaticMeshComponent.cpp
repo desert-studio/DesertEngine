@@ -56,10 +56,12 @@ namespace Desert::Editor
         int currentType = staticMesh.GetPrimitive().has_value() ? 1 : 0;
         if ( ImGui::Combo( "##MeshType", &currentType, meshTypes, IM_ARRAYSIZE( meshTypes ) ) )
         {
+            ECS::StaticMeshDesc desc = staticMesh.GetDesc();
             if ( currentType == 0 )
-                staticMesh.Primitive.reset();
+                desc.Primitive.reset();
             else
-                staticMesh.Primitive = Geometry::PrimitiveType::Cube;
+                desc.Primitive = Geometry::PrimitiveType::Cube;
+            ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
         }
 
         Utils::ImGuiUtilities::EndPropertyRow();
@@ -102,7 +104,9 @@ namespace Desert::Editor
             }
             if ( ImGui::Combo( "##Shape", &currentShape, shapes.data(), static_cast<int>( shapes.size() ) ) )
             {
-                staticMesh.Primitive = Geometry::kAuthorablePrimitives[static_cast<size_t>( currentShape )];
+                ECS::StaticMeshDesc desc = staticMesh.GetDesc();
+                desc.Primitive           = Geometry::kAuthorablePrimitives[static_cast<size_t>( currentShape )];
+                ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
                 // MeshECSSystem will handle the dynamic mesh generation/update
             }
 
@@ -173,7 +177,7 @@ namespace Desert::Editor
                     png = ThumbnailService::Get().RequestMesh( staticMesh.GetMeshHandle(), source );
                 }
             }
-            if ( png.empty() && !staticMesh.GetMaterialSlots().empty() && staticMesh.MaterialSlots.front() )
+            if ( png.empty() && !staticMesh.GetMaterialSlots().empty() && staticMesh.GetMaterialSlots().front() )
             {
                 if ( auto mat = m_AssetManager->FindByHandle<Assets::SurfaceMaterialAsset>(
                           staticMesh.GetMaterialSlots().front() ) )

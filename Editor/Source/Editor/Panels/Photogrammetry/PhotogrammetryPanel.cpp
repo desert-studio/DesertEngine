@@ -544,14 +544,16 @@ namespace Desert::Editor
         auto& e = m_Scene->CreateNewEntity( "Reconstructed Model" );
         if ( resolved.Skinned )
         {
-            e.AddComponent<ECS::SkinnedMeshComponent>();
-            e.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle = resolved.Handle;
+            ECS::SkinnedMeshDesc mesh;
+            mesh.MeshHandle = resolved.Handle;
+            ECS::SetSkinnedMesh( *e.GetRegistry(), e.GetHandle(), mesh );
             e.AddComponent<ECS::AnimationComponent>();
         }
         else
         {
-            e.AddComponent<ECS::StaticMeshComponent>();
-            e.GetComponent<ECS::StaticMeshComponent>().MeshHandle = resolved.Handle;
+            ECS::StaticMeshDesc mesh;
+            mesh.MeshHandle = resolved.Handle;
+            ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), mesh );
         }
 
         if ( !resolved.Skinned )
@@ -706,12 +708,15 @@ namespace Desert::Editor
 
     void PhotogrammetryPanel::ApplyPreviewMesh()
     {
-        auto& smc = m_PreviewTarget.GetComponent<ECS::StaticMeshComponent>();
-        ECS::ClearEditableMesh( smc );
-        smc.Primitive.reset();
+        auto&               smc  = m_PreviewTarget.GetComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        ECS::ClearEditableMesh( desc );
+        desc.Primitive.reset();
+        desc.MaterialSlots.clear();
+        desc.MeshHandle = m_PreviewMesh;
+        ECS::SetStaticMesh( *m_PreviewTarget.GetRegistry(), m_PreviewTarget.GetHandle(), desc );
+        // A new handle with the same (empty) slots keeps the instances built for the old mesh; dropped here.
         smc.RuntimeMaterialInstances().clear();
-        smc.MaterialSlots.clear();
-        smc.MeshHandle = m_PreviewMesh;
 
         // Center + scale the mesh to fill the fixed preview camera (which sits at ~distance 8.66).
         glm::vec3 center( 0.0f );

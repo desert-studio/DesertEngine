@@ -329,8 +329,12 @@ namespace Desert::Libraries
         if ( auto* smc = Get<ECS::StaticMeshComponent>( entity );
              smc != nullptr && !smc->GetScriptSlotParams().empty() )
         {
-            smc->ScriptSlotParams.clear();
-            smc->RuntimeMaterialInstances().clear();
+            ECS::StaticMeshDesc desc = smc->GetDesc();
+            desc.ScriptSlotParams.clear();
+            ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+            // The script overrides were baked into the runtime instances; the writer drops those only on a
+            // slot change, so they are dropped here and rebuilt from the slots on the next draw.
+            Get<ECS::StaticMeshComponent>( entity )->RuntimeMaterialInstances().clear();
         }
     }
 
@@ -404,11 +408,13 @@ namespace Desert::Libraries
         const Core::WorldContext* context = World( "spawnMarker" );
         if ( context == nullptr )
             return {};
-        ECS::Entity e                                        = context->World->CreateNewEntity( "Marker" );
-        e.AddComponent<ECS::StaticMeshComponent>().Primitive = Geometry::PrimitiveType::Sphere;
-        ECS::LocalTransform t                                = e.GetComponent<ECS::TransformComponent>().GetLocal();
-        t.Translation                                        = position;
-        t.Scale                                              = glm::vec3( scale <= 0.0f ? 0.15f : scale );
+        ECS::Entity         e = context->World->CreateNewEntity( "Marker" );
+        ECS::StaticMeshDesc marker;
+        marker.Primitive = Geometry::PrimitiveType::Sphere;
+        ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), marker );
+        ECS::LocalTransform t = e.GetComponent<ECS::TransformComponent>().GetLocal();
+        t.Translation         = position;
+        t.Scale               = glm::vec3( scale <= 0.0f ? 0.15f : scale );
         e.SetLocalTransform( t );
         const auto debugColor =
              context->Assets != nullptr

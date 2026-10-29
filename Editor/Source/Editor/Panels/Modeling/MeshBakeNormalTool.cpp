@@ -344,14 +344,15 @@ namespace Desert::Editor::Core
                                             auto live = scene.FindEntityByID( id );
                                             if ( !live )
                                                 return;
-                                            auto& smc = live->get().GetComponent<ECS::StaticMeshComponent>();
-                                            if ( smc.GetMaterialSlots().empty() )
-                                                smc.MaterialSlots.push_back( handle );
-                                            for ( auto& slot : smc.GetMaterialSlots() )
+                                            const ECS::Entity   entity = live->get();
+                                            ECS::StaticMeshDesc desc =
+                                                 entity.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+                                            if ( desc.MaterialSlots.empty() )
+                                                desc.MaterialSlots.push_back( handle );
+                                            for ( auto& slot : desc.MaterialSlots )
                                                 slot = handle;
-                                            smc.RuntimeMaterialInstances().clear();
-                                            smc.RuntimeSlots().reset();
-                                            smc.SeenMaterialsVersion() = 0;
+                                            // The writer drops the runtime instances when the slots change.
+                                            ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
                                         } );
 
         Out out;

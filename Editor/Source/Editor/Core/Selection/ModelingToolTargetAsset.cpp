@@ -27,8 +27,9 @@ namespace Desert::Editor
         return GetToolTargetMeshAt( nullptr, asset->GetMetadata().Filepath );
     }
 
-    Common::ResultStr<std::filesystem::path> CommitEditableMeshToAsset( ECS::StaticMeshComponent& component )
+    Common::ResultStr<std::filesystem::path> CommitEditableMeshToAsset( entt::registry& registry, entt::entity entity )
     {
+        const auto& component = registry.get<ECS::StaticMeshComponent>( entity );
         if ( !component.GetEditableMesh() )
             return Common::MakeError<std::filesystem::path>(
                  "the entity holds no edit: it already draws its static mesh asset as it is" );
@@ -58,7 +59,7 @@ namespace Desert::Editor
             return Common::MakeFormattedError<std::filesystem::path>(
                  "'{}' was written but could not be rebuilt (the log names why)", path.generic_string() );
         // The entity's own copy is now the asset's: it draws the asset again, like every other user of it.
-        ECS::ClearEditableMesh( component );
+        ECS::ClearEditableMesh( registry, entity );
         return Common::MakeSuccess( path );
     }
 } // namespace Desert::Editor

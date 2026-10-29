@@ -471,7 +471,6 @@ namespace Desert::Editor::Tools
                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
                                                              m_Session->PendingStarted )
                        .count() );
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
@@ -482,7 +481,7 @@ namespace Desert::Editor::Tools
         }
         std::string report = out.GetValue().Report;
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
-        if ( auto set = ECS::SetEditableMesh( *component, preview ); !set.IsSuccess() )
+        if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), preview ); !set.IsSuccess() )
         {
             ms.DeformStatus = set.GetError();
             Restore( scene );
@@ -530,10 +529,11 @@ namespace Desert::Editor::Tools
             case MeshRestore::Unchanged:
                 break;
             case MeshRestore::Clear:
-                ECS::ClearEditableMesh( *component );
+                ECS::ClearEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle() );
                 break;
             case MeshRestore::Set:
-                if ( auto set = ECS::SetEditableMesh( *component, m_Session->Committed ); !set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Committed );
+                     !set.IsSuccess() )
                     LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}", ToolName( m_Session->Tool ),
                                set.GetError() );
                 break;
@@ -618,9 +618,8 @@ namespace Desert::Editor::Tools
         auto applied = Commands::ApplyXformEdit( label, changes, creates, deletes );
         if ( !applied.IsSuccess() )
         {
-            ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
-            if ( component != nullptr )
-                (void)ECS::SetEditableMesh( *component, m_Session->Preview ); // the preview stays on screen
+            if ( MeshOf( scene, m_Session->Entity ) != nullptr ) // the preview stays on screen
+                (void)ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Preview );
             return refuse( applied.GetError() );
         }
         LOG_INFO( "[Modeling] {0} accepted as a new entity, inputs: {1}: {2}", label, Core::ToString( handling ),

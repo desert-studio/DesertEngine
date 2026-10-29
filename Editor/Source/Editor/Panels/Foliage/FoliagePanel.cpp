@@ -677,8 +677,14 @@ namespace Desert::Editor::Tools
                         ImGui::TextDisabled( "The field's type does not load (the log says why)." );
                     // The field's own switch (the ISM's), beside the type's numbers: UE's CastShadow row.
                     Row::BeginPropertyRow( "Cast Shadows", "This field's instances in the shadow cascades" );
-                    ImGui::Checkbox( "##CastShadows",
-                                     &field.GetComponent<ECS::InstancedStaticMeshComponent>().CastShadows );
+                    const auto& fieldMesh   = field.GetComponent<ECS::InstancedStaticMeshComponent>();
+                    bool        castShadows = fieldMesh.GetCastShadows();
+                    if ( ImGui::Checkbox( "##CastShadows", &castShadows ) )
+                    {
+                        ECS::InstancedStaticMeshDesc ism = fieldMesh.GetDesc();
+                        ism.CastShadows                  = castShadows;
+                        ECS::SetInstancedStaticMesh( *field.GetRegistry(), field.GetHandle(), ism );
+                    }
                     Row::EndPropertyRow();
                 }
             }

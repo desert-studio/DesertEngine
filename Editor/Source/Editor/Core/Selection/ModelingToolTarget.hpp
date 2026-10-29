@@ -45,8 +45,8 @@ namespace Desert::Editor
     // INTO its static mesh asset, same GUID (Editor/Core/Selection/EditedMeshAsset.hpp says where an imported
     // mesh's edit lives), the asset is reloaded for every entity that draws it, and the component drops its own
     // copy. Refused, by name, for an entity with no edit or no asset. Returns the file written.
-    [[nodiscard]] Common::ResultStr<std::filesystem::path>
-    CommitEditableMeshToAsset( ECS::StaticMeshComponent& component );
+    [[nodiscard]] Common::ResultStr<std::filesystem::path> CommitEditableMeshToAsset( entt::registry& registry,
+                                                                                    entt::entity    entity );
 
     // The rule itself, with the component's two inputs already resolved: its EditableMesh (may be null) and the
     // file behind its MeshHandle (empty when it has none, or when the asset is not loaded).

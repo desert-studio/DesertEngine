@@ -89,7 +89,7 @@ namespace Desert::Editor
             const ECS::Entity entity( handle, registry );
             const auto&       mesh = registry.get<ECS::StaticMeshComponent>( handle );
             if ( mesh.GetRuntimeMesh() )
-                Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
+                Include( bounds, entity, &mesh.GetRuntimeMesh()->GetSubmeshes() );
             else if ( mesh.GetPrimitive().has_value() )
             {
                 if ( const auto* submeshes = primitives( *mesh.GetPrimitive() ) )
@@ -105,7 +105,7 @@ namespace Desert::Editor
             const ECS::Entity entity( handle, registry );
             const auto&       mesh = registry.get<ECS::SkinnedMeshComponent>( handle );
             if ( mesh.GetRuntimeMesh() )
-                Include( bounds, entity, &mesh.RuntimeMesh->GetSubmeshes() );
+                Include( bounds, entity, &mesh.GetRuntimeMesh()->GetSubmeshes() );
             else if ( mesh.GetMeshHandle() != 0u )
                 Include( bounds, entity, AssetSubmeshes( mesh.GetMeshHandle() ) );
         }

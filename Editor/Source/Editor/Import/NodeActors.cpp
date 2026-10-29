@@ -17,7 +17,9 @@ namespace Desert::Editor
         for ( const PlacedNodeMesh& node : nodes )
         {
             const ECS::Entity child = scene.CreateNewEntity( std::string( node.Name ) );
-            child.AddComponent<ECS::StaticMeshComponent>().MeshHandle = node.Mesh;
+            ECS::StaticMeshDesc mesh;
+            mesh.MeshHandle = node.Mesh;
+            ECS::SetStaticMesh( *child.GetRegistry(), child.GetHandle(), mesh );
             child.SetLocalTranslation( node.Placement );
             scene.Attach( root, child );
             placed.push_back( child );

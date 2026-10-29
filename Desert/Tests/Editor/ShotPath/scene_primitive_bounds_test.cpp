@@ -30,7 +30,9 @@ namespace
         xf.Translation = at;
         xf.Scale       = scale;
         registry.emplace<ECS::TransformComponent>( entity, xf );
-        registry.emplace<ECS::StaticMeshComponent>( entity ).Primitive = type;
+        ECS::StaticMeshDesc mesh;
+        mesh.Primitive = type;
+        ECS::SetStaticMesh( registry, entity, mesh );
         return entity;
     }
 } // namespace

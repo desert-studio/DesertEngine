@@ -131,7 +131,7 @@ namespace Desert::Editor
 
         // The mesh that is ACTUALLY drawn: an in-editor rig (Convert to Skinned) overrides the asset.
         ::Desert::Mesh* mesh = skinnedMesh.GetRuntimeMesh().get();
-        if ( !mesh && skinnedMesh.MeshHandle )
+        if ( !mesh && skinnedMesh.GetMeshHandle() )
             mesh = Runtime::ResourceRegistry::GetMeshService()->Get( skinnedMesh.GetMeshHandle() );
 
         // What the slot says. A PROCEDURAL mesh (the built-in humanoid, or a mesh rigged in the editor)
@@ -190,7 +190,9 @@ namespace Desert::Editor
                         const bool selected = skinnedMesh.GetMeshHandle() == row.Handle;
                         if ( ImGui::Selectable( name.c_str(), selected ) )
                         {
-                            skinnedMesh.MeshHandle = row.Handle;
+                            ECS::SkinnedMeshDesc desc = skinnedMesh.GetDesc();
+                            desc.MeshHandle           = row.Handle;
+                            ECS::SetSkinnedMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
                         }
                     }
                 }

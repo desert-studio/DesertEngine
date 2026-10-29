@@ -537,16 +537,22 @@ namespace Desert::Editor
                     // and its clips can be picked in Details immediately.
                     if ( e.HasComponent<ECS::StaticMeshComponent>() )
                         e.RemoveComponent<ECS::StaticMeshComponent>();
-                    if ( !e.HasComponent<ECS::SkinnedMeshComponent>() )
-                        e.AddComponent<ECS::SkinnedMeshComponent>();
-                    e.GetComponent<ECS::SkinnedMeshComponent>().MeshHandle = resolved.Handle;
+                    ECS::SkinnedMeshDesc skinned = e.HasComponent<ECS::SkinnedMeshComponent>()
+                                                         ? e.GetComponent<ECS::SkinnedMeshComponent>().GetDesc()
+                                                         : ECS::SkinnedMeshDesc{};
+                    skinned.MeshHandle           = resolved.Handle;
+                    ECS::SetSkinnedMesh( *e.GetRegistry(), e.GetHandle(), skinned );
                     if ( !e.HasComponent<ECS::AnimationComponent>() )
                         e.AddComponent<ECS::AnimationComponent>();
                 }
                 else
                 {
                     if ( e.HasComponent<ECS::StaticMeshComponent>() )
-                        e.GetComponent<ECS::StaticMeshComponent>().MeshHandle = resolved.Handle;
+                    {
+                        ECS::StaticMeshDesc mesh = e.GetComponent<ECS::StaticMeshComponent>().GetDesc();
+                        mesh.MeshHandle          = resolved.Handle;
+                        ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), mesh );
+                    }
                     ApplySidecarMaterial( e, done.SourcePath );
                 }
                 // THE BOUNDS REST ON THE SURFACE (UE FActorPositioning): the mesh is resident now (the
@@ -3119,7 +3125,10 @@ namespace Desert::Editor
         if ( auto* meshAsset = Runtime::ResourceRegistry::GetMeshService()->GetAsset( smc.GetMeshHandle() ) )
             if ( const auto n = meshAsset->GetMaterialHandles().size(); n > 0 )
                 count = n;
-        smc.MaterialSlots.assign( count, h );
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots.assign( count, h );
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
+        // Unchanged slots keep the instances; a re-drop of the same material rebuilds them all the same.
         smc.RuntimeMaterialInstances().clear();
     }
 
@@ -3184,7 +3193,10 @@ namespace Desert::Editor
         // the Materials panel shows the result of the drop immediately.
         auto& smc = m_Scene->GetRegistry().get<ECS::StaticMeshComponent>( entity.GetHandle() );
         const size_t count = std::max<size_t>( size_t{ 1 }, smc.GetMaterialSlots().size() );
-        smc.MaterialSlots.assign( count, handle );
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots.assign( count, handle );
+        ECS::SetStaticMesh( m_Scene->GetRegistry(), entity.GetHandle(), desc );
+        // Unchanged slots keep the instances; a re-drop of the same material rebuilds them all the same.
         smc.RuntimeMaterialInstances().clear();
         Core::SelectionManager::SetSelected( hit.Entity );
     }
