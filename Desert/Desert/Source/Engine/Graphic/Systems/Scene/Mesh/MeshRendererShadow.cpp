@@ -907,7 +907,7 @@ namespace Desert::Graphic::System
             SubmeshMask hidden{ rd.HiddenSubmeshes };
             if ( clustersDrawn )
             {
-                hidden                  = VsmWalkHidden( rd );
+                hidden                  = VsmWalkHidden( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes );
                 const std::size_t count = rd.Mesh->GetSubmeshes().size();
                 std::size_t       shown = 0;
                 while ( shown < count && hidden.Hides( shown ) )
@@ -1017,9 +1017,25 @@ namespace Desert::Graphic::System
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
                      !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
                     continue;
-                if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
-                     field < m_FieldPrimitives.size() && heldByBins( m_FieldPrimitives[field], ism.HiddenSubmeshes ) )
+                const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                if ( field < m_FieldPrimitives.size() &&
+                     heldByBins( m_FieldPrimitives[field], ism.HiddenSubmeshes ) )
                     continue;
+                // A VSM level while the cluster raster is issued: the field's submeshes whose clusters it draws
+                // (VsmWalkHidden over the field's primitive, the rule the static loop above reads) are never also
+                // walked here; a field with every shown submesh clustered is skipped.
+                SubmeshMask ismHidden{ ism.HiddenSubmeshes };
+                if ( clustersDrawn && field < m_FieldPrimitives.size() )
+                {
+                    ismHidden               = VsmWalkHidden( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ),
+                                                             m_FieldPrimitives[field], ism.HiddenSubmeshes );
+                    const std::size_t count = ism.Mesh->GetSubmeshes().size();
+                    std::size_t       shown = 0;
+                    while ( shown < count && ismHidden.Hides( shown ) )
+                        ++shown;
+                    if ( shown == count )
+                        continue; // every submesh it shows is drawn as clusters
+                }
 
                 // Per-instance, against this cascade. A cascade covers a slice of the view,
                 // so a forest spread over the map has most of its instances outside every
@@ -1069,7 +1085,7 @@ namespace Desert::Graphic::System
                         draw.Set      = &set;
                         draw.Path     = MeshVertexPath::Instanced;
                         draw.Mesh     = ism.Mesh;
-                        draw.HiddenSubmeshMask = ism.HiddenSubmeshes;
+                        draw.HiddenSubmeshMask = ismHidden;
                         draw.Instance = ismInst;
                         draw.Row      = *row;
                         draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
@@ -1090,7 +1106,7 @@ namespace Desert::Graphic::System
                             instTransforms.push_back( visible[i] );
                     batches.push_back( ShadowBatch{
                          ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level,
-                         ism.HiddenSubmeshes, PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
+                         ismHidden, PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
                 }
             }
         }

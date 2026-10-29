@@ -218,7 +218,7 @@ namespace Desert::Graphic::System
             hash.Add( m_VsmClusteredLastFrame );
             if ( m_VsmClusteredLastFrame )
             {
-                VsmClusterableSubmeshes( rd, m_VsmClusteredScratch );
+                VsmClusterableSubmeshes( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes, m_VsmClusteredScratch );
                 for ( const uint64_t word : m_VsmClusteredScratch )
                     hash.Add( word );
             }
@@ -266,6 +266,17 @@ namespace Desert::Graphic::System
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );
             hash.Add( ism.HiddenSubmeshes );
+            // Its clustered set, as a static entry's (above): a submesh moving between the VSM cluster raster and
+            // the levels' CPU walk redraws the field's pages.
+            hash.Add( m_VsmClusteredLastFrame );
+            if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
+                 m_VsmClusteredLastFrame && field < m_FieldPrimitives.size() )
+            {
+                VsmClusterableSubmeshes( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ), m_FieldPrimitives[field],
+                                         ism.HiddenSubmeshes, m_VsmClusteredScratch );
+                for ( const uint64_t word : m_VsmClusteredScratch )
+                    hash.Add( word );
+            }
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
             snapshots.push_back( ism.Transforms );
 
@@ -351,51 +362,66 @@ namespace Desert::Graphic::System
 
     uint32_t MeshRenderer::CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const
     {
-        // Per static queue entry (one per section material: Rules::SplitMeshSlotDraws), each VG submesh it shows
-        // that the VirtualShadow table bins at lod 0 into a fallback group - the lookup VsmClusteredSubmeshes reads
-        // its twin through, so clustered, fallback and refused partition an entry's VG submeshes.
-        uint32_t count = 0;
-        for ( const StaticMeshRenderData& rd : m_StaticQueue )
+        // Per static queue entry (one per section material: Rules::SplitMeshSlotDraws) and per ISM / foliage field
+        // (its m_FieldPrimitives row), each VG submesh it shows that the VirtualShadow table bins at lod 0 into a
+        // fallback group - the lookup VsmClusteredSubmeshes reads its twin through, so clustered, fallback and
+        // refused partition an entry's VG submeshes.
+        uint32_t   count = 0;
+        const auto countOf =
+             [&]( const Desert::StaticMesh* mesh, const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden )
         {
-            if ( rd.Mesh == nullptr || !rd.CastShadows )
-                continue;
-            const auto* registration = rd.Mesh->GetVirtualMesh();
+            if ( mesh == nullptr )
+                return;
+            const auto* registration = mesh->GetVirtualMesh();
             if ( registration == nullptr || !*registration )
-                continue;
-            const std::size_t submeshes = rd.Mesh->GetSubmeshes().size();
-            const SubmeshMask own{ rd.HiddenSubmeshes };
+                return;
+            const std::size_t submeshes = mesh->GetSubmeshes().size();
+            const SubmeshMask own{ hidden };
             for ( const VirtualGeometry::VirtualMeshDagSpan& span :
                   VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
             {
                 if ( span.Submesh >= submeshes || own.Hides( span.Submesh ) )
                     continue;
                 const std::optional<uint32_t> group = m_DrawCommandCache->SubmeshGroup(
-                     GpuDriven::MeshPass::VirtualShadow, rd.GpuPrimitive, span.Submesh );
+                     GpuDriven::MeshPass::VirtualShadow, primitive, span.Submesh );
                 if ( group && *group < fallbackGroups.size() && fallbackGroups[*group] != 0u )
                     ++count;
             }
+        };
+        for ( const StaticMeshRenderData& rd : m_StaticQueue )
+            if ( rd.CastShadows )
+                countOf( rd.Mesh, rd.GpuPrimitive, rd.HiddenSubmeshes );
+        for ( size_t field = 0; field < m_InstancedQueue.size() && field < m_FieldPrimitives.size(); ++field )
+        {
+            const InstancedMeshRenderData& ism = m_InstancedQueue[field];
+            if ( ism.CastShadows && ism.Transforms && !ism.Transforms->empty() )
+                countOf( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ), m_FieldPrimitives[field],
+                         ism.HiddenSubmeshes );
         }
         return count;
     }
 
-    void MeshRenderer::VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const
+    void MeshRenderer::VsmClusteredSubmeshes( const Desert::StaticMesh* mesh, const GpuDriven::PrimitiveIndex primitive,
+                                              const uint64_t hidden, std::vector<uint64_t>& words ) const
     {
         words.clear();
         if ( m_VsmGeometry )
-            VsmClusterableSubmeshes( rd, words );
+            VsmClusterableSubmeshes( mesh, primitive, hidden, words );
     }
 
-    void MeshRenderer::VsmClusterableSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const
+    void MeshRenderer::VsmClusterableSubmeshes( const Desert::StaticMesh*       mesh,
+                                                const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden,
+                                                std::vector<uint64_t>& words ) const
     {
         words.clear();
-        if ( !m_DrawCommandCache || rd.Mesh == nullptr )
+        if ( !m_DrawCommandCache || mesh == nullptr )
             return;
-        const auto* registration = rd.Mesh->GetVirtualMesh();
+        const auto* registration = mesh->GetVirtualMesh();
         if ( registration == nullptr || !*registration )
             return;
-        const std::size_t submeshes = rd.Mesh->GetSubmeshes().size();
+        const std::size_t submeshes = mesh->GetSubmeshes().size();
         words.assign( ( submeshes + 63u ) / 64u, uint64_t{ 0 } );
-        const SubmeshMask own{ rd.HiddenSubmeshes }; // the entry's hidden sections
+        const SubmeshMask own{ hidden }; // the entry's hidden sections
         for ( const VirtualGeometry::VirtualMeshDagSpan& span :
               VirtualGeometry::VirtualMeshTable::Get().DescribeUploaded( registration->Index() ) )
         {
@@ -403,19 +429,20 @@ namespace Desert::Graphic::System
                 continue;
             // A submesh whose group has no twin (a held refusal, SetVirtualShadowGeometry) stays walked, so its
             // shadow is never lost.
-            if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( GpuDriven::MeshPass::VirtualShadow,
-                                                                     rd.GpuPrimitive, span.Submesh ) != nullptr )
+            if ( m_DrawCommandCache->SubmeshVirtualGeometryPipeline( GpuDriven::MeshPass::VirtualShadow, primitive,
+                                                                     span.Submesh ) != nullptr )
                 words[span.Submesh / 64u] |= uint64_t{ 1 } << ( span.Submesh % 64u );
         }
     }
 
-    SubmeshMask MeshRenderer::VsmWalkHidden( const StaticMeshRenderData& rd )
+    SubmeshMask MeshRenderer::VsmWalkHidden( const Desert::StaticMesh* mesh, const GpuDriven::PrimitiveIndex primitive,
+                                             const uint64_t hidden )
     {
         std::vector<uint64_t>& words = m_VsmClusteredScratch;
-        VsmClusteredSubmeshes( rd, words );
+        VsmClusteredSubmeshes( mesh, primitive, hidden, words );
         if ( words.empty() )
-            return SubmeshMask{ rd.HiddenSubmeshes };
-        const uint64_t low = rd.HiddenSubmeshes | words.front();
+            return SubmeshMask{ hidden };
+        const uint64_t low = hidden | words.front();
         // The words past submesh 63, without trailing zero words: equal sets intern to one element.
         std::size_t end = words.size();
         while ( end > 1u && words[end - 1u] == 0u )

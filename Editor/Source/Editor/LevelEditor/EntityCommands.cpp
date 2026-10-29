@@ -389,6 +389,19 @@ namespace Desert::Editor
         //
         // It returns the planner's own refusal rather than PaletteCommandDone: a fold that would have
         // destroyed a collider must say so to whoever asked, on the channel and in the toast alike.
+        // Ctrl+D's twin (LevelEditorCommands): the duplicates become the selection. A key chord is a gesture no
+        // unattended run can make, and a scene with one prop per mesh (B16) needs copies before a collapse.
+        commands.push_back( { "Entity", "Duplicate selection", []
+                              {
+                                  if ( Core::SelectionManager::Count() == 0 )
+                                      return Common::MakeError<bool>( "nothing is selected to duplicate" );
+                                  auto dups =
+                                       Commands::DuplicateEntities( Core::SelectionManager::GetSelection() );
+                                  if ( dups.empty() )
+                                      return Common::MakeError<bool>( "the selection made no duplicates" );
+                                  Core::SelectionManager::SetSelection( std::move( dups ) );
+                                  return Common::MakeSuccess( true );
+                              } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(

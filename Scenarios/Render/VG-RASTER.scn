@@ -126,3 +126,43 @@
 Когда set 8483379365178206564 StaticMeshComponent.CastShadows false
 Когда set 18368481599785693751 StaticMeshComponent.CastShadows false
 Тогда [vg_masked] editor.log: "[Import] '...BistroExterior_Lantern_Wind_2N.stmesh': Virtual Geometry off" for N = 1..5 (the Bistro repo's files back to no clusters; the lanterns' CastShadows back to false)
+# Step 24 [vg_ism] (UE: Nanite instanced static meshes): a still ISM on a VG .stmesh is drawn ONCE into the VSM - by
+# the cluster raster; the levels' CPU walk hides the field's clustered submeshes (VsmWalkHidden over the field's
+# primitive). B16 has no ISM and one entity per mesh, so the field is made here: the table (step 21's) is duplicated
+# in place ("Entity" "Duplicate selection", Ctrl+D's palette twin), both copies selected by mesh and collapsed into one
+# ISM of two coincident instances (same depth as the one table, so VG off vs on compares like for like). The scene is
+# not saved; the flag is turned off at the end.
+Когда run Entity "Bistro_Research_Exterior_Paris_Table_01___6__6503"
+Когда run Entity "Duplicate selection"
+Когда run Entity "Select all with the same static mesh"
+Когда run Entity "Collapse selection into Instanced Static Mesh"
+Тогда [vg_ism] editor.log: no collapse refusal ("Collapse needs at least two static meshes that match" absent); the outliner holds one InstancedStaticMesh entity with 2 instances of Paris_Table_01___6__6503.stmesh
+Когда run View "View mode: Lit"
+Когда --subject viewport set Camera.Position -316,150,320
+Когда --subject viewport set Camera.Direction 0.66,-0.30,0.66
+Когда 60 frames render
+Когда shot viewport "vg_ism_off_csm.png"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
+Когда 120 frames render
+Когда shot viewport "vg_ism_off_vsm.png"
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Bistro_Research_Exterior_Paris_Table_01___6__6503.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry on"
+Тогда [vg_ism] editor.log: "[Import] '...Paris_Table_01___6__6503.stmesh': Virtual Geometry on", "[VirtualMeshTable] '...Paris_Table_01___6__6503...' registered N clusters" with N > 0, no "Virtual Geometry refused"
+Когда 60 frames render
+Когда shot viewport "vg_ism_on_csm.png"
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_ism] views.virtualGeometry.instances >= 2 (the field's instances are candidates), binnedVgInstances == 0, clustersDrawn > 0, shadowClustersDrawn > 0, overflow 0
+Тогда-вид [vg_ism] vg_ism_on_csm.png vs vg_ism_off_csm.png: pixel diff < 0.5% of pixels (numeric diff, not thumbnails)
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
+Когда 120 frames render
+Когда shot viewport "vg_ism_on_vsm.png"
+Когда DesertCtl state views.virtualGeometry
+Тогда [vg_ism] views.virtualGeometry.vsmClustersDrawn > 0 on the levels that drew pages, vsmRefusedGroups == 0, vsmFallbackSubmeshes == 0 (the ISM queue is counted too)
+Тогда-вид [vg_ism] vg_ism_on_vsm.png vs vg_ism_off_vsm.png: pixel diff < 0.5% of pixels - the table's VSM shadow drawn once (clusters), not clusters + CPU walk (LOD acne / double cost)
+Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
+Когда 2 frames render
+Тогда [vg_ism] editor.log: 0 VUID, no "has no `.VirtualGeometry` pipeline" / "has no `.VirtualGeometry` twin" for the Instanced cells
+Когда run "Content Browser" "Sync to Asset Meshes/Bistro/BistroExterior_Bistro_Research_Exterior_Paris_Table_01___6__6503.stmesh"
+Когда run Assets "Static Mesh: Virtual Geometry off"
+Тогда [vg_ism] editor.log: "[Import] '...Paris_Table_01___6__6503.stmesh': Virtual Geometry off" (VG restored off; the collapsed scene is not saved)

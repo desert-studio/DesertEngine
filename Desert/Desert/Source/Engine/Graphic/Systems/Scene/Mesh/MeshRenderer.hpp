@@ -641,25 +641,30 @@ namespace Desert::Graphic::System
         [[nodiscard]] Common::ResultStr<std::vector<uint8_t>>
         SetVirtualShadowGeometry( MeshRendererDetail::VirtualGeometryIssue issue,
                                   const GpuDriven::DrawCommandBuffers& upload, const GpuDriven::GpuSceneBuffers& scene );
-        // THE ONE RULE "this submesh of a static entry is drawn as clusters into the virtual shadow map this
-        // frame": bit i of @p words (word i / 64, for EVERY submesh of the mesh - no 64 cap) set when the VSM
-        // cluster raster is issued (SetVirtualShadowGeometry) and submesh i, shown by @p rd with uploaded DAG rows,
-        // is binned at lod 0 into a VirtualShadow group with a `.VirtualGeometry` twin
+        // THE ONE RULE "this submesh of a static entry or an ISM / foliage field is drawn as clusters into the
+        // virtual shadow map this frame": bit i of @p words (word i / 64, for EVERY submesh of the mesh - no 64 cap)
+        // set when the VSM cluster raster is issued (SetVirtualShadowGeometry) and submesh i of @p mesh, not in
+        // @p hidden (the entry's own hidden sections), with uploaded DAG rows, is binned at lod 0 for @p primitive
+        // (a static entry's GpuPrimitive, a field's m_FieldPrimitives row) into a VirtualShadow group with a
+        // `.VirtualGeometry` twin
         // (DrawCommandCache::SubmeshVirtualGeometryPipeline, which the GPU's raster binning reads the same way).
         // The levels' CPU walk hides exactly these submeshes (VsmWalkHidden) and draws the rest (a mesh with VG on
         // some submeshes keeps both shadows; a held refusal stays walked). @p words is resized to the mesh's words.
-        void VsmClusteredSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const;
-        // VsmClusteredSubmeshes without the "the cluster raster is issued this frame" term: the submeshes of @p rd
+        void VsmClusteredSubmeshes( const Desert::StaticMesh* mesh, GpuDriven::PrimitiveIndex primitive,
+                                    uint64_t hidden, std::vector<uint64_t>& words ) const;
+        // VsmClusteredSubmeshes without the "the cluster raster is issued this frame" term: the submeshes
         // that WOULD be clusters (uploaded DAG rows, shown, a VirtualShadow group with a pipelined twin). The page
         // cache's invalidation reads it before this frame's cut exists (CollectVirtualShadowInvalidation).
-        void VsmClusterableSubmeshes( const StaticMeshRenderData& rd, std::vector<uint64_t>& words ) const;
-        // VsmFallbackSubmeshes of this frame: the static queue's VG submeshes binned into a group flagged in
+        void VsmClusterableSubmeshes( const Desert::StaticMesh* mesh, GpuDriven::PrimitiveIndex primitive,
+                                      uint64_t hidden, std::vector<uint64_t>& words ) const;
+        // VsmFallbackSubmeshes of this frame: the static and ISM queues' VG submeshes binned into a group flagged in
         // @p fallbackGroups (index = VirtualShadow table group). Called by SetVirtualShadowGeometry.
         [[nodiscard]] uint32_t CountVsmFallbackSubmeshes( const std::vector<uint8_t>& fallbackGroups ) const;
-        // The submeshes a VSM level's CPU walk hides of @p rd: the entry's own (HiddenSubmeshes) plus
+        // The submeshes a VSM level's CPU walk hides of an entry or field: its own (@p hidden) plus
         // VsmClusteredSubmeshes. The words past the first 64 submeshes are interned in m_VsmHiddenWords (kept until
         // the next ResetVirtualShadowGeometry), so equal masks share one view and their entries batch together.
-        [[nodiscard]] SubmeshMask VsmWalkHidden( const StaticMeshRenderData& rd );
+        [[nodiscard]] SubmeshMask VsmWalkHidden( const Desert::StaticMesh* mesh, GpuDriven::PrimitiveIndex primitive,
+                                                 uint64_t hidden );
         // A new frame of the virtual shadow map's cluster path: drops the last frame's issue, its refusal and
         // fallback counts and its interned walk masks. Called by SceneRenderer before every frame's graph, so a frame whose
         // method is not VirtualMaps (or whose VSM cut is refused) reports no refused groups.
