@@ -41,11 +41,11 @@ layout( std430, binding = 17 ) readonly buffer InstanceTransforms
 
 #if defined( DESERT_SURFACE_VIRTUAL_GEOMETRY ) && defined( DESERT_SURFACE_PASS_VirtualShadowDepth )
 // "VSM: Raster VirtualGeometry" (MeshRenderer::AddVirtualShadowRasterPasses): one pass for every level, the level is
-// the cluster's cut view; its matrix is the level's (Common/VirtualShadowRaster.glslh's VsmFrameData, binding 49),
+// the cluster's cut view; its matrix is the level's (Common/VirtualShadowRaster.glslh's VsmFrameData, binding 53),
 // not the carrier's camera block, and the fragment stage takes the level from v_VsmLevel (as Vertex_Static.glslh).
 #define DESERT_VSM_CLUSTER_RASTER 1
 #include <Common/VirtualShadowMap.glslh>
-layout( std430, binding = 49 ) restrict readonly buffer VsmFrameData
+layout( std430, binding = 53 ) restrict readonly buffer VsmFrameData
 {
     VsmFrame Frame;
     VsmLevel Levels[];
@@ -58,7 +58,7 @@ layout( location = 15 ) flat out uint v_VsmLevel;
 // is a slot of the draw's compacted list (the records' first instance is the draw's remap base), the slot holds the
 // instance to fetch (UE: the per-page draw's instance id list). A binned cell resolves its instance through
 // a_VisibleRow (Common/GpuScene.glslh) and reads no remap.
-layout( std430, binding = 53 ) restrict readonly buffer VsmInstanceRemap
+layout( std430, binding = 57 ) restrict readonly buffer VsmInstanceRemap
 {
     uint InstanceRemap[];
 };
