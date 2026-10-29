@@ -267,6 +267,9 @@ namespace Desert::Core::Preprocess
     bool SurfaceBlendHasPass( SurfaceBlendMode blend, std::string_view pass );
     // Every engine header any cell of a surface template compiles: the key hashes all of them.
     std::vector<std::string> SurfaceTemplateIncludes();
+    // The engine headers every pass of a generic program compiles without naming them (kGenericVertexPath's
+    // vertex factory, SurfaceTypes.glslh): the key hashes them.
+    std::vector<std::string> GenericProgramIncludes();
 
     // What the `Surface` block declared; empty Cells = not a surface template.
     struct SurfaceTemplateInfo
@@ -359,5 +362,8 @@ namespace Desert::Core::Preprocess
         // Cheap precheck for the shader map key, which must not parse: false = the text certainly declares
         // no `Surface { ... }` block. A false positive only hashes the surface headers needlessly.
         static bool MayDeclareSurface( std::string_view source );
+        // The same precheck for a generic program (`Domain Surface`, any case, any whitespace between the two
+        // words): false = the text certainly is none, so it compiles no GenericProgramIncludes header.
+        static bool MayDeclareGenericProgram( std::string_view source );
     };
 } // namespace Desert::Core::Preprocess

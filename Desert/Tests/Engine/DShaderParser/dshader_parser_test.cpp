@@ -31,11 +31,6 @@ Shader "Unlit"
         Blend Alpha
     }
 
-    Vertex
-    {
-        void main() { gl_Position = vec4(0.0); }
-    }
-
     Fragment
     {
         layout( location = 0 ) out vec4 o_Color;
@@ -445,8 +440,6 @@ namespace
     const char* kMultiPass = R"(
 Shader "Lit"
 {
-    Domain Surface
-
     Properties Binding(1)
     {
         Color Tint ("Tint") = (1, 1, 1, 1)
@@ -659,7 +652,6 @@ TEST( DShaderParser, TranslatesLayoutSugar )
     const char* kSugar = R"(
 Shader "Sugar"
 {
-    Domain Surface
     Vertex
     {
         #include <Mesh/MeshVertexInputs.glslh>
@@ -1040,10 +1032,6 @@ namespace
     {
         Color     AlbedoColor     ("Albedo") = (1, 1, 1, 1)
         Texture2D u_MetallicTexture ("Metallic")
-    }
-    Vertex
-    {
-        void main() { gl_Position = vec4(0.0); }
     }
     Fragment
     {

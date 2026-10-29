@@ -101,8 +101,6 @@ namespace Desert::Graphic::GpuDriven
                 return "NoMaterialRow";
             case BinFallback::BoundTextures:
                 return "BoundTextures";
-            case BinFallback::GenericProgram:
-                return "GenericProgram";
             case BinFallback::Count:
                 break;
         }

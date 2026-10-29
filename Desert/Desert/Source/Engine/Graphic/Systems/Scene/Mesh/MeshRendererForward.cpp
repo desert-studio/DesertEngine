@@ -477,6 +477,11 @@ namespace Desert::Graphic::System
                                                        m_GenericPrepassLocalShadowMasks ) )
                         continue;
                     m_GenericPrepassed.insert( &g );
+                    // Admitted, so "Deferred: Generic" shades it; its depth and normal come from the DepthPrepass
+                    // bins (the "depthPrepass" cull view, AttachBinned) when they hold every visible submesh.
+                    if ( SkipsBinned( GpuDriven::MeshPass::DepthPrepass, kBinnedMainView, g.GpuPrimitive,
+                                      ~g.VisibleSubmeshMask ) )
+                        continue;
                 }
                 if ( choice.UseOwnPipeline )
                 {

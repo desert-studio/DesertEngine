@@ -884,7 +884,8 @@ namespace Desert::Graphic::System
         // intends to ray trace the sun (SceneRenderer::SunShadowIsRayTraced), so "Deferred: Generic" shades the
         // sun-reading opaque programs through their DESERT_SUN_SHADOW_SCREEN_MASK permutation - the forward
         // pipeline whose readiness this prepass checks together with its own.
-        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, bool rayTracedSun, bool localShadowMasks );
+        void DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const SceneViewInputs& view, bool rayTracedSun,
+                                             bool localShadowMasks );
         [[nodiscard]] Common::BoolResultStr
         RenderForwardDepthNormalManual( const RDG::PassContext& context ) const;
         // Translucency pass: draws the meshes whose material's template is BlendMode Translucent over the
@@ -1877,10 +1878,11 @@ namespace Desert::Graphic::System
             uint32_t              Flags             = 0;
             MeshVertexPath        Path              = MeshVertexPath::Static;
             // A generic (m_GenericQueue) draw: it casts through the shared opaque caster whatever its program
-            // (MeshRendererShadow.cpp, the generic casters), and its view passes answer Fallback when set (a program
-            // with no Surface block, a slot material's own program: no `.Binned` permutation).
-            bool                   Generic  = false;
-            GpuDriven::BinFallback Fallback = GpuDriven::BinFallback::None;
+            // (MeshRendererShadow.cpp, the generic casters). GenericProgram: one that is not a Surface-template
+            // override (a program with no Surface block, a slot material's own program); its view passes are its
+            // program's opaque `.Binned` twins (ResolveGenericProgramBinned).
+            bool                  Generic        = false;
+            bool                  GenericProgram = false;
             bool                  operator==( const BinnedPrimitiveFeed& ) const = default;
         };
         std::unique_ptr<GpuDriven::DrawCommandCache>                       m_DrawCommandCache;
@@ -1927,12 +1929,21 @@ namespace Desert::Graphic::System
         // state with the material's `.Binned` cell (GBuffer / Forward: the template's cell, two-sided as
         // CullPermutation; ShadowCascade: ShadowCasterShaderFor's cell, the default surface's for an opaque one).
         // No pipeline + BinFallback::None = not drawn in the pass (translucent); + a fallback = drawn there on the CPU
-        // path for that reason (no cell, bound textures, a generic program, DepthPrepass / VirtualShadow not
-        // binned yet).
+        // path for that reason (no cell, bound textures, VirtualShadow not binned yet).
         GpuDriven::PassPipelineResolution ResolveBinnedPipeline( GpuDriven::MeshPass       pass,
                                                                  GpuDriven::PrimitiveIndex primitive,
                                                                  uint32_t                  materialRow );
         const GraphicsPipeline* BinnedCellPipeline( const std::string& cellShader, const GraphicsPipeline* passState,
+                                                    bool twoSided );
+        // A generic program's (BinnedPrimitiveFeed::GenericProgram) answer for @p pass: Forward / DepthPrepass
+        // through `<program>/Forward.Binned` / `<program>/DepthNormal.Binned` with the CPU list's state
+        // (GenericPipelineSpec); a blended or depth-less program is not binned (sorted per view).
+        GpuDriven::PassPipelineResolution ResolveGenericProgramBinned( GpuDriven::MeshPass pass, const RowSurface& row );
+        // The registered `.Binned` cell, or null (named once).
+        std::shared_ptr<Shader> BinnedCellShader( const std::string& cellShader );
+        // @p spec's PSO (two-sided: CullMode None) when Ready; null while it compiles (re-resolved the frame it
+        // leaves the driver) or when it failed (named once).
+        const GraphicsPipeline* BinnedSpecPipeline( const std::string& cellShader, GraphicsPipelineSpecification spec,
                                                     bool twoSided );
         std::unordered_set<const void*> m_MissingMaterialRowReported; // a template whose miss was said once
         // The row of (@p material, @p instance) with ReceiveSunShadows zeroed unless @p receiveSunShadows: added

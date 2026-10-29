@@ -1963,29 +1963,45 @@ namespace Desert::Core::Preprocess
         return false;
     }
 
+    namespace
+    {
+        // "domain", whitespace, @p domain (lower case) - any case in @p source.
+        bool MayDeclareDomain( const std::string_view source, const std::string_view domain )
+        {
+            const auto lowerAt = [&]( size_t at, std::string_view word )
+            {
+                if ( at + word.size() > source.size() )
+                    return false;
+                for ( size_t k = 0; k < word.size(); ++k )
+                    if ( std::tolower( static_cast<unsigned char>( source[at + k] ) ) != word[k] )
+                        return false;
+                return true;
+            };
+            for ( size_t i = 0; i < source.size(); ++i )
+            {
+                if ( !lowerAt( i, "domain" ) )
+                    continue;
+                size_t j = i + 6;
+                while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) != 0 )
+                    ++j;
+                if ( j > i + 6 && lowerAt( j, domain ) )
+                    return true;
+            }
+            return false;
+        }
+    } // namespace
+
     bool DShaderParser::MayDeclareParticle( const std::string_view source )
     {
-        // "domain", whitespace, "particle" — any case. A Particle block is legal only under that line.
-        const auto lowerAt = [&]( size_t at, std::string_view word )
-        {
-            if ( at + word.size() > source.size() )
-                return false;
-            for ( size_t k = 0; k < word.size(); ++k )
-                if ( std::tolower( static_cast<unsigned char>( source[at + k] ) ) != word[k] )
-                    return false;
-            return true;
-        };
-        for ( size_t i = 0; i < source.size(); ++i )
-        {
-            if ( !lowerAt( i, "domain" ) )
-                continue;
-            size_t j = i + 6;
-            while ( j < source.size() && std::isspace( static_cast<unsigned char>( source[j] ) ) != 0 )
-                ++j;
-            if ( j > i + 6 && lowerAt( j, "particle" ) )
-                return true;
-        }
-        return false;
+        // A Particle block is legal only under `Domain Particle`.
+        return MayDeclareDomain( source, "particle" );
+    }
+
+    bool DShaderParser::MayDeclareGenericProgram( const std::string_view source )
+    {
+        // A generic program is a `Domain Surface` program without a Surface block (the parse's genericProgram);
+        // a surface template also matches, which only hashes two headers it already hashes.
+        return MayDeclareDomain( source, "surface" );
     }
 
     bool DShaderParser::MayDeclareSurface( const std::string_view source )
@@ -2033,6 +2049,11 @@ namespace Desert::Core::Preprocess
         if ( Formats::IsTranslucentBlend( blend ) && pass == "Forward" )
             return std::string( kSurfaceTranslucentPassInclude );
         return std::format( "Mesh/Surface/Pass_{}.glslh", pass );
+    }
+
+    std::vector<std::string> GenericProgramIncludes()
+    {
+        return { std::string( kSurfaceTypesInclude ), SurfaceVertexInclude( kGenericVertexPath ) };
     }
 
     std::vector<std::string> SurfaceTemplateIncludes()

@@ -98,13 +98,11 @@ namespace Desert::Graphic::GpuDriven
     enum class BinFallback : uint8_t
     {
         None,
-        PassNotBinned,       // the pass has no binned path yet (DepthPrepass, VirtualShadow)
+        PassNotBinned,       // the pass has no binned path yet (VirtualShadow)
         NoBinnedCell,        // the material's template emits no `.Binned` cell for the pass / vertex path
         PipelineUnavailable, // the `.Binned` cell is not registered, or its PSO failed to build
         NoMaterialRow,       // the submesh's scene material row names no surface (SyncGpuScene did not register it)
         BoundTextures,       // the template binds textures per material (a TextureBinding), which one bin cannot carry
-        GenericProgram,      // a generic draw through a program with no Surface block, or a slot material's own
-                             // program: its passes (DepthNormal + forward) have no `.Binned` permutation
         Count
     };
     inline constexpr uint32_t kBinFallbackCount = static_cast<uint32_t>( BinFallback::Count );

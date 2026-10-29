@@ -818,7 +818,6 @@ TEST( PackagedContent, TheCookCompilesWhatTheRuntimeWillAskFor )
 
     const char* kProbeShader = "Shader \"CookProbe\"\n"
                                "{\n"
-                               "    Domain Surface\n"
                                "    Vertex\n"
                                "    {\n"
                                "        #include <Mesh/MeshVertexInputs.glslh>\n"
@@ -897,7 +896,6 @@ TEST( PackagedContent, ACookThatCannotWriteDoesNotReportTheArtifactAsCooked )
     WriteFile( proj / "Resources" / "Shaders" / "CookProbe.shader",
                "Shader \"CookProbe\"\n"
                "{\n"
-               "    Domain Surface\n"
                "    Vertex\n"
                "    {\n"
                "        #include <Mesh/MeshVertexInputs.glslh>\n"

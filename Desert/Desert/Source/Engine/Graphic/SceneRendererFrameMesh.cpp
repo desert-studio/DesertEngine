@@ -401,9 +401,9 @@ namespace Desert::Graphic
              textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ), rayTracedSun = SunShadowIsScreenMask(),
               localShadowMasks = LocalShadowsAreRayTraced()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
+             { meshRenderer->DeclareForwardDepthNormalDraws( pass, view, rayTracedSun, localShadowMasks ); } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,

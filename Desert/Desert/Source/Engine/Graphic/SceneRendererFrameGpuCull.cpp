@@ -127,6 +127,17 @@ namespace Desert::Graphic
         }
         std::vector<GpuDriven::CullViewInput>& views    = bins.Views;
         std::vector<uint32_t>&                 viewKeys = bins.ViewKeys;
+        // The deferred path's depth prepass for what the base pass does not draw ("Deferred: Forward Depth/Normal",
+        // the generic programs' DepthNormal.Binned cells): its own view of the main camera, frustum only - it is
+        // drawn once, before this frame's HZB exists, so it has no phase 2. Views.front() stays the G-buffer view.
+        if ( mainPass == GpuDriven::MeshPass::GBuffer &&
+             !meshes->GetDrawCommandCache()->Pass( GpuDriven::MeshPass::DepthPrepass ).Bins.empty() )
+        {
+            views.push_back( MakeCullView( GpuDriven::MeshPass::DepthPrepass, frame.ViewProjection,
+                                           frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale, lodFlag ) );
+            viewKeys.push_back( System::MeshRenderer::kBinnedMainView );
+            bins.ViewNames.emplace_back( "depthPrepass" );
+        }
         if ( m_FrameCascades )
         {
             const uint32_t cascades = meshes->DirectionalShadows()[SceneResources::kDirectionalShadowSun].Count;

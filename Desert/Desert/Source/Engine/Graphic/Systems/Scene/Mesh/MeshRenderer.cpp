@@ -8,6 +8,8 @@
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/Renderer.hpp>
+#include <Engine/Graphic/ViewTargetLayouts.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Graphic/Systems/RayTracing/RayTracingSkinCache.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -739,8 +741,7 @@ namespace Desert::Graphic::System
         const auto claim = [&feed, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
                                             const MeshVertexPath path, const uint32_t firstInstance,
                                             const uint32_t instanceCount, const uint64_t hidden, const uint32_t row,
-                                            const bool                   generic  = false,
-                                            const GpuDriven::BinFallback fallback = GpuDriven::BinFallback::None )
+                                            const bool generic = false, const bool genericProgram = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -760,9 +761,8 @@ namespace Desert::Graphic::System
             }
             // A primitive shared by a generic record and a batched one (one per entity slot) takes the generic's
             // rules: it cannot be half binned through two vertex contracts.
-            f.Generic = f.Generic || generic;
-            if ( fallback != GpuDriven::BinFallback::None )
-                f.Fallback = fallback;
+            f.Generic        = f.Generic || generic;
+            f.GenericProgram = f.GenericProgram || genericProgram;
             f.HiddenSubmeshMask &= hidden;
             for ( size_t s = 0; s < submeshes && s < 64; ++s )
                 if ( ( hidden & ( 1ull << s ) ) == 0 )
@@ -796,7 +796,8 @@ namespace Desert::Graphic::System
         // The generic queue (Shader Override and custom-program slot draws), as UE caches every mesh batch a pass
         // processor accepts: a Shader Override naming a SURFACE template draws in the G-buffer through its
         // (Static x GBuffer) cell (BuildGenericDraws' surfaceOverride), so its `.Binned` twin is its bin; any other
-        // program shades forward through its own passes (GenericProgram) and casts through the shared caster.
+        // program (GenericProgram) shades forward through its own passes, whose opaque ones have `.Binned` twins
+        // (Forward.Binned, DepthNormal.Binned: ResolveGenericProgramBinned), and casts through the shared caster.
         {
             auto* const shaders      = Runtime::ResourceRegistry::GetShaderService();
             const auto  isRegistered = [shaders]( std::string_view name )
@@ -810,8 +811,7 @@ namespace Desert::Graphic::System
                      TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
                           .has_value();
                 claim( g.GpuPrimitive, g.Mesh, MeshVertexPath::Static, g.GpuInstance, 1, ~g.VisibleSubmeshMask,
-                       *g.MaterialRow, true,
-                       surfaceOverride ? GpuDriven::BinFallback::None : GpuDriven::BinFallback::GenericProgram );
+                       *g.MaterialRow, true, !surfaceOverride );
             }
         }
 
@@ -977,16 +977,26 @@ namespace Desert::Graphic::System
     {
         if ( passState == nullptr )
             return nullptr;
-        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        const std::shared_ptr<Shader> shader = BinnedCellShader( cellShader );
         if ( !shader )
-        {
-            if ( m_BinnedRefused.insert( cellShader ).second )
-                LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.", cellShader );
             return nullptr;
-        }
         GraphicsPipelineSpecification spec = passState->GetSpecification();
         spec.Shader                        = shader;
         spec.DebugName                     = std::format( "{} {}", spec.DebugName, cellShader );
+        return BinnedSpecPipeline( cellShader, std::move( spec ), twoSided );
+    }
+
+    std::shared_ptr<Shader> MeshRenderer::BinnedCellShader( const std::string& cellShader )
+    {
+        auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellShader );
+        if ( !shader && m_BinnedRefused.insert( cellShader ).second )
+            LOG_ERROR( "[MeshRenderer] binned cell '{}' is not registered; its draws are not binned.", cellShader );
+        return shader;
+    }
+
+    const GraphicsPipeline* MeshRenderer::BinnedSpecPipeline( const std::string&            cellShader,
+                                                              GraphicsPipelineSpecification spec, const bool twoSided )
+    {
         if ( twoSided )
             spec.CullMode = CullMode::None; // CullPermutation's rule
         const auto built = m_SceneRenderer->GetPipelineCache().GetOrCreateMaterial( spec );
@@ -1050,10 +1060,10 @@ namespace Desert::Graphic::System
                 return fallback( BinFallback::NoBinnedCell );
             return binned( BinnedCellPipeline( BinnedCellOf( *defaultCell ), casterStates[0], false ) );
         }
+        if ( feed->GenericProgram )
+            return ResolveGenericProgramBinned( pass, row );
         if ( IsTranslucentSurface( row.Surface ) )
             return {}; // translucency is sorted per view, never binned
-        if ( feed->Fallback != BinFallback::None )
-            return fallback( feed->Fallback );
         // A bin's draws share one PSO and one descriptor set: a texture bound per material (a TextureBinding) would
         // be the first draw's for all of them. Row textures (BindlessTexture slots) travel with the material row.
         if ( !row.Surface->GetMaterialLayout().Textures.empty() )
@@ -1118,15 +1128,64 @@ namespace Desert::Graphic::System
                 return binned( BinnedCellPipeline( BinnedCellOf( *cell ), casterStates[pathIndex], false ) );
             }
             case GpuDriven::MeshPass::DepthPrepass:
-                // Draws only generic programs' DepthNormal today (BuildGenericDraws), which answered GenericProgram
-                // above: a surface is not in this pass.
-                return {};
+                return {}; // a surface is in the G-buffer; this pass holds the generic programs (above)
             case GpuDriven::MeshPass::VirtualShadow: // its own per-page remap until the cull feeds it (REMAINDER C)
                 return fallback( BinFallback::PassNotBinned );
             case GpuDriven::MeshPass::Count:
                 break;
         }
         return {};
+    }
+
+    GpuDriven::PassPipelineResolution MeshRenderer::ResolveGenericProgramBinned( const GpuDriven::MeshPass pass,
+                                                                                 const RowSurface&         row )
+    {
+        using GpuDriven::BinFallback;
+        const auto fallback = []( const BinFallback reason )
+        { return GpuDriven::PassPipelineResolution{ nullptr, reason }; };
+        // A program without a Surface block draws in two view passes (its casters answered in the caller): the
+        // forward path's Forward and the deferred path's depth prepass ("Deferred: Forward Depth/Normal"; the CPU
+        // list then shades it forward over the composite at CloserOrEqual against that depth). Its blending is the
+        // PROGRAM's State, not a Surface schema: a blended or depth-less one is sorted per view (text), never
+        // binned - the parser gives it no `.Binned` twins.
+        const bool forward = pass == GpuDriven::MeshPass::Forward;
+        if ( pass == GpuDriven::MeshPass::VirtualShadow )
+            return fallback( BinFallback::PassNotBinned );
+        if ( !forward && pass != GpuDriven::MeshPass::DepthPrepass )
+            return {};
+        const std::string& program = row.Surface->GetShaderName();
+        const auto         shader  = Runtime::ResourceRegistry::GetShaderService()->GetByName( program );
+        if ( !shader || !shader->IsCompiled() )
+            return fallback( BinFallback::PipelineUnavailable ); // its compile error was named at registration
+        const auto& state = shader->GetProgramMeta().State;
+        if ( state.Blend.value_or( false ) || !state.DepthWrite.value_or( true ) )
+            return {};
+        if ( !row.Surface->GetMaterialLayout().Textures.empty() )
+        {
+            if ( m_BinnedRefused.insert( program + "|bound" ).second )
+                LOG_ERROR( "[MeshRenderer] '{}' binds {} texture(s) per material (TextureBinding); its draws stay on "
+                           "the CPU path. Its textures belong in the material row (BindlessTexture).",
+                           program, row.Surface->GetMaterialLayout().Textures.size() );
+            return fallback( BinFallback::BoundTextures );
+        }
+        const std::string cell = std::format( "{}/{}", program,
+                                              forward ? Core::Preprocess::kGenericForwardBinnedPass
+                                                      : Core::Preprocess::kGenericDepthNormalBinnedPass );
+        const std::shared_ptr<Shader> cellShader = BinnedCellShader( cell );
+        if ( !cellShader )
+            return fallback( BinFallback::NoBinnedCell );
+        // The CPU list's state for the same program (BuildGenericDraws): GenericPipelineSpec, and for the
+        // prepass the G-buffer's targets at CloserOrEqual.
+        GraphicsPipelineSpecification spec = GenericPipelineSpec( cellShader );
+        if ( !forward )
+        {
+            spec.TargetLayout   = GBufferLayout();
+            spec.DepthCompareOp = DepthCompare::CloserOrEqual;
+        }
+        const bool twoSided = row.Instance != nullptr ? row.Instance->IsTwoSided() : row.Surface->IsTwoSided();
+        const GraphicsPipeline* const pipeline = BinnedSpecPipeline( cell, std::move( spec ), twoSided );
+        return GpuDriven::PassPipelineResolution{ pipeline, pipeline != nullptr ? BinFallback::None
+                                                                                : BinFallback::PipelineUnavailable };
     }
 
     Common::BoolResultStr MeshRenderer::SyncGpuScene( GpuDriven::GpuSceneRegistry&           registry,
