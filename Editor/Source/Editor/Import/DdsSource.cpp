@@ -2,8 +2,8 @@
 
 // bcdec is compiled here for its two editor consumers (DDS sources and DecodeCookedTextureLevel, the CPU reader of
 // cooked levels), and once more in Engine/Core/Formats/BlockCompression.cpp for the BC7 gate's decode;
-// `BCDEC_STATIC` keeps each copy's symbols internal to its translation unit, so the two never collide at link time.
-// BCDEC_BC4BC5_PRECISE is what gives the signed BC4/BC5 variants (and exact rather than approximated
+// `BCDEC_STATIC` keeps each copy's symbols internal to its translation unit, so the two never collide at link
+// time. BCDEC_BC4BC5_PRECISE is what gives the signed BC4/BC5 variants (and exact rather than approximated
 // interpolation for the unsigned ones).
 #define BCDEC_STATIC
 #define BCDEC_BC4BC5_PRECISE
