@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <memory>
@@ -67,6 +68,12 @@ namespace Desert::Graphic::System
             return !m_FrameDraws.empty();
         }
 
+        // Whether this frame's water program samples @p textureName (a scene/view input by its shader name): the
+        // shadow gates' question (SceneRenderer ShadowMapReadersOutsideMeshes), answered after PrepareFrame. The
+        // water reads the sun's cascades and the point/spot atlas wherever it draws - it is in no opaque depth a
+        // screen shadow mask could serve it from.
+        [[nodiscard]] bool FrameSamples( std::string_view textureName ) const;
+
         // The WaterInfo ground (UE WaterInfo texture) PrepareFrame keeps: a persistent image the frame graph
         // imports and the water pass samples as WaterInfoTexture - a pass input, not a material property.
         [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const
@@ -108,11 +115,23 @@ namespace Desert::Graphic::System
         {
             std::shared_ptr<GraphicsPipeline>   Pipeline;
             std::unique_ptr<DataDrivenMaterial> Material;
+            // The same cell under DESERT_LOCAL_SHADOW_VSM (MeshRenderer::ForwardShadowMaskVariant's virtual map),
+            // drawn under Shadows.Method VirtualMaps, when no atlas is drawn; built on first such frame. Its own
+            // material: the frame's values and rows are written into the program that draws.
+            std::unique_ptr<WaterProgram> VirtualLocal;
+            bool                          VirtualLocalTried = false;
         };
 
         // The program of @p material's template, built on first use; null (said once per handle) when the handle
         // names no material, or one whose template is not of the SingleLayerWater domain or does not build.
         WaterProgram* ProgramFor( const Assets::AssetHandle& material );
+        // @p program's DESERT_LOCAL_SHADOW_VSM twin (WaterProgram::VirtualLocal); null (said once per handle) when
+        // the permutation does not build - the water is then not drawn under VirtualMaps rather than drawn with
+        // every point and spot light unshadowed.
+        WaterProgram* VirtualLocalProgramFor( const Assets::AssetHandle& material, WaterProgram& program );
+        // The pipeline of @p shader into @p program; the build's refusal otherwise.
+        [[nodiscard]] Common::BoolResultStr BuildProgram( const std::shared_ptr<Shader>& shader,
+                                                          const std::string& debugName, WaterProgram& program );
         // Folds @p material's values over its program's schema into the program's WaterMaterialUB and ripple maps.
         void ApplyMaterial( const Assets::AssetHandle& material, WaterProgram& program );
         void WarnOnce( const Assets::AssetHandle& material, const std::string& why );

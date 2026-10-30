@@ -784,6 +784,16 @@ namespace Desert::Graphic::System
                 AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants,
                                                  path != MeshVertexPath::Static );
             }
+            // The water cell (`Usage WaterMesh` templates only): WaterRenderer draws it as itself or, under
+            // VirtualMaps, through its DESERT_LOCAL_SHADOW_VSM permutation
+            // (WaterRenderer::VirtualLocalProgramFor).
+            if ( const auto templ = materials.ShaderHandleOf( handle ); !templ.CompileName.empty() )
+            {
+                const std::string waterCell =
+                     std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
+                if ( const auto water = shaders.GetByName( waterCell ) )
+                    AppendForwardShadowMaskVariants( *water, waterCell, listed, variants, /*virtualOnly*/ true );
+            }
         }
         // The renderer-owned forward cells (MeshECSSystem's default, the stand-ins, the instanced spare: the
         // default surface's) are drawn through their VSM twin only (ForwardVsmTwin), whatever the handles are.

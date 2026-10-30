@@ -194,6 +194,14 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceSingleLayerWaterPassInclude =
          "Mesh/Surface/Pass_SingleLayerWater.glslh";
     inline constexpr std::string_view kSingleLayerWaterShadingModel = "SingleLayerWater";
+    // The cell's registered name under its template (`<template>/<path>.<pass>`, as every cell is named): the one
+    // name WaterRenderer draws and the cook lists permutations of (MeshRenderer::MaterialProgramVariants).
+    inline constexpr std::string_view kSurfaceWaterMeshCell = "WaterMesh.SingleLayerWater";
+    static_assert( kSurfaceWaterMeshCell.substr( 0, kSurfaceWaterMeshPath.size() ) == kSurfaceWaterMeshPath &&
+                        kSurfaceWaterMeshCell[kSurfaceWaterMeshPath.size()] == '.' &&
+                        kSurfaceWaterMeshCell.substr( kSurfaceWaterMeshPath.size() + 1 ) ==
+                             kSurfaceSingleLayerWaterPass,
+                   "the water cell is named <WaterMesh path>.<SingleLayerWater pass>" );
     // THE TRANSLUCENT FRONT LAYER CELL (UE: EMeshPass::FrontLayerTranslucencyGBuffer, FrontLayerTranslucency.usf
     // MainPS). Every `BlendMode Translucent` template gets `Static.FrontLayer` after its Forward cells: the static
     // vertex path and Mesh/Surface/Pass_FrontLayer.glslh, which writes the surface's world normal + roughness and
