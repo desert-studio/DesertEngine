@@ -130,6 +130,11 @@ namespace Desert::Graphic::System
         // off-screen bump still casts into the view (LandscapeDiceFootprint, LandscapeDisplacement.glslh
         // LandscapeCellDiceOf). The casters draw the camera's rows, so they keep the same clip.
         glm::vec4 DiceClip{ 0.0f };
+        // GRASS-VIS-16: per tile layer, four to a vec4 like the pages, the screen-width floor's distance D of its
+        // blades through this view (cm; 0 = no floor; GrassFloorDistance of LandscapeWeightDraw::
+        // GrassCoverFloorWidth). With GrassCoverRange x / y - Start / EndCullDistance through the same view's
+        // Foliage quality and lens (GrassFieldLens) - the far cover thins from the blades' own min(S, D).
+        std::array<glm::vec4, 2> GrassCoverFloor{};
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
@@ -137,8 +142,8 @@ namespace Desert::Graphic::System
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
     static_assert(
-         sizeof( TerrainInstance ) == 63 * sizeof( glm::vec4 ),
-         "TerrainInstance must stay sixty-three 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         sizeof( TerrainInstance ) == 65 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay sixty-five 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
          "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
@@ -156,7 +161,8 @@ namespace Desert::Graphic::System
               offsetof( TerrainInstance, DisplacementTiling ) == 880 &&
               offsetof( TerrainInstance, InputTileSize ) == 896 &&
               offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960 &&
-              offsetof( TerrainInstance, DicePool ) == 976 && offsetof( TerrainInstance, DiceClip ) == 992,
+              offsetof( TerrainInstance, DicePool ) == 976 && offsetof( TerrainInstance, DiceClip ) == 992 &&
+              offsetof( TerrainInstance, GrassCoverFloor ) == 1008,
          "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -192,6 +198,9 @@ namespace Desert::Graphic::System
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCover{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverLight{};
         std::array<glm::vec4, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverRange{};
+        // GRASS-VIS-16: per tile layer, its blades' mean width per MinScreenWidth pixel (cm / px; 0 = no
+        // screen-width floor) - the view-independent half of the floor's distance (TerrainInstance::GrassCoverFloor).
+        std::array<float, World::Landscape::kLandscapeMaxWeightLayers> GrassCoverFloorWidth{};
     };
 
     // Where one landscape tile sits, in the form the seam needs. The ROOT's origin and the tile's first

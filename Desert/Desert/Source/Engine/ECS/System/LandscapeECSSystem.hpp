@@ -146,6 +146,9 @@ namespace Desert::ECS
             glm::vec4 Cover{ 0.0f }; // rgb = the blades' mean albedo, a = leaf area index at full weight
             glm::vec4 Light{ 0.0f }; // rgb = the blade material's SubsurfaceColor, a = its roughness
             glm::vec4 Range{ 0.0f }; // x/y = Start/EndCullDistance (cm), z = the lowest weight that grows grass
+            // GRASS-VIS-16: the blades' mean width per MinScreenWidth pixel (cm / px; 0 = no screen-width floor),
+            // the view-independent half of the floor's distance D (Graphic::System::GrassFloorDistance).
+            float FloorWidth = 0.0f;
         };
         std::unordered_map<uint64_t, std::unordered_map<std::string, GrassCoverValues>> m_GrassCover;
 

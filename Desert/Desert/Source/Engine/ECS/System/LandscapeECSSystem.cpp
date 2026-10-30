@@ -334,6 +334,7 @@ namespace Desert::ECS
                             weights.GrassCover[c]      = layer->second.Cover;
                             weights.GrassCoverLight[c] = layer->second.Light;
                             weights.GrassCoverRange[c] = layer->second.Range;
+                            weights.GrassCoverFloorWidth[c] = layer->second.FloorWidth;
                         }
                 weights.VisibilityLayer = channels.Visibility;
                 if ( !channels.Unknown.empty() && !surface.LayersPending &&
@@ -435,6 +436,9 @@ namespace Desert::ECS
         {
             float     Lai = 0.0f, ColourLai = 0.0f, Start = 0.0f, End = 0.0f, Roughness = 0.0f, Opacity = 0.0f,
                       MinWeight = 1.0f;
+            // GRASS-VIS-16: the leaf area of the varieties with a screen-width floor, and its weighted sum of
+            // their mean blade width per MinScreenWidth pixel.
+            float     FloorLai = 0.0f, FloorWidth = 0.0f;
             glm::vec3 Albedo{ 0.0f }, Subsurface{ 0.0f };
         };
         std::vector<CoverSum> coverSums( grassLayers.size() );
@@ -750,6 +754,15 @@ namespace Desert::ECS
                         sum.Start += lai * v.StartCullDistance;
                         sum.End += lai * v.EndCullDistance;
                         sum.MinWeight = std::min( sum.MinWeight, v.AllowedDensityRange.Min );
+                        // The screen-width floor's view-independent half (GrassRenderer measures the same mean
+                        // blade, GrassBladeMeanWidth, and the view's pixels per unit, GrassFloorDistance).
+                        if ( variety.Blade && variety.Blade->MinScreenWidth > 0.0f )
+                            if ( const float width = Graphic::System::GrassBladeMeanWidth( *variety.Blade, p.ScaleX );
+                                 width > 0.0f )
+                            {
+                                sum.FloorLai += lai;
+                                sum.FloorWidth += lai * width / variety.Blade->MinScreenWidth;
+                            }
                         if ( sections.Cover )
                         {
                             // Blades and meshes alike: the look their assets derive (GrassSections::Cover).
@@ -778,6 +791,7 @@ namespace Desert::ECS
             c.Light             = glm::vec4( sum.Subsurface / sum.ColourLai, sum.Roughness / sum.ColourLai );
             c.Range             = glm::vec4( sum.Start / sum.Lai, sum.End / sum.Lai, sum.MinWeight,
                                                 sum.Opacity / sum.ColourLai );
+            c.FloorWidth        = sum.FloorLai > 0.0f ? sum.FloorWidth / sum.FloorLai : 0.0f;
         }
         if ( !draw.Varieties.empty() )
             renderCommandBuffer.Emplace<Graphic::Render::DrawLandscapeGrassCommand>( std::move( draw ) );

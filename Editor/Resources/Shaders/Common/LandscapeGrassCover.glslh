@@ -49,9 +49,12 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
         vec4  rng = t.GrassCoverRange[i];
         if ( t.GrassCover[i].a <= 0.0 || t.LayerColors[i].a < 0.5 || w <= rng.z )
             continue;
-        // The coverage the generator's thinning loses at this distance (GrassFieldShare: the same share and the
-        // same widening the blades get); 0 before StartCullDistance, so the unthinned field is left as it is.
-        float lost = 1.0 - GrassFieldCoverage( GrassFieldShareAt( viewDistance, rng.x, rng.y ) );
+        // The coverage the generator's thinning loses at this distance (GrassFieldShare: the same shares and the
+        // same widenings the blades get - Start / EndCullDistance and the screen-width floor's D through the view
+        // the blades are grown for, so the cover takes over from the blades' own min(S, D)); 0 before it, so the
+        // unthinned field is left as it is.
+        float floorDistance = t.GrassCoverFloor[i / 4][i % 4];
+        float lost          = 1.0 - GrassFieldCoverage( GrassFieldShareAt( viewDistance, rng.x, rng.y, floorDistance ) );
         float lai  = t.GrassCover[i].a * w * lost;
         c.Albedo += lai * t.GrassCover[i].rgb;
         c.Subsurface += lai * t.GrassCoverLight[i].rgb;

@@ -277,6 +277,32 @@ namespace Desert::Graphic::System
 
     } // namespace
 
+    GrassFieldLens MakeGrassFieldLens( const GrassQuality& quality, const ViewFrame& frame )
+    {
+        const bool perspective = std::abs( frame.Projection[2][3] ) != 0.0f;
+        return GrassFieldLens{
+             .DistanceScale = quality.CullDistanceScale *
+                              DrawDistanceScale( Geometry::LODView{ frame.CameraPosition, frame.Projection } ),
+             .PixelsPerUnit =
+                  perspective && frame.Split.Render.Width > 0u
+                       ? std::abs( frame.Projection[0][0] ) * 0.5f * static_cast<float>( frame.Split.Render.Width )
+                       : 0.0f };
+    }
+
+    float GrassBladeMeanWidth( const GrassBladeDraw& blade, const glm::vec2 scaleX )
+    {
+        const size_t cards = std::min( blade.Cards.size(), kGrassBladeMaxCards );
+        if ( cards == 0u )
+            return 0.0f;
+        float sum = 0.0f;
+        for ( size_t i = 0; i < cards; ++i )
+        {
+            const glm::vec4& card = blade.Cards[i];
+            sum += blade.Height * ( card.z - card.x ) / std::max( card.w - card.y, 1.0e-4f );
+        }
+        return sum * 0.5f * ( scaleX.x + scaleX.y ) / static_cast<float>( cards );
+    }
+
     Common::BoolResultStr GrassRenderer::Initialize()
     {
         auto* shaders = Runtime::ResourceRegistry::GetShaderService();
@@ -668,21 +694,21 @@ namespace Desert::Graphic::System
                                      static_cast<uint32_t>( variety.Key * 0x9E3779B97F4A7C15ull >> 32 ) );
         params.Buckets = glm::uvec4( buckets, static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u ), 0u, 0u );
         // A blade's cards' widths (the vertex stage's: Height x du / dv x the instance's width scale) and their
-        // mean, the mean blade's width at the ScaleX range's middle.
+        // mean, the mean blade's width at the ScaleX range's middle (GrassBladeMeanWidth - the ground's far cover
+        // measures its floor by the same, LandscapeECSSystem::EmitGrass).
+        static_assert( sizeof( GrassParamsGpu::CardWidths ) / sizeof( glm::vec4 ) * 4u == kGrassBladeMaxCards );
         float meanBladeWidth = 0.0f;
         if ( variety.Blade )
         {
             const GrassBladeDraw& b     = *variety.Blade;
-            const size_t          cards = std::min( b.Cards.size(), std::size( params.CardWidths ) * 4u );
+            const size_t          cards = std::min( b.Cards.size(), kGrassBladeMaxCards );
             for ( size_t i = 0; i < cards; ++i )
             {
-                const glm::vec4& card  = b.Cards[i];
-                const float      width = b.Height * ( card.z - card.x ) / std::max( card.w - card.y, 1.0e-4f );
-                params.CardWidths[i / 4u][i % 4u] = width;
-                meanBladeWidth += width;
+                const glm::vec4& card             = b.Cards[i];
+                params.CardWidths[i / 4u][i % 4u] = b.Height * ( card.z - card.x ) / std::max( card.w - card.y, 1.0e-4f );
             }
             params.Buckets.z = static_cast<uint32_t>( cards );
-            meanBladeWidth *= cards > 0 ? 0.5f * ( p.ScaleX.x + p.ScaleX.y ) / static_cast<float>( cards ) : 0.0f;
+            meanBladeWidth   = GrassBladeMeanWidth( b, p.ScaleX );
         }
         params.Blade = variety.Blade ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping,
                                                   variety.Blade->ClumpPull )
@@ -701,13 +727,15 @@ namespace Desert::Graphic::System
         // floor and the pixel shader runs about once per covered pixel instead of up to four times (quad
         // overshade of sub-pixel strips; GRASS-VIS-9, GPU-COST-18). 0 - no floor: none authored, an
         // orthographic lens, no render extent.
-        if ( variety.Blade && perspective && variety.Blade->MinScreenWidth > 0.0f && frame.Split.Render.Width > 0u &&
-             meanBladeWidth > 0.0f )
+        // GrassFloorDistance through MakeGrassFieldLens: the ground's far cover reads its D by the same two.
+        const GrassFieldLens fieldLens = MakeGrassFieldLens( m_Quality, frame );
+        float                floorDistance = 0.0f;
+        if ( variety.Blade )
+            floorDistance = GrassFloorDistance( meanBladeWidth, variety.Blade->MinScreenWidth, fieldLens );
+        if ( floorDistance > 0.0f )
         {
-            const float pixelsPerUnit =
-                 std::abs( frame.Projection[0][0] ) * 0.5f * static_cast<float>( frame.Split.Render.Width );
-            params.Lean.w   = variety.Blade->MinScreenWidth / pixelsPerUnit;
-            params.Spread.w = meanBladeWidth / params.Lean.w;
+            params.Lean.w   = variety.Blade->MinScreenWidth / fieldLens.PixelsPerUnit;
+            params.Spread.w = floorDistance;
             // The generator keeps min((S / d)^2, (D / d)^2) - one thinning from min(S, D) (GrassFieldShare.glslh
             // GrassThinShare) - so a cascade thins from there too (GpuInstanceBladeShadowLod::StartCull).
             float& thinFrom = gpu.ShadowLod.StartCull;

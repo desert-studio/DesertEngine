@@ -93,7 +93,7 @@ namespace Desert::Graphic::System
         // half is the tile's LandscapeTileLods; the grid it is drawn with is the floor of its own LOD, and
         // every vertex morphs from there by its blended one (LandscapeLod.glslh).
         TerrainInstance LandscapeInstance( const TerrainDrawData& t, const LandscapeTileLod& lod,
-                                           const TerrainLayerInputs& layers )
+                                           const TerrainLayerInputs& layers, const GrassFieldLens& grassLens )
         {
             const LandscapeTileDraw& l = t.Landscape;
 
@@ -116,7 +116,19 @@ namespace Desert::Graphic::System
             instance.LayerAlphaBlend = t.Weights.AlphaBlend;
             instance.GrassCover      = t.Weights.GrassCover;
             instance.GrassCoverLight = t.Weights.GrassCoverLight;
-            instance.GrassCoverRange = t.Weights.GrassCoverRange;
+            // The far cover's distances through the view the blades are grown for (GRASS-VIS-16): Start /
+            // EndCullDistance under the Foliage quality and the lens, and the screen-width floor's D - the cover
+            // thins from the blades' own min(S, D) (GrassFieldShare.glslh), not from the authored S.
+            for ( size_t c = 0; c < t.Weights.GrassCoverRange.size(); ++c )
+            {
+                glm::vec4 range = t.Weights.GrassCoverRange[c];
+                range.x *= grassLens.DistanceScale;
+                range.y *= grassLens.DistanceScale;
+                instance.GrassCoverRange[c] = range;
+                instance.GrassCoverFloor[c / World::Landscape::kLandscapeWeightmapChannels][static_cast<glm::length_t>(
+                     c % World::Landscape::kLandscapeWeightmapChannels )] =
+                     GrassFloorDistance( t.Weights.GrassCoverFloorWidth[c], 1.0f, grassLens );
+            }
             // Each channel's material input, matched by its layer's NAME (UE's LayerBlend LayerName), and the
             // ground's by the root's first layer's.
             for ( size_t c = 0; c < t.Weights.LayerNames.size(); ++c )
@@ -545,6 +557,7 @@ namespace Desert::Graphic::System
         m_FrameMaterials.clear();
         m_DicePoolJobs.clear();
         m_DicePoolVertices = 0;
+        m_GrassLens        = MakeGrassFieldLens( m_GrassQuality, frame );
         if ( m_Queue.empty() )
             return;
 
@@ -700,7 +713,8 @@ namespace Desert::Graphic::System
             for ( const auto& [name, value] : t.Overrides.Params )
                 surface->SetParamRaw( name, value );
 
-            TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
+            TerrainInstance instance =
+                 LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers, m_GrassLens );
             const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
             ApplyLandscapeDisplacement(
                  instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
@@ -877,7 +891,8 @@ namespace Desert::Graphic::System
                 // The same layer inputs as the camera's row (resolved above this frame); the shadow program
                 // reads none of them, the row is whole.
                 const TerrainInstance instance = LandscapeInstance(
-                     t, TileLodsOf( l, lightLods ), m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ) );
+                     t, TileLodsOf( l, lightLods ), m_LayerInputs.at( TerrainTextureKey( t.Overrides, nullptr, nullptr ) ),
+                     m_GrassLens );
 
                 FrameDraw draw;
                 draw.Group = m_FrameDraws[i].Group;

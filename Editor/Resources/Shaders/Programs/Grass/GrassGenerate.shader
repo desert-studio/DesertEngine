@@ -354,15 +354,14 @@ Shader "GrassGenerate"
             // top of that UE's fade, down to nothing at EndCullDistance. Nested: an instance kept at d is kept
             // nearer, so walking does not reshuffle the field, only thins it; before S every instance is kept.
             float                 fade  = Fraction( state );
-            const GrassFieldShare field = GrassFieldShareAt( distance, p.Cull.x, p.Cull.y );
+            const GrassFieldShare field = GrassFieldShareAt( distance, p.Cull.x, p.Cull.y, p.Spread.w );
             float                 kept  = field.Kept;
             // The screen-width floor (GRASS-WIDTH; GoT / UE landscape grass LOD): past D the mean blade would stand
             // narrower than MinScreenWidth pixels, so the field keeps (D / d)^2 of its blades - the law the thinning
             // above widens by (a survivor widened 1/sqrt(share): d / D here) - and each kept blade's own card is
             // lifted to the floor width (below), so no blade strip goes sub-pixel. The same nested draw: a blade
             // kept at d is kept nearer.
-            float floorShare = GrassThinShare( distance, p.Spread.w );
-            if ( fade >= min( kept, floorShare ) )
+            if ( fade >= min( kept, field.Floor ) )
                 return;
 
             // UE FGrassBuilderBase::GetRandomScale (Z is up, the engine's Y).
