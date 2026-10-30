@@ -13,6 +13,7 @@
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Texture.hpp>
+#include <Engine/Core/ShaderCompiler/DShader/DShaderParser.hpp>
 #include <Engine/Core/Frustum.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Common/Core/Profiler.hpp>
@@ -92,19 +93,16 @@ namespace Desert::Graphic::System
         // The still surface's vertical extent the quadtree culls with when the body has no waves.
         constexpr float kFlatSurfaceVerticalExtentCm = 1.0f;
 
-        // The cell a water material draws with (DShaderParser kSurfaceWaterMeshPath x
-        // kSurfaceSingleLayerWaterPass).
-        constexpr const char* kWaterCell = "WaterMesh.SingleLayerWater";
     } // namespace
 
     Common::BoolResultStr WaterRenderer::Initialize()
     {
         // The engine's program must build: a material naming it is the common case and its failure is loud here.
         const auto shader = Runtime::ResourceRegistry::GetShaderService()->GetByName(
-             std::format( "WaterSurface/{}", kWaterCell ) );
+             std::format( "WaterSurface/{}", Core::Preprocess::kSurfaceWaterMeshCell ) );
         if ( !shader )
-            return Common::MakeError(
-                 std::format( "WaterRenderer: missing shader 'WaterSurface/{}'", kWaterCell ) );
+            return Common::MakeError( std::format( "WaterRenderer: missing shader 'WaterSurface/{}'",
+                                                   Core::Preprocess::kSurfaceWaterMeshCell ) );
         return BOOLSUCCESS;
     }
 
@@ -129,13 +127,14 @@ namespace Desert::Graphic::System
             return it->second.Pipeline ? &it->second : nullptr;
 
         WaterProgram&     program  = m_Programs[templ.CompileName]; // an empty entry remembers a refusal
-        const std::string cellName = std::format( "{}/{}", templ.CompileName, kWaterCell );
+        const std::string cellName =
+             std::format( "{}/{}", templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell );
         const auto        shader   = Runtime::ResourceRegistry::GetShaderService()->GetByName( cellName );
         if ( !shader )
         {
             WarnOnce( material, std::format( "its template '{}' has no {} cell - a water body draws a template of "
                                              "ShadingModel SingleLayerWater with Usage WaterMesh",
-                                             templ.CompileName, kWaterCell ) );
+                                             templ.CompileName, Core::Preprocess::kSurfaceWaterMeshCell ) );
             return nullptr;
         }
 
