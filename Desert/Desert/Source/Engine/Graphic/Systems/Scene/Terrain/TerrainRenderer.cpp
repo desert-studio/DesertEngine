@@ -1049,10 +1049,10 @@ namespace Desert::Graphic::System
             return static_cast<uint32_t>( executors.size() );
         }
 
-        // RENDER-THREADS M1: a node whose exec draws ONLY the terrain (RecordDraws applies exactly @p executors)
-        // declares them, so their view sets and block copies exist before the graph records and the exec runs
-        // sealed. A node shared with the meshes (a shadow view) does not: their materials are applied per draw
-        // (M2) and are not declared yet.
+        // RENDER-THREADS M1/M2: every node the terrain draws in declares the executors RecordDraws applies
+        // (exactly @p executors), so their view sets and block copies exist before the graph records and the exec
+        // runs sealed. A node shared with the meshes (a shadow view, a virtual shadow level, the rain occlusion)
+        // declares them too: the meshes' lists declare theirs (MeshDrawList::DeclareBlocks).
         template <typename Declaration>
         void PrepareGroupExecutors( Declaration& declaration, const std::vector<const MaterialExecutor*>& executors )
         {
@@ -1247,8 +1247,10 @@ namespace Desert::Graphic::System
         if ( !m_ShadowPipeline || ShadowViewDraws( view ).empty() )
             return 0;
         // A depth-only caster samples no scene/view input.
-        return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout,
-                                   GroupExecutors( &ProgramMaterials::Shadow ), nullptr, m_DicePool );
+        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Shadow );
+        PrepareGroupExecutors( declared, executors );
+        return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout, executors, nullptr,
+                                   m_DicePool );
     }
 
     Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, const uint32_t view,
@@ -1419,6 +1421,7 @@ namespace Desert::Graphic::System
         const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
              m_VirtualShadowLayout.Get( pipeline->GetSpecification().Shader );
         const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::VirtualShadow );
+        PrepareGroupExecutors( pass, executors );
         for ( const MaterialExecutor* executor : executors )
         {
             auto block = pass.Bindings( layout, executor->GetRouteFill() );

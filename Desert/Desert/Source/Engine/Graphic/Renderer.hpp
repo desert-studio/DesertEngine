@@ -149,14 +149,17 @@ namespace Desert::Graphic
         // parameters): RenderMesh's submesh / LOD walk (same hidden-submesh mask, same LOD clamp, same instance
         // offset), every submesh drawn with the graph textures bound by shader name from @p bindings, e.g. the
         // forward glass sampling SceneColorTexture from this frame's scene copy. @p material is required: its push
-        // block is pushed for each submesh with that submesh's transform (transform * submesh.Transform) over its
-        // first mat4, as RenderMesh does, and it supplies uniform values / asset textures; a @p bindings with push
-        // constants of its own is refused (the block is the transform's). Same contract as DrawFullscreen
-        // otherwise. The first refused submesh ends the draw.
+        // block is the draw's @p push (the material's push block with the draw's own values over it, by value:
+        // MeshDrawList::Record, RENDER-THREADS M2 - the material's block is never written per draw), pushed for
+        // each submesh with that submesh's transform (transform * submesh.Transform) over its first mat4, and it
+        // supplies uniform values / asset textures; a @p bindings with push constants of its own is refused (the
+        // block is the transform's). Same contract as DrawFullscreen otherwise. The first refused submesh ends
+        // the draw.
         [[nodiscard]] static Common::BoolResultStr
         RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
-                    const glm::mat4& transform, const MaterialExecutor& material, uint32_t instanceCount,
-                    uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel );
+                    const glm::mat4& transform, const MaterialExecutor& material, std::span<const std::byte> push,
+                    uint32_t instanceCount, uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
+                    uint32_t lodLevel );
         // RenderMesh whose counts the GPU wrote: the same walk, each drawn submesh one indirect draw of a
         // kMeshDrawArgumentsBytes record of @p args (Graphic/MeshDrawArguments.hpp), which the pass declares
         // Access::IndirectArgs. The record of the k-th drawn submesh si is at @p offset + k *
@@ -167,8 +170,9 @@ namespace Desert::Graphic
         // past the buffer is refused before it is drawn.
         [[nodiscard]] static Common::BoolResultStr
         RenderMeshIndirect( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
-                            const glm::mat4& transform, const MaterialExecutor& material, RDG::BufferRef args,
-                            uint64_t offset, SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order );
+                            const glm::mat4& transform, const MaterialExecutor& material,
+                            std::span<const std::byte> push, RDG::BufferRef args, uint64_t offset,
+                            SubmeshMask hiddenSubmeshMask, MeshDrawArgumentsOrder order );
 
         // RDG-FAULT1 - what a pass's SETUP declares its binding blocks against (RenderPassDeclaration::Bindings,
         // RDG::PassBuilder::Bindings), so a block that does not match its shader faults the pass before anything

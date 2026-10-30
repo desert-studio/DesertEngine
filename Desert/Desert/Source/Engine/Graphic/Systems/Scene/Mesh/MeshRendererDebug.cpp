@@ -649,12 +649,9 @@ namespace Desert::Graphic::System
                                                  .Mesh      = sd->Mesh,
                                                  .Transform = sd->Transform,
                                                  .Material  = skinnedMask->GetMaterialExecutor(),
-                                                 .BindState = [skinnedMask, offset = boneOffset, address,
-                                                               count = row.SkinCacheVertexCount]
-                                                 {
-                                                     skinnedMask->SetBoneOffset( offset );
-                                                     skinnedMask->SetSkinCache( address, count );
-                                                 } } );
+                                                 .Push      = DrawPushFields{}
+                                                             .BoneOffset( boneOffset, /*required*/ false )
+                                                             .SkinCache( address, row.SkinCacheVertexCount ) } );
                     }
                 }
             }

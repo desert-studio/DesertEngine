@@ -402,26 +402,29 @@ namespace Desert::Graphic::System
                                           .InstanceCount     = 1u,
                                           .FirstInstance     = 0u,
                                           .HiddenSubmeshMask = section.Hidden,
-                                          .BindState = [material, instance, motionRow = section.GpuPrimitive,
-                                                        materialRow = *row, path, rect]
+                                          .Push =
+                                               [&]
                                           {
-                                              // Its own rectangle of the capture atlas only (the pass cleared the
-                                              // whole atlas: every capture of the frame is new).
-                                              Renderer::GetInstance().SetViewportRegion(
-                                                   static_cast<int32_t>( rect.X ), static_cast<int32_t>( rect.Y ),
-                                                   rect.Width, rect.Height );
-                                              material->SetPushMatrix( glm::mat4( 1.0f ) );
-                                              material->SetMaterialIndex( materialRow );
+                                              DrawPushFields push;
+                                              push.Transform( glm::mat4( 1.0f ) ).MaterialIndex( *row );
                                               if ( path == MeshVertexPath::Instanced )
-                                                  material->SetInstancedWind( InstanceWindPush{} ); // a still card
+                                                  push.Wind( InstanceWindPush{} ); // a still card
                                               else
-                                                  material->SetPrimitiveIndex( motionRow );
-                                              // A Shader Override draw has no instance: its values are its
-                                              // record's table row, and the scene's generic pass draws it
-                                              // without a Bind (Material::Bind reads the instance).
-                                              if ( instance != nullptr )
-                                                  material->Bind( instance );
-                                          } } );
+                                                  push.PrimitiveIndex( section.GpuPrimitive );
+                                              return push;
+                                          }(),
+                                          // A Shader Override draw has no instance: its values are its record's
+                                          // table row, and the scene's generic pass draws it without a Bind
+                                          // (Material::Bind reads the instance).
+                                          .BindTarget = instance != nullptr ? material : nullptr,
+                                          .Instance   = instance,
+                                          // Its own rectangle of the capture atlas only (the pass cleared the
+                                          // whole atlas: every capture of the frame is new).
+                                          .Viewport = MeshDrawCommand::ViewportRegion{
+                                               .X      = static_cast<int32_t>( rect.X ),
+                                               .Y      = static_cast<int32_t>( rect.Y ),
+                                               .Width  = rect.Width,
+                                               .Height = rect.Height } } );
             }
         }
         m_CardCaptureDraws.Declare( pass, view );

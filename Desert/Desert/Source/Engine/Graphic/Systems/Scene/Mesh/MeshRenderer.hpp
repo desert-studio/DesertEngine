@@ -24,6 +24,7 @@
 #include <Engine/Graphic/PrimitiveReadout.hpp>
 #endif
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Graphic/Materials/DrawPushFields.hpp>
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
@@ -103,10 +104,28 @@ namespace Desert::Graphic::System
             // Where this draw's records begin in IndirectArgs: after the header, or a later level's group of
             // records (one per submesh) when the producer draws a LOD chain (GpuInstancedRenderData::Levels).
             uint64_t IndirectArgsOffset = kGpuInstanceArgsHeaderBytes;
-            // The per-draw material state the draw records with (transform push constant, material row, bone
-            // offset, wind, the instance's descriptor bind), written in exec right before the draw - the same
-            // order as before the split. Empty: the draw has none.
-            std::function<void()> BindState{};
+            // RENDER-THREADS M2 - what differs per draw travels WITH the draw (UE FMeshDrawCommand: immutable,
+            // per-draw data by value), never through the shared material. Push: the draw's push values (transform,
+            // primitive / material row, flags, wind, bone offset, skin cache), written by Record over a COPY of
+            // the material's push block (DrawPushFields::WriteInto) - the material's own block is not touched.
+            DrawPushFields Push{};
+            // The material instance laid on BindTarget right before the draw (Material::Bind: registered
+            // properties, the instance's overrides, the field-filled uniform blocks). Null BindTarget: no Bind.
+            // Still a write to the shared material in exec (REMAINDER RENDER-THREADS-8: the instance's values
+            // belong in its scene material row / its own block, prepared before the graph records); it allocates
+            // nothing - the material's view sets and block copies are prepared (MeshDrawList::DeclareBlocks).
+            ::Desert::Graphic::Material*               BindTarget = nullptr;
+            const ::Desert::Graphic::MaterialInstance* Instance   = nullptr;
+            // The draw's own rectangle of the target (a card of the capture atlas, Renderer::SetViewportRegion),
+            // a command of the draw's command buffer. Empty: the pass's viewport.
+            struct ViewportRegion
+            {
+                int32_t  X      = 0;
+                int32_t  Y      = 0;
+                uint32_t Width  = 0;
+                uint32_t Height = 0;
+            };
+            std::optional<ViewportRegion> Viewport{};
             // What a GPU cull of the draw needs (the virtual shadow map's, CollectVirtualShadowCull): the matrices
             // its instance range indexes, from FirstInstance (empty: one instance at Transform), how far the wind
             // moves its vertices past the mesh's bounds (cm, WindBoundsPad), and the world box of a single

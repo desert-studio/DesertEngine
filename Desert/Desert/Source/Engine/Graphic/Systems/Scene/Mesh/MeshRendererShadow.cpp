@@ -1274,12 +1274,9 @@ namespace Desert::Graphic::System
                            .Transform         = caster.Data->Transform,
                            .Material          = skinMat->GetMaterialExecutor(),
                            .HiddenSubmeshMask = caster.Hidden,
-                           .BindState =
-                                [skinMat, offset = caster.BoneOffset, address, count = row.SkinCacheVertexCount]
-                           {
-                               skinMat->SetBoneOffset( offset );
-                               skinMat->SetSkinCache( address, count );
-                           },
+                           .Push              = DrawPushFields{}
+                                       .BoneOffset( caster.BoneOffset, /*required*/ false )
+                                       .SkinCache( address, row.SkinCacheVertexCount ),
                            .WorldBounds = pose } );
                 }
             }
@@ -1306,7 +1303,7 @@ namespace Desert::Graphic::System
                             .FirstInstance     = b.First,
                             .HiddenSubmeshMask = b.HiddenSubmeshMask,
                             .LodLevel          = b.LodLevel,
-                            .BindState         = [instMat, wind = b.Wind] { instMat->SetInstancedWind( wind ); },
+                            .Push              = DrawPushFields{}.Wind( b.Wind ),
                             .Instances = std::span<const glm::mat4>( instTransforms ).subspan( b.First, b.Count ),
                             .BoundsPad = b.BoundsPad } );
             }
@@ -1379,22 +1376,19 @@ namespace Desert::Graphic::System
                    .FirstInstance     = instanced ? draw.First : 0,
                    .HiddenSubmeshMask = draw.HiddenSubmeshMask,
                    .LodLevel          = draw.LodLevel,
-                   .BindState =
-                        [material, draw]
+                   .Push =
+                        [&draw]
                    {
-                       material->SetPushMatrix( draw.Transform );
-                       material->SetMaterialIndex( draw.Row );
+                       DrawPushFields push;
+                       push.Transform( draw.Transform ).MaterialIndex( draw.Row );
                        if ( draw.Path == MeshVertexPath::Instanced )
-                       {
-                           material->SetInstancedWind( draw.Wind );
-                       }
+                           push.Wind( draw.Wind );
                        if ( draw.Path == MeshVertexPath::Skinned )
-                       {
-                           material->SetSkinnedBoneOffset( draw.First );
-                           material->SetPrimitiveIndex( draw.GpuPrimitive );
-                       }
-                       material->Bind( draw.Instance );
-                   },
+                           push.BoneOffset( draw.First, /*required*/ true ).PrimitiveIndex( draw.GpuPrimitive );
+                       return push;
+                   }(),
+                   .BindTarget = material,
+                   .Instance   = draw.Instance,
                    .Instances =
                         instanced
                              ? std::span<const glm::mat4>( draw.Set->Transforms ).subspan( draw.First, draw.Count )
