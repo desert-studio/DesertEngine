@@ -890,7 +890,7 @@ namespace Desert::Graphic::System
         }
     }
 
-    void ParticleRenderer::AddSortPasses( RDG::Builder& graph )
+    void ParticleRenderer::AddSortPasses( RDG::Builder& graph, const VFX::VFXTickStage phase )
     {
         if ( !m_Pool.Declared || !m_SortPipeline || m_World == nullptr || m_SceneRenderer == nullptr )
             return;
@@ -898,22 +898,28 @@ namespace Desert::Graphic::System
         if ( view == nullptr )
             return; // ParticlePass draws nothing either
 
-        // The drawn half is the one the last compact (index StepCount) filled: alive half h = StepCount & 1 at
-        // [2 Base + h Count, 2 Base + (h + 1) Count), draw slot h.
+        // The sorted half is the one this phase's draws read (DrawnHalf): alive half h at
+        // [2 Base + h Count, 2 Base + (h + 1) Count), draw slot h. The PreOpaque sort runs before the PostOpaque
+        // chain, so a PostOpaque emitter's G-buffer rows sort its previous half (ReadsPreviousHalf).
+        const bool                       beforeChains = phase == VFX::VFXTickStage::PreOpaque;
         std::vector<ParticleSortEmitter> emitters;
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
         {
             const ViewEmitter& ve = m_ViewEmitters[i];
-            if ( !IsDrawn( ve ) )
+            if ( !IsDrawn( ve ) || !HasDrawnHalf( ve, beforeChains ) )
                 continue;
+            const auto inPhase = [this, &ve, phase]( const ViewDraw& d ) { return DrawSortPhase( ve, d.GBuffer ) == phase; };
+            const auto first   = std::find_if( ve.Draws.begin(), ve.Draws.end(), inPhase );
+            if ( first == ve.Draws.end() )
+                continue; // no draw of this emitter reads this phase's sort
             const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
-            const uint32_t            half = ve.Frame->StepCount & 1u;
-            // The emitter's alive half is sorted once for all its draws: when any of them blends (an opaque draw
-            // reads the sorted order as well as the unsorted one).
-            const auto blends = std::find_if( ve.Draws.begin(), ve.Draws.end(), []( const ViewDraw& d )
-                                              { return ParticleSpritesSort( d.Sprite->Blend ); } );
+            const uint32_t            half = DrawnHalf( ve, beforeChains );
+            // The emitter's alive half is sorted once for all this phase's draws: when any of them blends (an
+            // opaque draw reads the sorted order as well as the unsorted one).
+            const auto blends = std::find_if( ve.Draws.begin(), ve.Draws.end(), [&inPhase]( const ViewDraw& d )
+                                              { return inPhase( d ) && ParticleSpritesSort( d.Sprite->Blend ); } );
             const Core::Formats::SurfaceBlendMode blend =
-                 blends != ve.Draws.end() ? blends->Sprite->Blend : ve.Draws.front().Sprite->Blend;
+                 blends != ve.Draws.end() ? blends->Sprite->Blend : first->Sprite->Blend;
             emitters.push_back(
                  { i, blend, gpu.Range.Count, 2u * gpu.Range.Base + half * gpu.Range.Count, half } );
             // A Ribbon row links the particles by (RibbonId, RibbonLinkOrder): its own sort, into RibbonOrder.
@@ -930,9 +936,14 @@ namespace Desert::Graphic::System
             return;
 
         const uint64_t aliveBytes              = uint64_t{ 2 } * m_World->Pool().Capacity * sizeof( uint32_t );
-        std::tie( m_SortKeysRef, m_SortedRef ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
-        m_RibbonRef =
-             graph.CreateBuffer( RDG::BufferDesc{ aliveBytes * 4u }, "ParticleRibbonOrder" ); // uvec4 each
+        SortBuffers&   sort       = m_Sort[static_cast<size_t>( phase )];
+        std::tie( sort.Keys, sort.Sorted ) = CreateParticleSortBuffers( graph, plan, aliveBytes );
+        sort.Ribbon = graph.CreateBuffer( RDG::BufferDesc{ aliveBytes * 4u },
+                                          beforeChains ? "ParticleRibbonOrder" : "PostOpaque ParticleRibbonOrder" );
+        // PreOpaque: the simulation's async run; PostOpaque: after the scene depth resolve, on the graphics queue
+        // like its chain.
+        const RDG::PassFlags flags = beforeChains ? RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute
+                                                  : RDG::PassFlags::Compute;
         // The view depth is along the camera's forward axis from its position (cm): ParticleSortViewOf.
         const ParticleSortView sortView = ParticleSortViewOf( view->InvView );
         const glm::vec4        origin( sortView.Origin, 0.0f );
@@ -940,10 +951,10 @@ namespace Desert::Graphic::System
         for ( const ParticleSortRange& range : plan.Ranges )
         {
             ViewEmitter& ve = m_ViewEmitters[range.Emitter];
-            ( range.Ribbon ? ve.Ribboned : ve.Sorted ) = true;
+            ( range.Ribbon ? ve.Ribboned : ve.Sorted )[static_cast<size_t>( phase )] = true;
             const ParticleSortBuffers buffers{ ve.FloatsRef,    ve.IntsRef,    ve.DrawLayoutRef,
-                                               m_Pool.AliveRef, ve.CountersRef, m_SortKeysRef,
-                                               m_SortedRef,     m_RibbonRef };
+                                               m_Pool.AliveRef, ve.CountersRef, sort.Keys,
+                                               sort.Sorted,     sort.Ribbon };
             const std::vector<ParticleSortStage> stages = ParticleSortStages( range.Length, range.Ribbon );
             for ( uint32_t s = 0; s < static_cast<uint32_t>( stages.size() ); ++s )
             {
@@ -953,8 +964,9 @@ namespace Desert::Graphic::System
                      glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
                      origin, forward };
                 graph.AddPass(
-                     ParticleSortPassName( range.Emitter, s, range.Ribbon ),
-                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
+                     ( beforeChains ? std::string{} : std::string{ "PostOpaque " } ) +
+                          ParticleSortPassName( range.Emitter, s, range.Ribbon ),
+                     flags,
                      [this, buffers, stage]( RDG::PassBuilder& pass )
                      {
                          DeclareParticleSortStage(
@@ -1139,7 +1151,9 @@ namespace Desert::Graphic::System
                 continue;
             for ( const ViewDraw& draw : ve.Draws )
             {
-                if ( draw.GBuffer != gbuffer )
+                // A draw that reads a previous half there is none of (HasDrawnHalf) is skipped the same way in the
+                // rows, the declare and the record: the n-th declared block stays the n-th recorded draw.
+                if ( draw.GBuffer != gbuffer || !HasDrawnHalf( ve, draw.GBuffer ) )
                     continue;
                 // The n-th declared block is the n-th draw, drawn or not.
                 const uint32_t drawBlock = block++;
@@ -1152,9 +1166,11 @@ namespace Desert::Graphic::System
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
                 sprite.Material->SetMaterialIndex( draw.Row );
                 sprite.Material->Bind( sprite.Instance.get() );
-                // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
-                // particle of alive half StepCount & 1 (the slot's FirstVertex).
-                const uint64_t slot = ( ve.Frame->StepCount & 1u ) * kParticleDrawSlotStride;
+                // Six vertices per alive particle of the drawn half (DrawnHalf: the last compact's slot
+                // StepCount & 1, or a PostOpaque emitter's previous half for a G-buffer row), the slot's
+                // FirstVertex.
+                const uint64_t slot =
+                     uint64_t{ DrawnHalf( ve, draw.GBuffer ) } * kParticleDrawSlotStride;
                 if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline,
                                                                     sprite.Material->GetMaterialExecutor(),
                                                                     ve.CountersRef, slot );
@@ -1188,7 +1204,9 @@ namespace Desert::Graphic::System
                 continue;
             for ( ViewDraw& draw : ve.Draws )
             {
-                if ( draw.GBuffer != gbuffer )
+                // A draw that reads a previous half there is none of (HasDrawnHalf) is skipped the same way in the
+                // rows, the declare and the record: the n-th declared block stays the n-th recorded draw.
+                if ( draw.GBuffer != gbuffer || !HasDrawnHalf( ve, draw.GBuffer ) )
                     continue;
                 MaterialInstance* instance =
                      draw.Instance != nullptr ? draw.Instance : draw.Sprite->Instance.get();
@@ -1233,7 +1251,9 @@ namespace Desert::Graphic::System
             bool drawn = false;
             for ( const ViewDraw& draw : ve.Draws )
             {
-                if ( draw.GBuffer != gbuffer )
+                // A draw that reads a previous half there is none of (HasDrawnHalf) is skipped the same way in the
+                // rows, the declare and the record: the n-th declared block stays the n-th recorded draw.
+                if ( draw.GBuffer != gbuffer || !HasDrawnHalf( ve, draw.GBuffer ) )
                     continue;
                 drawn                    = true;
                 const SpriteDraw& sprite = *draw.Sprite;
@@ -1251,12 +1271,13 @@ namespace Desert::Graphic::System
                 const bool links =
                      std::any_of( layout->Slots.begin(), layout->Slots.end(),
                                   []( const RDG::ShaderSlot& slot ) { return slot.Name == "RibbonOrder"; } );
-                if ( links && ve.Ribboned )
-                    block.Storage( ParticleSpriteShaderParameters::RibbonOrder, m_RibbonRef,
+                const size_t phase = static_cast<size_t>( DrawSortPhase( ve, draw.GBuffer ) );
+                if ( links && ve.Ribboned[phase] )
+                    block.Storage( ParticleSpriteShaderParameters::RibbonOrder, m_Sort[phase].Ribbon,
                                    RDG::Access::StorageRead );
                 else
                     block.Storage( ParticleSpriteShaderParameters::AliveList,
-                                   ve.Sorted ? m_SortedRef : m_Pool.AliveRef, RDG::Access::StorageRead );
+                                   ve.Sorted[phase] ? m_Sort[phase].Sorted : m_Pool.AliveRef, RDG::Access::StorageRead );
                 const bool fades = SceneViewDetail::LayoutSamples( *layout, kSceneViewSceneDepthName );
                 if ( fades && depth )
                     block.Texture( kSceneViewSceneDepth, depth, RDG::Access::SampledGraphics,
@@ -1489,10 +1510,12 @@ namespace Desert::Graphic::System
         for ( uint32_t i = 0; i < static_cast<uint32_t>( m_ViewEmitters.size() ); ++i )
         {
             const ViewEmitter& ve = m_ViewEmitters[i];
-            if ( !ve.Declared )
+            // Mesh instances are drawn by the base pass, before the PostOpaque chain: a PostOpaque emitter's
+            // previous half (DrawnHalf), skipped while it has none - as an import failure sits a row out.
+            if ( !ve.Declared || !HasDrawnHalf( ve, true ) )
                 continue;
             const ParticleEmitterGpu& gpu  = *ve.Frame->Gpu;
-            const uint32_t            half = ve.Frame->StepCount & 1u;
+            const uint32_t            half = DrawnHalf( ve, true );
             for ( const ViewMesh& vm : ve.Meshes )
             {
                 MeshInstances& state = *vm.State;
