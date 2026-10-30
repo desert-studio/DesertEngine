@@ -829,6 +829,11 @@ namespace Desert::Graphic::System
         // draws only while the sun shadow is the virtual shadow map (no VSM caster state or cell is built under
         // cascades).
         const bool virtualShadow = m_SceneRenderer != nullptr && m_SceneRenderer->SunShadowIsVirtual();
+        // The re-resolution runs AFTER this frame's feed reached the cache (below): a held primitive's material
+        // row may name an instance freed since its last feed (a re-imported mesh's materials), and only this
+        // frame's rows (m_RowSurfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
+        // instance.
+        bool reresolve = false;
         if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
                                                                      WireframeView() != m_BinnedWireframe ||
                                                                      virtualShadow != m_BinnedVirtualShadow )
@@ -838,7 +843,7 @@ namespace Desert::Graphic::System
             m_BinnedVirtualShadow = virtualShadow;
             m_BinnedRefused.clear();  // a reload may have fixed what was refused; say a remaining refusal again
             m_BinnedAwaiting.clear(); // every answer is asked again below, so is every PSO still compiling
-            m_DrawCommandCache->InvalidatePipelines();
+            reresolve = true;
         }
         // A bin's PSO that left the driver (Ready or Failed) since the last frame: the draws that fell back to the
         // CPU path for it (PipelineUnavailable) are re-resolved now, not at the next recompile.
@@ -848,7 +853,7 @@ namespace Desert::Graphic::System
                                      const auto pipeline = w.lock();
                                      return !pipeline || pipeline->GetReadiness() != PipelineReadiness::Compiling;
                                  } ) > 0 )
-            m_DrawCommandCache->InvalidatePipelines();
+            reresolve = true;
 
         // One entry per primitive, gathered across its records: a record draws the submeshes it does not hide with
         // its row; the primitive hides what every record hides (the other records' sections, the component's
@@ -957,6 +962,8 @@ namespace Desert::Graphic::System
         for ( const auto& [primitive, entry] : m_BinnedFeed )
             if ( !feed.contains( primitive ) )
                 m_DrawCommandCache->RemovePrimitive( primitive );
+        if ( reresolve ) // before the swap: ResolveBinnedPipeline reads this frame's feed (the scratch) first
+            m_DrawCommandCache->InvalidatePipelines();
         m_BinnedFeed.swap( feed );
         m_DrawCommandCache->Rebuild();
     }
