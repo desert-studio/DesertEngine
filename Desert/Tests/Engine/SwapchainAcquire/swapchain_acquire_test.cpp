@@ -84,11 +84,11 @@ namespace
         }
         const uint32_t slot = frames.GetCurrentFrameIndex();
         const auto     held = AcquireLate( [&] { return swapchain.Acquire( slot ); },
-                                           [&]
-                                           {
-                                               ++swapchain.RebuildRequests;
-                                               swapchain.RebuildPending = true;
-                                           } );
+                                       [&]
+                                       {
+                                           ++swapchain.RebuildRequests;
+                                           swapchain.RebuildPending = true;
+                                       } );
         ASSERT_TRUE( held.IsSuccess() ) << held.GetError();
         if ( held.GetValue() )
             swapchain.Submit( frames.GetCurrentFrameIndex() );
