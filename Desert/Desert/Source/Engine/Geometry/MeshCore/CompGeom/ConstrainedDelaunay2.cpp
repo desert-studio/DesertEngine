@@ -4,6 +4,7 @@
 
 #include "Engine/Geometry/MeshCore/CompGeom/Delaunay2.hpp"
 
+#include <algorithm>
 #include <unordered_map>
 
 using namespace Desert::Geometry;
