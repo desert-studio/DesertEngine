@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <deque>
 #include <format>
 #include <functional>
@@ -576,6 +577,69 @@ namespace Desert::Editor::ImportOptions
                     changed = true;
             }
             UI::EndPropertyRow();
+        }
+
+        // THE CROWN (FIELD-WINTER, MeshCanopySettings): which material slots are the leaf cards, and the crown's
+        // own snow numbers - the shell a leaf takes snow in and the clearance over the crown's peak - baked per
+        // leaf vertex by the mesh build (MeshDeriver BakeCanopy), so the shader states none of them. A static mesh
+        // only.
+        if ( kind == ImportContentKind::StaticMesh )
+        {
+            UI::BeginPropertyRow(
+                 "Canopy Leaf Slots",
+                 "Material slot names, comma-separated, whose sections are the crown's leaf cards: "
+                 "the build gives them the crown's volume normal and their depth under its top. "
+                 "Empty: no canopy." );
+            std::string slots;
+            for ( const std::string& slot : settings.Mesh.Canopy.LeafSlots )
+                slots += ( slots.empty() ? "" : ", " ) + slot;
+            std::array<char, 512> buffer{};
+            std::snprintf( buffer.data(), buffer.size(), "%s", slots.c_str() );
+            if ( ImGui::InputText( "##CanopyLeafSlots", buffer.data(), buffer.size(),
+                                   ImGuiInputTextFlags_EnterReturnsTrue ) ||
+                 ImGui::IsItemDeactivatedAfterEdit() )
+            {
+                std::vector<std::string> parsed;
+                std::string_view         rest( buffer.data() );
+                while ( !rest.empty() )
+                {
+                    const std::size_t comma = rest.find( ',' );
+                    std::string_view  name  = rest.substr( 0, comma );
+                    rest                    = comma == std::string_view::npos ? "" : rest.substr( comma + 1 );
+                    while ( !name.empty() && name.front() == ' ' )
+                        name.remove_prefix( 1 );
+                    while ( !name.empty() && name.back() == ' ' )
+                        name.remove_suffix( 1 );
+                    if ( !name.empty() && std::ranges::find( parsed, name ) == parsed.end() )
+                        parsed.emplace_back( name );
+                }
+                if ( parsed != settings.Mesh.Canopy.LeafSlots )
+                {
+                    settings.Mesh.Canopy.LeafSlots = std::move( parsed );
+                    changed                        = true;
+                }
+            }
+            UI::EndPropertyRow();
+            if ( !settings.Mesh.Canopy.LeafSlots.empty() )
+            {
+                UI::BeginPropertyRow( "Canopy Shell (cm)",
+                                      "A leaf deeper than this under the crown's top is sheltered by the leaves "
+                                      "above: its snow fades to none over the next shell. Mesh centimetres (grows "
+                                      "with the placed scale)." );
+                if ( ImGui::DragFloat( "##CanopyShellCm", &settings.Mesh.Canopy.ShellCm, 1.0f,
+                                       Assets::kMeshCanopyShellMinCm, Assets::kMeshCanopyShellMaxCm, "%.0f",
+                                       ImGuiSliderFlags_AlwaysClamp ) )
+                    changed = true;
+                UI::EndPropertyRow();
+                UI::BeginPropertyRow( "Canopy Clearance (texels)",
+                                      "How far above the crown's own peak a leaf reads the sky, in texels of the "
+                                      "view's precipitation map: its texel is wider than the crown's 25 cm top "
+                                      "cells, so a leaf on the flank would read the peak beside it as its roof." );
+                if ( ImGui::DragFloat( "##CanopyClearTexels", &settings.Mesh.Canopy.ClearTexels, 0.05f, 0.0f,
+                                       Assets::kMeshCanopyClearTexelsMax, "%.2f", ImGuiSliderFlags_AlwaysClamp ) )
+                    changed = true;
+                UI::EndPropertyRow();
+            }
         }
 
         // CONTRACT-DISPLACE §9.7: the mode and the bake edge length live in the mesh's import settings. A skeletal

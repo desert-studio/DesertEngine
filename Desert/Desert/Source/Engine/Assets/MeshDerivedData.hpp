@@ -35,7 +35,9 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         15; // 15: canopy top surface = the highest leaf per cell, not dilated (a tall round crown's leaves read
+         16; // 16: canopy leaf vertices carry the crown's snow numbers in UV1 (shelter weight from the mesh's
+             // Canopy.ShellCm, Canopy.ClearTexels - FIELD-WINTER-3);
+             // 15: canopy top surface = the highest leaf per cell, not dilated (a tall round crown's leaves read
              // ~1 m under a dilated top, all sheltered - FIELD-WINTER p12);
              // 14: canopy leaf cards (MeshImportSettings::Canopy: crown normal + depth in COLOR_0.a);
              // 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG);

@@ -73,6 +73,10 @@ namespace Desert::Assets::Serialization
         /// MeshImportSettings::Canopy.LeafSlots, the material slot names whose sections are the crown's leaf
         /// cards; absent = no canopy.
         std::optional<std::vector<std::string>> CanopyLeafSlots;
+        /// MeshImportSettings::Canopy.ShellCm / ClearTexels; absent = the defaults (40 cm, 2 texels). Written only
+        /// with leaf slots and only when they differ from the default.
+        std::optional<float> CanopyShellCm;
+        std::optional<float> CanopyClearTexels;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.
