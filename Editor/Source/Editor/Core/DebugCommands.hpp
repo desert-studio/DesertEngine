@@ -17,10 +17,10 @@ namespace Desert::Editor
     void AppendCrashCommand( std::vector<PaletteCommand>& commands );
     void AppendGpuAllocationCommand( std::vector<PaletteCommand>& commands );
     // UE `ProfileGPU` / `stat gpu` for a scenario: "Debug.GPU profiling: On / Off" switch the timestamp scopes
-    // (Profiler::GpuEnabled, default off - it taxes the frame), "Debug.Log GPU pass timings" writes one log line
-    // per GPU pass of the last averaging window (self and inclusive ms), so a pass's cost is read from its own
-    // row, never from a difference between two frames.
-    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands );
+    // (Profiler::GpuEnabled, default off - it taxes the frame), "Debug.Log GPU pass timings" calls @p dumpToLog
+    // (the profiler panel's table writer, ProfilerWindow::DumpProfilerToLog): one log row per GPU pass of the last
+    // averaging window, so a pass's cost is read from its own row, never from a difference between two frames.
+    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands, void ( *dumpToLog )() );
     // "Debug.Particle Debugger" (VFX-16): opens the Particle Debugger panel, so an MCP run_command can show it.
     // "Debug.Particles: Freeze / Unfreeze / Step" are the panel's Freeze checkbox and Step button on the active
     // scene's effects world (UE Niagara Debugger's playback controls), so a scenario can stop the effects at a
