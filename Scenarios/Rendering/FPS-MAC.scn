@@ -1,0 +1,12 @@
+# FPS-MAC p10: the landscape's layer blend fetches a layer's maps only where its share of the pixel reaches one step
+# of the 8-bit weightmap (Common/LandscapeSurface.glslh EvaluateLandscapeSurface: pass 1 heights -> weights, pass 2
+# one coefficient per layer, each layer fetched once). The look must not change; the G-buffer must get cheaper.
+# Headless Release A/B (old/new shader on one binary): scratch FPS-MAC/ab.sh <tag> eye|high o n.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Тогда field_eye FIELD_Barn from the eye: ground and grass as in the base frame (path, soil under the blades), no sky through the ground; G-buffer cheaper than the base
+Дано --subject viewport set Camera.Position 0,600,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.12,-1
+Тогда field_high view from above: the same ground as the base frame, frame faster than the base

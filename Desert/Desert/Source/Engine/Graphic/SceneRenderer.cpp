@@ -2177,6 +2177,12 @@ namespace Desert::Graphic
 
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
+            // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
+            // face view draws no particles (AddFrameParticlesSimulate above).
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
+                 particles != nullptr && !m_ViewProfile.SceneCapture )
+                AddSystemRaster( graph, textures, particles->GBufferPass() );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible.
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
