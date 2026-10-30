@@ -167,10 +167,14 @@ namespace Desert::Editor
         LOG_INFO( "[Profiler] Unaccounted graphics queue {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %)",
                   unaccountedMs, gpuFrameMs, gpuFrameMs > 0.0001 ? unaccountedMs / gpuFrameMs * 100.0 : 0.0 );
         if ( asyncUnaccountedMs >= 0.0 )
+        {
             LOG_INFO( "[Profiler] Unaccounted async compute queue {:.3f} ms (segment time outside its passes)",
                       asyncUnaccountedMs );
+        }
         else
+        {
             LOG_INFO( "[Profiler] Unaccounted async compute queue: no async segment timed" );
+        }
         {
             std::vector<std::pair<double, std::string_view>> gaps;
             for ( const auto& s : prof.LastFrame() )
