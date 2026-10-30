@@ -339,12 +339,7 @@ namespace
                 const std::array versions{ Common::Content::SubsystemVersion{ Common::Content::FourCC( "VFXM" ), 1u } };
                 const std::string text =
                      Common::Content::WriteShaderHeaderLine( Common::Content::MakeTextHeader( kind, guid, versions ) ) +
-                     "Module \"AF10a_Probe\"
-{
-    Stage EmitterUpdate
-    Category Spawn
-}
-";
+                     "Module \"AF10a_Probe\"\n{\n    Stage EmitterUpdate\n    Category Spawn\n}\n";
                 return { text.begin(), text.end() };
             }
             case ContentKind::Sound:
