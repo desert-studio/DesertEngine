@@ -196,7 +196,11 @@ float CloudShadowSnapToGrid( float value, float snapKm )
 float CloudShadowSnapToPixelGrid( float clipComponent, float resolution )
 {
     float halfResolution = max( resolution, 1.0f ) * 0.5f;
-    return floor( clipComponent * halfResolution + 0.5f ) / halfResolution;
+    // Nearest lattice point, halves up, from the exact fraction: `floor( x + 0.5 )` rounds the sum first,
+    // so 0.49999997 + 0.5 is 1.0 and the point lands one texel off.
+    float lattice = clipComponent * halfResolution;
+    float below   = floor( lattice );
+    return ( lattice - below >= 0.5f ? below + 1.0f : below ) / halfResolution;
 }
 
 // How many samples this frame's ray takes. `sunUpDot` is the cosine between the planet's up at the map

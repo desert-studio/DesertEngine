@@ -1485,6 +1485,7 @@ namespace Desert::Graphic
                 return Common::MakeError<Result>( updated.GetError() );
         }
         const RayTracing::EmissiveTriangleList& list = m_EmissiveList.GetList();
+#if DESERT_DEV_INSTRUMENTS
         if ( list.UnplacedDeformedSegments != m_LoggedUnplacedEmissive )
         {
             m_LoggedUnplacedEmissive = list.UnplacedDeformedSegments;
@@ -1493,6 +1494,7 @@ namespace Desert::Graphic
                           "(no skin-cache positions without a ray-traced scene)",
                           m_ViewResources.GetName(), m_LoggedUnplacedEmissive );
         }
+#endif // DESERT_DEV_INSTRUMENTS
         return m_EmissiveLights.AddPasses( graph, list );
     }
 

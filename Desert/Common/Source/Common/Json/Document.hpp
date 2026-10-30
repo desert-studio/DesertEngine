@@ -147,7 +147,7 @@ namespace Common::Json
                 if constexpr ( std::is_floating_point_v<std::remove_cvref_t<T>> )
                 {
                     if ( const auto integer = var.to_int64() )
-                        return static_cast<T>( integer.value() );
+                        return static_cast<T>( *integer );
                 }
                 return rfl::generic::Reader::template to_basic_type<T>( var );
             }
@@ -222,23 +222,16 @@ namespace Common::Json
         template <typename T>
         [[nodiscard]] ResultStr<T> As() const
         {
-            try
+            auto parsed = [&]
             {
-                auto parsed = [&]
-                {
-                    if constexpr ( IsPartial<T> )
-                        return Detail::FromValue<T, rfl::DefaultIfMissing>( *m_Value );
-                    else
-                        return Detail::FromValue<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( *m_Value );
-                }();
-                if ( !parsed )
-                    return MakeError<T>( Located( Detail::DescribeReadError( parsed.error().what() ) ) );
-                return MakeSuccess( std::move( parsed.value() ) );
-            }
-            catch ( const std::exception& e )
-            {
-                return MakeError<T>( Located( Detail::DescribeReadError( e.what() ) ) );
-            }
+                if constexpr ( IsPartial<T> )
+                    return Detail::FromValue<T, rfl::DefaultIfMissing>( *m_Value );
+                else
+                    return Detail::FromValue<T, rfl::DefaultIfMissing, rfl::NoExtraFields>( *m_Value );
+            }();
+            if ( !parsed )
+                return MakeError<T>( Located( Detail::DescribeReadError( parsed.error().what() ) ) );
+            return MakeSuccess( std::move( *parsed ) );
         }
 
         // A component block read whole: a missing member keeps T's in-struct default, an unknown key is
@@ -246,17 +239,10 @@ namespace Common::Json
         template <typename T>
         [[nodiscard]] ResultStr<T> AsBlock() const
         {
-            try
-            {
-                auto parsed = Detail::FromValue<T, rfl::DefaultIfMissing>( *m_Value );
-                if ( !parsed )
-                    return MakeError<T>( Located( Detail::DescribeReadError( parsed.error().what() ) ) );
-                return MakeSuccess( std::move( parsed.value() ) );
-            }
-            catch ( const std::exception& e )
-            {
-                return MakeError<T>( Located( Detail::DescribeReadError( e.what() ) ) );
-            }
+            auto parsed = Detail::FromValue<T, rfl::DefaultIfMissing>( *m_Value );
+            if ( !parsed )
+                return MakeError<T>( Located( Detail::DescribeReadError( parsed.error().what() ) ) );
+            return MakeSuccess( std::move( *parsed ) );
         }
 
         // Member `key` into `out` under THE WRONG-TYPE RULE (top of this header): absent -> `out` untouched;

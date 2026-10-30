@@ -265,7 +265,11 @@ namespace Desert::Graphic
     inline float CloudShadowSnapToPixelGrid( float clipComponent, float resolution )
     {
         const float halfResolution = std::max( resolution, 1.0f ) * 0.5f;
-        return std::floor( clipComponent * halfResolution + 0.5f ) / halfResolution;
+        // Nearest lattice point, halves up, from the exact fraction: `floor( x + 0.5 )` rounds the sum first,
+        // so 0.49999997 + 0.5 is 1.0 and the point lands one texel off.
+        const float lattice = clipComponent * halfResolution;
+        const float below   = std::floor( lattice );
+        return ( lattice - below >= 0.5f ? below + 1.0f : below ) / halfResolution;
     }
 
     /// How many samples a texel's ray takes at this sun elevation. Mirror of CloudShadowSampleCount;
