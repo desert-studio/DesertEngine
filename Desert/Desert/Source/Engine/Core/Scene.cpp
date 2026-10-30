@@ -680,7 +680,10 @@ namespace Desert::Core
     {
         // The world's parameters before anything reads them: the scripts below set them, every view after them
         // snapshots them. The service logged a refusal once; the instance then holds none.
-        (void)SyncWorldParameters();
+        {
+            DESERT_PROFILE_SCOPE( "Scene: SyncWorldParameters" );
+            (void)SyncWorldParameters();
+        }
 
         // THE RENDER-STATE FRAME BOUNDARY: what the previous frame (its systems, its editor edits, its views)
         // dirtied is latched for scene.renderDirty and the next frame starts from an empty set.
@@ -695,7 +698,10 @@ namespace Desert::Core
         // per-frame overwrite, and it is why the preview rendered through the input-driven editor camera
         // one frame after being told not to.
         if ( !m_CameraPinned )
+        {
+            DESERT_PROFILE_SCOPE( "Scene: Active camera source" );
             UpdateActiveCameraSource();
+        }
 
         // The first view that refused, reported after every other view has had its frame: one broken
         // viewport must not silently cost the others theirs.
@@ -768,8 +774,11 @@ namespace Desert::Core
         // THE DEBUG DRAWING AGES before the systems draw this frame's (scripts run in them): last frame's
         // one-frame items go unless the world is paused, timed items count down by the scene's time - the editor's
         // step in Edit, gameplay's in Play, nothing while paused - as the effects clock below.
-        m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
-                          m_State != SceneState::Paused || TicksGameplay() );
+        {
+            DESERT_PROFILE_SCOPE( "Scene: DebugDraw Tick" );
+            m_DebugDraw.Tick( m_State == SceneState::Edit ? ts.GetSeconds() : gameplayTs.GetSeconds(),
+                              m_State != SceneState::Paused || TicksGameplay() );
+        }
 
         {
             DESERT_PROFILE_SCOPE( "ECS Systems" );
@@ -909,10 +918,13 @@ namespace Desert::Core
 
         // Every view's camera is ticked, not just view 0's: an EditorCamera integrates its own input and
         // a view whose camera never updated would be frozen in place while its window says otherwise.
-        for ( auto& view : m_Views.All() )
         {
-            if ( view.Camera )
-                view.Camera->OnUpdate( ts );
+            DESERT_PROFILE_SCOPE( "Scene: View cameras" );
+            for ( auto& view : m_Views.All() )
+            {
+                if ( view.Camera )
+                    view.Camera->OnUpdate( ts );
+            }
         }
 
         // ── THE LINE BETWEEN "ONCE" AND "PER VIEW" ───────────────────────────────────────────────────
@@ -931,6 +943,7 @@ namespace Desert::Core
             // of the family before any view renders): the frame's view origins - the cameras just ticked above -
             // and the scene's budget and card tracer are stated before the first view opens, so the one update the
             // first view to reach the cache runs captures the cards in front of every viewport, not its own.
+            DESERT_PROFILE_SCOPE( "Scene: Surface cache + retire" );
             const auto& frames = Engine::FrameManager::GetInstance();
             m_RetiringSurfaceCaches.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
             m_RetiringReflectionCaptures.Collect( frames.GetAbsoluteFrameCount(), frames.GetMaxFramesInFlight() );
@@ -990,7 +1003,12 @@ namespace Desert::Core
                 // way, which is why one renderer per scene never exposed it — and it is why the three
                 // phases were collapsed into this one function rather than left as an ordering rule for
                 // the next caller to get right.
-                if ( auto begun = view.Renderer->BeginScene( *this, view.Camera.get() ); !begun )
+                const auto begun = [&]
+                {
+                    DESERT_PROFILE_SCOPE( "SceneRenderer: BeginScene" );
+                    return view.Renderer->BeginScene( *this, view.Camera.get() );
+                }();
+                if ( !begun )
                 {
                     firstError = begun.GetError();
                     continue; // do NOT record into a renderer that refused to open
@@ -998,11 +1016,15 @@ namespace Desert::Core
 
                 // Registration order — NOT completion order — so the frame's submission order is
                 // identical to the old single-buffer sequential path.
-                for ( const auto& buffer : m_SystemCommandBuffers )
-                    buffer->ExecuteAll( *view.Renderer );
+                {
+                    DESERT_PROFILE_SCOPE( "Scene: System command buffers" );
+                    for ( const auto& buffer : m_SystemCommandBuffers )
+                        buffer->ExecuteAll( *view.Renderer );
+                }
 
                 view.Renderer->OnUpdate( sceneRendererInfo );
 
+                DESERT_PROFILE_SCOPE( "SceneRenderer: EndScene" );
                 if ( auto ended = view.Renderer->EndScene(); !ended && firstError.empty() )
                     firstError = ended.GetError();
             }

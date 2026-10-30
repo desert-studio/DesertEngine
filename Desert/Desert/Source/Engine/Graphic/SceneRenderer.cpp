@@ -1919,6 +1919,9 @@ namespace Desert::Graphic
             // explicit claim wins and clears the instance). The graph transients (TLAS instance rows, build
             // scratch, PrimitiveInstances) live in the device's transient heaps, each a TransientHeap row of the
             // Device. The view's scope is OnUpdate's (RT-LEDGER-3), not a second one here.
+            // The plan, by stage (GPU-COST-13): one row per stage, inside "Grass, TLAS, shadow plan".
+            DESERT_PROFILE_PHASES( planPhases );
+            DESERT_PROFILE_PHASE( planPhases, "Plan: View inputs" );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* const     meshes     = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const auto*     camera     = GetMainCamera();
@@ -1933,6 +1936,7 @@ namespace Desert::Graphic
 
             // The landscape tiles first: their vertex compute, then their BLAS requests join the RT scene's
             // dynamic-geometry pass, which the TLAS pass reads (orders it after the builds).
+            DESERT_PROFILE_PHASE( planPhases, "Plan: Landscape RT tiles" );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             const auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
             std::span<const System::TerrainDrawData>       queue     = terrain->GetQueue();
@@ -1974,6 +1978,7 @@ namespace Desert::Graphic
                            m_ViewResources.GetName(), landscape.GetError() );
             }
             // A failed AddPasses may have registered tiles whose build was never declared: none enters the TLAS.
+            DESERT_PROFILE_PHASE( planPhases, "Plan: TLAS + RT scene" );
             const RayTracing::LandscapeRayTracingFrame& landscapeFrame = m_LandscapeRayTracing.GetFrame();
             // The blade grass's level BLASes (GrassBladeRayTracing.hpp) join the same dynamic-geometry pass: their
             // primitives are the grass sections the gather reads from the mesh renderer. A face view grew no grass
@@ -2046,6 +2051,7 @@ namespace Desert::Graphic
             // "Deferred: Generic" - asks SunShadowIsScreenMask() (the ray-traced sun or the virtual shadow map),
             // which reads this resolution. Stochastic traces the sun AND the local lights: both its resources, or
             // neither method this frame.
+            DESERT_PROFILE_PHASE( planPhases, "Plan: Method lowering + local shadows" );
             const bool sunTraced = SunShadowIsRayTraced();
             LowerShadowsForFrame(
                  m_RenderMethods,
@@ -2123,6 +2129,7 @@ namespace Desert::Graphic
                 m_RetiredLocalShadowDenoisers.Collect( retireFrame, retireFrames.GetMaxFramesInFlight() );
             }
             // The maps are imported at the budget taken above, before any pass reads them.
+            DESERT_PROFILE_PHASE( planPhases, "Plan: Shadow maps + cascades" );
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (SunCascadesRead: blended/glass mesh draws, forward terrain, particles,
@@ -2160,6 +2167,9 @@ namespace Desert::Graphic
         // captured well"), and simulates none: the face views render first in a frame, and the first view to
         // prepare the tick is the one that simulates it.
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Add passes" );
+        // The passes, by stage (GPU-COST-13): one row per stage of building the graph, inside "Add passes".
+        DESERT_PROFILE_PHASES( addPhases );
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Particles + cloud shadow" );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesSimulate( graph );
 
@@ -2170,16 +2180,20 @@ namespace Desert::Graphic
         // This graph's shared traced records (m_TracedFrameShared) are made by their first reader - the surface
         // cache comes before the traced GI - so they are forgotten HERE, before any reader: a handle from the last
         // frame's graph is not a handle in this one.
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Draw bins" );
         m_TracedFrameShared = {};
         // The virtual shadow map's cluster path is this frame's only if its VSM cut sets it again: a frame whose
         // method is not VirtualMaps (or whose cut is refused) holds no last frame's issue or refused groups.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->ResetVirtualShadowGeometry();
         AddFrameDrawBins( graph, textures, frame );
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Virtual geometry" );
         AddFrameVirtualGeometry( graph, frame );
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Shadow depths" );
         AddFrameShadowDepths( graph, textures );
         // The view's light grid, read by every lit node after it (the forward meshes of the base pass, the
         // deferred composite, the glass).
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Light grid + forward volumes" );
         const LightGridParamsPayload lightGrid = AddFrameLightGrid( graph, textures, frame );
         // The MegaLights translucency volume the forward and glass cells read starts OFF (the neutral block); it is
         // lit by AddFrameMegaLightsVolume once its visibility source is drawn - before the base pass on the forward
@@ -2219,6 +2233,7 @@ namespace Desert::Graphic
             }
             AddFrameMegaLightsVolume( graph, textures, frame, lightGrid, prepassDepth );
         }
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Base pass" );
         AddFrameBasePass( graph, textures );
         // The selection outline's mask, which a face view's missing post chain would never read.
         if ( !m_ViewProfile.SceneCapture )
@@ -2229,6 +2244,7 @@ namespace Desert::Graphic
 
         // Deferred: fill the G-buffer, then shade it (or show a debug channel) into the scene target before
         // the post chain.
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Opaque path setup" );
         if ( m_RenderPath == Core::RenderPath::Deferred && m_GBuffer )
         {
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
@@ -2264,6 +2280,7 @@ namespace Desert::Graphic
             }
             if ( meshRenderer != nullptr )
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
+            DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
@@ -2276,6 +2293,7 @@ namespace Desert::Graphic
                 AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
             // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).
+            DESERT_PROFILE_PHASE( addPhases, "Add passes: Post-occlusion + depth" );
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
@@ -2289,6 +2307,7 @@ namespace Desert::Graphic
             // screen or traced GI, SSR, sun mask, composite, scene copy, water or glass (the paths integrate what
             // those approximate). The G-buffer and depth above stay: the overlays, the editor's grid and the
             // velocity read them.
+            DESERT_PROFILE_PHASE( addPhases, "Add passes: Deferred lighting" );
             if ( PathTraced( m_RenderMethods ) )
             {
                 if ( const Common::BoolResultStr traced = AddFramePathTracing( graph, textures, frame ); !traced )
@@ -2469,6 +2488,7 @@ namespace Desert::Graphic
 
         // The water writes the scene depth: the clouds and the particles after it read the resolve again. The
         // opaque depth is final here: the PostOpaque particle stage simulates against it (depth collision).
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Depth resolve + after opaque" );
         const RDG::TextureRef resolvedDepth = AddFrameSceneDepthResolve( graph, textures );
         if ( !m_ViewProfile.SceneCapture )
             AddFrameParticlesPostOpaque( graph, resolvedDepth );
@@ -2495,6 +2515,7 @@ namespace Desert::Graphic
 
         // AutoExposure's build-time step, before the first node that reads last frame's adapted luminance: the
         // temporal method's opaque passes below and the temporal node.
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Exposure + post" );
         const RDG::TextureRef exposurePrevious = PrepareFrameAutoExposure( textures );
         // The temporal method's passes over the OPAQUE scene, before the translucency composites into the scene
         // colour (ITemporalUpscaler::AddOpaquePasses; UE AddTSRMeasureFlickeringLuma). A refusal is said; the
@@ -2540,6 +2561,7 @@ namespace Desert::Graphic
         // After the last node that draws the scene geometry's velocity into the scene target (the translucency),
         // before its one reader, the temporal node. The overlays and post nodes below never write velocity (their
         // fragment shaders do not write slot 1: colour write mask 0, VulkanPipeline::CreateColorBlendState).
+        DESERT_PROFILE_PHASE( addPhases, "Add passes: Colour resolves + hand-off" );
         AddFrameGraphColorResolves( graph, textures );
 
         // WHAT THIS GRAPH HANDS OVER at its end, to a reader outside it.
@@ -2648,6 +2670,7 @@ namespace Desert::Graphic
         // the final image black for this frame.
         // A FrameFault never reaches EndFrame: the next BeginFrame still sees the last committed frame as
         // previous. A frame that executed commits as previous with what its report says it lost.
+        DESERT_PROFILE_PHASE_END( addPhases );
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: ExecuteGraph" );
         if ( Renderer::ExecuteGraph( graph ).IsSuccess() )
         {

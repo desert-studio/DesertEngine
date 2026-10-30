@@ -428,6 +428,11 @@ namespace Desert::Editor
         // THE NUDGE CLOCK, AND IT RUNS BEFORE THE CHANNEL DELIBERATELY. A request queued by a command
         // this frame must not be aged by the same frame's tick, or the drop that protects the reply gate
         // would fire a frame early and a slow viewport would lose a nudge it was about to perform.
+        // Every stage of the editor's frame tick is a row of its own (GPU-COST-13): the frame thread's time in
+        // this function used to show only as Layer::OnUpdate self time, with no stage named.
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "Editor: Control + script channels" );
+
         Core::ControlNudgeRequests::Tick();
 
         m_Control.ServiceChannel();
@@ -459,6 +464,7 @@ namespace Desert::Editor
 
         // Staged startup loading (EditorStartup::RunStartupFrame): ONE heavy stage per frame, and while it runs
         // the scene is NOT rendered — the frame is ImGui-only and the window it goes to is still hidden.
+        DESERT_PROFILE_PHASE( phases, "Editor: Startup frame" );
         if ( m_Startup.RunStartupFrame() )
         {
             SampleControlQuiescence();
@@ -468,6 +474,7 @@ namespace Desert::Editor
         // A scene handed over by a panel (dropped on the viewport, double-clicked in the asset browser).
         // It goes through the SAME deferred load as the menu — but a drag is easy to do by accident, so
         // unsaved work is not thrown away silently: the confirm popup decides, and only then do we queue.
+        DESERT_PROFILE_PHASE( phases, "Editor: Asset loader pump" );
         m_SceneFiles.ConsumeOpenRequest();
 
         // ONE PUMP PER TICK, AND IT IS THE FIRST THING THIS LAYER DOES AFTER THE BOOT.
@@ -484,6 +491,7 @@ namespace Desert::Editor
 
         // Scene loads wait until the startup stages finished (a scene expects cooked/preloaded assets).
         // A load that ran starts the content settle before the refused-load fallback and New Scene.
+        DESERT_PROFILE_PHASE( phases, "Editor: Scene file requests" );
         if ( !m_Startup.StartupLoading() )
         {
             // The read count of this load starts here: whatever the load asks for is counted from now.
@@ -524,6 +532,7 @@ namespace Desert::Editor
 
         // Opening an extra scene view, a second angle or the four-up grid allocates a SceneRenderer + Init()
         // (WaitDeviceIdle + framebuffer creation) — serviced here, between frames, like scene load/stop above.
+        DESERT_PROFILE_PHASE( phases, "Editor: Workspace + document requests" );
         if ( !m_Startup.StartupLoading() )
             m_Workspace.ServiceRequests();
 
@@ -556,6 +565,7 @@ namespace Desert::Editor
 
         // Stop is deferred here (between frames) so it never destroys/recreates render resources while a
         // command buffer that references them is in flight — see PlaySession::RequestStop.
+        DESERT_PROFILE_PHASE( phases, "Editor: Play requests + recovery" );
         m_Play.ServiceRequests();
 
         // The autosave timer (SessionRecovery::Tick).
@@ -564,6 +574,7 @@ namespace Desert::Editor
         // Apply any deferred panel state (e.g. viewport resize) before scene rendering.
         // Panels defer GPU-side resize from OnUIRender to here so descriptor set pools are
         // never destroyed while their DS are bound to the recording command buffer.
+        DESERT_PROFILE_PHASE( phases, "Editor: Panels OnPreUpdate" );
         for ( auto& panel : m_Panels )
             panel->OnPreUpdate();
         // The documents get the same call, from their own owner. Two loops rather than one is the visible
@@ -600,9 +611,11 @@ namespace Desert::Editor
         // Every open document, not only the focused one, for the same reason UpdateSceneFrame below runs
         // for every one: a secondary viewport showing a canvas is a live view, and a render-texture
         // element in it that stopped being advanced would show a frozen world with nothing in the log.
+        DESERT_PROFILE_PHASE( phases, "Editor: Render textures" );
         m_Workspace.TickRenderTextures( frameTs );
 
         // The one thumbnail pump, gated by the reveal (EditorStartup::TickThumbnails).
+        DESERT_PROFILE_PHASE( phases, "Editor: Thumbnails + WP build + contextual panels" );
         m_Startup.TickThumbnails();
         // A running Build HLODs advances its landscape bake here, whether its panel is open or not.
         if ( m_WorldPartitionPanel )
@@ -612,12 +625,14 @@ namespace Desert::Editor
 
         // Asset hot-reload: pick up edited .demat/.shader files (runs BEFORE scene rendering so
         // a shader-triggered pipeline invalidation never touches an in-recording frame).
+        DESERT_PROFILE_PHASE( phases, "Editor: Hot reload" );
         m_AssetCompiling.TickHotReload( frameTs, m_Workspace.ActiveScene().get() );
 
         // Destroy invalidated runtime materials (shader switched in the editor / hot reload) at
         // the only safe point: before any command recording, behind a device-idle wait. Doing it
         // where Invalidate() is called (mid-UI, mid-recording) kills descriptor pools the current
         // command buffer references -> device lost.
+        DESERT_PROFILE_PHASE( phases, "Editor: Material GC + video" );
         if ( auto* materialService = Runtime::ResourceRegistry::GetMaterialService() )
             materialService->CollectGarbage();
 
@@ -629,6 +644,7 @@ namespace Desert::Editor
 
         // Screenshot mode (ShotDirector): `--play` starts the world, then the camera is placed for the frame about
         // to be rendered.
+        DESERT_PROFILE_PHASE( phases, "Editor: Shot director" );
         m_Shots.BeginPlayIfDue( shotRecorded );
         m_Shots.PlaceCamera( m_Startup.StartupLoading() );
 
@@ -647,11 +663,13 @@ namespace Desert::Editor
         // outline aid + Begin/RegistryRender/OnUpdate/End are folded into UpdateSceneFrame (see below), applied
         // per scene so a secondary viewport is a full, independent render — not a static snapshot.
         // (SceneWorkspace::TickWorlds; UE: UEditorEngine::Tick's loop over the WorldContexts.)
+        DESERT_PROFILE_PHASE( phases, "Editor: Tick worlds" );
         if ( auto ticked = m_Workspace.TickWorlds( frameTs, m_Play, m_Shots.RecordingThisFrame() ); !ticked )
             return ticked;
 
         // Runs a queued "Convert to Skinned" (rig builder) here, outside ImGui component iteration — the swap
         // removes the StaticMeshComponent the Details panel is drawing, so it must not happen mid-render.
+        DESERT_PROFILE_PHASE( phases, "Editor: Rig builder + shot record" );
         if ( m_Workspace.ActiveScene() && m_AssetManager )
             RigBuilder::ProcessPending( *m_Workspace.ActiveScene(), *m_AssetManager );
 
@@ -742,9 +760,14 @@ namespace Desert::Editor
 
     Common::BoolResultStr EditorLayer::OnUIRender()
     {
+        // The UI frame by stage (GPU-COST-13), inside "UI Render": ImGui's own begin/end and the editor chrome
+        // are rows of their own beside the per-panel rows DockLayout opens.
+        DESERT_PROFILE_PHASES( phases );
+        DESERT_PROFILE_PHASE( phases, "ImGui: BeginFrame" );
         // The ImGui frame and ImGuizmo's (EditorImGuiHost::BeginFrame).
         m_ImGuiHost.BeginFrame();
 
+        DESERT_PROFILE_PHASE( phases, "ImGui: Editor chrome + panels" );
         SyncEditorWindowTitle( *m_Application, m_Workspace.ActiveScene().get() );
 
         // LOADING FRAMES DRAW NOTHING. They go to a window that is still hidden — the splash is what a
@@ -821,11 +844,13 @@ namespace Desert::Editor
         // the frame.
         m_ImGuiHost.DrawResizeBorders();
 
+        DESERT_PROFILE_PHASE( phases, "ImGui: EndFrame (render + draw data)" );
         m_ImGuiHost.EndFrame();
 
         // AFTER the interface has been recorded into the swapchain pass and BEFORE the frame is submitted:
         // the only window in which the presented image is legally ours to copy out of. A no-op unless a
         // `shot.window` is waiting on exactly this frame. See RecordWindowCaptureIfDue.
+        DESERT_PROFILE_PHASE( phases, "Editor: Window capture" );
         m_Control.RecordWindowCaptureIfDue();
 
         return BOOLSUCCESS;

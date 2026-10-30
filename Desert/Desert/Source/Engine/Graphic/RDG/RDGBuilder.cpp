@@ -1063,10 +1063,23 @@ namespace Desert::Graphic::RDG
         // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared (empty = prepared or none).
         std::vector<std::string> prepareFailures( m_Passes.size() );
 
+#if DESERT_DEV_INSTRUMENTS
+        // THE CPU RECORD COST OF EACH PASS, one row per pass (UE: RDG's per-pass CPU event under the pass's
+        // name). Prefixed so it never lands in the row the backend fills with the same pass's GPU time, nor in
+        // a DESERT_PROFILE_PASS row the pass's own lambda opens under that name. Held here, by pass, because the
+        // profiler keeps the name pointer for the scope's life.
+        std::vector<std::string> recordRowNames( m_Passes.size() );
+#endif
+
         // One pass inside its segment: barriers, render pass, exec, releases. Only a BACKEND failure abandons
         // the graph; a pass that fails or loses an input is a late fault and the graph goes on.
         auto recordPass = [&]( const CompiledPass& planned ) -> Common::BoolResultStr
         {
+#if DESERT_DEV_INSTRUMENTS
+            std::string& recordRowName = recordRowNames[planned.Pass];
+            recordRowName              = "RDG Record: " + planned.Name;
+            DESERT_PROFILE_SCOPE_DYNAMIC( recordRowName.c_str() );
+#endif
             const uint32_t          p = planned.Pass;
             CompiledPass            adjusted;
             bool                    useAdjusted = false;

@@ -156,6 +156,16 @@ namespace Desert::Editor
                 gpuSumMs += s.GpuSelfMs;
         }
 
+        // UNACCOUNTED, CPU (UE "stat unit"): the frame thread's wall time outside every outermost scope it
+        // opened - frame work no row names. A row is added where this grows, never a guess at its owner.
+        {
+            const double namedMs = prof.LastFrameNamedMs();
+            const double cpuRest = std::max( 0.0, frameMs - namedMs );
+            LOG_INFO( "[Profiler] Unaccounted CPU (frame thread) {:.3f} ms of a {:.3f} ms frame ({:.1f} %); "
+                      "named outermost scopes hold {:.3f} ms",
+                      cpuRest, frameMs, frameMs > 0.0001 ? cpuRest / frameMs * 100.0 : 0.0, namedMs );
+        }
+
         LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
                   "remainder is device work no pass is marked around.",
                   gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
