@@ -3,78 +3,54 @@
         "Kind": "WeatherPreset",
         "Guid": "bc99213e52904416b7e037af58873841",
         "Versions": {
-            "WTHP": 1
+            "WTHP": 2
         },
-        "Dependencies": []
+        "Dependencies": ["9804323bb6b3fbf4e88e85bf512d5c81", "a210ced5741f721e9e8fb6a007fd6b76"]
     },
     "Parameters": [
         {
             "Name": "RainIntensity",
-            "Value": [
-                0.9,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.8999999761581421, 0.0, 0.0, 0.0]
         },
         {
             "Name": "SnowIntensity",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Wetness",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "PuddleLevel",
-            "Value": [
-                0.8,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.800000011920929, 0.0, 0.0, 0.0]
         },
         {
             "Name": "SnowCover",
-            "Value": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [0.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "Lightning",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         }
     ],
     "CloudCoverage": 1.0,
     "CloudTypes": [
         {
-            "Type": "Clouds/Types/Cumulus_Congestus.decloudtype",
+            "Type": {
+                "Guid": "a210ced5741f721e9e8fb6a007fd6b76",
+                "Path": "Clouds/Types/Cumulus_Congestus.decloudtype"
+            },
             "Weight": 1.0
         },
         {
-            "Type": "Clouds/Types/Stratus.decloudtype",
+            "Type": {
+                "Guid": "9804323bb6b3fbf4e88e85bf512d5c81",
+                "Path": "Clouds/Types/Stratus.decloudtype"
+            },
             "Weight": 1.0
         }
     ],
-    "CloudDensity": 1.8,
-    "FogDensity": 0.07,
+    "CloudDensity": 1.7999999523162842,
+    "FogDensity": 0.07000000029802322,
     "WindSpeed": 1800.0
 }

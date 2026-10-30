@@ -1,0 +1,29 @@
+# WTH-OVERCAST-HORIZON: the Rain preset brings a Stratus deck in (WTH-OVERCAST 52465fec5); on 10-20 frames the
+# deck covered zenith and mid sky but stopped short of the horizon, where a band of blue sky with cumulus showed.
+# UE's Volumetric Cloud gives one field at every distance (weather map + cloud type), so the deck must reach the
+# horizon. Clouds_Weather_{Clear,Rain} = Clouds_Protocol with M_Clouds_Weather and an unbound WeatherZone.
+# Weather applies only while the scene ticks gameplay (Scene.cpp TicksGameplay), so each scene is shot in Play from Here.
+Дано run Scene "Open Scene Clouds_Weather_Clear.desce"
+Дано run View "View mode: Lit"
+Дано run Action "Play from Here"
+Дано advance 1
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 0.05,1,0.02
+Тогда-вид 1_clear_zenith Clear: cumulus on blue sky overhead, unchanged vs dev
+Когда --subject viewport set Camera.Direction 1,0.6,0.1
+Тогда-вид 2_clear_mid Clear: cumulus on blue sky at mid elevation, unchanged vs dev
+Когда --subject viewport set Camera.Direction 1,0.04,0.1
+Тогда-вид 3_clear_horizon Clear: cumulus down to the horizon, blue between them, unchanged vs dev
+Когда run Action "Stop"
+Когда run Scene "Open Scene Clouds_Weather_Rain.desce"
+Когда run Action "Play from Here"
+Когда advance 1
+Когда --subject viewport set Camera.FOV 70
+Когда --subject viewport set Camera.Position 0,300,0
+Когда --subject viewport set Camera.Direction 0.05,1,0.02
+Тогда-вид 4_rain_zenith Rain: a solid grey deck overhead, no blue
+Когда --subject viewport set Camera.Direction 1,0.6,0.1
+Тогда-вид 5_rain_mid Rain: the grey deck at mid elevation, no blue
+Когда --subject viewport set Camera.Direction 1,0.04,0.1
+Тогда-вид 6_rain_horizon Rain: the grey deck reaches down to the horizon - no band of blue sky or lone cumulus beneath it
