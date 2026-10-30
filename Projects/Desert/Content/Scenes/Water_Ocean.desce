@@ -40,7 +40,7 @@
                     "Path": "assets:Water/Waves/ShoreSwell.dwaves"
                 },
                 "OceanExtents": [4096000.0, 4096000.0],
-                "TargetWaveMaskDepth": 2048.0,
+                "TargetWaveMaskDepth": 200.0,
                 "WaterMaterial": {
                     "Guid": "5a1e0c3f9b7d4e2a8c6f1b0d3e5a7c91",
                     "Path": "assets:Water/Materials/M_Water_Ocean.demat"

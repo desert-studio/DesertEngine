@@ -206,6 +206,9 @@ struct SingleLayerWaterOutput
     float FoamJacobianSoftness;   // the Jacobian range over which the whitecap fades in
     float FoamDecaySeconds;       // e-folding time of foam left behind on the water particle that broke
     float FoamBreakerIndex;       // gamma = H / d at which a wave breaks on the shallows (McCowan 0.78)
+    float ShoreFadeCm;            // the water column (cm) over which the surface fades in from where it meets
+                                  // the ground (UE's water material depth fade): no hard intersection line
+    float DebugFoamMask;          // 1 = draw only the foam mask (white foam, black water) - a debug material
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.

@@ -4,6 +4,9 @@
 #ifndef DESERT_WATER_MESH_TILES_GLSLH
 #define DESERT_WATER_MESH_TILES_GLSLH
 
+// WaterGroundDepth reads the WaterInfo texture (a texture2D, no sampler) with textureSize/texelFetch.
+#extension GL_EXT_samplerless_texture_functions : require
+
 struct WaterTileRow
 {
     vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side length
@@ -28,6 +31,7 @@ struct WaterWaveRow
 layout( std430, binding = 24 ) readonly buffer WaterTiles
 {
     vec4         WaterWaveHeader; // x = wave count, y unused, zw = WaveOrigin (X, Z)
+    vec4         WaterInfoFrame;  // WaterInfoTexture's square: xy = lower world (X, Z), z = 1 / side (cm), w = the body's TargetWaveMaskDepth (cm), 0 = none baked
     WaterWaveRow WaterWaveRows[WATER_MAX_WAVES];
     WaterTileRow WaterTileRows[];
 };
@@ -68,6 +72,46 @@ float WaterWavesJacobian( vec2 plane, float time )
         j += GerstnerWaveJacobianTerm( plane, WaterWaveRows[k].Wave.xy, WaterWaveRows[k].Wave.z,
                                        WaterWaveRows[k].Wave.w, WaterWaveRows[k].Form.x, time );
     return GerstnerJacobian( j );
+}
+
+// THE WATER INFO GROUND (UE WaterInfo texture, its ground channel; Water::WaterInfoGround): the landscape's height
+// under the zone seen from straight above, world Y in cm, over the square WaterInfoFrame names. Read by BOTH stages:
+// the vertex path damps the waves by it, the pass judges the surf by it. Binding 25: free in every surface cell
+// (the list above). Fetched texel by texel and filtered here, so neither stage needs a sampler of its own.
+layout( binding = 25 ) uniform texture2D WaterInfoTexture;
+
+// The still water column at a world (X, Z): the still level minus the ground below it, from above - not the scene
+// depth behind the pixel, so a mesh in the water is no shallows and the depth does not move with the camera.
+// 0 = no ground under it (open sea, or a zone without a landscape).
+float WaterGroundDepth( vec2 worldXZ, float stillY )
+{
+    if ( WaterInfoFrame.w < 0.5 )
+        return 0.0;
+    const vec2 uv = ( worldXZ - WaterInfoFrame.xy ) * WaterInfoFrame.z;
+    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
+        return 0.0;
+    const ivec2 size = textureSize( WaterInfoTexture, 0 );
+    const vec2  p    = uv * vec2( size ) - 0.5;
+    const ivec2 i0   = clamp( ivec2( floor( p ) ), ivec2( 0 ), size - 1 );
+    const ivec2 i1   = min( i0 + 1, size - 1 );
+    const vec2  f    = clamp( p - floor( p ), 0.0, 1.0 );
+    const float h00  = texelFetch( WaterInfoTexture, i0, 0 ).r;
+    const float h10  = texelFetch( WaterInfoTexture, ivec2( i1.x, i0.y ), 0 ).r;
+    const float h01  = texelFetch( WaterInfoTexture, ivec2( i0.x, i1.y ), 0 ).r;
+    const float h11  = texelFetch( WaterInfoTexture, i1, 0 ).r;
+    if ( min( min( h00, h10 ), min( h01, h11 ) ) < -0.5e6 )
+        return 0.0; // the landscape's edge: no ground to break on
+    const float ground = mix( mix( h00, h10, f.x ), mix( h01, h11, f.x ), f.y );
+    return max( stillY - ground, 1.0 ); // over the ground's own level: the thinnest film
+}
+
+// How much of the body's waves survives over the ground at a world (X, Z) (UE: the water vertex factory's
+// GetWaveAttenuationFactor over the WaterInfo depth; the CPU's Water::QueryWaterBody damps by the same function, so
+// what floats rides the surface drawn). 1 over open sea.
+float WaterWaveAttenuation( vec2 worldXZ, float stillY )
+{
+    const float depth = WaterGroundDepth( worldXZ, stillY );
+    return depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0;
 }
 
 #endif // DESERT_WATER_MESH_TILES_GLSLH

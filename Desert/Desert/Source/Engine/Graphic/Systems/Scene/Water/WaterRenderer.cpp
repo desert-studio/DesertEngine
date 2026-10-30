@@ -60,9 +60,31 @@ namespace Desert::Graphic::System
         struct WaterWavesBlock
         {
             glm::vec4                           Header{ 0.0f }; // x = count, y unused, zw = WaveOrigin
+            glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
             std::array<WaterWaveRow, kMaxWaves> Rows{};
         };
-        static_assert( sizeof( WaterWavesBlock ) == ( 1 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
+        static_assert( sizeof( WaterWavesBlock ) == ( 2 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
+
+        // The WaterInfo ground as the GPU samples it: one R32F texel per baked height (Water::WaterInfoGround).
+        std::shared_ptr<Image2D> CreateWaterInfoImage( const uint32_t size, const std::vector<float>& heights )
+        {
+            std::vector<unsigned char> bytes( heights.size() * sizeof( float ) );
+            std::memcpy( bytes.data(), heights.data(), bytes.size() );
+            Core::Formats::Image2DSpecification spec = {
+                 .Tag        = "WaterInfoGround",
+                 .Width      = size,
+                 .Height     = size,
+                 .Format     = Core::Formats::ImageFormat::R32F,
+                 .Mips       = 1,
+                 .Samples    = 1,
+                 .Data       = Core::Formats::EmptyPixelData{},
+                 .Usage      = Core::Formats::Image2DUsage::Image2D,
+                 .Properties = Core::Formats::ImageProperties::Sample,
+                 .MipLevels  = {},
+            };
+            spec.Data = std::move( bytes );
+            return Image2D::Create( spec );
+        }
 
         // The still surface's vertical extent the quadtree culls with when the body has no waves.
         constexpr float kFlatSurfaceVerticalExtentCm = 1.0f;
@@ -174,6 +196,11 @@ namespace Desert::Graphic::System
         Assets::AssetHandle material   = Assets::AssetHandle::Null();
         Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
         glm::vec2           waveOrigin( 0.0f );
+        float                                         waveMaskDepth = 0.0f;
+        std::shared_ptr<const Water::WaterInfoGround> ground;
+        for ( const WaterZoneDraw& zone : m_Queue )
+            if ( ground == nullptr )
+                ground = zone.Ground;
         for ( const WaterZoneDraw& zone : m_Queue )
             for ( size_t b = 0; b < zone.BodyMaterials.size(); ++b )
             {
@@ -185,6 +212,7 @@ namespace Desert::Graphic::System
                     material   = body;
                     wavesAsset = zone.BodyWaves[b];
                     waveOrigin = zone.BodyWaveOrigins[b];
+                    waveMaskDepth = zone.BodyWaveMaskDepths[b];
                 }
                 else if ( body != material )
                     WarnOnce( body, "differs from another body's in the same frame - drawn with the first one" );
@@ -268,6 +296,18 @@ namespace Desert::Graphic::System
             return;
 
         ApplyMaterial( material, *program );
+
+        // THE WATER INFO GROUND (UE WaterInfo): re-uploaded only when the collector baked a new one. Over no
+        // landscape the texture is one texel of kWaterInfoNoGroundCm - a bottom no wave reaches.
+        if ( ground != m_GroundBaked || m_WaterInfo == nullptr )
+        {
+            m_GroundBaked = ground;
+            m_WaterInfo   = ground != nullptr && ground->Size > 0u
+                                 ? CreateWaterInfoImage( ground->Size, ground->HeightCm )
+                                 : CreateWaterInfoImage( 1u, { Water::kWaterInfoNoGroundCm } );
+        }
+        if ( ground != nullptr && ground->ExtentCm > 0.0f )
+            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
         {
             std::vector<std::byte> bytes( sizeof( WaterWavesBlock ) + rows.size() * sizeof( WaterTileRow ) );
@@ -280,10 +320,11 @@ namespace Desert::Graphic::System
     }
 
     void WaterRenderer::DeclareDraws( RDG::PassBuilder& pass, const RDG::TextureRef sceneCopy,
-                                      const SceneViewInputs& view, const SceneFrameBinding& frame )
+                                      const RDG::TextureRef waterInfo, const SceneViewInputs& view,
+                                      const SceneFrameBinding& frame )
     {
         // Exactly when RenderManual draws.
-        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() )
+        if ( m_FrameDraws.empty() || m_Frame == nullptr || !sceneCopy.IsValid() || !waterInfo.IsValid() )
             return;
         // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
         frame.ApplyTo( m_Frame->Material.get() );
@@ -292,7 +333,11 @@ namespace Desert::Graphic::System
         BindSceneViewInputs( block, view, *layout );
         constexpr RDG::TextureParameter kSceneColor{ "SceneColorTexture" };
         constexpr RDG::SamplerParameter kClamp{ "LinearClampSampler" };
+        // The WaterInfo ground (UE: the water info texture a view's water pass reads): a pass input like the scene
+        // copy, never a material property.
+        constexpr RDG::TextureParameter kWaterInfo{ "WaterInfoTexture" };
         block.Texture( kSceneColor, sceneCopy, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
+             .Texture( kWaterInfo, waterInfo, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
              .Sampler( kClamp, RDG::SamplerDesc::LinearClamp() );
     }
 

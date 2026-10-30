@@ -73,13 +73,16 @@ void main()
     // same function the CPU floats things on (Common/GerstnerWave.glslh).
     const float time     = cameraUB.Time;
     const vec2  plane    = WaterWavePlane( restPos.xz );
-    const vec3  offset   = WaterWavesDisplacement( plane, time );
+    // Damped over the shallows by the ground beneath (UE TargetWaveMaskDepth): a swell dies onto the beach instead
+    // of running up it at full height.
+    const float atten    = WaterWaveAttenuation( restPos.xz, restPos.y );
+    const vec3  offset   = WaterWavesDisplacement( plane, time ) * atten;
     const vec4  worldPos = vec4( restPos.xyz + offset, 1.0 );
 
     // The displaced surface's frame: Y up turned onto the wave normal; tangent along +X, bitangent along -Z
     // (right-handed with the normal, the UV's v running with -Z), so a tangent-space ripple map reads as it does on
     // a plane mesh.
-    const vec3 N = WaterWavesNormal( plane, time );
+    const vec3 N = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( plane, time ), atten ) );
     const vec3 T = normalize( vec3( N.y, -N.x, 0.0 ) );
     const vec3 B = normalize( cross( N, T ) );
     v_Surface.WorldPosition = worldPos.xyz;
@@ -93,7 +96,7 @@ void main()
     v_Surface.TBN           = mat3( T, B, N );
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
     // same sum one frame earlier (UE's water writes velocity from the previous frame's waves).
-    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesDisplacement( plane, cameraUB.PrevTime ), 1.0 );
+    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesDisplacement( plane, cameraUB.PrevTime ) * atten, 1.0 );
     v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
     v_Surface.PrevClip    = cameraUB.PrevViewProjection * prevPos;
     v_Surface.ObjectMoved = 0.0;
