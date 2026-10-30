@@ -22,10 +22,10 @@
 // is NOT visible (the world cell, or the child HLOD cell, Activated). Walk any world cell C that is not visible:
 // its depth-1 node is drawn if its HLOD cell is resident; if not, that HLOD cell is not visible, so the parent
 // standing in for it is drawn if ITS cell is resident; ... up to the top, which is always resident. So no
-// distance has a hole. What can overlap is a world cell already visible inside an HLOD cell still loading (the
-// parent of that HLOD cell is drawn over it until the HLOD cell activates): UE has the same band, and the
-// ranges ValidateHLODLayers demands (each layer further than what it stands in for) keep it to the moment of a
-// teleport.
+// distance has a hole. What could overlap is a world cell already visible inside an HLOD cell still loading
+// (the parent of that HLOD cell drawn over it until the HLOD cell activates) - UE's band. It is closed by order,
+// not by range: the world cell waits for the HLOD cell above it and the HLOD cell is held while the world cell
+// is drawn (HLODRuntime::WorldGate / HLODGate, WorldPartitionHLODSwitch.hpp, THE SWAP, BY RESIDENCY).
 //
 // ── THE RESIDENCY ─────────────────────────────────────────────────────────────────────────────────
 //

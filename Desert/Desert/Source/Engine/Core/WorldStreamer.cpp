@@ -930,30 +930,47 @@ namespace Desert::Core
              *this, std::make_shared<StoredHLODCellSource>( std::move( held ), std::move( unitRows ) ),
              std::move( recordIds ) );
 
+        auto runtime = Rules::HLODRuntime::Make( Executor().Plan(), h, r );
+        if ( !runtime )
+            return failed( runtime.GetError() );
+        m_HLODs = runtime.ExtractValue();
+
         // THE TOP OF EVERY CHAIN, before the first frame and ONE HLOD AT A TIME (CellHLOD's rule): read, made
-        // entities, dropped before the next read. The spatially loaded ones stream from the first Tick on, and
-        // until theirs activates the top stands in.
-        const Common::Utils::ProcessFootprint before = Common::Utils::ReadProcessFootprint();
-        std::size_t                           made   = 0;
-        for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
+        // entities, dropped before the next read. Then, the same way, the HLOD cells above the world cells
+        // Edit -> Play kept (HLODRuntime::CellsWantedAtBegin): without them the parent standing in for such an
+        // HLOD cell would be drawn over those cells until it streamed in (THE SWAP, BY RESIDENCY). The rest
+        // stream from the first Tick on, and until theirs activates the parent above stands in.
+        const Common::Utils::ProcessFootprint before   = Common::Utils::ReadProcessFootprint();
+        const std::vector<std::size_t>        atBegin  = m_HLODs->CellsWantedAtBegin( Executor().State() );
+        std::size_t                           made     = 0;
+        const auto                            makeUnit = [&]( std::size_t unit ) -> Common::BoolResultStr
         {
-            auto records = m_HLODCells->Source().UnitRecords( a );
+            auto records = m_HLODCells->Source().UnitRecords( unit );
             if ( !records )
                 return failed( records.GetError() );
             made += records.GetValue().size();
             if ( auto instantiated =
                       SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
                  !instantiated )
-                return failed( "making " + Rules::DescribeHLODUnit( h, r, a ) + " failed: " + instantiated.GetError() );
+                return failed( "making " + Rules::DescribeHLODUnit( h, r, unit ) +
+                               " failed: " + instantiated.GetError() );
+            return BOOLSUCCESS;
+        };
+        for ( std::size_t a = 0; a < r.Plan.AlwaysLoaded.size(); ++a )
+            if ( auto ok = makeUnit( a ); !ok )
+                return ok;
+        for ( const std::size_t unit : atBegin )
+        {
+            if ( auto ok = makeUnit( unit ); !ok )
+                return ok;
+            LOG_INFO( "[WorldPartition] '{0}': {1} loaded at the start of Play, above the cells Edit kept.",
+                      m_SceneName, Rules::DescribeHLODUnit( h, r, unit ) );
         }
-        auto executor = Rules::ResidencyExecutor::BeginFromAlwaysLoaded( r.Plan, r.Partition, m_Settings, r.Records, {} );
+        auto executor =
+             Rules::ResidencyExecutor::BeginFromAlwaysLoaded( r.Plan, r.Partition, m_Settings, r.Records, {}, atBegin );
         if ( !executor )
             return failed( "the HLOD cells: " + executor.GetError() );
         m_HLODExecutor = executor.ExtractValue();
-        auto runtime   = Rules::HLODRuntime::Make( Executor().Plan(), h, r );
-        if ( !runtime )
-            return failed( runtime.GetError() );
-        m_HLODs = runtime.ExtractValue();
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access): assigned just above
         if ( auto synced = m_HLODs->Sync( Executor().State(), &m_HLODExecutor->State(), *this ); !synced )
             return failed( synced.GetError() );

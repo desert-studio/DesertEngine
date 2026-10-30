@@ -21,6 +21,17 @@
 // no frame with a hole, no frame with both. Doing it one frame late in either direction is exactly the defect
 // the suite (WorldPartitionStreamer, HLOD switch) is there to catch.
 //
+// ── THE SWAP, BY RESIDENCY (WP-FAR-8, a streamed hierarchy) ─────────────────────────────────────────
+//
+// UE's rule (a parent HLOD is hidden exactly while its child cell is visible) leaves a band: a world cell that
+// activates while the HLOD cell above it is still loading is drawn under the parent standing in for that HLOD
+// cell - the same buildings twice, z-fighting. Here the order is enforced instead (ResidencyGate): a world cell
+// waits, Loaded, until every HLOD cell above it is Activated (WorldGate), an HLOD cell waits for the HLOD cell
+// its stand-in lives in, and an HLOD cell is not released while a world cell beneath it is Activated or a child
+// HLOD cell is not Unloaded (HLODGate). So a parent hides only once its children are entities and shows again
+// in the frame its last child goes: at any distance exactly one of {cell, its HLOD, a parent} is drawn. Waiting
+// costs detail, never a hole: the held cell is drawn by the parent meanwhile.
+//
 // ── READ FROM THE STATE, NOT FROM EVENTS ────────────────────────────────────────────────────────────
 //
 // UE flips on OnCellShown/OnCellHidden. Here the executor's actions are the only place a cell's records come or
@@ -113,6 +124,10 @@ namespace Desert::Core::Rules
             HLODRuntime       runtime;
             runtime.m_HLODOfUnit.assign( units, kNoRecord );
             runtime.m_HLODUnits = hlodUnits;
+            runtime.m_WorldWaitsFor.assign( units, {} );
+            runtime.m_CellWaitsFor.assign( hlodUnits, {} );
+            runtime.m_CellHeldByWorld.assign( hlodUnits, {} );
+            runtime.m_CellHeldByCells.assign( hlodUnits, {} );
             runtime.m_Applied.assign( hierarchy.Nodes.size(), kNotApplied );
             for ( std::size_t hlod = 0; hlod < hierarchy.Nodes.size(); ++hlod )
             {
@@ -125,6 +140,16 @@ namespace Desert::Core::Rules
                              std::format( "HLOD '{}' stands in for HLOD cell {} of {}", node.Name, node.StandsFor,
                                           hierarchy.Cells.size() ) );
                     runtime.m_UnitOfHLOD.push_back( unit );
+                    // THE SWAP'S ORDER (see THE SWAP, BY RESIDENCY): every world cell this parent is built from
+                    // waits for the HLOD cell it stands in for, and that cell is held while any of them is drawn.
+                    for ( const std::size_t source : node.SourceUnits )
+                    {
+                        if ( source >= units )
+                            return Common::MakeError<HLODRuntime>( std::format(
+                                 "HLOD '{}' is built from unit {} of {}", node.Name, source, units ) );
+                        runtime.m_WorldWaitsFor[source].push_back( unit );
+                        runtime.m_CellHeldByWorld[unit].push_back( source );
+                    }
                 }
                 else
                 {
@@ -143,6 +168,13 @@ namespace Desert::Core::Rules
                     return Common::MakeError<HLODRuntime>(
                          std::format( "HLOD '{}' lives in HLOD unit {} of {}", node.Name, residesIn, hlodUnits ) );
                 runtime.m_ResidesIn.push_back( residesIn );
+                // A parent living in an HLOD cell: the cell it stands in for waits for that one, and holds it.
+                if ( node.ForHLODCell && residesIn >= residency.Plan.AlwaysLoaded.size() )
+                {
+                    const std::size_t child = runtime.m_UnitOfHLOD.back();
+                    runtime.m_CellWaitsFor[child].push_back( residesIn );
+                    runtime.m_CellHeldByCells[residesIn].push_back( child );
+                }
             }
             return Common::MakeSuccess( std::move( runtime ) );
         }
@@ -189,6 +221,83 @@ namespace Desert::Core::Rules
             return Common::MakeSuccess( switched );
         }
 
+        // THE WORLD'S GATE (streamed hierarchy only; empty otherwise): a world cell may not activate while an
+        // HLOD cell standing above it is not Activated, because the parent standing in for that HLOD cell is
+        // drawn and would be drawn over the cell.
+        [[nodiscard]] Common::ResultStr<ResidencyGate> WorldGate( const ResidencyState& hlodState ) const
+        {
+            ResidencyGate gate;
+            if ( m_ResidesIn.empty() )
+                return Common::MakeSuccess( std::move( gate ) );
+            if ( hlodState.Units.size() != m_HLODUnits )
+                return Common::MakeError<ResidencyGate>(
+                     std::format( "the HLOD gate was made for {} HLOD unit(s), the HLOD residency has {}",
+                                  m_HLODUnits, hlodState.Units.size() ) );
+            gate.HoldActivation.assign( m_WorldWaitsFor.size(), 0 );
+            for ( std::size_t unit = 0; unit < m_WorldWaitsFor.size(); ++unit )
+                for ( const std::size_t cell : m_WorldWaitsFor[unit] )
+                    if ( !IsCellVisible( hlodState.Units[cell].State ) )
+                        gate.HoldActivation[unit] = 1;
+            return Common::MakeSuccess( std::move( gate ) );
+        }
+
+        // THE HLOD CELLS' GATE, on the world's state AFTER its tick this frame: an HLOD cell may not activate
+        // while the HLOD cell its own stand-in lives in is not Activated (that stand-in's parent is drawn over
+        // it), and may not be released while a world cell it stands above is Activated, or while a child HLOD
+        // cell whose stand-in lives in it is anything but Unloaded (it could activate in this very step).
+        [[nodiscard]] Common::ResultStr<ResidencyGate> HLODGate( const ResidencyState& state,
+                                                                 const ResidencyState& hlodState ) const
+        {
+            ResidencyGate gate;
+            if ( m_ResidesIn.empty() )
+                return Common::MakeSuccess( std::move( gate ) );
+            if ( state.Units.size() != m_WorldWaitsFor.size() || hlodState.Units.size() != m_HLODUnits )
+                return Common::MakeError<ResidencyGate>( std::format(
+                     "the HLOD gate was made for {} unit(s) and {} HLOD unit(s), the residencies have {} and {}",
+                     m_WorldWaitsFor.size(), m_HLODUnits, state.Units.size(), hlodState.Units.size() ) );
+            gate.HoldActivation.assign( m_HLODUnits, 0 );
+            gate.HoldRelease.assign( m_HLODUnits, 0 );
+            for ( std::size_t cell = 0; cell < m_HLODUnits; ++cell )
+            {
+                for ( const std::size_t above : m_CellWaitsFor[cell] )
+                    if ( !IsCellVisible( hlodState.Units[above].State ) )
+                        gate.HoldActivation[cell] = 1;
+                for ( const std::size_t unit : m_CellHeldByWorld[cell] )
+                    if ( IsCellVisible( state.Units[unit].State ) )
+                        gate.HoldRelease[cell] = 1;
+                for ( const std::size_t child : m_CellHeldByCells[cell] )
+                    if ( hlodState.Units[child].State != Residency::Unloaded )
+                        gate.HoldRelease[cell] = 1;
+            }
+            return Common::MakeSuccess( std::move( gate ) );
+        }
+
+        // The HLOD cells that must be Activated before the first frame when @p state already has cells Activated
+        // (Edit -> Play keeps the neighbourhood): every HLOD cell some Activated world cell waits for, and every
+        // HLOD cell those wait for, in HLOD unit order. Empty for a runtime made from a unit list.
+        [[nodiscard]] std::vector<std::size_t> CellsWantedAtBegin( const ResidencyState& state ) const
+        {
+            std::vector<std::uint8_t> wanted( m_HLODUnits, 0 );
+            std::vector<std::size_t>  open;
+            for ( std::size_t unit = 0; unit < m_WorldWaitsFor.size() && unit < state.Units.size(); ++unit )
+                if ( IsCellVisible( state.Units[unit].State ) )
+                    open.insert( open.end(), m_WorldWaitsFor[unit].begin(), m_WorldWaitsFor[unit].end() );
+            while ( !open.empty() )
+            {
+                const std::size_t cell = open.back();
+                open.pop_back();
+                if ( wanted[cell] != 0 )
+                    continue;
+                wanted[cell] = 1;
+                open.insert( open.end(), m_CellWaitsFor[cell].begin(), m_CellWaitsFor[cell].end() );
+            }
+            std::vector<std::size_t> cells;
+            for ( std::size_t cell = 0; cell < m_HLODUnits; ++cell )
+                if ( wanted[cell] != 0 )
+                    cells.push_back( cell );
+            return cells;
+        }
+
         // What the last Sync applied; false before the first.
         [[nodiscard]] bool IsVisible( std::size_t hlod ) const
         {
@@ -225,6 +334,12 @@ namespace Desert::Core::Rules
         std::vector<std::uint8_t> m_ForHLODUnit;
         std::vector<std::size_t>  m_ResidesIn;
         std::size_t               m_HLODUnits = 0;
+        // The swap's order (WorldGate / HLODGate): per world unit, the HLOD units it waits for; per HLOD unit,
+        // the HLOD units it waits for, and the world units and HLOD units that hold it.
+        std::vector<std::vector<std::size_t>> m_WorldWaitsFor;
+        std::vector<std::vector<std::size_t>> m_CellWaitsFor;
+        std::vector<std::vector<std::size_t>> m_CellHeldByWorld;
+        std::vector<std::vector<std::size_t>> m_CellHeldByCells;
     };
 
     // ONE FRAME OF A PARTITIONED WORLD WITH HLODs: the residency tick, then the switch on the state it left —
@@ -241,18 +356,26 @@ namespace Desert::Core::Rules
         return tick;
     }
 
-    // ONE FRAME OF A WORLD WHOSE HLODs STREAM (WP-FAR-8): the world's tick, the HLOD residency's tick, then the
-    // switch on the states both left - so an HLOD cell that activates this frame has its HLODs shown or hidden
-    // before the frame is drawn, and its parent hidden in the same frame.
+    // ONE FRAME OF A WORLD WHOSE HLODs STREAM (WP-FAR-8): the world's tick under the gate of the HLOD cells as
+    // the last frame left them, the HLOD residency's tick under the gate of the world as this tick left it, then
+    // the switch on the states both left - so an HLOD cell that activates this frame has its HLODs shown or
+    // hidden before the frame is drawn, and its parent hidden in the same frame (THE SWAP, BY RESIDENCY).
     [[nodiscard]] inline Common::ResultStr<ResidencyTick>
     TickWithHLODs( ResidencyExecutor& executor, ResidencyExecutor& hlodExecutor, HLODRuntime& hlods,
                    std::span<const StreamingSource> sources, double nowSeconds, ResidencyWorld& world,
                    ResidencyWorld& hlodCells, HLODVisibilityWorld& hlodWorld )
     {
-        auto tick = executor.Tick( sources, nowSeconds, world );
+        auto worldGate = hlods.WorldGate( hlodExecutor.State() );
+        if ( !worldGate.IsSuccess() )
+            return Common::MakeError<ResidencyTick>( worldGate.GetError() );
+        auto tick = executor.Tick( sources, nowSeconds, world, &worldGate.GetValue() );
         if ( !tick.IsSuccess() )
             return tick;
-        if ( auto hlodTick = hlodExecutor.Tick( sources, nowSeconds, hlodCells ); !hlodTick.IsSuccess() )
+        auto hlodGate = hlods.HLODGate( executor.State(), hlodExecutor.State() );
+        if ( !hlodGate.IsSuccess() )
+            return Common::MakeError<ResidencyTick>( hlodGate.GetError() );
+        if ( auto hlodTick = hlodExecutor.Tick( sources, nowSeconds, hlodCells, &hlodGate.GetValue() );
+             !hlodTick.IsSuccess() )
             return Common::MakeError<ResidencyTick>( "the HLOD cells: " + hlodTick.GetError() );
         if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld ); !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
