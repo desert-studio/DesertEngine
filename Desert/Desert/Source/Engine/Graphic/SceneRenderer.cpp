@@ -2290,7 +2290,12 @@ namespace Desert::Graphic
                 }
             }
             if ( meshRenderer != nullptr )
+            {
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
+                // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
+                meshRenderer->SetEarlyZPass( m_Quality.As<Common::Scalability::EarlyZPassMode>(
+                     Common::Scalability::Parameter::EarlyZPass ) );
+            }
             DESERT_PROFILE_PHASE( addPhases, "Add passes: GBuffer" );
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );

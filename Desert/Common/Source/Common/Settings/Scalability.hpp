@@ -374,6 +374,13 @@ namespace Common::Scalability
         // 10..400.
         FoliageGrassDensityScalePercent,
         FoliageGrassCullDistanceScalePercent,
+        // Which meshes the deferred path's early-Z pass draws before the G-buffer (UE r.EarlyZPass): EarlyZPassMode
+        // (CapabilityCatalog.hpp) - Off, Masked, All. Read by SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass
+        // ("Deferred: Masked Depth Prepass", then "Deferred: GBuffer" EQUAL for what it drew). Key
+        // "RenderPipeline.EarlyZPass": equal at every level (a renderer choice, not a quality step: All costs a
+        // depth-only draw per opaque mesh and saves the G-buffer's overdraw), so only a machine override names it;
+        // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
+        EarlyZPass,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
