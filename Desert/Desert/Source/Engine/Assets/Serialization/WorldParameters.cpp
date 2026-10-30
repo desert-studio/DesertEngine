@@ -46,6 +46,12 @@ namespace Desert::Assets::Serialization
             if ( p.Type != WorldParameterType::Texture && !p.Texture.empty() )
                 return Common::MakeFormattedError<bool>(
                      "Parameters[{}] '{}' names a Texture but is not a texture parameter", i, p.Name );
+            if ( p.Type == WorldParameterType::SurfaceLayer && p.Layer.empty() )
+                return Common::MakeFormattedError<bool>(
+                     "Parameters[{}] '{}' is a surface layer but names no Layer", i, p.Name );
+            if ( p.Type != WorldParameterType::SurfaceLayer && !p.Layer.empty() )
+                return Common::MakeFormattedError<bool>(
+                     "Parameters[{}] '{}' names a Layer but is not a surface layer parameter", i, p.Name );
         }
         return BOOLSUCCESS;
     }

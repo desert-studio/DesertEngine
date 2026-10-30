@@ -1,0 +1,2044 @@
+{
+    "Name": "M_SnowLayer_Dirty",
+    "NextId": 274,
+    "Domain": 3,
+    "Lit": false,
+    "UsedWithParticleSprites": false,
+    "Nodes": [
+        {
+            "Id": 1,
+            "Kind": "SurfaceLayerInput",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 0.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 2,
+                    "Name": "WorldPosition",
+                    "Type": 3
+                },
+                {
+                    "Id": 3,
+                    "Name": "WorldNormal",
+                    "Type": 3
+                },
+                {
+                    "Id": 4,
+                    "Name": "TopUV",
+                    "Type": 1
+                },
+                {
+                    "Id": 5,
+                    "Name": "Up",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 6,
+            "Kind": "TileUV",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 0.0,
+            "Inputs": [
+                {
+                    "Id": 7,
+                    "Name": "UV",
+                    "Type": 1
+                },
+                {
+                    "Id": 8,
+                    "Name": "Scale",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 9,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ]
+        },
+        {
+            "Id": 11,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.004,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 0.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 12,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 14,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_Color_2k.detex",
+            "X": 840.0,
+            "Y": 0.0,
+            "Inputs": [
+                {
+                    "Id": 15,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 16,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 17,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 18,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 19,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 20,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 22,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_NormalGL_2k.detex",
+            "X": 1120.0,
+            "Y": 0.0,
+            "Inputs": [
+                {
+                    "Id": 23,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 24,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 25,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 26,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 27,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 28,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 30,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_arm_2k.detex",
+            "X": 0.0,
+            "Y": 160.0,
+            "Inputs": [
+                {
+                    "Id": 31,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 32,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 33,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 34,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 35,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 36,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 38,
+            "Kind": "DecodeNormal",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 160.0,
+            "Inputs": [
+                {
+                    "Id": 39,
+                    "Name": "RGBA",
+                    "Type": 2
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 40,
+                    "Name": "Normal",
+                    "Type": 3
+                }
+            ]
+        },
+        {
+            "Id": 42,
+            "Kind": "WorldParameterScalar",
+            "ParamName": "SnowCover",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 160.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 43,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 44,
+            "Kind": "LerpFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 160.0,
+            "Inputs": [
+                {
+                    "Id": 45,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 46,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 47,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 48,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 49,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 160.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 50,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 52,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.4,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 320.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 53,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 56,
+            "Kind": "AddFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 320.0,
+            "Inputs": [
+                {
+                    "Id": 57,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 58,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 59,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 61,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.15,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 320.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 62,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 64,
+            "Kind": "MultiplyFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 320.0,
+            "Inputs": [
+                {
+                    "Id": 65,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 66,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 67,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 69,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.5,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 320.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 70,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 72,
+            "Kind": "AddFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 480.0,
+            "Inputs": [
+                {
+                    "Id": 73,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 74,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 75,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 77,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                -0.45,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 480.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 78,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 80,
+            "Kind": "AddFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 480.0,
+            "Inputs": [
+                {
+                    "Id": 81,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 82,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 83,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 86,
+            "Kind": "SmoothstepFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 480.0,
+            "Inputs": [
+                {
+                    "Id": 87,
+                    "Name": "Edge0",
+                    "Type": 0
+                },
+                {
+                    "Id": 88,
+                    "Name": "Edge1",
+                    "Type": 0
+                },
+                {
+                    "Id": 89,
+                    "Name": "X",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 90,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 94,
+            "Kind": "MultiplyFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 480.0,
+            "Inputs": [
+                {
+                    "Id": 95,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 96,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 97,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 99,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                1000000.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 640.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 100,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 102,
+            "Kind": "SaturateFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 640.0,
+            "Inputs": [
+                {
+                    "Id": 103,
+                    "Name": "In",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 104,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 106,
+            "Kind": "MultiplyFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 640.0,
+            "Inputs": [
+                {
+                    "Id": 107,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 108,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 109,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 112,
+            "Kind": "TileUV",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 640.0,
+            "Inputs": [
+                {
+                    "Id": 113,
+                    "Name": "UV",
+                    "Type": 1
+                },
+                {
+                    "Id": 114,
+                    "Name": "Scale",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 115,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ]
+        },
+        {
+            "Id": 117,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.005,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 640.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 118,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 120,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_Diffuse_2k.detex",
+            "X": 0.0,
+            "Y": 800.0,
+            "Inputs": [
+                {
+                    "Id": 121,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 122,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 123,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 124,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 125,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 126,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 128,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_nor_gl_2k.detex",
+            "X": 280.0,
+            "Y": 800.0,
+            "Inputs": [
+                {
+                    "Id": 129,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 130,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 131,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 132,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 133,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 134,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 136,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/stony_dirt_path/stony_dirt_path_arm_2k.detex",
+            "X": 560.0,
+            "Y": 800.0,
+            "Inputs": [
+                {
+                    "Id": 137,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 138,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 139,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 140,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 141,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 142,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 144,
+            "Kind": "DecodeNormal",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 800.0,
+            "Inputs": [
+                {
+                    "Id": 145,
+                    "Name": "RGBA",
+                    "Type": 2
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 146,
+                    "Name": "Normal",
+                    "Type": 3
+                }
+            ]
+        },
+        {
+            "Id": 148,
+            "Kind": "TileUV",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 800.0,
+            "Inputs": [
+                {
+                    "Id": 149,
+                    "Name": "UV",
+                    "Type": 1
+                },
+                {
+                    "Id": 150,
+                    "Name": "Scale",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 151,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ]
+        },
+        {
+            "Id": 153,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.0007692307692307692,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 960.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 154,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 156,
+            "Kind": "LayerTexture",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "Environments/FieldBarn/Textures/snow/Snow010A_arm_2k.detex",
+            "X": 280.0,
+            "Y": 960.0,
+            "Inputs": [
+                {
+                    "Id": 157,
+                    "Name": "UV",
+                    "Type": 1
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 158,
+                    "Name": "RGBA",
+                    "Type": 2
+                },
+                {
+                    "Id": 159,
+                    "Name": "R",
+                    "Type": 0
+                },
+                {
+                    "Id": 160,
+                    "Name": "G",
+                    "Type": 0
+                },
+                {
+                    "Id": 161,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 162,
+                    "Name": "A",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 164,
+            "Kind": "SmoothstepFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 960.0,
+            "Inputs": [
+                {
+                    "Id": 165,
+                    "Name": "Edge0",
+                    "Type": 0
+                },
+                {
+                    "Id": 166,
+                    "Name": "Edge1",
+                    "Type": 0
+                },
+                {
+                    "Id": 167,
+                    "Name": "X",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 168,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 169,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.84,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 960.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 170,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 172,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.92,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 960.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 173,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 176,
+            "Kind": "LerpFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 1120.0,
+            "Inputs": [
+                {
+                    "Id": 177,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 178,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 179,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 180,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 181,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 1120.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 182,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 184,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 1120.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 185,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 188,
+            "Kind": "MultiplyFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 1120.0,
+            "Inputs": [
+                {
+                    "Id": 189,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 190,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 191,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 193,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                1.2,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 1120.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 194,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 196,
+            "Kind": "MultiplyFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 1280.0,
+            "Inputs": [
+                {
+                    "Id": 197,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 198,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 199,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 201,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.5,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 1280.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 202,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 204,
+            "Kind": "AddFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 1280.0,
+            "Inputs": [
+                {
+                    "Id": 205,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 206,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 207,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 210,
+            "Kind": "SmoothstepFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 1280.0,
+            "Inputs": [
+                {
+                    "Id": 211,
+                    "Name": "Edge0",
+                    "Type": 0
+                },
+                {
+                    "Id": 212,
+                    "Name": "Edge1",
+                    "Type": 0
+                },
+                {
+                    "Id": 213,
+                    "Name": "X",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 214,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 215,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.75,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 1280.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 216,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 218,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.95,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 1440.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 219,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 222,
+            "Kind": "MultiplyFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 1440.0,
+            "Inputs": [
+                {
+                    "Id": 223,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 224,
+                    "Name": "B",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 225,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 227,
+            "Kind": "FloatConst",
+            "ParamName": "",
+            "Value": [
+                0.9,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 1440.0,
+            "Inputs": [],
+            "Outputs": [
+                {
+                    "Id": 228,
+                    "Name": "Value",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 230,
+            "Kind": "SurfaceLayerOutput",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 840.0,
+            "Y": 1440.0,
+            "Inputs": [
+                {
+                    "Id": 231,
+                    "Name": "BaseColor",
+                    "Type": 2
+                },
+                {
+                    "Id": 232,
+                    "Name": "Normal",
+                    "Type": 3
+                },
+                {
+                    "Id": 233,
+                    "Name": "Roughness",
+                    "Type": 0
+                },
+                {
+                    "Id": 234,
+                    "Name": "Occlusion",
+                    "Type": 0
+                },
+                {
+                    "Id": 235,
+                    "Name": "Metallic",
+                    "Type": 0
+                },
+                {
+                    "Id": 236,
+                    "Name": "Weight",
+                    "Type": 0
+                }
+            ],
+            "Outputs": []
+        },
+        {
+            "Id": 237,
+            "Kind": "Lerp",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 1120.0,
+            "Y": 1440.0,
+            "Inputs": [
+                {
+                    "Id": 238,
+                    "Name": "A",
+                    "Type": 2
+                },
+                {
+                    "Id": 239,
+                    "Name": "B",
+                    "Type": 2
+                },
+                {
+                    "Id": 240,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 241,
+                    "Name": "Out",
+                    "Type": 2
+                }
+            ]
+        },
+        {
+            "Id": 246,
+            "Kind": "LerpVec3",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 0.0,
+            "Y": 1600.0,
+            "Inputs": [
+                {
+                    "Id": 247,
+                    "Name": "A",
+                    "Type": 3
+                },
+                {
+                    "Id": 248,
+                    "Name": "B",
+                    "Type": 3
+                },
+                {
+                    "Id": 249,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 250,
+                    "Name": "Out",
+                    "Type": 3
+                }
+            ]
+        },
+        {
+            "Id": 255,
+            "Kind": "LerpFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 280.0,
+            "Y": 1600.0,
+            "Inputs": [
+                {
+                    "Id": 256,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 257,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 258,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 259,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        },
+        {
+            "Id": 264,
+            "Kind": "LerpFloat",
+            "ParamName": "",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ],
+            "Asset": "",
+            "X": 560.0,
+            "Y": 1600.0,
+            "Inputs": [
+                {
+                    "Id": 265,
+                    "Name": "A",
+                    "Type": 0
+                },
+                {
+                    "Id": 266,
+                    "Name": "B",
+                    "Type": 0
+                },
+                {
+                    "Id": 267,
+                    "Name": "T",
+                    "Type": 0
+                }
+            ],
+            "Outputs": [
+                {
+                    "Id": 268,
+                    "Name": "Out",
+                    "Type": 0
+                }
+            ]
+        }
+    ],
+    "Links": [
+        {
+            "Id": 10,
+            "From": 4,
+            "To": 7
+        },
+        {
+            "Id": 13,
+            "From": 12,
+            "To": 8
+        },
+        {
+            "Id": 21,
+            "From": 9,
+            "To": 15
+        },
+        {
+            "Id": 29,
+            "From": 9,
+            "To": 23
+        },
+        {
+            "Id": 37,
+            "From": 9,
+            "To": 31
+        },
+        {
+            "Id": 41,
+            "From": 24,
+            "To": 39
+        },
+        {
+            "Id": 51,
+            "From": 50,
+            "To": 45
+        },
+        {
+            "Id": 54,
+            "From": 53,
+            "To": 46
+        },
+        {
+            "Id": 55,
+            "From": 43,
+            "To": 47
+        },
+        {
+            "Id": 60,
+            "From": 48,
+            "To": 57
+        },
+        {
+            "Id": 63,
+            "From": 62,
+            "To": 58
+        },
+        {
+            "Id": 68,
+            "From": 33,
+            "To": 65
+        },
+        {
+            "Id": 71,
+            "From": 70,
+            "To": 66
+        },
+        {
+            "Id": 76,
+            "From": 67,
+            "To": 73
+        },
+        {
+            "Id": 79,
+            "From": 78,
+            "To": 74
+        },
+        {
+            "Id": 84,
+            "From": 5,
+            "To": 81
+        },
+        {
+            "Id": 85,
+            "From": 75,
+            "To": 82
+        },
+        {
+            "Id": 91,
+            "From": 48,
+            "To": 87
+        },
+        {
+            "Id": 92,
+            "From": 59,
+            "To": 88
+        },
+        {
+            "Id": 93,
+            "From": 83,
+            "To": 89
+        },
+        {
+            "Id": 98,
+            "From": 43,
+            "To": 95
+        },
+        {
+            "Id": 101,
+            "From": 100,
+            "To": 96
+        },
+        {
+            "Id": 105,
+            "From": 97,
+            "To": 103
+        },
+        {
+            "Id": 110,
+            "From": 90,
+            "To": 107
+        },
+        {
+            "Id": 111,
+            "From": 104,
+            "To": 108
+        },
+        {
+            "Id": 116,
+            "From": 4,
+            "To": 113
+        },
+        {
+            "Id": 119,
+            "From": 118,
+            "To": 114
+        },
+        {
+            "Id": 127,
+            "From": 115,
+            "To": 121
+        },
+        {
+            "Id": 135,
+            "From": 115,
+            "To": 129
+        },
+        {
+            "Id": 143,
+            "From": 115,
+            "To": 137
+        },
+        {
+            "Id": 147,
+            "From": 130,
+            "To": 145
+        },
+        {
+            "Id": 152,
+            "From": 4,
+            "To": 149
+        },
+        {
+            "Id": 155,
+            "From": 154,
+            "To": 150
+        },
+        {
+            "Id": 163,
+            "From": 151,
+            "To": 157
+        },
+        {
+            "Id": 171,
+            "From": 170,
+            "To": 165
+        },
+        {
+            "Id": 174,
+            "From": 173,
+            "To": 166
+        },
+        {
+            "Id": 175,
+            "From": 159,
+            "To": 167
+        },
+        {
+            "Id": 183,
+            "From": 182,
+            "To": 177
+        },
+        {
+            "Id": 186,
+            "From": 185,
+            "To": 178
+        },
+        {
+            "Id": 187,
+            "From": 168,
+            "To": 179
+        },
+        {
+            "Id": 192,
+            "From": 180,
+            "To": 189
+        },
+        {
+            "Id": 195,
+            "From": 194,
+            "To": 190
+        },
+        {
+            "Id": 200,
+            "From": 139,
+            "To": 197
+        },
+        {
+            "Id": 203,
+            "From": 202,
+            "To": 198
+        },
+        {
+            "Id": 208,
+            "From": 191,
+            "To": 205
+        },
+        {
+            "Id": 209,
+            "From": 199,
+            "To": 206
+        },
+        {
+            "Id": 217,
+            "From": 216,
+            "To": 211
+        },
+        {
+            "Id": 220,
+            "From": 219,
+            "To": 212
+        },
+        {
+            "Id": 221,
+            "From": 207,
+            "To": 213
+        },
+        {
+            "Id": 226,
+            "From": 214,
+            "To": 223
+        },
+        {
+            "Id": 229,
+            "From": 228,
+            "To": 224
+        },
+        {
+            "Id": 242,
+            "From": 16,
+            "To": 238
+        },
+        {
+            "Id": 243,
+            "From": 122,
+            "To": 239
+        },
+        {
+            "Id": 244,
+            "From": 225,
+            "To": 240
+        },
+        {
+            "Id": 245,
+            "From": 241,
+            "To": 231
+        },
+        {
+            "Id": 251,
+            "From": 40,
+            "To": 247
+        },
+        {
+            "Id": 252,
+            "From": 146,
+            "To": 248
+        },
+        {
+            "Id": 253,
+            "From": 225,
+            "To": 249
+        },
+        {
+            "Id": 254,
+            "From": 250,
+            "To": 232
+        },
+        {
+            "Id": 260,
+            "From": 34,
+            "To": 256
+        },
+        {
+            "Id": 261,
+            "From": 140,
+            "To": 257
+        },
+        {
+            "Id": 262,
+            "From": 225,
+            "To": 258
+        },
+        {
+            "Id": 263,
+            "From": 259,
+            "To": 233
+        },
+        {
+            "Id": 269,
+            "From": 33,
+            "To": 265
+        },
+        {
+            "Id": 270,
+            "From": 139,
+            "To": 266
+        },
+        {
+            "Id": 271,
+            "From": 225,
+            "To": 267
+        },
+        {
+            "Id": 272,
+            "From": 268,
+            "To": 234
+        },
+        {
+            "Id": 273,
+            "From": 109,
+            "To": 236
+        }
+    ]
+}

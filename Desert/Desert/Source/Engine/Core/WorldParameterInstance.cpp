@@ -1,5 +1,7 @@
 #include <Engine/Core/WorldParameterInstance.hpp>
 
+#include <Engine/Assets/Serialization/ShaderGraph.hpp>
+
 #include <cmath>
 #include <format>
 
@@ -36,11 +38,30 @@ namespace Desert::Core
         m_Values.clear();
         m_Values.reserve( data->Parameters.size() );
         for ( const auto& row : data->Parameters )
+        {
             m_Values.push_back( { row.Name, Assets::Serialization::WorldParameterKey( row.Name ), row.Type,
                                   glm::vec4( row.Default[0], row.Default[1], row.Default[2], row.Default[3] ),
                                   row.Type == WorldParameterType::Texture && resolveTexture
                                        ? resolveTexture( row.Texture )
                                        : Common::AssetHandle{} } );
+            if ( row.Type != WorldParameterType::SurfaceLayer )
+                continue;
+            // The layer's id under the row's own key (the shaders' dispatcher reads it), then each texture the
+            // layer samples as a Texture value of its own: the layer's look rides the world's bindless table.
+            const SurfaceLayerSource layer = resolveLayer ? resolveLayer( row.Layer ) : SurfaceLayerSource{};
+            m_Values.back().Value          = glm::vec4(
+                 layer.Name.empty()
+                      ? 0.0f
+                      : static_cast<float>( Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name ) ),
+                 0.0f, 0.0f, 0.0f );
+            for ( const std::string& texture : layer.Textures )
+            {
+                std::string    name = Assets::Serialization::ShaderGraph::SurfaceLayerTextureName( texture );
+                const uint32_t key  = Assets::Serialization::WorldParameterKey( name );
+                m_Values.push_back( { std::move( name ), key, WorldParameterType::Texture, glm::vec4( 0.0f ),
+                                      resolveTexture ? resolveTexture( texture ) : Common::AssetHandle{} } );
+            }
+        }
     }
 
     const WorldParameterValue* WorldParameterInstance::Find( const std::string_view   name,
