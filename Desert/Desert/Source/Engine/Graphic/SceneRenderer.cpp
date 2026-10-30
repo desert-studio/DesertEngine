@@ -851,10 +851,15 @@ namespace Desert::Graphic
                 continue;
             value.Value              = glm::vec4( 0.0f );
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
-            if ( texture == nullptr || !texture->GetBindlessSlot().IsValid() )
+            if ( texture == nullptr || !texture->GetImageHandle().IsValid() )
+                continue;
+            // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
+            const auto* image = dynamic_cast<const Image2D*>(
+                 Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
+            if ( image == nullptr || !image->GetBindlessSlot().IsValid() )
                 continue;
             value.Value = glm::vec4(
-                 glm::uintBitsToFloat( texture->GetBindlessSlot().Index ),
+                 glm::uintBitsToFloat( image->GetBindlessSlot().Index ),
                  glm::uintBitsToFloat( BindlessSamplerFor( Core::Formats::SamplerState{} ).Index ), 0.0f, 1.0f );
         }
         const WorldParameterTable table = BuildWorldParameterTable( values );
