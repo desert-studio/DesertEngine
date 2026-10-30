@@ -141,7 +141,11 @@ def main():
                 fail = f"line {n}: «{kw}» after the first step — the editor is already open on another project"
             continue
         if key in GIVEN:
-            ok, msg = desertctl(*shlex.split(rest))
+            args = shlex.split(rest)
+            # `Когда N frames render`: one DesertCtl `frames N`, answered after N presented frames (UE latent wait).
+            if len(args) == 3 and args[0].isdigit() and args[1] in ("frame", "frames") and args[2] == "render":
+                args = ["frames", args[0]]
+            ok, msg = desertctl(*args)
             if not ok:
                 fail = f"line {n} ({kw} {rest}): {msg[0]}"
                 continue
