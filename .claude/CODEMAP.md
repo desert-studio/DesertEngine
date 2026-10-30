@@ -42,7 +42,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Core/Traits` — 1 files, 17 lines
 - `Destruction` — 16 files, 3,480 lines: BodyRef, BodyState, BoxFalloff, BrickSettings, CellBounds, ConvexCell, CutPlane, DestructibleDesc, DestructionEvent, DestructionSettings, DestructionWorld, FieldCommand, … (+25)
 - `ECS` — 46 files, 8,898 lines: AlwaysLoadedComponent, AnchorFieldComponent, AnchorFieldData, AnimationComponent, AppliedLayerLink, AtmosphereSunPick, AudioSourceComponent, AudioSourceData, Bound, CameraComponent, CameraData, CharacterControllerComponent, … (+175)
-- `ECS/System` — 53 files, 9,763 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, ColliderMesh, ComponentEventCursor, ComponentEventSystem, CoverLook, … (+46)
+- `ECS/System` — 53 files, 9,843 lines: Actor, AnimationECSSystem, ArmSolve, AtmosphereSunSelection, AttachPoint, AttachmentSystem, AudioECSSystem, Built, CachedGround, ColliderMesh, ComponentEventCursor, ComponentEventSystem, … (+47)
 - `GameplayDebugger` — 5 files, 566 lines: CategorySlot, GameplayDebugger, GameplayDebuggerCategoryBasic, GameplayDebuggerCategoryData, GameplayDebuggerShape, IGameplayDebuggerCategory
 - `GameplayTags` — 1 files, 113 lines: GameplayTag, GameplayTagContainer, GameplayTagRegistry
 - `Generated` — 31 files, 2,448 lines
@@ -63,7 +63,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Geometry/MeshCore/Selections` — 4 files, 411 lines: Component, MeshConnectedComponents, QuadGridPatch
 - `Geometry/MeshCore/Solvers` — 2 files, 528 lines: SparseLDLT, SparseMatrixD, SpectralConformalMeshUVSolver, Triplet
 - `Geometry/MeshCore/Spatial` — 3 files, 1,208 lines: BoxesSet, DynamicMeshAABBTree3, FastWindingTree, IntersectionsQueryResult, MeshQueryOptions, MeshTriInfoCache, PointHashGrid3, SegmentIntersection, WNInfo
-- `Graphic` — 127 files, 27,628 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, … (+207)
+- `Graphic` — 127 files, 27,634 lines: ActiveViewScope, AllocationLedger, Arena, AtlasTile, AtmosphereEnv, AtmosphereLight1, AtmosphereLight1Frame, BindlessOccupancy, BindlessSamplerSlot, BindlessSlotAllocator, BindlessTextureSlot, BindlessTextureTable, … (+207)
 - `Graphic/API` — 4 files, 295 lines: CooperativeMatrixShape, NeuralComputeCaps
 - `Graphic/API/Vulkan` — 88 files, 25,706 lines: AccelerationStructureDeletionEntry, AllocatedData, BindlessBindingFlags, BoundGeometry, BufferDeletionEntry, CapabilityRow, CapabilitySpec, CatalogProbe, CommandBufferAllocator, DescriptorIndexingLimits, DescriptorPoolDeletionEntry, DescriptorSetInfo, … (+107)
 - `Graphic/API/Vulkan/FidelityFX` — 2 files, 225 lines: DeviceRequirements
@@ -109,7 +109,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Graphic/Systems/Scene/Shadows` — 6 files, 2,071 lines: HistorySlot, KernelProgram, MegaLightsInputs, MegaLightsLighting, MegaLightsQuality, MegaLightsRenderer, MegaLightsShaderParameters, MegaLightsViewUniforms, MegaLightsVolumeInputs, MegaLightsVolumeQuality, MegaLightsVolumeReadParams, MegaLightsVolumeRenderer, … (+29)
 - `Graphic/Systems/Scene/Skybox` — 6 files, 2,864 lines: AtmosphereLutFingerprint, Program, SceneSkyLight, SkyCapture, SkyCaptureFaceSlice, SkyCaptureFrameReads, SkyCaptureSource, SkyDraw, SkyLightStamps, SkyboxProceduralShaderParameters, SkyboxRenderer
 - `Graphic/Systems/Scene/Terrain` — 7 files, 2,621 lines: BuildKey, FrameDraw, FrameGroup, LandscapeLodSettings, LandscapeMaterialValues, LandscapeRayTracing, LandscapeRayTracingFrame, LandscapeRayTracingGrid, LandscapeRayTracingMaterial, LandscapeRayTracingTile, LandscapeTileDraw, LandscapeTileLod, … (+10)
-- `Graphic/Systems/Scene/Water` — 2 files, 439 lines: FrameDraw, WaterProgram, WaterRenderer, WaterZoneDraw
+- `Graphic/Systems/Scene/Water` — 2 files, 502 lines: FrameDraw, WaterProgram, WaterRenderer, WaterZoneDraw
 - `Graphic/Upscalers/DLSS` — 2 files, 815 lines: DLSSUpscaler, Guides
 - `Graphic/Upscalers/FSR` — 2 files, 482 lines: Fsr3Upscaler
 - `Graphic/View` — 22 files, 5,949 lines: DepthOfField, DepthOfFieldInputs, DepthOfFieldSettings, DofLens, DofParams, HistoryRefs, HistoryTextureDesc, ITemporalUpscaler, ITemporalUpscalerHistory, MotionBlur, MotionBlurInputs, MotionBlurParams, … (+31)
@@ -154,10 +154,10 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `ShaderResources/API/Vulkan` — 10 files, 801 lines: GraphRecord, MappedBufferCopy, ViewCopyBinding, VulkanStorageBuffer, VulkanUniformBuffer, VulkanUniformImage2D, VulkanUniformImageCube
 - `UI/Ecs` — 17 files, 1,357 lines: EcsUITree, LocalizationUITextSource, RegistryUICanvasResources, TimelineUIAnimationSource, UIFrameProbeSink, WindowClipboard
 - `VFX` — 19 files, 4,391 lines: Clock, ClockSettings, EmitterInstance, EmitterStep, Entry, SpawnAccumulator, SpawnState, SystemInstance, TickPlan, VFXAttributeLayout, VFXChannelSpawnBatch, VFXChannelSpawnModule, … (+33)
-- `Water` — 6 files, 901 lines: GerstnerWave, GerstnerWaveGenerator, Node, TileRange, Traversal, WaterBodyState, WaterLODParams, WaterQuadTree, WaterQuadTreeBody, WaterQuadTreeDesc, WaterQueryHit, WaterQueryResult, … (+3)
+- `Water` — 6 files, 946 lines: GerstnerWave, GerstnerWaveGenerator, Node, TileRange, Traversal, WaterBodyState, WaterInfoGround, WaterLODParams, WaterQuadTree, WaterQuadTreeBody, WaterQuadTreeDesc, WaterQueryHit, … (+4)
 - `World/Foliage` — 5 files, 430 lines: FoliageCellField, FoliageGathered, PrefabFoliageHost, PrefabFoliagePlan
 - `World/Foliage/Procedural` — 10 files, 1,404 lines: Box2, BroadphaseOverlap, Entry, InstanceRadii, Node, ProceduralFoliageBox, ProceduralFoliageBroadphase, ProceduralFoliageDesired, ProceduralFoliageExistingField, ProceduralFoliageFieldPlan, ProceduralFoliageGround, ProceduralFoliageInstance, … (+6)
-- `World/Landscape` — 27 files, 7,602 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+45)
+- `World/Landscape` — 27 files, 7,604 lines: FlattenValues, LandscapeBrushSettings, LandscapeBrushTile, LandscapeBrushWeights, LandscapeChangedTile, LandscapeCopyBuffer, LandscapeEditLayer, LandscapeEditLayerStack, LandscapeEditLayerTarget, LandscapeEditLayerTileData, LandscapeErosionField, LandscapeErosionSettings, … (+45)
 
 ## Common — `Desert/Common/Source/Common`
 - `Content` — 28 files, 6,457 lines: AssetEnvelope, AssetFolderMoveRecord, AssetGuid, AssetHeader, AssetHeaderReadContext, AssetMoveRecord, AssetRedirector, AssetTrashRecord, ChunkFolderRow, ChunkManifest, ChunkPlan, ChunkRule, … (+27)
@@ -253,7 +253,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Generated` — 2 files, 81 lines
 - `Mesh` — 15 files, 1,535 lines
 - `Mesh/Generic` — 1 files, 19 lines
-- `Mesh/Surface` — 22 files, 2,620 lines
+- `Mesh/Surface` — 22 files, 2,680 lines
 - `Programs/AutoExposure` — 3 files, 218 lines
 - `Programs/Bloom` — 2 files, 216 lines
 - `Programs/Clouds` — 5 files, 1,953 lines
@@ -298,7 +298,7 @@ compile each engine source -- run exactly those after touching it, and add a new
 - `Programs/Toon` — 2 files, 177 lines
 - `Programs/UI` — 7 files, 517 lines
 - `Programs/Unlit` — 1 files, 49 lines
-- `Programs/Water` — 1 files, 93 lines
+- `Programs/Water` — 1 files, 97 lines
 - `ShadingModels` — 1 files, 237 lines
 
 ## Tools — `Tools`
