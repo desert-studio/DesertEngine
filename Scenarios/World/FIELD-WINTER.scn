@@ -12,3 +12,24 @@
 Когда --subject viewport set Camera.Position 0,900,2500
 Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
 Тогда-вид 2_winter_high the whole field under snow, no tiling grid visible at 9 m, roof white, wall faces bare
+# Third-person walk (owner 10-29): both scenes carry the Walker pawn (Character Controller + the engine's Humanoid
+# skinned mesh driven by Humanoid_Locomotion, Speed fed by the controller; SpringArm camera behind and above);
+# Scripts/Examples/WalkRoute.lua walks it 15 m straight ahead after 0.5 s. Play SAVES nothing.
+Когда run Action "Play"
+Когда advance 1
+Тогда 3_winter_walk_before the walker stands on the snowy ground (feet on the surface, not floating, not sunk), seen from behind and above
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 1
+Тогда 4_winter_walk_after the walker has walked ~15 m over the snow and stands on it; no trail in the snow yet (no deformation buffer)
+Когда run Action "Stop"
+Когда run Scene "Open Scene FIELD_Barn.desce"
+Когда run Action "Play"
+Когда advance 1
+Тогда 5_summer_walk_before the walker stands on the summer field among the grass, feet on the ground
+Когда advance 2
+Когда advance 2
+Когда advance 2
+Когда advance 1
+Тогда 6_summer_walk_after the walker has walked ~15 m through the grass and stands on the ground; grass not bent by the feet yet
