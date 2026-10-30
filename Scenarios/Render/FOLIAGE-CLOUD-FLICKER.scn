@@ -13,5 +13,39 @@
 Дано --subject viewport set Camera.Direction 0.15,0.25,-1
 Тогда-вид 1_a camera at 0.4 m looking up: grass blades and canopy edges over clouds, crisp, no cloud on the blades
 Тогда-вид 1_b the very next frame: identical to 1_a at every blade and leaf edge over the sky (<= 2/255)
+# ~30 frames between 1_b and 2_a. DesertCtl has no frame-count op (`advance` is Play-only; a line such as
+# "Когда 60 frames render" reaches DesertCtl as operation "60" and is refused). `input` is answered only after
+# a presented frame (ControlService.cpp:430-446), so each idle hover below costs >= 1 frame; the point is the
+# editor window's top-left corner (menu bar), not the viewport, so neither the camera nor TAA history is touched.
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
+Когда input move - 1,1
 Тогда-вид 2_a ~30 frames later, same camera: identical to 1_a
 Тогда-вид 2_b the next frame: identical to 2_a
