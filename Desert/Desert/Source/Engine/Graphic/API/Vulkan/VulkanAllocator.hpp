@@ -242,14 +242,14 @@ namespace Desert::Graphic::API::Vulkan
         /// point into this copy, which lives as long as the allocator.
         VulkanResourceSharing m_Sharing;
 
-        // THE DELETION QUEUES ARE SHARED BY THREADS (UE's pending-delete list under its lock). RT_Destroy* is reached
-        // from the render thread and from every loader thread (CommandBufferAllocator::CollectFinished retires a
-        // staging copy on whichever thread collects it; a streamed asset's resources die on the thread that drops
-        // them). m_DeletionMutex guards all nine vectors: every push, every read (census, OwedBytes, QueuedCount)
-        // and the take in DestroyQueued. DestroyQueued MOVES the retired entries out under the lock and destroys them
-        // after it is released, so a host-object destroy that queues again cannot deadlock and no vkDestroy* or
-        // vmaDestroy* runs under it.
-        mutable std::mutex                    m_DeletionMutex;
+        // THE DELETION QUEUES ARE SHARED BY THREADS (UE's pending-delete list under its lock). RT_Destroy* is
+        // reached from the render thread and from every loader thread (CommandBufferAllocator::CollectFinished
+        // retires a staging copy on whichever thread collects it; a streamed asset's resources die on the thread
+        // that drops them). m_DeletionMutex guards all nine vectors: every push, every read (census, OwedBytes,
+        // QueuedCount) and the take in DestroyQueued. DestroyQueued MOVES the retired entries out under the lock
+        // and destroys them after it is released, so a host-object destroy that queues again cannot deadlock and
+        // no vkDestroy* or vmaDestroy* runs under it.
+        mutable std::mutex                              m_DeletionMutex;
         std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;
         std::vector<FramebufferDeletionEntry> m_FramebufferDeletionQueue;
