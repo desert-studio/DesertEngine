@@ -37,7 +37,9 @@ namespace Desert::Graphic
     public:
         MaterialPropertySet() = default;
         // A copy is another set: its own revision (a cache that held the source's never takes the copy for it).
-        MaterialPropertySet( const MaterialPropertySet& other ) : m_Properties( other.m_Properties ) {}
+        MaterialPropertySet( const MaterialPropertySet& other ) : m_Properties( other.m_Properties )
+        {
+        }
         MaterialPropertySet& operator=( const MaterialPropertySet& other )
         {
             CopyFrom( other );

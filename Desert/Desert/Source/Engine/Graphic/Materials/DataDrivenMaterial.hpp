@@ -187,7 +187,7 @@ namespace Desert::Graphic
         // Mutable for the texture slots only: they are a projection of the texture properties, refreshed each
         // time the row is read (GetParamRow).
         mutable Core::Formats::MaterialParamRow m_Row;
-        mutable uint64_t                        m_RowRevision         = NextMaterialRevision(); // GetParamRowRevision
+        mutable uint64_t                        m_RowRevision = NextMaterialRevision(); // GetParamRowRevision
         mutable bool                            m_ReportedTextureSlot = false;
     };
 } // namespace Desert::Graphic

@@ -228,13 +228,13 @@ namespace Desert::Graphic::RayTracing
         RayTracingGatherInputs GatherInputsOf( const System::MeshRenderer& meshes, const glm::vec3& viewOrigin,
                                                const float drawDistanceScale )
         {
-        return { .Static                = meshes.GetStaticQueue(),
-                 .Generic               = meshes.GetGenericQueue(),
-                 .Instanced             = meshes.GetInstancedQueue(),
-                 .Skinned               = meshes.GetSkinnedQueue(),
-                 .GpuInstanced          = meshes.GetGpuInstancedQueue(),
-                 .ViewOrigin            = viewOrigin,
-                 .DrawDistanceScale     = drawDistanceScale };
+            return { .Static            = meshes.GetStaticQueue(),
+                     .Generic           = meshes.GetGenericQueue(),
+                     .Instanced         = meshes.GetInstancedQueue(),
+                     .Skinned           = meshes.GetSkinnedQueue(),
+                     .GpuInstanced      = meshes.GetGpuInstancedQueue(),
+                     .ViewOrigin        = viewOrigin,
+                     .DrawDistanceScale = drawDistanceScale };
         }
     } // namespace
 

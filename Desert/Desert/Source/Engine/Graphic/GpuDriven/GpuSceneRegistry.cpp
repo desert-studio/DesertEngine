@@ -96,7 +96,7 @@ namespace Desert::Graphic::GpuDriven
         }
     }
 
-    std::optional<uint32_t> GpuSceneRegistry::ReuseMaterialRow( const MaterialRowKey&      key,
+    std::optional<uint32_t> GpuSceneRegistry::ReuseMaterialRow( const MaterialRowKey&     key,
                                                                 const MaterialRowRevision revision )
     {
         if ( revision.Template == 0 )
@@ -367,13 +367,13 @@ namespace Desert::Graphic::GpuDriven
             if ( inserted || entry.Frame != m_Frame )
             {
                 // The held snapshot is the instance rows' contents: the same object needs no per-instance compare.
-                const bool sameSnapshot = !inserted && field.Snapshot != nullptr && entry.Instances == field.Snapshot;
-                const bool changed = inserted || entry.Mesh != field.Mesh ||
-                                     entry.Geometry != GeometryOf( field.Mesh ) || entry.Flags != field.Flags ||
-                                     entry.BoundsPad != field.BoundsPad || entry.CullStart != field.CullDistanceStart ||
-                                     entry.CullEnd != field.CullDistanceEnd ||
-                                     ( !sameSnapshot &&
-                                       !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms ) );
+                const bool sameSnapshot =
+                     !inserted && field.Snapshot != nullptr && entry.Instances == field.Snapshot;
+                const bool changed =
+                     inserted || entry.Mesh != field.Mesh || entry.Geometry != GeometryOf( field.Mesh ) ||
+                     entry.Flags != field.Flags || entry.BoundsPad != field.BoundsPad ||
+                     entry.CullStart != field.CullDistanceStart || entry.CullEnd != field.CullDistanceEnd ||
+                     ( !sameSnapshot && !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms ) );
                 if ( changed )
                 {
                     PrimitiveDesc desc;
@@ -397,8 +397,7 @@ namespace Desert::Graphic::GpuDriven
                     entry.CullEnd   = field.CullDistanceEnd;
                 }
                 // Written or verified equal just now: the rows hold this snapshot's contents.
-                entry.Instances = field.Snapshot != nullptr &&
-                                            field.Snapshot->data() == field.Transforms.data() &&
+                entry.Instances = field.Snapshot != nullptr && field.Snapshot->data() == field.Transforms.data() &&
                                             field.Snapshot->size() == field.Transforms.size()
                                        ? field.Snapshot
                                        : nullptr;

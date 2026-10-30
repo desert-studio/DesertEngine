@@ -2223,12 +2223,13 @@ namespace Desert::Graphic::System
         // is not empty), what a generic draw names while its pipeline compiles (BuildGenericDraws).
         std::optional<uint32_t> m_GenericStandInRow;
 
-        // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row (GpuScene::AddMaterialRow).
-        // SyncGpuScene registers the row of every (template, instance) a queued draw shades with BEFORE the scene's
-        // upload, so the table is at its final size and content before any pass is declared; the draw paths only
-        // look rows up and lend the table to the recording cell. A row counts for the SyncGpuScene that claimed it
-        // (Sync == m_MaterialRowSync); the nodes are kept across syncs (no per-frame map rebuild), and a key no
-        // sync claimed since the previous one is dropped at the next SyncGpuScene.
+        // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row
+        // (GpuScene::AddMaterialRow). SyncGpuScene registers the row of every (template, instance) a queued draw
+        // shades with BEFORE the scene's upload, so the table is at its final size and content before any pass is
+        // declared; the draw paths only look rows up and lend the table to the recording cell. A row counts for
+        // the SyncGpuScene that claimed it (Sync == m_MaterialRowSync); the nodes are kept across syncs (no
+        // per-frame map rebuild), and a key no sync claimed since the previous one is dropped at the next
+        // SyncGpuScene.
         struct FrameMaterialRow
         {
             uint32_t Index = 0;
@@ -2420,7 +2421,7 @@ namespace Desert::Graphic::System
         };
         std::unordered_map<DisplacedSplitKey, DisplacedSplit, DisplacedSplitKeyHash> m_DisplacedSplits;
         uint64_t                                                                     m_DisplacedSplitFrame = 0;
-        std::vector<InstancedMeshRenderData> m_DisplacedTwinRecords; // scratch: the twins' records, capacity kept
+        std::vector<InstancedMeshRenderData> m_DisplacedTwinRecords;  // scratch: the twins' records, capacity kept
         std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
         // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
