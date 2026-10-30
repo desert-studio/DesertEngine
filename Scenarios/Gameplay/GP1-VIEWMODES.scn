@@ -3,10 +3,8 @@
 Проект ../Mirage/Mirage.deproj
 Дано run Scene "Open Scene MainMenu.desce"
 Дано run View "View mode: Wireframe"
-Дано advance 0.3
 Тогда-вид edit_wireframe reference, edit view without Play: wireframe lines over a dark background
 Когда run View "View mode: World Normal"
-Когда advance 0.3
 Тогда-вид edit_worldnormal reference, edit view without Play: coloured world normals, not black
 Когда run View "View mode: Lit"
 Когда run Action "Play from Here"
