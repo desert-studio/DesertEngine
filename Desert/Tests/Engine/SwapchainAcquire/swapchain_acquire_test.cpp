@@ -8,7 +8,8 @@
 //
 // The fake swapchain below keeps the one piece of state that matters, the pending signal on each slot's
 // acquire semaphore, and fails the way the validation layer did. The loop driving it is the production
-// rule (Graphic::AcquireForFrame) and the production slot bookkeeping (Engine::FrameManager).
+// rule (Graphic::AcquireLate, the late acquire at the frame's first back-buffer import, with the rebuild at
+// the frame boundary) and the production slot bookkeeping (Engine::FrameManager).
 
 #include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/SwapchainAcquire.hpp>
@@ -25,7 +26,7 @@
 namespace
 {
     using Desert::Engine::FrameManager;
-    using Desert::Graphic::AcquireForFrame;
+    using Desert::Graphic::AcquireLate;
     using Desert::Graphic::AcquireStatus;
 
     constexpr uint32_t kImages = 3;
@@ -34,7 +35,10 @@ namespace
     {
         std::array<bool, kImages> SemaphoreSignalled{}; // per frame slot
         std::deque<AcquireStatus> Answers;              // what the driver says, in order
-        int                       Rebuilds = 0;
+        int                       Rebuilds          = 0;
+        int                       RebuildRequests   = 0;
+        bool                      RebuildPending    = false;
+        int                       FramesWithNoImage = 0;
         std::string               Violation;
 
         Common::ResultStr<AcquireStatus> Acquire( const uint32_t slot )
@@ -65,17 +69,31 @@ namespace
         }
     };
 
-    // One frame exactly as VulkanSwapChainOutput::AcquireImage / VulkanFrameLoop::Submit /
-    // VulkanSwapChainOutput::Present run it: the slot is read once before the acquire, and the submit reads it
-    // again.
+    // One frame exactly as VulkanSwapChainOutput::ApplyFrameBoundaryRebuild / AcquireImage /
+    // VulkanFrameLoop::Submit / VulkanSwapChainOutput::Present run it: a requested rebuild is applied at the
+    // boundary, the slot is read once before the late acquire, and the submit reads it again. A frame that holds
+    // no image is submitted without the output (it waits on no acquire semaphore) and is not presented.
     void RunFrame( FakeSwapchain& swapchain )
     {
-        auto&          frames = FrameManager::GetInstance();
-        const uint32_t slot   = frames.GetCurrentFrameIndex();
-        const auto     result =
-             AcquireForFrame( [&] { return swapchain.Acquire( slot ); }, [&] { return swapchain.Rebuild(); } );
-        ASSERT_TRUE( result.IsSuccess() ) << result.GetError();
-        swapchain.Submit( frames.GetCurrentFrameIndex() );
+        auto& frames = FrameManager::GetInstance();
+        if ( swapchain.RebuildPending )
+        {
+            swapchain.RebuildPending = false;
+            const auto rebuilt       = swapchain.Rebuild();
+            ASSERT_TRUE( rebuilt.IsSuccess() ) << rebuilt.GetError();
+        }
+        const uint32_t slot = frames.GetCurrentFrameIndex();
+        const auto     held = AcquireLate( [&] { return swapchain.Acquire( slot ); },
+                                           [&]
+                                           {
+                                               ++swapchain.RebuildRequests;
+                                               swapchain.RebuildPending = true;
+                                           } );
+        ASSERT_TRUE( held.IsSuccess() ) << held.GetError();
+        if ( held.GetValue() )
+            swapchain.Submit( frames.GetCurrentFrameIndex() );
+        else
+            ++swapchain.FramesWithNoImage;
         frames.NextFrame();
     }
 
@@ -100,18 +118,23 @@ TEST_F( SwapchainAcquire, SuboptimalIsAnImageAndDoesNotRebuildBeforeRecording )
     RunFrame( swapchain ); // slot 1: the reveal frame
     RunFrame( swapchain );
     EXPECT_EQ( swapchain.Rebuilds, 0 );
+    EXPECT_EQ( swapchain.RebuildRequests, 0 );
+    EXPECT_EQ( swapchain.FramesWithNoImage, 0 );
     EXPECT_EQ( swapchain.Violation, "" );
 }
 
-TEST_F( SwapchainAcquire, OutOfDateRebuildsAndKeepsTheFrameSlot )
+TEST_F( SwapchainAcquire, OutOfDateSkipsThePresentAndRebuildsAtTheNextBoundary )
 {
     FakeSwapchain swapchain;
     RunFrame( swapchain ); // slot 0
     swapchain.Answers = { AcquireStatus::OutOfDate, AcquireStatus::Acquired };
-    RunFrame( swapchain ); // slot 1, rebuilt mid-PrepareFrame
-    RunFrame( swapchain );
+    RunFrame( swapchain ); // slot 1: OUT_OF_DATE at the late acquire, no image, no present
+    EXPECT_EQ( swapchain.Rebuilds, 0 );
+    RunFrame( swapchain ); // slot 2: rebuilt at the boundary, then acquired
     RunFrame( swapchain );
     EXPECT_EQ( swapchain.Rebuilds, 1 );
+    EXPECT_EQ( swapchain.RebuildRequests, 1 );
+    EXPECT_EQ( swapchain.FramesWithNoImage, 1 );
     EXPECT_EQ( swapchain.Violation, "" );
 }
 
@@ -132,14 +155,24 @@ TEST_F( SwapchainAcquire, RebuildWithADifferentImageCountIsRefused )
     EXPECT_EQ( FrameManager::GetInstance().GetMaxFramesInFlight(), kImages );
 }
 
-TEST_F( SwapchainAcquire, OutOfDateTwiceInARowIsANamedFailure )
+TEST_F( SwapchainAcquire, OutOfDateAtTheLateAcquireNeverAcquiresAgainOnTheSameSemaphore )
 {
     FakeSwapchain swapchain;
     swapchain.Answers = { AcquireStatus::OutOfDate, AcquireStatus::OutOfDate };
-    const auto result =
-         AcquireForFrame( [&] { return swapchain.Acquire( 0 ); }, [&] { return swapchain.Rebuild(); } );
-    ASSERT_FALSE( result.IsSuccess() );
-    EXPECT_NE( result.GetError().find( "out of date again" ), std::string::npos );
+    int        acquires = 0;
+    const auto held     = AcquireLate(
+         [&]
+         {
+             ++acquires;
+             return swapchain.Acquire( 0 );
+         },
+         [&] { ++swapchain.RebuildRequests; } );
+    ASSERT_TRUE( held.IsSuccess() ) << held.GetError();
+    EXPECT_FALSE( held.GetValue() );
+    EXPECT_EQ( acquires, 1 );
+    EXPECT_EQ( swapchain.RebuildRequests, 1 );
+    EXPECT_EQ( swapchain.Rebuilds, 0 );
+    EXPECT_FALSE( swapchain.SemaphoreSignalled[0] );
 }
 
 namespace

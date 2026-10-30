@@ -56,29 +56,26 @@ namespace Desert::Graphic::API::Vulkan
 
         const uint32_t currentIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
 
-        // SUBOPTIMAL IS AN IMAGE; OUT_OF_DATE IS NONE (Engine/Graphic/SwapchainAcquire.hpp). An OUT_OF_DATE
-        // acquire left the semaphore untouched. It is NOT rebuilt and re-acquired here, as the early acquire did
-        // (Graphic::AcquireForFrame): this runs at the frame's last pass, and a rebuild now would release what the
-        // frame already recorded against (the swapchain's composite framebuffer, after a device wait-idle in the
-        // middle of the frame). The rebuild is requested for the next frame boundary (ApplyFrameBoundaryRebuild),
-        // this frame is submitted without the output and not presented, and the next frame acquires from the
-        // rebuilt swapchain. The window's resize callback requests the rebuild first in the common case, so an
-        // OUT_OF_DATE here is the rare case of a surface that changed between the boundary and the last pass.
+        // SUBOPTIMAL IS AN IMAGE; OUT_OF_DATE IS NONE, and the rule for both is Graphic::AcquireLate
+        // (Engine/Graphic/SwapchainAcquire.hpp): an OUT_OF_DATE requests the rebuild for the next frame boundary
+        // (ApplyFrameBoundaryRebuild), this frame is submitted without the output and not presented, and the
+        // next frame acquires from the rebuilt swapchain. The window's resize callback requests the rebuild
+        // first in the common case, so an OUT_OF_DATE here is the rare case of a surface that changed between
+        // the boundary and the last pass.
         auto* const presentComplete = m_FrameSemaphores[currentIndex].PresentComplete;
-        const auto  acquired        = m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex );
-        if ( !acquired.IsSuccess() )
+        const auto  held            = Graphic::AcquireLate(
+             [&] { return m_SwapChain->AcquireNextImage( presentComplete, &m_ImageIndex ); },
+             [&] { m_SwapChain->RequestRebuildAtCurrentSize(); } );
+        if ( !held.IsSuccess() )
         {
             // A LOST DEVICE IS NOT A RESIZE: AcquireNextImage refuses on a lost device and the latch already
             // carries the explanation, so only a failure of another kind is worth a line here.
             if ( !Graphic::DeviceLost::IsLost() )
-                LOG_ERROR( "[AcquireNextImage] {}", acquired.GetError() );
+                LOG_ERROR( "[AcquireNextImage] {}", held.GetError() );
             return false;
         }
-        if ( !Graphic::SignalsSemaphore( acquired.GetValue() ) )
-        {
-            m_SwapChain->RequestRebuildAtCurrentSize();
+        if ( !held.GetValue() )
             return false;
-        }
         m_Acquired = true;
         return true;
     }

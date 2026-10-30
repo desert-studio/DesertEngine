@@ -244,8 +244,9 @@ namespace Desert::Engine
     /// THE SLOW-TASK FRAME (LOAD-SHOW-c) — UE's `FSlowTask::TickProgress` ticking Slate from inside a blocking
     /// load. A layer that holds the main thread inside its `OnUpdate` (a scene open waiting for its reads) records
     /// whatever it wants seen into the frame that is open (the editor: its loading window only), then calls this:
-    /// the open frame is submitted and presented, the next image acquired and a new frame begun, exactly the
-    /// loop's own Present -> Acquire -> BeginFrame, so the rest of the `OnUpdate` and the layers after it record
+    /// the open frame is submitted and presented, the frame boundary run and a new frame begun, exactly the
+    /// loop's own Present -> PrepareNextFrame -> BeginFrame (the new frame's image is acquired late, at its
+    /// back-buffer import), so the rest of the `OnUpdate` and the layers after it record
     /// into a frame as they would have. Main thread only; no events are processed and no layer is called. An
     /// error means the frame chain broke (the window or the device is gone) and the loop's next step reports it.
     [[nodiscard]] Common::BoolResultStr PresentInterimFrame( const Window& window );
