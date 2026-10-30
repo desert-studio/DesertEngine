@@ -1750,6 +1750,12 @@ namespace Desert::Graphic::API::Vulkan
         if ( !begun )
             return Common::MakeError( begun.GetError() );
         SetRecording( begun.GetValue() );
+        // Every scope from here to EndPipeSegment is on this segment's queue: the profiler keeps one timeline
+        // per queue, and an async pass tiled against the graphics bracket would hide the graphics remainder.
+        if ( m_Device.Profiler != nullptr )
+            m_Device.Profiler->SetQueue( segment.OnPipe == RDG::Pipe::AsyncCompute
+                                              ? Common::Profiling::GpuQueue::AsyncCompute
+                                              : Common::Profiling::GpuQueue::Graphics );
         if ( begun.GetValue() != VK_NULL_HANDLE )
             RecordSharedHeapBarrier( begun.GetValue() );
         // The async segment's own GPU row. Only a segment that waits on a fork: the frame's query reset is
@@ -1788,6 +1794,10 @@ namespace Desert::Graphic::API::Vulkan
             m_Device.Profiler->EndScope( m_SegmentScope );
             m_SegmentScope = -1;
         }
+        // Whatever records next (the next segment, or the frame's buffer after the graph) is graphics until a
+        // segment says otherwise.
+        if ( m_Device.Profiler != nullptr )
+            m_Device.Profiler->SetQueue( Common::Profiling::GpuQueue::Graphics );
         const Common::ResultStr<VkCommandBuffer> next = m_Segments.EndSegment( segment, *m_Queues );
         SetRecording( next ? next.GetValue() : VK_NULL_HANDLE );
         if ( !next )

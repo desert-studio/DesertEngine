@@ -88,6 +88,7 @@ namespace Desert::Graphic::API::Vulkan
 
         int32_t BeginScope( const char* name ) override;
         void    EndScope( int32_t handle ) override;
+        void    SetQueue( Common::Profiling::GpuQueue queue ) override;
 
     private:
         struct FrameQueries
@@ -103,6 +104,9 @@ namespace Desert::Graphic::API::Vulkan
         // is recording into that pool and its previous contents have been resolved.
         void GrowIfNeeded( FrameQueries& frame );
         void Resolve( FrameQueries& frame );
+        // The Unaccounted rows (Profiler.hpp, kGpuUnaccountedGraphicsScope): what of each queue's timeline no
+        // scope covered, and the named gaps of the graphics one. Reads m_ResultScratch as Resolve left it.
+        void PublishUnaccounted( const std::vector<GpuScopeRecorder::Scope>& scopes );
 
         VkDevice m_Device = VK_NULL_HANDLE;
 
@@ -132,6 +136,7 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<double>  m_Inclusive;
         std::vector<double>  m_Self;
         std::vector<int32_t> m_Parents;
+        std::vector<GpuInterval> m_Intervals;
     };
 } // namespace Desert::Graphic::API::Vulkan
 

@@ -8,6 +8,11 @@
 #include <Engine/Graphic/GpuTimestampLayout.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
 
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #if DESERT_DEV_INSTRUMENTS
 
 namespace Desert::Graphic::API::Vulkan
@@ -274,6 +279,13 @@ namespace Desert::Graphic::API::Vulkan
                              GpuScopeQueryBase( static_cast<uint32_t>( handle ) ) + 1 );
     }
 
+    void VulkanGpuProfiler::SetQueue( Common::Profiling::GpuQueue queue )
+    {
+        // Outside recording there is no frame for the queue to belong to; Reset starts every frame on Graphics.
+        if ( m_Recording != nullptr )
+            m_Recording->Recorder.SetQueue( queue );
+    }
+
     void VulkanGpuProfiler::Resolve( FrameQueries& frame )
     {
         if ( !frame.FrameTotalWritten )
@@ -357,6 +369,88 @@ namespace Desert::Graphic::API::Vulkan
         for ( size_t i = 0; i < scopeCount; ++i )
             if ( m_Inclusive[i] >= 0.0 )
                 profiler.AddGpuSample( scopes[i].Name.c_str(), m_Inclusive[i], m_Self[i] );
+
+        if ( frameMs >= 0.0 )
+            PublishUnaccounted( scopes );
+    }
+
+    void VulkanGpuProfiler::PublishUnaccounted( const std::vector<GpuScopeRecorder::Scope>& scopes )
+    {
+        using Common::Profiling::GpuQueue;
+
+        // Timestamps as ms from the frame bracket's begin. Signed: an async compute stamp can precede the
+        // graphics bracket's first one (the compute queue is another timeline of the same device clock).
+        const uint64_t frameBeginTicks =
+             m_ResultScratch[static_cast<size_t>( kGpuFrameTotalQuery ) * kWordsPerQuery];
+        const auto intervalOf = [&]( uint32_t queryBase ) -> GpuInterval
+        {
+            const size_t beginWord = static_cast<size_t>( queryBase ) * kWordsPerQuery;
+            const size_t endWord   = beginWord + kWordsPerQuery;
+            if ( endWord + 1 >= m_ResultScratch.size() || m_ResultScratch[beginWord + 1] == 0 ||
+                 m_ResultScratch[endWord + 1] == 0 || m_ResultScratch[endWord] < m_ResultScratch[beginWord] )
+                return GpuInterval{};
+            const auto toMs = [&]( uint64_t ticks )
+            { return static_cast<double>( static_cast<int64_t>( ticks - frameBeginTicks ) ) * m_PeriodNs * 1e-6; };
+            return GpuInterval{ toMs( m_ResultScratch[beginWord] ), toMs( m_ResultScratch[endWord] ), true };
+        };
+
+        const GpuInterval frameInterval = intervalOf( kGpuFrameTotalQuery );
+        if ( !frameInterval.Valid )
+            return;
+
+        const size_t scopeCount = scopes.size();
+        m_Intervals.resize( scopeCount );
+        std::vector<int32_t> graphicsScopes;
+        std::vector<int32_t> asyncPasses;
+        std::vector<int32_t> asyncSegments;
+        const std::string_view segmentPrefix = Common::Profiling::kGpuAsyncSegmentScopePrefix;
+        for ( size_t i = 0; i < scopeCount; ++i )
+        {
+            m_Intervals[i] = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
+            const auto index = static_cast<int32_t>( i );
+            if ( scopes[i].Queue == GpuQueue::Graphics )
+                graphicsScopes.push_back( index );
+            else if ( std::string_view( scopes[i].Name ).starts_with( segmentPrefix ) )
+                asyncSegments.push_back( index );
+            else
+                asyncPasses.push_back( index );
+        }
+
+        auto& profiler = Common::Profiling::Profiler::Get();
+
+        // THE GRAPHICS QUEUE: the bracket minus the union of every graphics scope in it, and where it sits.
+        const GpuCoverage graphics =
+             GpuCoverageOf( m_Intervals, std::move( graphicsScopes ), frameInterval.BeginMs, frameInterval.EndMs );
+        profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedGraphicsScope, graphics.UncoveredMs,
+                               graphics.UncoveredMs );
+        for ( const GpuUncovered& gap : graphics.Gaps )
+        {
+            if ( gap.Ms < Common::Profiling::kGpuGapReportMs )
+                continue;
+            const std::string_view after =
+                 gap.After == kGpuNoParent ? std::string_view( "frame begin" )
+                                           : std::string_view( scopes[static_cast<size_t>( gap.After )].Name );
+            const std::string_view before =
+                 gap.Before == kGpuNoParent ? std::string_view( "frame end" )
+                                            : std::string_view( scopes[static_cast<size_t>( gap.Before )].Name );
+            const std::string name = std::string( Common::Profiling::kGpuGapScopePrefix ) + std::string( after ) +
+                                     " -> " + std::string( before );
+            profiler.AddGpuSample( name.c_str(), gap.Ms, gap.Ms );
+        }
+
+        // THE ASYNC COMPUTE QUEUE: each segment minus the union of the async passes inside it. No segment row
+        // this frame (async off, or every segment demoted to the graphics queue) publishes nothing, which the
+        // dump already reads as "no segment".
+        if ( asyncSegments.empty() )
+            return;
+        double asyncUncoveredMs = 0.0;
+        for ( const int32_t segment : asyncSegments )
+        {
+            const GpuInterval& span = m_Intervals[static_cast<size_t>( segment )];
+            if ( span.Valid )
+                asyncUncoveredMs += GpuCoverageOf( m_Intervals, asyncPasses, span.BeginMs, span.EndMs ).UncoveredMs;
+        }
+        profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedAsyncScope, asyncUncoveredMs, asyncUncoveredMs );
     }
 } // namespace Desert::Graphic::API::Vulkan
 

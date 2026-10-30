@@ -14,6 +14,7 @@
 
 #include <Common/Core/DestructorGuard.hpp>
 #include <Common/Core/DevInstruments.hpp>
+#include <Common/Core/GpuQueue.hpp>
 #include <optick.h>
 
 #include <chrono>
@@ -63,6 +64,22 @@ namespace Common::Profiling
     // frame bracket has to tell these rows apart; the backend that writes it and the dump that reads it share it.
     inline constexpr const char* kGpuAsyncSegmentScopePrefix = "RDG Async: ";
 
+    // UNACCOUNTED, PER QUEUE (UE "stat gpu": the Unaccounted row). The backend publishes, every frame:
+    //   - graphics: the GPU frame bracket minus the UNION of the graphics-queue scopes inside it - device work
+    //     (barriers, copies, uploads, work recorded outside every pass) and device idle no scope is around;
+    //   - async compute: the async segments minus the union of the async passes inside them.
+    // A union, not a sum of self times: a scope of one view open around another view's passes, or an async
+    // pass nested under a graphics scope, would be counted twice by a sum and makes the remainder a lie.
+    // These rows are REMAINDERS, not passes: anything summing the per-pass column leaves them out.
+    inline constexpr const char* kGpuUnaccountedGraphicsScope = "GPU Unaccounted: graphics queue";
+    inline constexpr const char* kGpuUnaccountedAsyncScope    = "GPU Unaccounted: async compute queue";
+    // Where the graphics remainder sits: one row per uncovered stretch of the graphics timeline of at least
+    // kGpuGapReportMs, named by the scope that ended last before it and the one that began after it
+    // ("GPU Gap: <after> -> <before>", "frame begin" / "frame end" at the bracket's edges). The next
+    // measurement names the unlabelled work by its neighbours instead of leaving a number to guess at.
+    inline constexpr const char* kGpuGapScopePrefix = "GPU Gap: ";
+    inline constexpr double      kGpuGapReportMs    = 0.1;
+
     // What a CPU scope is. Work is the default; Wait marks a scope whose time is the thread BLOCKED on
     // something outside it (vkWaitForFences, vkAcquireNextImageKHR, vkQueuePresentKHR, the frame pacer's
     // sleep). Every enclosing scope reports that time in its WaitMs column, so a parent row splits into work
@@ -86,6 +103,9 @@ namespace Common::Profiling
 
         virtual int32_t BeginScope( const char* name ) = 0;
         virtual void    EndScope( int32_t handle )     = 0;
+        // The queue the scopes opened from now on are recorded on. The render graph's backend switches it at
+        // every pipe segment it begins and ends; outside the graph it is Graphics (the frame's own buffer).
+        virtual void SetQueue( GpuQueue queue ) = 0;
     };
 
     // Main-thread oriented CPU scope aggregator. Thread-safe (cheap mutex) so worker-thread scopes don't
