@@ -14,7 +14,6 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/ECS/Entity.hpp>
 #include <Engine/Geometry/DynamicMeshSelection.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
@@ -27,16 +26,9 @@ namespace Desert::Editor::Tools
     {
         using MS = Core::ModelingState;
 
-        ECS::StaticMeshComponent* MeshOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
-        {
-            auto ref = scene.FindEntityByID( id );
-            if ( !ref || !ref->get().HasComponent<ECS::StaticMeshComponent>() )
-                return nullptr;
-            return &ref->get().GetComponent<ECS::StaticMeshComponent>();
-        }
-
         // States the edited value through the one writer (no write when equal); a slot change drops the
-        // runtime instances there, so the mesh system rebuilds them. Callers found the entity through MeshOf.
+        // runtime instances there, so the mesh system rebuilds them. Callers found the entity through
+        // FindToolTargetComponent.
         void PutMesh( ::Desert::Core::Scene& scene, const Common::UUID& id, const ECS::StaticMeshDesc& desc )
         {
             const ECS::Entity entity = scene.FindEntityByID( id )->get();
@@ -49,7 +41,7 @@ namespace Desert::Editor::Tools
                                                   : std::format( "asset {}", static_cast<uint64_t>( handle ) );
         }
 
-        bool Refuse( MS& ms, const std::string& what, const std::string& why )
+        bool RefuseEditMaterials( MS& ms, const std::string& what, const std::string& why )
         {
             ms.EditMaterialsStatus = std::format( "{} refused: {}", what, why );
             LOG_ERROR( "[Modeling] Edit Materials: {0}", ms.EditMaterialsStatus );
@@ -68,7 +60,7 @@ namespace Desert::Editor::Tools
         {
             const auto selected = Core::SelectionManager::GetSelected();
             if ( !active || !selected.has_value() || *selected != m_Session->Entity ||
-                 MeshOf( scene, m_Session->Entity ) == nullptr )
+                 FindToolTargetComponent( scene, m_Session->Entity ) == nullptr )
             {
                 if ( !active && ms.ReqCancel )
                     ms.ReqCancel = false;
@@ -138,7 +130,7 @@ namespace Desert::Editor::Tools
             ms.EditMaterialsStatus = "Select an entity with a static mesh.";
             return;
         }
-        ECS::StaticMeshComponent* component = MeshOf( scene, *selected );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, *selected );
         if ( component == nullptr )
         {
             ms.EditMaterialsStatus = "The selected entity has no static mesh.";
@@ -175,7 +167,7 @@ namespace Desert::Editor::Tools
 
     void EditMaterialsTool::Show( ::Desert::Core::Scene& scene )
     {
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
         ECS::StaticMeshDesc desc = component->GetDesc();
@@ -188,7 +180,7 @@ namespace Desert::Editor::Tools
 
     void EditMaterialsTool::Restore( ::Desert::Core::Scene& scene )
     {
-        ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
         ECS::StaticMeshDesc desc = component->GetDesc();
@@ -215,13 +207,13 @@ namespace Desert::Editor::Tools
         const auto& selection = Core::MeshElementSelection::Get();
         if ( selection.Entity() != m_Session->Entity || !selection.HasMesh() || selection.Selection().Empty() )
         {
-            Refuse( ms, "Assign", "no triangles of this mesh are selected" );
+            RefuseEditMaterials( ms, "Assign", "no triangles of this mesh are selected" );
             return;
         }
         const int slot = ms.EditMaterialsActiveSlot;
         if ( slot < 0 || slot >= static_cast<int>( m_Session->Slots.size() ) )
         {
-            Refuse( ms, "Assign", std::format( "slot {} does not exist ({} slots)", slot, m_Session->Slots.size() ) );
+            RefuseEditMaterials( ms, "Assign", std::format( "slot {} does not exist ({} slots)", slot, m_Session->Slots.size() ) );
             return;
         }
         const Geometry::ElementSelection tris =
@@ -253,7 +245,7 @@ namespace Desert::Editor::Tools
     {
         if ( m_Session->Slots.size() <= 1 )
         {
-            Refuse( ms, "Remove slot", "a mesh keeps at least one slot" );
+            RefuseEditMaterials( ms, "Remove slot", "a mesh keeps at least one slot" );
             return;
         }
         const int last = static_cast<int>( m_Session->Slots.size() ) - 1;
@@ -262,7 +254,7 @@ namespace Desert::Editor::Tools
             for ( int tid = 0; tid < mesh.MaxTriangleID(); ++tid )
                 if ( mesh.IsTriangle( tid ) && mesh.Attributes()->GetMaterialID()->GetValue( tid ) == last )
                 {
-                    Refuse( ms, "Remove slot", std::format( "triangle {} still uses slot {}", tid, last ) );
+                    RefuseEditMaterials( ms, "Remove slot", std::format( "triangle {} still uses slot {}", tid, last ) );
                     return;
                 }
         m_Session->Slots.pop_back();
@@ -279,12 +271,12 @@ namespace Desert::Editor::Tools
         const int slot = ms.EditMaterialsActiveSlot;
         if ( assets == nullptr )
         {
-            Refuse( ms, "Slot material", "the viewport has no asset manager" );
+            RefuseEditMaterials( ms, "Slot material", "the viewport has no asset manager" );
             return;
         }
         if ( slot < 0 || slot >= static_cast<int>( m_Session->Slots.size() ) )
         {
-            Refuse( ms, "Slot material", std::format( "slot {} does not exist", slot ) );
+            RefuseEditMaterials( ms, "Slot material", std::format( "slot {} does not exist", slot ) );
             return;
         }
         auto& manager = const_cast<::Desert::Assets::AssetManager&>( *assets );
@@ -293,7 +285,7 @@ namespace Desert::Editor::Tools
             asset = manager.CreateAsset<::Desert::Assets::SurfaceMaterialAsset>( path );
         if ( !asset )
         {
-            Refuse( ms, "Slot material", std::format( "'{}' is not a material asset", path ) );
+            RefuseEditMaterials( ms, "Slot material", std::format( "'{}' is not a material asset", path ) );
             return;
         }
         const auto handle = asset->GetMetadata().Handle;
@@ -308,10 +300,10 @@ namespace Desert::Editor::Tools
     bool EditMaterialsTool::Accept( ::Desert::Core::Scene& scene, MS& ms )
     {
         if ( !m_Session )
-            return Refuse( ms, "Accept", ms.EditMaterialsStatus );
+            return RefuseEditMaterials( ms, "Accept", ms.EditMaterialsStatus );
         auto ref = scene.FindEntityByID( m_Session->Entity );
         if ( !ref || !ref->get().HasComponent<ECS::TransformComponent>() )
-            return Refuse( ms, "Accept", "the entity is gone" );
+            return RefuseEditMaterials( ms, "Accept", "the entity is gone" );
         // The component goes back to the "before" first, so the one recorded step holds before and after.
         Restore( scene );
         const auto&                     tc = ref->get().GetComponent<ECS::TransformComponent>();
@@ -321,7 +313,7 @@ namespace Desert::Editor::Tools
         if ( auto done = Commands::ApplyXformEdit( "Modeling: Edit Materials", { after }, {}, {} ); !done.IsSuccess() )
         {
             Show( scene );
-            return Refuse( ms, "Accept", done.GetError() );
+            return RefuseEditMaterials( ms, "Accept", done.GetError() );
         }
         LOG_INFO( "[Modeling] Edit Materials accepted: {0} triangles, {1} slots", m_Session->Preview->TriangleCount(),
                   m_Session->Slots.size() );

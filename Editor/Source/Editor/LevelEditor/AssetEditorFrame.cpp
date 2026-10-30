@@ -19,6 +19,8 @@
 
 namespace Desert::Editor::AssetEditorFrame
 {
+    namespace ImGui = ::ImGui; // engine headers introduce a Desert::ImGui that would otherwise shadow ::ImGui
+
     namespace
     {
         // The level toolbar's strip (LevelToolbar::Draw): #161616, the same padding and frame metrics, so an asset

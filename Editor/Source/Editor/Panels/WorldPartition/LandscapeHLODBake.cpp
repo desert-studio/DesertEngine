@@ -467,13 +467,13 @@ namespace Desert::Editor
         // material (StoredFormFor("MaterialAsset") = assets-relative), not as the tagged key the .demat's own
         // texture slot uses: a tagged key there is re-tagged on load ("assets:assets:...") and the slot stays
         // empty.
-        const auto materialForm = Core::Serialize::StoredFormFor( "MaterialAsset" );
+        const auto materialForm = ::Desert::Core::Serialize::StoredFormFor( "MaterialAsset" );
         if ( !materialForm )
             return Common::MakeError( "the material reference has no stored form (StoredAssetForm.cpp)" );
         m_Baked.push_back(
              LandscapeHLODBaked{ .Tile         = tile.Tile,
                                  .MaterialGuid = material.Header->Guid,
-                                 .MaterialPath = Core::Serialize::RenderStoredForm(
+                                 .MaterialPath = ::Desert::Core::Serialize::RenderStoredForm(
                                       *materialForm, Common::AssetHandle::StableKeyForPath( matFile ) ) } );
         LOG_INFO( "[Build HLODs] baked tile {0}: {1}x{2} BaseColor + ORM + Normal -> {3}, {4}, {5}, {6}", tileName,
                   width, height, texFile.generic_string(), ormFile.generic_string(), normalFile.generic_string(),

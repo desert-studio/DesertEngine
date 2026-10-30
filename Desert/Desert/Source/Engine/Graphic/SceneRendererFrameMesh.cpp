@@ -518,10 +518,9 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the clouds and the particles after it see the surface. It fogs itself at its own
-        // depth (the opaque fog was applied before the copy; its inputs come with the view's,
-        // BindSceneViewInputs). It samples the opaque scene's copy (refraction) and the G-buffer depth
-        // (SceneViewInputs::SceneDepth: the bottom, a different image from the scene target's depth it writes -
+        // depth, so the glass, the clouds and the particles after it see the surface. It samples the opaque
+        // scene's copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different
+        // image from the scene target's depth it writes -
         // UE's SceneDepthWithoutSingleLayerWater). It fogs itself at its own depth (the opaque fog ran before it;
         // Mesh/Surface/SceneFog.glslh, bound by name through BindSceneViewInputs).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
