@@ -14,6 +14,8 @@
 Дано --subject viewport set Camera.Direction 0,0,-1
 Дано run Panel "Open Particle Debugger"
 Дано run Debug "Particles: Freeze"
+Дано run Debug "Particles: Viewport overview"
+Дано run Debug "Particles: Draw bounds"
 Когда run Action Simulate
 Когда run Debug "Particles: Step"
 Когда run Debug "Particles: Step"
@@ -40,9 +42,11 @@
 Когда run Debug "Particles: Step"
 Когда state
 Тогда 4a_broken_debugger the Particle Debugger (frozen) lists the BrokenMaterial emitter with Alive 1 (its burst of 1 survives Effects.SpawnCountScalePercent < 100) and BrokenMaterialRibbon with Alive > 0
-Тогда-вид 4_broken the emitter whose material is broken draws a large square sprite filled with the grey world checker of the default surface (two greys, 100 cm cells), not a soft round disc; editor.log names M_Test_BrokenParticle, the field Params...Value and the checker fallback
+Тогда-вид 4_broken the viewport overview (top right) lists BrokenMaterial and BrokenMaterialRibbon NOT culled, each with its draws (forward+G-buffer); the bounds boxes enclose the particles; the emitter whose material is broken draws a large square sprite filled with the grey world checker of the default surface (two greys, 100 cm cells), not a soft round disc; editor.log names M_Test_BrokenParticle, the field Params...Value and the checker fallback
 Тогда-вид 4b_broken_ribbon below the sprite, a 60 cm wide ribbon trail running from the emitter along +X (second emitter BrokenMaterialRibbon, the same broken material) is filled with the same grey world checker, not the soft default ribbon; editor.log names the ribbon row's stand-in as well
 Когда run Action Stop
+Дано run Debug "Particles: Viewport overview"
+Дано run Debug "Particles: Draw bounds"
 Дано run Scene "Open Scene VFX_Demo_Impacts.desce"
 Дано run View "View mode: Lit"
 Дано --subject viewport set Camera.Position 0,30,320
