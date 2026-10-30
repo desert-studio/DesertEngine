@@ -38,7 +38,7 @@ Shader "GrassGenerate"
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
             vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
             vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
-            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians)
+            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
             vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
         };
 
@@ -342,6 +342,9 @@ Shader "GrassGenerate"
             if ( index >= Arguments[table + 2u] )
                 return;
             index += Arguments[table + 1u];
+            // The world's snow (Common/WeatherSnow.glslh) lies p.Lean.z deep over the ground: the root sinks by it,
+            // so the instance shows only what stands above the snow and one shorter than it is buried whole.
+            position.y -= p.Lean.z;
             // A blade's forward axis carries the height multiplier (its lean is a share of its height) and the
             // columns' w its three draws (Vertex_GrassBlade.glslh); a mesh's are its scaled axes.
             if ( blade )

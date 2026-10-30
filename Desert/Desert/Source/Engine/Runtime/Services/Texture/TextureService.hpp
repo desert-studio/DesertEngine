@@ -75,6 +75,10 @@ namespace Desert::Runtime
         /// The manager discovery creates shells in. Bound by ResourceRegistry::BindOnDemandAssets.
         void BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets );
 
+        /// The handle of the .detex at @p path (relative to the project's Content, or absolute), registering its
+        /// shell when nothing has yet: how a world parameter collection's Texture row names its texture.
+        Common::ResultStr<Assets::AssetHandle> HandleForPath( const std::filesystem::path& path );
+
         // Eager: build the GPU texture now, for an asset the caller has just made (import, UI render target).
         void Register( const std::shared_ptr<Assets::TextureAsset>& texture );
 

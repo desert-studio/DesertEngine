@@ -344,9 +344,9 @@ TEST( WorldPartitionHLODSwitch, AnHLODThatCannotStandInIsRefusedByName )
 
 TEST( WorldPartitionHLODSwitch, TheHolesAreNamedByReason )
 {
-    const std::vector<HLODExclusion> holes{ HLODExclusion::SkinnedMesh, HLODExclusion::PrefabInstance,
+    const std::vector<HLODExclusion> holes{ HLODExclusion::SkinnedMesh, HLODExclusion::EditorMesh,
                                             HLODExclusion::SkinnedMesh };
-    EXPECT_EQ( Desert::Core::Rules::DescribeHLODHoles( holes ), "1 PrefabInstance, 2 SkinnedMesh" );
+    EXPECT_EQ( Desert::Core::Rules::DescribeHLODHoles( holes ), "1 EditorMesh, 2 SkinnedMesh" );
     EXPECT_EQ( Desert::Core::Rules::DescribeHLODHoles( {} ), "" );
 }
 

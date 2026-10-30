@@ -25,6 +25,7 @@
         "ContactShadowLength": 0.0,
         "ContactShadowLengthInWorldSpace": false,
         "ContactShadowCastingIntensity": 1.0,
-        "ContactShadowNonCastingIntensity": 0.0
+        "ContactShadowNonCastingIntensity": 0.0,
+        "VolumetricScatteringIntensity": 1.0
     }
 }

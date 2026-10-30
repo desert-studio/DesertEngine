@@ -41,6 +41,12 @@ namespace Desert::Assets::Serialization
     {
         Scalar,
         Vector,
+        /// A texture the world lends to every material that reads the name (the weather's snow set): the
+        /// collection names the .detex, the world resolves it, and the GPU slot carries its bindless image and
+        /// sampler (`DesertWorldTexture`, Common/WorldParameters.glslh). UE's collections hold no textures, so
+        /// a weather layer there is a material function every master material repeats; here the layer is the
+        /// engine's (Mesh/Surface/SurfaceWeather.glslh) and its look stays an asset the preset's world names.
+        Texture,
     };
 
     struct WorldParameterData
@@ -48,6 +54,9 @@ namespace Desert::Assets::Serialization
         std::string          Name;
         WorldParameterType   Type    = WorldParameterType::Scalar;
         std::array<float, 4> Default = { 0.0f, 0.0f, 0.0f, 0.0f }; // a scalar keeps yzw at zero
+        /// A Texture parameter's .detex, relative to the project's Content (`Environments/x/y.detex`); empty for
+        /// a scalar or a vector.
+        std::string Texture;
 
         [[nodiscard]] bool operator==( const WorldParameterData& ) const = default;
     };

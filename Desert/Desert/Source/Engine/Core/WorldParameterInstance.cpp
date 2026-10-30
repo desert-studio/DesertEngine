@@ -11,12 +11,16 @@ namespace Desert::Core
 
         constexpr const char* TypeName( const WorldParameterType type )
         {
-            return type == WorldParameterType::Scalar ? "scalar" : "vector";
+            return type == WorldParameterType::Scalar   ? "scalar"
+                   : type == WorldParameterType::Vector ? "vector"
+                                                        : "texture";
         }
     } // namespace
 
-    void WorldParameterInstance::Adopt( const Common::AssetHandle&                        source,
-                                        const Assets::Serialization::WorldParametersData* data )
+    void
+    WorldParameterInstance::Adopt( const Common::AssetHandle&                                      source,
+                                   const Assets::Serialization::WorldParametersData*               data,
+                                   const std::function<Common::AssetHandle( const std::string& )>& resolveTexture )
     {
         if ( data == nullptr )
         {
@@ -33,7 +37,10 @@ namespace Desert::Core
         m_Values.reserve( data->Parameters.size() );
         for ( const auto& row : data->Parameters )
             m_Values.push_back( { row.Name, Assets::Serialization::WorldParameterKey( row.Name ), row.Type,
-                                  glm::vec4( row.Default[0], row.Default[1], row.Default[2], row.Default[3] ) } );
+                                  glm::vec4( row.Default[0], row.Default[1], row.Default[2], row.Default[3] ),
+                                  row.Type == WorldParameterType::Texture && resolveTexture
+                                       ? resolveTexture( row.Texture )
+                                       : Common::AssetHandle{} } );
     }
 
     const WorldParameterValue* WorldParameterInstance::Find( const std::string_view   name,

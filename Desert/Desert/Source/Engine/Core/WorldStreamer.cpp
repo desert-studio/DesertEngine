@@ -4,6 +4,7 @@
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/HLODMeshBuilder.hpp>
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 #include <Engine/Core/Serialize/SceneSerializer.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/ECS/Entity.hpp>
@@ -162,7 +163,47 @@ namespace Desert::Core
         if ( !parsed )
             return Common::MakeError<Result>( parsed.GetError() );
 
-        auto   snapshot = std::make_shared<const SceneSerialized>( std::move( parsed.ExtractValue().Scene ) );
+        SceneSerialized source = std::move( parsed.ExtractValue().Scene );
+        // ONE PREFAB EXPANSION FOR THE COOK AND PLAY (WP21-PLAY; UE: an embedded Level Instance is the same
+        // actors in the cooked World Partition and in PIE). A partitioned world streams the records the cook
+        // writes: every prefab instance is expanded by ExpandPrefabInstances - the cook's own step - and the live
+        // instance (root + the entities PrefabFactory made under it) is replaced by those records, so the plan,
+        // the stale check against the saved HLODs and every cell Play activates are the cooked world's.
+        if ( source.WorldPartition.has_value() )
+        {
+            auto expanded = WorldCells::ExpandPrefabInstances( source, WorldCells::PrefabFileReader() );
+            if ( !expanded )
+                return Common::MakeError<Result>( "world streaming of '" + source.SceneName +
+                                                  "': " + expanded.GetError() );
+            if ( expanded.GetValue().Instances > 0 )
+            {
+                WorldCells::ExpandedScene       world = expanded.ExtractValue();
+                std::vector<Assets::EntityData> made;
+                for ( std::size_t record = 0; record < world.Slots.size(); ++record )
+                {
+                    const WorldCells::ExpandedSlot& slot = world.Slots[record];
+                    if ( !slot.Instance )
+                        continue;
+                    // The root keeps the instance's id; its inner entities go with it.
+                    if ( auto live = scene.FindEntityByID( *source.Entities[record].id ); live.has_value() )
+                        scene.DestroyEntity( live->get() );
+                    made.insert(
+                         made.end(), world.Scene.Entities.begin() + static_cast<std::ptrdiff_t>( slot.First ),
+                         world.Scene.Entities.begin() + static_cast<std::ptrdiff_t>( slot.First + slot.Count ) );
+                }
+                if ( auto instantiated =
+                          SceneSerializer( &scene, &assets ).InstantiateRecords( made, source.SceneName, nullptr );
+                     !instantiated )
+                    return Common::MakeError<Result>(
+                         "world streaming of '" + source.SceneName +
+                         "': making the expanded prefab instances failed: " + instantiated.GetError() );
+                LOG_INFO( "[WorldPartition] Play of '{0}': {1} prefab instance(s) expanded into {2} record(s), as "
+                          "the cook expands them",
+                          source.SceneName, world.Instances, made.size() );
+                source = std::move( world.Scene );
+            }
+        }
+        auto   snapshot = std::make_shared<const SceneSerialized>( std::move( source ) );
         Result streamer( new WorldStreamer( scene, assets, snapshot->SceneName ) );
         std::vector<Rules::StreamingSource> sources = GatherSources( scene, instruments );
         // BEFORE the executor begins: its Begin destroys every unwanted record, and Destroy finds each by id.

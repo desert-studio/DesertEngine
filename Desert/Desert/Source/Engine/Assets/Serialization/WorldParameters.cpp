@@ -40,6 +40,12 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>(
                      "Parameters[{}] '{}' is a scalar but states yzw ({}, {}, {})", i, p.Name, p.Default[1],
                      p.Default[2], p.Default[3] );
+            if ( p.Type == WorldParameterType::Texture && p.Texture.empty() )
+                return Common::MakeFormattedError<bool>( "Parameters[{}] '{}' is a texture but names no Texture", i,
+                                                         p.Name );
+            if ( p.Type != WorldParameterType::Texture && !p.Texture.empty() )
+                return Common::MakeFormattedError<bool>(
+                     "Parameters[{}] '{}' names a Texture but is not a texture parameter", i, p.Name );
         }
         return BOOLSUCCESS;
     }

@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,6 +23,9 @@ namespace Desert::Core
         uint32_t                                  Key  = 0; // Serialization::WorldParameterKey( Name )
         Assets::Serialization::WorldParameterType Type = Assets::Serialization::WorldParameterType::Scalar;
         glm::vec4                                 Value{ 0.0f };
+        /// A Texture parameter's texture, resolved from the collection's path when the world adopts it
+        /// (Scene::SyncWorldParameters); each view writes its bindless slot into Value (SceneRenderer).
+        Common::AssetHandle Texture{};
     };
 
     /**
@@ -40,7 +44,8 @@ namespace Desert::Core
         /// Takes the collection @p data stands for (its defaults; null = the scene names none). Re-adopting the
         /// same handle with equal data keeps the live values; a different handle or changed data (the asset was
         /// edited and saved) resets every value to the new defaults.
-        void Adopt( const Common::AssetHandle& source, const Assets::Serialization::WorldParametersData* data );
+        void Adopt( const Common::AssetHandle& source, const Assets::Serialization::WorldParametersData* data,
+                    const std::function<Common::AssetHandle( const std::string& )>& resolveTexture = {} );
 
         [[nodiscard]] const Common::AssetHandle& Source() const
         {
