@@ -49,10 +49,12 @@ bool DesertWorldTexture( const uint key, out BindlessTexture t )
     return v.w > 0.5;
 }
 
-// The layer the world names (ShaderGraph::SurfaceLayerId of its graph's name; 0 = none).
+// The layer the world names (ShaderGraph::SurfaceLayerId of its graph's name; 0 = none). The id is a 24-bit
+// integer the float holds exactly, so it converts as it is: `+ 0.5` rounded every odd id at or above 2^23 (float
+// spacing 1 there, ties to even) to the next one, and such a layer (M_SnowLayer, 0x99f35f) never drew.
 uint DesertSurfaceLayerSelected()
 {
-    return uint( DesertWorldParameter( kDesertSurfaceLayerKey ).x + 0.5 );
+    return uint( DesertWorldParameter( kDesertSurfaceLayerKey ).x );
 }
 
 DesertSurfaceLayerOutput DesertSurfaceLayerNone()
