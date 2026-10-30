@@ -1,0 +1,44 @@
+# GAMEPLAY-PROOF: Play-mode cards, one editor session in Projects/Desert.
+# Cards: GP2 (walk / jump / crouch through IA_Move / IA_Jump / IA_Crouch, the camera on its boom), GP1 (one Input
+# Action driven by its second mapped key), GP3 (death -> respawn), GP4 (button opens a door), GAME-2B (menu hover / focus).
+# Keys from IMC_Default.deinputcontext: W/A/S/D move, Space jump, C and LeftControl crouch.
+# GP3 / GP4: no scene in Projects/Desert carries a kill volume / respawn or ButtonOpensDoor.lua (Scripts/Examples has
+# the script, no scene uses it) - their lines stay here as the spec and are reported blocked in REMAINDER-SHOTS-SCN.
+# GP1's remap (a runtime rebind, UE EnhancedInputUserSettings) has no editor or script entry yet; the frame below
+# proves the mapping context's second key for the same action - the rebind half is reported blocked.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PlayerController_Demo.desce
+Дано run View "View mode: Lit"
+Когда run Action "Play"
+Когда advance 1
+Тогда-вид gp2_idle GP2: the player stands on the ground, the camera behind and above it on the boom (SpringArm), Idle pose
+Когда input keydown - - W
+Когда advance 1
+Тогда-вид gp2_walk GP2: W held 1 s - the player moved forward (the floor slid under the camera), Walk/Run pose, the camera followed at the boom length
+Когда input keyup - - W
+Когда input keydown - - Space
+Когда advance 0.3
+Тогда-вид gp2_jump GP2: Space - the player in the air (feet above the floor), Jump pose
+Когда input keyup - - Space
+Когда advance 1.5
+Когда input keydown - - C
+Когда advance 0.5
+Тогда-вид gp2_crouch GP2: C held - the player crouched (capsule and camera lower than gp2_idle)
+Когда input keyup - - C
+Когда advance 0.5
+Когда input keydown - - LeftControl
+Когда advance 0.5
+Тогда-вид gp1_second_key GP1: LeftControl (IA_Crouch's second mapped key) crouches exactly as C did in gp2_crouch
+Когда input keyup - - LeftControl
+Когда run Action "Stop"
+Когда run Scene "Open Scene MainMenu.desce"
+Когда run Action "Play"
+Когда advance 0.5
+Тогда-вид game2b_menu GAME-2B: the main menu drawn in the Play view, no button highlighted
+Когда input key - - Down
+Когда advance 0.2
+Тогда-вид game2b_focus GAME-2B: keyboard focus - one button carries the focus style (outline / highlight), moved by Down
+Когда input move - 640,400
+Когда advance 0.2
+Тогда-вид game2b_hover GAME-2B: the pointer over a button - that button in its hover style
+Когда run Action "Stop"
+Тогда gp_stop Play stopped; editor.log 0 script errors

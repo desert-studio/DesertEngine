@@ -1,0 +1,55 @@
+# BISTRO-SHOTS: the Bistro look and shot-admission cards, one editor session in F:/BistroFoliageProj.
+# Cards: BISTRO-NIGHT-LOOK (p11: Day + Night x ScreenSpace / HardwareTraced / PathTraced, 6 frames), SHOT-ADMIT
+# (every method / upscaler gives a frame: not empty, mean > 0 - read with Tools/ImageStat), RT-VERIFY-INFRA (the
+# runner's Bistro frame: this run IS that frame; the runner's registration needs the owner's token, not a scenario).
+# Needs BistroFoliageProj@78f11c2 or later (the p11 night content) - check `git -C F:/BistroFoliageProj log -1`.
+# PathTraced frames set GI AND Reflections PathTraced (RenderMethods.cpp MethodLimit::PathTracerPair lowers a lone axis).
+# Frame wait: the zero-length drag at 600,40 as in REFL-RECAPTURE.scn. The overrides (machine.json) are cleared at the end.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Тогда rt_verify_infra RT-VERIFY-INFRA: the runner's Bistro frame - the day street rendered (facades, cobbles, sky), not the empty scene of the old BistroProj (bistro-repo-not-local-copy)
+Когда run Quality "Quality: GlobalIllumination.Method ScreenSpace"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид night_look_day_ss BISTRO-NIGHT-LOOK day ScreenSpace: street exposed normally, shadows readable, white facades not blown out
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид night_look_day_hw BISTRO-NIGHT-LOOK day HardwareTraced: warm bounce from sunlit facades into the shade, closer to night_look_day_pt than night_look_day_ss is
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид night_look_day_pt BISTRO-NIGHT-LOOK day PathTraced: the reference look; SHOT-ADMIT PT frame (mean > 0)
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид shot_admit_sw SHOT-ADMIT SoftwareTraced: a frame, not empty, mean > 0
+Когда run Quality "Quality: GlobalIllumination.Method ProbeVolume"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид shot_admit_pv SHOT-ADMIT ProbeVolume: a frame, not empty, mean > 0
+Когда run Quality "Quality: Resolution.Percent 67"
+Когда run Anti-Aliasing "Anti-Aliasing: DLSS"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид shot_admit_dlss SHOT-ADMIT DLSS 67 %: a frame, not empty, mean > 0
+Когда run Anti-Aliasing "Anti-Aliasing: FSR"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид shot_admit_fsr SHOT-ADMIT FSR 67 %: a frame, not empty, mean > 0
+Когда run Anti-Aliasing "Anti-Aliasing: TAA"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда run Scene "Open Scene GI_Bistro_Night.desce"
+Когда --subject viewport set Camera.Position -20,250,330
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда run Quality "Quality: GlobalIllumination.Method ScreenSpace"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид night_look_night_ss BISTRO-NIGHT-LOOK night ScreenSpace: lamps and shop windows light the street, the sky dark, no black facades
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид night_look_night_hw BISTRO-NIGHT-LOOK night HardwareTraced: lamp light bounces onto the facades and under the awnings
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид night_look_night_pt BISTRO-NIGHT-LOOK night PathTraced: the night reference; ss/hw frames within the same exposure range (no frame several stops darker)
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Тогда bistro_reset override cleared; editor.log 0 VUID

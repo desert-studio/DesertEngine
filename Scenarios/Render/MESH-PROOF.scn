@@ -1,0 +1,19 @@
+# MESH-PROOF: the normal / tangent cards on NRM_WitnessSkinned, one editor session in Projects/Desert.
+# Cards: NORMALS-2OF6, MESH-MIKKT, SHADER-PROTOCOL-GEN (waits for SKINNED-GBUFFER-MOTION in dev), HUMANOID-TANGENTS.
+# Tangent checks run after the session (SHOTS-RUN.md):
+#   python scripts/Dev/mesh_tangent_check.py Projects/Desert/Content/Meshes/Skinned/NRM_SkinProbe.skmesh   -> 0/0
+#   python scripts/Dev/mesh_tangent_check.py Editor/Resources/Engine/Meshes/Skinned/Humanoid.skmesh        -> 0/0
+# Pixel diff: frames_compare.py against the same frame of the dev tip (base) - NORMALS-2OF6.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/NRM_WitnessSkinned.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,220,700
+Дано --subject viewport set Camera.Direction 0,-0.2,-1
+Тогда-вид normals_lit NORMALS-2OF6 / SHADER-PROTOCOL-GEN: both skinned probes drawn (left flat, right normal-mapped): the right one shows the normal-map relief lit from the sun side, the left one smooth; neither black, inside-out or missing; pixel-diff vs the dev base frame
+Когда run View "View mode: World Normal"
+Тогда-вид normals_world NORMALS-2OF6: world normals - the faces facing the camera blue-ish, up-facing green, no flipped (inverted-colour) patches on the skinned probes or the ground
+Когда run View "View mode: Velocity"
+Тогда-вид normals_velocity SHADER-PROTOCOL-GEN: the skinned meshes write the G-buffer and motion (static camera: velocity flat, no garbage on the skinned silhouettes)
+Когда run View "View mode: Lit"
+Тогда-вид mesh_mikkt MESH-MIKKT: the normal-mapped probe's relief continuous across UV seams (no lighting crease at a seam); mesh_tangent_check on NRM_SkinProbe.skmesh 0/0
+Когда run Tools "Generate Humanoid Engine Assets"
+Тогда humanoid_tangents HUMANOID-TANGENTS: the generator ran (editor.log names the written Humanoid.skmesh); mesh_tangent_check on it afterwards 0/0

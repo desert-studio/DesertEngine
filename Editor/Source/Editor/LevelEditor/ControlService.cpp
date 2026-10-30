@@ -428,10 +428,11 @@ namespace Desert::Editor
         // set a value and captured immediately would photograph the frame BEFORE it. That failure is the
         // whole subject of the sequence this document exists to prove.
         const bool waitsForAFrame =
-             response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
-                                request.Operation == Control::Op::Drag || request.Operation == Control::Op::Advance ||
-                                request.Operation == Control::Op::Frames ||
-                                request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
+             response.Ok() &&
+             ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
+               request.Operation == Control::Op::Drag || request.Operation == Control::Op::Advance ||
+               request.Operation == Control::Op::Frames || request.Operation == Control::Op::Input ||
+               Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
         {
