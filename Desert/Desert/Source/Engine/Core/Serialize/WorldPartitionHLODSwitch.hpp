@@ -360,10 +360,12 @@ namespace Desert::Core::Rules
     // the last frame left them, the HLOD residency's tick under the gate of the world as this tick left it, then
     // the switch on the states both left - so an HLOD cell that activates this frame has its HLODs shown or
     // hidden before the frame is drawn, and its parent hidden in the same frame (THE SWAP, BY RESIDENCY).
+    // The HLOD cells stream for the sources that stream the world grids beneath them (HLODSources, @p residency
+    // the plan @p hlodExecutor runs).
     [[nodiscard]] inline Common::ResultStr<ResidencyTick>
-    TickWithHLODs( ResidencyExecutor& executor, ResidencyExecutor& hlodExecutor, HLODRuntime& hlods,
-                   std::span<const StreamingSource> sources, double nowSeconds, ResidencyWorld& world,
-                   ResidencyWorld& hlodCells, HLODVisibilityWorld& hlodWorld )
+    TickWithHLODs( ResidencyExecutor& executor, ResidencyExecutor& hlodExecutor, const HLODResidency& residency,
+                   HLODRuntime& hlods, std::span<const StreamingSource> sources, double nowSeconds,
+                   ResidencyWorld& world, ResidencyWorld& hlodCells, HLODVisibilityWorld& hlodWorld )
     {
         auto worldGate = hlods.WorldGate( hlodExecutor.State() );
         if ( !worldGate.IsSuccess() )
@@ -374,7 +376,8 @@ namespace Desert::Core::Rules
         auto hlodGate = hlods.HLODGate( executor.State(), hlodExecutor.State() );
         if ( !hlodGate.IsSuccess() )
             return Common::MakeError<ResidencyTick>( hlodGate.GetError() );
-        if ( auto hlodTick = hlodExecutor.Tick( sources, nowSeconds, hlodCells, &hlodGate.GetValue() );
+        const std::vector<StreamingSource> hlodSources = HLODSources( residency, sources );
+        if ( auto hlodTick = hlodExecutor.Tick( hlodSources, nowSeconds, hlodCells, &hlodGate.GetValue() );
              !hlodTick.IsSuccess() )
             return Common::MakeError<ResidencyTick>( "the HLOD cells: " + hlodTick.GetError() );
         if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld ); !synced.IsSuccess() )

@@ -1,0 +1,48 @@
+# SCOPE-FAR-HLOD (SCOPE-FAR-VIEW p4): the far city streamed by HLOD cells - the WP-FAR-8 hierarchy on real data.
+# World: Scenes/WP_Protocol (WP-PROTOCOL.scn). Its layer HLOD_Main (Main grid, 25 m cells, LoadingRange 200 m) is
+# spatially loaded: CellSize 51200 (512 m), LoadingRange 102400 (1024 m), ParentLayer HLOD_Main_Far (MeshMerge, always
+# loaded - one merged mesh per 512 m cell). The 182 Main HLODs (178 L0 + 4 L5 cells) fall into 16 HLOD_Main cells,
+# X,Z in -2..1 (7..13 HLODs each); 16 HLOD_Main_Far HLODs stand in for those cells. Foliage/Landscape layers unchanged.
+# Source: the far flyer 9000003 (AlwaysLoaded, Scripts/World/WPFarFly.lua, TargetGrids Main+Foliage - the HLOD cells
+# stream for it through Rules::HLODSources); Player 9000001 switched off. Flyer timeline (simulated s from Play):
+# 0-30 hold at X=0, fly 250 m/s, 37-67 hold at X=1800 m, 80-110 hold at X=5000 m, back at X=0 from 130 s.
+# Expected by band (editor.log, "[WorldPartition] 'WP_Protocol': ..."):
+#   centre: "HLOD HLOD_Main(x,z) loaded at the start of Play, above the cells Edit kept." for all 16 (Load All kept
+#           every Main cell); then Main cells beyond 200 m "unloaded."; the 16 HLOD_Main cells stay;
+#   mid:    12 x "HLOD HLOD_Main(x,z) unloaded." for x = -2, -1, 0; the 4 of x = 1 stay loaded;
+#   far:    the last 4 "HLOD HLOD_Main(1,z) unloaded." - 0 HLOD_Main cells, 0 Main cells;
+#   back:   16 x "HLOD HLOD_Main(x,z) loaded, N HLOD record(s)", THEN "<Main cell> loaded" near X=0 (WorldGate: a Main
+#           cell never activates before the HLOD cell above it).
+# Frames: the city visible at every distance, never a hole, never two copies (a merged block over its instanced
+# twin at a band edge). Camera 1003's Far 3.06 km is raised to 8 km (unsaved Edit) so the 5 km frame reaches it.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
+Дано run View "View mode: Lit"
+Дано run Scene "Build HLODs"
+Дано run Panel "Open World Partition"
+Дано run Scene "World Partition: Load All"
+Дано set 9000001 StreamingSourceData.Enabled false
+Дано set 9000003 StreamingSourceData.Enabled true
+Дано set 1003 CameraData.Far 800000
+Когда run Mode "Select mode"
+Когда run Action "Play from Here"
+Когда advance 10
+Когда --subject viewport set Camera.Position 0,40000,-60000
+Когда --subject viewport set Camera.Direction 0,-0.6,1
+Когда advance 2
+Тогда far_hlod_centre центр (флаер над X=0): здания вокруг центра настоящие, весь город до края 1 км - HLOD_Main (инстансы), без дыр; лог: 16 HLOD_Main loaded at the start of Play
+Когда advance 40
+Когда --subject viewport set Camera.Position 180000,30000,0
+Когда --subject viewport set Camera.Direction -1,-0.2,0
+Когда advance 2
+Тогда far_hlod_mid 1.8 км к +X: ближняя колонка (X 0.5-1 км) - HLOD_Main, дальние 3/4 города - слитые блоки HLOD_Main_Far, на границе колонок ни дыры, ни двойного; лог: 12 x HLOD_Main(x<1) unloaded
+Когда advance 40
+Когда --subject viewport set Camera.Position 500000,50000,0
+Когда --subject viewport set Camera.Direction -1,-0.1,0
+Когда advance 2
+Тогда far_hlod_far 5 км: весь город виден мелко - 16 блоков HLOD_Main_Far, ни одной ячейки Main/HLOD_Main; лог: последние 4 HLOD_Main(1,z) unloaded
+Когда advance 40
+Когда --subject viewport set Camera.Position 0,40000,-60000
+Когда --subject viewport set Camera.Direction 0,-0.6,1
+Когда advance 5
+Тогда far_hlod_back снова центр: тот же вид, что far_hlod_centre (без двойной отрисовки); лог: 16 x HLOD_Main loaded, N HLOD record(s), затем Main cells loaded
+Когда run Action "Stop"

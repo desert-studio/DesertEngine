@@ -692,8 +692,8 @@ namespace Desert::Core
         // The HLODs switch on the state this very tick leaves, before the frame is drawn.
         // NOLINTBEGIN(bugprone-unchecked-optional-access): a streamer that began holds its HLOD switch
         auto tick = m_HLODExecutor.has_value()
-                         ? Rules::TickWithHLODs( Executor(), *m_HLODExecutor, *m_HLODs, sources, nowSeconds, *this,
-                                                 *m_HLODCells, *this )
+                         ? Rules::TickWithHLODs( Executor(), *m_HLODExecutor, *m_HLODResidency, *m_HLODs, sources,
+                                                 nowSeconds, *this, *m_HLODCells, *this )
                          : Rules::TickWithHLODs( Executor(), *m_HLODs, sources, nowSeconds, *this, *this );
         // NOLINTEND(bugprone-unchecked-optional-access)
         if ( !tick )

@@ -260,6 +260,10 @@ namespace Desert::Core::Rules
         std::vector<std::size_t> UnitOfNode;
         std::vector<std::size_t> FirstRecord;
         std::size_t              Records = 0;
+        // Per grid of Partition: the WORLD grids (by WorldPartitionGridSerialized::Name) whose cells that HLOD layer
+        // stands in for - every grid whose HLODLayer chain passes through it. A source's TargetGrids names world
+        // grids; HLODSources reads it through this.
+        std::vector<std::vector<std::string>> StandsForGrids;
     };
 
     // @p recordsOfNode: per node of @p hierarchy, how many records its saved HLOD holds (0 for one that has none:
@@ -285,6 +289,18 @@ namespace Desert::Core::Rules
                 grid.CellSize     = *layer.CellSize;
                 grid.LoadingRange = *layer.LoadingRange;
                 out.Partition.Grids.push_back( std::move( grid ) );
+                std::vector<std::string> standsFor;
+                for ( const WorldPartitionGridSerialized& world : partition.Grids )
+                    for ( const HLODLayerSerialized* at =
+                               world.HLODLayer.has_value() ? FindHLODLayer( partition, *world.HLODLayer ) : nullptr;
+                          at != nullptr;
+                          at = at->ParentLayer.has_value() ? FindHLODLayer( partition, *at->ParentLayer ) : nullptr )
+                        if ( at == &layer )
+                        {
+                            standsFor.push_back( world.Name );
+                            break;
+                        }
+                out.StandsForGrids.push_back( std::move( standsFor ) );
             }
         out.FirstRecord.resize( hierarchy.Nodes.size() );
         for ( std::size_t n = 0; n < hierarchy.Nodes.size(); ++n )
@@ -326,6 +342,41 @@ namespace Desert::Core::Rules
             if ( hierarchy.Nodes[n].Cell != kNoRecord )
                 out.UnitOfNode[n] = out.Plan.AlwaysLoaded.size() + hierarchy.Nodes[n].Cell;
         return Common::MakeSuccess( std::move( out ) );
+    }
+
+    // THE SOURCES THE HLOD CELLS STREAM FOR. A source's TargetGrids names WORLD grids; the HLOD cells of a layer
+    // stand in for the cells of the world grids beneath it, so a source streams an HLOD grid exactly when it
+    // streams one of those. In UE the source carries a second list, TargetHLODLayers, set apart from TargetGrids;
+    // here it is derived, because the swap (HLODRuntime::WorldGate) makes a world cell WAIT for the HLOD cell above
+    // it, so a source naming "Main" read literally (never "HLOD <layer>") would hold its Main cells forever. A source
+    // naming none streams every grid, HLOD grids included; one targeting no HLOD grid is left out (an emptied list
+    // would read as "every grid").
+    [[nodiscard]] inline std::vector<StreamingSource> HLODSources( const HLODResidency&             residency,
+                                                                   std::span<const StreamingSource> sources )
+    {
+        std::vector<StreamingSource> out;
+        out.reserve( sources.size() );
+        for ( const StreamingSource& source : sources )
+        {
+            if ( source.TargetGrids.empty() )
+            {
+                out.push_back( source );
+                continue;
+            }
+            StreamingSource mapped = source;
+            mapped.TargetGrids.clear();
+            for ( std::size_t g = 0; g < residency.Partition.Grids.size(); ++g )
+                for ( const std::string& world : residency.StandsForGrids.at( g ) )
+                    if ( std::find( source.TargetGrids.begin(), source.TargetGrids.end(), world ) !=
+                         source.TargetGrids.end() )
+                    {
+                        mapped.TargetGrids.push_back( residency.Partition.Grids[g].Name );
+                        break;
+                    }
+            if ( !mapped.TargetGrids.empty() )
+                out.push_back( std::move( mapped ) );
+        }
+        return out;
     }
 
     // An HLOD residency unit's name for a report: the grid's ("HLOD <layer>") and the cell, or the node's name

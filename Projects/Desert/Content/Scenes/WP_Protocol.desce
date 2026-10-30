@@ -88,7 +88,7 @@
         201145, 201146, 201147, 201148, 201149, 201150, 201151, 201152,
         201153, 201154, 201155, 201156, 201157, 201158, 201159, 201160,
         201161, 201162, 201163, 201164, 201165, 201166, 201167, 9000001,
-        9000002
+        9000002, 9000003
     ],
     "Settings": {
         "RenderingPath": 1,
@@ -137,7 +137,14 @@
         "HLODLayers": [
             {
                 "Name": "HLOD_Main",
-                "Type": "Instancing"
+                "Type": "Instancing",
+                "ParentLayer": "HLOD_Main_Far",
+                "CellSize": 51200.0,
+                "LoadingRange": 102400.0
+            },
+            {
+                "Name": "HLOD_Main_Far",
+                "Type": "MeshMerge"
             },
             {
                 "Name": "HLOD_Foliage",
