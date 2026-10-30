@@ -234,7 +234,7 @@ namespace Desert::Graphic::System
 
         std::weak_ptr<Image2D> m_AutoExposureImage;
         bool                   m_AutoExposureEnabled = false;
-        float                      m_ExposureKey         = 0.18f;
+        float                  m_ExposureKey         = 0.18f;
 
         float                  m_LightShaftIntensity = 0.0f;
         glm::vec3              m_LightShaftTint      = glm::vec3( 1.0f );

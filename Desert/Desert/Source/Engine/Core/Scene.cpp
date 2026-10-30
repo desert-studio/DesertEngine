@@ -1390,7 +1390,14 @@ namespace Desert::Core
         m_ReflectionCaptures = std::make_unique<Graphic::ReflectionCaptureRenderer>( m_LedgerInstance );
         m_RayTracingCache    = std::make_unique<Graphic::RayTracing::RayTracingSceneCache>( m_LedgerInstance );
         m_LocalShadows       = std::make_unique<Graphic::LocalShadowCache>( m_LedgerInstance );
-        m_DistanceFields   = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
+        // The brick atlas is the project's pool, not the world's: the next world takes it over empty
+        // (DistanceFieldSceneData::AdoptPool) - freed and allocated again, Stop's 384 MiB was resident twice
+        // while the driver gave the old one back (FOLIAGE-LOOK-8).
+        {
+            auto next = std::make_unique<Graphic::DistanceField::DistanceFieldSceneData>( m_LedgerInstance );
+            next->AdoptPool( *m_DistanceFields );
+            m_DistanceFields = std::move( next );
+        }
         // The surface cache's atlases, capture framebuffer and pipelines are still read by the frames in flight
         // (its pipelines are released at once, not queued): parked until those frames retired (OnUpdate collects).
         m_RetiringSurfaceCaches.Park( std::move( m_SurfaceCache ), clearFrame );

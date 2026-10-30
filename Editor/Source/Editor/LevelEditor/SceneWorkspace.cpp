@@ -149,7 +149,8 @@ namespace Desert::Editor
         // rather than when the frame ring comes round - and no frame runs while the next world loads.
         EngineContext::GetInstance().GetDevice()->WaitIdle();
         // The surface cache Clear parked (five 49 MB atlases on FIELD_Barn) would otherwise live on until the
-        // frame ring comes round, beside the one the next world builds (FOLIAGE-LOOK-8: SurfaceCache.* x2 at Stop).
+        // frame ring comes round, beside the one the next world builds (FOLIAGE-LOOK-8: SurfaceCache.* x2 at
+        // Stop).
         m_ActiveScene->ReleaseParkedRenderers();
         const auto context = std::dynamic_pointer_cast<Graphic::API::Vulkan::VulkanContext>(
              EngineContext::GetInstance().GetRendererContext() );
