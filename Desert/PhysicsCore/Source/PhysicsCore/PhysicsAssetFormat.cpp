@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <istream>
 #include <span>
+#include <string>
+#include <vector>
 
 namespace Desert::Physics
 {

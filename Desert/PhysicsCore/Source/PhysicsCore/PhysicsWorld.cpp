@@ -36,11 +36,16 @@
 
 #include <algorithm>
 #include <cmath>
-#include <string>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <format>
+#include <functional>
+#include <limits>
+#include <memory>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <tuple>
