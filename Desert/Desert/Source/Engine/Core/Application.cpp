@@ -197,7 +197,10 @@ namespace Desert::Engine
                                                                 : std::max( 0.0f, time - m_LastFrameTime - held );
             m_LastFrameTime   = time;
 
-            m_EngineStats.Update();
+            {
+                DESERT_PROFILE_SCOPE( "EngineStats" );
+                m_EngineStats.Update();
+            }
 
             // 1. Pump GLFW events before touching any GPU resources.
             // Resize/close callbacks can destroy descriptor sets and framebuffers; they must
@@ -275,23 +278,39 @@ namespace Desert::Engine
             // update, which is what actually returns the descriptor pools.
             //
             // Free when nothing is due: RunIfDue tests one bool and does not build the root set.
-            Assets::AssetEvictionSchedule::RunIfDue( [] { return Core::CollectAssetRootsFromLiveScenes(); } );
+            {
+                DESERT_PROFILE_SCOPE( "Assets: Eviction" );
+                Assets::AssetEvictionSchedule::RunIfDue( [] { return Core::CollectAssetRootsFromLiveScenes(); } );
+            }
 
             // The meshes and textures a sweep dropped are freed here, frames later, once no frame in flight can
             // still draw them (Assets::FrameRetireQueue). Every frame, because the margin is counted in frames
             // begun.
-            Runtime::ResourceRegistry::GetMeshService()->RetireEvicted();
-            Runtime::ResourceRegistry::GetTextureService()->RetireEvicted();
+            {
+                DESERT_PROFILE_SCOPE( "Assets: Retire Evicted" );
+                Runtime::ResourceRegistry::GetMeshService()->RetireEvicted();
+                Runtime::ResourceRegistry::GetTextureService()->RetireEvicted();
+            }
 
             // Textures whose cook finished on a worker get their GPU image here, within the per-frame upload
             // budget (TextureUploadSettings), before any command buffer of this frame is open.
-            Runtime::ResourceRegistry::GetTextureService()->PumpUploads();
-            Runtime::ResourceRegistry::GetTextureService()->UpdateStreaming();
+            {
+                DESERT_PROFILE_SCOPE( "Textures: Pump Uploads" );
+                Runtime::ResourceRegistry::GetTextureService()->PumpUploads();
+            }
+            {
+                DESERT_PROFILE_SCOPE( "Textures: Update Streaming" );
+                Runtime::ResourceRegistry::GetTextureService()->UpdateStreaming();
+            }
 
             // 3. Start recording commands for this frame. Its first statement is the frame's one CPU wait on the GPU
             // (row "Wait for GPU": the fence of frame N-k, k = frames in flight, VulkanRendererAPI::BeginFrame), so
             // everything above it in this iteration overlaps the GPU still executing earlier frames.
-            const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();
+            const auto frameBegun = []
+            {
+                DESERT_PROFILE_SCOPE( "Renderer: BeginFrame" );
+                return Graphic::Renderer::GetInstance().BeginFrame();
+            }();
             if ( !frameBegun.IsSuccess() )
             {
                 // END THE RUN, and neither of the two cheaper answers is available here.
@@ -321,6 +340,7 @@ namespace Desert::Engine
             // 4. Update layers (Scene rendering to offscreen buffers)
             for ( const auto& layer : m_LayerStack )
             {
+                DESERT_PROFILE_SCOPE( "Layers: OnUpdate" );
                 const auto updated = layer->OnUpdate( Common::Timestep( timestep ) );
                 if ( !updated.IsSuccess() )
                     ReportLayerFailure( "OnUpdate", layer.get(), updated.GetError() );

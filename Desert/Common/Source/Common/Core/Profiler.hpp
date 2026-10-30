@@ -22,6 +22,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -121,8 +122,9 @@ namespace Common::Profiling
         void BeginFrame();
 
         // One closed CPU scope: @p totalMs inclusive, @p selfMs with nested scopes subtracted, @p waitMs the
-        // part of totalMs spent in Wait scopes (ScopeResult).
-        void AddSample( const char* name, double totalMs, double selfMs, double waitMs );
+        // part of totalMs spent in Wait scopes (ScopeResult). @p outermost: no scope of the same thread was
+        // open around it - on the frame thread such a scope adds to LastFrameNamedMs.
+        void AddSample( const char* name, double totalMs, double selfMs, double waitMs, bool outermost );
 
         // Resolved GPU time for a scope, fed by the backend once the queries for a finished frame are
         // readable. Lands in the same row as the CPU sample of the same name. @p inclusiveMs covers nested
@@ -172,6 +174,15 @@ namespace Common::Profiling
         {
             return m_DisplayFrameMs;
         }
+        // THE CPU REMAINDER'S COMPLEMENT (UE "stat unit": the frame is the sum of named stages plus what no
+        // stage holds). The averaged per-frame wall time the FRAME THREAD (the one calling BeginFrame) spent
+        // inside an outermost scope of its own. LastFrameMs minus this is frame-thread time no row names:
+        // the CPU Unaccounted. Outermost only, so a nested row is never counted twice; worker-thread scopes
+        // stay out, because they overlap the frame thread and cannot be subtracted from its wall time.
+        double LastFrameNamedMs() const
+        {
+            return m_DisplayFrameNamedMs;
+        }
 
         bool& Enabled()
         {
@@ -196,6 +207,9 @@ namespace Common::Profiling
         std::unordered_map<std::string, ScopeResult> m_Accum; // summed over the current window (not per-frame)
         std::vector<ScopeResult>                     m_Display;
         double                                       m_DisplayFrameMs = 0.0;
+        double                                       m_AccumFrameNamedMs   = 0.0; // see LastFrameNamedMs
+        double                                       m_DisplayFrameNamedMs = 0.0;
+        std::thread::id                              m_FrameThread;               // the BeginFrame caller
         Clock::time_point                            m_WindowStart;
         uint32_t                                     m_WindowFrames  = 0;
         bool                                         m_WindowStarted = false;
@@ -272,6 +286,12 @@ namespace Common::Profiling
             m_Current.reset();
             m_Current.emplace( name );
         }
+        // Closes the running phase with no successor: for phases nested in one phase of an enclosing
+        // PhaseTimer, which must all have closed before that enclosing phase moves on.
+        void End()
+        {
+            m_Current.reset();
+        }
 
     private:
         std::optional<ScopedTimer> m_Current;
@@ -307,6 +327,7 @@ namespace Common::Profiling
 #define DESERT_PROFILE_FRAME( NAME )
 #define DESERT_PROFILE_PHASES( VAR )
 #define DESERT_PROFILE_PHASE( VAR, NAME )
+#define DESERT_PROFILE_PHASE_END( VAR )
 
 #else
 
@@ -365,5 +386,6 @@ namespace Common::Profiling
 // DESERT_PROFILE_PHASE closes the running phase and opens NAME; the last one closes at the end of the scope.
 #define DESERT_PROFILE_PHASES( VAR ) ::Common::Profiling::PhaseTimer VAR
 #define DESERT_PROFILE_PHASE( VAR, NAME ) VAR.Next( NAME )
+#define DESERT_PROFILE_PHASE_END( VAR ) VAR.End()
 
 #endif // DESERT_DEV_INSTRUMENTS
