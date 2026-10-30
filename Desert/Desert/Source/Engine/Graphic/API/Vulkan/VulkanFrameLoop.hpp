@@ -12,14 +12,19 @@
 
 namespace Desert::Graphic::API::Vulkan
 {
-    // What a window adds to a frame (VulkanSwapChainOutput::GetFrameOutput): the frame's first Graphics
-    // submission waits ImageAcquired at ImageFirstUse — the stage the back buffer is first written — and its last
-    // submission signals RenderComplete, which the output's present waits. A frame with no window has none.
+    // What a window adds to a frame (VulkanSwapChainOutput::GetFrameOutput): the first Graphics submission at or
+    // after FirstEntryAfterAcquire waits ImageAcquired at ImageFirstUse — the stage the back buffer is first
+    // written — and the frame's last submission signals RenderComplete, which the output's present waits. The
+    // image is acquired late (at the back-buffer import, PRESENT-COST), so the entries before
+    // FirstEntryAfterAcquire were recorded before its index existed and cannot touch it: they run without waiting
+    // on the display. A frame with no window, or one that holds no image, has none.
     struct VulkanFrameOutput
     {
         VkSemaphore          ImageAcquired  = VK_NULL_HANDLE;
         VkPipelineStageFlags ImageFirstUse  = 0; // RDG::kPresentAcquiredState's stages, set by the output
         VkSemaphore          RenderComplete = VK_NULL_HANDLE;
+        // Index into the frame's submissions at the acquire (VulkanRendererAPI::ImportBackBuffer); 0 = the first.
+        size_t FirstEntryAfterAcquire = 0;
     };
 
     // THE FRAME'S ONE SUBMISSION PATH, owned by the frame loop and not by a window. Per frame slot: the fence the
@@ -44,7 +49,8 @@ namespace Desert::Graphic::API::Vulkan
         // Submits the frame IN ORDER (RDG-CONTRACTS B(3)): the frame command buffer split at every graph and the
         // graphs' segment submissions. The last entry (the frame's graphics tail) signals the slot fence, which
         // covers every AsyncCompute entry too (each one is joined by a later Graphics entry). With @p output, the
-        // first Graphics entry also waits for the acquired image and the last one signals render-complete.
+        // first Graphics entry from output->FirstEntryAfterAcquire on also waits for the acquired image and the
+        // last one signals render-complete.
         Common::BoolResultStr Submit( uint32_t slot, std::span<const VulkanRdgSubmission> frame,
                                       const VulkanFrameOutput* output );
         // Waits for the slot's last submitted frame (a slot never submitted is signalled).

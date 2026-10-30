@@ -82,7 +82,6 @@ namespace Desert::Graphic::API::Vulkan
         void Release() override;
 
         uint32_t GetCurrentBufferIndex() const;
-        void     PrepareFrame();
         void     Present();
 
         /// Whether presented frames can be copied off the device at all — the surface offered

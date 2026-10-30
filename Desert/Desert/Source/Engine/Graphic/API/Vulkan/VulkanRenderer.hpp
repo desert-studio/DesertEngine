@@ -292,6 +292,10 @@ namespace Desert::Graphic::API::Vulkan
         // The frame so far in submission order: the frame command buffer is split at every graph (what was
         // recorded before it is submitted before it), followed by that graph's segment submissions.
         std::vector<VulkanRdgSubmission> m_FrameSubmissions;
+        // The index into m_FrameSubmissions at this frame's late acquire (ImportBackBuffer): the first entry that
+        // can touch the back buffer. 0 when the image was already held on entry to the frame (the previous
+        // frame's submit failed before its present), so the frame's first graphics entry waits, as before.
+        size_t m_BackBufferFirstEntry = 0;
 
         // Makes the RDG frame objects on the first frame and begins them all for the current frame slot.
         Common::BoolResultStr BeginRdgFrame();
