@@ -177,7 +177,7 @@ namespace Desert::Graphic
         if ( !target || !HasLines() || !EnsureLinePipelines() )
             return {};
         return SystemRasterPass{
-             .Name        = "DebugDrawLines",
+             .Name = "DebugDrawLines",
              // The batches were uploaded in Declare; the exec only draws them.
              .ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
@@ -198,7 +198,7 @@ namespace Desert::Graphic
              .Declare =
                   [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
              {
-                 m_BatchVertices = {};
+                 m_BatchVertices       = {};
                  const ViewFrame* view = m_Owner.GetViewFrame();
                  if ( view == nullptr || m_World == nullptr )
                      return;

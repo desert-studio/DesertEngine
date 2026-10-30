@@ -1314,7 +1314,8 @@ namespace Desert::Graphic::System
                     continue;
                 drawn                    = true;
                 const SpriteDraw& sprite = *draw.Sprite;
-                // The cell RecordSpriteDraws applies: its view sets and block copies exist before the graph records.
+                // The cell RecordSpriteDraws applies: its view sets and block copies exist before the graph
+                // records.
                 declared.Prepares( *sprite.Material->GetMaterialExecutor() );
                 const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
                 // A translucent / additive emitter reads its alive half back to front from this view's

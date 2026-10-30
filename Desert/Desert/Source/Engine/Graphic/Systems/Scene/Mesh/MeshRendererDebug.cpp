@@ -383,11 +383,11 @@ namespace Desert::Graphic::System
                     continue;
                 for ( const auto& sm : rd.Mesh->GetSubmeshes() )
                 {
-                    const glm::vec3 mn   = sm.BoundingBox.Min;
-                    const glm::vec3 mx   = sm.BoundingBox.Max;
-                    glm::vec3       c[8] = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
-                                             { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
-                                             { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
+                    const glm::vec3 mn    = sm.BoundingBox.Min;
+                    const glm::vec3 mx    = sm.BoundingBox.Max;
+                    glm::vec3       c[8]  = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
+                                              { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
+                                              { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
                     const glm::mat4 world = rd.Transform * sm.Transform;
                     for ( auto& corner : c )
                         corner = glm::vec3( world * glm::vec4( corner, 1.0f ) );

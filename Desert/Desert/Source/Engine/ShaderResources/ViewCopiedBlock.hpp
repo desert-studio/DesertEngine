@@ -152,10 +152,11 @@ namespace Desert::ShaderResources
             // RENDER-THREADS M1: no copy is made while a sealed pass records (UE: a pass's uniform buffers
             // exist before the graph records). The pass prepares the material that owns the block in its setup.
             if ( Graphic::RDG::RecordingSeal::IsSealed() )
-                return Common::MakeFormattedError<bool>( "view '{}', frame {}: the buffer's copy does not exist and "
-                                                         "a recording pass may not make it; the pass declares the "
-                                                         "material in its setup (PassBuilder::Prepares)",
-                                                         view.GetName(), frameIndex );
+                return Common::MakeFormattedError<bool>(
+                     "view '{}', frame {}: the buffer's copy does not exist and "
+                     "a recording pass may not make it; the pass declares the "
+                     "material in its setup (PassBuilder::Prepares)",
+                     view.GetName(), frameIndex );
 
             // Every refusal is produced BEFORE Acquire: Acquire throws on a null copy, and a view must never
             // be handed a copy that could not be seeded.

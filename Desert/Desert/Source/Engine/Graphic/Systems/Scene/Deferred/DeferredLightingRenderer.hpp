@@ -382,7 +382,7 @@ namespace Desert::Graphic::System
             m_DeclaredProgram = nullptr;
             if ( !program.Pipeline || !program.Material )
                 return;
-            m_DeclaredProgram = &program;
+            m_DeclaredProgram                      = &program;
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const auto&                     layout = program.Layout.Get( program.Shader );

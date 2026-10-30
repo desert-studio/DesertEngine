@@ -122,18 +122,19 @@ namespace Desert::Graphic::API::Vulkan
         for ( const auto& [name, index] : executor.GetUniformBufferProperties() )
         {
             const auto property = executor.GetUniformBufferProperty( name );
-            const auto buffer   = property ? sp_cast<ShaderResources::API::Vulkan::VulkanUniformBuffer>(
-                                                  property->GetUniform() )
-                                           : nullptr;
+            const auto buffer =
+                 property ? sp_cast<ShaderResources::API::Vulkan::VulkanUniformBuffer>( property->GetUniform() )
+                          : nullptr;
             if ( buffer )
                 (void)buffer->BindActiveCopy( frameIndex, copy );
         }
         for ( const auto& [name, index] : executor.GetStorageBufferProperties() )
         {
             const auto property = executor.GetStorageBufferProperty( name );
-            const auto buffer   = property ? sp_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer>(
-                                                  property->GetStorageBuffer() )
-                                           : nullptr;
+            const auto buffer =
+                 property
+                      ? sp_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer>( property->GetStorageBuffer() )
+                      : nullptr;
             if ( buffer )
                 (void)buffer->BindActiveCopy( frameIndex, copy );
         }

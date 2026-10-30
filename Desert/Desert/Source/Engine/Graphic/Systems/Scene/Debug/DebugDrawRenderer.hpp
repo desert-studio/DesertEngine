@@ -64,7 +64,7 @@ namespace Desert::Graphic
         std::array<std::shared_ptr<GraphicsPipeline>, kBatchCount>  m_Pipelines;
         std::array<std::unique_ptr<MaterialDebugLine>, kBatchCount> m_Materials;
         // The vertices of each batch LinesPass's Declare uploaded this frame (0 = the batch does not draw).
-        std::array<uint32_t, kBatchCount> m_BatchVertices{};
+        std::array<uint32_t, kBatchCount>                           m_BatchVertices{};
         bool                                                        m_LinePipelinesRefused = false;
 
         Render2D::Render2D m_Text;

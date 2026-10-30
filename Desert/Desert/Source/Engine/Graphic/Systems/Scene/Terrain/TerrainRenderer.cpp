@@ -1054,7 +1054,8 @@ namespace Desert::Graphic::System
         // sealed. A node shared with the meshes (a shadow view) does not: their materials are applied per draw
         // (M2) and are not declared yet.
         template <typename Declaration>
-        void PrepareGroupExecutors( Declaration& declaration, const std::vector<const MaterialExecutor*>& executors )
+        void PrepareGroupExecutors( Declaration&                                declaration,
+                                    const std::vector<const MaterialExecutor*>& executors )
         {
             for ( const MaterialExecutor* executor : executors )
                 declaration.Prepares( *executor );

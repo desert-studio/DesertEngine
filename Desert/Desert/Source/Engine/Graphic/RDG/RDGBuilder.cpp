@@ -1197,9 +1197,9 @@ namespace Desert::Graphic::RDG
             {
                 for ( const IRecordPrerequisite* prerequisite : m_Passes[planned.Pass].Prerequisites )
                 {
-                    const auto done = std::find_if( prepared.begin(), prepared.end(),
-                                                    [prerequisite]( const auto& entry )
-                                                    { return entry.first == prerequisite; } );
+                    const auto done =
+                         std::find_if( prepared.begin(), prepared.end(), [prerequisite]( const auto& entry )
+                                       { return entry.first == prerequisite; } );
                     std::string failure;
                     if ( done != prepared.end() )
                         failure = done->second;
