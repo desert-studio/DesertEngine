@@ -164,8 +164,8 @@ namespace Desert::Editor
         // and the async segments minus the union of their passes - the backend's numbers, not this sum (which
         // double-counts overlap). Then WHERE the graphics remainder sits: each stretch of at least
         // kGpuGapReportMs, named by its neighbours, largest first.
-        LOG_INFO( "[Profiler] Unaccounted graphics queue {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %)", unaccountedMs,
-                  gpuFrameMs, gpuFrameMs > 0.0001 ? unaccountedMs / gpuFrameMs * 100.0 : 0.0 );
+        LOG_INFO( "[Profiler] Unaccounted graphics queue {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %)",
+                  unaccountedMs, gpuFrameMs, gpuFrameMs > 0.0001 ? unaccountedMs / gpuFrameMs * 100.0 : 0.0 );
         if ( asyncUnaccountedMs >= 0.0 )
             LOG_INFO( "[Profiler] Unaccounted async compute queue {:.3f} ms (segment time outside its passes)",
                       asyncUnaccountedMs );
@@ -176,7 +176,8 @@ namespace Desert::Editor
             for ( const auto& s : prof.LastFrame() )
                 if ( std::string_view( s.Name ).starts_with( gapPrefix ) )
                     gaps.emplace_back( s.GpuMs, std::string_view( s.Name ).substr( gapPrefix.size() ) );
-            std::sort( gaps.begin(), gaps.end(), []( const auto& a, const auto& b ) { return a.first > b.first; } );
+            std::sort( gaps.begin(), gaps.end(),
+                       []( const auto& a, const auto& b ) { return a.first > b.first; } );
             for ( const auto& [ms, where] : gaps )
                 LOG_INFO( "[Profiler]   unaccounted {:>10.3f} ms  {}", ms, where );
         }

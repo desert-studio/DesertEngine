@@ -400,13 +400,13 @@ namespace Desert::Graphic::API::Vulkan
 
         const size_t scopeCount = scopes.size();
         m_Intervals.resize( scopeCount );
-        std::vector<int32_t> graphicsScopes;
-        std::vector<int32_t> asyncPasses;
-        std::vector<int32_t> asyncSegments;
+        std::vector<int32_t>   graphicsScopes;
+        std::vector<int32_t>   asyncPasses;
+        std::vector<int32_t>   asyncSegments;
         const std::string_view segmentPrefix = Common::Profiling::kGpuAsyncSegmentScopePrefix;
         for ( size_t i = 0; i < scopeCount; ++i )
         {
-            m_Intervals[i] = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
+            m_Intervals[i]   = intervalOf( GpuScopeQueryBase( static_cast<uint32_t>( i ) ) );
             const auto index = static_cast<int32_t>( i );
             if ( scopes[i].Queue == GpuQueue::Graphics )
                 graphicsScopes.push_back( index );
@@ -448,7 +448,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             const GpuInterval& span = m_Intervals[static_cast<size_t>( segment )];
             if ( span.Valid )
-                asyncUncoveredMs += GpuCoverageOf( m_Intervals, asyncPasses, span.BeginMs, span.EndMs ).UncoveredMs;
+                asyncUncoveredMs +=
+                     GpuCoverageOf( m_Intervals, asyncPasses, span.BeginMs, span.EndMs ).UncoveredMs;
         }
         profiler.AddGpuSample( Common::Profiling::kGpuUnaccountedAsyncScope, asyncUncoveredMs, asyncUncoveredMs );
     }

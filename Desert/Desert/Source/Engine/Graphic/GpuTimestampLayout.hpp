@@ -205,7 +205,7 @@ namespace Desert::Graphic
             return static_cast<uint32_t>( m_Stacks.size() - 1 );
         }
 
-        Common::Profiling::GpuQueue                               m_Queue     = Common::Profiling::GpuQueue::Graphics;
+        Common::Profiling::GpuQueue                               m_Queue = Common::Profiling::GpuQueue::Graphics;
         uint32_t                                                  m_Capacity  = 0;
         uint32_t                                                  m_Requested = 0;
         std::vector<Scope>                                        m_Scopes;
@@ -289,8 +289,7 @@ namespace Desert::Graphic
                                   !intervals[static_cast<size_t>( index )].Valid;
                        } );
         std::stable_sort( members.begin(), members.end(),
-                          [&]( int32_t a, int32_t b )
-                          {
+                          [&]( int32_t a, int32_t b ) {
                               return intervals[static_cast<size_t>( a )].BeginMs <
                                      intervals[static_cast<size_t>( b )].BeginMs;
                           } );

@@ -115,7 +115,8 @@ namespace
     {
         SceneSerialized scene;
         scene.SceneName      = "HlodMe";
-        scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ "Main", kCell, 1500.0f } } };
+        scene.WorldPartition =
+             WorldPartitionSerialized{ { WorldPartitionGridSerialized{ "Main", kCell, 1500.0f } } };
         Desert::Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
         auto& records        = scene.Entities;
 

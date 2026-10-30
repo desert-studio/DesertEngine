@@ -1785,7 +1785,8 @@ namespace Desert::Graphic::API::Vulkan
             RecordSharedHeapBarrier( begun.GetValue() );
         // The async segment's own GPU row. Only a segment that waits on a fork: the frame's query reset is
         // recorded at the head of the graphics queue, and only a fork orders this queue after it.
-        // The prologue segment has no passes, only the releases of a fork from the graph start (RDGBuilder Execute).
+        // The prologue segment has no passes, only the releases of a fork from the graph start (RDGBuilder
+        // Execute).
         if ( segment.FirstPosition == RDG::CrossPipeSync::kForkAtGraphStart )
             m_PrologueScope = BeginGraphCommandsScope( "fork releases at the graph start" );
         if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
@@ -1806,7 +1807,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !m_SharedHeapBarrierPending )
             return;
         m_SharedHeapBarrierPending = false;
-        const int32_t scope        = BeginGraphCommandsScope( "shared heap reuse" );
+        const int32_t   scope      = BeginGraphCommandsScope( "shared heap reuse" );
         VkMemoryBarrier barrier{};
         barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;

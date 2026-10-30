@@ -565,7 +565,7 @@ namespace Desert::Graphic::API::Vulkan
         const RDG::CompileResult* m_Result = nullptr; // the graph between BeginGraph and EndGraph / AbandonGraph
         int32_t                   m_SegmentScope = -1;
         // The prologue segment's row (fork releases at the graph start), -1 when none is open.
-        int32_t m_PrologueScope = -1;
+        int32_t     m_PrologueScope = -1;
         std::string m_SegmentScopeName;
         // Per graph name, the async segment line last logged (Execute): a new "[RDG] ... async compute segments"
         // line only when a graph's segments change.

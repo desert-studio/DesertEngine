@@ -156,7 +156,8 @@ TEST( AutosavePaths, StatedInReadsBothGenerationsFromTheHeader )
     EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight ),
                ( AS::StatedGenerations{ 38, 1 } ) );
     std::ofstream( copy ) << "{}";
-    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight ), ( AS::StatedGenerations{ 0, 0 } ) )
+    EXPECT_EQ( AS::StatedIn( copy, kScene, kUnit, kWorldPartition, kAssetRef, kLight ),
+               ( AS::StatedGenerations{ 0, 0 } ) )
          << "absent is 0";
 }
 
@@ -218,8 +219,8 @@ TEST( AutosavePaths, AnOlderCopyIsReportedNotOfferedAndNotMigrated )
 
     // Only older copies left: nothing is offered at all.
     fs::remove( current );
-    EXPECT_TRUE(
-         AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight ).Offered.empty() );
+    EXPECT_TRUE( AS::ChooseRecovery( AS::Dir(), kCurrent, kScene, kUnit, kWorldPartition, kAssetRef, kLight )
+                      .Offered.empty() );
 }
 
 namespace

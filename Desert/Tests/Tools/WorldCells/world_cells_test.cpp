@@ -128,7 +128,8 @@ namespace
         scene.Header         = FixtureHeader( Common::Content::ContentKind::Scene, Desert::Core::kSceneVersion,
                                               Desert::Core::kUnitVersion );
         scene.Settings       = rfl::json::read<rfl::Generic>( R"({"Exposure": 1.5})" ).value();
-        scene.WorldPartition = WorldPartitionSerialized{ { WorldPartitionGridSerialized{ "Main", kCell, 1500.0f } } };
+        scene.WorldPartition =
+             WorldPartitionSerialized{ { WorldPartitionGridSerialized{ "Main", kCell, 1500.0f } } };
         Desert::Core::Rules::StateInstancingHLODLayer( *scene.WorldPartition );
 
         auto&      records = scene.Entities;
