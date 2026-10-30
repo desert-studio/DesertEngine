@@ -1,0 +1,108 @@
+// THE EVENT BUFFERS OF A PLACED VFX SYSTEM (PORT-VFX-MODULES, from int/vfx 476c85211; UE emitter Event Handlers,
+// Spawned Particles mode: a source emitter writes events, a receiving emitter's spawn reads them).
+//
+// One `uvec4` buffer per placed system (C++ ParticleWorldGpu, BuildParticleEventLayout) holds a CHANNEL per (source
+// emitter, event kind) some Event Handler of the system consumes. A channel has two halves by the parity of the
+// system's event step serial (Stack.y + Counts.y in Spawn+Update, Step.y + Step.x in Dispatch Args): in step n the
+// source writes half n & 1 and every handler reads half (n - 1) & 1, the events of the step before, so a writer and
+// its readers never meet in one dispatch. A half is a header - uvec4( serial it holds, event count, 0, 0 ) - and
+// Capacity rows of VFX_EVENT_ROW_SIZE uvec4 (world position, world velocity, world normal, as float bits). The
+// source's Dispatch Args opens its half (serial, 0) - x and y only; its Spawn+Update appends with atomicAdd.
+// TICK COUNT (UE Niagara Debugger's per-frame event count): half 0's header .z counts the events the source stored
+// into the channel over its current tick - its step 0 Dispatch Args zeroes it, every stored event adds one - and
+// the Debug Readback copies it (ParticleDebugReadback, VFXEmitterDebugStats::Events). A reader takes a half
+// only when it holds the serial it expects, so the events of an emitter that did not run the step before are never
+// read twice. Emitters linked by events tick in one stage (VFXStackCompiler UnifyEventTickStages), so the source's
+// step n always ran before the handler's step n + 1 in the same chain.
+//
+// Each emitter has an EVENT TABLE (uvec4 rows, uploaded with its parameters every tick):
+//   row 0                     x, y, z = 1 when the emitter raises Death / Collision / Location events, w = handlers
+//   row 1 + kind              the channel the emitter raises kind into: ( header, rows, capacity, 0 )
+//   rows 4 + 2h, 5 + 2h       handler h: ( header, rows, capacity, spawn count ), ( InheritVelocity bits, 0, 0, 0 )
+// A program that includes this file defines VFXEventTableRow and VFXEventBufferRow over its own bindings.
+
+#ifndef VFX_EVENTS_GLSLH
+#define VFX_EVENTS_GLSLH
+
+// Assets::Serialization::VFXEventKind, in order.
+#define VFX_EVENT_DEATH 0u
+#define VFX_EVENT_COLLISION 1u
+#define VFX_EVENT_LOCATION 2u
+
+// uvec4 per event row (C++ kParticleEventRowSize / 16): world Position, Velocity, Normal.
+#define VFX_EVENT_ROW_SIZE 3u
+// The first handler row of an event table.
+#define VFX_EVENT_TABLE_HANDLERS 4u
+
+uvec4 VFXEventTableRow( uint row );
+uvec4 VFXEventBufferRow( uint index );
+
+struct VFXEventChannel
+{
+    uint Header;   // the header of half 0; half 1's follows it
+    uint Rows;     // the first row of half 0; half 1's start Capacity rows later
+    uint Capacity; // events one half holds: the source emitter's particle capacity (one event per particle a step)
+};
+
+VFXEventChannel VFXEventChannelOf( uvec4 row )
+{
+    return VFXEventChannel( row.x, row.y, row.z );
+}
+
+// The header of the half that holds step @p serial's events.
+uint VFXEventHeaderIndex( VFXEventChannel c, uint serial )
+{
+    return c.Header + ( serial & 1u );
+}
+
+// The buffer row whose .z counts the channel's events of the current tick (TICK COUNT above).
+uint VFXEventTickCountIndex( VFXEventChannel c )
+{
+    return c.Header;
+}
+
+// The first uvec4 of event @p e of step @p serial.
+uint VFXEventRowIndex( VFXEventChannel c, uint serial, uint e )
+{
+    return c.Rows + ( ( serial & 1u ) * c.Capacity + e ) * VFX_EVENT_ROW_SIZE;
+}
+
+// How many events of step @p serial channel @p c holds: none when its half holds another step.
+uint VFXEventCount( VFXEventChannel c, uint serial )
+{
+    const uvec4 header = VFXEventBufferRow( VFXEventHeaderIndex( c, serial ) );
+    return header.x == serial ? min( header.y, c.Capacity ) : 0u;
+}
+
+uint VFXEventHandlerCount()
+{
+    return VFXEventTableRow( 0u ).w;
+}
+
+VFXEventChannel VFXEventHandlerChannel( uint h )
+{
+    return VFXEventChannelOf( VFXEventTableRow( VFX_EVENT_TABLE_HANDLERS + 2u * h ) );
+}
+
+uint VFXEventHandlerSpawnCount( uint h )
+{
+    return VFXEventTableRow( VFX_EVENT_TABLE_HANDLERS + 2u * h ).w;
+}
+
+float VFXEventHandlerInheritVelocity( uint h )
+{
+    return uintBitsToFloat( VFXEventTableRow( VFX_EVENT_TABLE_HANDLERS + 2u * h + 1u ).x );
+}
+
+// The particles every handler of the emitter spawns in step @p serial: the events their sources raised in step
+// serial - 1, SpawnCount each. Dispatch Args sizes the step with it and Spawn+Update spawns exactly as many (both
+// read the same, unchanging, halves).
+uint VFXEventSpawnTotal( uint serial )
+{
+    uint total = 0u;
+    for ( uint h = 0u; h < VFXEventHandlerCount(); ++h )
+        total += VFXEventCount( VFXEventHandlerChannel( h ), serial - 1u ) * VFXEventHandlerSpawnCount( h );
+    return total;
+}
+
+#endif

@@ -181,6 +181,21 @@ namespace Desert::VFX
             VFXParticleModule Module; ///< Usage, declarations and GLSL of the `.dfxmod`
         };
 
+        /// Whether @p text names the identifier @p id as a whole token (a call or a reference; not a longer name).
+        bool CallsIdentifier( const std::string_view text, const std::string_view id )
+        {
+            const auto isIdent = []( const char c )
+            { return std::isalnum( static_cast<unsigned char>( c ) ) != 0 || c == '_'; };
+            for ( std::size_t at = text.find( id ); at != std::string_view::npos; at = text.find( id, at + 1 ) )
+            {
+                const bool startsToken = at == 0 || !isIdent( text[at - 1] );
+                const bool endsToken   = at + id.size() >= text.size() || !isIdent( text[at + id.size()] );
+                if ( startsToken && endsToken )
+                    return true;
+            }
+            return false;
+        }
+
         /// The key a module is held by in one compile: its GUID, spelled canonically.
         std::string ModuleKey( const S::VFXModuleUse& use )
         {
@@ -477,7 +492,35 @@ namespace Desert::VFX
         // Random range is ordered) are checked in one place; the compiler relies on them below.
         if ( auto valid = S::ValidateVFXSystemData( system ); !valid.IsSuccess() )
             return Common::MakeError<Result>( valid.GetError() );
-        const S::VFXEmitterData& emitter      = system.Emitters[emitterIndex];
+        const S::VFXEmitterData& authoredEmitter = system.Emitters[emitterIndex];
+
+        // An emitter with Event Handlers spawns particles from events: SpawnFromEvent (UE's Receive Event modules)
+        // goes after every authored spawn module, so an event newborn sits at its event around what the spawn group
+        // gave it. It is the handlers' own module: an authored row naming it is refused (it would run twice).
+        const auto namesSpawnFromEvent = []( const S::VFXModuleUse& use )
+        {
+            const auto guid  = Common::Content::AssetGuidFromText( use.Module.Guid );
+            const auto event = Common::Content::AssetGuidFromText( S::kVFXSpawnFromEventModuleGuid );
+            return guid && event && guid.GetValue() == event.GetValue();
+        };
+        for ( const auto* group : { &authoredEmitter.Stack.EmitterSpawn, &authoredEmitter.Stack.EmitterUpdate,
+                                    &authoredEmitter.Stack.ParticleSpawn, &authoredEmitter.Stack.ParticleUpdate } )
+            if ( std::ranges::any_of( *group, namesSpawnFromEvent ) )
+                return Common::MakeFormattedError<Result>(
+                     "emitter '{}' names {} in its stack: it is the Event Handlers' own module, appended by the "
+                     "compiler to an emitter that states EventHandlers",
+                     authoredEmitter.Name, S::kVFXSpawnFromEventModulePath );
+        S::VFXEmitterData withEvents;
+        if ( !authoredEmitter.EventHandlers.empty() )
+        {
+            withEvents = authoredEmitter;
+            S::VFXModuleUse spawnFromEvent;
+            spawnFromEvent.Module.Guid = std::string( S::kVFXSpawnFromEventModuleGuid );
+            spawnFromEvent.Module.Path = std::string( S::kVFXSpawnFromEventModulePath );
+            spawnFromEvent.Enabled     = true;
+            withEvents.Stack.ParticleSpawn.push_back( std::move( spawnFromEvent ) );
+        }
+        const S::VFXEmitterData& emitter = authoredEmitter.EventHandlers.empty() ? authoredEmitter : withEvents;
         const std::string        emitterWhere = std::format( "emitter '{}'", emitter.Name );
 
         // 1. Resolve every enabled module once, in first-use order; derive the attribute set.
@@ -714,6 +757,14 @@ namespace Desert::VFX
                         "    VFX_WriteParticle( particle, p );\n}}\n",
                         calls[0], calls[1] );
 
+        // 4b. The tick stage (VFXTickStage): a stack whose GLSL calls a scene-reading host function runs after the
+        //     opaque passes.
+        const bool readsScene = std::ranges::any_of( kVFXSceneReadHostFunctions, [&body]( const std::string_view f )
+                                                     { return CallsIdentifier( body, f ); } );
+        compiled.TickStage    = readsScene ? VFXTickStage::PostOpaque : VFXTickStage::PreOpaque;
+        if ( readsScene )
+            body.insert( 0, std::format( "#define {} 1\n", kVFXSceneDepthDefine ) );
+
         // 5. The key is the body's hash: the body is a function of the stack's structure and the layout only (no
         //    value reaches it), so equal structures share one program and any structural change moves it. The
         //    included contract is covered by the shader cache key when the program compiles.
@@ -814,5 +865,37 @@ namespace Desert::VFX
             }
         }
         return Common::MakeSuccess( std::move( rows ) );
+    }
+
+    void UnifyEventTickStages( const S::VFXSystemData& system, std::span<VFXTickStage> stages )
+    {
+        // Union-find over the emitters, one union per handler (source <-> handler).
+        const std::size_t        count = std::min( stages.size(), system.Emitters.size() );
+        std::vector<std::size_t> parent( count );
+        for ( std::size_t i = 0; i < count; ++i )
+            parent[i] = i;
+        const auto root = [&parent]( std::size_t i )
+        {
+            while ( parent[i] != i )
+                i = parent[i] = parent[parent[i]];
+            return i;
+        };
+        for ( std::size_t handler = 0; handler < count; ++handler )
+            for ( const S::VFXEventHandler& row : system.Emitters[handler].EventHandlers )
+            {
+                const auto source = std::find_if( system.Emitters.begin(), system.Emitters.begin() + count,
+                                                  [&row]( const S::VFXEmitterData& e )
+                                                  { return e.Name == row.SourceEmitter; } );
+                if ( source == system.Emitters.begin() + count )
+                    continue;
+                parent[root( static_cast<std::size_t>( source - system.Emitters.begin() ) )] = root( handler );
+            }
+        // The group's stage is its latest member's (PostOpaque > PreOpaque).
+        std::vector<VFXTickStage> latest( count, VFXTickStage::PreOpaque );
+        for ( std::size_t i = 0; i < count; ++i )
+            if ( stages[i] == VFXTickStage::PostOpaque )
+                latest[root( i )] = VFXTickStage::PostOpaque;
+        for ( std::size_t i = 0; i < count; ++i )
+            stages[i] = latest[root( i )];
     }
 } // namespace Desert::VFX

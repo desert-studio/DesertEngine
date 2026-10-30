@@ -54,13 +54,20 @@ namespace Desert::Editor
         {
             rows.push_back( std::format( "  {}", system.EntityUuid ) );
             for ( const VFX::VFXEmitterDebugStats& e : system.Emitters )
-                rows.push_back( std::format( "    {}: {} / {}{}{}{}{}", e.Name,
+            {
+                // The events it stored over its last tick, from the same copy as its alive count (UE Niagara
+                // Debugger's per-frame event count); an emitter that raised none shows nothing.
+                std::string events;
+                if ( e.GpuRead && e.Events > 0 )
+                    events = std::format( ", events {}", e.Events );
+                rows.push_back( std::format( "    {}: {} / {}{}{}{}{}{}", e.Name,
                                              e.GpuRead ? std::to_string( e.Alive ) : std::string( "-" ), e.Capacity,
                                              e.Runs ? "" : " (inactive)",
                                              culled( system.EntityId, e.Emitter ) ? " (culled)" : "",
-                                             draws( system.EntityId, e.Emitter ),
+                                             draws( system.EntityId, e.Emitter ), events,
                                              e.Channel.Overflow > 0 ? std::format( ", overflow {}", e.Channel.Overflow )
                                                                     : "" ) );
+            }
         }
 
         // Top-right under the axis triad (render methods hold the bottom-left, the ray tracing rows the

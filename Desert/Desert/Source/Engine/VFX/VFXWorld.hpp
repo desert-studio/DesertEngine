@@ -133,6 +133,10 @@ namespace Desert::VFX
         std::uint32_t         Alive                = 0;
         std::uint32_t         Free                 = 0;
         std::uint32_t         FramesOld            = 0;
+        // The events the emitter stored into its event channels over its last tick (Death, Collision and Location
+        // together; only the kinds some Event Handler of the system consumes have a channel), from the same copy
+        // as Alive (UE Niagara Debugger's per-frame event count).
+        std::uint32_t Events = 0;
     };
     struct VFXSystemDebugStats
     {
@@ -165,7 +169,8 @@ namespace Desert::VFX
     public:
         virtual ~WorldGpuState() = default;
 
-        // The render side's columns of @p stats (GpuCounts, and per emitter GpuRead / Alive / Free / FramesOld).
+        // The render side's columns of @p stats (GpuCounts, and per emitter GpuRead / Alive / Free / FramesOld /
+        // Events).
         virtual void FillDebugStats( VFXDebugStats& stats ) const = 0;
     };
 

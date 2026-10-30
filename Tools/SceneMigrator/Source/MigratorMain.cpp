@@ -1645,9 +1645,9 @@ namespace Desert::Migration
                     continue;
                 }
             }
-            // VFXS 1 .. 4 -> current, one chain on the untyped body (MigrateVFXSystem): 1 -> 2 renderer rows
+            // VFXS 1 .. 5 -> current, one chain on the untyped body (MigrateVFXSystem): 1 -> 2 renderer rows
             // (VFX-09), 2 -> 3 the Default effect type (VFX-11), 3 -> 4 module assets (VFX-MODULE-ASSET), 4 -> 5
-            // emitter bounds (VFX-PORT-2).
+            // emitter bounds (VFX-PORT-2), 5 -> 6 emitter event handlers (PORT-VFX-MODULES).
             if ( path.extension() == Desert::Assets::Serialization::kVFXSystemExtension )
             {
                 const auto stated = ReadStatedVersion( path, text, "VFXS" );

@@ -20,6 +20,10 @@ Shader "ParticleSimulate"
         // stack in VFXSim (the Initialize / velocity modules read them, UE's Data Channel read); only the bound
         // position is the host's, as the shape modules place a newborn around zero. Positions are centimetres: a World-space emitter's newborn is moved to the emitter, a
         // Local one is drawn at emitter + Position every step.
+        // PORT-VFX-MODULES: a stack that calls VFX_SceneDepthCollide ticks PostOpaque (VFX::VFXTickStage; SceneRenderer
+        // AddFrameParticlesPostOpaque, after the opaque passes and the scene depth resolve), so the depth it reads is
+        // THIS frame's, drawn with the matrices CollisionView carries (UE: the PostOpaqueRender GPU tick, Scene Depth
+        // collision). Every other stack ticks PreOpaque and the compiler drops the two collision slots from it.
         LocalSize(64, 1, 1);
 
         #include <Common/ParticleState.glslh>
@@ -113,8 +117,37 @@ Shader "ParticleSimulate"
             mat4  LocalToWorld;
             vec4  StepLength; // x = the fixed step length (seconds), yzw = 0
             uvec4 Counts;     // x = the range's particle count, y = step, z = the range's pool base, w = local
-            uvec4 Stack;      // x = the world's serial of this tick's step 0 (the random streams' step), yzw = 0
+            uvec4 Stack;      // x = the emitter's serial of this tick's step 0 (the random streams' step),
+                              // y = the system's event step serial of step 0 (Common/VFXEvents.glslh), zw = 0
         };
+
+        // PORT-VFX-MODULES (UE emitter Event Handlers): the emitter's event table and its system's event buffer
+        // (Common/VFXEvents.glslh). Every stack binds them: the host raises the table's events and spawns its
+        // handlers' newborns whatever the modules are.
+        ReadBuffer(14) EventTable
+        {
+            uvec4 EventTableData[];
+        };
+
+        Buffer(15) Events
+        {
+            uvec4 EventsData[];
+        };
+
+        #include <Common/VFXEvents.glslh>
+
+        uvec4 VFXEventTableRow( uint row )
+        {
+            return EventTableData[row];
+        }
+        uvec4 VFXEventBufferRow( uint index )
+        {
+            return EventsData[index];
+        }
+
+        // The InheritVelocity of the handler whose event this invocation's newborn was spawned from (set by main
+        // before the stack runs; one newborn per invocation).
+        float s_EventInheritVelocity = 0.0;
 
         #include <Generated/VFXEmitterStack.glslh>
 
@@ -162,6 +195,145 @@ Shader "ParticleSimulate"
             return PointSetsData[first + lo].xyz;
         }
 
+        // PORT-VFX-MODULES: the PostOpaque scene inputs and the scene-reading host functions exist only in a
+        // stack that reads the scene (VFX::kVFXSceneDepthDefine, defined by the generated stack above), so a
+        // PreOpaque program's layout never names them.
+        #ifdef VFX_READS_SCENE_DEPTH
+        // The simulating view's camera, the one its scene depth was drawn with (ParticleRenderer CollisionView):
+        // jittered view-projection and its inverse, camera position (cm), w = 1 when SceneDepth is the frame's scene
+        // depth (0: the frame has none, nothing collides).
+        ReadBuffer(11) CollisionView
+        {
+            mat4 CollisionViewProjection;
+            mat4 CollisionInvViewProjection;
+            vec4 CollisionCamera;
+        };
+
+        // The single-sample scene depth of this frame (SceneRenderer::AddFrameSceneDepthResolve), reversed Z. Read
+        // with texelFetch, never filtered: a filtered depth across a silhouette is a distance where nothing is.
+        Uniform(12) texture2D SceneDepth;
+        // Its point sampler (dev RDG binds a texture and a sampler, no combined image sampler); the same-name
+        // macro keeps the sampled form (Fog/HeightFog.shader).
+        Uniform(13) sampler CollisionPointSampler;
+        #define SceneDepth sampler2D(SceneDepth, CollisionPointSampler)
+
+        // The world point the scene depth holds at pixel @p px (reversed Z: 0 is the far plane / sky).
+        vec3 SceneDepthPoint( ivec2 px, ivec2 size, out float deviceDepth )
+        {
+            px             = clamp( px, ivec2( 0 ), size - 1 );
+            deviceDepth    = texelFetch( SceneDepth, px, 0 ).r;
+            const vec2 uv  = ( vec2( px ) + 0.5 ) / vec2( size );
+            const vec2 ndc = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 );
+            const vec4 h   = CollisionInvViewProjection * vec4( ndc, deviceDepth, 1.0 );
+            return h.xyz / h.w;
+        }
+
+        // The surface's tangent along one screen axis at @p centre: the neighbour on the side whose point is nearer
+        // the centre's, so a silhouette edge does not bend the normal toward the background.
+        vec3 SceneDepthTangent( ivec2 px, ivec2 axis, ivec2 size, vec3 centre )
+        {
+            float      dPlus;
+            float      dMinus;
+            const vec3 plus        = SceneDepthPoint( px + axis, size, dPlus );
+            const vec3 minus       = SceneDepthPoint( px - axis, size, dMinus );
+            const bool plusUsable  = dPlus > 0.0;
+            const bool minusUsable = dMinus > 0.0;
+            if ( plusUsable && ( !minusUsable || distance( plus, centre ) <= distance( minus, centre ) ) )
+                return plus - centre;
+            return minusUsable ? centre - minus : vec3( 0.0 );
+        }
+
+        bool VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 contact,
+                                    out vec3 normal )
+        {
+            contact = position;
+            normal  = vec3( 0.0, 1.0, 0.0 );
+            if ( CollisionCamera.w < 0.5 )
+                return false;
+            // The stack's frame (VFX_SceneDepthCollide in the contract): a Local particle and every newborn are in
+            // the placement frame, the host moves a World newborn to the world after the stack (Run).
+            const bool  placed = Counts.w == 1u || sim.Spawned;
+            const vec3  world  = placed ? ( LocalToWorld * vec4( position, 1.0 ) ).xyz : position;
+            const vec4  clip   = CollisionViewProjection * vec4( world, 1.0 );
+            if ( clip.w <= 0.0 )
+                return false; // behind the camera
+            const vec2 ndc = clip.xy / clip.w;
+            if ( abs( ndc.x ) > 1.0 || abs( ndc.y ) > 1.0 )
+                return false; // off screen: the depth holds nothing there
+            const ivec2 size = textureSize( SceneDepth, 0 );
+            const vec2  uv   = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
+            const ivec2 px   = clamp( ivec2( uv * vec2( size ) ), ivec2( 0 ), size - 1 );
+            float       deviceDepth;
+            const vec3  surface = SceneDepthPoint( px, size, deviceDepth );
+            if ( deviceDepth <= 0.0 )
+                return false; // the sky
+
+            const vec3  toParticle       = world - CollisionCamera.xyz;
+            const float particleDistance = length( toParticle );
+            const float surfaceDistance  = distance( surface, CollisionCamera.xyz );
+            const float behind           = particleDistance - surfaceDistance;
+            if ( behind <= -radius || behind > thickness || particleDistance <= 1e-4 )
+                return false;
+
+            const vec3  dx  = SceneDepthTangent( px, ivec2( 1, 0 ), size, surface );
+            const vec3  dy  = SceneDepthTangent( px, ivec2( 0, 1 ), size, surface );
+            const vec3  n   = cross( dx, dy );
+            const vec3  ray = toParticle / particleDistance;
+            const float nl  = length( n );
+            vec3 worldNormal = nl > 1e-6 ? n / nl : -ray;
+            if ( dot( worldNormal, ray ) > 0.0 )
+                worldNormal = -worldNormal; // facing the camera
+            // The surface point on the particle's own view ray, back in the stack's frame (a normal through the
+            // inverse transpose, so a scaled placement keeps it perpendicular to the surface).
+            const vec3 worldContact = CollisionCamera.xyz + ray * surfaceDistance;
+            if ( placed )
+            {
+                const mat4 worldToLocal = inverse( LocalToWorld );
+                contact                 = ( worldToLocal * vec4( worldContact, 1.0 ) ).xyz;
+                normal = normalize( transpose( mat3( LocalToWorld ) ) * worldNormal );
+            }
+            else
+            {
+                contact = worldContact;
+                normal  = worldNormal;
+            }
+            return true;
+        }
+        #endif // VFX_READS_SCENE_DEPTH
+
+        // The event row a handler's newborn reads, in the newborn's frames (VFXEventSpawn): the stored world
+        // position back into the placement frame, the world velocity and normal into a Local emitter's frame.
+        VFXEventSpawn VFX_EventSpawn( uint row )
+        {
+            const bool local = Counts.w == 1u;
+            const mat3 turn  = inverse( mat3( LocalToWorld ) );
+            const vec3 v     = uintBitsToFloat( EventsData[row + 1u].xyz ) * s_EventInheritVelocity;
+            const vec3 nrm   = uintBitsToFloat( EventsData[row + 2u].xyz );
+            const vec3 world = uintBitsToFloat( EventsData[row].xyz );
+            VFXEventSpawn e;
+            e.Position = vec4( ( inverse( LocalToWorld ) * vec4( world, 1.0 ) ).xyz, 1.0 );
+            e.Velocity = vec4( local ? turn * v : v, 0.0 );
+            e.Normal   = vec4( local && dot( nrm, nrm ) > 0.0 ? normalize( turn * nrm ) : nrm, 0.0 );
+            return e;
+        }
+
+        // Appends one event of @p kind (world position, velocity, normal) to this step's half of the emitter's
+        // channel (Common/VFXEvents.glslh) and counts it in the channel's tick count; its Dispatch Args opened the
+        // half.
+        void RaiseEvent( uint kind, vec3 world, vec3 velocity, vec3 normal )
+        {
+            const VFXEventChannel c      = VFXEventChannelOf( EventTableData[1u + kind] );
+            const uint            serial = Stack.y + Counts.y;
+            const uint            e      = atomicAdd( EventsData[VFXEventHeaderIndex( c, serial )].y, 1u );
+            if ( e >= c.Capacity )
+                return; // a half holds one event per particle of the source's range a step: never reached
+            const uint row       = VFXEventRowIndex( c, serial, e );
+            EventsData[row]      = uvec4( floatBitsToUint( world ), 0u );
+            EventsData[row + 1u] = uvec4( floatBitsToUint( velocity ), 0u );
+            EventsData[row + 2u] = uvec4( floatBitsToUint( normal ), 0u );
+            atomicAdd( EventsData[VFXEventTickCountIndex( c )].z, 1u );
+        }
+
         vec3 ReadVec3( uint n, uint c )
         {
             return vec3( VFX_ReadFloat( n, c ), VFX_ReadFloat( n, c + 1u ), VFX_ReadFloat( n, c + 2u ) );
@@ -174,7 +346,7 @@ Shader "ParticleSimulate"
         }
 
         // Runs the stack on pool particle @p i: its attributes, then its slot (id, alive).
-        void Run( uint i, bool spawned, uint id, uint step, VFXChannelSpawn channel )
+        void Run( uint i, bool spawned, uint id, uint step, VFXChannelSpawn channel, uint event )
         {
             const uint n     = i - Counts.z; // range-local: the attribute columns are the emitter's
             const bool local = Counts.w == 1u;
@@ -190,6 +362,9 @@ Shader "ParticleSimulate"
             sim.ChannelDirection = channel.Direction;
             sim.ChannelColor     = channel.Color;
             sim.ChannelScalars   = channel.Scalars;
+            sim.Collided         = false;
+            sim.CollisionNormal  = vec3( 0.0 );
+            sim.Event            = event;
             VFX_SimulateParticle( n, sim );
 
             vec3 position = vec3( 0.0 );
@@ -208,6 +383,29 @@ Shader "ParticleSimulate"
                 WriteVec3( n, VFX_ATTR_POSITION, position );
             }
 #endif
+            // The events the emitter raises (its event table), at the particle's world position after the step:
+            // Death from the stack's Kill, Collision from the Collision module's impact, Location every step lived.
+            const uvec4 raises = EventTableData[0];
+            if ( raises.x != 0u || raises.y != 0u || raises.z != 0u )
+            {
+                // The stack's frames: a Local particle lives in the placement frame; a World newborn's Position was
+                // just taken to the world, its velocity and a collision normal are world.
+                const mat3 turn     = mat3( LocalToWorld );
+                const vec3 world    = local ? ( LocalToWorld * vec4( position, 1.0 ) ).xyz : position;
+                vec3       velocity = vec3( 0.0 );
+#ifdef VFX_ATTR_VELOCITY
+                velocity = ReadVec3( n, VFX_ATTR_VELOCITY );
+#endif
+                velocity = local ? turn * velocity : velocity;
+                const vec3 normal =
+                     local && sim.Collided ? normalize( turn * sim.CollisionNormal ) : sim.CollisionNormal;
+                if ( raises.x != 0u && sim.Kill )
+                    RaiseEvent( VFX_EVENT_DEATH, world, velocity, vec3( 0.0 ) );
+                if ( raises.y != 0u && sim.Collided )
+                    RaiseEvent( VFX_EVENT_COLLISION, world, velocity, normal );
+                if ( raises.z != 0u && !sim.Kill )
+                    RaiseEvent( VFX_EVENT_LOCATION, world, velocity, vec3( 0.0 ) );
+            }
             // Death is the stack's (a module's Kill, UpdateAge at Lifetime); a stack without one never kills.
             PoolSlotsData[i] = ParticleSlot( id, sim.Kill ? 0u : 1u );
         }
@@ -233,10 +431,14 @@ Shader "ParticleSimulate"
             if ( t < alive )
             {
                 uint i = AliveData[2u * base + slot * Counts.x + t];
-                Run( i, false, PoolSlotsData[i].Id, step, none );
+                Run( i, false, PoolSlotsData[i].Id, step, none, 0u );
             }
 
-            if ( t < min( Steps[step].Budget, freeCount ) )
+            // The step's newborns: the CPU budget (rate, bursts, channel) first, then the Event Handlers' spawns -
+            // the same count Dispatch Args sized the dispatch by (both read the same, unchanging, halves).
+            const uint serial = Stack.y + step;
+            const uint budget = Steps[step].Budget;
+            if ( t < min( budget + VFXEventSpawnTotal( serial ), freeCount ) )
             {
                 uint i = Free[base + freeCount - 1u - t];
                 // Appended after the alive entries: compact step+1 scans alive + spawned (Dispatch Args).
@@ -244,7 +446,31 @@ Shader "ParticleSimulate"
                 VFXChannelSpawn channel = none;
                 if ( t < Steps[step].ChannelCount )
                     channel = ChannelSpawnsData[Steps[step].ChannelFirst + t];
-                Run( i, true, Steps[step].IdBase + t, step, channel );
+                uint id    = Steps[step].IdBase + t;
+                uint event = 0u;
+                if ( t >= budget )
+                {
+                    // Spawn k of the handlers' spawns: handler h's events in order, SpawnCount particles each.
+                    uint k = t - budget;
+                    for ( uint h = 0u; h < VFXEventHandlerCount(); ++h )
+                    {
+                        const VFXEventChannel c     = VFXEventHandlerChannel( h );
+                        const uint            each  = VFXEventHandlerSpawnCount( h );
+                        const uint            count = VFXEventCount( c, serial - 1u ) * each;
+                        if ( k < count )
+                        {
+                            event                  = 1u + VFXEventRowIndex( c, serial - 1u, k / each );
+                            s_EventInheritVelocity = VFXEventHandlerInheritVelocity( h );
+                            break;
+                        }
+                        k -= count;
+                    }
+                    // The CPU hands out the ids from IdBase up; an event newborn takes the top half of the id
+                    // space, keyed by the step and its place in it (distinct for 32768 spawns a step over 65536
+                    // steps).
+                    id = 0x80000000u | ( ( serial & 0xFFFFu ) << 15u ) | ( ( t - budget ) & 0x7FFFu );
+                }
+                Run( i, true, id, step, channel, event );
             }
         }
     }

@@ -2,8 +2,10 @@
 // Debug Readback of one emitter (VFX-16, UE Niagara Debugger's GPU counts and particle attribute view). Dev only:
 // dispatched by "Particles: Debug Readback" after the last compact, in the simulating view, only while an editor
 // debugger asks (ParticleWorldGpu::SetDebugRequest). It copies what the GPU holds - no CPU-side guess:
-//   header (4 uints): alive count and free count of the last compact's slot (Page.x), the debug frame serial
-//                     (AliveRange.w, never 0), the rows this page wrote;
+//   header (8 uints, C++ kParticleDebugHeaderUints): alive count and free count of the last compact's slot
+//                     (Page.x), the debug frame serial (AliveRange.w, never 0), the rows this page wrote, the events
+//                     the emitter stored over its last tick (the tick counts of the channels its event table raises
+//                     into, Common/VFXEvents.glslh; UE Niagara Debugger's per-frame event count), then 3 zeros;
 //   rows: per alive-list entry Page.y + t (t < Page.z, t < alive - first): the pool index, then the emitter's
 //         Page.w float attribute components, then the Columns.x int components as their bits (SoA column c
 //         at c * range count + local index, local index = pool index - pool base: ParticleDrawRead.glslh's
@@ -16,6 +18,9 @@ Shader "ParticleDebugReadback"
         LocalSize(64, 1, 1);
 
         #include <Common/ParticlePool.glslh>
+
+        // C++ kParticleDebugHeaderUints.
+        #define PARTICLE_DEBUG_HEADER_UINTS 8u
 
         ReadBuffer(0) Counters
         {
@@ -42,6 +47,28 @@ Shader "ParticleDebugReadback"
             uint ReadbackWords[];
         };
 
+        // The emitter's event table and its system's event buffer (Common/VFXEvents.glslh): read only.
+        ReadBuffer(5) EventTable
+        {
+            uvec4 EventTableData[];
+        };
+
+        ReadBuffer(6) Events
+        {
+            uvec4 EventsData[];
+        };
+
+        #include <Common/VFXEvents.glslh>
+
+        uvec4 VFXEventTableRow( uint row )
+        {
+            return EventTableData[row];
+        }
+        uvec4 VFXEventBufferRow( uint index )
+        {
+            return EventsData[index];
+        }
+
         PushConstant PushConstants
         {
             uvec4 Page;  // x = the last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
@@ -61,13 +88,24 @@ Shader "ParticleDebugReadback"
                 ReadbackWords[1] = Slots[Page.x].FreeCount;
                 ReadbackWords[2] = AliveRange.w;
                 ReadbackWords[3] = rows;
+                uint events      = 0u;
+                for ( uint kind = 0u; kind < 3u; ++kind )
+                    if ( EventTableData[0][kind] != 0u )
+                    {
+                        const VFXEventChannel c = VFXEventChannelOf( EventTableData[1u + kind] );
+                        events += EventsData[VFXEventTickCountIndex( c )].z;
+                    }
+                ReadbackWords[4] = events;
+                ReadbackWords[5] = 0u;
+                ReadbackWords[6] = 0u;
+                ReadbackWords[7] = 0u;
             }
             if ( t >= rows )
                 return;
             uint index  = AliveData[AliveRange.x + first + t];
             uint local  = index - AliveRange.z;
             uint stride = 1u + Page.w + Columns.x;
-            uint base   = 4u + t * stride;
+            uint base   = PARTICLE_DEBUG_HEADER_UINTS + t * stride;
             ReadbackWords[base] = index;
             for ( uint c = 0u; c < Page.w; ++c )
                 ReadbackWords[base + 1u + c] = floatBitsToUint( FloatAttributes[c * AliveRange.y + local] );

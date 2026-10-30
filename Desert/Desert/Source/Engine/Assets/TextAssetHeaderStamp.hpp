@@ -91,7 +91,7 @@ namespace Desert::Assets
     // names its EffectType; v4 (VFX-PORT-1, int/vfx VFX-MODULE-ASSET): stack rows name `.dfxmod` modules by
     // {Guid, Path}, their GUIDs join the Dependencies, LocalModules is gone; v5 (VFX-PORT-2): Bounds per emitter.
     inline constexpr uint32_t kVFXSystemSchemaTag     = Common::Content::FourCC( "VFXS" );
-    inline constexpr uint32_t kVFXSystemSchemaVersion = 5;
+    inline constexpr uint32_t kVFXSystemSchemaVersion = 6;
     // A .dfxtype: the VFX effect type file layout (UE UNiagaraEffectType), stated from its first version (VFX-11).
     inline constexpr uint32_t kVFXEffectTypeSchemaTag     = Common::Content::FourCC( "VFXT" );
     inline constexpr uint32_t kVFXEffectTypeSchemaVersion = 2;

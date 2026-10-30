@@ -1749,6 +1749,45 @@ namespace Desert::Editor
             }
         }
 
+        // The effects of every live scene, from the world's one debug answer (VFXWorld::GetDebugStats - what the
+        // Particle Debugger and the viewport overview draw); no readback of its own.
+        for ( const ::Desert::Core::Scene* scene : ::Desert::Core::Scene::LiveScenes() )
+        {
+            const VFX::VFXDebugStats stats = scene->GetVFXWorld().GetDebugStats();
+            if ( stats.Systems.empty() )
+                continue;
+            Control::VFXSceneSnapshot& out = snapshot.Vfx.emplace_back();
+            out.Scene                      = scene->GetSceneName();
+            out.Active                     = m_Workspace.ActiveScene().get() == scene;
+            out.TickSerial                 = stats.TickSerial;
+            out.Step                       = stats.Step;
+            out.Frozen                     = stats.Frozen;
+            out.GpuCounts                  = stats.GpuCounts;
+            for ( const VFX::VFXSystemDebugStats& system : stats.Systems )
+            {
+                Control::VFXSystemSnapshot& row = out.Systems.emplace_back();
+                row.EntityUuid                  = system.EntityUuid;
+                const auto  entity              = static_cast<entt::entity>( system.EntityId );
+                const auto& registry            = scene->GetRegistry();
+                if ( registry.valid( entity ) )
+                    if ( const ECS::TagComponent* tag = registry.try_get<ECS::TagComponent>( entity ) )
+                        row.Entity = tag->Tag;
+                for ( const VFX::VFXEmitterDebugStats& e : system.Emitters )
+                    row.Emitters.push_back( Control::VFXEmitterSnapshot{ .Emitter   = e.Emitter,
+                                                                         .Name      = e.Name,
+                                                                         .Runs      = e.Runs,
+                                                                         .Capacity  = e.Capacity,
+                                                                         .Steps     = e.Steps,
+                                                                         .Spawned   = e.Spawned,
+                                                                         .NextId    = e.NextId,
+                                                                         .GpuRead   = e.GpuRead,
+                                                                         .Alive     = e.Alive,
+                                                                         .Free      = e.Free,
+                                                                         .FramesOld = e.FramesOld,
+                                                                         .Events    = e.Events } );
+            }
+        }
+
         {
             // The NN layer's device facts and kernel path (Engine::DeviceCapabilities::Neural), as chosen at
             // start-up.

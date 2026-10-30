@@ -13,6 +13,12 @@
 //                                     FNiagaraDataSetCompiledData::BuildLayout, SoA by component class)
 //   VFX_CurveLUT( index )             float `index` of the SYSTEM's curve atlas (VFX-05, Engine/VFX/VFXCurveLUT;
 //                                     UE's StaticInputFloat): every Curve input's baked table at its offset
+//   VFX_SceneDepthCollide( ... )      the particle sphere against THIS frame's scene depth (PORT-VFX-MODULES, UE
+//                                     GPU collision in Scene Depth mode): engine:Collision's one query. A stack
+//                                     that calls it ticks PostOpaque (VFX::kVFXSceneReadHostFunctions)
+//   VFX_EventSpawn( row )             the event a newborn an Event Handler spawned was born from (PORT-VFX-MODULES,
+//                                     UE emitter Event Handlers, Spawned Particles): engine:SpawnFromEvent reads it
+//                                     for a newborn whose sim.Event = row + 1
 
 #ifndef VFX_PARTICLE_CONTRACT_GLSLH
 #define VFX_PARTICLE_CONTRACT_GLSLH
@@ -28,6 +34,13 @@
 // read a spawn module makes): the Initialize modules take a bound colour, base-size scale and lifetime from them,
 // AddVelocityInCone a bound direction as its axis. A particle not from a channel, or a field the emitter's
 // engine:SpawnFromChannel does not bind, reads Direction = 0, Color = 1 and Scalars = (0, 1, 0, 0).
+// Collided / CollisionNormal are set by engine:Collision when the particle moved INTO the scene this step out of
+// contact (its CollisionContact attribute: the transition into contact, not every re-impact of a resting particle;
+// the normal in the stack's frame, facing the camera); the host starts them false / zero, and raises the emitter's
+// Collision event from them (its Death event from Kill, its Location event every step it lives;
+// Common/VFXEvents.glslh).
+// Event is 1 + the event row of a newborn an Event Handler spawned, 0 for every other particle; only
+// engine:SpawnFromEvent reads it.
 struct VFXSim
 {
     float DeltaTime;
@@ -41,6 +54,20 @@ struct VFXSim
     vec4  ChannelColor;     // linear rgba, bound when ChannelScalars.z = 1
     vec4  ChannelScalars;   // x = lifetime s (bound when w = 1), y = base-size scale (1 unbound), z / w = colour /
                             // lifetime bound
+    bool  Collided;
+    vec3  CollisionNormal;
+    uint  Event;
+};
+
+// One event a newborn of an Event Handler was spawned from (the C++ ParticleWorldGpu event rows,
+// kParticleEventRowSize), handed in the stack's newborn frame: the placement frame (the spawn group places a
+// newborn around zero there, and the host takes it to the world for a World emitter).
+struct VFXEventSpawn
+{
+    vec4 Position; // xyz cm, the source particle where it raised the event, in the placement frame; w = 1
+    vec4 Velocity; // xyz cm/s, the source particle's velocity times the handler's InheritVelocity, in the
+                   // stack's velocity frame (placement for a Local emitter, world otherwise); w = 0
+    vec4 Normal;   // xyz the surface normal of a Collision event, same frame as Velocity (zero otherwise); w = 0
 };
 
 vec4  VFX_Param( uint slot );
@@ -53,6 +80,16 @@ float VFX_CurveLUT( uint index );
 // emitter's point-set buffer), picked in proportion to the points' weights by the uniform number @p u in [0, 1);
 // the point is relative to the placement, turned by its rotation and scale (cm). An empty set gives 0.
 vec3  VFX_PointSet( vec4 row, float u );
+// Whether the sphere of @p radius cm at @p position (the stack's frame: the placement frame for a Local particle and
+// a newborn, world otherwise) touches the scene depth of this frame: it is on screen, in front of the camera, and
+// its centre is less than @p radius in front of the visible surface along its view ray or at most @p thickness cm
+// behind it (deeper is behind an occluder, not inside it). On true, @p contact is the surface point on that ray and
+// @p normal the surface's normal facing the camera, both in the same frame as @p position. False when the frame has
+// no scene depth, off screen, behind the camera or on the sky.
+bool  VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 contact,
+                             out vec3 normal );
+// The event row @p row (sim.Event - 1 of a newborn an Event Handler spawned) in the newborn's frames.
+VFXEventSpawn VFX_EventSpawn( uint row );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )

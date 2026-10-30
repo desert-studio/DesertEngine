@@ -49,6 +49,9 @@ namespace Desert::Assets::Serialization
      *       (VFXEmitterData::Bounds, UE UNiagaraEmitter::FixedBounds); each emitter is culled by its own box in
      *       every view and every shadow view. Raised by Tools/SceneMigrator (MigrateVFXSystem): the system's
      *       box is copied into each emitter.
+     *   6 - PORT-VFX-MODULES (int/vfx 476c85211, there VFXS 4): every emitter states EventHandlers (UE emitter
+     *       Event Handlers, Spawned Particles): particles spawned from another emitter's Death / Collision /
+     *       Location events. Raised by Tools/SceneMigrator (MigrateVFXSystem): each emitter gets an empty list.
      *
      * An unknown value is refused in both directions; a later layout raises its files through a SceneMigrator
      * step, not through defaults in the reader.
@@ -75,6 +78,16 @@ namespace Desert::Assets::Serialization
     /// mode - VFX-15; UE UNiagaraDataInterfaceArrayPosition on a User parameter the component overrides): a Vec3
     /// input bound to it reads one of the set's points, chosen by weight, per particle (engine:ShapePointSet).
     inline constexpr std::string_view kVFXPointSetPrefix = "PointSet.";
+    /// The GUID of the engine module that collides particles with the scene depth
+    /// (Editor/Resources/Engine/VFX/Modules/Collision.dfxmod): a Collision event handler's source emitter must run
+    /// it. A GUID, not the "engine:Collision" spelling - a stack row names its module by {Guid, Path} since VFXS 4.
+    inline constexpr std::string_view kVFXCollisionModuleGuid = "e9f40e7b3dae4463a5a47d725c82a1bb";
+    /// The engine module an emitter with EventHandlers spawns its event newborns through
+    /// (Editor/Resources/Engine/VFX/Modules/SpawnFromEvent.dfxmod, UE's Receive Event modules): the stack compiler
+    /// appends it as the emitter's last ParticleSpawn row and no authored row may name it; the system's header
+    /// Dependencies state it (VFXSystemDependencies), since no row does.
+    inline constexpr std::string_view kVFXSpawnFromEventModuleGuid = "ad3f8448557840fc952c72444b16e4e6";
+    inline constexpr std::string_view kVFXSpawnFromEventModulePath = "engine:Engine/VFX/Modules/SpawnFromEvent.dfxmod";
 
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.
@@ -321,6 +334,30 @@ namespace Desert::Assets::Serialization
     /// debugger's "Draw bounds" and the editor preview's framing share.
     [[nodiscard]] Common::Math::AABB VFXBoundsAt( const VFXBounds& bounds, const glm::mat4& localToWorld );
 
+    /// The event a source emitter's particles raise (UE: the Generate Death / Collision / Location Event modules).
+    /// Death: the step's stack killed the particle. Collision: the Collision module touched the scene this step.
+    /// Location: every step the particle lives through (UE Location Event, the classic trail source).
+    enum class VFXEventKind
+    {
+        Death,
+        Collision,
+        Location,
+    };
+
+    /// One Event Handler of an emitter (UE FNiagaraEventScriptProperties, execution mode Spawned Particles): each
+    /// event SourceEmitter's particles raised of kind Event in the previous fixed step spawns SpawnCount particles
+    /// of THIS emitter at the event's position (its ParticleSpawn group, then engine:SpawnFromEvent, which the stack
+    /// compiler appends). InheritVelocity scales the event particle's velocity added to the newborn's (0: none).
+    struct VFXEventHandler
+    {
+        std::string  SourceEmitter;
+        VFXEventKind Event           = VFXEventKind::Death;
+        uint32_t     SpawnCount      = 1; ///< >= 1
+        float        InheritVelocity = 0.0f;
+
+        [[nodiscard]] bool operator==( const VFXEventHandler& ) const = default;
+    };
+
     struct VFXEmitterData
     {
         std::string                  Name;
@@ -331,6 +368,7 @@ namespace Desert::Assets::Serialization
         VFXEmitterLifecycle          Lifecycle;
         VFXEmitterStack              Stack;
         std::vector<VFXRendererData> Renderers;
+        std::vector<VFXEventHandler> EventHandlers; ///< VFXS 6
 
         [[nodiscard]] bool operator==( const VFXEmitterData& ) const = default;
     };

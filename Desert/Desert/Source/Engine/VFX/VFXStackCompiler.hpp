@@ -19,9 +19,11 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -174,8 +176,47 @@ namespace Desert::VFX
     };
 
     /// One emitter's compiled stack.
+    /**
+     * WHEN IN THE FRAME AN EMITTER'S GPU SIMULATION RUNS (UE ENiagaraGpuComputeTickStage: PreInitViews /
+     * PostOpaqueRender, chosen per emitter from what its stack reads - FNiagaraSystemInstance::CalculateTickStage
+     * over the data interfaces' RequiresDepthBuffer()). Derived, never stated in the file: a stack cannot ask for a
+     * stage its modules do not need, and one that reads the scene cannot forget it. PreOpaque: before the opaque
+     * passes, so its opaque rows draw this frame's particles. PostOpaque: after the opaque passes and the scene depth
+     * resolve, so a host function that reads the scene (kVFXSceneReadHostFunctions) sees THIS frame's depth; its
+     * draws recorded before it (G-buffer rows, Mesh instances, shadow casts) draw the previous tick's particles (UE:
+     * the same one-frame lag of a PostOpaque emitter's opaque renderers).
+     */
+    enum class VFXTickStage : uint8_t
+    {
+        PreOpaque,
+        PostOpaque,
+    };
+
+    /// The contract host functions (Common/VFXParticleContract.glslh) that read this frame's scene (UE: the data
+    /// interface functions whose RequiresDepthBuffer() is true). A stack whose GLSL calls one ticks PostOpaque.
+    inline constexpr std::array<std::string_view, 1> kVFXSceneReadHostFunctions = { "VFX_SceneDepthCollide" };
+    /// Defined (to 1) at the top of a scene-reading stack's generated GLSL: ParticleSimulate.shader declares the
+    /// PostOpaque scene inputs (CollisionView, SceneDepth + its sampler) and the scene-reading host functions only
+    /// under it, so a PreOpaque program's layout never names them.
+    inline constexpr std::string_view kVFXSceneDepthDefine = "VFX_READS_SCENE_DEPTH";
+
+    /**
+     * EMITTERS LINKED BY EVENTS TICK IN ONE STAGE (PORT-VFX-MODULES, from int/vfx 76d3116b8). An Event Handler reads
+     * the events its source raised in the previous fixed STEP (Common/VFXEvents.glslh: a channel's two halves
+     * alternate by the system's event step serial), which holds only while the source's step s runs before the
+     * handler's step s + 1 - the order of one stage's chain (AddParticleSimulationSteps runs its emitters step by
+     * step). A source in the other stage would run all its steps before or after the handler's, and the handler
+     * would read a half the source already overwrote or has not written yet. So every emitter of a group connected
+     * by EventHandlers (in either direction) takes the LATEST stage of its members: PostOpaque if any of them reads
+     * the scene. The cost is the PostOpaque one-frame lag of the group's opaque rows, never an out-of-order event.
+     * @p stages holds each emitter's own stage (VFXCompiledEmitter::TickStage) in emitter order and is rewritten in
+     * place; a handler naming no emitter of @p system links nothing (ValidateVFXSystemData refuses it).
+     */
+    void UnifyEventTickStages( const Assets::Serialization::VFXSystemData& system, std::span<VFXTickStage> stages );
+
     struct VFXCompiledEmitter
     {
+        VFXTickStage              TickStage = VFXTickStage::PreOpaque; ///< from the host functions its GLSL calls
         uint64_t                  Key = 0;    ///< FNV-64 of the stack STRUCTURE + the layout; no input value
         std::string               ShaderName; ///< "VFX/Emitter/<Key as 16 hex digits>"
         std::string               ShaderText; ///< a whole `.shader`: `Domain Particle` + one Particle block
