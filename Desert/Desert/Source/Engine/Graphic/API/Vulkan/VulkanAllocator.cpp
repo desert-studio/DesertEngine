@@ -352,9 +352,9 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanAllocator::RT_DestroyBuffer( VkBuffer buffer, VmaAllocation allocation )
     {
         if ( !buffer || !allocation ) return;
-        uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_BufferDeletionQueue.push_back( { buffer, allocation, frameIndex } );
+        m_BufferDeletionQueue.push_back( { buffer, allocation, queuedFrame } );
     }
 
     void VulkanAllocator::RT_ReleaseStaging( VkBuffer buffer, VmaAllocation allocation,
@@ -569,43 +569,43 @@ namespace Desert::Graphic::API::Vulkan
                                            const std::vector<VkImageView>& mipImageViews )
     {
         if ( !image || !allocation ) return;
-        uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_ImageDeletionQueue.push_back( { image, allocation, imageView, mipImageViews, frameIndex } );
+        m_ImageDeletionQueue.push_back( { image, allocation, imageView, mipImageViews, queuedFrame } );
     }
 
     void VulkanAllocator::RT_DestroyFramebuffer( VkFramebuffer framebuffer )
     {
         if ( !framebuffer ) return;
-        uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_FramebufferDeletionQueue.push_back( { framebuffer, frameIndex } );
+        m_FramebufferDeletionQueue.push_back( { framebuffer, queuedFrame } );
     }
 
     void VulkanAllocator::RT_DestroyRenderPass( VkRenderPass renderPass )
     {
         if ( !renderPass ) return;
-        uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_RenderPassDeletionQueue.push_back( { renderPass, frameIndex } );
+        m_RenderPassDeletionQueue.push_back( { renderPass, queuedFrame } );
     }
 
     void VulkanAllocator::RT_DestroyQueryPool( VkQueryPool queryPool )
     {
         if ( queryPool == VK_NULL_HANDLE )
             return;
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_QueryPoolDeletionQueue.push_back( { queryPool, frameIndex } );
+        m_QueryPoolDeletionQueue.push_back( { queryPool, queuedFrame } );
     }
 
     void VulkanAllocator::RT_DestroyPipeline( VkPipeline pipeline, VkPipelineLayout layout )
     {
         if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE )
             return;
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_PipelineDeletionQueue.push_back( { pipeline, layout, frameIndex } );
+        m_PipelineDeletionQueue.push_back( { pipeline, layout, queuedFrame } );
     }
 
     void VulkanAllocator::RT_DestroyAccelerationStructure( VkAccelerationStructureKHR accelerationStructure,
@@ -613,36 +613,36 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( accelerationStructure == VK_NULL_HANDLE || destroy == nullptr )
             return;
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_AccelerationStructureDeletionQueue.push_back( { accelerationStructure, destroy, frameIndex } );
+        m_AccelerationStructureDeletionQueue.push_back( { accelerationStructure, destroy, queuedFrame } );
     }
 
     void VulkanAllocator::RT_DestroyDescriptorPool( VkDescriptorPool descriptorPool )
     {
         if ( descriptorPool == VK_NULL_HANDLE )
             return;
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex, {} } );
+        m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, queuedFrame, {} } );
     }
 
     void VulkanAllocator::RT_DestroyLater( std::function<void()> destroy )
     {
         if ( !destroy )
             return;
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_HostObjectDeletionQueue.push_back( { std::move( destroy ), frameIndex } );
+        m_HostObjectDeletionQueue.push_back( { std::move( destroy ), queuedFrame } );
     }
 
     void VulkanAllocator::RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets )
     {
         if ( pool == VK_NULL_HANDLE || sets.empty() )
             return;
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
-        m_DescriptorPoolDeletionQueue.push_back( { pool, frameIndex, std::move( sets ) } );
+        m_DescriptorPoolDeletionQueue.push_back( { pool, queuedFrame, std::move( sets ) } );
     }
 
     MappedMemory VulkanAllocator::MapMemory( VmaAllocation allocation )
@@ -692,10 +692,14 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::ProcessDeletionQueue()
     {
-        // The per-frame drain: an entry queued on frame f is destroyed the next time the ring comes back
-        // round to f, which is the point at which the GPU has demonstrably finished with it.
-        const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
-        (void)DestroyQueued( [frameIndex]( uint32_t queued ) { return queued == frameIndex; } );
+        // The per-frame drain: the caller (VulkanRendererAPI::PresentFinalImage) has begun frame `current` and
+        // waited its slot's fence, the fence of frame current - framesInFlight; every entry queued on that
+        // frame or earlier, by any thread, is finished with (IsRetired).
+        const Engine::FrameManager& frames         = Engine::FrameManager::GetInstance();
+        const uint64_t              current        = frames.GetAbsoluteFrameCount();
+        const uint32_t              framesInFlight = frames.GetMaxFramesInFlight();
+        (void)DestroyQueued( [current, framesInFlight]( uint64_t queued )
+                             { return IsRetired( queued, current, framesInFlight ); } );
 #if DESERT_DEV_INSTRUMENTS
         SampleSceneOpen();
 #endif
@@ -772,13 +776,13 @@ namespace Desert::Graphic::API::Vulkan
         // REPEATED UNTIL A PASS FINDS NOTHING: a host-object destroy may queue further objects, which the pass
         // that ran it no longer takes (DestroyQueued takes under its lock, then destroys).
         std::size_t total = 0;
-        for ( std::size_t pass = DestroyQueued( []( uint32_t ) { return true; } ); pass > 0;
-              pass             = DestroyQueued( []( uint32_t ) { return true; } ) )
+        for ( std::size_t pass = DestroyQueued( []( uint64_t ) { return true; } ); pass > 0;
+              pass             = DestroyQueued( []( uint64_t ) { return true; } ) )
             total += pass;
         return total;
     }
 
-    std::size_t VulkanAllocator::DestroyQueued( const std::function<bool( uint32_t )>& takeFrame )
+    std::size_t VulkanAllocator::DestroyQueued( const std::function<bool( uint64_t )>& takeFrame )
     {
         if ( s_VmaAllocator == VK_NULL_HANDLE )
             return 0;
@@ -787,7 +791,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( device == VK_NULL_HANDLE )
             return 0;
 
-        // TAKE UNDER THE LOCK, DESTROY OUTSIDE IT. Every entry whose frame the ring has come back round to is
+        // TAKE UNDER THE LOCK, DESTROY OUTSIDE IT. Every entry @p takeFrame retires (IsRetired per frame) is
         // moved out of its queue while m_DeletionMutex is held; nothing is destroyed until it is released. A
         // loader thread queuing meanwhile lands in the queue for a later pass, and a host-object destroy that
         // queues again (below) re-enters RT_Destroy* without the lock held.
@@ -797,7 +801,7 @@ namespace Desert::Graphic::API::Vulkan
             std::vector<Entry> kept;
             for ( Entry& entry : queue )
             {
-                if ( takeFrame( entry.FrameIndex ) )
+                if ( takeFrame( entry.QueuedFrame ) )
                     taken.push_back( std::move( entry ) );
                 else
                     kept.push_back( std::move( entry ) );
@@ -827,7 +831,7 @@ namespace Desert::Graphic::API::Vulkan
             pipelines              = take( m_PipelineDeletionQueue );
 
             // Destroying a pool frees every set still in it. A free of that pool's sets queued AFTER the destroy
-            // (taken now, later in queue order) or on a frame the ring has not come round to yet (still queued)
+            // (taken now, later in queue order) or on a frame not yet retired (still queued)
             // would then name dead handles - and a pool handle the driver hands out again: both are dropped with
             // the pool here, under the lock, before any other thread can queue against a reused handle.
             const std::vector<DescriptorPoolDeletionEntry> takenPools = take( m_DescriptorPoolDeletionQueue );
@@ -886,8 +890,8 @@ namespace Desert::Graphic::API::Vulkan
             ++destroyed;
         }
 
-        // The call may queue further destructions: they land in the queues for the frame current now and are
-        // retired when the ring comes back round to it (DrainDeletionQueue repeats until nothing is left).
+        // The call may queue further destructions: they are tagged with the frame current now and are
+        // retired framesInFlight frames later (DrainDeletionQueue repeats until nothing is left).
         for ( const HostObjectDeletionEntry& entry : hostObjects )
         {
             entry.Destroy();

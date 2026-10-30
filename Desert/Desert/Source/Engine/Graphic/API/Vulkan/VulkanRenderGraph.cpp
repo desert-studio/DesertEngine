@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <cstdio>
 #include <cstdlib>
 #include <format>
@@ -734,26 +735,39 @@ namespace Desert::Graphic::API::Vulkan
     // ── Pool ───────────────────────────────────────────────────────────────────────────────────────────
 
     VulkanRdgPool::VulkanRdgPool( const VulkanRdgDevice& device, uint32_t frameSlots )
-         : m_Device( device ), m_Slots( std::max( 1u, frameSlots ) )
+         : m_Device( device ), m_FrameSlots( std::max( 1u, frameSlots ) )
     {
     }
 
-    void VulkanRdgPool::BeginFrame( uint32_t slot )
+    void VulkanRdgPool::BeginFrame()
     {
-        m_Slot = slot % static_cast<uint32_t>( m_Slots.size() );
-        ++m_Frame;
-        m_Slots[m_Slot].Retired.clear(); // this slot's previous frame, and every frame before it, has completed
+        const uint64_t frame = m_Frame.fetch_add( 1 ) + 1;
+        // Every frame up to frame - m_FrameSlots has completed: what was retired on one of them is released.
+        // Taken under the lock and released outside it, so a view's destructor never runs with it held.
+        std::vector<RetiredTexture> released;
+        {
+            const std::lock_guard lock( m_RetiredMutex );
+            const auto            keptEnd = std::partition( m_Retired.begin(), m_Retired.end(),
+                                                            [this]( const RetiredTexture& retired )
+                                                            { return !Fenced( retired.Frame ); } );
+            released.assign( std::make_move_iterator( keptEnd ), std::make_move_iterator( m_Retired.end() ) );
+            m_Retired.erase( keptEnd, m_Retired.end() );
+        }
+        released.clear();
         // Kept: whatever a frame not yet waited for was handed, and whatever an extraction target still holds.
         auto stale = [&]( const auto& entry )
-        { return entry.LastFrame + m_Slots.size() < m_Frame && entry.Resource.use_count() == 1; };
+        { return entry.LastFrame + m_FrameSlots < frame && entry.Resource.use_count() == 1; };
         std::erase_if( m_Textures, stale );
         std::erase_if( m_Buffers, stale );
     }
 
     void VulkanRdgPool::Retire( std::shared_ptr<RDG::IPhysicalTexture> texture )
     {
-        if ( texture )
-            m_Slots[m_Slot].Retired.push_back( std::move( texture ) );
+        if ( !texture )
+            return;
+        const uint64_t        frame = m_Frame.load();
+        const std::lock_guard lock( m_RetiredMutex );
+        m_Retired.push_back( { std::move( texture ), frame } );
     }
 
     Common::ResultStr<std::shared_ptr<VulkanRdgTexture>>

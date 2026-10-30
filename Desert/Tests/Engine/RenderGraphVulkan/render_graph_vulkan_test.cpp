@@ -488,7 +488,7 @@ void main()
     Common::BoolResultStr BeginFrameSlot( FrameObjects& frame, VulkanRdgBackend& backend, VulkanRdgPool& pool,
                                           uint32_t slot )
     {
-        pool.BeginFrame( slot );
+        pool.BeginFrame();
         frame.Transients.BeginFrameSlot( slot );
         frame.Descriptors.BeginFrameSlot( slot );
         if ( Common::BoolResultStr objects = frame.Objects.BeginFrameSlot( slot ); !objects )
@@ -1990,7 +1990,7 @@ TEST( RenderGraphVulkan, AResizedImportedImageKeepsItsViewsUntilTheFramesUsingTh
 
     // The renderer waits for slot 0's previous frame before BeginFrame(0): now the old views may go.
     vkWaitForFences( device, 1, &fences[0], VK_TRUE, UINT64_MAX );
-    pool.BeginFrame( 0 );
+    pool.BeginFrame();
     EXPECT_TRUE( oldHandle.expired() ) << "the retired handle outlived the frame slot's next BeginFrame";
 
     vkDeviceWaitIdle( device );

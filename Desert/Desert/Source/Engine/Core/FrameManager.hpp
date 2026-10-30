@@ -1,21 +1,27 @@
 #pragma once
 
 #include <Common/Core/Singleton.hpp>
+#include <atomic>
 #include <cstdint>
 
 namespace Desert::Engine
 {
     /**
      * @brief Manages frame-level synchronization and indexing.
+     *
+     * WRITTEN BY THE RENDER THREAD ONLY (NextFrame, Initialize), READ FROM ANY THREAD. A thread that drops the
+     * last owner of a GPU object queues its deletion tagged with GetAbsoluteFrameCount (VulkanAllocator), so the
+     * fields are atomics: a plain read racing NextFrame was a data race, and the ring slot it used to read could
+     * name the slot whose fence had just been waited, under a frame still in flight.
      */
     class FrameManager final : public Common::Singleton<FrameManager>
     {
     public:
         void Initialize( uint32_t maxFramesInFlight )
         {
-            m_MaxFramesInFlight = maxFramesInFlight;
-            m_CurrentFrameIndex = 0;
-            m_AbsoluteFrameCount = 0;
+            m_MaxFramesInFlight.store( maxFramesInFlight );
+            m_CurrentFrameIndex.store( 0 );
+            m_AbsoluteFrameCount.store( 0 );
         }
 
         // A SWAPCHAIN REBUILD IS NOT A NEW START, and the rebuild used to call Initialize: the current slot
@@ -34,27 +40,29 @@ namespace Desert::Engine
                 m_CountFixedBySwapchain = true;
                 return true;
             }
-            return imageCount == m_MaxFramesInFlight;
+            return imageCount == m_MaxFramesInFlight.load();
         }
 
         /**
-         * @brief Advances to the next frame.
+         * @brief Advances to the next frame. Render thread only.
          */
         void NextFrame()
         {
-            m_CurrentFrameIndex = ( m_CurrentFrameIndex + 1 ) % m_MaxFramesInFlight;
-            m_AbsoluteFrameCount++;
+            m_CurrentFrameIndex.store( ( m_CurrentFrameIndex.load() + 1 ) % m_MaxFramesInFlight.load() );
+            m_AbsoluteFrameCount.fetch_add( 1 );
         }
 
-        [[nodiscard]] uint32_t GetCurrentFrameIndex() const { return m_CurrentFrameIndex; }
-        [[nodiscard]] uint32_t GetMaxFramesInFlight() const { return m_MaxFramesInFlight; }
-        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const { return m_AbsoluteFrameCount; }
+        [[nodiscard]] uint32_t GetCurrentFrameIndex() const { return m_CurrentFrameIndex.load(); }
+        [[nodiscard]] uint32_t GetMaxFramesInFlight() const { return m_MaxFramesInFlight.load(); }
+        /// The frame being recorded, counted from the first swapchain; never wraps (unlike the ring slot), so a
+        /// deletion tagged with it is retired by one rule whatever thread queued it (VulkanAllocator::IsRetired).
+        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const { return m_AbsoluteFrameCount.load(); }
 
     private:
-        uint32_t m_CurrentFrameIndex = 0;
-        uint32_t m_MaxFramesInFlight = 2;
-        uint64_t m_AbsoluteFrameCount = 0;
-        bool     m_CountFixedBySwapchain = false;
+        std::atomic<uint32_t> m_CurrentFrameIndex{ 0 };
+        std::atomic<uint32_t> m_MaxFramesInFlight{ 2 };
+        std::atomic<uint64_t> m_AbsoluteFrameCount{ 0 };
+        bool                  m_CountFixedBySwapchain = false;
     };
 
 } // namespace Desert::Engine

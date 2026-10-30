@@ -29,7 +29,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         VkBuffer      Buffer;
         VmaAllocation Allocation;
-        uint32_t      FrameIndex;
+        uint64_t      QueuedFrame;
     };
 
     struct ImageDeletionEntry
@@ -38,19 +38,19 @@ namespace Desert::Graphic::API::Vulkan
         VmaAllocation            Allocation;
         VkImageView              ImageView;
         std::vector<VkImageView> MipImageViews;
-        uint32_t                 FrameIndex;
+        uint64_t                 QueuedFrame;
     };
 
     struct FramebufferDeletionEntry
     {
         VkFramebuffer Framebuffer;
-        uint32_t      FrameIndex;
+        uint64_t      QueuedFrame;
     };
 
     struct RenderPassDeletionEntry
     {
         VkRenderPass RenderPass;
-        uint32_t     FrameIndex;
+        uint64_t     QueuedFrame;
     };
 
     // The AS object only: its storage buffer is queued separately (RT_DestroyBuffer) on the same frame, and the
@@ -59,13 +59,13 @@ namespace Desert::Graphic::API::Vulkan
     {
         VkAccelerationStructureKHR            AccelerationStructure;
         PFN_vkDestroyAccelerationStructureKHR Destroy; // the device's entry point (RayTracingDeviceFunctions)
-        uint32_t                              FrameIndex;
+        uint64_t                              QueuedFrame;
     };
 
     struct QueryPoolDeletionEntry
     {
         VkQueryPool QueryPool;
-        uint32_t    FrameIndex;
+        uint64_t    QueuedFrame;
     };
 
     // A pipeline and the layout it was created with. A rebuilt pipeline (the ray tracing pipeline after its hit
@@ -74,7 +74,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         VkPipeline       Pipeline;
         VkPipelineLayout Layout; // VK_NULL_HANDLE when the layout outlives the pipeline
-        uint32_t         FrameIndex;
+        uint64_t         QueuedFrame;
     };
 
     // An object some other runtime owns on this device (a vendor upscaler SDK's context and the images, views and
@@ -82,13 +82,13 @@ namespace Desert::Graphic::API::Vulkan
     struct HostObjectDeletionEntry
     {
         std::function<void()> Destroy;
-        uint32_t              FrameIndex;
+        uint64_t              QueuedFrame;
     };
 
     struct DescriptorPoolDeletionEntry
     {
         VkDescriptorPool DescriptorPool;
-        uint32_t         FrameIndex;
+        uint64_t         QueuedFrame;
         // Empty: destroy the pool. Non-empty: free these sets back into it and keep the pool. One queue
         // for both, because a pool destroyed first frees its sets implicitly and the drain has to know.
         std::vector<VkDescriptorSet> Sets;
@@ -153,13 +153,26 @@ namespace Desert::Graphic::API::Vulkan
         // Frees @p sets back into @p pool once the frame that may still bind them has finished. The pool
         // must have been created with VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
         void RT_FreeDescriptorSets( VkDescriptorPool pool, std::vector<VkDescriptorSet> sets );
-        // Runs @p destroy once the frame current now has come back round, like every queued destruction: for
+        // Runs @p destroy once the frame current now has retired (IsRetired), like every queued destruction: for
         // GPU objects created and destroyed through a third-party runtime's own API (the FidelityFX context of a
         // view whose extent changed), which the typed queues above cannot name.
         void RT_DestroyLater( std::function<void()> destroy );
 
-        /// The per-frame drain, called once per present: destroys what the ring has come back round to.
+        /// The per-frame drain, called once per present after WaitSlot of the frame now current: destroys every
+        /// entry whose queuing frame that fence covers (IsRetired).
         void ProcessDeletionQueue();
+        /// THE ONE RETIRE RULE, for every queue and every enqueuing thread. An entry carries the absolute frame
+        /// number (FrameManager::GetAbsoluteFrameCount) current when it was queued. ProcessDeletionQueue runs
+        /// once frame @p current has begun and its slot's fence has been waited, which is the fence of frame
+        /// current - framesInFlight: the last frame that could record with an object queued at frame q is q, so
+        /// the entry is safe once q <= current - framesInFlight. The ring SLOT it used to be tagged with could not
+        /// say this: an entry queued by another thread between NextFrame and the drain took the NEW slot's tag
+        /// and was destroyed at once, under the frame just submitted (UE: deferred deletion by frame + fence).
+        [[nodiscard]] static constexpr bool IsRetired( uint64_t queued, uint64_t current,
+                                                       uint32_t framesInFlight ) noexcept
+        {
+            return queued + framesInFlight <= current;
+        }
         /// At most once a second, from ProcessDeletionQueue: owed deletions, the ledger's live bytes and largest
         /// tags, and VMA's per-heap block/allocation bytes against the driver's usage, as one debug line. Growth
         /// inside the ledger, inside VMA's blocks, or only in the driver's number names three different causes.
@@ -230,7 +243,7 @@ namespace Desert::Graphic::API::Vulkan
         /// The one body behind ProcessDeletionQueue and DrainDeletionQueue. They differ ONLY in which
         /// queued frames they take, and that is the whole reason they share this: two copies of four
         /// erase loops is where a fifth resource kind gets destroyed on one path and leaked on the other.
-        std::size_t DestroyQueued( const std::function<bool( uint32_t )>& takeFrame );
+        std::size_t DestroyQueued( const std::function<bool( uint64_t )>& takeFrame );
 
         friend class Common::Singleton<VulkanAllocator>;
 

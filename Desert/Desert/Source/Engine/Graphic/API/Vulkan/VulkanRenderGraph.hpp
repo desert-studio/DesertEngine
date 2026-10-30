@@ -12,10 +12,12 @@
 #include <VulkanAllocator/vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <atomic>
 #include <cstdint>
 #include <compare>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <memory>
 #include <string>
@@ -293,14 +295,17 @@ namespace Desert::Graphic::API::Vulkan
     public:
         VulkanRdgPool( const VulkanRdgDevice& device, uint32_t frameSlots );
 
-        // The caller has waited for @p slot's previous submission.
-        void BeginFrame( uint32_t slot );
+        // Begins the next frame. The caller has waited for the fence of the frame slot it is about to record
+        // into, i.e. for the frame frameSlots before this one.
+        void BeginFrame();
 
-        // Keeps @p texture alive until the next BeginFrame of the current slot. The caller has waited for that
-        // slot's previous submission by then, and fences are waited in submission order, so every frame that
-        // could have recorded the texture's views has completed. The engine image's graph handle goes here when
-        // the image is released or resized (IVulkanImage::DropGraphTexture), instead of destroying views a
-        // frame in flight may still reference.
+        // Keeps @p texture alive until the BeginFrame frameSlots frames after the frame current now: by then the
+        // caller has waited for this frame's fence, and fences are waited in submission order, so every frame
+        // that could have recorded the texture's views has completed. The engine image's graph handle goes here
+        // when the image is released or resized (IVulkanImage::DropGraphTexture), instead of destroying views a
+        // frame in flight may still reference. ANY THREAD: the image's last owner may drop it on a loader
+        // thread, so the entry is tagged with the frame NUMBER (atomic) under its own mutex - a ring-slot tag read
+        // racing BeginFrame could name the slot just begun and be released under the frame still in flight.
         void Retire( std::shared_ptr<RDG::IPhysicalTexture> texture );
 
         // An extracted transient's dedicated resource, LEASED to @p holder (RDG::ResourceView::ExtractOwner): its
@@ -325,22 +330,25 @@ namespace Desert::Graphic::API::Vulkan
             std::shared_ptr<T> Resource;
             uint64_t           LastFrame = 0; // frame counter of the last hand-out
         };
-        struct Slot
+        struct RetiredTexture
         {
-            std::vector<std::shared_ptr<RDG::IPhysicalTexture>> Retired; // released at the slot's next BeginFrame
+            std::shared_ptr<RDG::IPhysicalTexture> Texture;
+            uint64_t                               Frame = 0; // m_Frame when it was retired
         };
         // Frame @p frame has completed: the caller waited for it at a BeginFrame since.
         [[nodiscard]] bool Fenced( uint64_t frame ) const noexcept
         {
-            return frame + m_Slots.size() <= m_Frame;
+            return frame + m_FrameSlots <= m_Frame.load();
         }
 
         const VulkanRdgDevice&               m_Device;
-        std::vector<Slot>                    m_Slots;
+        uint32_t                             m_FrameSlots = 1;
         std::vector<Entry<VulkanRdgTexture>> m_Textures;
         std::vector<Entry<VulkanRdgBuffer>>  m_Buffers;
-        uint32_t                             m_Slot  = 0;
-        uint64_t                             m_Frame = 1;
+        // Written by BeginFrame (render thread), read by Retire on any thread.
+        std::atomic<uint64_t>                m_Frame{ 1 };
+        std::mutex                           m_RetiredMutex; // guards m_Retired only
+        std::vector<RetiredTexture>          m_Retired;
     };
 
     // The dedicated (extracted) render graph resources' own ledger, by resource name: VMA allocations outside
