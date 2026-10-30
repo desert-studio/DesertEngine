@@ -308,11 +308,12 @@ namespace Desert::Graphic::System
             // Its section's row in the scene material table (SyncGpuScene, GpuSceneRegistry::SyncMaterialRow): the
             // MaterialIndex its forward / G-buffer draw names, and GpuDrawSlot::MaterialRow for the cached draws.
             uint32_t                  MaterialRow = 0;
-            // ANY RIGID MESH (MeshType::Static): a cooked StaticMesh or a DynamicMesh (a primitive, an editable mesh,
-            // a fracture / spline piece). Typed as the base because that is what it is: the StaticMesh-only
-            // members (GetBakedDisplaced, a displacement request) are reached by dynamic_cast, the virtual-geometry
-            // rows by Mesh::GetVirtualMesh. It was `StaticMesh*`, filled by a static_cast of every Static-typed
-            // mesh, and the VG candidate walk read a DynamicMesh's registration past its end (FPS-MEASURE-5).
+            // ANY RIGID MESH (MeshType::Static): a cooked StaticMesh or a DynamicMesh (a primitive, an editable
+            // mesh, a fracture / spline piece). Typed as the base because that is what it is: the StaticMesh-only
+            // members (GetBakedDisplaced, a displacement request) are reached by dynamic_cast, the
+            // virtual-geometry rows by Mesh::GetVirtualMesh. It was `StaticMesh*`, filled by a static_cast of
+            // every Static-typed mesh, and the VG candidate walk read a DynamicMesh's registration past its end
+            // (FPS-MEASURE-5).
             class Desert::Mesh*       Mesh      = nullptr;
             glm::mat4                 Transform = glm::mat4( 1.0f );
             // Co-owned, and it must be: this queue is read by five passes, all of them AFTER the frame's
@@ -699,9 +700,9 @@ namespace Desert::Graphic::System
         // AddVirtualShadowRasterPasses made under an accepted draw list (m_VsmCarriedTwins). Keyed by the twin,
         // not the group index: a group table rebuilt between two frames keeps the meaning (a carrier depends only
         // on the twin's shader).
-        void VsmRasteredSubmeshes( const Desert::Mesh* mesh, GpuDriven::PrimitiveIndex primitive,
-                                   uint64_t hidden, std::span<const GraphicsPipeline* const> carriedTwins,
-                                   std::vector<uint64_t>& words ) const;
+        void VsmRasteredSubmeshes( const Desert::Mesh* mesh, GpuDriven::PrimitiveIndex primitive, uint64_t hidden,
+                                   std::span<const GraphicsPipeline* const> carriedTwins,
+                                   std::vector<uint64_t>&                   words ) const;
         // VsmFallbackSubmeshes of this frame: the static and ISM queues' VG submeshes binned into a group flagged
         // in
         // @p fallbackGroups (index = VirtualShadow table group). Called by SetVirtualShadowGeometry.

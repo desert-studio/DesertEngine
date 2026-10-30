@@ -1694,8 +1694,7 @@ namespace Desert::Graphic::System
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
             // section of its twins, one mask for the whole instanced draw.
             std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>> byMesh;
-            const auto bucketFor = [&]( Desert::Mesh*      mesh,
-                                        const SubmeshMask   hidden ) -> std::vector<ObjDraw>&
+            const auto bucketFor = [&]( Desert::Mesh* mesh, const SubmeshMask hidden ) -> std::vector<ObjDraw>&
             {
                 for ( auto& [key, v] : byMesh )
                     if ( key.first == mesh && key.second == hidden )

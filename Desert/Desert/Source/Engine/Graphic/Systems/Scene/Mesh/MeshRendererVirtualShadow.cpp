@@ -282,9 +282,8 @@ namespace Desert::Graphic::System
             if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
                  !m_VsmCarriedTwinsLastFrame.empty() && field < m_FieldPrimitives.size() )
             {
-                VsmRasteredSubmeshes( ism.Mesh,
-                                      m_FieldPrimitives[field], ism.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame,
-                                      m_ClusterWalkScratch );
+                VsmRasteredSubmeshes( ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes,
+                                      m_VsmCarriedTwinsLastFrame, m_ClusterWalkScratch );
                 addRasteredSet( hash, m_ClusterWalkScratch );
             }
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
@@ -377,8 +376,8 @@ namespace Desert::Graphic::System
         // fallback group - the lookup ClusterableSubmeshes reads its twin through, so clustered, fallback and
         // refused partition an entry's VG submeshes.
         uint32_t   count   = 0;
-        const auto countOf = [&]( const Desert::Mesh* mesh, const GpuDriven::PrimitiveIndex primitive,
-                                  const uint64_t hidden )
+        const auto countOf =
+             [&]( const Desert::Mesh* mesh, const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden )
         {
             if ( mesh == nullptr )
                 return;
@@ -405,8 +404,7 @@ namespace Desert::Graphic::System
         {
             const InstancedMeshRenderData& ism = m_InstancedQueue[field];
             if ( ism.CastShadows && ism.Transforms && !ism.Transforms->empty() )
-                countOf( ism.Mesh, m_FieldPrimitives[field],
-                         ism.HiddenSubmeshes );
+                countOf( ism.Mesh, m_FieldPrimitives[field], ism.HiddenSubmeshes );
         }
         return count;
     }
@@ -441,8 +439,8 @@ namespace Desert::Graphic::System
         }
     }
 
-    void MeshRenderer::VsmRasteredSubmeshes( const Desert::Mesh*             mesh,
-                                             const GpuDriven::PrimitiveIndex primitive, const uint64_t hidden,
+    void MeshRenderer::VsmRasteredSubmeshes( const Desert::Mesh* mesh, const GpuDriven::PrimitiveIndex primitive,
+                                             const uint64_t                                 hidden,
                                              const std::span<const GraphicsPipeline* const> carriedTwins,
                                              std::vector<uint64_t>&                         words ) const
     {
@@ -476,8 +474,7 @@ namespace Desert::Graphic::System
                 return SubmeshMask{ hidden };
             // The main view's rule: hidden is only what the raster DRAWS - a group whose carrier was refused
             // (AddVirtualShadowRasterPasses) is walked. The same rule the page cache's signature keys on.
-            VsmRasteredSubmeshes( mesh, primitive, hidden,
-                                  m_VsmCarriedTwins, words );
+            VsmRasteredSubmeshes( mesh, primitive, hidden, m_VsmCarriedTwins, words );
             if ( words.empty() )
                 return SubmeshMask{ hidden }; // not a VG primitive
         }

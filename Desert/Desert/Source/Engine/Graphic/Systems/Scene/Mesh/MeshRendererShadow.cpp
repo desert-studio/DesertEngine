@@ -866,11 +866,10 @@ namespace Desert::Graphic::System
                                   : Geometry::LODView{};
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
-        std::vector<
-             std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
+        std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
                    byMesh;
-        const auto bucketFor = [&]( Desert::Mesh*       mesh,
-                                    const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
+        const auto bucketFor = [&]( Desert::Mesh*     mesh,
+                                    const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
             for ( auto& [key, v] : byMesh )
                 if ( key.first == mesh && key.second == hidden )

@@ -115,8 +115,7 @@ namespace Desert::Graphic
             const auto fieldPrims = meshes.GetFieldPrimitives();
             for ( size_t f = 0; f < fields.size() && f < fieldPrims.size(); ++f )
                 if ( fields[f].Transforms && !fields[f].Transforms->empty() )
-                    addSpans( fieldPrims[f], fields[f].Mesh,
-                              fields[f].HiddenSubmeshes );
+                    addSpans( fieldPrims[f], fields[f].Mesh, fields[f].HiddenSubmeshes );
             Result out;
             if ( byPrimitive.empty() )
                 return Common::MakeSuccess( std::move( out ) );
