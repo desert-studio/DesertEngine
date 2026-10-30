@@ -1361,6 +1361,12 @@ namespace Desert::Core
         return renderer ? renderer->GetTargetFramebuffer() : nullptr;
     }
 
+    void Scene::ReleaseParkedRenderers()
+    {
+        m_RetiringSurfaceCaches.Clear();
+        m_RetiringReflectionCaptures.Clear();
+    }
+
     void Scene::Clear()
     {
         m_Subsystems.End();
