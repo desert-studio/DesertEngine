@@ -17,6 +17,7 @@
 #ifndef DESERT_GPU_SCENE_GLSLH
 #define DESERT_GPU_SCENE_GLSLH
 #include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+#include <Common/ShadowWind.glslh>       // the shadow wind distance's rule, shared with the CPU walk
 
 // GpuDriven::PrimitiveFlags
 #define DESERT_GPU_PRIMITIVE_CASTS_SHADOW        1u
@@ -202,16 +203,17 @@ struct GpuCullView
     uint  ViewIndex;          // offset 348 — the caller's view index
 };
 
-// WHO SWAYS IN THE SHADOWS (GpuDriven::CastsRestPose, its C++ twin; MeshRenderer::ShadowIsmInstances the CPU walk's
-// rule; UE WPO Disable Distance): in a caster view, an instance of a swaying primitive (Wind.z = Strength > 0)
-// farther from the main camera than the view's shadow wind distance casts its rest pose and stands with the still
-// casters (a cascade's static layer); a nearer one is a mover. Measured from the instance's origin.
-bool GpuCull_CastsRestPose( const GpuCullView view, const GpuScenePrimitive primitive, const vec3 instanceOrigin )
+// WHO SWAYS IN THE SHADOWS in a cull view: a caster view's instance of a swaying primitive (Wind.z = Strength > 0)
+// casts its rest pose by Common/ShadowWind.glslh's one rule (its bounds centre in the world, ShadowWindInstancePoint,
+// against the main camera's position LodOrigin.xyz and the view's shadow wind distance LodOrigin.w), the same
+// function MeshRenderer::ShadowIsmInstances compiles as C++ for the CPU walk. @p instanceToWorld is
+// GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance ).
+bool GpuCull_CastsRestPose( const GpuCullView view, const GpuScenePrimitive primitive, const mat4 instanceToWorld )
 {
     if ( ( view.Flags & DESERT_GPU_CULL_VIEW_SHADOW_CASTER ) == 0u || !( primitive.Wind.z > 0.0 ) )
         return false;
-    const vec3 offset = instanceOrigin - view.LodOrigin.xyz;
-    return dot( offset, offset ) > view.LodOrigin.w * view.LodOrigin.w;
+    return ShadowWindCastsRestPose( ShadowWindInstancePoint( instanceToWorld, primitive.LocalBoundsCenter.xyz ),
+                                    view.LodOrigin.xyz, view.LodOrigin.w );
 }
 
 // THE SCENE'S PRIMITIVE TABLE (GpuDriven::GpuScene, one per scene, stable rows): a view-pass draw reads its row

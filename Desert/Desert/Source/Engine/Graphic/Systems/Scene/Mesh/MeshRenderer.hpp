@@ -638,7 +638,7 @@ namespace Desert::Graphic::System
         // (kBinnedMainView) of MainViewPass, or a sun cascade's layer of ShadowCascade: its static layer (view
         // slot * kMaxCascades + c, CascadeBinsDrawn: the frame the cache is redrawn) and its movable layer
         // (CascadeMovableView( view ), CascadeMovableBinsDrawn: every frame it has movers), the cull splitting the
-        // pass's bins between them per instance (GpuDriven::IsMovableCasterIn, CullViewFlags::kCaster*Layer). An active
+        // pass's bins between them per instance (GpuCull_CastsRestPose, CullViewFlags::kCaster*Layer). An active
         // (pass, view) issues its bins and its CPU loops drop every record the bins hold
         // (DrawCommandCache::SubmeshesBinned); any other draws everything on the CPU, as before.
         static constexpr uint32_t                                      kBinnedMainView = ~0u;
@@ -802,7 +802,7 @@ namespace Desert::Graphic::System
 
         // Scalability Shadows.WindAnimationDistance (SceneRenderer::BeginScene, cm): how far from the main camera
         // a swaying foliage instance is still a mover in the shadow passes (ShadowIsmInstances; the GPU cull's
-        // caster views carry the same value, GpuDriven::CastsRestPose).
+        // caster views carry the same value, Common/ShadowWind.glslh).
         void SetShadowWindDistance( const float centimetres )
         {
             m_ShadowWindDistance = centimetres;
@@ -2637,11 +2637,16 @@ namespace Desert::Graphic::System
             Common::Math::AABB WorldBounds; // empty: no known extent, in every view (IsVisibleInView's rule)
             uint32_t LodLevel = kShadowLodUnknown; // ComputeLOD from the main camera, on the first view drawing it
             // An instance of a swaying field nearer the main camera than m_ShadowWindDistance: it sways in the
-            // shadow passes and is a mover (the VSM's movable layer, a local view redrawn). A farther one casts its
-            // rest pose with the still casters (UE WPO Disable Distance for the shadow depths). False for every
-            // other row. The box (WorldBounds) is the sway's reach either way. The GPU cull's caster views split
-            // the bins by the same rule (GpuDriven::CastsRestPose).
+            // shadow passes and is a mover (the VSM's movable layer, a local view redrawn). A farther one casts
+            // its rest pose with the still casters (UE WPO Disable Distance for the shadow depths). False for
+            // every other row. The box (WorldBounds) is the sway's reach either way. The GPU cull's caster views
+            // split the bins by the same function (Common/ShadowWind.glslh, its bounds centre against the camera).
             bool Sways = false;
+            // An instance of a swaying field AT the shadow wind distance, within the rounding the CPU walk and the
+            // GPU cull may differ by (MeshRendererShadow.cpp kShadowWindEdge): it sways for every CPU view
+            // (Sways), and a cached cascade it reaches redraws both layers each frame (CascadeStaticSignature),
+            // since the GPU bins may have put it in either.
+            bool NearWindEdge = false;
         };
         struct ShadowIsmField
         {

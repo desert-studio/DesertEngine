@@ -40,7 +40,7 @@ namespace Desert::Graphic
         // CullViewInput of one view: the matrices, frustum, LOD and distance-cull origins of the main camera, and
         // the flags; ViewIndex / FrustumPlanes are filled by InstanceCulling from the list position and Frustum. A
         // caster view also carries the shadow wind distance (MeshRenderer::GetShadowWindDistance, cm): its swaying
-        // instances farther from the main camera cast their rest pose (GpuDriven::CastsRestPose).
+        // instances farther from the main camera cast their rest pose (Common/ShadowWind.glslh).
         GpuDriven::CullViewInput MakeCullView( const GpuDriven::MeshPass pass, const glm::mat4& viewProjection,
                                                const glm::mat4& prevViewProjection, const Core::Frustum& frustum,
                                                const Geometry::LODView& lod, const float lensScale,

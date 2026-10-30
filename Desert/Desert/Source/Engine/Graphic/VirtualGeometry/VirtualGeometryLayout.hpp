@@ -123,7 +123,7 @@ namespace Desert::Graphic::VirtualGeometry
         inline constexpr uint32_t kSoftware      = 1u << 0; // drawn by the compute raster
         inline constexpr uint32_t kPostOcclusion = 1u << 1; // found by phase 2
         // GpuDriven::kVisibleRestPose (GLSL DESERT_GPU_VISIBLE_REST_POSE): the cut's caster view draws this swaying
-        // instance in its rest pose (GpuDriven::CastsRestPose; ClusterCut.shader CutFrame.RestPose).
+        // instance in its rest pose (GpuCull_CastsRestPose; ClusterCut.shader CutFrame.RestPose).
         inline constexpr uint32_t kRestPose = 1u << 31;
     } // namespace VisibleClusterFlags
 

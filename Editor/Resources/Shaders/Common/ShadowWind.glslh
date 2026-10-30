@@ -1,0 +1,35 @@
+// WHO SWAYS IN THE SHADOWS — the ONE statement of the shadow wind distance's rule, compiled twice from this text:
+//   * as GLSL, by Common/GpuScene.glslh's GpuCull_CastsRestPose, which InstanceCull.shader (a cached cascade's
+//     layer split, a VSM level, the rest-pose bit to Vertex_Instanced.glslh) and ClusterCut.shader call;
+//   * as C++, by MeshRendererShadow.cpp (the CPU caster walk: MeshRenderer::ShadowIsmInstances, which every CPU
+//     caster view, CascadeStaticSignature, the VSM invalidation and the local views read) and by
+//     InstanceCullValidation.cpp (the GPU cull's CPU reference).
+// So the GPU's cascade layers and the CPU's cache keys measure the same distance from the same two points by one
+// function, not by two copies that agree until the first edit on either side. The dialect is LandscapeHeight's:
+// `f`-suffixed literals, no swizzles, no `out`, no arrays, functions before use.
+//
+// UE: WPO Disable Distance (FPrimitiveSceneProxy / InstanceCullingLoadBalancer, the instance's bounds centre
+// against the view's position; r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange for the VSM). Here:
+// in a caster view, an instance of a swaying primitive whose BOUNDS CENTRE IN THE WORLD is farther from the MAIN
+// CAMERA'S POSITION than Scalability Shadows.WindAnimationDistance casts its rest pose and stands with the still
+// casters (a cached cascade's static layer, cached VSM pages); a nearer one is a mover.
+
+#ifndef SHADOW_WIND_GLSLH
+#define SHADOW_WIND_GLSLH
+
+// The instance's point the rule measures: the centre of its mesh-space bounds (GpuScenePrimitive.LocalBoundsCenter,
+// (Min + Max) * 0.5 of Geometry::LocalBounds) carried into the world by its instance-to-world transform.
+vec3 ShadowWindInstancePoint( const mat4 instanceToWorld, const vec3 localBoundsCenter )
+{
+    return vec3( instanceToWorld * vec4( localBoundsCenter, 1.0f ) );
+}
+
+// Whether a swaying instance at @p instancePoint casts its rest pose: farther from @p viewOrigin (the main camera's
+// position, GpuCullView.LodOrigin) than @p windDistance (cm, GpuCullView.LodOrigin.w).
+bool ShadowWindCastsRestPose( const vec3 instancePoint, const vec3 viewOrigin, const float windDistance )
+{
+    const vec3 offset = instancePoint - viewOrigin;
+    return dot( offset, offset ) > windDistance * windDistance;
+}
+
+#endif
