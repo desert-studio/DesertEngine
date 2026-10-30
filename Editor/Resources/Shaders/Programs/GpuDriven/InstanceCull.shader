@@ -13,6 +13,9 @@ Shader "InstanceCull"
     //                 VSM level's drawn-page mask), LOD (the twin of Geometry::SelectLODFromBounds), then the
     //                 PREVIOUS frame's furthest HZB through PrevViewProjection. Survivors go into their LOD's bins;
     //                 the HZB-rejected are appended to Occluded for step 2. Writes Visibility[view, instance].
+    //                 A caster view's swaying instance past the shadow wind distance (GpuCull_CastsRestPose) stands
+    //                 with the still casters (a cached cascade's static layer); its entries carry
+    //                 DESERT_GPU_VISIBLE_REST_POSE, and the vertex stage draws its rest pose.
     //                 VIRTUAL GEOMETRY (Params3.x != 0): an instance past the frustum test whose primitive has DAG
     //                 rows (VgPrimitiveDags) in a view with a cluster-cut view (VgCutViewOf) appends one
     //                 VgClusterCandidate per DAG row, compacted into its cut view's own region (rows cutView x
@@ -276,8 +279,9 @@ Shader "InstanceCull"
             return false;
         }
 
-        // Counts the instance into each submesh bin of its LOD in the pass and writes its visible entries.
-        void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod )
+        // Counts the instance into each submesh bin of its LOD in the pass and writes its visible entries; @p restPose
+        // (GpuCull_CastsRestPose) rides each entry's DESERT_GPU_VISIBLE_REST_POSE bit to the vertex stage.
+        void EmitToBins( uint localView, uint instanceRow, uint primitiveRow, uint lod, bool restPose )
         {
             if ( primitiveRow >= Params2.z )
                 return;
@@ -294,7 +298,8 @@ Shader "InstanceCull"
                 const uint bin  = DrawSlots[slot].Bin;
                 const uint k    = atomicAdd( Draws[localView * Params2.x + bin].InstanceCount, 1u );
                 const uint entry = localView * Params2.y + Bins[bin].FirstVisible + k;
-                Visible[entry]            = GpuVisibleInstance( instanceRow, slot );
+                Visible[entry] =
+                     GpuVisibleInstance( instanceRow, restPose ? slot | DESERT_GPU_VISIBLE_REST_POSE : slot );
                 VisibleInstanceIds[entry] = instanceRow;
             }
         }
@@ -354,18 +359,23 @@ Shader "InstanceCull"
             // A free instance row keeps its last primitive index; only the rows inside the primitive's range are live.
             if ( instanceRow < primitive.FirstInstance || instanceRow >= primitive.FirstInstance + primitive.InstanceCount ||
                  ( ( view.Flags & DESERT_GPU_CULL_VIEW_SHADOW_CASTER ) != 0u &&
-                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_CASTS_SHADOW ) == 0u ) ||
-                 // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer): the static layer keeps what
-                 // stands still, the movable layer what moves by itself.
-                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u &&
-                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u ) ||
-                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u &&
-                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) == 0u ) )
+                   ( primitive.Flags & DESERT_GPU_PRIMITIVE_CASTS_SHADOW ) == 0u ) )
             {
                 Visibility[cell] = 0u;
                 return;
             }
             const mat4 world = GpuScene_LocalToWorld( primitive ) * GpuScene_InstanceToPrimitive( instance );
+            // A cached cascade's layer (GpuDriven::CullViewFlags::kCaster*Layer), per instance: the static layer
+            // keeps what stands still (a swaying instance past the shadow wind distance among it, in its rest
+            // pose), the movable layer what moves by itself.
+            const bool restPose = GpuCull_CastsRestPose( view, primitive, world[3].xyz );
+            const bool movable  = ( primitive.Flags & DESERT_GPU_PRIMITIVE_MOVABLE_CASTER ) != 0u && !restPose;
+            if ( ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_STATIC_LAYER ) != 0u && movable ) ||
+                 ( ( view.Flags & DESERT_GPU_CULL_VIEW_CASTER_MOVABLE_LAYER ) != 0u && !movable ) )
+            {
+                Visibility[cell] = 0u;
+                return;
+            }
             if ( !KeepsInstanceAtDistance( view, instance, instanceRow - primitive.FirstInstance, world[3].xyz ) )
             {
                 Visibility[cell] = 0u;
@@ -404,7 +414,7 @@ Shader "InstanceCull"
                 return;
             }
             Visibility[cell] = word;
-            EmitToBins( localView, instanceRow, instance.Primitive, lod );
+            EmitToBins( localView, instanceRow, instance.Primitive, lod, restPose );
         }
 
         void CullPostOcclusion()
@@ -431,7 +441,8 @@ Shader "InstanceCull"
             const uint cell = entry.View * Params.y + entry.Instance;
             const uint lod  = Visibility[cell] & DESERT_GPU_CULL_VISIBILITY_LOD_MASK;
             atomicOr( Visibility[cell], DESERT_GPU_CULL_VISIBILITY_POST_VISIBLE );
-            EmitToBins( localView, entry.Instance, instance.Primitive, lod );
+            EmitToBins( localView, entry.Instance, instance.Primitive, lod,
+                        GpuCull_CastsRestPose( view, primitive, world[3].xyz ) );
         }
 
         void WriteDispatchArgs()

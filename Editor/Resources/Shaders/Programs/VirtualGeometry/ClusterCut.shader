@@ -188,6 +188,9 @@ Shader "ClusterCut"
             uint  Dag;
             uint  View;
             bool  TestHzb; // a HZB is bound, the view tests it and the primitive does not skip occlusion
+            // GpuCull_CastsRestPose (InstanceCull's rule): a caster view's swaying instance past the shadow wind
+            // distance; its clusters carry DESERT_GPU_VISIBLE_REST_POSE in VgVisibleCluster.Flags.
+            bool  RestPose;
         };
 
         // Main phase with a carry: @p entry (VG_POST_CHILD / VG_POST_CLUSTER encoded) for the post phase.
@@ -262,7 +265,8 @@ Shader "ClusterCut"
                 atomicMin( VisibleOverflowDag, f.Dag );
                 return;
             }
-            Visible[Params.y - 1u - i] = VgVisibleCluster( f.Instance, cluster, f.View, 0u );
+            Visible[Params.y - 1u - i] =
+                 VgVisibleCluster( f.Instance, cluster, f.View, f.RestPose ? DESERT_GPU_VISIBLE_REST_POSE : 0u );
         }
 
         // A leaf child: its group's clusters, each by its own LodError.
@@ -373,6 +377,9 @@ Shader "ClusterCut"
             f.View         = candidate.View;
             f.TestHzb      = Params2.x != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
                         ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u;
+            const mat4 instanceWorld =
+                 GpuScene_UnpackAffine( primitive.LocalToWorld ) * GpuScene_InstanceToPrimitive( instance );
+            f.RestPose = GpuCull_CastsRestPose( view, primitive, instanceWorld[3].xyz );
             return true;
         }
 

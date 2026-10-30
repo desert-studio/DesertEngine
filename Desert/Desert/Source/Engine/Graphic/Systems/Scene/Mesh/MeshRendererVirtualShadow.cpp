@@ -280,15 +280,15 @@ namespace Desert::Graphic::System
             // level: the gather's (ShadowIsmInstances), the ones the levels draw.
             const ShadowIsmField&    kept  = ShadowIsmInstances( field );
             const Common::Math::AABB local = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+            // A swaying field's movers: each kept instance within the shadow wind distance (the gather's Sways),
+            // by its box now, the reach of its sway (UE: an instance's own invalidation, never one box for its whole
+            // field); one not kept casts nothing, and last frame's boxes (added below) cover the pages one leaving
+            // the cull distance or the wind distance was drawn in. Only their merged layer is redrawn. Its farther
+            // instances cast their rest pose into the static layer and are keyed below like a still field's.
             if ( ism.Wind.Sways() )
-            {
-                // Each kept instance's box now, the reach of its sway (UE: an instance's own invalidation, never
-                // one box for its whole field); one not kept casts nothing, and last frame's boxes (added below)
-                // cover the pages one leaving the cull distance was drawn in. Only their merged layer is redrawn.
                 for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
-                    moving.push_back( GatheredBox( gathered.Instances[k].WorldBounds ) );
-                continue;
-            }
+                    if ( gathered.Instances[k].Sways )
+                        moving.push_back( GatheredBox( gathered.Instances[k].WorldBounds ) );
             // Keyed by its snapshot, as the cascades' cache is (m_VsmKeySnapshots keeps the address unique).
             SignatureHash hash;
             hash.Add( ism.Mesh->GetRenderRevision() );
@@ -309,19 +309,22 @@ namespace Desert::Graphic::System
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
             snapshots.push_back( ism.Transforms );
 
-            // What each instance casts follows the main camera (the gather's kept instances and levels): 0 for
-            // one the cull distance drops, 1 + its level for one it keeps. An instance whose state changed redraws
-            // the pages under it alone (UE: an instance's own invalidation, not its component's).
+            // What each instance casts INTO THE STATIC LAYER follows the main camera (the gather's kept instances,
+            // levels and movers): 0 for one the cull distance drops or one swaying in the movable layer, 1 + its
+            // level for one it keeps still. An instance whose state changed redraws the pages under it alone (UE: an
+            // instance's own invalidation, not its component's), its padded box: a mover coming to rest leaves its
+            // sway's pages.
             const uint32_t        maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
             std::vector<uint32_t> states( ism.Transforms->size(), 0u );
             for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
-                states[gathered.InstanceIndex[k]] = 1u + std::min( gathered.Instances[k].LodLevel, maxLevel );
+                if ( !gathered.Instances[k].Sways )
+                    states[gathered.InstanceIndex[k]] = 1u + std::min( gathered.Instances[k].LodLevel, maxLevel );
             if ( const auto before = m_VsmIsmStates.find( hash.Value );
                  before != m_VsmIsmStates.end() && before->second.size() == states.size() )
             {
                 for ( size_t i = 0; i < states.size(); ++i )
                     if ( before->second[i] != states[i] )
-                        result.Boxes.push_back( WorldBox( local, ( *ism.Transforms )[i], 0.0f ) );
+                        result.Boxes.push_back( WorldBox( local, ( *ism.Transforms )[i], WindBoundsPad( ism.Wind ) ) );
             }
             ismStates.insert_or_assign( hash.Value, std::move( states ) );
         }
@@ -818,7 +821,13 @@ namespace Desert::Graphic::System
          std::string name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
     {
         draws.Clear();
-        BuildShadowCascadeDraws( view, draws, layer );
+        {
+            // THE CPU WALK OF THE LEVEL'S LAYER (UE: a SCOPE_CYCLE_COUNTER per render CPU job): every level and
+            // layer and every local mip adds to this one row, so the casters the clusters and bins do not hold
+            // (the swaying fields among them) show their CPU cost by name instead of falling into Unaccounted.
+            DESERT_PROFILE_SCOPE( "VSM: Caster Walk" );
+            BuildShadowCascadeDraws( view, draws, layer );
+        }
         const bool movable = layer == ShadowCasterLayer::Movable;
         if ( draws.GetError() )
             return Common::MakeError(

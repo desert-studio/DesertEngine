@@ -543,16 +543,25 @@ namespace Desert::Graphic::System
         const Common::Math::AABB      localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
         const InstanceCullDistance    lensCull    = ScaledByLens( ism.CullDistance, DrawDistanceScale( lodView ) );
         const std::vector<glm::mat4>& transforms  = *ism.Transforms;
+        // WHO SWAYS IN THE SHADOWS (UE WPO Disable Distance;
+        // r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange):
+        // a swaying instance nearer the main camera than Shadows.WindAnimationDistance is a mover; a farther one
+        // casts its rest pose with the still casters and invalidates no page or view, so the wind costs what moves
+        // where it is seen moving. Measured from the instance's origin, the same point the cull distance keeps it by.
+        const bool  fieldSways = ism.Wind.Sways();
+        const float swayReach2 = m_ShadowWindDistance * m_ShadowWindDistance;
         for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
         {
             const std::optional<Common::Math::AABB> reach =
                  IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
             if ( !reach )
                 continue;
+            const glm::vec3 offset = glm::vec3( transforms[k][3] ) - lodView.Origin;
             setup.Instances.push_back(
                  { .WorldBounds = *reach,
                    .LodLevel    = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
-                                                                 ism.Mesh->GetLODScreenSizes(), -1, 0 ) } );
+                                                                 ism.Mesh->GetLODScreenSizes(), -1, 0 ),
+                   .Sways       = fieldSways && glm::dot( offset, offset ) <= swayReach2 } );
             setup.InstanceIndex.push_back( k );
         }
         caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
@@ -615,22 +624,16 @@ namespace Desert::Graphic::System
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound) and by
         // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
         // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull
-        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying one makes the
-        // cascade movable only when one of its kept instances reaches it (UE: a WPO primitive invalidates the
-        // dynamic layer of the views its bounds touch, not of every view): a crown beyond the cascade's box
-        // draws nothing into it, so it must not force its movable layer every frame.
+        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying field is split
+        // per instance (the gather's Sways; the GPU bins' GpuDriven::IsMovableCasterIn): an instance past the shadow
+        // wind distance casts its rest pose into the static layer and is keyed like a still one, so one crossing
+        // the distance either way redraws the layer; a nearer one makes the cascade movable only when it reaches
+        // it (UE: a WPO primitive invalidates the dynamic layer of the views its bounds touch, not of every view):
+        // a crown beyond the cascade's box draws nothing into it, so it must not force its movable layer.
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                 continue;
-            if ( ism.Wind.Sways() )
-            {
-                const ShadowIsmField& swaying =
-                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-                for ( uint32_t k = swaying.First; k < swaying.First + swaying.Count && !movable; ++k )
-                    movable = reaches( m_ShadowCasterSetup.Instances[k] );
-                continue;
-            }
             hash.Add( ism.Mesh->GetRenderRevision() );
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
@@ -639,10 +642,16 @@ namespace Desert::Graphic::System
                  ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
             for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
             {
-                if ( !reaches( m_ShadowCasterSetup.Instances[k] ) )
+                const ShadowCasterRow& row = m_ShadowCasterSetup.Instances[k];
+                if ( !reaches( row ) )
                     continue;
+                if ( row.Sways )
+                {
+                    movable = true;
+                    continue;
+                }
                 hash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
-                hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
+                hash.Add( row.LodLevel );
             }
         }
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
@@ -1062,6 +1071,10 @@ namespace Desert::Graphic::System
         const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
         const auto               inView   = [&cascadeFrustum]( const Common::Math::AABB& box )
         { return IsVisibleInView( cascadeFrustum, box ); };
+        // Whether gathered instance @p k sways in this view: the shadow wind distance's rule (the gather's Sways),
+        // in every caster view - a sun cascade's layers (CascadeStaticSignature keys it, the GPU bins split by its
+        // twin GpuDriven::IsMovableCasterIn), a VSM level, a local light's view and the rain occlusion.
+        const auto instanceSways = [&gathered]( const uint32_t k ) { return gathered.Instances[k].Sways; };
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
@@ -1233,8 +1246,10 @@ namespace Desert::Graphic::System
                 // engine whose shadow could not be turned off: the static and skinned
                 // components both carry CastShadows and this pass read both, while the ISM
                 // branch had no condition at all.
+                // A still field draws into the still layer only; a swaying one may draw into both (its instances
+                // past the shadow wind distance cast their rest pose with the still casters: the gather's Sways).
                 if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() ||
-                     !( ism.Wind.Sways() ? drawMovable : drawStatic ) )
+                     !( ism.Wind.Sways() ? drawMovable || drawStatic : drawStatic ) )
                     continue;
                 // The field's walk (walkHidden over its primitive, the rule the static loop above reads): a still
                 // VG field in a cascade or a VSM level hides exactly its clustered submeshes; a field the bins or
@@ -1259,75 +1274,82 @@ namespace Desert::Graphic::System
                 // wind can reach and the level, are the gather's (ShadowIsmInstances: asked once per field).
                 const ShadowIsmField& field =
                      ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
-                auto& visible = m_ScratchIsmVisible;
-                auto& levels  = m_ScratchLodLevels;
-                visible.clear();
-                levels.clear();
-                for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
+                // The field's movers and its still-standing instances are two draws: the wind is pushed per draw.
+                for ( const bool swaying : { false, true } )
                 {
-                    if ( !inView( gathered.Instances[k].WorldBounds ) )
+                    if ( swaying ? !ism.Wind.Sways() || !drawMovable : !drawStatic )
                         continue;
-                    visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
-                    levels.push_back( gathered.Instances[k].LodLevel );
-                }
-                if ( visible.empty() )
-                    continue;
+                    const InstanceWind wind = swaying ? ism.Wind : InstanceWind{};
+                    auto& visible = m_ScratchIsmVisible;
+                    auto& levels  = m_ScratchLodLevels;
+                    visible.clear();
+                    levels.clear();
+                    for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
+                    {
+                        if ( instanceSways( k ) != swaying || !inView( gathered.Instances[k].WorldBounds ) )
+                            continue;
+                        visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
+                        levels.push_back( gathered.Instances[k].LodLevel );
+                    }
+                    if ( visible.empty() )
+                        continue;
 
-                // A MASKED ISM - foliage, grass cards - casts through its own template's (Instanced x
-                // ShadowDepth) cell, never the shared batch that casts whole quads.
-                MaterialInstance* ismInst = ism.Material.get();
-                const auto*       ismMat  = ismInst != nullptr
-                                                 ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
-                                                 : nullptr;
-                if ( isMasked( ismMat ) )
-                {
-                    auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
-                    if ( caster == nullptr )
+                    // A MASKED ISM - foliage, grass cards - casts through its own template's (Instanced x
+                    // ShadowDepth) cell, never the shared batch that casts whole quads.
+                    MaterialInstance* ismInst = ism.Material.get();
+                    const auto*       ismMat =
+                         ismInst != nullptr ? dynamic_cast<const DataDrivenMaterial*>( ismInst->GetParentMaterial() )
+                                            : nullptr;
+                    if ( isMasked( ismMat ) )
                     {
-                        continue; // refused by name, once
-                    }
-                    const std::optional<uint32_t> row = FindMaterialRow( ismMat, ismInst );
-                    if ( !row )
-                    {
+                        auto* caster = MaskedCasterMaterial( ismMat, MeshVertexPath::Instanced, c );
+                        if ( caster == nullptr )
+                        {
+                            continue; // refused by name, once
+                        }
+                        const std::optional<uint32_t> row = FindMaterialRow( ismMat, ismInst );
+                        if ( !row )
+                        {
+                            continue;
+                        }
+                        auto& set = maskedSetFor( caster );
+                        for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
+                        {
+                            const auto first = static_cast<uint32_t>( set.Transforms.size() );
+                            for ( std::size_t i = 0; i < visible.size(); ++i )
+                            {
+                                if ( levels[i] == level )
+                                {
+                                    set.Transforms.push_back( visible[i] );
+                                }
+                            }
+                            MaskedCasterDraw draw;
+                            draw.Set      = &set;
+                            draw.Path     = MeshVertexPath::Instanced;
+                            draw.Mesh     = ism.Mesh;
+                            draw.HiddenSubmeshMask = ismHidden;
+                            draw.Instance = ismInst;
+                            draw.Row      = *row;
+                            draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
+                            draw.First    = first;
+                            draw.LodLevel = level;
+                            draw.Wind     = PackInstanceWind( wind );
+                            draw.BoundsPad         = WindBoundsPad( wind );
+                            m_ScratchMaskedDraws.push_back( draw );
+                        }
                         continue;
                     }
-                    auto& set = maskedSetFor( caster );
+
                     for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                     {
-                        const auto first = static_cast<uint32_t>( set.Transforms.size() );
+                        const auto first = static_cast<uint32_t>( instTransforms.size() );
                         for ( std::size_t i = 0; i < visible.size(); ++i )
-                        {
                             if ( levels[i] == level )
-                            {
-                                set.Transforms.push_back( visible[i] );
-                            }
-                        }
-                        MaskedCasterDraw draw;
-                        draw.Set      = &set;
-                        draw.Path     = MeshVertexPath::Instanced;
-                        draw.Mesh     = ism.Mesh;
-                        draw.HiddenSubmeshMask = ismHidden;
-                        draw.Instance = ismInst;
-                        draw.Row      = *row;
-                        draw.Count    = static_cast<uint32_t>( set.Transforms.size() ) - first;
-                        draw.First    = first;
-                        draw.LodLevel = level;
-                        draw.Wind     = PackInstanceWind( ism.Wind );
-                        draw.BoundsPad         = WindBoundsPad( ism.Wind );
-                        m_ScratchMaskedDraws.push_back( draw );
+                                instTransforms.push_back( visible[i] );
+                        batches.push_back( ShadowBatch{
+                             ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level, ismHidden,
+                             PackInstanceWind( wind ), WindBoundsPad( wind ) } );
                     }
-                    continue;
-                }
-
-                for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
-                {
-                    const auto first = static_cast<uint32_t>( instTransforms.size() );
-                    for ( std::size_t i = 0; i < visible.size(); ++i )
-                        if ( levels[i] == level )
-                            instTransforms.push_back( visible[i] );
-                    batches.push_back( ShadowBatch{
-                         ism.Mesh, static_cast<uint32_t>( instTransforms.size() ) - first, first, level, ismHidden,
-                         PackInstanceWind( ism.Wind ), WindBoundsPad( ism.Wind ) } );
                 }
             }
         }

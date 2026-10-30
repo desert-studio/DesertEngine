@@ -164,8 +164,10 @@ namespace Desert::Graphic::System
             {
                 if ( !CasterInSphere( m_ShadowCasterSetup.Instances[k].WorldBounds, centre, radius ) )
                     continue;
-                // Swaying foliage moves every frame, like a posed mesh.
-                if ( ism.Wind.Sways() )
+                // Swaying foliage within the shadow wind distance moves every frame, like a posed mesh; a farther
+                // instance casts its rest pose (the gather's Sways, BuildShadowCascadeDraws draws it still) and is
+                // keyed like a still one.
+                if ( m_ShadowCasterSetup.Instances[k].Sways )
                     return std::nullopt;
                 hash.Add( ( *ism.Transforms )[m_ShadowCasterSetup.InstanceIndex[k]] );
                 // The level the views draw it at follows the main camera (the gather's): a new one redraws.

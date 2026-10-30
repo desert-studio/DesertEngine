@@ -180,6 +180,13 @@ namespace Common::Scalability
         ShadowVirtualSMRTRayCount,
         ShadowVirtualSMRTSamplesPerRay,
         ShadowVirtualSMRTSamplesPerRayLocal,
+        // How far from the camera a swaying foliage instance still sways in the SHADOW passes (cm; UE
+        // r.Shadow.Virtual.Cache.MaxMaterialPositionInvalidationRange, WPO Disable Distance's rule for the
+        // casters): nearer, it is a mover (the movable layer of the VSM and of a CPU-walked cascade, a local
+        // light's views redrawn); farther, its shadow is drawn in its rest pose with the still casters and
+        // invalidates nothing (MeshRenderer::ShadowIsmInstances). The surface pass sways it at any distance.
+        // 500..200000.
+        ShadowWindAnimationDistance,
         // Shadows Stochastic (MegaLights, System::MegaLightsRenderer; UE r.MegaLights.*): the traced light samples
         // per sample pixel (reservoirs, each traced once after the reuse; UE NumSamplesPerPixel), the ReSTIR
         // spatial reuse's neighbours per sample (0 = no spatial reuse), the temporal reuse's history cap in frames
