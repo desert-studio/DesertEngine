@@ -800,6 +800,12 @@ namespace Desert::Graphic::System
             return m_OtherGpuInstances;
         }
 
+        // Scalability Shadows.WindAnimationDistance (SceneRenderer::BeginScene, cm): how far from the main camera a
+        // swaying foliage instance is still a mover in the shadow passes (ShadowIsmInstances).
+        void SetShadowWindDistance( const float centimetres )
+        {
+            m_ShadowWindDistance = centimetres;
+        }
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
         void SetSkinCacheEnabled( const bool enabled )
         {
@@ -2625,6 +2631,12 @@ namespace Desert::Graphic::System
         {
             Common::Math::AABB WorldBounds; // empty: no known extent, in every view (IsVisibleInView's rule)
             uint32_t LodLevel = kShadowLodUnknown; // ComputeLOD from the main camera, on the first view drawing it
+            // An instance of a swaying field nearer the main camera than m_ShadowWindDistance: it sways in the
+            // shadow passes and is a mover (the VSM's movable layer, a local view redrawn). A farther one casts its
+            // rest pose with the still casters (UE WPO Disable Distance for the shadow depths). False for every
+            // other row. The box (WorldBounds) is the sway's reach either way: a cascade's bins cull and draw the
+            // field by its primitive, swaying, at any distance.
+            bool Sways = false;
         };
         struct ShadowIsmField
         {
@@ -2712,5 +2724,7 @@ namespace Desert::Graphic::System
         std::vector<RDG::BufferRef> m_SkinCacheReads;
         RDG::ExternalBuffer         m_SkinCacheBonesImport;
         bool                        m_SkinCacheEnabled = true;
+        // Shadows.WindAnimationDistance, set by SceneRenderer::BeginScene before every gather (cm).
+        float m_ShadowWindDistance = 0.0f;
     };
 } // namespace Desert::Graphic::System
