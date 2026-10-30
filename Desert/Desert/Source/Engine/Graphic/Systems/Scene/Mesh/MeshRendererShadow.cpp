@@ -388,6 +388,7 @@ namespace Desert::Graphic::System
             // hand back 0 without an early return of ours — a zero-length light direction, or a MaxDistance
             // that has fallen behind the camera's near plane.
             state.Fitted = n;
+            state.Travel = light->Direction;
 
             for ( uint32_t c = 0; c < n; ++c )
             {
@@ -406,6 +407,24 @@ namespace Desert::Graphic::System
         }
         // The cache plan is NOT made here: the casters have not resolved this frame's draws yet (the grass
         // sections, the terrain's cascade rows). SceneRenderer calls PlanCascadeCache once they have.
+    }
+
+    std::array<MeshRenderer::DirectionalCasterSweep, SceneResources::kMaxShadowedDirectionalLights>
+    MeshRenderer::DirectionalCasterSweeps() const
+    {
+        std::array<DirectionalCasterSweep, SceneResources::kMaxShadowedDirectionalLights> sweeps{};
+        for ( uint32_t slot = 0; slot < kDirectionalShadowSlots; ++slot )
+        {
+            const DirectionalShadowSlot& state = m_DirectionalShadow[slot];
+            const uint32_t count = slot < m_CascadeSlots ? std::min( state.Fitted, m_Shadow.CascadeCount ) : 0u;
+            if ( !state.CastShadows || count == 0u || glm::length( state.Travel ) < 1e-4f )
+                continue;
+            float reach = 0.0f;
+            for ( uint32_t c = 0; c < count; ++c )
+                reach = std::max( reach, state.DepthRange[static_cast<glm::length_t>( c )] );
+            sweeps[slot] = DirectionalCasterSweep{ .Travel = glm::normalize( state.Travel ), .Reach = reach };
+        }
+        return sweeps;
     }
 
     SceneResources::DirectionalShadowViews MeshRenderer::DirectionalShadows() const

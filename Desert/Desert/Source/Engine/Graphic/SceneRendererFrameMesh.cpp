@@ -472,20 +472,23 @@ namespace Desert::Graphic
                                                     const VirtualGeometry::VisibilityBufferFrame& visibility )
     {
         // GRASS-VIS phase 2 (UE two-phase occlusion): the grass last frame's HZB held back from the camera, tested
-        // against this frame's furthest HZB of the phase-1 depth (built by AddFrameDrawBinsPostOcclusion; none
-        // built, nothing to test - the camera's candidates are not drawn this frame), then drawn into the same
-        // G-buffer: the visibility buffer's sections by a second raster and resolve, the rest by their cells.
+        // against this frame's furthest HZB of the phase-1 depth (built by AddFrameDrawBinsPostOcclusion), then
+        // drawn into the same G-buffer: the visibility buffer's sections by a second raster and resolve, the rest
+        // by their cells. None built this frame (GRASS-VIS-6): the candidates are drawn untested - phase 1 kept
+        // them out on last frame's depth alone, so dropping them would lose grass on the frame's own say-so.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         auto* grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
-        if ( grass == nullptr || meshRenderer == nullptr || !m_FrameFurthestHzb.IsValid() ||
-             m_ViewProfile.SceneCapture )
+        if ( grass == nullptr || meshRenderer == nullptr || m_ViewProfile.SceneCapture )
             return;
-        const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures );
-        if ( !hzbSize )
-            return;
-        const glm::uvec3 extent( *hzbSize,
-                                 static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
-        if ( !grass->AddFramePostOcclusion( graph, m_FrameFurthestHzb, frame.ViewProjection, extent ) )
+        const std::optional<glm::uvec2> hzbSize = m_FrameFurthestHzb.IsValid()
+                                                       ? FrameHzbSize( graph, textures )
+                                                       : std::optional<glm::uvec2>{};
+        const RDG::TextureRef hzb = hzbSize ? m_FrameFurthestHzb : RDG::TextureRef{};
+        const glm::uvec3      extent =
+             hzbSize ? glm::uvec3( *hzbSize,
+                                   static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) )
+                     : glm::uvec3( 0u );
+        if ( !grass->AddFramePostOcclusion( graph, hzb, frame.ViewProjection, extent ) )
             return;
         if ( const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: GBuffer Post-Occlusion" ) )
             AddRaster(

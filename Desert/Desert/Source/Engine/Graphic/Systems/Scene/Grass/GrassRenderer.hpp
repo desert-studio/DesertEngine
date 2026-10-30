@@ -118,7 +118,8 @@ namespace Desert::Graphic::System
     // the generator sorts its instances into one bucket per level by distance, so a far blade has fewer segments.
     // GRASS-VIS: the previous frame's furthest HZB GrassGenerate culls the CAMERA's list by (GpuCull_IsOccludedByHzb,
     // the instance cull's test); the cascades and the TLAS keep every kept instance (UE: occlusion per view). Hzb
-    // invalid: nothing is tested, Neutral is bound in its place and the camera draws the full list.
+    // invalid: nothing is tested and Neutral is bound in its place; the camera still draws a list of its own, culled
+    // by its side planes, while the full list is swept along the shadowed lights (GRASS-VIS-6), else the full list.
     struct GrassOcclusion
     {
         RDG::TextureRef Hzb{};     // last frame's furthest HZB of the view (SceneRenderer::FramePrevHzb)
@@ -149,13 +150,18 @@ namespace Desert::Graphic::System
         // handed with the sections (GrassBladeRayTracing.hpp). @p occlusion: what the generation tests its kept
         // the camera's list against; a tested frame's camera list depends on last frame's depth, so every variety
         // generates every such frame (VarietyGpu::GenerateKey holds nothing across them).
+        // GRASS-VIS-6: the full list (the cascades, the TLAS) is culled by the camera's side planes swept along
+        // every directional light @p meshes fitted cascades for this frame (MeshRenderer::DirectionalCasterSweeps),
+        // the camera's own list by the camera's planes; AddFrame runs after MeshRenderer::UpdateCascades.
         void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing,
                        const GrassOcclusion& occlusion );
 
         // GRASS-VIS phase 2 (UE two-phase occlusion): after this frame's furthest HZB of the phase-1 depth, the
         // instances last frame's HZB held back from the camera are re-tested against @p hzb (through the unjittered
         // @p viewProjection it was built from; @p extent its mip-0 size and mip count) and the visible ones appended
-        // to the camera's list, drawn by the sections' PostRefs. False: nothing was added (no tested list this frame).
+        // to the camera's list, drawn by the sections' PostRefs. @p hzb invalid (this frame built none): every
+        // candidate is appended untested (the Neutral texture AddFrame was given is bound in its place), so a
+        // missing HZB never drops the grass phase 1 held back. False: nothing was added (no tested list this frame).
         [[nodiscard]] bool AddFramePostOcclusion( RDG::Builder& graph, RDG::TextureRef hzb,
                                                   const glm::mat4& viewProjection, const glm::uvec3& extent );
 
@@ -186,6 +192,23 @@ namespace Desert::Graphic::System
         }
 
     private:
+        // GRASS-VIS-6: what the camera draws this frame. None: the full list (it is the camera's own volume, and no
+        // HZB is tested); Planes: its own list, culled by its side planes; PlanesAndHzb: that list culled by last
+        // frame's HZB too, with phase 2's candidates (GrassGenerate.shader Hzb.w 0 / 3 / 1).
+        enum class CameraList : uint8_t
+        {
+            None,
+            Planes,
+            PlanesAndHzb
+        };
+        // The view's two volumes (GrassGenerate.shader GrassParams Planes / CameraPlanes), decided once per AddFrame.
+        struct ViewVolumes
+        {
+            glm::vec4  Full[4]{};
+            glm::vec4  Camera[4]{};
+            bool       Swept = false; // Full is wider than Camera: the cells and capacity leave the lens's wedge
+            CameraList List  = CameraList::None;
+        };
         struct FieldGpu
         {
             std::shared_ptr<ShaderResources::StorageBuffer> Buffer;
@@ -216,10 +239,11 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
-            // GRASS-VIS, the camera's list (Tested: sized like Instances / Args; otherwise one-word stand-ins the
-            // passes bind and never touch): CameraInstances / CameraArgs the instances last frame's HZB does not
+            // GRASS-VIS, the camera's list (List not None: CameraInstances / CameraArgs sized like Instances / Args;
+            // PlanesAndHzb: Candidates / PostArgs too; otherwise one-word stand-ins the passes bind and never touch):
+            // CameraInstances / CameraArgs the instances inside the camera's planes that last frame's HZB does not
             // hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw records.
-            bool                                            Tested = false;
+            CameraList                                      List = CameraList::None;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraInstances;
             std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
             std::shared_ptr<ShaderResources::StorageBuffer> Candidates;
@@ -246,7 +270,7 @@ namespace Desert::Graphic::System
         };
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
-                                                  const ViewFrame& frame, bool testsHzb );
+                                                  const ViewFrame& frame, const ViewVolumes& volumes );
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
@@ -257,7 +281,8 @@ namespace Desert::Graphic::System
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
         std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
-        bool                             m_FrameTested = false; // the last AddFrame generated camera lists
+        bool                             m_FrameTested = false; // the last AddFrame tested camera lists by an HZB
+        RDG::TextureRef                  m_FrameNeutral{}; // the last AddFrame's GrassOcclusion::Neutral
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
         mutable ShaderBindingLayoutCache m_GenerateLayout;

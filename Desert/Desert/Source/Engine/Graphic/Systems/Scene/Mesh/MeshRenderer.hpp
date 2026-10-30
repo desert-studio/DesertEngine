@@ -1459,6 +1459,21 @@ namespace Desert::Graphic::System
         // are off packs 0 and is lit, never sampled); FirstLayer its cascade 0's layer of the shared array.
         [[nodiscard]] SceneResources::DirectionalShadowViews DirectionalShadows() const;
 
+        // HOW FAR ALONG EACH SHADOWED DIRECTIONAL LIGHT A CASTER CAN STAND FROM A RECEIVER IT DARKENS, this frame
+        // (GRASS-VIS-6; after UpdateCascades): per slot the direction the light travels and the longest light-axis
+        // length of its fitted cascades' boxes (CascadeFit::DepthRange - a caster farther up the light than that
+        // from a receiver is outside every box that receiver is sampled from). Reach 0: the slot casts nothing this
+        // frame. What a generated caster list (GrassRenderer) sweeps the camera's volume by, so an instance outside
+        // the frame whose shadow falls into it is kept (UE: a whole-scene shadow's casters are culled by the
+        // cascade's volume, not the camera's frustum).
+        struct DirectionalCasterSweep
+        {
+            glm::vec3 Travel{ 0.0f };
+            float     Reach = 0.0f; // cm
+        };
+        [[nodiscard]] std::array<DirectionalCasterSweep, SceneResources::kMaxShadowedDirectionalLights>
+        DirectionalCasterSweeps() const;
+
         // The budget this renderer was created with. Fixed after Initialize — the framebuffers are
         // allocated from it once.
         [[nodiscard]] const ShadowQuality& GetShadowQuality() const
@@ -2151,6 +2166,7 @@ namespace Desert::Graphic::System
             float     SourceTanHalf = 0.0f;
             glm::vec4 WorldPerTexel = glm::vec4( 1.0f ); // per cascade: world size of one map texel (2*radius/res)
             glm::vec4 DepthRange    = glm::vec4( 1.0f ); // per cascade: world length of the [0,1] light depth
+            glm::vec3 Travel        = glm::vec3( 0.0f ); // the direction the light travels, as it was fitted
         };
         DirectionalShadowSlot m_DirectionalShadow[kDirectionalShadowSlots];
 
