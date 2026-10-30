@@ -431,7 +431,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::GatherShadowCasters()
     {
-        ShadowCasterSetup& setup = m_ShadowCasters;
+        ShadowCasterSetup& setup = m_ShadowCasterSetup;
         ++setup.Gather;
         setup.Statics.resize( m_StaticQueue.size() );
         setup.Generics.resize( m_GenericQueue.size() );
@@ -477,14 +477,14 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::ShadowCastersGathered() const
     {
-        const ShadowCasterSetup& setup = m_ShadowCasters;
+        const ShadowCasterSetup& setup = m_ShadowCasterSetup;
         return setup.Statics.size() == m_StaticQueue.size() && setup.Generics.size() == m_GenericQueue.size() &&
                setup.Skinned.size() == m_SkinnedQueue.size() && setup.Fields.size() == m_InstancedQueue.size();
     }
 
     uint32_t MeshRenderer::ShadowStaticLod( const uint32_t index )
     {
-        ShadowCasterRow& row = m_ShadowCasters.Statics[index];
+        ShadowCasterRow& row = m_ShadowCasterSetup.Statics[index];
         if ( row.LodLevel == kShadowLodUnknown )
         {
             const StaticMeshRenderData& rd = m_StaticQueue[index];
@@ -495,7 +495,7 @@ namespace Desert::Graphic::System
 
     uint32_t MeshRenderer::ShadowGenericLod( const uint32_t index )
     {
-        ShadowCasterRow& row = m_ShadowCasters.Generics[index];
+        ShadowCasterRow& row = m_ShadowCasterSetup.Generics[index];
         if ( row.LodLevel == kShadowLodUnknown )
         {
             const GenericMeshRenderData& g = m_GenericQueue[index];
@@ -506,7 +506,7 @@ namespace Desert::Graphic::System
 
     const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field )
     {
-        ShadowCasterSetup& setup  = m_ShadowCasters;
+        ShadowCasterSetup& setup  = m_ShadowCasterSetup;
         ShadowIsmField&    caster = setup.Fields[field];
         if ( caster.Gather == setup.Gather )
             return caster;
@@ -567,7 +567,7 @@ namespace Desert::Graphic::System
         for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
         {
             const StaticMeshRenderData& rd = m_StaticQueue[i];
-            if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasters.Statics[i] ) )
+            if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasterSetup.Statics[i] ) )
                 continue;
             hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
@@ -584,7 +584,7 @@ namespace Desert::Graphic::System
         for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
         {
             const GenericMeshRenderData& g = m_GenericQueue[i];
-            if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasters.Generics[i] ) )
+            if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasterSetup.Generics[i] ) )
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
@@ -609,7 +609,7 @@ namespace Desert::Graphic::System
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
             if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 reaches( m_ShadowCasters.Skinned[i] ) )
+                 reaches( m_ShadowCasterSetup.Skinned[i] ) )
                 movable = true;
         }
         for ( const auto& gpu : m_GpuInstancedQueue )
@@ -998,7 +998,7 @@ namespace Desert::Graphic::System
         // silhouette that does not match the object it belongs to. Asked once per gather (ShadowStaticLod,
         // ShadowGenericLod, ShadowIsmInstances), the same level in every view; the box every view culls a caster
         // by is the gathered one (GatherShadowCasters).
-        const ShadowCasterSetup& gathered = m_ShadowCasters;
+        const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
         const auto               inView   = [&cascadeFrustum]( const Common::Math::AABB& box )
         { return IsVisibleInView( cascadeFrustum, box ); };
 

@@ -2586,8 +2586,8 @@ namespace Desert::Graphic::System
             std::vector<ShadowCasterRow> Instances;
             std::vector<uint32_t>        InstanceIndex;
         };
-        ShadowCasterSetup m_ShadowCasters;
-        // Whether m_ShadowCasters is of the queues as they stand (one row per entry of each): a queue changed
+        ShadowCasterSetup m_ShadowCasterSetup;
+        // Whether m_ShadowCasterSetup is of the queues as they stand (one row per entry of each): a queue changed
         // after the last GatherShadowCasters breaks the order SceneRenderer::OnUpdate keeps.
         [[nodiscard]] bool ShadowCastersGathered() const;
         // The level of static / generic caster @p index, asked of the camera once per gather.

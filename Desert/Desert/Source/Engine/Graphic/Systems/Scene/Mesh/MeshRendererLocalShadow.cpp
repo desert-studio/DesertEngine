@@ -130,7 +130,7 @@ namespace Desert::Graphic::System
         {
             const StaticMeshRenderData& rd = m_StaticQueue[i];
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !CasterInSphere( m_ShadowCasters.Statics[i].WorldBounds, centre, radius ) )
+                 !CasterInSphere( m_ShadowCasterSetup.Statics[i].WorldBounds, centre, radius ) )
                 continue;
             hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
@@ -142,7 +142,7 @@ namespace Desert::Graphic::System
         {
             const GenericMeshRenderData& g = m_GenericQueue[i];
             if ( g.Mesh == nullptr || !g.CastShadows ||
-                 !CasterInSphere( m_ShadowCasters.Generics[i].WorldBounds, centre, radius ) )
+                 !CasterInSphere( m_ShadowCasterSetup.Generics[i].WorldBounds, centre, radius ) )
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
@@ -152,7 +152,7 @@ namespace Desert::Graphic::System
         {
             const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
             if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 CasterInSphere( m_ShadowCasters.Skinned[i].WorldBounds, centre, radius ) )
+                 CasterInSphere( m_ShadowCasterSetup.Skinned[i].WorldBounds, centre, radius ) )
                 return std::nullopt;
         }
         for ( const auto& ism : m_InstancedQueue )
