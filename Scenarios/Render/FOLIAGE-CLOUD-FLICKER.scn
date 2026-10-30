@@ -1,7 +1,7 @@
 # FOLIAGE-CLOUD-FLICKER: grass blades and the tree canopy against a cloudy sky must not flicker frame to frame
 # (owner 10-30: "листва и трава конфилтуют на фоне облаков. постоянное мерцание"). Camera low, looking up past
 # the blades into the canopy and the cloud deck; nothing moves between the paired shots, so any difference
-# between 1_a/1_b (and 2_a/2_b, ~30 frames later) at a foliage edge over the sky is the cloud reconstruction.
+# between 1_a/1_b (and 2_a/2_b, 30 frames later) at a foliage edge over the sky is the cloud reconstruction.
 # Check: pixel diff of consecutive frames at foliage/grass edges over sky <= 2/255; clouds elsewhere unchanged
 # vs a dev shot of the same steps.
 Дано run Scene "Open Scene FIELD_Barn.desce"
@@ -13,39 +13,8 @@
 Дано --subject viewport set Camera.Direction 0.15,0.25,-1
 Тогда-вид 1_a camera at 0.4 m looking up: grass blades and canopy edges over clouds, crisp, no cloud on the blades
 Тогда-вид 1_b the very next frame: identical to 1_a at every blade and leaf edge over the sky (<= 2/255)
-# ~30 frames between 1_b and 2_a. DesertCtl has no frame-count op (`advance` is Play-only; a line such as
-# "Когда 60 frames render" reaches DesertCtl as operation "60" and is refused). `input` is answered only after
-# a presented frame (ControlService.cpp:430-446), so each idle hover below costs >= 1 frame; the point is the
-# editor window's top-left corner (menu bar), not the viewport, so neither the camera nor TAA history is touched.
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Когда input move - 1,1
-Тогда-вид 2_a ~30 frames later, same camera: identical to 1_a
+# 30 presented frames between 1_b and 2_a: play_scenario maps the step below to DesertCtl `frames 30`,
+# answered by the editor after 30 presented frames; nothing is input, so neither camera nor TAA history moves.
+Когда 30 frames render
+Тогда-вид 2_a 30 frames later, same camera: identical to 1_a
 Тогда-вид 2_b the next frame: identical to 2_a

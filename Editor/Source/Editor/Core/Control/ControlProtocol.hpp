@@ -76,6 +76,8 @@ namespace Desert::Editor::Control
                 ///< Level As")
         AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
         Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
+        Frames, ///< answered once the asked number of frames has been presented since it ran (UE: an automation
+                ///< latent wait for N frames) - the scenario's wait for temporal history, with no input moved
         NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every
                  ///< path)
     };
@@ -134,6 +136,7 @@ namespace Desert::Editor::Control
          { "save-as", Op::SaveAs, RequiresReady::Yes },
          { "add-component", Op::AddComponent, RequiresReady::Yes },
          { "advance", Op::Advance, RequiresReady::Yes },
+         { "frames", Op::Frames, RequiresReady::Yes },
          { "nn-check", Op::NnCheck, RequiresReady::Yes },
     };
 
@@ -142,6 +145,11 @@ namespace Desert::Editor::Control
     /// cap is the documented protocol limit (DesertCtl usage: 0 < seconds <= 2), and a longer wait is several
     /// `advance` steps.
     inline constexpr float kMaxAdvanceSeconds = 2.0f;
+
+    /// The longest `frames` wait. Its reply waits behind the same settle gate (FrameGate::kSettleBudget, ten
+    /// minutes of wall clock), which 600 frames sits inside down to 1 fps; the cap is the documented protocol
+    /// limit (DesertCtl usage: 1 <= count <= 600), and a longer wait is several `frames` steps.
+    inline constexpr int64_t kMaxFrameWait = 600;
 
     /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
     /// VFX-13) - the widest property a document offers. A number property still takes exactly its own count.
@@ -268,6 +276,9 @@ namespace Desert::Editor::Control
 
         /// Op::Quit — the process exit status.
         int32_t ExitCode = 0;
+
+        /// Op::Frames — how many presented frames the reply waits for, 1..kMaxFrameWait ('count', required).
+        uint32_t FrameCount = 0;
 
         /// Op::Drag — how many frames the pointer takes from `from` to `to` (Value holds fromX, fromY,
         /// toX, toY in the subject's image pixels). Optional: absent = PointerDrag::kDefaultSteps, said there.
@@ -656,6 +667,20 @@ namespace Desert::Editor::Control
                          "for, above 0 and at most {}.",
                          kMaxAdvanceSeconds );
                 }
+                break;
+            }
+            case Op::Frames:
+            {
+                const auto count = ReadRequiredInt( fields, "count", opName );
+                if ( !count )
+                    return Common::MakeError<Request>( count.GetError() );
+                if ( count.GetValue() < 1 || count.GetValue() > kMaxFrameWait )
+                {
+                    return Common::MakeFormattedError<Request>(
+                         "'frames' waits for 1..{} presented frames, not {}; a longer wait is several steps.",
+                         kMaxFrameWait, count.GetValue() );
+                }
+                request.FrameCount = static_cast<uint32_t>( count.GetValue() );
                 break;
             }
             case Op::Quit:

@@ -430,7 +430,8 @@ namespace Desert::Editor
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
                                 request.Operation == Control::Op::Drag || request.Operation == Control::Op::Advance ||
-                                request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
+                                request.Operation == Control::Op::Input || request.Operation == Control::Op::Frames ||
+                                Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
         {
@@ -475,6 +476,7 @@ namespace Desert::Editor
         m_ControlInFlight.reset();
         m_ControlPendingReply.reset();
         m_ControlInFlightClient = 0;
+        m_FrameWaitUntil.reset();
         return true;
     }
 
@@ -538,6 +540,11 @@ namespace Desert::Editor
                 m_AdvanceUntil.reset();
         }
         quiescence.Set( Control::PendingWork::GameTime, m_AdvanceUntil.has_value() );
+        // Counted in PRESENTED frames, the channel's own clock: the frame being built now becomes number
+        // m_FrameIndex + 1 when it goes out, so it is the last one the wait needs once that reaches the mark.
+        if ( m_FrameWaitUntil && m_FrameIndex + 1 >= *m_FrameWaitUntil )
+            m_FrameWaitUntil.reset();
+        quiescence.Set( Control::PendingWork::FrameWait, m_FrameWaitUntil.has_value() );
         // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
         // captures are filled for the first time, or while textures are still landing, is not the scene - the
         // first Starter shot after boot came back with a black sky that the next frame had filled.
@@ -1227,6 +1234,13 @@ namespace Desert::Editor
                 m_AdvanceUntil = *now + static_cast<double>( request.Value[0] );
                 return Control::Response::Success( request.Id );
             }
+
+            case Control::Op::Frames:
+                // The scenario's wait for temporal history to converge (UE: an automation latent command
+                // waiting N frames): held behind the gate until request.FrameCount frames have been presented,
+                // the first of them the frame this request runs in. Nothing is moved, nothing is input.
+                m_FrameWaitUntil = m_FrameIndex + request.FrameCount;
+                return Control::Response::Success( request.Id );
 
             case Control::Op::AddComponent:
             {
