@@ -34,6 +34,9 @@
 #include <utility>
 #include <system_error>
 #include <unordered_map>
+#include <vector>
+#include <string_view>
+#include <string>
 
 namespace Desert::Editor
 {
@@ -661,9 +664,22 @@ namespace Desert::Editor
                     structural = [this, emitter, stage, m] { (void)RemoveModule( emitter, stage, m ); };
                 if ( open )
                 {
-                    const std::size_t inputs = use.Inputs.size();
+                    // Each input's unit is the module's own declaration (`Input ... Unit <unit>` of its .dfxmod),
+                    // read through the registry as the stack compiler reads it: no second list of units here.
+                    // Taken before the widgets run, since an edit may put back a whole earlier system.
+                    const std::size_t        inputs = use.Inputs.size();
+                    std::vector<std::string> units( inputs );
+                    const Assets::RegistryVFXModuleResolver modules;
+                    const auto described = VFX::DescribeModule( use.Module, modules );
+                    if ( !described.IsSuccess() )
+                        ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s", described.GetError().c_str() );
+                    else
+                        for ( std::size_t i = 0; i < inputs; ++i )
+                            for ( const VFX::VFXModuleInputDecl& decl : described.GetValue().Inputs )
+                                if ( decl.Name == use.Inputs[i].Name )
+                                    units[i] = decl.Unit;
                     for ( std::size_t i = 0; i < inputs; ++i )
-                        DrawInputEditor( emitter, stage, m, i );
+                        DrawInputEditor( emitter, stage, m, i, units[i] );
                     ImGui::TreePop();
                 }
                 ImGui::PopID();
@@ -718,12 +734,20 @@ namespace Desert::Editor
     }
 
     void VFXSystemDocument::DrawInputEditor( const std::size_t emitter, const std::size_t stage,
-                                             const std::size_t module, const std::size_t index )
+                                             const std::size_t module, const std::size_t index,
+                                             const std::string_view unit )
     {
         const InputAddress address{ {}, emitter, stage, module, index, InputPart::Value };
         auto&              input = InputAt( m_Working, address );
         ImGui::PushID( static_cast<int>( index ) );
-        ImGui::BulletText( "%s  [%s]", input.Name.c_str(), SourceLabel( input.Source ) );
+        if ( unit.empty() )
+            ImGui::BulletText( "%s  [%s]", input.Name.c_str(), SourceLabel( input.Source ) );
+        else
+            ImGui::BulletText( "%s (%.*s)  [%s]", input.Name.c_str(), static_cast<int>( unit.size() ), unit.data(),
+                               SourceLabel( input.Source ) );
+        // The widgets' display format: the number, then the unit it is stored in (UE's unit suffix on a pin).
+        const std::string floatFormat = unit.empty() ? std::string( "%.3f" ) : std::format( "%.3f {}", unit );
+        const std::string intFormat   = unit.empty() ? std::string( "%d" ) : std::format( "%d {}", unit );
         const std::string label     = std::format( "{}: {}", m_Working.Emitters[emitter].Name, input.Name );
         const std::string inputName = input.Name;
         // UE's stack input dropdown: a number input can become a curve over the normalised age and back. One
@@ -789,7 +813,7 @@ namespace Desert::Editor
                 case S::VFXValueType::Int:
                 {
                     int whole = static_cast<int>( value->x );
-                    if ( ImGui::DragInt( id, &whole, 0.25f ) )
+                    if ( ImGui::DragInt( id, &whole, 0.25f, 0, 0, intFormat.c_str() ) )
                         value->x = static_cast<float>( whole );
                     break;
                 }
@@ -807,7 +831,7 @@ namespace Desert::Editor
                 {
                     const float speed = std::max( std::abs( previous.x ) * 0.01f, 0.01f );
                     (void)ImGui::DragScalarN( id, ImGuiDataType_Float, &value->x, count, speed, nullptr, nullptr,
-                                              "%.3f" );
+                                              floatFormat.c_str() );
                     break;
                 }
             }

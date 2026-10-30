@@ -5,10 +5,10 @@ Module "ShapeCone"
     Description "Places a newborn inside a cone."
     Usage ParticleSpawn
     Attribute Position vec3
-    Input Angle float = 45
-    Input Length float = 100
+    Input Angle float = 45 Unit deg
+    Input Length float = 100 Unit cm
     Input Axis vec3 = 0 1 0
-    Input Offset vec3 = 0 0 0
+    Input Offset vec3 = 0 0 0 Unit cm
 
     // Engine VFX module ShapeCone (UE Shape Location, primitive Cone): a point at distance Length from the
     // apex along a direction inside the cone of half-angle Angle (degrees) around Axis — the direction drawn as UE's

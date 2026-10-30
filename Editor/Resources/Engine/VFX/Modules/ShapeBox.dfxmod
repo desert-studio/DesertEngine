@@ -5,10 +5,10 @@ Module "ShapeBox"
     Description "Places a newborn inside a box."
     Usage ParticleSpawn
     Attribute Position vec3
-    Input Size vec3 = 100 100 100
+    Input Size vec3 = 100 100 100 Unit cm
     Input SurfaceOnly bool = 0
-    Input Thickness vec3 = 0 0 0
-    Input Offset vec3 = 0 0 0
+    Input Thickness vec3 = 0 0 0 Unit cm
+    Input Offset vec3 = 0 0 0 Unit cm
 
     // Engine VFX module ShapeBox (port of UE NiagaraStatelessModule_ShapeLocation.ush:12-40, Box): a uniform
     // point inside a box of Size centred on the origin, or — SurfaceOnly — on one of its six faces picked uniformly,

@@ -156,6 +156,8 @@ namespace Desert::VFX
             else
                 for ( uint32_t c = 0; c < Assets::Serialization::ComponentCount( in.Type ); ++c )
                     std::format_to( std::back_inserter( out ), " {}", in.Default[static_cast<int>( c )] );
+            if ( !in.Unit.empty() )
+                std::format_to( std::back_inserter( out ), " Unit {}", in.Unit );
             out += '\n';
         }
         // The body carries its own leading blank or comment lines (ParseModuleBlock keeps them with the GLSL).

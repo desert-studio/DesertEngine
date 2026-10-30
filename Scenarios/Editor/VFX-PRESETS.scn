@@ -1,0 +1,15 @@
+# VFX-PRESETS (merge regression INT-ALL-7B1: VFX-HOST removed the Particle Editor and with it LEG-PARTICLE-UNITS'
+# presets and slider units). UE Niagara: a new system starts from a template asset (New Niagara System -> template),
+# and every module input carries its unit in the module's own metadata. Here: the engine templates are .dfx files
+# of Editor/Resources/Engine/VFX/Templates (Fire, Smoke, Sparks from Torch.dfx's three emitters, beside Explosion and
+# Impact); Content -> New VFX System from Template copies one into the open folder with a fresh GUID. Each `.dfxmod`
+# Input states `Unit <cm|cm/s|cm/s2|1/cm|s|1/s|deg|deg/s>` (VFXModuleInputDecl::Unit, the one declaration); the
+# system editor's stack rows read it from the module and print it on every drag ("100.000 cm/s").
+# Log check (not a frame): editor.log has no error line; line_NNN_state.txt names the open document VFX/Fire.dfx.
+# The scenario CREATES a file: delete Projects/Desert/Content/VFX/Fire.dfx after a run. No scene save.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
+Дано run Assets "Open folder: VFX"
+Когда run Assets "New VFX System from Template: Fire"
+Когда run Open "VFX/Fire.dfx"
+Когда state
+Тогда 1_preset the VFX System editor shows the new Fire system (emitter Flame) and its module stack; the stack inputs carry their units - SpawnRate "1/s", Lifetime "s", Speed "cm/s", Angle "deg", Radius/Size "cm", Rotation "deg", Drag "1/s", Strength "cm/s2" - in the row title "(unit)" and in the drag text; no red DescribeModule line, no refusal line

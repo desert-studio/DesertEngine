@@ -7,7 +7,7 @@ Module "SpawnFromChannel"
     Input Channel int = Binding
     Input ParticlesPerEntry int = 1
     Input MaxEntriesPerFrame int = 1024
-    Input MaxDistance float = 0
+    Input MaxDistance float = 0 Unit cm
 
     // Engine CPU module SpawnFromChannel (VFX-10, UE Spawn From Data Channel): turns this frame's entries of the
     // bound channel into spawns of the tick's first step (VFX::GatherChannelSpawns). Optional bindings Position /

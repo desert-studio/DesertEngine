@@ -243,7 +243,8 @@ TEST( VFXStackCompile, AnEngineModuleParsesIntoDeclarationsAndBody )
                                                                 { "Mass", S::VFXValueType::Float } } ) );
     EXPECT_EQ( m.Usage, VFX::UsageBit( VFX::VFXStage::ParticleUpdate ) );
     EXPECT_EQ( m.Inputs, ( std::vector<VFX::VFXModuleInputDecl>{
-                              { "Gravity", S::VFXValueType::Vec3, glm::vec4( 0.0f, -981.0f, 0.0f, 0.0f ) } } ) );
+                              { "Gravity", S::VFXValueType::Vec3, glm::vec4( 0.0f, -981.0f, 0.0f, 0.0f ), false,
+                                "cm/s2" } } ) );
     EXPECT_NE( m.Body.find( "void Module(" ), std::string::npos );
     EXPECT_EQ( m.Body.find( "Attribute" ), std::string::npos );
 }
