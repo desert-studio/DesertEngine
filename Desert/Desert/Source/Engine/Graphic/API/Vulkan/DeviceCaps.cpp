@@ -137,6 +137,12 @@ namespace Desert::Graphic::API::Vulkan
                "VK_KHR_external_semaphore_win32" },
              { C::ExternalMemoryFd, "external_memory_fd", N::Optional, 0, "VK_KHR_external_memory_fd" },
              { C::ExternalSemaphoreFd, "external_semaphore_fd", N::Optional, 0, "VK_KHR_external_semaphore_fd" },
+             // The grass visibility buffer's 64-bit word (DeviceCaps.hpp). shaderInt64 is a 1.0 feature; the atomics
+             // are core in 1.2 (VK_KHR_shader_atomic_int64 below it) and mean nothing without the type.
+             { C::ShaderInt64, "shaderInt64", N::Optional, V10, {} },
+             { C::ShaderBufferInt64Atomics, "shaderBufferInt64Atomics", N::Optional, V12,
+               VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, VK_API_VERSION_1_1,
+               { C::ShaderInt64, C::Count, C::Count } },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every

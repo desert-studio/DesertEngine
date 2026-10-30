@@ -274,6 +274,22 @@ namespace Desert::Graphic::API::Vulkan
                     f.cooperativeMatrix = VK_TRUE;
                     return EnableExtensionFeatures( device, f, spec );
                 }
+                case Capability::ShaderInt64:
+                    return EnableCore10( device, &VkPhysicalDeviceFeatures::shaderInt64 );
+                case Capability::ShaderBufferInt64Atomics:
+                {
+                    if ( core )
+                    {
+                        VkPhysicalDeviceVulkan12Features f{
+                             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
+                        f.shaderBufferInt64Atomics = VK_TRUE;
+                        return device.enable_extension_features_if_present( f );
+                    }
+                    VkPhysicalDeviceShaderAtomicInt64Features f{
+                         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_INT64_FEATURES };
+                    f.shaderBufferInt64Atomics = VK_TRUE;
+                    return EnableExtensionFeatures( device, f, spec );
+                }
                 case Capability::Count:
                     break;
             }

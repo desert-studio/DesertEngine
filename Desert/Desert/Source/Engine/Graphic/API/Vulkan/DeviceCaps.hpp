@@ -72,6 +72,12 @@ namespace Desert::Graphic::API::Vulkan
         ExternalSemaphoreWin32,
         ExternalMemoryFd,
         ExternalSemaphoreFd,
+        // The grass visibility buffer (GRASS-VIS; Common/VisibilityBuffer.glslh, UE Nanite's 64-bit visibility
+        // word): the raster atomic-maxes (depth << 32 | id) into a storage buffer. shaderInt64 is the 64-bit type,
+        // shaderBufferInt64Atomics the atomics on it. Optional: without both the grass keeps the G-buffer path,
+        // refused by name (SceneRenderer::GrassVisibilityRefusal).
+        ShaderInt64,
+        ShaderBufferInt64Atomics,
 
         Count
     };
