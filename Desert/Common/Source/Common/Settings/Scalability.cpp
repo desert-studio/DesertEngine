@@ -427,6 +427,15 @@ namespace Common::Scalability
                "the "
                "compute queue family)",
                1, Vis::Advanced },
+             { P::FoliageGrassDensityScalePercent, G::Foliage, "Foliage.GrassDensityScalePercent", 10, 100, CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::AddVariety (the variety's "
+               "grid cell, GrassGenerate)",
+               100, Vis::Basic },
+             { P::FoliageGrassCullDistanceScalePercent, G::Foliage, "Foliage.GrassCullDistanceScalePercent", 10, 400,
+               CL::None,
+               "SceneRenderer::BeginScene -> GrassRenderer::SetQuality -> GrassRenderer::AddVariety (Start / End "
+               "cull distances, GrassGenerate)",
+               100, Vis::Basic },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -1105,7 +1114,7 @@ namespace Common::Scalability
         constexpr std::array<std::string_view, kGroupCount> kKeys{
              "Textures",    "Filtering", "Shadows",      "GlobalIllumination", "Reflections",
              "PostProcess", "Effects",   "ViewDistance", "AntiAliasing",       "ResolutionScale",
-             "Shading",     "PathTracing" };
+             "Shading",     "PathTracing", "Foliage" };
         return kKeys[static_cast<std::size_t>( group )];
     }
 

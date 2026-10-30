@@ -1169,6 +1169,17 @@ namespace Desert::Graphic
                       .RefreshFraction = 0.01f * static_cast<float>( quality.As<int>(
                                                       Parameter::ShadowRainOcclusionRefreshPercent ) ) } );
         }
+        if ( const auto grass = m_RenderSystems.find( "GrassSystem" ); grass != m_RenderSystems.end() )
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::GrassRenderer, grass->second )
+                 ->SetQuality( System::GrassQuality{
+                      .DensityScale = 0.01f * static_cast<float>(
+                                                   quality.As<int>( Parameter::FoliageGrassDensityScalePercent ) ),
+                      .CullDistanceScale =
+                           0.01f * static_cast<float>(
+                                        quality.As<int>( Parameter::FoliageGrassCullDistanceScalePercent ) ) } );
+        }
         m_ShadowDenoiserRadius = quality.As<uint32_t>( Parameter::ShadowRayTracedDenoiserRadius );
         m_VirtualShadowQuality = System::VirtualShadowMapQuality{
              .MaxPhysicalPages =

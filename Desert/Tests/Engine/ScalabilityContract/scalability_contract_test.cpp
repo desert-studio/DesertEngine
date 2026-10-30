@@ -97,6 +97,13 @@ namespace
       "Epic":      { "PathTracing.PathsPerFrame": 2, "PathTracing.MaxBounces": 32, "PathTracing.SamplesPerPixel": 4096, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" },
       "Cinematic": { "PathTracing.PathsPerFrame": 4, "PathTracing.MaxBounces": 32, "PathTracing.SamplesPerPixel": 16384, "PathTracing.MaxPathIntensity": 24, "PathTracing.Denoiser": "Auto" }
     },
+    "Foliage": {
+      "Low":       { "Foliage.GrassDensityScalePercent": 30, "Foliage.GrassCullDistanceScalePercent": 50 },
+      "Medium":    { "Foliage.GrassDensityScalePercent": 60, "Foliage.GrassCullDistanceScalePercent": 75 },
+      "High":      { },
+      "Epic":      { },
+      "Cinematic": { "Foliage.GrassCullDistanceScalePercent": 150 }
+    },
     "Reflections": {
       "Low":       { "Reflections.MaxSteps": 24, "Reflections.CaptureSize": 64, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace", "Reflections.DenoiserRadius": 1, "Reflections.DownsampleFactor": 2, "Reflections.HitLighting": 0, "Reflections.TranslucentFrontLayer": 0 },
       "Medium":    { "Reflections.MaxSteps": 32, "Reflections.CaptureSize": 128, "Reflections.RaysPerPixel": 1, "Reflections.Method": "ScreenSpace", "Reflections.DenoiserRadius": 1, "Reflections.DownsampleFactor": 2, "Reflections.HitLighting": 0, "Reflections.TranslucentFrontLayer": 0 },
@@ -123,6 +130,7 @@ namespace
       "Shadows":            [ 25, 70, 140 ],
       "GlobalIllumination": [ 30, 80, 160 ],
       "PathTracing":        [ 30, 80, 160 ],
+      "Foliage":            [ 20, 50, 100 ],
       "Reflections":        [ 30, 80, 160 ],
       "PostProcess":        [ 15, 50, 110 ]
     },
@@ -344,7 +352,7 @@ TEST( ScalabilityContract, EveryPlaceholderIsHiddenAndEveryListedRowNamesAReader
     for ( const Group g :
           { Group::AntiAliasing, Group::ResolutionScale, Group::Filtering, Group::ViewDistance, Group::Effects,
             Group::Shadows, Group::GlobalIllumination, Group::Reflections, Group::PostProcess,
-            Group::Shading, Group::PathTracing } )
+            Group::Shading, Group::PathTracing, Group::Foliage } )
         EXPECT_TRUE( IsGroupListed( g ) ) << GroupKey( g );
 }
 

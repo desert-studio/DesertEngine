@@ -154,6 +154,8 @@ namespace Desert::Editor
                     return "Shading";
                 case SC::Group::PathTracing:
                     return "Path Tracing";
+                case SC::Group::Foliage:
+                    return "Foliage";
                 case SC::Group::Count:
                     break;
             }

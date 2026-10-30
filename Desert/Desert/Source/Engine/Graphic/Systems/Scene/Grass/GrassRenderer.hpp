@@ -83,6 +83,18 @@ namespace Desert::Graphic::System
         float    LodDistance = 700.0f;
     };
 
+    // THE VIEW'S FOLIAGE QUALITY (GRASS-DENSITY; UE sg.FoliageQuality: grass.DensityScale multiplies every
+    // variety's GrassDensity, grass.CullDistanceScale its Start and End cull distances), from the Foliage
+    // scalability group (Scalability.json; SceneRenderer::BeginScene -> GrassRenderer::SetQuality). Fractions:
+    // 1 = the asset as authored. A machine's quality, never a scene's or an asset's: the asset states the
+    // density and the distances, the level only scales them.
+    struct GrassQuality
+    {
+        float DensityScale      = 1.0f; // Foliage.GrassDensityScalePercent / 100, 0.1..1
+        float CullDistanceScale = 1.0f; // Foliage.GrassCullDistanceScalePercent / 100, 0.1..4
+        [[nodiscard]] bool operator==( const GrassQuality& ) const = default;
+    };
+
     struct GrassSectionDraw
     {
         MaterialInstancePtr Material;
@@ -139,6 +151,12 @@ namespace Desert::Graphic::System
         {
             m_Queue.push_back( std::move( draw ) );
         }
+        // The Foliage quality every later AddFrame grows its varieties under (GrassQuality).
+        void SetQuality( const GrassQuality& quality )
+        {
+            m_Quality = quality;
+        }
+
         void ClearQueue()
         {
             m_Queue.clear();
@@ -284,6 +302,7 @@ namespace Desert::Graphic::System
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
         std::vector<GrassFieldDraw>                                       m_Queue;
+        GrassQuality                                                      m_Quality;
         std::unordered_map<uint64_t, FieldGpu>                            m_Fields;
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;

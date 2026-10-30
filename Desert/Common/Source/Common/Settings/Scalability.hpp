@@ -64,6 +64,8 @@ namespace Common::Scalability
         Shading,         // sg.ShadingQuality — material shader cost: parallax occlusion steps
         PathTracing, // the path tracer's cost (UE r.PathTracing.*): a render MODE, not part of GI quality, so it
                      // has its own level (SCAL-UX); appended so the other groups keep their index
+        Foliage,     // sg.FoliageQuality — landscape grass density and cull distances (grass.DensityScale,
+                     // grass.CullDistanceScale); appended so the other groups keep their index
         Count
     };
     inline constexpr std::size_t kGroupCount = static_cast<std::size_t>( Group::Count );
@@ -365,6 +367,13 @@ namespace Common::Scalability
         // machine override; Effects owns it for the selector's listing because the passes it moves are particles,
         // clouds and the light grids.
         AsyncCompute,
+        // Landscape grass (GRASS-DENSITY; UE sg.FoliageQuality -> grass.DensityScale, grass.CullDistanceScale),
+        // read by GrassRenderer::SetQuality. DensityScalePercent scales every variety's Density (its grid cell grows
+        // by 1 / sqrt(scale), so fewer cells are generated); CullDistanceScalePercent scales its Start and End
+        // cull distances (and so where its distance thinning begins and where it ends). Percent, 10..100 and
+        // 10..400.
+        FoliageGrassDensityScalePercent,
+        FoliageGrassCullDistanceScalePercent,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );
