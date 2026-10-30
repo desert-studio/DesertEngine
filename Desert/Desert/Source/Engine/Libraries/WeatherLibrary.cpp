@@ -8,7 +8,7 @@ namespace Desert::Libraries
 {
     namespace
     {
-        Common::ResultStr<Core::Scene*> World( const char* call )
+        Common::ResultStr<Core::Scene*> WeatherWorld( const char* call )
         {
             const Core::WorldContext* context = Core::WorldContext::Current();
             if ( context == nullptr || context->World == nullptr )
@@ -20,7 +20,7 @@ namespace Desert::Libraries
     Common::BoolResultStr WeatherLibrary::SetWeather( ECS::Entity zone, const std::string& preset,
                                                       const float seconds )
     {
-        const auto world = World( "set" );
+        const auto world = WeatherWorld( "set" );
         if ( !world )
             return Common::MakeError( world.GetError() );
         const auto handle = Runtime::ResourceRegistry::GetWeatherPresetService()->HandleForPath( preset );
@@ -36,7 +36,7 @@ namespace Desert::Libraries
 
     Common::ResultStr<float> WeatherLibrary::GetScalarAt( const glm::vec3& point, const std::string& name )
     {
-        const auto world = World( "getScalar" );
+        const auto world = WeatherWorld( "getScalar" );
         if ( !world )
             return Common::MakeError<float>( world.GetError() );
         Core::Scene*              scene = world.GetValue();
