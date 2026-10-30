@@ -3145,13 +3145,28 @@ namespace Desert::Core::Preprocess
                 }
             }
 
+            // THE PARTICLE CELLS' RASTER STATE is the vertex factory's, not the template's (UE: the sprite /
+            // ribbon vertex factory builds a camera-facing card, drawn two-sided whatever the material's mesh
+            // culling): a template authored for meshes (`Cull Back`, the stand-in DefaultSurface) culled every
+            // sprite and ribbon it drew. The Forward particle cell is drawn under a READ-ONLY depth
+            // (ParticlePass), so it never writes depth either; the G-buffer cell writes it like any base-pass
+            // surface.
+            auto particleCellState = [&cellState]( const bool forward )
+            {
+                auto state = cellState;
+                state.Cull = StateCull::None;
+                if ( forward )
+                    state.DepthWrite = false;
+                return state;
+            };
+
             // `Usage ParticleSprites`: the sprite cell, after every mesh cell (the mesh cells' order is
             // unchanged).
             if ( result.Surface.UsedWithParticleSprites )
             {
                 DShaderPass cell;
                 cell.Name  = SurfaceCellName( kSurfaceParticleSpritePath, kSurfaceParticleSpritePass );
-                cell.State = cellState;
+                cell.State = particleCellState( true );
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                      stage, kSurfaceParticleSpritePath, kSurfaceParticleSpritePass,
@@ -3168,7 +3183,7 @@ namespace Desert::Core::Preprocess
             {
                 DShaderPass cell;
                 cell.Name  = SurfaceCellName( kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass );
-                cell.State = cellState;
+                cell.State = particleCellState( true );
                 for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                     cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                      stage, kSurfaceParticleRibbonPath, kSurfaceParticleSpritePass,
@@ -3192,7 +3207,7 @@ namespace Desert::Core::Preprocess
                         continue;
                     DShaderPass cell;
                     cell.Name  = SurfaceCellName( path, kSurfaceParticleGBufferPass );
-                    cell.State = cellState;
+                    cell.State = particleCellState( false );
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
                         cell.Stages.emplace( stage, AssembleSurfaceCellStage(
                                                          stage, path, kSurfaceParticleGBufferPass, *surfaceBlock,
