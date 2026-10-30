@@ -223,7 +223,7 @@ namespace Desert::Graphic::System
         {
             if ( rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
-            const auto index = static_cast<uint32_t>( &rd - m_StaticQueue.data() );
+            const auto    index = static_cast<uint32_t>( &rd - m_StaticQueue.data() );
             SignatureHash hash;
             hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
