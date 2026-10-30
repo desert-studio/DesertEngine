@@ -6,6 +6,7 @@
 #include <Engine/Graphic/RDG/RDGBackend.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
 #include <Engine/Graphic/RDG/RDGCompileResult.hpp>
+#include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 
 #include <cstdint>
@@ -165,6 +166,12 @@ namespace Desert::Graphic::RDG
                                       OtherRouteFill                                    other );
         // A layout made for this declaration only (tests, a draw list built per frame): the graph takes it over.
         BindingBlockBuilder Bindings( ShaderBindingLayout layout, OtherRouteFill other );
+
+        // RENDER-THREADS M1. @p prerequisite (a material, a block the exec binds) is made ready before any pass of
+        // the graph records (IRecordPrerequisite); the exec only looks it up. A pass that declares any runs its
+        // exec under a RecordingSeal: a per-view resource it did not declare is refused there, never created.
+        // The object outlives the graph's Execute; declaring the same one twice prepares it once.
+        void Prepares( const IRecordPrerequisite& prerequisite );
 
     private:
         friend class Builder;
@@ -421,6 +428,8 @@ namespace Desert::Graphic::RDG
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.
             std::vector<DeclaredBindingBlock> Blocks;
+            // PassBuilder::Prepares, in declaration order.
+            std::vector<const IRecordPrerequisite*> Prerequisites;
             std::string                       DeclarationError;
         };
 

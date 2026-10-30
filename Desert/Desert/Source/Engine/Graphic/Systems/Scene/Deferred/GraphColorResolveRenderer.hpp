@@ -90,6 +90,7 @@ namespace Desert::Graphic::System
         {
             if ( !IsReady() || !multisample.IsValid() )
                 return;
+            pass.Prepares( *m_Material->GetMaterialExecutor() );
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Texture( GraphColorResolveBindingShaderParameters::MultisampledColorTexture, multisample,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

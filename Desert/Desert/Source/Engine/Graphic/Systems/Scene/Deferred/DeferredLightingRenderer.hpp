@@ -382,6 +382,7 @@ namespace Desert::Graphic::System
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const auto&                     layout = program.Layout.Get( program.Shader );
+            pass.Prepares( *program.Material->GetMaterialExecutor() );
             auto block = pass.Bindings( layout, program.Material->GetMaterialExecutor()->GetRouteFill() );
             block.Sampler( DeferredLightingCompositeShaderParameters::LinearRepeatSampler,
                            RDG::SamplerDesc::LinearRepeat() )

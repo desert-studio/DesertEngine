@@ -225,6 +225,16 @@ namespace Desert::Graphic
         backend->FlushUpdates();
     }
 
+    Common::BoolResultStr MaterialExecutor::PrepareForRecording() const
+    {
+        if ( !m_MaterialBackend )
+            return Common::MakeFormattedError( "material '{}' has no backend", m_DebugName );
+        const Common::BoolResultStr prepared = m_MaterialBackend->PrepareViewResources( *this );
+        if ( !prepared )
+            return Common::MakeFormattedError( "material '{}': {}", m_DebugName, prepared.GetError() );
+        return prepared;
+    }
+
     std::unique_ptr<MaterialExecutor>
     MaterialExecutor::Create( std::string&& debugName, const std::string& shaderName,
                               const Core::Formats::ShaderProgramMeta* parameterSchema )

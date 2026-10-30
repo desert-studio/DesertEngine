@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/ViewResources.hpp>
+#include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 #include <Engine/ShaderResources/ViewCopiedBlock.hpp>
 
 #include <cstdint>
@@ -115,7 +116,15 @@ namespace Desert::Graphic
                 return Common::MakeSuccess( true );
             }
 
-            ViewResources&                          view = ViewResourceRegistry::Active();
+            ViewResources& view = ViewResourceRegistry::Active();
+            // RENDER-THREADS M1: no descriptor set is allocated while a sealed pass records (UE: the pass's
+            // descriptor sets exist before the graph records). The pass prepares the material in its setup.
+            if ( RDG::RecordingSeal::IsSealed() )
+                return Common::MakeFormattedError<bool>( "view '{}', frame {}: the material's descriptor sets do not "
+                                                         "exist and a recording pass may not allocate them; the "
+                                                         "pass declares the material in its setup "
+                                                         "(PassBuilder::Prepares)",
+                                                         view.GetName(), frameIndex );
             std::unique_ptr<IViewDescriptorSetCopy> made;
             auto                                    created = make( view.GetName(), frameIndex, made );
             if ( !created.IsSuccess() )

@@ -80,6 +80,7 @@ namespace Desert::Graphic::System
         {
             if ( !IsReady() || !gbufferDepth.IsValid() )
                 return;
+            pass.Prepares( *m_Material->GetMaterialExecutor() );
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Texture( DepthExpandBindingShaderParameters::SourceDepthTexture, gbufferDepth,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

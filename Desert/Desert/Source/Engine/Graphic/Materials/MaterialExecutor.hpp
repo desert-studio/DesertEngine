@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBindingDecl.hpp>
+#include <Engine/Graphic/RDG/RDGRecordPrerequisite.hpp>
 
 #include <Common/Core/Memory/Buffer.hpp>
 
@@ -17,7 +18,8 @@ namespace Desert::Graphic
 {
     class Material;
 
-    class MaterialExecutor
+    // A pass that applies the material in its exec declares it in setup (PassBuilder::Prepares).
+    class MaterialExecutor : public RDG::IRecordPrerequisite
     {
     public:
         // @p parameterSchema is the program whose `Properties` block lists this material's OWN textures
@@ -83,6 +85,9 @@ namespace Desert::Graphic
         // CloudCompositeUB's property, the composite never called Bind, the UB stayed zero and the clouds were
         // black. Unclaimed and whole-filled buffers are not touched (their contents are the filler's).
         void                    Apply() const;
+        // RENDER-THREADS M1: the active view's descriptor sets and block copies of this material, made before
+        // the graph records (MaterialBackend::PrepareViewResources).
+        [[nodiscard]] Common::BoolResultStr PrepareForRecording() const override;
         // The Material this executor is the GPU half of (set once by Material's constructor; null for an
         // executor created on its own). Its pending properties are what Apply uploads first.
         void SetOwner( Material* owner )

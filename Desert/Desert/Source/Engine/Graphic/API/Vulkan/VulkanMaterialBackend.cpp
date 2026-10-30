@@ -107,6 +107,39 @@ namespace Desert::Graphic::API::Vulkan
         return sets;
     }
 
+    Common::BoolResultStr VulkanMaterialBackend::PrepareViewResources( const MaterialExecutor& executor )
+    {
+        // The frame index Apply resolves with (ApplyUniformBuffer / ApplyStorageBuffer).
+        const uint32_t frameIndex = EngineContext::GetInstance().GetCurrentFrameIndex();
+        if ( HasDescriptorSets() && ActiveSets( frameIndex ) == nullptr )
+            return Common::MakeFormattedError( "shader '{}': its descriptor sets for frame {} were not made",
+                                               m_VulkanShader->GetName(), frameIndex );
+
+        // The block copies Apply binds. A copy that cannot be made is NOT this pass's fault: the exec's Apply
+        // meets the same refusal at the bind, names it (m_BindRefusalReported) and keeps the set's fallback,
+        // exactly as before the prepare existed - so its result is not turned into a pass fault here.
+        ShaderResources::API::Vulkan::ViewCopyBinding copy;
+        for ( const auto& [name, index] : executor.GetUniformBufferProperties() )
+        {
+            const auto property = executor.GetUniformBufferProperty( name );
+            const auto buffer   = property ? sp_cast<ShaderResources::API::Vulkan::VulkanUniformBuffer>(
+                                                  property->GetUniform() )
+                                           : nullptr;
+            if ( buffer )
+                (void)buffer->BindActiveCopy( frameIndex, copy );
+        }
+        for ( const auto& [name, index] : executor.GetStorageBufferProperties() )
+        {
+            const auto property = executor.GetStorageBufferProperty( name );
+            const auto buffer   = property ? sp_cast<ShaderResources::API::Vulkan::VulkanStorageBuffer>(
+                                                  property->GetStorageBuffer() )
+                                           : nullptr;
+            if ( buffer )
+                (void)buffer->BindActiveCopy( frameIndex, copy );
+        }
+        return Common::MakeSuccess( true );
+    }
+
     VkDescriptorSet VulkanMaterialBackend::GetDescriptorSet( const uint32_t frameIndex, const uint32_t setIndex )
     {
         // The ACTIVE view resolves here and nowhere else, so a write and the bind that follows it can never

@@ -73,6 +73,7 @@ namespace Desert::Graphic::System
 
         void DeclareBindings( RDG::PassBuilder& pass, const RDG::TextureRef sceneDepth ) const
         {
+            pass.Prepares( *m_Material->GetMaterialExecutor() );
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Texture( PopulateSceneDepthBindingShaderParameters::SourceDepthTexture, sceneDepth,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

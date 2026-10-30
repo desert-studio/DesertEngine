@@ -10,6 +10,9 @@
 #include <vector>
 #include <memory>
 #include <format>
+#include <optional>
+#include <string>
+#include <utility>
 
 namespace Desert::Graphic::RDG
 {
@@ -477,6 +480,13 @@ namespace Desert::Graphic::RDG
         }
         pass.AreaWidth  = width;
         pass.AreaHeight = height;
+    }
+
+    void PassBuilder::Prepares( const IRecordPrerequisite& prerequisite )
+    {
+        std::vector<const IRecordPrerequisite*>& declared = m_Builder.m_Passes[m_Pass].Prerequisites;
+        if ( std::find( declared.begin(), declared.end(), &prerequisite ) == declared.end() )
+            declared.push_back( &prerequisite );
     }
 
     void PassBuilder::ExternalQueue( const ExternalQueueSync& sync )
@@ -1050,6 +1060,9 @@ namespace Desert::Graphic::RDG
             m_Report.FaultCulled.push_back( pass );
         };
 
+        // RENDER-THREADS M1: why a pass's declared prerequisite was not prepared (empty = prepared or none).
+        std::vector<std::string> prepareFailures( m_Passes.size() );
+
         // One pass inside its segment: barriers, render pass, exec, releases. Only a BACKEND failure abandons
         // the graph; a pass that fails or loses an input is a late fault and the graph goes on.
         auto recordPass = [&]( const CompiledPass& planned ) -> Common::BoolResultStr
@@ -1148,8 +1161,18 @@ namespace Desert::Graphic::RDG
                     }
                     renderPassOpen = true;
                 }
-                PassContext                 context( *this, result, backend, p );
-                const Common::BoolResultStr outcome = m_Passes[p].Exec( context );
+                // RENDER-THREADS M1: a pass whose prerequisite could not be prepared does not record; a pass
+                // that declared any records sealed - its exec looks up what the prepare made and creates nothing.
+                const Common::BoolResultStr outcome = [&]() -> Common::BoolResultStr
+                {
+                    if ( !prepareFailures[p].empty() )
+                        return Common::MakeFormattedError( "{}", prepareFailures[p] );
+                    PassContext                  context( *this, result, backend, p );
+                    std::optional<RecordingSeal> seal;
+                    if ( !m_Passes[p].Prerequisites.empty() )
+                        seal.emplace();
+                    return m_Passes[p].Exec( context );
+                }();
                 if ( !outcome )
                     lateFault( p, PassFaultStage::Execution, outcome.GetError(), std::nullopt );
                 if ( rendering && renderPassOpen && ( !outcome || !pass.KeepsRenderPassOpen ) )
@@ -1163,6 +1186,36 @@ namespace Desert::Graphic::RDG
             backend.EndPass( pass );
             return Common::MakeSuccess( true );
         };
+
+        // RENDER-THREADS M1 (UE: everything a pass lambda binds exists before the graph records). Every
+        // prerequisite a surviving pass declared is prepared once, in pass order, before the first pass records;
+        // a failure faults only the passes that declared it.
+        DESERT_PROFILE_PHASE( phases, "RDG: Prepare recording" );
+        {
+            std::vector<std::pair<const IRecordPrerequisite*, std::string>> prepared;
+            for ( const CompiledPass& planned : result.Passes )
+            {
+                for ( const IRecordPrerequisite* prerequisite : m_Passes[planned.Pass].Prerequisites )
+                {
+                    const auto done = std::find_if( prepared.begin(), prepared.end(),
+                                                    [prerequisite]( const auto& entry )
+                                                    { return entry.first == prerequisite; } );
+                    std::string failure;
+                    if ( done != prepared.end() )
+                        failure = done->second;
+                    else
+                    {
+                        const Common::BoolResultStr ready = prerequisite->PrepareForRecording();
+                        if ( !ready )
+                            failure = ready.GetError();
+                        prepared.emplace_back( prerequisite, failure );
+                    }
+                    if ( !failure.empty() && prepareFailures[planned.Pass].empty() )
+                        prepareFailures[planned.Pass] =
+                             std::format( "a prerequisite was not prepared: {}", failure );
+                }
+            }
+        }
 
         DESERT_PROFILE_PHASE( phases, "RDG: Record passes" );
         for ( const PipeSegment& segment : result.Segments )
