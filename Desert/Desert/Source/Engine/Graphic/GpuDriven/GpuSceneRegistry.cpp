@@ -3,6 +3,8 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <algorithm>
 #include <cstring>
 
@@ -166,6 +168,8 @@ namespace Desert::Graphic::GpuDriven
                 m_Scene.RemovePrimitive( it->second.Primitive );
                 it = m_Entries.erase( it );
             }
+        if ( m_Started ) // the scratch of entities the frame that ended did not name (they left the view or scene)
+            std::erase_if( m_EntityScratch, [this]( const auto& held ) { return held.second.Frame != m_Frame; } );
         if ( m_Started )
             for ( auto it = m_MaterialRows.begin(); it != m_MaterialRows.end(); )
             {
@@ -184,6 +188,19 @@ namespace Desert::Graphic::GpuDriven
         m_Committed           = false;
         m_Scene.BeginFrame();
         m_FramePalettes.clear();
+    }
+
+    GpuSceneRegistry::EntityScratch& GpuSceneRegistry::ScratchOf( const uint32_t entity )
+    {
+        EntityScratch& scratch = m_EntityScratch[entity];
+        if ( scratch.Sync != m_SyncSerial ) // the first record of this entity in this Sync: capacity kept
+        {
+            scratch.Sync  = m_SyncSerial;
+            scratch.Frame = m_Frame;
+            scratch.Primitives.clear();
+            scratch.FieldSets.clear();
+        }
+        return scratch;
     }
 
     GpuSceneRegistry::Entry& GpuSceneRegistry::Touch( const MotionKey key, const MotionRecord& record,
@@ -227,6 +244,7 @@ namespace Desert::Graphic::GpuDriven
                                  const std::span<const MotionRecord>      skinned,
                                  const std::span<const MotionFieldRecord> fields, GpuSceneRecordRows& out )
     {
+        DESERT_PROFILE_SCOPE( "GpuSceneRegistry::Sync" );
         out.RigidPrimitives.clear();
         out.RigidInstances.clear();
         out.SkinnedPrimitives.clear();
@@ -240,9 +258,8 @@ namespace Desert::Graphic::GpuDriven
         out.SkinnedInstances.reserve( skinned.size() );
         out.FieldInstances.reserve( fields.size() );
 
-        // Per entity, the primitives it owns in this view's submission order: index in the list == Slot.
-        std::unordered_map<uint32_t, std::vector<Owned>> entityPrimitives;
-        entityPrimitives.reserve( rigid.size() + skinned.size() );
+        // Per entity, the primitives it owns in this view's submission order: index in the list == Slot
+        // (ScratchOf: persistent per-entity scratch, emptied by this Sync's first record of the entity).
         const auto emit = [&]( std::vector<PrimitiveIndex>& primitives, std::vector<InstanceIndex>& instances,
                                const PrimitiveIndex primitive )
         {
@@ -260,7 +277,7 @@ namespace Desert::Graphic::GpuDriven
                 emit( out.RigidPrimitives, out.RigidInstances, entry.Primitive );
                 continue;
             }
-            auto&          owned     = entityPrimitives[record.Entity];
+            auto&          owned     = ScratchOf( record.Entity ).Primitives;
             PrimitiveIndex primitive = kInvalidIndex;
             for ( const Owned& held : owned ) // only rigid primitives exist yet: skinned run last
                 if ( m_Scene.Primitive( held.Primitive ).LocalToWorld == PackAffine( record.World ) )
@@ -283,7 +300,7 @@ namespace Desert::Graphic::GpuDriven
         bool palettesChanged = false;
         for ( const MotionRecord& record : skinned )
         {
-            auto&  owned = entityPrimitives[record.Entity];
+            auto&  owned = ScratchOf( record.Entity ).Primitives;
             bool   fresh = false;
             Entry& entry =
                  Touch( MotionKey{ record.Entity, static_cast<uint32_t>( owned.size() ) }, record, fresh );
@@ -317,10 +334,9 @@ namespace Desert::Graphic::GpuDriven
             m_Scene.SetBonePalettes( m_FramePalettes );
 
         // Per entity, its distinct transform sets in submission order: index == the field's slot.
-        std::unordered_map<uint32_t, std::vector<const glm::mat4*>> entityFields;
         for ( const MotionFieldRecord& field : fields )
         {
-            auto&      sets  = entityFields[field.Entity];
+            auto&      sets  = ScratchOf( field.Entity ).FieldSets;
             const auto found = std::find( sets.begin(), sets.end(), field.Transforms.data() );
             const auto slot  = static_cast<uint32_t>( found - sets.begin() );
             if ( found == sets.end() )
@@ -331,11 +347,14 @@ namespace Desert::Graphic::GpuDriven
             Entry& entry              = it->second;
             if ( inserted || entry.Frame != m_Frame )
             {
+                // The held snapshot is the instance rows' contents: the same object needs no per-instance compare.
+                const bool sameSnapshot = !inserted && field.Snapshot != nullptr && entry.Instances == field.Snapshot;
                 const bool changed = inserted || entry.Mesh != field.Mesh ||
                                      entry.Geometry != GeometryOf( field.Mesh ) || entry.Flags != field.Flags ||
                                      entry.BoundsPad != field.BoundsPad || entry.CullStart != field.CullDistanceStart ||
                                      entry.CullEnd != field.CullDistanceEnd ||
-                                     !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms );
+                                     ( !sameSnapshot &&
+                                       !SameInstances( m_Scene.Instances( entry.Primitive ), field.Transforms ) );
                 if ( changed )
                 {
                     PrimitiveDesc desc;
@@ -358,6 +377,12 @@ namespace Desert::Graphic::GpuDriven
                     entry.CullStart = field.CullDistanceStart;
                     entry.CullEnd   = field.CullDistanceEnd;
                 }
+                // Written or verified equal just now: the rows hold this snapshot's contents.
+                entry.Instances = field.Snapshot != nullptr &&
+                                            field.Snapshot->data() == field.Transforms.data() &&
+                                            field.Snapshot->size() == field.Transforms.size()
+                                       ? field.Snapshot
+                                       : nullptr;
                 BeginContent( entry, inserted, field.Content );
                 m_Scene.SetWind( entry.Primitive, field.Wind );
                 Queued( entry );

@@ -17,6 +17,8 @@
 
 #include <Engine/Geometry/Mesh.hpp>
 
+#include <Common/Core/Profiler.hpp>
+
 #include <algorithm>
 #include <cstdint>
 #include <optional>
@@ -812,9 +814,20 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    const MeshRenderer::BinnedPrimitiveFeed* MeshRenderer::BinnedFeedOf( const GpuDriven::PrimitiveIndex primitive ) const
+    {
+        if ( primitive >= m_BinnedFeed.size() )
+            return nullptr;
+        const BinnedFeedSlot& slot = m_BinnedFeed[primitive];
+        if ( slot.FrameFeed == m_BinnedFeedSerial && m_BinnedFeedSerial != 0 )
+            return &slot.Frame;
+        return slot.IsHeld ? &slot.Held : nullptr;
+    }
+
     void MeshRenderer::FeedDrawCommandCache( const GpuDriven::GpuScene&           scene,
                                              const GpuDriven::GpuSceneRecordRows& rows )
     {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::FeedDrawCommandCache" );
         if ( !m_DrawCommandCache )
             m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
                  [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive,
@@ -858,9 +871,9 @@ namespace Desert::Graphic::System
         // One entry per primitive, gathered across its records: a record draws the submeshes it does not hide with
         // its row; the primitive hides what every record hides (the other records' sections, the component's
         // mask).
-        auto& feed = m_ScratchBinnedFeed;
-        feed.clear();
-        const auto claim = [&feed, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
+        const uint64_t serial = ++m_BinnedFeedSerial;
+        m_BinnedFrameTouched.clear();
+        const auto claim = [this, serial, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
                                             const MeshVertexPath path, const uint32_t firstInstance,
                                             const uint32_t instanceCount, const uint64_t hidden,
                                             const uint32_t row, const bool generic = false,
@@ -869,10 +882,16 @@ namespace Desert::Graphic::System
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
             const size_t submeshes = mesh->GetSubmeshes().size();
-            auto [it, inserted]    = feed.try_emplace( primitive );
-            BinnedPrimitiveFeed& f = it->second;
-            if ( inserted )
+            if ( primitive >= m_BinnedFeed.size() )
+                m_BinnedFeed.resize( size_t{ primitive } + 1 );
+            BinnedFeedSlot&      slot = m_BinnedFeed[primitive];
+            BinnedPrimitiveFeed& f    = slot.Frame;
+            if ( slot.FrameFeed != serial ) // the first claim of this primitive in this feed: every field reset
             {
+                slot.FrameFeed = serial;
+                m_BinnedFrameTouched.push_back( primitive );
+                f.Generic           = false;
+                f.GenericProgram    = false;
                 f.Mesh              = mesh;
                 f.Geometry          = mesh->GetGeometry().MeshBinding();
                 f.Path              = path;
@@ -942,10 +961,11 @@ namespace Desert::Graphic::System
         }
 
         // Only the changed primitives reach the cache (UE: a cached command is rebuilt when its primitive is).
-        for ( const auto& [primitive, entry] : feed )
+        for ( const GpuDriven::PrimitiveIndex primitive : m_BinnedFrameTouched )
         {
-            if ( const auto held = m_BinnedFeed.find( primitive );
-                 held != m_BinnedFeed.end() && held->second == entry )
+            const BinnedFeedSlot&      slot  = m_BinnedFeed[primitive];
+            const BinnedPrimitiveFeed& entry = slot.Frame;
+            if ( slot.IsHeld && slot.Held == entry )
                 continue;
             const GpuDriven::PrimitiveDrawDesc desc{ .Mesh              = entry.Mesh,
                                                      .MaterialRows      = entry.MaterialRows,
@@ -959,12 +979,22 @@ namespace Desert::Graphic::System
                 LOG_ERROR( "[MeshRenderer] primitive {} has no binned draws: {}", primitive, added.GetError() );
             }
         }
-        for ( const auto& [primitive, entry] : m_BinnedFeed )
-            if ( !feed.contains( primitive ) )
+        for ( const GpuDriven::PrimitiveIndex primitive : m_BinnedHeld )
+            if ( m_BinnedFeed[primitive].FrameFeed != serial )
                 m_DrawCommandCache->RemovePrimitive( primitive );
-        if ( reresolve ) // before the swap: ResolveBinnedPipeline reads this frame's feed (the scratch) first
+        if ( reresolve ) // before the publish: ResolveBinnedPipeline reads this frame's feed (Frame) first
             m_DrawCommandCache->InvalidatePipelines();
-        m_BinnedFeed.swap( feed );
+        // Publish: this feed's entries become the cache's (a swap keeps both row vectors' capacity).
+        for ( const GpuDriven::PrimitiveIndex primitive : m_BinnedHeld )
+            m_BinnedFeed[primitive].IsHeld = false;
+        for ( const GpuDriven::PrimitiveIndex primitive : m_BinnedFrameTouched )
+        {
+            BinnedFeedSlot& slot = m_BinnedFeed[primitive];
+            std::swap( slot.Held, slot.Frame );
+            slot.IsHeld    = true;
+            slot.FrameFeed = 0; // Frame now holds the old entry: not this feed's
+        }
+        m_BinnedHeld.swap( m_BinnedFrameTouched );
         m_DrawCommandCache->Rebuild();
     }
 
@@ -1307,11 +1337,7 @@ namespace Desert::Graphic::System
         // or cell is built.
         if ( pass == GpuDriven::MeshPass::VirtualShadow && !m_BinnedVirtualShadow )
             return {};
-        const BinnedPrimitiveFeed* feed = nullptr;
-        if ( const auto it = m_ScratchBinnedFeed.find( primitive ); it != m_ScratchBinnedFeed.end() )
-            feed = &it->second;
-        else if ( const auto held = m_BinnedFeed.find( primitive ); held != m_BinnedFeed.end() )
-            feed = &held->second;
+        const BinnedPrimitiveFeed* const feed = BinnedFeedOf( primitive );
         if ( feed == nullptr || materialRow >= m_RowSurfaces.size() ||
              m_RowSurfaces[materialRow].Surface == nullptr )
             return fallback( BinFallback::NoMaterialRow );
@@ -1493,6 +1519,7 @@ namespace Desert::Graphic::System
                                                       RayTracing::RayTracingSkinCache* const skinCache,
                                                       const uint64_t                         frame )
     {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::SyncGpuScene" );
         namespace Flags       = GpuDriven::PrimitiveFlags;
         const auto rigidFlags = []( const bool castShadows, const bool castContactShadow ) -> uint32_t
         {
@@ -1634,7 +1661,8 @@ namespace Desert::Graphic::System
                                          ( data.Wind.Sways() ? Flags::kMovableCaster : 0u ),
                                 .BoundsPad = WindBoundsPad( data.Wind ),
                                 .Content   = fieldContent( data ),
-                                .Wind      = primitiveWind( data.Wind ) } );
+                                .Wind      = primitiveWind( data.Wind ),
+                                .Snapshot  = data.Transforms } );
 
         auto& rows = m_ScratchGpuSceneRows;
         registry.Sync( rigid, skinned, fields, rows );
@@ -1659,14 +1687,10 @@ namespace Desert::Graphic::System
             m_SkinnedQueue[i].GpuPrimitive = rows.SkinnedPrimitives[i];
             m_SkinnedQueue[i].GpuInstance  = rows.SkinnedInstances[i];
         }
-        m_InstancedGpuInstances.clear();
+        // A field's instances are one contiguous GpuScene run (GpuScene::AddPrimitive): instance i is row
+        // FirstGpuInstance + i, named directly (was a per-instance table rebuilt every frame, O(instances)).
         for ( size_t f = 0; f < m_InstancedQueue.size(); ++f )
-        {
-            auto& data            = m_InstancedQueue[f];
-            data.FirstGpuInstance = static_cast<uint32_t>( m_InstancedGpuInstances.size() );
-            for ( size_t instance = 0; instance < data.Transforms->size(); ++instance )
-                m_InstancedGpuInstances.push_back( rows.FieldInstances[f] + static_cast<uint32_t>( instance ) );
-        }
+            m_InstancedQueue[f].FirstGpuInstance = rows.FieldInstances[f];
         // The scene material table: the row of every (template, instance) a queued draw shades with, registered
         // here so the upload below puts it on the device before any pass names it (the draw paths only look rows
         // up). Rows are keyed by the template whose layout they have — the section's surface; the cell a pass

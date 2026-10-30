@@ -25,6 +25,8 @@
 
 #include <Engine/Runtime/SelectionContext.hpp>
 
+#include <cstring>
+
 namespace Desert::ECS
 {
     class MeshECSSystem : public System
@@ -453,8 +455,13 @@ namespace Desert::ECS
                          // carries a CO-OWNED snapshot, not the component's address: see the member's own
                          // note and Graphic::MaterialSlotBinding (A8-3). The comparison is what makes the
                          // snapshot impossible to leave stale.
-                         if ( !ism.RuntimeInstanceSnapshot() ||
-                              *ism.RuntimeInstanceSnapshot() != ism.GetInstanceTransforms() )
+                         // Bitwise, one memcmp (was vector<mat4>::operator!=, sixteen float compares per
+                         // instance every frame): a changed bit is a changed transform for the GPU rows too.
+                         const std::vector<glm::mat4>& authored = ism.GetInstanceTransforms();
+                         const auto&                   snapshot = ism.RuntimeInstanceSnapshot();
+                         if ( !snapshot || snapshot->size() != authored.size() ||
+                              std::memcmp( snapshot->data(), authored.data(),
+                                           authored.size() * sizeof( glm::mat4 ) ) != 0 )
                              ism.RuntimeInstanceSnapshot() =
                                   std::make_shared<const std::vector<glm::mat4>>( ism.GetInstanceTransforms() );
 

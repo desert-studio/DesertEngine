@@ -391,8 +391,8 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
-            // Where this field's GpuScene instances start in GetInstancedGpuInstances() (SyncGpuScene): instance
-            // i is GpuScene instance GetInstancedGpuInstances()[FirstGpuInstance + i] - its TLAS custom index and
+            // This field's first GpuScene instance (SyncGpuScene; a field's instances are one contiguous run):
+            // instance i is GpuScene instance FirstGpuInstance + i - its TLAS custom index and
             // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
             uint32_t FirstGpuInstance = 0;
         };
@@ -821,7 +821,7 @@ namespace Desert::Graphic::System
         {
             return m_GenericQueue;
         }
-        // This frame's ISM / foliage fields; with GetInstancedGpuInstances, one TLAS instance per field instance.
+        // This frame's ISM / foliage fields; one TLAS instance per field instance (FirstGpuInstance + i).
         [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
         {
             return m_InstancedQueue;
@@ -836,11 +836,6 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const GpuDriven::PrimitiveIndex> GetFieldPrimitives() const
         {
             return m_FieldPrimitives;
-        }
-        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstGpuInstance).
-        [[nodiscard]] std::span<const uint32_t> GetInstancedGpuInstances() const
-        {
-            return m_InstancedGpuInstances;
         }
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -2288,8 +2283,23 @@ namespace Desert::Graphic::System
         // Attaches (pass, view)'s issue to @p list when it is active this frame.
         void AttachBinned( MeshRendererDetail::MeshDrawList& list, GpuDriven::MeshPass pass,
                            uint32_t viewKey ) const;
-        std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;
-        std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_ScratchBinnedFeed;
+        // Per GpuScene primitive index (dense: the scene's rows are reused slots), the cache's entry and this
+        // feed's gather. Persistent, so a steady scene allocates nothing per frame (was two maps of per-primitive
+        // nodes and row vectors rebuilt and freed by every feed): Frame is this feed's when FrameFeed ==
+        // m_BinnedFeedSerial, Held is the cache's when IsHeld; publishing swaps the two (no copy).
+        struct BinnedFeedSlot
+        {
+            BinnedPrimitiveFeed Held;
+            BinnedPrimitiveFeed Frame;
+            uint64_t            FrameFeed = 0;
+            bool                IsHeld    = false;
+        };
+        std::vector<BinnedFeedSlot>            m_BinnedFeed;
+        std::vector<GpuDriven::PrimitiveIndex> m_BinnedFrameTouched; // this feed's primitives, first-claim order
+        std::vector<GpuDriven::PrimitiveIndex> m_BinnedHeld;         // every slot with IsHeld
+        uint64_t                               m_BinnedFeedSerial = 0;
+        // This feed's entry of @p primitive, else the cache's, else null (ResolveBinnedPipeline).
+        [[nodiscard]] const BinnedPrimitiveFeed* BinnedFeedOf( GpuDriven::PrimitiveIndex primitive ) const;
         std::unordered_set<std::string>                                    m_BinnedRefused; // said once each
         // The bins' PSOs BinnedCellPipeline found still compiling (their draws answered PipelineUnavailable): the
         // frame one of them leaves the driver, FeedDrawCommandCache re-resolves the cache's draws.
@@ -2363,7 +2373,6 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
-        std::vector<uint32_t>                m_InstancedGpuInstances; // see GetInstancedGpuInstances
         std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
         // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.
