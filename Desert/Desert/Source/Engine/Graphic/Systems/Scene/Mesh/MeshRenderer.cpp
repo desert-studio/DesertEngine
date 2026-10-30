@@ -818,7 +818,7 @@ namespace Desert::Graphic::System
         if ( !m_DrawCommandCache )
             m_DrawCommandCache = std::make_unique<GpuDriven::DrawCommandCache>(
                  [this]( const GpuDriven::MeshPass pass, const GpuDriven::PrimitiveIndex primitive,
-                         const Desert::Mesh&, const uint32_t submesh,
+                         const Desert::Mesh&, const uint32_t                             submesh,
                          const uint32_t materialRow ) -> GpuDriven::PassPipelineResolution
                  { return ResolveBinnedPipeline( pass, primitive, submesh, materialRow ); },
                  [this]( const GpuDriven::MeshPass pass, const GraphicsPipeline& group ) -> const GraphicsPipeline*
@@ -863,8 +863,8 @@ namespace Desert::Graphic::System
         const auto claim = [&feed, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
                                             const MeshVertexPath path, const uint32_t firstInstance,
                                             const uint32_t instanceCount, const uint64_t hidden,
-                                            const uint32_t row, const RowSurface surface, const bool generic = false,
-                                            const bool genericProgram = false )
+                                            const uint32_t row, const RowSurface surface,
+                                            const bool generic = false, const bool genericProgram = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;
@@ -897,7 +897,8 @@ namespace Desert::Graphic::System
         };
         for ( const auto& data : m_StaticQueue )
             if ( data.MaterialSlots )
-                if ( const auto slot = MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+                if ( const auto slot =
+                          MeshRendererDetail::SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
                      slot.Surface != nullptr )
                     claim( data.GpuPrimitive, data.Mesh, MeshVertexPath::Static, data.GpuInstance, 1,
                            data.HiddenSubmeshes, data.MaterialRow, RowSurface{ slot.Surface, slot.Instance } );

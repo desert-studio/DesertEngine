@@ -2316,8 +2316,8 @@ namespace Desert::Graphic::System
         // BinFallback::None = not drawn in the pass (translucent; a surface in DepthPrepass); + a fallback = drawn
         // there on the CPU path for that reason (no cell, bound textures, a movable caster in the VSM table).
         GpuDriven::PassPipelineResolution ResolveBinnedPipeline( GpuDriven::MeshPass       pass,
-                                                                 GpuDriven::PrimitiveIndex primitive, uint32_t submesh,
-                                                                 uint32_t                  materialRow );
+                                                                 GpuDriven::PrimitiveIndex primitive,
+                                                                 uint32_t submesh, uint32_t materialRow );
         const GraphicsPipeline*           BinnedCellPipeline( const std::string&      cellShader,
                                                               const GraphicsPipeline* passState, bool twoSided );
         // DrawCommandCache's GroupPipelineResolver: @p group's PSO with the `.VirtualGeometry` permutation of its
