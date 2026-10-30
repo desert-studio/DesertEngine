@@ -1,0 +1,22 @@
+# GP1-VIEWMODES (GP1 p8): the editor's view mode (Wireframe, World Normal) is the VIEWPORT's state and reaches the Play view by the same path as the edit view (UE: the PIE viewport inherits EViewModeIndex/ShowFlags).
+# Mirage's MainMenu is only a test scene (owner 10-30): its look is not judged here, only that each mode shows.
+Проект ../Mirage/Mirage.deproj
+Дано run Scene "Open Scene MainMenu.desce"
+Дано run View "View mode: Wireframe"
+Дано advance 0.3
+Тогда-вид edit_wireframe reference, edit view without Play: wireframe lines over a dark background
+Когда run View "View mode: World Normal"
+Когда advance 0.3
+Тогда-вид edit_worldnormal reference, edit view without Play: coloured world normals, not black
+Когда run View "View mode: Lit"
+Когда run Action "Play from Here"
+Когда advance 1
+Когда run View "View mode: Wireframe"
+Когда advance 0.3
+Тогда-вид play_wireframe Play view: the landscape's wireframe mesh over a dark background, not the lit frame
+Когда run View "View mode: World Normal"
+Когда advance 0.3
+Тогда-вид play_worldnormal Play view: coloured world normals of the dunes, not a black frame
+Когда run View "View mode: Lit"
+Когда advance 0.3
+Тогда-вид play_lit Play view: the ordinary lit menu background, as before the switches
