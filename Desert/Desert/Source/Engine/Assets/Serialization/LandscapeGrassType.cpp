@@ -65,7 +65,8 @@ namespace Desert::Assets::Serialization
                                         std::isfinite( b.Stiffness ) && std::isfinite( b.Clumping ) &&
                                         std::isfinite( b.ClumpPull ) && std::isfinite( b.ClumpSize ) &&
                                         std::isfinite( b.Scatter ) && std::isfinite( b.Patchiness ) &&
-                                        std::isfinite( b.PatchSize ) && std::isfinite( b.LodDistance );
+                                        std::isfinite( b.PatchSize ) && std::isfinite( b.LodDistance ) &&
+                                        std::isfinite( b.MinScreenWidth );
                     if ( !finite || !( b.Height > 0.0f ) || !( b.ClumpSize > 0.0f ) || !( b.PatchSize > 0.0f ) ||
                          !( b.LodDistance > 0.0f ) )
                         return Common::MakeFormattedError<bool>( "grass variety {} (Blade): Height {}, "
@@ -87,6 +88,10 @@ namespace Desert::Assets::Serialization
                              "grass variety {} (Blade): Tilt {} (0..60 degrees) "
                              "or FacingJitter {} (0..180 degrees) out of range",
                              i, b.Tilt, b.FacingJitter );
+                    if ( b.MinScreenWidth < 0.0f || b.MinScreenWidth > 16.0f )
+                        return Common::MakeFormattedError<bool>(
+                             "grass variety {} (Blade): MinScreenWidth {} is outside 0..16 pixels", i,
+                             b.MinScreenWidth );
                     if ( b.Curvature > 0.9f )
                         return Common::MakeFormattedError<bool>(
                              "grass variety {} (Blade): Curvature {} leaves the blade no height (at most 0.9)", i,

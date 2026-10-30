@@ -79,8 +79,9 @@ namespace Desert::Graphic::System
         float                  MaxWidth = 0.0f;
         float                  Clumping = 0.5f, ClumpSize = 35.0f, ClumpPull = 0.0f;
         float    Scatter = 0.0f, Patchiness = 0.0f, PatchSize = 800.0f;
-        uint32_t Segments    = 6;
-        float    LodDistance = 700.0f;
+        uint32_t Segments       = 6;
+        float    LodDistance    = 700.0f;
+        float    MinScreenWidth = 1.5f; // render pixels; 0 = no floor (Assets::Serialization::GrassBlade)
     };
 
     // THE VIEW'S FOLIAGE QUALITY (GRASS-DENSITY; UE sg.FoliageQuality: grass.DensityScale multiplies every

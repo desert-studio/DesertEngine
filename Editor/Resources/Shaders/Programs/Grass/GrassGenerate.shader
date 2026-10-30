@@ -7,6 +7,8 @@
 // side planes, and - past StartCullDistance - when its fade draw beats the distance share: (Start / d)^2, a blade's
 // screen area (GRASS-DENSITY), times UE's fade to zero at EndCullDistance - and a kept one widens by that share and
 // lowers over the band's last fifth, UE's
+// (and past the distance D where its mean blade stands MinScreenWidth pixels wide, (D / d)^2 kept and each card
+// lifted to that width - GRASS-WIDTH, no sub-pixel strip),
 // PerInstanceFadeAmount as its grass materials spend it (scale to nothing at EndCullDistance), so the field thins and
 // lowers into the ground instead of ending at a line. Kept instances are appended to their bucket of Instances (one
 // mat4 each, the InstanceTransforms of Mesh/Surface/Vertex_Instanced.glslh / Vertex_GrassBlade.glslh): a mesh has one
@@ -55,12 +57,15 @@ Shader "GrassGenerate"
             vec4  ScaleY;    // x/y = ScaleY range, z = bounds centre height (local)
             vec4  ScaleZ;    // x/y = ScaleZ range (up), w = the floor of the lens share (1 / DrawDistanceScale, at most 1; LensShare)
             uvec4 Info;      // x = layer, y = capacity, z = submesh count, w = seed
-            uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
+            uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args, z = a blade's card count
             vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
-            vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
-            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
+            vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm,
+                             // w = the screen-width floor's distance D (cm; 0: none), the mean blade MinScreenWidth px
+            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm),
+                             // w = the screen-width floor's width per unit of distance (MinScreenWidth px; 0: none)
             vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
+            vec4  CardWidths[2]; // a blade's cards' widths, cm at scale 1: card i at [i / 4][i % 4], Buckets.z cards
         };
 
         ReadBuffer(0) Field
@@ -352,7 +357,14 @@ Shader "GrassGenerate"
             float faded  = clamp( ( distance - p.Cull.x ) / max( p.Cull.y - p.Cull.x, 1.0 ), 0.0, 1.0 );
             float screen = p.Cull.x > 0.0 ? min( 1.0, ( p.Cull.x * p.Cull.x ) / max( distance * distance, 1.0 ) ) : 1.0;
             float kept   = screen * ( 1.0 - faded );
-            if ( fade >= kept )
+            // The screen-width floor (GRASS-WIDTH; GoT / UE landscape grass LOD): past D the mean blade would stand
+            // narrower than MinScreenWidth pixels, so the field keeps (D / d)^2 of its blades - the law the thinning
+            // above widens by (a survivor widened 1/sqrt(share): d / D here) - and each kept blade's own card is
+            // lifted to the floor width (below), so no blade strip goes sub-pixel. The same nested draw: a blade
+            // kept at d is kept nearer.
+            float floorShare =
+                p.Spread.w > 0.0 ? min( 1.0, ( p.Spread.w * p.Spread.w ) / max( distance * distance, 1.0 ) ) : 1.0;
+            if ( fade >= min( kept, floorShare ) )
                 return;
 
             // UE FGrassBuilderBase::GetRandomScale (Z is up, the engine's Y).
@@ -377,11 +389,21 @@ Shader "GrassGenerate"
             float widen = inversesqrt( share );
             scale.x *= widen;
             scale.z *= widen;
+            // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
+            // narrowest card's: the sphere tests take the widest the instance can become.
+            float floorBound = 0.0;
+            if ( p.Lean.w > 0.0 )
+            {
+                float narrowest = 1.0e30;
+                for ( uint i = 0u; i < min( p.Buckets.z, 8u ); ++i )
+                    narrowest = min( narrowest, p.CardWidths[i / 4u][i % 4u] );
+                floorBound = p.Lean.w * distance / max( narrowest, 1.0e-3 );
+            }
             scale.y *= 1.0 - clamp( ( faded - 0.8 ) / 0.2, 0.0, 1.0 );
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
             // bounding sphere; the camera's own list also inside the camera's.
-            float radius = p.Range.w * max( scale.x, max( scale.y, scale.z ) );
+            float radius = p.Range.w * max( max( scale.x, floorBound ), max( scale.y, scale.z ) );
             vec3  centre = position + vec3( 0.0, p.ScaleY.z * scale.y, 0.0 );
             bool  inCamera = true;
             for ( int i = 0; i < 4; ++i )
@@ -417,6 +439,16 @@ Shader "GrassGenerate"
                     yaw += ( Fraction( state ) * 2.0 - 1.0 ) * p.Lean.y;
                 scale.y *= mix( 1.0, clumpHeight, p.Blade.z );
                 draws = vec3( Fraction( state ), Fraction( state ), mix( Fraction( state ), clumpTint, p.Blade.z ) );
+                // The screen-width floor (GRASS-WIDTH): the card this instance draws (Mesh/Surface/GrassBlade.glslh
+                // BladeCard, from draws.x) stands at least MinScreenWidth pixels wide - its width scale lifted to
+                // Lean.w x d / its width - so no strip of the blade goes sub-pixel.
+                if ( p.Lean.w > 0.0 && p.Buckets.z > 0u )
+                {
+                    uint  count = min( p.Buckets.z, 8u );
+                    uint  card  = min( uint( draws.x * float( count ) ), count - 1u );
+                    float width = p.CardWidths[card / 4u][card % 4u];
+                    scale.x     = max( scale.x, p.Lean.w * distance / max( width, 1.0e-3 ) );
+                }
             }
             float c = cos( yaw ), s = sin( yaw );
             mat3  basis = mat3( vec3( c, 0.0, -s ), vec3( 0.0, 1.0, 0.0 ), vec3( s, 0.0, c ) );

@@ -118,6 +118,12 @@ namespace Desert::Assets::Serialization
         uint32_t Segments = 6;
         /// The distance, cm, over which a level is drawn before the next, coarser one.
         float LodDistance = 700.0f;
+        /// Pixels, 0..16: the narrowest a blade stands on screen (GRASS-WIDTH; GoT / UE landscape grass LOD).
+        /// Where the mean blade would draw narrower, the generator keeps fewer blades - the share
+        /// (w / MinScreenWidth)^2 of the field, the distance thinning's law - and lifts every kept card to
+        /// MinScreenWidth, so no blade triangle goes sub-pixel (a sub-pixel strip runs its pixel shader up to 4
+        /// times per covered pixel, quad overshade). 0 = no floor.
+        float MinScreenWidth = 1.5f;
 
         [[nodiscard]] bool operator==( const GrassBlade& ) const = default;
     };

@@ -693,7 +693,8 @@ namespace Desert::ECS
                                                                          .Patchiness      = b.Patchiness,
                                                                          .PatchSize       = b.PatchSize,
                                                                          .Segments        = b.Segments,
-                                                                         .LodDistance     = b.LodDistance };
+                                                                         .LodDistance     = b.LodDistance,
+                                                                         .MinScreenWidth  = b.MinScreenWidth };
                     }
                     auto& p                     = variety.Placement;
                     p.Density                   = v.Density;
