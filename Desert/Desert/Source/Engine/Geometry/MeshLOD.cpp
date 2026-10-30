@@ -26,7 +26,7 @@ namespace Desert::Geometry
         for ( float ratio : kLODRatios )
         {
             const auto lod = SimplifyMesh( positions, vertexCount, flat, ratio, kNoErrorLimit, attributes );
-            LOG_INFO( "[MeshLOD] ratio {:.2f}: target {} tris, result {} of {} tris, error {:.4f}{}", ratio,
+            LOG_INFO( "[MeshLOD] ratio {:.2f}: target {} tris, result {} of {} tris, deviation {:.4f} of the extent{}", ratio,
                       static_cast<std::size_t>( flat.size() * ratio ) / 3, lod.Indices.size() / 3, flat.size() / 3,
                       lod.Error, attributes ? "" : " (positions only)" );
             if ( !lod.StopReason.empty() )
