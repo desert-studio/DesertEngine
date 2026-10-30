@@ -9,6 +9,7 @@
 //   Layout  - UE ModelingOperators/Private/ParameterizationOps/UVLayoutOp.cpp (Repack through the
 //             FDynamicMeshUVPacker, then UVScaleFactor and UVTranslation; Transform only applies those two).
 #include "Engine/Geometry/DynamicMeshUVOperations.hpp"
+#include "Engine/Geometry/DynamicMeshSelection.hpp" // AllTriangleIds
 
 #include "Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp"
 #include "Engine/Geometry/MeshCore/DynamicMesh/Parameterization/DynamicMeshUVEditor.hpp"
@@ -39,15 +40,6 @@ namespace Desert::Geometry
             if ( mesh.Attributes()->NumUVLayers() < 1 )
                 mesh.Attributes()->SetNumUVLayers( 1 );
             return *mesh.Attributes()->PrimaryUV();
-        }
-
-        std::vector<int32_t> AllTriangles( const DynamicMesh3& mesh )
-        {
-            std::vector<int32_t> out;
-            out.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
-            for ( const int tid : mesh.TriangleIndicesItr() )
-                out.push_back( tid );
-            return out;
         }
 
         // The UV islands: triangles with UVs, connected through shared UV elements.
@@ -202,7 +194,7 @@ namespace Desert::Geometry
         DynamicMesh3          out = mesh;
         DynamicMeshUVOverlay& uvs = PrepareUVLayer( out );
         DynamicMeshUVEditor   editor( &out, &uvs );
-        editor.ResetUVs( AllTriangles( out ) );
+        editor.ResetUVs( AllTriangleIds( out ) );
 
         // Step 1-2: patches, grown from each unassigned triangle while a neighbour's normal stays within the
         // deviation bound of the patch's area-weighted normal (and, with RespectPolygroups, in its polygroup).
@@ -336,7 +328,7 @@ namespace Desert::Geometry
         DynamicMeshUVEditor   editor( &out, &uvs );
         const auto            toWorld = [&]( const glm::dvec3& p )
         { return glm::dvec3( meshToWorld * glm::dvec4( p, 1.0 ) ); };
-        const auto            triangles = AllTriangles( out );
+        const auto            triangles = AllTriangleIds( out );
         switch ( settings.Type )
         {
             case UVProjectionType::Plane:
@@ -392,7 +384,7 @@ namespace Desert::Geometry
         }
 
         DynamicMeshUVEditor editor( &out, &uvs );
-        editor.ResetUVs( AllTriangles( out ) );
+        editor.ResetUVs( AllTriangleIds( out ) );
         const int32_t projected = SolveIslands( out, editor, islands, settings.Method );
         if ( settings.NormalizeAreas )
             for ( const std::vector<int32_t>& island : islands )

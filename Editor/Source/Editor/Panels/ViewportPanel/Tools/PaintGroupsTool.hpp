@@ -2,8 +2,7 @@
 
 #include <Common/Core/Math/Ray.hpp>
 #include <Common/Core/UUID.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMesh3.hpp>
-#include <Engine/Geometry/MeshCore/Spatial/MeshAABBTree3.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 
 #include <glm/glm.hpp>
 

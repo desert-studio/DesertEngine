@@ -379,4 +379,13 @@ namespace Desert::Geometry
     {
         return PruneIn( DynamicMeshElements( mesh ) );
     }
+
+    std::vector<int> AllTriangleIds( const DynamicMesh3& mesh )
+    {
+        std::vector<int> out;
+        out.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
+        for ( const int tid : mesh.TriangleIndicesItr() )
+            out.push_back( tid );
+        return out;
+    }
 } // namespace Desert::Geometry

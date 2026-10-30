@@ -127,7 +127,7 @@ namespace Desert::Geometry
             return sign;
         }
 
-        struct Reader
+        struct SavedFormReader
         {
             const MeshSavedForm&  Saved;
             std::string_view      Owner;
@@ -357,7 +357,7 @@ namespace Desert::Geometry
             (void)mesh.AppendVertex(
                  glm::dvec3( saved.Positions[v * 3], saved.Positions[v * 3 + 1], saved.Positions[v * 3 + 2] ) );
 
-        Reader reader{ saved, owner, mesh, {}, {} };
+        SavedFormReader reader{ saved, owner, mesh, {}, {} };
         reader.SavedTriangles.reserve( triangleCount );
         reader.TriangleIds.reserve( triangleCount );
         for ( size_t row = 0; row < triangleCount; ++row )

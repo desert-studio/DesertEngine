@@ -360,4 +360,14 @@ namespace Desert::Geometry
                                   newVertices );
         return Common::MakeSuccess( std::move( out ) );
     }
+
+    std::vector<std::vector<int>> HoleBoundaryLoops( const DynamicMesh3& mesh )
+    {
+        const MeshBoundaryLoops       boundary( &mesh );
+        std::vector<std::vector<int>> holes;
+        holes.reserve( boundary.m_Loops.size() );
+        for ( const EdgeLoop& loop : boundary.m_Loops )
+            holes.push_back( loop.Vertices );
+        return holes;
+    }
 } // namespace Desert::Geometry

@@ -27,10 +27,6 @@ project "Render2DCore"
         externalincludedirs { path }
     end
 
-    for name, path in pairs(deps.CommonSpecific.IncludeDir) do
-        externalincludedirs { path }
-    end
-
     for _, define in ipairs(deps.Common.Defines) do
         defines { define }
     end

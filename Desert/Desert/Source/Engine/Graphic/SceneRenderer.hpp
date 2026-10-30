@@ -1626,6 +1626,8 @@ namespace Desert::Graphic
         // with which every translucent surface after it evaluates the same fog at its own depth
         // (Mesh/Surface/SceneFog.glslh over Common/ViewFog.glslh). The froxels are AddFrameVolumetricFog's, added
         // just before.
+        // It adds no apply in a G-buffer view (IsGBufferView, DebugViewState.hpp: the stored surface value, no
+        // fog over it; the translucency's fog inputs are still published).
         void AddFrameAtmosphericFog( RDG::Builder& graph, FrameTextures& textures );
         // The volumetric fog's two compute nodes (VolumetricFogRenderer), after the light grid and the shadow
         // depths, before AddFrameAtmosphericFog, which composes its integrated volume.

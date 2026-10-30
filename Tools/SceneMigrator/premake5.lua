@@ -131,7 +131,6 @@ project "SceneMigrator"
     includedirs(DesertModuleLibs.IncludeDirs())
     externalincludedirs {
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/entt/include",         -- PrefabData reaches ECS headers
-        "%{_MAIN_SCRIPT_DIR}/ThirdParty/reflect-cpp/include",  -- the scene tree is rfl::Generic
         "%{_MAIN_SCRIPT_DIR}/Editor/Resources/Shaders",        -- LandscapeData.cpp compiles LandscapeHeight.glslh as C++
     }
 
