@@ -232,19 +232,28 @@ namespace Desert::Graphic
         // what a reflection shows.
         if ( m_ViewProfile.SceneCapture )
             return;
+        // The UI point draws on the display-referred final image (GetDisplayFramebuffer), after the post chain;
+        // every other point on the scene target (or its OUTPUT-extent overlay set).
+        const std::shared_ptr<Framebuffer> target =
+             point == RDG::ExtensionPoint::UI ? GetDisplayFramebuffer() : m_TargetFramebuffer;
+        if ( !target )
+            return;
         m_FrameExtensions->ForEachAt(
              point,
              [&]( const ExtensionPass& extension )
              {
                  // The context is made when the graph calls the pass (Declare while it is built, Execute when it
                  // runs), from this renderer's state then: the camera, the target a resize may have recreated.
-                 const auto context = [this]( const FrameGraphRefs& refs )
+                 const bool display = point == RDG::ExtensionPoint::UI;
+                 const auto context = [this, display]( const FrameGraphRefs& refs )
                  {
+                     const std::shared_ptr<Framebuffer> drawn =
+                          display ? GetDisplayFramebuffer() : m_TargetFramebuffer;
                      ExtensionPassContext ctx;
                      ctx.Camera       = GetMainCamera();
-                     ctx.Target       = m_TargetFramebuffer.get();
-                     ctx.Depth        = m_TargetFramebuffer && m_TargetFramebuffer->GetDepthAttachmentCount() > 0
-                                             ? m_TargetFramebuffer->GetDepthAttachmentImage().get()
+                     ctx.Target       = drawn.get();
+                     ctx.Depth        = drawn && drawn->GetDepthAttachmentCount() > 0
+                                             ? drawn->GetDepthAttachmentImage().get()
                                              : nullptr;
                      ctx.ScenePlaying = IsScenePlaying();
                      ctx.Renderer     = this;
@@ -255,7 +264,7 @@ namespace Desert::Graphic
                  // graph built this frame still holds the node.
                  SystemRasterPass node;
                  node.Name              = extension.Name;
-                 node.TargetFramebuffer = m_TargetFramebuffer;
+                 node.TargetFramebuffer = target;
                  node.ExecuteFunc =
                       [context, execute = extension.Execute]( RDG::PassContext& pass, const FrameGraphRefs& refs )
                  { return execute( context( refs ), pass ); };
@@ -263,8 +272,8 @@ namespace Desert::Graphic
                      node.Declare = [context, declare = extension.Declare]( RenderPassDeclaration& declared,
                                                                             const FrameGraphRefs&  refs )
                      { declare( declared, context( refs ) ); };
-                 AddPassNode( graph, textures, node, m_TargetFramebuffer, node.Name, RDG::LoadOp::Load(),
-                              RDG::LoadOp::Load(), overlay );
+                 AddPassNode( graph, textures, node, target, node.Name, RDG::LoadOp::Load(), RDG::LoadOp::Load(),
+                              overlay );
              } );
     }
 

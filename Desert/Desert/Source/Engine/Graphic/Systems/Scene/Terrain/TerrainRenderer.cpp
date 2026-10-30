@@ -476,6 +476,12 @@ namespace Desert::Graphic::System
         // The VSM permutation's pipeline follows the target layout: built again on the next frame that asks.
         m_PipelineVsm.reset();
         m_PipelineVsmRefused = false;
+#if DESERT_DEV_INSTRUMENTS
+        // The twins follow their solid pipelines' layout: built again on the next wireframe frame.
+        m_WireframePipeline.reset();
+        m_WireframeVsmPipeline.reset();
+        m_WireframeRefused = false;
+#endif
         m_Pipeline = CreateTerrainPipeline( m_SceneRenderer, "Terrain", "TerrainPipeline", SceneTargetLayout(), error,
                                             TerrainDepthState::BasePass );
         if ( !m_Pipeline )
@@ -1102,6 +1108,36 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
+    GraphicsPipeline* TerrainRenderer::BasePassPipeline()
+    {
+        GraphicsPipeline* const solid = ForwardPipeline().get();
+#if DESERT_DEV_INSTRUMENTS
+        if ( !m_Wireframe || solid == nullptr || m_WireframeRefused )
+            return solid;
+        std::shared_ptr<GraphicsPipeline>& twin = m_ForwardVirtual ? m_WireframeVsmPipeline : m_WireframePipeline;
+        if ( !twin )
+        {
+            // The solid spec with the line polygon mode (device feature fillModeNonSolid), writing its own depth:
+            // the wireframe view is not prepassed (MeshRendererForward's StaticMeshWireframe).
+            GraphicsPipelineSpecification spec = solid->GetSpecification();
+            spec.DebugName += "|Wireframe";
+            spec.PolygonMode       = PrimitivePolygonMode::Wireframe;
+            spec.DepthWriteEnabled = true;
+            const auto created     = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+            if ( !created )
+            {
+                m_WireframeRefused = true;
+                LOG_ERROR( "[TerrainRenderer] the wireframe view draws the ground solid: {}", created.GetError() );
+                return solid;
+            }
+            twin = created.GetValue();
+        }
+        return twin.get();
+#else
+        return solid;
+#endif
+    }
+
     SystemRasterPass TerrainRenderer::GeometryPass()
     {
         auto targetFb = m_TargetFramebuffer.lock();
@@ -1125,7 +1161,7 @@ namespace Desert::Graphic::System
                                    // Through the blocks declared below (the scene/view inputs Terrain.shader
                                    // samples - the cloud shadow map - are entries of them).
                                    (void)refs;
-                                   return RecordDraws( context, 0, *ForwardPipeline(), ForwardProgram(),
+                                   return RecordDraws( context, 0, *BasePassPipeline(), ForwardProgram(),
                                                        m_SceneRenderer->GetViewFrame()->JitteredViewProjection,
                                                        m_FrameDraws );
                                },
@@ -1140,7 +1176,7 @@ namespace Desert::Graphic::System
                 return;
             }
             const SceneViewInputs view = SceneViewInputsOf( refs );
-            (void)DeclareGroupBlocks( declared, ForwardPipeline().get(),
+            (void)DeclareGroupBlocks( declared, BasePassPipeline(),
                                       m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout,
                                       GroupExecutors( ForwardProgram() ), &view, m_DicePool );
         };
@@ -1180,7 +1216,7 @@ namespace Desert::Graphic::System
         // no scene/view input.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
              m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
-             m_ForwardRefused )
+             m_ForwardRefused || WireframeView() )
         {
             return;
         }
@@ -1190,9 +1226,10 @@ namespace Desert::Graphic::System
 
     Common::BoolResultStr TerrainRenderer::RenderDepthManual( const RDG::PassContext& context )
     {
+        // The wireframe view's base pass writes its own depth (BasePassPipeline): not prepassed, as the meshes'.
         if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred ||
              m_SceneRenderer->GetMainCamera() == nullptr || !m_DepthPipeline || m_FrameDraws.empty() ||
-             m_ForwardRefused )
+             m_ForwardRefused || WireframeView() )
             return BOOLSUCCESS;
         // The base pass's very matrix (GeometryPass), so both rasterise the same depth.
         return RecordDraws( context, 0, *m_DepthPipeline, &ProgramMaterials::Depth,

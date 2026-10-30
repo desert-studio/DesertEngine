@@ -756,6 +756,12 @@ namespace Desert::Graphic
         uint32_t                 GetShadowCascadeCount();
 
         const std::shared_ptr<Image2D>      GetFinalImage();
+        // THE DISPLAY-REFERRED FINAL IMAGE'S FRAMEBUFFER: the last post pass's output (tonemap, or FXAA / SMAA
+        // after it), the image the viewport shows. The game UI draws on it after the post chain
+        // (RDG::ExtensionPoint::UI, UE: Slate/UMG over the final image), so its pipelines are built against it.
+        // Every AA mode's output has the one format (ViewTargetFormats::kTonemap), so a pipeline built against one
+        // is compatible with all. Null before Init.
+        std::shared_ptr<Framebuffer> GetDisplayFramebuffer() const;
         // The single-sample scene depth compute passes sample (height fog, volumetric clouds): the scene depth
         // itself at MSAA 1, SceneDepthResolved at MSAA > 1 ("Scene: DepthResolve"); null when that failed to
         // build.

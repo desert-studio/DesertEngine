@@ -1315,9 +1315,13 @@ namespace Desert::Graphic
         // registered there — the same UNIQUE_GET_AS every neighbouring line uses.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
         UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] )
-             ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop );
+             ->SetBackdropVisible( m_DebugView.ShowSkyBackdrop && !m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetWireframe( m_DebugView.WireframeMode );
+        // The ground in the wireframe view too (UE draws every primitive kind through its wireframe pass).
+        if ( const auto it = m_RenderSystems.find( "TerrainSystem" ); it != m_RenderSystems.end() && it->second )
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            UNIQUE_GET_AS( System::TerrainRenderer, it->second )->SetWireframe( m_DebugView.WireframeMode );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
              ->SetLODEnabled( quality.As<bool>( Parameter::MeshLOD ) );
         UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )
@@ -2369,8 +2373,9 @@ namespace Desert::Graphic
         // which the capture marches through, is still written.
         // The opaque fog (and the fog inputs every translucent draw reads) was added in both paths before the
         // scene copy (AddFrameOpaqueFog; a G-buffer view adds its inputs but not its apply); a path-traced frame
-        // added none, so its sky LUTs are added here. A G-buffer view (IsGBufferView) composites no cloud layer.
-        if ( !pathTraced && !IsGBufferView( m_DebugView.DeferredDebug ) )
+        // added none, so its sky LUTs are added here. A G-buffer or wireframe view (HidesAtmosphere) composites no
+        // cloud layer.
+        if ( !pathTraced && !m_DebugView.HidesAtmosphere() )
             AddFrameVolumetricClouds( graph, textures, frame );
         else
         {
@@ -2487,14 +2492,6 @@ namespace Desert::Graphic
        // The editor's authoring overlays (colliders, cubemap preview) over the engine's debug lines.
             AddExtensionPoint( graph, textures, RDG::ExtensionPoint::Overlay, overlay );
 
-            // The pyramid the UI samples. The UI pass that samples it declares that read itself (the editor's UI
-            // pass, through ExtensionPass::Declare), and the graph orders it after the blur.
-            if ( m_BackdropBlurNeeded )
-                AddFrameBackdropBlur( graph, textures, postInput );
-
-            // The UI canvas, last before the post chain.
-            AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, overlay );
-
             // The outline composites over the post input and hands the tonemap its result: the tonemap reading
             // the post input directly left the composite's output unread, so no selection was ever outlined.
             const RDG::TextureRef postSource = postInput.empty() ? RDG::TextureRef{} : postInput.front();
@@ -2516,6 +2513,19 @@ namespace Desert::Graphic
             else if ( m_AAMode == Common::Scalability::AntiAliasingMethod::SMAA )
             {
                 AddFrameSMAA( graph, textures );
+            }
+
+            // THE GAME UI OVER THE FINAL IMAGE (UE: Slate/UMG draw over the display-referred final image, after
+            // the tonemapper). The canvas holds display-encoded colours: drawn before the post chain it was
+            // exposed, tonemapped and bloomed as scene light, and a buffer view (World Normal...), which skips the
+            // exposure, turned the menu white. The glass's pyramid is the final image under it, the picture the
+            // player sees.
+            if ( const std::shared_ptr<Image2D> display = GetFinalImage() )
+            {
+                const RDG::TextureRef displayRef = textures.Import( display, "Display" );
+                if ( m_BackdropBlurNeeded && displayRef.IsValid() )
+                    AddFrameBackdropBlur( graph, textures, { displayRef } );
+                AddExtensionPoint( graph, textures, RDG::ExtensionPoint::UI, {} );
             }
             handed     = GetFinalImage();
             handedName = "final image";
@@ -4184,7 +4194,7 @@ namespace Desert::Graphic
         return static_cast<const System::TonemapRenderer*>( it->second.get() )->GetHdrRenditionImage();
     }
 
-    const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
+    std::shared_ptr<Desert::Graphic::Framebuffer> SceneRenderer::GetDisplayFramebuffer() const
     {
         // FXAA/SMAA write their own framebuffer downstream of tonemap; otherwise tonemap output IS final.
         const char* finalSystem = "TonemapSystem";
@@ -4196,10 +4206,16 @@ namespace Desert::Graphic
         {
             finalSystem = "SMAASystem";
         }
+        const auto found = m_RenderSystems.find( finalSystem );
+        if ( found == m_RenderSystems.end() || !found->second )
+            return nullptr;
+        return std::static_pointer_cast<System::RenderSystem>( found->second )->GetSystemFramebuffer();
+    }
 
-        return std::static_pointer_cast<System::RenderSystem>( m_RenderSystems[finalSystem] )
-             ->GetSystemFramebuffer()
-             ->GetColorAttachmentImage();
+    const std::shared_ptr<Desert::Graphic::Image2D> SceneRenderer::GetFinalImage()
+    {
+        const std::shared_ptr<Framebuffer> display = GetDisplayFramebuffer();
+        return display ? display->GetColorAttachmentImage() : nullptr;
     }
 
     void SceneRenderer::AddPointLight( const ShaderProtocols::PointLightPayload& pointLight,
