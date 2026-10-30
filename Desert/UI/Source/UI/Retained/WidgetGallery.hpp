@@ -3,6 +3,7 @@
 #include <UI/Retained/WidgetTree.hpp>
 
 #include <string>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -23,6 +24,11 @@ namespace Desert::UI
         std::string LastPick = "none";
         float       Speed    = 1.0f;                          // the NumberField row
         glm::vec3   Tint     = glm::vec3( 0.80f, 0.50f, 0.20f ); // the ColorField row
+
+        // The drag-and-drop row: two lists an item is dragged between (typed payload "gallery.item"), and a
+        // well that takes only colours ("gallery.color") and so refuses every item.
+        static constexpr std::size_t kDragSlots = 3;
+        std::vector<std::string>     DragLists[2] = { { "Rock", "Tree", "Bush" }, {} };
     };
 
     // Build the gallery into @p tree as a new root canvas bound to @p model; returns the canvas. @p model must

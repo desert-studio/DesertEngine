@@ -2,6 +2,7 @@
 
 #include <UI/Retained/WidgetBuilder.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <memory>
@@ -13,6 +14,116 @@ namespace Desert::UI
 {
     namespace
     {
+        // What a "gallery.item" drag carries: the item, and the list it was picked up from.
+        struct GalleryItemDrag
+        {
+            std::size_t From = 0;
+            std::string Name;
+        };
+        constexpr std::string_view kGalleryItemType  = "gallery.item";
+        constexpr std::string_view kGalleryColorType = "gallery.color";
+
+        // One list of the drag row: a plate of kDragSlots chips, each showing the item in its slot (hidden past
+        // the list's end) and starting a drag of it; the plate takes items from the other list while it has room.
+        WidgetDecl GalleryDragList( WidgetGalleryModel* m, std::size_t list, const std::string& name,
+                                    glm::vec3 color )
+        {
+            using namespace Widgets;
+            std::vector<WidgetDecl> chips;
+            for ( std::size_t slot = 0; slot < WidgetGalleryModel::kDragSlots; ++slot )
+            {
+                const std::string chip = name + ".Item." + std::to_string( slot );
+                WidgetDecl label = Text( chip + ".Label", Attribute<std::string>::Bound(
+                                                              [m, list, slot]
+                                                              {
+                                                                  const auto& items = m->DragLists[list];
+                                                                  if ( slot < items.size() )
+                                                                      return items[slot];
+                                                                  return std::string();
+                                                              } ),
+                                         16.0f );
+                label.Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } ).Offsets( { 0.0f, 0.0f }, { 0.0f, 0.0f } );
+                std::vector<WidgetDecl> chipChildren;
+                chipChildren.push_back( std::move( label ) );
+
+                WidgetDecl item = Panel( chip, glm::vec3( 0.30f, 0.34f, 0.44f ) );
+                item.Size( { 64.0f, 32.0f } )
+                     .Bind<UILayoutData, UIVisibility>( &UILayoutData::Visibility,
+                                                        Attribute<UIVisibility>::Bound(
+                                                             [m, list, slot]
+                                                             {
+                                                                 if ( slot < m->DragLists[list].size() )
+                                                                     return UIVisibility::Visible;
+                                                                 return UIVisibility::Hidden;
+                                                             } ) )
+                     .OnDragDetected(
+                          [m, list, slot]() -> UIDragPayload
+                          {
+                              const auto& items = m->DragLists[list];
+                              if ( slot >= items.size() )
+                                  return {}; // an empty slot carries nothing: no drag
+                              UIDragDecorator decorator;
+                              decorator.Label = items[slot];
+                              return UIDragPayload::Make( std::string( kGalleryItemType ),
+                                                          GalleryItemDrag{ list, items[slot] }, decorator );
+                          } )[std::move( chipChildren )];
+                chips.push_back( std::move( item ) );
+            }
+
+            WidgetDecl row = HorizontalBox( name + ".Items", 6.0f );
+            row.Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } ).Offsets( { 8.0f, 20.0f }, { -8.0f, -20.0f } );
+            row[std::move( chips )];
+            std::vector<WidgetDecl> plateChildren;
+            plateChildren.push_back( std::move( row ) );
+
+            WidgetTree::DropHandler takeItem;
+            takeItem.Type    = std::string( kGalleryItemType );
+            takeItem.Accepts = [m, list]( const UIDragPayload& p )
+            {
+                const GalleryItemDrag* drag = p.As<GalleryItemDrag>();
+                return drag != nullptr &&
+                       ( drag->From == list || m->DragLists[list].size() < WidgetGalleryModel::kDragSlots );
+            };
+            takeItem.OnDrop = [m, list]( const UIDragPayload& p )
+            {
+                const GalleryItemDrag* drag = p.As<GalleryItemDrag>();
+                if ( drag == nullptr || drag->From == list )
+                    return; // dropped back where it came from: nothing moves
+                auto&      from = m->DragLists[drag->From];
+                const auto it   = std::find( from.begin(), from.end(), drag->Name );
+                if ( it == from.end() )
+                    return; // the model moved under the drag: the item is no longer there to take
+                from.erase( it );
+                m->DragLists[list].push_back( drag->Name );
+            };
+
+            WidgetDecl plate = Panel( name, color );
+            plate.Size( { 220.0f, 72.0f } ).OnDrop( std::move( takeItem ) )[std::move( plateChildren )];
+            return plate;
+        }
+
+        // The well that refuses items: a drop target for colours only, which writes the colour dropped.
+        WidgetDecl GalleryColourWell( WidgetGalleryModel* m )
+        {
+            using namespace Widgets;
+            WidgetDecl label = Text( "Gallery.DragWell.Label", std::string( "Colours only" ), 16.0f );
+            label.Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } ).Offsets( { 0.0f, 0.0f }, { 0.0f, 0.0f } );
+            std::vector<WidgetDecl> children;
+            children.push_back( std::move( label ) );
+
+            WidgetTree::DropHandler takeColour;
+            takeColour.Type   = std::string( kGalleryColorType );
+            takeColour.OnDrop = [m]( const UIDragPayload& p )
+            {
+                if ( const glm::vec3* colour = p.As<glm::vec3>() )
+                    m->Tint = *colour;
+            };
+
+            WidgetDecl well = Panel( "Gallery.DragWell", glm::vec3( 0.28f, 0.22f, 0.24f ) );
+            well.Size( { 180.0f, 72.0f } ).OnDrop( std::move( takeColour ) )[std::move( children )];
+            return well;
+        }
+
         // The paint leaf's own drawing (Widgets::PaintBox): a framed plate, a ring, a triangle and a wave, all
         // from the box it is handed — nothing here is a widget the renderer knows.
         void PaintGalleryShape( const UIPaintArgs& a )
@@ -105,7 +216,7 @@ namespace Desert::UI
         return Canvas( "Gallery" )[ {
                     Panel( "Gallery.Background" )
                          .Anchors( { 0.5f, 0.5f }, { 0.5f, 0.5f } )
-                         .Offsets( { -340.0f, -300.0f }, { 340.0f, 300.0f } )[ {
+                         .Offsets( { -340.0f, -300.0f }, { 340.0f, 356.0f } )[ {
                               VerticalBox( "Gallery.Column", 10.0f )
                                    .Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } )
                                    .Offsets( { 0.0f, 0.0f }, { 0.0f, 0.0f } )[ {
@@ -165,6 +276,16 @@ namespace Desert::UI
                                                   VerticalBox( "Gallery.List.Rows", 4.0f )
                                                        .Anchors( { 0.0f, 0.0f }, { 1.0f, 0.0f } )
                                                        .Offsets( { 0.0f, 0.0f }, { 0.0f, 5.0f * 36.0f } )[ rows ],
+                                             } ],
+                                        // The drag-and-drop row (typed payload, UIDragDrop.hpp): list A | list
+                                        // B | a well that takes colours only.
+                                        HorizontalBox( "Gallery.DragRow", 10.0f )
+                                             .Size( { 640.0f, 72.0f } )[ {
+                                                  GalleryDragList( m, 0, "Gallery.DragA",
+                                                                   glm::vec3( 0.18f, 0.24f, 0.30f ) ),
+                                                  GalleryDragList( m, 1, "Gallery.DragB",
+                                                                   glm::vec3( 0.20f, 0.28f, 0.22f ) ),
+                                                  GalleryColourWell( m ),
                                              } ],
                                    } ],
                          } ],
