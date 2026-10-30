@@ -9,10 +9,12 @@ namespace Desert::Geometry
 {
     std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
                                                        const std::vector<Index>& localTris,
+                                                       const LODChainSettings&   chain,
                                                        const float*              attributes )
     {
+        const std::vector<uint32_t> targets = LODChainTargets( static_cast<uint32_t>( localTris.size() ), chain );
         std::vector<std::vector<Index>> levels;
-        levels.reserve( sizeof( kLODRatios ) / sizeof( kLODRatios[0] ) );
+        levels.reserve( targets.size() );
 
         std::vector<uint32_t> flat;
         flat.reserve( localTris.size() * 3 );
@@ -24,15 +26,17 @@ namespace Desert::Geometry
         }
 
         std::size_t prevCount = flat.size(); // each level must strictly decrease
-        for ( float ratio : kLODRatios )
+        for ( std::size_t level = 0; level < targets.size(); ++level )
         {
+            // The share whose index count SimplifyMesh floors to exactly the target's triangles.
+            const float ratio =
+                 ( static_cast<float>( targets[level] ) + 0.5f ) / static_cast<float>( localTris.size() );
             const auto lod = SimplifyMesh( positions, vertexCount, flat, ratio, kNoErrorLimit, attributes );
-            LOG_INFO(
-                 "[MeshLOD] ratio {:.2f}: target {} tris, result {} of {} tris, deviation {:.4f} of the extent{}",
-                 ratio, static_cast<std::size_t>( flat.size() * ratio ) / 3, lod.Indices.size() / 3,
-                 flat.size() / 3, lod.Error, attributes ? "" : " (positions only)" );
+            LOG_INFO( "[MeshLOD] LOD {}: target {} tris, result {} of {} tris, deviation {:.4f} of the extent{}",
+                      level + 1, targets[level], lod.Indices.size() / 3, flat.size() / 3, lod.Error,
+                      attributes ? "" : " (positions only)" );
             if ( !lod.StopReason.empty() )
-                LOG_WARN( "[MeshLOD] ratio {:.2f} stopped short of its target: {}", ratio, lod.StopReason );
+                LOG_WARN( "[MeshLOD] LOD {} stopped short of its target: {}", level + 1, lod.StopReason );
             std::vector<Index> tris;
             if ( lod.Indices.size() >= 3 && lod.Indices.size() < prevCount )
             {
@@ -97,7 +101,8 @@ namespace Desert::Geometry
                     pos.push_back( vertex.Position.z );
                     AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
                 }
-                levels = SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, attrs.data() );
+                levels =
+                     SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, LODChainSettings{}, attrs.data() );
             }
 
             for ( const auto& lvl : levels )

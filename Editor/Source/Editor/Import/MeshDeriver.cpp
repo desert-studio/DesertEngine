@@ -76,7 +76,8 @@ namespace Desert::Editor
                 localTris.push_back( { idx.V1, idx.V2, idx.V3 } );
             }
 
-            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, attrs.data() );
+            const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris,
+                                                             Geometry::LODChainSettings{}, attrs.data() );
             sm.LODs.clear();
             sm.LODs.reserve( levels.size() );
             for ( const auto& lvl : levels )
