@@ -57,6 +57,9 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutPatternTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutMaskTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudAuthoredAtlasTexture );
+        // The cloud shadow map as the march's far shadow term - a SAMPLED read under its own name, since the
+        // producer's CloudShadowMapTexture above is the storage image it writes.
+        DESERT_SHADER_PARAMETER( Texture, CloudSelfShadowMapTexture );
     };
 } // namespace
 
@@ -176,6 +179,14 @@ namespace Desert::Graphic::System
         if ( !m_ShadowParamsBuffer )
             return Common::MakeError(
                  "VolumetricCloudRenderer: could not create the cloud shadow parameter buffer" );
+
+        // The march's view of this frame's shadow map (Graphic::CloudSelfShadowParams), on the same
+        // non-persistent terms: written every frame beside the march's own block, read by the march alone.
+        m_SelfShadowParamsBuffer = ShaderResources::StorageBuffer::Create(
+             "CloudSelfShadowParams", kCloudSelfShadowParamsBytes, kCloudSelfShadowBinding, /*persistent=*/false );
+        if ( !m_SelfShadowParamsBuffer )
+            return Common::MakeError(
+                 "VolumetricCloudRenderer: could not create the cloud self-shadow parameter buffer" );
 
         // Slot A's instance list, doubled for the same reason the parameter block is: two dispatches on
         // opposite sides of the render graph read it. Non-persistent, so the backend keeps one copy per
@@ -1248,12 +1259,17 @@ namespace Desert::Graphic::System
         if ( !m_ShadowMapPipeline || !m_ShadowParamsBuffer )
             return nodes;
 
-        // THE ZERO-COST LADDER, and it is the same one the march has, plus the two fields this task
-        // added. A scene with no cloud component, with the clouds off, with casting off or with the
-        // strength at zero dispatches nothing and — because the transient is declared below this line and
-        // not above it — the graph places no memory for it either. The editor builds a SceneRenderer for every
+        // THE ZERO-COST LADDER, and it is the march's own: a scene with no cloud component or with the
+        // clouds off dispatches nothing and — because the transient is declared below this line and not
+        // above it — the graph places no memory for it either. The editor builds a SceneRenderer for every
         // asset thumbnail and every mesh preview, and none of them has a sky.
-        if ( GetShadowStrength() <= 0.0f )
+        //
+        // NOT GATED ON CASTING ANY MORE (GPU-CLOUD-MARCH). The map is also the far half of the clouds' OWN
+        // shadow ray (CloudSelfShadowOpticalDepth in Programs/Clouds/CloudRaymarch.shader), so a layer that
+        // casts nothing on the ground still needs it to light itself. Whether the GROUND reads it stays
+        // GetShadowStrength()'s answer, carried to every receiver as CloudShadowInput::Strength: zero there
+        // and CloudShadowInput::IsLive() is false, so no receiver fetches.
+        if ( !m_Present || !m_Data.Enabled )
             return nodes;
 
         const AtmosphereEnv& atmosphere = m_SceneRenderer->GetAtmosphere();
@@ -2081,7 +2097,7 @@ namespace Desert::Graphic::System
         m_SkyOcclusionValid = false;
 
         if ( !m_MarchPipeline || !m_ResolvePipeline || !m_UpsamplePipeline || !m_CompositePipeline ||
-             !m_ParamsBuffer || !m_ResolveParamsBuffer )
+             !m_ParamsBuffer || !m_ResolveParamsBuffer || !m_SelfShadowParamsBuffer )
             return nodes;
 
         // The scale the scene colour is stored at this frame: the composite multiplies the cloud radiance by it.
@@ -2134,16 +2150,27 @@ namespace Desert::Graphic::System
         const auto traceAuthored =
              m_AuthoredBuffer->SetData( &m_AuthoredPayload, static_cast<uint32_t>( sizeof( m_AuthoredPayload ) ) );
 
+        // The far half of the clouds' own shadow ray: this frame's shadow map, when the frame built one
+        // (declared before the lit passes, at the other end of the graph, and settled there). Without one
+        // the block says so and the march traces the full ray everywhere.
+        const bool                  selfShadowMap = HasShadowMap() && m_ShadowMap != nullptr;
+        const CloudSelfShadowParams selfShadow =
+             CloudSelfShadowPack( selfShadowMap, m_ShadowMapView, m_Data.LightMarchLocalSamples,
+                                  CloudQualityFor( m_Quality ).LightMarchLocalSampleCeiling );
+        const auto traceSelfShadow =
+             m_SelfShadowParamsBuffer->SetData( &selfShadow, static_cast<uint32_t>( sizeof( selfShadow ) ) );
+
         // NO BLOCK, NO MARCH. Both dispatches below — the sky-light occlusion volume and the trace
         // itself — read this one upload, so half of it arriving is worse than none: the occlusion volume
         // would be built from this frame's field and the march from last frame's, and the two are then
         // asserting different clouds at the same time.
-        if ( !traceParams.IsSuccess() || !traceAuthored.IsSuccess() )
+        if ( !traceParams.IsSuccess() || !traceAuthored.IsSuccess() || !traceSelfShadow.IsSuccess() )
         {
             LOG_ERROR( "[Clouds] the cloud march does not run this frame; its parameters were not "
-                       "uploaded. field: {} | authored: {}",
+                       "uploaded. field: {} | authored: {} | self-shadow: {}",
                        traceParams.IsSuccess() ? "ok" : traceParams.GetError(),
-                       traceAuthored.IsSuccess() ? "ok" : traceAuthored.GetError() );
+                       traceAuthored.IsSuccess() ? "ok" : traceAuthored.GetError(),
+                       traceSelfShadow.IsSuccess() ? "ok" : traceSelfShadow.GetError() );
             return nodes;
         }
 
@@ -2223,6 +2250,7 @@ namespace Desert::Graphic::System
         // SETUP: everything but the graph's two transients is the renderer's own (or the sky's), bound by the
         // pipeline's setters here; the two transients are the block's entries, each the declaration of its write.
         m_MarchPipeline->SetStorageBuffer( kCloudParamsBinding, m_ParamsBuffer.get() );
+        m_MarchPipeline->SetStorageBuffer( kCloudSelfShadowBinding, m_SelfShadowParamsBuffer.get() );
         // The noise, modelling and atlas volumes are the block's entries (SampledVolumes).
 
         // Slot A's instance list and the atlas of sculpted bodies it addresses. The image is ALWAYS bound,
@@ -2257,6 +2285,10 @@ namespace Desert::Graphic::System
              skyOcclusionReady
                   ? std::shared_ptr<Image>( m_SkyOcclusionVolume )
                   : FallbackTextures::Get().GetFallbackTexture3D( Core::Formats::ImageFormat::RGBA8F );
+        // Named locals rather than two ternaries in the argument list (an MSVC hang on exactly that shape
+        // has cost this project a build before).
+        const std::shared_ptr<Image> selfShadowImage = selfShadowMap ? m_ShadowMap : fallback2D;
+        const char* const selfShadowName = selfShadowMap ? "Clouds.ShadowMap" : "Clouds.SelfShadowMapFallback";
         SampledMedium( SampledVolumes( DeclareComputeBlock( march.Access, m_MarchPipeline.get(), m_MarchLayout,
                                                             static_cast<uint32_t>( sizeof( CloudPush ) ) ) ) )
              .Storage( VolumetricCloudShaderParameters::CloudScatterTexture, trace, RDG::Access::StorageWrite )
@@ -2278,7 +2310,12 @@ namespace Desert::Graphic::System
              .Texture( VolumetricCloudShaderParameters::CloudSunTransmittanceLutTexture, sunTransmittanceLut,
                        RDG::Access::SampledCompute,
                        atmosphere.TransmittanceLut ? "Sky.TransmittanceLut"
-                                                   : "Clouds.SunTransmittanceLutFallback" );
+                                                   : "Clouds.SunTransmittanceLutFallback" )
+             // The FRONT copy the lit passes read, under the name they import it by (SceneRenderer::
+             // AddFrameCloudShadowMap), so the graph orders this read after the map's writer. Always bound on
+             // the terms above; CloudSelfShadowParams::Map.y is 0 for the fallback and the shader never fetches.
+             .Texture( VolumetricCloudShaderParameters::CloudSelfShadowMapTexture, selfShadowImage,
+                       RDG::Access::SampledCompute, selfShadowName );
         march.Record = [this, push, traceWidth, traceHeight]( RDG::PassContext& context,
                                                               const FrameGraphRefs& ) -> Common::BoolResultStr
         {

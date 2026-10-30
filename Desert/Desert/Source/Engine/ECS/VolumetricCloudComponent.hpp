@@ -60,6 +60,15 @@ namespace Desert::ECS
     // it is the plateau measured on OUR quadrature instead of copied from theirs.
     inline constexpr int32_t kCloudLightMarchMaxSamples = 64;
 
+    // The top of the SHORT shadow ray's sample count (LightMarchLocalSamples), on the terms above: the
+    // slider's Range, the clamp in Graphic::CloudSelfShadowPack and the clamp in
+    // Programs/Clouds/CloudRaymarch.shader are three copies of one number. The short ray covers
+    // Graphic::kCloudSelfShadowLocalKm and nothing more — the rest of the way to the sun is the cloud
+    // shadow map's — so on the squared quadrature its first segment is 1 km / N^2: 15.6 m at eight, 3.9 m
+    // at sixteen, finer than any detail the field holds at that range. Past sixteen nothing is resolved
+    // that was not already.
+    inline constexpr int32_t kCloudLightMarchLocalMaxSamples = 16;
+
     // The top of the multiple-scattering series, on exactly the terms above and for the same reason: the
     // slider's Range, the clamp in Graphic::PackCloudParams and the clamp inside
     // Common/CloudLighting.glslh's CloudMultiScatterStep are three copies of one number. They were three
@@ -383,6 +392,20 @@ namespace Desert::ECS
         // — 24 costs 4.0 ms less than 32 and is 7% from converged — and it is the reason the range now
         // reaches 64 rather than stopping where the defect lived.
         int32_t LightMarchSamples = 32;
+
+        PROPERTY( DisplayName( "Light March Local Samples" ), Category( "Lighting" ),
+                  Range( 1, ::Desert::ECS::kCloudLightMarchLocalMaxSamples ),
+                  Tooltip( "Samples of the SHORT shadow ray, the first kilometre toward the sun. Where the "
+                           "cloud shadow map covers the sample (around the camera) the rest of the way to "
+                           "the sun is read from that map in one fetch, so this is the whole per-sample "
+                           "cost of self-shadowing there. Beyond the map the full ray of Light March "
+                           "Samples is marched as before." ) )
+        // EIGHT: the first segment of a 1 km squared quadrature is 15.6 m, the near-field resolution the
+        // OE-FIX table above found converged (13.9 m at 500 m / six samples). This is Unreal's
+        // arrangement — a short secondary trace near the sample plus the Beer shadow map for the rest
+        // (r.VolumetricCloud.ShadowMap, ShadowSampleCount) — and the price is linear in this number
+        // instead of in LightMarchSamples. A quality tier lowers it (Graphic::CloudQualityScale).
+        int32_t LightMarchLocalSamples = 8;
 
         PROPERTY( DisplayName( "Aerial Perspective Start Distance" ), Category( "Lighting" ), Length,
                   Range( 0.0f, 20000000.0f ), Advanced,

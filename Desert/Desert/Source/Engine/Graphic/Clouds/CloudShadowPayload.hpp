@@ -257,6 +257,85 @@ namespace Desert::Graphic
         return data;
     }
 
+    // ---------------------------------------------------------------------------------------------------
+    // THE MAP AS THE CLOUD'S OWN SELF-SHADOW (GPU-CLOUD-MARCH)
+    // ---------------------------------------------------------------------------------------------------
+
+    /**
+     * How far toward the sun the view march's SHORT shadow ray goes where the map covers the sample,
+     * kilometres. Past it, the optical depth to the sun is the map's reconstruction
+     * (CloudShadowFarOpticalDepth in Common/CloudShadowMap.glslh), one fetch instead of the remaining
+     * samples of a 15 km ray.
+     *
+     * ONE KILOMETRE, and it follows from the map, not from taste. The map resolves a texel of
+     * CloudShadowTexelKm = 0.117 km across the light ray and models the material ALONG it as one mean
+     * extinction past one front — exact for a column of uniform cloud and wrong exactly where the
+     * sample's own body is, the near field that decides whether a sample sits in its cloud's lit skin or
+     * in its core. The short ray covers that near field at full field resolution: about eight texels, the
+     * size of a cumulus cell, after which the remaining material is the rest of the column the map was
+     * built to describe. It does not scale with the quality tier because the texel does not
+     * (CloudQualityScale::ShadowMapScale moves the extent and the resolution together).
+     */
+    inline constexpr float kCloudSelfShadowLocalKm = 1.0f;
+
+    // The view march's binding for the block below and for the map it reads (Programs/Clouds/
+    // CloudRaymarch.shader: `binding = 19` and `Uniform(18)` — the first two slots above its highest).
+    // Handed to SetStorageBuffer verbatim, so it must equal the shader's number.
+    inline constexpr uint32_t kCloudSelfShadowBinding = 19u;
+
+    /**
+     * What the view march needs to read the cloud shadow map as its far shadow term. A buffer and not the
+     * push constant, which is exactly full (CloudPush, 128 bytes), and not the parameter block, which is
+     * the artist's weather shared by four programs while this is a property of THIS frame's map.
+     *
+     * Map: x = the kilometres the map's clip z spans (CloudShadowMapView::FarDepthKm), y = 1 when the map
+     *      was built this frame and must be read, z = the UV width of the border fade, w = the short ray's
+     *      length in km (kCloudSelfShadowLocalKm).
+     * LocalSamples: the short ray's sample count, the artist's LightMarchLocalSamples under the tier's
+     *      ceiling.
+     *
+     * THE ARTIST'S SHADOW STRENGTH IS NOT HERE, and that is deliberate: it is how dark the cloud's shadow
+     * on the GROUND is (VolumetricCloudData::ShadowStrength, read by Common/CloudShadowReceiver.glslh). A
+     * cloud's shadow on itself is the medium's optical depth, and a ground-shadow dial that also brightened
+     * the clouds' undersides would be one knob with two meanings.
+     */
+    struct CloudSelfShadowParams
+    {
+        glm::mat4 WorldToMap{ 1.0f };
+        glm::vec4 Map{ 0.0f };
+        float     LocalSamples = 1.0f;
+    };
+
+    static_assert( offsetof( CloudSelfShadowParams, WorldToMap ) == 0 );
+    static_assert( offsetof( CloudSelfShadowParams, Map ) == 64 );
+    static_assert( offsetof( CloudSelfShadowParams, LocalSamples ) == 80 );
+    static_assert( sizeof( CloudSelfShadowParams ) == 84, "a mat4, a vec4 and a float - the shader reads exactly this" );
+
+    inline constexpr uint32_t kCloudSelfShadowParamsBytes = sizeof( CloudSelfShadowParams );
+
+    /**
+     * The block, from this frame's map and the artist's count. PURE.
+     *
+     * @param hasMap        the map was built and accepted this frame (VolumetricCloudRenderer::HasShadowMap).
+     *                      False sends a block the shader does not read past `Map.y`: the march then
+     *                      shades with the full shadow ray everywhere, which is the same answer the
+     *                      covered region approximates.
+     * @param localSamples  VolumetricCloudData::LightMarchLocalSamples.
+     * @param ceiling       CloudQualityScale::LightMarchLocalSampleCeiling.
+     */
+    inline CloudSelfShadowParams CloudSelfShadowPack( bool hasMap, const CloudShadowMapView& view, int32_t localSamples,
+                                                      int32_t ceiling )
+    {
+        const int32_t top = std::clamp( ceiling, 1, ECS::kCloudLightMarchLocalMaxSamples );
+
+        CloudSelfShadowParams data;
+        data.WorldToMap   = hasMap ? view.WorldToMap : glm::mat4( 1.0f );
+        data.Map          = glm::vec4( hasMap ? view.FarDepthKm : 0.0f, hasMap ? 1.0f : 0.0f,
+                                       hasMap ? view.BorderFadeUv : 0.0f, kCloudSelfShadowLocalKm );
+        data.LocalSamples = static_cast<float>( std::clamp( localSamples, 1, top ) );
+        return data;
+    }
+
     /// One world component of the map's centre, snapped to the coarse grid. The C++ mirror of
     /// CloudShadowSnapToGrid in Common/CloudShadowMap.glslh; the test compiles both and asserts they agree
     /// over a sweep, because they are one function written twice.
