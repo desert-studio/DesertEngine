@@ -251,8 +251,9 @@ namespace Desert::Graphic
         // The evaluation of the OPAQUE depth, then its apply over the scene target - the opaque composite only.
         AddComputeNodes( graph, textures, fog->DeclareFrameNodes( graph, textures.Transients, volumeResult ) );
         // No fog image this frame (neither fog nor aerial perspective): no apply node at all. A G-buffer view
-        // (IsGBufferView) shows the stored surface value: the inputs below still publish, the apply does not run.
-        if ( textures.Transients.HeightFog.IsValid() && !IsGBufferView( m_DebugView.DeferredDebug ) )
+        // (IsGBufferView) shows the stored surface value and the wireframe view its edges (HidesAtmosphere): the
+        // inputs below still publish, the apply does not run.
+        if ( textures.Transients.HeightFog.IsValid() && !m_DebugView.HidesAtmosphere() )
             AddSystemRaster( graph, textures, fog->ApplyPass() );
 
         // What every translucent surface after this point fogs itself with, at its own depth

@@ -185,6 +185,14 @@ namespace Desert::Graphic
         DeferredDebugMode DeferredDebug = DeferredDebugMode::Off;
         VirtualGeometryView VirtualGeometry = VirtualGeometryView::Off;
 
+        // The sky, the cloud layer and the height fog are not part of the picture: a G-buffer view shows the
+        // stored surface value, the wireframe view the edges over a dark background (UE VMI_Wireframe: the
+        // atmosphere, fog and cloud show flags off). The environment still lights what a lit view would show.
+        [[nodiscard]] bool HidesAtmosphere() const
+        {
+            return WireframeMode || IsGBufferView( DeferredDebug );
+        }
+
         // The view modes are ONE choice: every channel off, so the one the caller sets next is the only one
         // on. Shared by the View Mode dropdown and the palette's "View mode: ..." entries, so the two cannot
         // disagree on what leaving a mode resets. LightingDebug is a channel like the others: left out,

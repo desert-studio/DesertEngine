@@ -69,7 +69,9 @@ namespace Desert::Graphic::ViewTargetFormats
     inline constexpr ImageFormat kTonemap        = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kFXAA           = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kSMAAEdges      = ImageFormat::RGBA8F;
-    inline constexpr ImageFormat kSMAABlend      = ImageFormat::RGBA8F;
+    // SMAA's output is the final image as the tonemap's and FXAA's are: the same half float, so the HDR values
+    // survive it and the game UI drawn on the final image (ExtensionPoint::UI) has one display format.
+    inline constexpr ImageFormat kSMAABlend      = kTonemap;
     inline constexpr ImageFormat kBloom          = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kLightShaft     = ImageFormat::RGBA16F;
     inline constexpr ImageFormat kLensFlare      = ImageFormat::RGBA16F;
