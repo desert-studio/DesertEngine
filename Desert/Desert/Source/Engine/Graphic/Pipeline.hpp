@@ -160,13 +160,16 @@ namespace Desert::Graphic
     // fragment wins" is CompareOp::Greater, and a pass that writes `DepthCompareOp = CompareOp::Less`
     // renders behind everything and looks like it was never submitted.
     //
-    // These are the only two depth compares any pass in the engine has ever wanted, and a pass that
+    // These are the only depth compares any pass in the engine wants, and a pass that
     // spells its intent with one of them stays correct if the convention is ever revisited. Raw
     // CompareOp values remain right for STENCIL, which reversed-Z does not touch.
     namespace DepthCompare
     {
         inline constexpr CompareOp Closer        = CompareOp::Greater;
         inline constexpr CompareOp CloserOrEqual = CompareOp::GreaterOrEqual;
+        // The base pass after a depth prepass that already wrote the surface's depth (UE DepthEqual): the one
+        // fragment whose depth IS the stored one passes. The same in either convention.
+        inline constexpr CompareOp Equal = CompareOp::Equal;
     } // namespace DepthCompare
 
     enum class CullMode

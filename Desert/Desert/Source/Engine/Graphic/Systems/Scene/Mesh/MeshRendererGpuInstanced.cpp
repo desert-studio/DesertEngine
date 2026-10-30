@@ -61,6 +61,14 @@ namespace Desert::Graphic::System
             materials->ReleaseViewVariants( this );
     }
 
+    Core::ShaderVariant MeshRenderer::SurfaceDepthEqualVariant()
+    {
+        Core::ShaderVariant permutation;
+        permutation.Defines.emplace_back( kSurfaceDepthEqualDefine );
+        permutation.ShippedByCook = true;
+        return permutation;
+    }
+
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                                const MeshPass pass, const SceneFrameBinding& frameState,
                                                const StaticPassCells* companion )
@@ -89,8 +97,9 @@ namespace Desert::Graphic::System
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
             // The masked depth prepass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the Masked
-            // sections alone; the G-buffer draws a section it drew at its depth, without writes
-            // (m_InstancedGBufferEqualPipeline). The forward depth prepass (Depth with a companion) draws every one.
+            // sections alone; the G-buffer draws a section it drew with an EQUAL depth test, without writes and
+            // without the clip (m_InstancedGBufferEqualPipeline, its cell in SurfaceDepthEqualVariant: UE's base
+            // pass after the masked early-Z pass). The forward depth prepass (Depth with a companion) draws every one.
             const bool masked        = IsMaskedSurface( parent );
             const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
             if ( maskedPrepass && !masked )
@@ -110,8 +119,16 @@ namespace Desert::Graphic::System
                 return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ), this ),
                                            parent, gpu.Path, of, viewOf( of ) );
             };
+            // The G-buffer cell of a section the masked prepass drew: the clip-less equal-depth permutation.
+            const auto depthEqualCell = [&]() -> DataDrivenMaterial*
+            {
+                if ( parent == nullptr || !materials->Owns( parent ) )
+                    return nullptr;
+                return materials->GetViewVariant( parent, gpu.Path, MeshPass::GBuffer, viewOf( MeshPass::GBuffer ),
+                                                  SurfaceDepthEqualVariant(), this );
+            };
             const uint32_t      view = viewOf( pass );
-            DataDrivenMaterial* cell = cellOf( pass );
+            DataDrivenMaterial* cell = prepassed ? depthEqualCell() : cellOf( pass );
             if ( cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
@@ -126,6 +143,28 @@ namespace Desert::Graphic::System
                  gpu.Material->IsTwoSided() );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
+            if ( maskedPrepass )
+            {
+                // Paired like the forward prepass: the masked prepass draws a section only when its G-buffer half
+                // (the equal-depth cell's pipeline) is Ready too, since that half shades exactly the texels whose
+                // depth this pass wrote and nothing else would. Until then the G-buffer draws it with its own clip
+                // and depth writes (not recorded in m_MaskedPrepassed).
+                DataDrivenMaterial* const equalCell = depthEqualCell();
+                if ( equalCell == nullptr )
+                {
+                    static std::unordered_set<const DataDrivenMaterial*> s_RefusedEqual;
+                    if ( s_RefusedEqual.insert( parent ).second )
+                        LOG_ERROR( "[MeshRenderer] a Masked GPU-instanced section's material has no ({} x GBuffer) "
+                                   "{} permutation; the section is not in the masked depth prepass and pays its "
+                                   "alpha-tested overdraw in the G-buffer.",
+                                   MeshVertexPathName( gpu.Path ), kSurfaceDepthEqualDefine );
+                    continue;
+                }
+                GraphicsPipeline* const equalPipeline = CullPermutation(
+                     CellPipeline( m_InstancedGBufferEqualPipeline.get(), *equalCell ), gpu.Material->IsTwoSided() );
+                if ( equalPipeline == nullptr || equalPipeline->GetReadiness() != PipelineReadiness::Ready )
+                    continue;
+            }
             if ( companion != nullptr )
             {
                 // Paired with the forward depth prepass: the prepass draws a section only when its cell is Ready
