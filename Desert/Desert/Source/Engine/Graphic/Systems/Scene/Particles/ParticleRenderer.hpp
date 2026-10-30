@@ -358,6 +358,9 @@ namespace Desert::Graphic::System
             RDG::BufferRef              ParamsRef;
             RDG::BufferRef              CurvesRef;
             RDG::BufferRef              PointSetsRef;
+            RDG::ExternalBuffer         EventTableImport; // the emitter's event table (Common/VFXEvents.glslh)
+            RDG::BufferRef              EventTableRef;
+            RDG::BufferRef              EventsRef; // its system's event buffer (m_EventImports, shared)
             RDG::BufferRef              StepsRef;
             RDG::BufferRef              CountersRef; // read by ParticlePass as IndirectArgs
             RDG::BufferRef              ArgsRef;     // written by Dispatch Args, read as IndirectArgs
@@ -450,6 +453,14 @@ namespace Desert::Graphic::System
         RDG::BufferRef                                  m_CollisionViewRef;
         RDG::TextureRef                                 m_CollisionDepthRef;
         bool m_CollisionReady = false; // both are in this frame's graph: the PostOpaque chain runs
+        // PORT-VFX-MODULES (UE emitter Event Handlers): each placed system's event buffer, imported ONCE per frame
+        // for all its emitters (ParticleEmitterGpu::Events is shared), keyed by the buffer.
+        struct EventImport
+        {
+            RDG::ExternalBuffer Import;
+            RDG::BufferRef      Ref;
+        };
+        std::unordered_map<const ShaderResources::StorageBuffer*, EventImport> m_EventImports;
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;

@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -198,6 +199,20 @@ namespace Desert::VFX
     /// PostOpaque scene inputs (CollisionView, SceneDepth + its sampler) and the scene-reading host functions only
     /// under it, so a PreOpaque program's layout never names them.
     inline constexpr std::string_view kVFXSceneDepthDefine = "VFX_READS_SCENE_DEPTH";
+
+    /**
+     * EMITTERS LINKED BY EVENTS TICK IN ONE STAGE (PORT-VFX-MODULES, from int/vfx 76d3116b8). An Event Handler reads
+     * the events its source raised in the previous fixed STEP (Common/VFXEvents.glslh: a channel's two halves
+     * alternate by the system's event step serial), which holds only while the source's step s runs before the
+     * handler's step s + 1 - the order of one stage's chain (AddParticleSimulationSteps runs its emitters step by
+     * step). A source in the other stage would run all its steps before or after the handler's, and the handler
+     * would read a half the source already overwrote or has not written yet. So every emitter of a group connected
+     * by EventHandlers (in either direction) takes the LATEST stage of its members: PostOpaque if any of them reads
+     * the scene. The cost is the PostOpaque one-frame lag of the group's opaque rows, never an out-of-order event.
+     * @p stages holds each emitter's own stage (VFXCompiledEmitter::TickStage) in emitter order and is rewritten in
+     * place; a handler naming no emitter of @p system links nothing (ValidateVFXSystemData refuses it).
+     */
+    void UnifyEventTickStages( const Assets::Serialization::VFXSystemData& system, std::span<VFXTickStage> stages );
 
     struct VFXCompiledEmitter
     {

@@ -117,8 +117,37 @@ Shader "ParticleSimulate"
             mat4  LocalToWorld;
             vec4  StepLength; // x = the fixed step length (seconds), yzw = 0
             uvec4 Counts;     // x = the range's particle count, y = step, z = the range's pool base, w = local
-            uvec4 Stack;      // x = the world's serial of this tick's step 0 (the random streams' step), yzw = 0
+            uvec4 Stack;      // x = the emitter's serial of this tick's step 0 (the random streams' step),
+                              // y = the system's event step serial of step 0 (Common/VFXEvents.glslh), zw = 0
         };
+
+        // PORT-VFX-MODULES (UE emitter Event Handlers): the emitter's event table and its system's event buffer
+        // (Common/VFXEvents.glslh). Every stack binds them: the host raises the table's events and spawns its
+        // handlers' newborns whatever the modules are.
+        ReadBuffer(14) EventTable
+        {
+            uvec4 EventTableData[];
+        };
+
+        Buffer(15) Events
+        {
+            uvec4 EventsData[];
+        };
+
+        #include <Common/VFXEvents.glslh>
+
+        uvec4 VFXEventTableRow( uint row )
+        {
+            return EventTableData[row];
+        }
+        uvec4 VFXEventBufferRow( uint index )
+        {
+            return EventsData[index];
+        }
+
+        // The InheritVelocity of the handler whose event this invocation's newborn was spawned from (set by main
+        // before the stack runs; one newborn per invocation).
+        float s_EventInheritVelocity = 0.0;
 
         #include <Generated/VFXEmitterStack.glslh>
 
@@ -272,6 +301,37 @@ Shader "ParticleSimulate"
         }
         #endif // VFX_READS_SCENE_DEPTH
 
+        // The event row a handler's newborn reads, in the newborn's frames (VFXEventSpawn): the stored world
+        // position back into the placement frame, the world velocity and normal into a Local emitter's frame.
+        VFXEventSpawn VFX_EventSpawn( uint row )
+        {
+            const bool local = Counts.w == 1u;
+            const mat3 turn  = inverse( mat3( LocalToWorld ) );
+            const vec3 v     = uintBitsToFloat( EventsData[row + 1u].xyz ) * s_EventInheritVelocity;
+            const vec3 nrm   = uintBitsToFloat( EventsData[row + 2u].xyz );
+            const vec3 world = uintBitsToFloat( EventsData[row].xyz );
+            VFXEventSpawn e;
+            e.Position = vec4( ( inverse( LocalToWorld ) * vec4( world, 1.0 ) ).xyz, 1.0 );
+            e.Velocity = vec4( local ? turn * v : v, 0.0 );
+            e.Normal   = vec4( local && dot( nrm, nrm ) > 0.0 ? normalize( turn * nrm ) : nrm, 0.0 );
+            return e;
+        }
+
+        // Appends one event of @p kind (world position, velocity, normal) to this step's half of the emitter's
+        // channel (Common/VFXEvents.glslh); its Dispatch Args opened the half.
+        void RaiseEvent( uint kind, vec3 world, vec3 velocity, vec3 normal )
+        {
+            const VFXEventChannel c      = VFXEventChannelOf( EventTableData[1u + kind] );
+            const uint            serial = Stack.y + Counts.y;
+            const uint            e      = atomicAdd( EventsData[VFXEventHeaderIndex( c, serial )].y, 1u );
+            if ( e >= c.Capacity )
+                return; // a half holds one event per particle of the source's range a step: never reached
+            const uint row       = VFXEventRowIndex( c, serial, e );
+            EventsData[row]      = uvec4( floatBitsToUint( world ), 0u );
+            EventsData[row + 1u] = uvec4( floatBitsToUint( velocity ), 0u );
+            EventsData[row + 2u] = uvec4( floatBitsToUint( normal ), 0u );
+        }
+
         vec3 ReadVec3( uint n, uint c )
         {
             return vec3( VFX_ReadFloat( n, c ), VFX_ReadFloat( n, c + 1u ), VFX_ReadFloat( n, c + 2u ) );
@@ -284,7 +344,7 @@ Shader "ParticleSimulate"
         }
 
         // Runs the stack on pool particle @p i: its attributes, then its slot (id, alive).
-        void Run( uint i, bool spawned, uint id, uint step, VFXChannelSpawn channel )
+        void Run( uint i, bool spawned, uint id, uint step, VFXChannelSpawn channel, uint event )
         {
             const uint n     = i - Counts.z; // range-local: the attribute columns are the emitter's
             const bool local = Counts.w == 1u;
@@ -302,6 +362,7 @@ Shader "ParticleSimulate"
             sim.ChannelScalars   = channel.Scalars;
             sim.Collided         = false;
             sim.CollisionNormal  = vec3( 0.0 );
+            sim.Event            = event;
             VFX_SimulateParticle( n, sim );
 
             vec3 position = vec3( 0.0 );
@@ -320,6 +381,29 @@ Shader "ParticleSimulate"
                 WriteVec3( n, VFX_ATTR_POSITION, position );
             }
 #endif
+            // The events the emitter raises (its event table), at the particle's world position after the step:
+            // Death from the stack's Kill, Collision from the Collision module's impact, Location every step lived.
+            const uvec4 raises = EventTableData[0];
+            if ( raises.x != 0u || raises.y != 0u || raises.z != 0u )
+            {
+                // The stack's frames: a Local particle lives in the placement frame; a World newborn's Position was
+                // just taken to the world, its velocity and a collision normal are world.
+                const mat3 turn     = mat3( LocalToWorld );
+                const vec3 world    = local ? ( LocalToWorld * vec4( position, 1.0 ) ).xyz : position;
+                vec3       velocity = vec3( 0.0 );
+#ifdef VFX_ATTR_VELOCITY
+                velocity = ReadVec3( n, VFX_ATTR_VELOCITY );
+#endif
+                velocity = local ? turn * velocity : velocity;
+                const vec3 normal =
+                     local && sim.Collided ? normalize( turn * sim.CollisionNormal ) : sim.CollisionNormal;
+                if ( raises.x != 0u && sim.Kill )
+                    RaiseEvent( VFX_EVENT_DEATH, world, velocity, vec3( 0.0 ) );
+                if ( raises.y != 0u && sim.Collided )
+                    RaiseEvent( VFX_EVENT_COLLISION, world, velocity, normal );
+                if ( raises.z != 0u && !sim.Kill )
+                    RaiseEvent( VFX_EVENT_LOCATION, world, velocity, vec3( 0.0 ) );
+            }
             // Death is the stack's (a module's Kill, UpdateAge at Lifetime); a stack without one never kills.
             PoolSlotsData[i] = ParticleSlot( id, sim.Kill ? 0u : 1u );
         }
@@ -345,10 +429,14 @@ Shader "ParticleSimulate"
             if ( t < alive )
             {
                 uint i = AliveData[2u * base + slot * Counts.x + t];
-                Run( i, false, PoolSlotsData[i].Id, step, none );
+                Run( i, false, PoolSlotsData[i].Id, step, none, 0u );
             }
 
-            if ( t < min( Steps[step].Budget, freeCount ) )
+            // The step's newborns: the CPU budget (rate, bursts, channel) first, then the Event Handlers' spawns -
+            // the same count Dispatch Args sized the dispatch by (both read the same, unchanging, halves).
+            const uint serial = Stack.y + step;
+            const uint budget = Steps[step].Budget;
+            if ( t < min( budget + VFXEventSpawnTotal( serial ), freeCount ) )
             {
                 uint i = Free[base + freeCount - 1u - t];
                 // Appended after the alive entries: compact step+1 scans alive + spawned (Dispatch Args).
@@ -356,7 +444,31 @@ Shader "ParticleSimulate"
                 VFXChannelSpawn channel = none;
                 if ( t < Steps[step].ChannelCount )
                     channel = ChannelSpawnsData[Steps[step].ChannelFirst + t];
-                Run( i, true, Steps[step].IdBase + t, step, channel );
+                uint id    = Steps[step].IdBase + t;
+                uint event = 0u;
+                if ( t >= budget )
+                {
+                    // Spawn k of the handlers' spawns: handler h's events in order, SpawnCount particles each.
+                    uint k = t - budget;
+                    for ( uint h = 0u; h < VFXEventHandlerCount(); ++h )
+                    {
+                        const VFXEventChannel c     = VFXEventHandlerChannel( h );
+                        const uint            each  = VFXEventHandlerSpawnCount( h );
+                        const uint            count = VFXEventCount( c, serial - 1u ) * each;
+                        if ( k < count )
+                        {
+                            event                  = 1u + VFXEventRowIndex( c, serial - 1u, k / each );
+                            s_EventInheritVelocity = VFXEventHandlerInheritVelocity( h );
+                            break;
+                        }
+                        k -= count;
+                    }
+                    // The CPU hands out the ids from IdBase up; an event newborn takes the top half of the id
+                    // space, keyed by the step and its place in it (distinct for 32768 spawns a step over 65536
+                    // steps).
+                    id = 0x80000000u | ( ( serial & 0xFFFFu ) << 15u ) | ( ( t - budget ) & 0x7FFFu );
+                }
+                Run( i, true, id, step, channel, event );
             }
         }
     }

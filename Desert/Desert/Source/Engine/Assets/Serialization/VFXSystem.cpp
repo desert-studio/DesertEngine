@@ -460,11 +460,14 @@ namespace Desert::Assets::Serialization
 
     std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
     {
-        // Every asset a row names: each stack module (`.dfxmod`), each renderer's material and mesh. Sorted, each
-        // once, so a rewrite of the same system states the same header.
+        // Every asset a row names: each stack module (`.dfxmod`), each renderer's material and mesh, and the
+        // SpawnFromEvent module the stack compiler appends to an emitter with EventHandlers. Sorted, each once, so a
+        // rewrite of the same system states the same header.
         std::set<std::string> guids;
         for ( const VFXEmitterData& e : data.Emitters )
         {
+            if ( !e.EventHandlers.empty() )
+                guids.insert( std::string( kVFXSpawnFromEventModuleGuid ) );
             for ( const auto* group : { &e.Stack.EmitterSpawn, &e.Stack.EmitterUpdate, &e.Stack.ParticleSpawn,
                                         &e.Stack.ParticleUpdate } )
                 for ( const VFXModuleUse& use : *group )

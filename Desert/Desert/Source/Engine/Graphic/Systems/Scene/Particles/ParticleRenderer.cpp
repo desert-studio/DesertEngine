@@ -53,6 +53,10 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, StepTable );
         DESERT_SHADER_PARAMETER( StorageBuffer, Counters );
         DESERT_SHADER_PARAMETER( StorageBuffer, DispatchArgs );
+        // The emitter's event table and its system's event buffer (Common/VFXEvents.glslh): step mode opens the
+        // halves the emitter raises into and sizes the spawn by its handlers' events; open mode leaves them.
+        DESERT_SHADER_PARAMETER( StorageBuffer, EventTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Events );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -69,6 +73,9 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, StackParams );
         DESERT_SHADER_PARAMETER( StorageBuffer, StackCurves );
         DESERT_SHADER_PARAMETER( StorageBuffer, PointSets );
+        // Every stack: the emitter's event table and its system's event buffer (Common/VFXEvents.glslh).
+        DESERT_SHADER_PARAMETER( StorageBuffer, EventTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Events );
         // A colliding (PostOpaque) stack only: ParticleSimulate under VFX_READS_SCENE_DEPTH.
         DESERT_SHADER_PARAMETER( StorageBuffer, CollisionView );
         DESERT_SHADER_PARAMETER( Texture, SceneDepth );
@@ -435,14 +442,17 @@ namespace Desert::Graphic::System
         {
             if ( !RunsCompact( ve, 0, stage ) )
                 continue; // OpenDrawSlots skips it the same way
-            // The program's three slots (one shader, two modes): open mode writes Counters only, the step table
-            // and the arguments are read / written by the step mode and still bound here.
+            // The program's five slots (one shader, two modes): open mode writes Counters only, the step table,
+            // the arguments and the event buffers are read / written by the step mode and still bound here.
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
                  .Storage( ParticleDispatchArgsShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
                  .Storage( ParticleDispatchArgsShaderParameters::Counters, ve.CountersRef,
                            RDG::Access::StorageWrite )
                  .Storage( ParticleDispatchArgsShaderParameters::DispatchArgs, ve.ArgsRef,
                            RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::EventTable, ve.EventTableRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleDispatchArgsShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
         }
     }
@@ -515,7 +525,8 @@ namespace Desert::Graphic::System
         {
             if ( !RunsStep( ve, step, stage ) )
                 continue;
-            const ParticleArgsPush push{ glm::uvec4( step, 0u, 0u, 0u ) };
+            // y = the system's event step serial of step 0 (ParticleSimPush::Stack.y, Common/VFXEvents.glslh).
+            const ParticleArgsPush push{ glm::uvec4( step, ve.Frame->Push.Stack.y, 0u, 0u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
             bindings.PushConstants( &push, sizeof( push ) );
             const Common::BoolResultStr dispatched =
@@ -542,6 +553,9 @@ namespace Desert::Graphic::System
                            RDG::Access::StorageWrite )
                  .Storage( ParticleDispatchArgsShaderParameters::DispatchArgs, ve.ArgsRef,
                            RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::EventTable, ve.EventTableRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleDispatchArgsShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
         }
     }
@@ -580,7 +594,7 @@ namespace Desert::Graphic::System
             // PORT-VFX-MODULES (UE Scene Depth collision): a colliding stack - the one kind that ticks PostOpaque
             // (VFXStackCompiler 4b) - declares CollisionView / SceneDepth (VFX::kVFXSceneDepthDefine); every other
             // stack declares neither, so the same test that chose its chain chooses its slots.
-            if ( ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque )
+            if ( ve.Frame->Gpu->ReadsSceneDepth )
                 block.Storage( ParticleSimulateShaderParameters::CollisionView, m_CollisionViewRef,
                                RDG::Access::StorageRead )
                      .Texture( ParticleSimulateShaderParameters::SceneDepth, m_CollisionDepthRef,
@@ -602,6 +616,8 @@ namespace Desert::Graphic::System
                  .Storage( ParticleSimulateShaderParameters::StackParams, ve.ParamsRef, RDG::Access::StorageRead )
                  .Storage( ParticleSimulateShaderParameters::StackCurves, ve.CurvesRef, RDG::Access::StorageRead )
                  .Storage( ParticleSimulateShaderParameters::PointSets, ve.PointSetsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::EventTable, ve.EventTableRef, RDG::Access::StorageRead )
+                 .Storage( ParticleSimulateShaderParameters::Events, ve.EventsRef, RDG::Access::StorageWrite )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleSimPush ) ) );
             pass.Read( ve.ArgsRef, RDG::Access::IndirectArgs );
         }
@@ -621,6 +637,7 @@ namespace Desert::Graphic::System
         m_CollisionViewRef  = {};
         m_CollisionDepthRef = {};
         m_CollisionReady    = false;
+        m_EventImports.clear();
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
         const ParticlePoolBuffers& pool = m_World->Pool();
@@ -673,6 +690,25 @@ namespace Desert::Graphic::System
                     stack = Renderer::ImportBuffer( gpu.Curves, ve.CurvesImport );
                 if ( stack )
                     stack = Renderer::ImportBuffer( gpu.PointSets, ve.PointSetsImport );
+                // The event table is the emitter's; the event buffer its SYSTEM's, shared by the system's emitters:
+                // one graph resource per buffer, so the graph orders a source's writes before its handlers' reads.
+                if ( stack )
+                    stack = Renderer::ImportBuffer( gpu.EventTable, ve.EventTableImport );
+                EventImport* events = nullptr;
+                if ( stack && gpu.Events )
+                {
+                    auto [at, added] = m_EventImports.try_emplace( gpu.Events.get() );
+                    events           = &at->second;
+                    if ( added )
+                    {
+                        stack = Renderer::ImportBuffer( gpu.Events, events->Import );
+                        if ( stack )
+                            events->Ref = graph.RegisterExternal( events->Import,
+                                                                  std::format( "VFXEvents{}", m_EventImports.size() ) );
+                    }
+                }
+                else if ( stack )
+                    stack = Common::MakeError<bool>( std::string( "the system has no event buffer" ) );
                 if ( !steps || !args || !chan || !stack )
                 {
                     LOG_ERROR(
@@ -690,6 +726,9 @@ namespace Desert::Graphic::System
                 ve.ParamsRef = graph.RegisterExternal( ve.ParamsImport, std::format( "VFXStackParams{}", i ) );
                 ve.CurvesRef = graph.RegisterExternal( ve.CurvesImport, std::format( "VFXStackCurves{}", i ) );
                 ve.PointSetsRef = graph.RegisterExternal( ve.PointSetsImport, std::format( "VFXPointSets{}", i ) );
+                ve.EventTableRef =
+                     graph.RegisterExternal( ve.EventTableImport, std::format( "VFXEventTable{}", i ) );
+                ve.EventsRef = events->Ref;
                 if ( gpu.DebugReadback && m_World->DebugReading() )
                 {
                     const Common::BoolResultStr debug = Renderer::ImportBuffer( gpu.DebugReadback, ve.DebugImport );

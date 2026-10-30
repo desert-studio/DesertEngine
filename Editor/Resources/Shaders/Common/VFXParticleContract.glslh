@@ -16,6 +16,9 @@
 //   VFX_SceneDepthCollide( ... )      the particle sphere against THIS frame's scene depth (PORT-VFX-MODULES, UE
 //                                     GPU collision in Scene Depth mode): engine:Collision's one query. A stack
 //                                     that calls it ticks PostOpaque (VFX::kVFXSceneReadHostFunctions)
+//   VFX_EventSpawn( row )             the event a newborn an Event Handler spawned was born from (PORT-VFX-MODULES,
+//                                     UE emitter Event Handlers, Spawned Particles): engine:SpawnFromEvent reads it
+//                                     for a newborn whose sim.Event = row + 1
 
 #ifndef VFX_PARTICLE_CONTRACT_GLSLH
 #define VFX_PARTICLE_CONTRACT_GLSLH
@@ -32,7 +35,10 @@
 // AddVelocityInCone a bound direction as its axis. A particle not from a channel, or a field the emitter's
 // engine:SpawnFromChannel does not bind, reads Direction = 0, Color = 1 and Scalars = (0, 1, 0, 0).
 // Collided / CollisionNormal are set by engine:Collision when the particle moved INTO the scene this step (the normal
-// in the stack's frame, facing the camera); the host starts them false / zero.
+// in the stack's frame, facing the camera); the host starts them false / zero, and raises the emitter's Collision
+// event from them (its Death event from Kill, its Location event every step it lives; Common/VFXEvents.glslh).
+// Event is 1 + the event row of a newborn an Event Handler spawned, 0 for every other particle; only
+// engine:SpawnFromEvent reads it.
 struct VFXSim
 {
     float DeltaTime;
@@ -48,6 +54,18 @@ struct VFXSim
                             // lifetime bound
     bool  Collided;
     vec3  CollisionNormal;
+    uint  Event;
+};
+
+// One event a newborn of an Event Handler was spawned from (the C++ ParticleWorldGpu event rows,
+// kParticleEventRowSize), handed in the stack's newborn frame: the placement frame (the spawn group places a
+// newborn around zero there, and the host takes it to the world for a World emitter).
+struct VFXEventSpawn
+{
+    vec4 Position; // xyz cm, the source particle where it raised the event, in the placement frame; w = 1
+    vec4 Velocity; // xyz cm/s, the source particle's velocity times the handler's InheritVelocity, in the
+                   // stack's velocity frame (placement for a Local emitter, world otherwise); w = 0
+    vec4 Normal;   // xyz the surface normal of a Collision event, same frame as Velocity (zero otherwise); w = 0
 };
 
 vec4  VFX_Param( uint slot );
@@ -68,6 +86,8 @@ vec3  VFX_PointSet( vec4 row, float u );
 // no scene depth, off screen, behind the camera or on the sky.
 bool  VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 contact,
                              out vec3 normal );
+// The event row @p row (sim.Event - 1 of a newborn an Event Handler spawned) in the newborn's frames.
+VFXEventSpawn VFX_EventSpawn( uint row );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )

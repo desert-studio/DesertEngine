@@ -60,4 +60,10 @@ namespace Desert::Graphic::System
     constexpr std::uint32_t kParticleDispatchArgsCount  = 2;
     constexpr std::uint64_t kParticleSimulateArgsOffset = 0;
     constexpr std::uint64_t kParticleCompactArgsOffset  = kParticleDispatchArgsStride;
+
+    // PORT-VFX-MODULES (UE emitter Event Handlers; Common/VFXEvents.glslh states the layout): one event row is
+    // three uvec4 - world position, world velocity, world normal as float bits (VFX_EVENT_ROW_SIZE) - and an
+    // emitter's event table has its handler rows from row kParticleEventTableHandlers (VFX_EVENT_TABLE_HANDLERS).
+    constexpr std::uint32_t kParticleEventRowSize       = 48;
+    constexpr std::uint32_t kParticleEventTableHandlers = 4;
 } // namespace Desert::Graphic::System

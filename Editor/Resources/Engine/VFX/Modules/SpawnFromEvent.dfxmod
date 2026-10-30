@@ -1,0 +1,27 @@
+// DesertAsset {"Kind":"VFXModule","Guid":"ad3f8448557840fc952c72444b16e4e6","Versions":{"VFXM":1},"Dependencies":[]}
+Module "SpawnFromEvent"
+{
+    Category Spawn
+    Description "Places a newborn an Event Handler spawned at its event, inheriting the source's velocity."
+    Usage ParticleSpawn
+    Attribute Position vec3
+    Attribute Velocity vec3
+
+    // Engine VFX module SpawnFromEvent (UE's Receive Death / Collision / Location Event modules of an emitter Event
+    // Handler in Spawned Particles mode; ported from int/vfx VFX-PARAMS). The stack compiler appends it as the LAST
+    // spawn module of every emitter that states EventHandlers (VFXStackCompiler CompileEmitterStack), and no
+    // authored row may name it, so a newborn an event spawned takes the event over what the spawn group gave it:
+    //   Position -> the event's position plus the spawn group's Position (the shape modules place a newborn around
+    //               zero of the placement frame, so a shape spreads the event's particles around the point the
+    //               event happened; the host then takes the newborn to the world for a World emitter)
+    //   Velocity -> plus the source particle's velocity times the handler's InheritVelocity (the host scales it)
+    // A particle not spawned by an event (sim.Event = 0) is untouched.
+    void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
+    {
+        if ( sim.Event == 0u )
+            return;
+        const VFXEventSpawn e = VFX_EventSpawn( sim.Event - 1u );
+        p.Position += e.Position.xyz;
+        p.Velocity += e.Velocity.xyz;
+    }
+}

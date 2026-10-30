@@ -82,6 +82,12 @@ namespace Desert::Assets::Serialization
     /// (Editor/Resources/Engine/VFX/Modules/Collision.dfxmod): a Collision event handler's source emitter must run
     /// it. A GUID, not the "engine:Collision" spelling - a stack row names its module by {Guid, Path} since VFXS 4.
     inline constexpr std::string_view kVFXCollisionModuleGuid = "e9f40e7b3dae4463a5a47d725c82a1bb";
+    /// The engine module an emitter with EventHandlers spawns its event newborns through
+    /// (Editor/Resources/Engine/VFX/Modules/SpawnFromEvent.dfxmod, UE's Receive Event modules): the stack compiler
+    /// appends it as the emitter's last ParticleSpawn row and no authored row may name it; the system's header
+    /// Dependencies state it (VFXSystemDependencies), since no row does.
+    inline constexpr std::string_view kVFXSpawnFromEventModuleGuid = "ad3f8448557840fc952c72444b16e4e6";
+    inline constexpr std::string_view kVFXSpawnFromEventModulePath = "engine:Engine/VFX/Modules/SpawnFromEvent.dfxmod";
 
     /// The type of a parameter or a module input. Components used: Float 1, Vec2 2, Vec3 3, Vec4 4, Int 1,
     /// Bool 1; the unused components of a stored vec4 must be zero, so one value has one spelling.

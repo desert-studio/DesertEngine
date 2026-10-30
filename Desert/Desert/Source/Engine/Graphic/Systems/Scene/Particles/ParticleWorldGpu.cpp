@@ -133,6 +133,10 @@ namespace Desert::Graphic::System
             if ( const auto* a = compiled.Layout.Find( "Position" );
                  a != nullptr && a->Type == VFX::VFXValueType::Vec3 )
                 source += std::format( "#define VFX_ATTR_POSITION {}u\n", a->FloatStart );
+            // The velocity an event carries (Common/VFXEvents.glslh).
+            if ( const auto* a = compiled.Layout.Find( "Velocity" );
+                 a != nullptr && a->Type == VFX::VFXValueType::Vec3 )
+                source += std::format( "#define VFX_ATTR_VELOCITY {}u\n", a->FloatStart );
             return Common::MakeSuccess( std::move( source ) );
         }
 
@@ -143,6 +147,132 @@ namespace Desert::Graphic::System
                                                            /*persistent=*/true );
         }
     } // namespace
+
+    ParticleEventLayout BuildParticleEventLayout( const Assets::Serialization::VFXSystemData& system,
+                                                  const std::vector<uint32_t>&                capacities )
+    {
+        using Assets::Serialization::VFXEventHandler;
+        struct Channel
+        {
+            std::size_t Source = 0;
+            uint32_t    Kind   = 0;
+        };
+        std::vector<Channel> channels;
+        const auto           channelOf = [&channels]( const std::size_t source, const uint32_t kind )
+        {
+            for ( uint32_t c = 0; c < static_cast<uint32_t>( channels.size() ); ++c )
+                if ( channels[c].Source == source && channels[c].Kind == kind )
+                    return c;
+            channels.push_back( { source, kind } );
+            return static_cast<uint32_t>( channels.size() - 1 );
+        };
+        const auto sourceOf = [&system]( const VFXEventHandler& handler )
+        {
+            for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+                if ( system.Emitters[k].Name == handler.SourceEmitter )
+                    return k;
+            return system.Emitters.size(); // ValidateVFXSystemData refused such a file
+        };
+
+        // Every consumed (source, kind) once, in the order the handlers name them.
+        std::vector<std::vector<std::pair<uint32_t, const VFXEventHandler*>>> handlers( system.Emitters.size() );
+        for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+            for ( const VFXEventHandler& handler : system.Emitters[k].EventHandlers )
+            {
+                const std::size_t source = sourceOf( handler );
+                if ( source < system.Emitters.size() )
+                    handlers[k].emplace_back( channelOf( source, static_cast<uint32_t>( handler.Event ) ),
+                                              &handler );
+            }
+
+        // Headers first (two per channel), then each channel's two halves of rows.
+        std::vector<glm::uvec4> descriptors( channels.size() );
+        uint32_t                cursor = 2u * static_cast<uint32_t>( channels.size() );
+        for ( uint32_t c = 0; c < static_cast<uint32_t>( channels.size() ); ++c )
+        {
+            const uint32_t capacity = channels[c].Source < capacities.size() ? capacities[channels[c].Source] : 0u;
+            descriptors[c]          = glm::uvec4( 2u * c, cursor, capacity, 0u );
+            cursor += 2u * capacity * ( kParticleEventRowSize / 16u );
+        }
+
+        ParticleEventLayout layout;
+        layout.BufferRows = std::max( 1u, cursor );
+        layout.Tables.resize( system.Emitters.size() );
+        for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+        {
+            std::vector<glm::uvec4>& table = layout.Tables[k];
+            table.assign( kParticleEventTableHandlers + 2u * handlers[k].size(), glm::uvec4( 0u ) );
+            for ( uint32_t c = 0; c < static_cast<uint32_t>( channels.size() ); ++c )
+                if ( channels[c].Source == k )
+                {
+                    table[0][static_cast<int>( channels[c].Kind )] = 1u;
+                    table[1u + channels[c].Kind]                   = descriptors[c];
+                }
+            table[0].w = static_cast<uint32_t>( handlers[k].size() );
+            for ( std::size_t h = 0; h < handlers[k].size(); ++h )
+            {
+                const auto& [channel, handler]              = handlers[k][h];
+                glm::uvec4 row                              = descriptors[channel];
+                row.w                                       = handler->SpawnCount;
+                table[kParticleEventTableHandlers + 2u * h] = row;
+                table[kParticleEventTableHandlers + 2u * h + 1u] =
+                     glm::uvec4( std::bit_cast<uint32_t>( handler->InheritVelocity ), 0u, 0u, 0u );
+            }
+        }
+        return layout;
+    }
+
+    void ParticleWorldGpu::BuildSystemEvents( ParticleSystemGpu& system, const uint32_t entityId )
+    {
+        // Emitters linked by events tick in one stage: a source in the other chain would run all its steps before
+        // or after its handler's, and the handler would read a half overwritten or not yet written.
+        std::vector<VFX::VFXTickStage> stages;
+        stages.reserve( system.Emitters.size() );
+        for ( const ParticleEmitterGpu& gpu : system.Emitters )
+            stages.push_back( gpu.TickStage );
+        VFX::UnifyEventTickStages( *system.System, stages );
+        for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+            system.Emitters[k].TickStage = stages[k];
+
+        std::vector<uint32_t> capacities;
+        capacities.reserve( system.Emitters.size() );
+        for ( const ParticleEmitterGpu& gpu : system.Emitters )
+            capacities.push_back( gpu.Capacity );
+        const ParticleEventLayout layout = BuildParticleEventLayout( *system.System, capacities );
+
+        // GPU-written and read the step after, across frames: persistent, zeroed once (every half holds serial 0).
+        system.EventSerial = 1;
+        system.Events      = ShaderResources::StorageBuffer::Create(
+             "VFXEvents", layout.BufferRows * static_cast<uint32_t>( sizeof( glm::uvec4 ) ), 15,
+             /*persistent=*/true );
+        if ( system.Events )
+        {
+            const std::vector<glm::uvec4> zero( layout.BufferRows, glm::uvec4( 0u ) );
+            if ( const auto zeroed = system.Events->SetData(
+                      zero.data(), static_cast<uint32_t>( zero.size() * sizeof( glm::uvec4 ) ) );
+                 !zeroed.IsSuccess() )
+            {
+                LOG_ERROR( "[VFX] entity {}: the system's event buffer was not cleared, its emitters sit out: {}",
+                           entityId, zeroed.GetError() );
+                system.Events = nullptr;
+            }
+        }
+        for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
+        {
+            ParticleEmitterGpu& gpu = system.Emitters[k];
+            gpu.EventTableRows      = layout.Tables[k];
+            gpu.Events              = system.Events;
+            gpu.EventTable          = ShaderResources::StorageBuffer::Create(
+                 "VFXEventTable", static_cast<uint32_t>( gpu.EventTableRows.size() * sizeof( glm::uvec4 ) ), 14 );
+            if ( gpu.Capacity > 0 && ( !gpu.Events || !gpu.EventTable ) )
+            {
+                LOG_ERROR( "[VFX] entity {} emitter {} '{}' does not simulate: its event buffers were not created",
+                           entityId, k, system.System->Emitters[k].Name );
+                gpu.Capacity = 0;
+                gpu.Pipeline = nullptr;
+            }
+        }
+    }
 
     bool ParticleWorldGpu::EnsureTickBuffers( ParticleEmitterGpu& e, const uint32_t stepCapacity )
     {
@@ -167,7 +297,8 @@ namespace Desert::Graphic::System
             e.Steps        = ShaderResources::StorageBuffer::Create(
                  "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
         }
-        return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.AttributeFloats &&
+        return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.EventTable && e.Events &&
+               e.AttributeFloats &&
                e.AttributeInts && e.Params && e.Curves && e.PointSets && e.DrawLayout;
     }
 
@@ -236,7 +367,8 @@ namespace Desert::Graphic::System
             return refuse( source.GetError() );
 
         gpu.Pipeline  = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
-        gpu.TickStage = compiled.GetValue().TickStage;
+        gpu.TickStage       = compiled.GetValue().TickStage;
+        gpu.ReadsSceneDepth = gpu.TickStage == VFX::VFXTickStage::PostOpaque; // before UnifyEventTickStages
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
@@ -553,6 +685,7 @@ namespace Desert::Graphic::System
                      system.Emitters.resize( instances->System->Emitters.size() );
                      for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                          BuildEmitter( system.Emitters[k], *instances->System, k, entityId );
+                     BuildSystemEvents( system, entityId );
                      ApplyUserOverrides( system, vfx.Data.Overrides, entityId );
                      ApplyPointSets( system, vfx.Data.PointSets, entityId );
                  }
@@ -573,7 +706,8 @@ namespace Desert::Graphic::System
                  const ParticlePoolRange systemRange = m_Ranges.Acquire( entityId, total );
                  const glm::mat4         localToWorld( transform.GetTransform() );
 
-                 uint32_t offset = 0;
+                 uint32_t offset     = 0;
+                 uint32_t eventSteps = 0; // the system's steps this tick: its event serial moves by them
                  for ( std::size_t k = 0; k < system.Emitters.size(); ++k )
                  {
                      ParticleEmitterGpu& gpu = system.Emitters[k];
@@ -584,10 +718,14 @@ namespace Desert::Graphic::System
                      offset += gpu.Capacity;
                      if ( !EnsureTickBuffers( gpu, stepCapacity ) )
                          continue;
+                     eventSteps = std::max( eventSteps, std::min( static_cast<uint32_t>( instance->Steps.size() ),
+                                                                  gpu.StepCapacity ) );
                      if ( !PrepareEmitter( gpu, *instance, instances->System->Emitters[k], range, entityId,
-                                           static_cast<uint32_t>( k ), localToWorld, stepSeconds ) )
+                                           static_cast<uint32_t>( k ), localToWorld, stepSeconds,
+                                           system.EventSerial ) )
                          continue;
                  }
+                 system.EventSerial += eventSteps;
              } );
 
         if ( !m_FrameEmitters.empty() && !EnsurePoolCapacity( m_Ranges.End() ) )
@@ -617,7 +755,7 @@ namespace Desert::Graphic::System
                                            const Assets::Serialization::VFXEmitterData& data,
                                            const ParticlePoolRange& range, const uint32_t entityId,
                                            const uint32_t emitterIndex, const glm::mat4& localToWorld,
-                                           const float stepSeconds )
+                                           const float stepSeconds, const uint32_t eventSerial )
     {
         const VFX::EmitterInstance* instance = &emitter;
         // The emitter's range of the pool; a new or moved range starts dead.
@@ -648,10 +786,14 @@ namespace Desert::Graphic::System
                 curves = gpu.PointSets->SetData(
                      gpu.PointSetData.data(),
                      static_cast<uint32_t>( gpu.PointSetData.size() * sizeof( glm::vec4 ) ) );
+            if ( curves.IsSuccess() )
+                curves = gpu.EventTable->SetData(
+                     gpu.EventTableRows.data(),
+                     static_cast<uint32_t>( gpu.EventTableRows.size() * sizeof( glm::uvec4 ) ) );
             if ( !uploaded.IsSuccess() || !params.IsSuccess() || !curves.IsSuccess() )
             {
                 LOG_ERROR( "[Particles] emitter {} does not simulate this tick, its step table, parameters, "
-                           "curves or point sets did not upload: {}",
+                           "curves, point sets or event table did not upload: {}",
                            entityId,
                            !uploaded.IsSuccess()
                                 ? uploaded.GetError()
@@ -764,7 +906,8 @@ namespace Desert::Graphic::System
         fe.Push.Counts     = glm::uvec4( range.Count, 0u, range.Base, gpu.Local ? 1u : 0u );
         // The random streams' step (Stack.x + step): the emitter's own step since its reset, never the world's
         // tick - the same age draws the same numbers however it was reached (play, scrub forward, scrub back).
-        fe.Push.Stack = glm::uvec4( instance->FirstStep, 0u, 0u, 0u );
+        // y: the system's event step serial of step 0 (Common/VFXEvents.glslh).
+        fe.Push.Stack = glm::uvec4( instance->FirstStep, eventSerial, 0u, 0u );
         fe.Renderers.reserve( data.Renderers.size() );
         for ( std::size_t r = 0; r < data.Renderers.size(); ++r )
         {
