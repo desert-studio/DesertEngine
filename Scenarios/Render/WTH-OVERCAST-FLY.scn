@@ -10,22 +10,30 @@
 Дано --subject viewport set Camera.FOV 70
 Дано --subject viewport set Camera.Position 0,300,0
 Дано --subject viewport set Camera.Direction 1,0.04,0.1
-Дано advance 30
+Дано advance 2
 Тогда-вид 1_fly_start Rain: an even grey sheet down to the horizon
 Когда --subject viewport set Camera.Position 25000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 50000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 75000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 100000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 125000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 150000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 175000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Когда --subject viewport set Camera.Position 200000,300,0
-Когда advance 40
+Когда advance 2
+Когда advance 2
 Тогда-вид 2_fly_end Rain after 2 km: the far grey sheet at the horizon is the same as in 1_fly_start, no drop into blue
