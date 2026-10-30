@@ -280,8 +280,11 @@ Shader "Terrain"
             float          opacity;
             TerrainSurface s = EvaluateTerrainSurfaceCovered( Material.Tint.rgb, transmission, cover, opacity );
             // The world's snow (Common/WeatherSnow.glslh) over the ground and the grass's far cover alike: where it
-            // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it.
-            const DesertSnowLayer snow = DesertEvaluateSnow( v_WorldPos, s.N, 1.0 );
+            // lies the ground is snow, DefaultLit, and the cover's transmission is buried with it. The layer reads the
+            // GEOMETRIC normal (v_Normal), never s.N: the far cover bends s.N towards the eye (a grazing canopy's
+            // normal, LandscapeApplyGrassCover), which held every pixel of the field past ~40 m - and the far
+            // landscape whole - under the snow's up-ness threshold, bare beyond a sharp edge.
+            const DesertSnowLayer snow = DesertEvaluateSnow( v_WorldPos, normalize( v_Normal ), 1.0 );
             s.Albedo    = mix( s.Albedo, snow.Albedo, snow.Weight );
             s.Roughness = mix( s.Roughness, snow.Roughness, snow.Weight );
             s.AO        = mix( s.AO, snow.AO, snow.Weight );
