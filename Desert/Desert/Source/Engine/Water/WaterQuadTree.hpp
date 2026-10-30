@@ -100,17 +100,25 @@ namespace Desert::Water
         {
             return m_LODScale;
         }
+        /// The ring unit one view measures with: GetLODScale() stretched by the view's lens
+        /// (Graphic::DrawDistanceScale), so a k-times zoom keeps every ring - and the vertex morph that reads the
+        /// same unit - k times farther out. The tree itself stays lens-agnostic: it takes this one scalar.
+        [[nodiscard]] float GetViewLODScale( float viewDistanceScale ) const;
         [[nodiscard]] uint32_t QuadsPerSide( int32_t densityIndex ) const
         {
             return static_cast<uint32_t>( m_NumQuadsLOD0 ) >> static_cast<uint32_t>( densityIndex );
         }
 
-        [[nodiscard]] WaterLODParams GetWaterLODParams( const glm::vec3& observer ) const;
+        /// @p viewLODScale: GetViewLODScale of the view the camera height is measured for.
+        [[nodiscard]] WaterLODParams GetWaterLODParams( const glm::vec3& observer, float viewLODScale ) const;
 
         /// The tiles drawn for @p observer, culled by @p frustum (null = none), grouped by density index (all of
         /// density 0 first). @p verticalExtent pads the culling box above and below the still level (the waves).
-        [[nodiscard]] std::vector<WaterTileInstance>
-        Traverse( const glm::vec3& observer, const Core::Frustum* frustum, float verticalExtent ) const;
+        /// @p viewDistanceScale: the view's lens scale (Graphic::DrawDistanceScale; 1 = the authored 90-degree
+        /// lens) - every LOD ring and the camera-height LOD stretch by it.
+        [[nodiscard]] std::vector<WaterTileInstance> Traverse( const glm::vec3& observer, float viewDistanceScale,
+                                                               const Core::Frustum* frustum,
+                                                               float                verticalExtent ) const;
 
     private:
         // A body's footprint clipped to the zone, in leaf tiles from the root's corner: [Min, Max).
@@ -140,6 +148,7 @@ namespace Desert::Water
             glm::vec2                       Observer{ 0.0f };
             const Core::Frustum*            Frustum        = nullptr;
             float                           VerticalExtent = 0.0f;
+            float                           LODScale       = 0.0f; // GetViewLODScale of this view
             WaterLODParams                  LOD;
             std::vector<WaterTileInstance>* Output = nullptr;
         };

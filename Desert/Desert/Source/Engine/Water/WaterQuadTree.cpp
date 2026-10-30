@@ -55,7 +55,12 @@ namespace Desert::Water
         return std::exp2( static_cast<float>( lodLevel + 1 ) ) * lodScale;
     }
 
-    WaterLODParams WaterQuadTree::GetWaterLODParams( const glm::vec3& observer ) const
+    float WaterQuadTree::GetViewLODScale( const float viewDistanceScale ) const
+    {
+        return m_LODScale * viewDistanceScale; // DrawDistanceScale is > 0 (1 for an orthographic view)
+    }
+
+    WaterLODParams WaterQuadTree::GetWaterLODParams( const glm::vec3& observer, const float viewLODScale ) const
     {
         WaterLODParams params;
         if ( m_Bodies.empty() )
@@ -80,7 +85,7 @@ namespace Desert::Water
 
         // UE GetWaterLODParams: the lowest LOD morphs globally toward the next as the observer climbs; once fully
         // morphed the LOD selection promotes it (the clamp keeps the last LOD from morphing).
-        float distToWater      = std::abs( observer.y - params.WaterHeightForLOD ) / m_LODScale;
+        float distToWater      = std::abs( observer.y - params.WaterHeightForLOD ) / viewLODScale;
         distToWater            = std::max( distToWater - 2.0f, 0.0f ) * 2.0f;
         const float floatLod   = distToWater > 0.0f ? std::clamp( std::log2( distToWater ), 0.0f,
                                                                   static_cast<float>( m_TreeDepth - 1 ) )
@@ -91,6 +96,7 @@ namespace Desert::Water
     }
 
     std::vector<WaterTileInstance> WaterQuadTree::Traverse( const glm::vec3&     observer,
+                                                            const float          viewDistanceScale,
                                                             const Core::Frustum* frustum,
                                                             const float          verticalExtent ) const
     {
@@ -102,7 +108,8 @@ namespace Desert::Water
         t.Observer       = glm::vec2( observer.x, observer.z );
         t.Frustum        = frustum;
         t.VerticalExtent = verticalExtent;
-        t.LOD            = GetWaterLODParams( observer );
+        t.LODScale       = GetViewLODScale( viewDistanceScale );
+        t.LOD            = GetWaterLODParams( observer, t.LODScale );
         t.Output         = &output;
         SelectLOD( Node{ .Level = m_TreeDepth - 1, .Tile = glm::ivec2( 0 ) }, m_TreeDepth - 1, t );
 
@@ -174,7 +181,7 @@ namespace Desert::Water
 
         // Outside this LOD's range: the node belongs to the LOD above. Drawn as that LOD with half the quads, so
         // its quads are that LOD's size.
-        if ( closest > GetLODDistance( lodLevel, m_LODScale ) )
+        if ( closest > GetLODDistance( lodLevel, t.LODScale ) )
         {
             if ( coverage == Coverage::Complete )
             {
@@ -196,7 +203,7 @@ namespace Desert::Water
         }
 
         // Fully inside its LOD (or the lowest LOD the camera height allows).
-        if ( closest > GetLODDistance( lodLevel - 1, m_LODScale ) || lodLevel == t.LOD.LowestLOD )
+        if ( closest > GetLODDistance( lodLevel - 1, t.LODScale ) || lodLevel == t.LOD.LowestLOD )
         {
             if ( coverage == Coverage::Complete )
             {

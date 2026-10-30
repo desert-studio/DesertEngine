@@ -12,6 +12,7 @@
 #include <Engine/Graphic/Materials/Properties/Texture2DProperty.hpp>
 #include <Engine/Graphic/Texture.hpp>
 #include <Engine/Core/Frustum.hpp>
+#include <Engine/Graphic/VisibilityCulling.hpp>
 #include <Engine/Water/GerstnerWaterWaves.hpp>
 #include <Common/Core/Profiler.hpp>
 
@@ -263,6 +264,9 @@ namespace Desert::Graphic::System
         const glm::mat4     proj     = camera->GetProjectionMatrix();
         const glm::vec3     observer = glm::vec3( glm::inverse( view )[3] );
         const Core::Frustum frustum( proj, view );
+        // The lens stretches every water LOD ring (VIEW-LOD-FOV): the one view scale meshes, foliage and terrain
+        // read, so a 10-degree scope keeps the far sea as fine as it looks.
+        const float lensScale = DrawDistanceScale( Geometry::LODView{ .Origin = observer, .Projection = proj } );
 
         // Every zone's tiles in its density order: one instanced draw per run of one grid density (a row carries
         // its own zone, so a run may span two zones).
@@ -271,7 +275,8 @@ namespace Desert::Graphic::System
         {
             const Water::WaterQuadTree                  tree( zone.Zone, zone.Bodies );
             const std::vector<Water::WaterTileInstance> tiles =
-                 tree.Traverse( observer, &frustum, verticalExtent );
+                 tree.Traverse( observer, lensScale, &frustum, verticalExtent );
+            const float viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
             for ( const Water::WaterTileInstance& tile : tiles )
             {
@@ -288,7 +293,7 @@ namespace Desert::Graphic::System
                 row.Tile = glm::vec4( tile.Corner.x, tile.Corner.y, tile.SurfaceY, tile.Size );
                 row.Lod  = glm::vec4( static_cast<float>( tile.LODLevel ), tile.ShouldMorph ? 1.0f : 0.0f,
                                      tile.CanMorphTwice ? 1.0f : 0.0f, tile.HeightMorph );
-                row.Zone = glm::vec4( origin.x, origin.y, tree.GetLODScale(), static_cast<float>( quads ) );
+                row.Zone = glm::vec4( origin.x, origin.y, viewLODScale, static_cast<float>( quads ) );
                 rows.push_back( row );
             }
         }
