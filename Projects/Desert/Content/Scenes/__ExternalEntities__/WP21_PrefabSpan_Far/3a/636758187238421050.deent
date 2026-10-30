@@ -1,0 +1,30 @@
+{
+    "id": 636758187238421050,
+    "Tag": "Sun",
+    "Translation": [0.0, 0.0, 0.0],
+    "Rotation": [-1.1071487665176392, 0.34358084201812744, -0.2136421501636505],
+    "Scale": [1.0, 1.0, 1.0],
+    "DirectionLight": {
+        "Color": [1.0, 0.9700000286102295, 0.8999999761581421],
+        "Intensity": 3.0,
+        "AtmosphereSunLight": true,
+        "AtmosphereSunLightIndex": 0,
+        "AffectedByAtmosphereTransmittance": true,
+        "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
+        "LightShaftBloom": false,
+        "BloomScale": 0.20000000298023224,
+        "BloomThreshold": 0.0,
+        "BloomMaxBrightness": 100.0,
+        "BloomTint": [1.0, 1.0, 1.0],
+        "CastShadows": true,
+        "SourceAngle": 0.5357000231742859,
+        "ShadowBias": 1.0,
+        "ShadowSlopeBias": 2.0,
+        "ShadowCascadeBiasDistribution": 1.0,
+        "CascadeSplitLambda": 0.6000000238418579,
+        "ContactShadowLength": 0.0,
+        "ContactShadowLengthInWorldSpace": false,
+        "ContactShadowCastingIntensity": 1.0,
+        "ContactShadowNonCastingIntensity": 0.0
+    }
+}
