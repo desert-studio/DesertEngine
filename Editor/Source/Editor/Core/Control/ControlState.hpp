@@ -352,6 +352,10 @@ namespace Desert::Editor::Control
 
         AuthoringSnapshot Authoring;
 
+        // Who holds the keyboard in the level viewport (Core::UIKeyboardHolderName of UIPreview::Keyboard):
+        // "viewport" (camera keys and shortcuts), "level" (the level's canvases) or "gallery" (widget gallery).
+        std::string UIKeyboard = "viewport";
+
         DeviceSnapshot Device;
 
         NrcSnapshot Nrc;
@@ -364,7 +368,7 @@ namespace Desert::Editor::Control
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
          "scene", "selection", "authoring", "documents", "panels", "views", "vsm", "render", "log", "device",
-         "nrc", "quiescence",
+         "nrc", "quiescence", "ui",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -766,6 +770,13 @@ namespace Desert::Editor::Control
             section["lossHistory"]     = Common::Json::Value( history );
             section["error"]           = Str( nrc.Error );
             root["nrc"]                = Common::Json::Value( section );
+        }
+
+        if ( Wanted( sections, "ui" ) )
+        {
+            Common::Json::Object ui;
+            ui["keyboardOwner"] = Str( snapshot.UIKeyboard );
+            root["ui"]          = Common::Json::Value( ui );
         }
 
         if ( Wanted( sections, "quiescence" ) )

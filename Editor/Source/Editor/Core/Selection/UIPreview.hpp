@@ -5,11 +5,37 @@
 #include <glm/glm.hpp>
 #include <entt/entt.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 namespace Desert::Editor::Core
 {
+    // The three things in a level viewport that can hold the keyboard (UI::UIKeyboardUser::Owner): the
+    // viewport itself (the surface behind the views — camera keys, viewport shortcuts), the level's canvases
+    // (UI Preview / Play), and the retained widget gallery drawn over them.
+    enum class UIKeyboardHolder : uint8_t
+    {
+        Viewport,
+        Level,
+        Gallery,
+    };
+
+    // The wire name of @p holder (control channel `state` section "ui").
+    [[nodiscard]] constexpr const char* UIKeyboardHolderName( UIKeyboardHolder holder )
+    {
+        switch ( holder )
+        {
+            case UIKeyboardHolder::Viewport:
+                return "viewport";
+            case UIKeyboardHolder::Level:
+                return "level";
+            case UIKeyboardHolder::Gallery:
+                return "gallery";
+        }
+        return "viewport";
+    }
+
     // Editor "UI Preview" — Play-in-editor for UI (like UMG's preview / PIE). When Enabled, the ViewportPanel
     // feeds the viewport's mouse + keyboard into the scene's UI canvas so buttons / toggles / sliders react
     // right in the editor; the EditorUIPass reads this snapshot to drive RenderCanvas2D with real input.
@@ -50,6 +76,12 @@ namespace Desert::Editor::Core
         // WRITTEN BY THE PASS, read by the panel: the pointer shape the UI frame asked for
         // (UIViewContext::Cursor), shown by the ViewportPanel while the viewport is hovered.
         ::Desert::UI::UICursorShape Cursor = ::Desert::UI::UICursorShape::Default;
+        // WRITTEN BY THE PASS, read by the panel and the control channel: who holds the keyboard
+        // (EditorUIPass's UIKeyboardUser), published as the pass saw it at the end of its frame. The viewport
+        // reads its camera keys and its shortcuts only while it is Viewport — a click in a UI field takes the
+        // keyboard to that field's view, a click on empty viewport space brings it back (Slate SViewport).
+        // Viewport whenever the UI is fed no input at all (Design mode), since then no view can take a key.
+        UIKeyboardHolder Keyboard = UIKeyboardHolder::Viewport;
 
         static UIPreview& Get()
         {

@@ -1047,9 +1047,11 @@ namespace Desert::UI
 
                 // THE CLICK MOVES THE KEYBOARD (UIKeyboardUser): a press that landed on an element of this
                 // view — the pointer is over it, so the election is not empty — makes it the owner, and the
-                // view that owned it drops its focus on its next frame.
-                if ( input->Keyboard != nullptr && view.HotNext != NodeId::Null )
-                    input->Keyboard->Owner = &view;
+                // view that owned it drops its focus on its next frame. A press on none of its elements is
+                // reported too: when no view found one, the host's SettlePress hands the keyboard to the
+                // surface behind them (the editor's viewport), as a click on an empty SViewport focuses it.
+                if ( input->Keyboard != nullptr )
+                    input->Keyboard->Pressed( view, view.HotNext != NodeId::Null );
 
                 // Start a drag from the nearest drag source at or above the element pressed (Slate's
                 // OnDragDetected bubbles the same way: a row's label is what you grab, the row is what moves).
@@ -1164,7 +1166,11 @@ namespace Desert::UI
             view.PrevDown = input->MouseDown;
 
             if ( input->MouseMiddleDown && !view.PrevMiddleDown )
+            {
                 recordPress( UIPointerButton::Middle );
+                if ( input->Keyboard != nullptr ) // a middle press moves the keyboard too (UIKeyboardUser)
+                    input->Keyboard->Pressed( view, view.HotNext != NodeId::Null );
+            }
             view.PrevMiddleDown = input->MouseMiddleDown;
 
             // The capture lasts while the button that took it is held — and not past its captor.

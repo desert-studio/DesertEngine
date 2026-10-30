@@ -58,10 +58,48 @@ namespace Desert::UI
     // keystroke can never land in two fields. A press that lands on an element of a view, or a capture it
     // takes, makes that view the owner (EndUIFrame) — the click that moves focus in Slate. Tab and the
     // arrows then move focus inside the owner only. Which view owns the keyboard before anything has been
-    // clicked is the host's to say (it sets Owner); null owns nothing.
+    // clicked is the host's to say (it sets Owner).
+    //
+    // THE SURFACE BEHIND THE VIEWS IS A KEYBOARD OWNER TOO (Slate's SViewport is a focusable widget: a click
+    // on the viewport where no widget answers focuses the viewport, and the field that had focus loses it).
+    // Owner null names that surface — the editor's viewport, whose camera keys and shortcuts read the
+    // keyboard only while it holds it. A press that every view saw land on none of its elements gives the
+    // keyboard to the surface: each view's EndUIFrame reports its press (Pressed), and the host settles the
+    // frame once, after the last view (SettlePress), because one view alone cannot know that the view drawn
+    // over it found nothing either.
     struct UIKeyboardUser
     {
-        const UIViewContext* Owner = nullptr;
+        // What this frame's press landed on, across every view drawn so far.
+        enum class Press : uint8_t
+        {
+            None,      // no press this frame
+            OnNothing, // a press, and no view has found an element under it
+            OnElement, // a press that a view's element took (that view is Owner now)
+        };
+
+        const UIViewContext* Owner     = nullptr; // null = the surface behind every view
+        Press                ThisFrame = Press::None;
+
+        // EndUIFrame of @p view saw the press edge; @p onElement = its election under the press is not empty.
+        void Pressed( const UIViewContext& view, bool onElement )
+        {
+            if ( onElement )
+            {
+                Owner     = &view;
+                ThisFrame = Press::OnElement;
+            }
+            else if ( ThisFrame == Press::None )
+                ThisFrame = Press::OnNothing;
+        }
+
+        // Once per frame, after the last view's EndUIFrame: a press that landed on no element of any view
+        // gives the keyboard to the surface. Returns to Press::None for the next frame.
+        void SettlePress()
+        {
+            if ( ThisFrame == Press::OnNothing )
+                Owner = nullptr;
+            ThisFrame = Press::None;
+        }
     };
 
     // Pointer/mouse state for button interaction, in the SAME pixel space as the canvas viewport (top-left

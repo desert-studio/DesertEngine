@@ -477,6 +477,10 @@ namespace Desert::UI
         const bool   pressedLeft  = input.MouseDown && !view.PrevDown;
         const bool   pressedRight = input.MouseRightDown && !view.PrevRightDown;
         view.PrevRightDown        = input.MouseRightDown;
+        // Every button's press moves the keyboard, as a mouse-down on a Slate widget focuses it whichever
+        // button it was: the right press here, the left and middle ones in EndUIFrame (UIKeyboardUser::Pressed).
+        if ( pressedRight && input.Keyboard != nullptr )
+            input.Keyboard->Pressed( view, hot != NodeId::Null );
 
         // --- Escape closes the innermost capturing overlay that allows it ------------------------------
         if ( input.Pressed( Common::KeyCode::Escape ) && !view.KeyConsumed( Common::KeyCode::Escape ) &&

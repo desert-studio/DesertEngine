@@ -142,8 +142,21 @@ namespace Desert::Editor::Render
             // ONE KEYBOARD FOR BOTH VIEWS (UIKeyboardUser): keys reach only the view that owns it, so a field
             // focused in the gallery and a field focused in the level never both take the same keystroke. A
             // hidden gallery cannot hold it.
+            //
+            // WHO HOLDS IT UNTIL SOMETHING IS CLICKED follows the world, as in UE: an authored level is the
+            // editor's, so its viewport holds the keyboard (camera keys, shortcuts — Owner null); Play hands it
+            // to the game's canvases the moment it starts (PIE focuses the game viewport's widgets), so a menu
+            // walks with the arrows without a click, and Stop gives it back to the viewport.
+            const bool playing = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+
+            const UI::UIViewContext* const unclicked = playing ? &m_UIView : nullptr;
+            if ( playing != m_KeyboardPlaying )
+            {
+                m_KeyboardPlaying = playing;
+                m_Keyboard.Owner  = unclicked;
+            }
             if ( !pv.WidgetGallery && m_Keyboard.Owner == &m_GalleryView )
-                m_Keyboard.Owner = &m_UIView;
+                m_Keyboard.Owner = unclicked;
             input.Keyboard = &m_Keyboard;
 
             std::vector<std::string> uiMessages;
@@ -177,7 +190,7 @@ namespace Desert::Editor::Render
             // it); Play / Paused is the game, where AutoPlay clips start — at t = 0, because entering Play
             // dropped their players (Core::BeginPlay). Auto-playing in Edit ran a three-second clip out while
             // the level was being looked at, and Play then inherited the finished playhead: a black viewport.
-            m_UIView.GameWorld = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+            m_UIView.GameWorld = playing;
 
             // THE TOPMOST VIEW OWNS THE POINTER (Slate's hit-test grid: the window on top wins). The gallery is
             // drawn over the level, so while it holds the pointer — something of it is under the pointer, or a
@@ -246,6 +259,17 @@ namespace Desert::Editor::Render
                     cursor = m_GalleryView.Cursor;
             }
             pv.Cursor = feed ? cursor : UI::UICursorShape::Default;
+
+            // A PRESS NO VIEW TOOK GOES TO THE VIEWPORT (UIKeyboardUser::SettlePress, Slate SViewport): after
+            // the last view, so a press the level found nothing under but the gallery did stays the gallery's.
+            // Published for the panel (camera keys, viewport shortcuts) and the control channel.
+            m_Keyboard.SettlePress();
+            Core::UIKeyboardHolder holder = Core::UIKeyboardHolder::Viewport;
+            if ( feed && m_Keyboard.Owner == &m_UIView )
+                holder = Core::UIKeyboardHolder::Level;
+            else if ( feed && m_Keyboard.Owner == &m_GalleryView )
+                holder = Core::UIKeyboardHolder::Gallery;
+            pv.Keyboard = holder;
 
             // BEFORE Flush and AFTER the frame: this is the one moment the frame's draw list is complete
             // and still readable, and it is the same object Flush is about to turn into draw calls — so the
