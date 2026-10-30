@@ -420,6 +420,12 @@ namespace Desert::Graphic::GlobalIllumination
     ScreenProbeGather::AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
                                   const ScreenProbeGatherInputs& inputs, ScreenProbeGatherHistory& history )
     {
+        // ASYNC COMPUTE (UE Lumen screen probes on the async pipe, ERDGPassFlags::AsyncCompute): every node below is a
+        // compute dispatch whose every input and output is a graph resource (G-buffer, HZB, velocity, the radiance
+        // cache, the tracer's field / TLAS, the surface cache), so the graph forks at the last graphics writer of what
+        // the run reads (the G-buffer, HZB) and joins at the first graphics reader of its lighting (Deferred:
+        // Composite). The passes are consecutive in AddPass order: one segment, one fork, one join.
+        const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         if ( inputs.Extent.x == 0 || inputs.Extent.y == 0 || inputs.Extent.x >= 4096 || inputs.Extent.y >= 4096 )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>(
                  "screen probes: the G-buffer extent {}x{} is outside 1..4095 (a probe packs its pixel in 24 "
@@ -543,7 +549,7 @@ namespace Desert::Graphic::GlobalIllumination
             const glm::uvec2       groups( DivideRoundUp( DivideRoundUp( inputs.Extent.x, spacing ), 8u ),
                                            DivideRoundUp( DivideRoundUp( inputs.Extent.y, spacing ), 8u ) );
             graph.AddPass(
-                 kPlaceNames[level], RDG::PassFlags::Compute,
+                 kPlaceNames[level], kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[Place].Get( m_Shaders[Place] ),
@@ -575,7 +581,7 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[ShortRangeAO].get();
             const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
             graph.AddPass(
-                 "ScreenProbes: ShortRangeAO", RDG::PassFlags::Compute,
+                 "ScreenProbes: ShortRangeAO", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[ShortRangeAO].Get( m_Shaders[ShortRangeAO] ),
@@ -604,7 +610,7 @@ namespace Desert::Graphic::GlobalIllumination
         {
             ComputePipeline* const pipeline = m_Pipelines[TraceScreen].get();
             graph.AddPass(
-                 "ScreenProbes: Trace Screen", RDG::PassFlags::Compute,
+                 "ScreenProbes: Trace Screen", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[TraceScreen].Get( m_Shaders[TraceScreen] ),
@@ -655,7 +661,7 @@ namespace Desert::Graphic::GlobalIllumination
             graph.QueueBufferUpload( list.Allocator, std::as_bytes( std::span( &kCompactAllocatorReset, 1 ) ) );
             ComputePipeline* const pipeline = m_Pipelines[CompactTraces].get();
             graph.AddPass(
-                 std::format( "ScreenProbes: Compact Traces ({})", name ), RDG::PassFlags::Compute,
+                 std::format( "ScreenProbes: Compact Traces ({})", name ), kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[CompactTraces].Get( m_Shaders[CompactTraces] ),
@@ -686,7 +692,7 @@ namespace Desert::Graphic::GlobalIllumination
         {
             ComputePipeline* const pipeline = m_Pipelines[program].get();
             graph.AddPass(
-                 name, RDG::PassFlags::Compute,
+                 name, kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[program].Get( m_Shaders[program] ),
@@ -760,7 +766,7 @@ namespace Desert::Graphic::GlobalIllumination
             {
                 ComputePipeline* const pipeline = m_Pipelines[Disocclusion].get();
                 graph.AddPass(
-                     "ScreenProbes: Disocclusion", RDG::PassFlags::Compute,
+                     "ScreenProbes: Disocclusion", kAsyncPass,
                      [&]( RDG::PassBuilder& builder )
                      {
                          auto block = builder.Bindings( m_Layouts[Disocclusion].Get( m_Shaders[Disocclusion] ),
@@ -808,7 +814,7 @@ namespace Desert::Graphic::GlobalIllumination
                 const RDG::TextureRef  input    = radiance;
                 const RDG::TextureRef  output   = graph.CreateTexture( atlasDesc, "ScreenProbes.SpatialFiltered" );
                 graph.AddPass(
-                     "ScreenProbes: Spatial Filter", RDG::PassFlags::Compute,
+                     "ScreenProbes: Spatial Filter", kAsyncPass,
                      [&]( RDG::PassBuilder& builder )
                      {
                          builder
@@ -841,7 +847,7 @@ namespace Desert::Graphic::GlobalIllumination
         {
             ComputePipeline* const pipeline = m_Pipelines[Filter].get();
             graph.AddPass(
-                 "ScreenProbes: Filter", RDG::PassFlags::Compute,
+                 "ScreenProbes: Filter", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[Filter].Get( m_Shaders[Filter] ),
@@ -887,7 +893,7 @@ namespace Desert::Graphic::GlobalIllumination
             ComputePipeline* const pipeline = m_Pipelines[Integrate].get();
             const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
             graph.AddPass(
-                 "ScreenProbes: Integrate", RDG::PassFlags::Compute,
+                 "ScreenProbes: Integrate", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      auto block = builder.Bindings( m_Layouts[Integrate].Get( m_Shaders[Integrate] ),
@@ -953,7 +959,7 @@ namespace Desert::Graphic::GlobalIllumination
             const glm::uvec2 groups( DivideRoundUp( inputs.Extent.x, 8u ), DivideRoundUp( inputs.Extent.y, 8u ) );
             history.SetWriterPass( graph.GetPassCount() );
             graph.AddPass(
-                 "ScreenProbes: Temporal", RDG::PassFlags::Compute,
+                 "ScreenProbes: Temporal", kAsyncPass,
                  [&]( RDG::PassBuilder& builder )
                  {
                      using H    = History;

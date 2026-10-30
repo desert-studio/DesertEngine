@@ -573,6 +573,11 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeError<FrameField>( r.GetError() );
         if ( auto r = GdfUpload( *m_BrickObjectBuffer, brickObjects, "brick object lists" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
+        // ASYNC COMPUTE (UE distance-field scene update on the async pipe): the composite reads the brick
+        // atlas (a graph import) and buffers the host wrote before the graph ran, and writes only the clipmaps
+        // and the object grid; it overlaps the shadow and base passes until the first graphics reader of the
+        // field joins it.
+        const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
             const auto [first, count] = levelRange[level];
@@ -588,7 +593,7 @@ namespace Desert::Graphic::DistanceField
             const RDG::TextureRef grid     = frame.ObjectGrid;
             graph.AddPass(
                  std::format( "GlobalDistanceField: Composite L{} ({} bricks)", level, count ),
-                 RDG::PassFlags::Compute,
+                 kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pipeline->SetStorageBuffer( kGdfAssetBinding, scene.GetAssetBuffer().get() );
@@ -723,12 +728,15 @@ namespace Desert::Graphic::DistanceField
 
         constexpr RDG::Access kR = RDG::Access::StorageRead;
         constexpr RDG::Access kW = RDG::Access::StorageWrite;
+        // ASYNC COMPUTE: the near-field cull, grid and sort nodes read the field's imports and host uploads and write
+        // graph buffers only; they run with the composite on the compute queue (the graph places fork and join).
+        const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         {
             ComputePipeline* const pipeline = m_CullObjectsPipeline.get();
             const uint32_t         groups   = std::max( ( fields.NumObjects + 63u ) / 64u, 1u );
             graph.AddPass(
                  std::format( "DistanceField: Near-field cull ({} objects)", fields.NumObjects ),
-                 RDG::PassFlags::Compute,
+                 kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullObjectsLayout.Get( m_CullObjectsShader ),
@@ -754,7 +762,7 @@ namespace Desert::Graphic::DistanceField
             graph.AddPass(
                  std::format( "DistanceField: Near-field grid {} ({}x{}x{})", gridPass == 0u ? "count" : "scatter",
                               cells.x, cells.y, slices ),
-                 RDG::PassFlags::Compute,
+                 kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullGridLayout.Get( m_CullGridShader ),
@@ -778,7 +786,7 @@ namespace Desert::Graphic::DistanceField
             ComputePipeline* const pipeline = m_CullOffsetsPipeline.get();
             graph.AddPass(
                  std::format( "DistanceField: Near-field grid offsets ({} cells)", total ),
-                 RDG::PassFlags::Compute,
+                 kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullOffsetsLayout.Get( m_CullOffsetsShader ),
@@ -801,7 +809,7 @@ namespace Desert::Graphic::DistanceField
             const uint32_t         groupsX    = std::min( total, kMaxGroups );
             const uint32_t         groupsY    = ( total + groupsX - 1u ) / groupsX;
             graph.AddPass(
-                 std::format( "DistanceField: Near-field grid sort ({} cells)", total ), RDG::PassFlags::Compute,
+                 std::format( "DistanceField: Near-field grid sort ({} cells)", total ), kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullSortLayout.Get( m_CullSortShader ),

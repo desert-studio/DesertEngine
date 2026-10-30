@@ -1757,8 +1757,10 @@ namespace Desert::Graphic::API::Vulkan
         if ( segment.OnPipe == RDG::Pipe::AsyncCompute && !segment.WaitSyncs.empty() &&
              m_Device.Profiler != nullptr && m_Result != nullptr )
         {
-            m_SegmentScopeName = "RDG Async: " + m_Result->Passes[segment.FirstPosition].Name + " .. " +
-                                 m_Result->Passes[segment.LastPosition].Name;
+            m_SegmentScopeName = std::string( Common::Profiling::kGpuAsyncSegmentScopePrefix ) +
+                                 m_Result->Passes[segment.FirstPosition].Name + " .. " +
+                                 m_Result->Passes[segment.LastPosition].Name + " (" +
+                                 std::to_string( segment.LastPosition - segment.FirstPosition + 1 ) + " passes)";
             m_SegmentScope     = m_Device.Profiler->BeginScope( m_SegmentScopeName.c_str() );
         }
         return Common::MakeSuccess( true );
