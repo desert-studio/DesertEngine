@@ -1822,7 +1822,7 @@
             },
             "SkinnedMesh": {
                 "MeshPath": "engine:Engine/Meshes/Skinned/Humanoid.skmesh",
-                "MeshGuid": ""
+                "MeshGuid": "6d3a1f0e2b8c4e579a41c7d25e0b3f18"
             }
         },
         {

@@ -5263,7 +5263,7 @@
             },
             "SkinnedMesh": {
                 "MeshPath": "engine:Engine/Meshes/Skinned/Humanoid.skmesh",
-                "MeshGuid": ""
+                "MeshGuid": "6d3a1f0e2b8c4e579a41c7d25e0b3f18"
             }
         },
         {
@@ -5311,10 +5311,7 @@
             "Path": ""
         },
         "RespawnDelay": 3.0,
-        "WorldParameters": {
-            "Guid": "41e67a5c013d4a93bfb6ee49890d3e43",
-            "Path": "assets:WorldParameters/WP_Winter.dworldparams"
-        },
+        "WorldParameters": "assets:WorldParameters/WP_Winter.dworldparams",
         "SplashSprite": {
             "Guid": "",
             "Path": ""
