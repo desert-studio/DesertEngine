@@ -11,9 +11,10 @@
 # EmitterUpdate row): each spark that moved INTO the scene in step s raises a Collision event (ParticleSimulate
 # RaiseEvent), and step s+1 of ImpactPuffs spawns 2 dust puffs (0.45-0.75 s, 8-14 cm) at that point through
 # engine:SpawnFromEvent (VFXStackCompiler appends it last in ParticleSpawn). UnifyEventTickStages puts ImpactPuffs
-# in BreakSparks' PostOpaque chain. The live count is read from the viewport overview (Debug "Particles: Viewport
-# overview", top right: "<emitter>: <alive> / <capacity>", GPU readback a few frames late) - no state section
-# reports per-emitter alive counts. UNVERIFIED (written unbuilt). The scenario does not save the scene.
+# in BreakSparks' PostOpaque chain. Step 6 (UE fx.Niagara.Debug): the live counts are read from `state vfx` (per
+# live scene, system and emitter: alive / free of the last finished GPU copy, framesOld frames late; read back only
+# while gpuCounts - Debug "Particles: Viewport overview" in Дано turns it on), the same numbers the overview draws.
+# UNVERIFIED (written unbuilt). The scenario does not save the scene.
 Дано run Scene "Open Scene SLICE-02.desce"
 Дано run View "View mode: Lit"
 Дано run Debug "Particles: Viewport overview"
@@ -23,11 +24,14 @@
 Когда advance 0.3
 Когда run Action "Fire Field 'WallBlast'"
 Когда 4 frames render
+Когда state vfx
 Тогда-вид port_vfx_modules_airborne the sparks are in the air, none has reached the floor yet; the overview (top right) lists WallDust's five emitters, BreakSparks alive > 0 and "ImpactPuffs: 0 / 2048" (no Collision event yet: the handler spawns nothing before a spark touches the scene)
 Когда advance 0.6
+Когда state vfx
 Тогда-вид port_vfx_modules_puffs small dust puffs (8-14 cm, the dust colour of LandingDust, fading over ~0.6 s) sit at the points where sparks hit the floor in front of the broken wall, each next to a spark that lies / bounces there, none in mid-air where no spark touched anything; the overview lists "ImpactPuffs: N / 2048" with N > 0 (about 2 per spark impact)
 Когда 120 frames render
 Когда state views
 Тогда-вид port_vfx_modules_sparks BreakSparks' sparks fell onto the floor in front of the broken wall and lie / bounce ON it (Restitution 0.3, Friction 0.4) - none falls through the floor; dust and smoke as VFX-PORT-1 walldust_modules
 Тогда [log] editor.log: no "VUID", no [error] line from [Particles] (no "ImportCollisionInputs" refusal, no "sits out this frame", no "event handler" / "SpawnFromEvent" refusal from the reader or the stack compiler); the frame's graph has "Particles PostOpaque: Open" and "Particles PostOpaque: Spawn+Update 0" AFTER "Scene: DepthResolve" and "Particles PreOpaque: Open" before the base pass; ImpactPuffs' rows are in the PostOpaque chain (its alive count 0 in port_vfx_modules_airborne and > 0 in port_vfx_modules_puffs: puffs only after sparks hit the floor)
+Тогда [log] the two `state vfx` replies (after the 4 frames, after advance 0.6): the active scene's entry has gpuCounts true and a system whose emitters are WallDust's BreakDust, BreakSmoke, BreakSparks, LandingDust, ImpactPuffs (capacity 2048 for ImpactPuffs), every one gpuRead true with framesOld a few frames (no stall); first reply: BreakSparks alive > 0, ImpactPuffs alive 0 and spawned 0 (no Collision event before a spark lands; spawned never counts event spawns); second reply: ImpactPuffs alive > 0 (puffs only after sparks hit the floor), BreakSparks alive > 0
 Когда run Action Stop

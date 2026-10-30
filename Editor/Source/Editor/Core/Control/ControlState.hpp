@@ -288,6 +288,44 @@ namespace Desert::Editor::Control
         bool     DepthWriteInBase = false; ///< a base-pass draw wrote depth (only the Wireframe view's twins may)
     };
 
+    /// THE EFFECTS OF EVERY LIVE SCENE (UE fx.Niagara.Debug / the Niagara debugger's per-emitter counts), as
+    /// Engine::VFX::VFXWorld::GetDebugStats gives them - the one answer the Particle Debugger panel and the
+    /// viewport overview read, so a number here and the overlay beside it cannot disagree. The CPU columns are
+    /// the world's last Tick; the GPU columns (GpuRead / Alive / Free) are the last finished copy of the
+    /// emitter's counters, FramesOld frames after the GPU wrote them, and are read back only while the
+    /// world's debugger asks for counts (Particle Debugger panel or Debug "Particles: Viewport overview"):
+    /// GpuCounts false = nothing is read, every GpuRead is false and Alive is no reading at all.
+    struct VFXEmitterSnapshot
+    {
+        uint32_t    Emitter = 0; ///< the emitter's index in the system
+        std::string Name;
+        bool        Runs      = false; ///< enabled, compiled and the component auto-activates
+        uint32_t    Capacity  = 0;     ///< the pool size (0 = disabled)
+        uint32_t    Steps     = 0;     ///< fixed steps of the last Tick
+        uint32_t    Spawned   = 0;     ///< ids the last Tick's steps reserved (rate, bursts, channel; not events)
+        uint32_t    NextId    = 0;     ///< ids handed out since the last reset
+        bool        GpuRead   = false; ///< a GPU copy of the counters came back
+        uint32_t    Alive     = 0;     ///< live particles in that copy
+        uint32_t    Free      = 0;     ///< free slots in that copy
+        uint32_t    FramesOld = 0;     ///< frames between the GPU writing that copy and this reading
+    };
+    struct VFXSystemSnapshot
+    {
+        uint64_t                        EntityUuid = 0;
+        std::string                     Entity; ///< the entity's TagComponent, empty when it has none
+        std::vector<VFXEmitterSnapshot> Emitters;
+    };
+    struct VFXSceneSnapshot
+    {
+        std::string                    Scene;          ///< Core::Scene::GetSceneName
+        bool                           Active = false; ///< the workspace's active scene (Simulate / Play included)
+        uint64_t                       TickSerial = 0;
+        uint64_t                       Step       = 0; ///< fixed steps since the last reset
+        bool                           Frozen     = false;
+        bool                           GpuCounts  = false; ///< the GPU columns are being read back
+        std::vector<VFXSystemSnapshot> Systems;            ///< ordered by EntityUuid
+    };
+
     struct EditorSnapshot
     {
         std::string SceneName;
@@ -356,6 +394,9 @@ namespace Desert::Editor::Control
 
         NrcSnapshot Nrc;
 
+        // Every live scene with an effects world that holds at least one system, in Core::Scene::LiveScenes order.
+        std::vector<VFXSceneSnapshot> Vfx;
+
         EditorQuiescence Quiescence;
     };
 
@@ -363,8 +404,8 @@ namespace Desert::Editor::Control
     /// actually honoured — the same rule the command line follows for its flags, and for the same reason:
     /// a list written out by hand drifts, and the drift shows up as a section that silently returns nothing.
     inline constexpr const char* kStateSections[] = {
-         "scene", "selection", "authoring", "documents", "panels", "views", "vsm", "render", "log", "device",
-         "nrc", "quiescence",
+         "scene",  "selection", "authoring", "documents", "panels", "views",      "vsm",
+         "render", "log",       "device",    "nrc",       "vfx",    "quiescence",
     };
 
     [[nodiscard]] inline std::string KnownSectionList()
@@ -766,6 +807,58 @@ namespace Desert::Editor::Control
             section["lossHistory"]     = Common::Json::Value( history );
             section["error"]           = Str( nrc.Error );
             root["nrc"]                = Common::Json::Value( section );
+        }
+
+        if ( Wanted( sections, "vfx" ) )
+        {
+            Common::Json::Value::Array scenes;
+            for ( const VFXSceneSnapshot& scene : snapshot.Vfx )
+            {
+                Common::Json::Value::Array systems;
+                for ( const VFXSystemSnapshot& system : scene.Systems )
+                {
+                    Common::Json::Value::Array emitters;
+                    for ( const VFXEmitterSnapshot& e : system.Emitters )
+                    {
+                        Common::Json::Object emitter;
+                        emitter["emitter"]   = Num( e.Emitter );
+                        emitter["name"]      = Str( e.Name );
+                        emitter["runs"]      = Common::Json::Value( e.Runs );
+                        emitter["capacity"]  = Num( e.Capacity );
+                        emitter["steps"]     = Num( e.Steps );
+                        emitter["spawned"]   = Num( e.Spawned );
+                        emitter["nextId"]    = Num( e.NextId );
+                        emitter["gpuRead"]   = Common::Json::Value( e.GpuRead );
+                        emitter["alive"]     = Num( e.Alive );
+                        emitter["free"]      = Num( e.Free );
+                        emitter["framesOld"] = Num( e.FramesOld );
+                        emitters.push_back( Common::Json::Value( emitter ) );
+                    }
+                    Common::Json::Object entry;
+                    entry["entityUuid"] = Str( std::to_string( system.EntityUuid ) );
+                    entry["entity"]     = Str( system.Entity );
+                    entry["emitters"]   = Common::Json::Value( emitters );
+                    systems.push_back( Common::Json::Value( entry ) );
+                }
+                Common::Json::Object entry;
+                entry["scene"]      = Str( scene.Scene );
+                entry["active"]     = Common::Json::Value( scene.Active );
+                entry["tickSerial"] = Num( static_cast<double>( scene.TickSerial ) );
+                entry["step"]       = Num( static_cast<double>( scene.Step ) );
+                entry["frozen"]     = Common::Json::Value( scene.Frozen );
+                entry["gpuCounts"]  = Common::Json::Value( scene.GpuCounts );
+                entry["systems"]    = Common::Json::Value( systems );
+                scenes.push_back( Common::Json::Value( entry ) );
+            }
+            Common::Json::Object section;
+            // The latency is part of the answer: alive / free are the last FINISHED GPU copy (no stall), framesOld
+            // frames old per emitter, and are read only while the effects debugger asks for counts (gpuCounts).
+            section["latency"] =
+                 Str( "alive/free: the last finished GPU copy, framesOld frames after the GPU wrote "
+                      "it; read only while gpuCounts (Particle Debugger or Debug \"Particles: "
+                      "Viewport overview\")" );
+            section["scenes"] = Common::Json::Value( scenes );
+            root["vfx"]       = Common::Json::Value( section );
         }
 
         if ( Wanted( sections, "quiescence" ) )
