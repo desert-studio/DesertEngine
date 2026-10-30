@@ -4,6 +4,7 @@
 #include <UI/Retained/Attribute.hpp>
 #include <UI/Retained/Delegate.hpp>
 #include <UI/Retained/WidgetTree.hpp>
+#include <UI/Text/UICodeTokenizer.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -106,6 +107,7 @@ namespace Desert::UI
 
         WidgetDecl& Cursor( UICursorShape cursor );
         WidgetDecl& CapturesPointer( bool captures = true ); // a press holds the pointer (a drag handle)
+        WidgetDecl& TakesTextInput( bool takes = true );     // its paint edits text (IUITree::TakesTextInput)
 
         // The node's own drawing (a paint leaf, WidgetTree::OnPaint): into the frame's draw list, every frame.
         WidgetDecl& OnPaint( Delegate<void( const UIPaintArgs& )> onPaint );
@@ -225,5 +227,17 @@ namespace Desert::UI
         // colour, the other channels read from @p value.
         [[nodiscard]] WidgetDecl ColorField( std::string name, Attribute<glm::vec3> value,
                                              Delegate<void( const glm::vec3& )> onChanged );
+
+        // SMultiLineEditableText with a syntax-highlighting marshaller (UE's FSyntaxHighlighterTextLayout-
+        // Marshaller): a multi-line code field. The text is @p text, read each frame, and every edit goes out
+        // through @p onChanged; the editing is the InputField's own (UITextEditState: caret, selection,
+        // undo/redo, clipboard), Enter breaks the line and Tab indents. Only the lines in view are laid out
+        // and drawn (UICodeLayout), with their numbers in a gutter; each line is cut into coloured runs by
+        // @p tokenizer, so the widget knows no language. Colours and font come from the theme's Code.* slots.
+        // A press focuses it; it holds the keyboard through its view's owner (UIKeyboardUser).
+        [[nodiscard]] WidgetDecl CodeEditor( std::string name, Attribute<std::string> text,
+                                             Delegate<void( const std::string& )>     onChanged,
+                                             std::shared_ptr<const IUICodeTokenizer> tokenizer,
+                                             float                                   fontSize = 16.0f );
     } // namespace Widgets
 } // namespace Desert::UI

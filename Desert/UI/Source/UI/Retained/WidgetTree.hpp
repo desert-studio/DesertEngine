@@ -104,6 +104,10 @@ namespace Desert::UI
         // (IUITree::CapturesPointer) — a drag handle. Its paint reads the hold as UIPaintArgs::Captured.
         void SetCapturesPointer( NodeId n, bool captures );
 
+        // @p n edits text in its own paint (IUITree::TakesTextInput): focusable, focused by a press on it,
+        // and handed UIPaintArgs::Focused and the view's keys while it holds the focus — a code editor.
+        void SetTakesTextInput( NodeId n, bool takes );
+
         // --- Paint leaf (Slate's SLeafWidget::OnPaint) ---------------------------------------------------
         // @p n draws @p onPaint into the frame's draw list every frame, over its own widgets and under its
         // children (UIPaint.hpp). The delegate runs DURING the walk: it may draw, read the pointer and edit
@@ -231,6 +235,7 @@ namespace Desert::UI
         [[nodiscard]] std::optional<glm::vec3>     WorldOrigin( NodeId n ) const override;
         [[nodiscard]] std::optional<UICursorShape> CursorOf( NodeId n ) const override;
         [[nodiscard]] bool                         CapturesPointer( NodeId n ) const override;
+        [[nodiscard]] bool                         TakesTextInput( NodeId n ) const override;
         [[nodiscard]] std::optional<UIDragPayload> DragSourceOf( NodeId n ) const override;
         [[nodiscard]] UIDropAnswer DropAnswerOf( NodeId n, const UIDragPayload& payload ) const override;
         void                                       Paint( NodeId n, const UIPaintArgs& args ) override;
@@ -285,6 +290,7 @@ namespace Desert::UI
             std::optional<glm::vec3>                        Origin;
             std::optional<UICursorShape>                    Cursor;
             bool                                            Captures = false;
+            bool                                            TextInput = false;
             std::array<Box, kArgKindCount>                  Args;
             std::vector<std::function<void( WidgetTree& )>> Bindings;
             std::vector<Watch>                              Watches;

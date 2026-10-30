@@ -105,6 +105,12 @@ namespace Desert::UI
         return *this;
     }
 
+    WidgetDecl& WidgetDecl::TakesTextInput( bool takes )
+    {
+        m_Steps.push_back( [takes]( WidgetTree& tree, NodeId n ) { tree.SetTakesTextInput( n, takes ); } );
+        return *this;
+    }
+
     WidgetDecl& WidgetDecl::OnPaint( Delegate<void( const UIPaintArgs& )> onPaint )
     {
         m_Steps.push_back( [onPaint = std::move( onPaint )]( WidgetTree& tree, NodeId n )

@@ -92,6 +92,18 @@ namespace Desert::UI
         InputCornerRadius,
         InputFont,
 
+        // --- Code editor (Widgets::CodeEditor): the field, its gutter, and one colour per token kind ----
+        CodeBackground,
+        CodeGutter,
+        CodeLineNumber,
+        CodeSelection,
+        CodeText,
+        CodeKeyword,
+        CodeString,
+        CodeNumber,
+        CodeComment,
+        CodeFont,
+
         // --- Dropdown ------------------------------------------------------------------------------
         DropdownBackground,
         DropdownText,
@@ -188,6 +200,17 @@ namespace Desert::UI
          StyleSlotInfo{ "Input.Focus", StyleSlotKind::Color },
          StyleSlotInfo{ "Input.CornerRadius", StyleSlotKind::Metric },
          StyleSlotInfo{ "Input.Font", StyleSlotKind::Font },
+
+         StyleSlotInfo{ "Code.Background", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Gutter", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.LineNumber", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Selection", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Text", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Keyword", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.String", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Number", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Comment", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Font", StyleSlotKind::Font },
 
          StyleSlotInfo{ "Dropdown.Background", StyleSlotKind::Color },
          StyleSlotInfo{ "Dropdown.Text", StyleSlotKind::Color },

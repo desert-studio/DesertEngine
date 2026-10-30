@@ -432,10 +432,11 @@ namespace Desert::Editor::Control
      *   - `run` without a group or without a label;
      *   - a shot without a path to write to.
      */
-    /// The 'input' kinds that name a key instead of a point: key (a tap), keydown (held), keyup.
+    /// The 'input' kinds that name a key instead of a point: key (a tap), keydown (held), keyup, and type (the
+    /// characters typed, carried in 'key' as UTF-8 text).
     [[nodiscard]] inline bool IsKeyInputKind( std::string_view kind )
     {
-        return kind == "key" || kind == "keydown" || kind == "keyup";
+        return kind == "key" || kind == "keydown" || kind == "keyup" || kind == "type";
     }
 
     [[nodiscard]] inline Common::ResultStr<Request> ParseRequest( std::string_view line )
@@ -723,7 +724,7 @@ namespace Desert::Editor::Control
                 {
                     if ( request.Key.empty() )
                         return Common::MakeError<Request>(
-                             R"('input' of kind 'key', 'keydown' or 'keyup' needs 'key', e.g. "T" or "Ctrl+S".)" );
+                             R"('input' of kind 'key', 'keydown', 'keyup' or 'type' needs 'key', e.g. "T", "Ctrl+S" or the text to type.)" );
                     request.Value = { 0.0f, 0.0f };
                 }
                 break;

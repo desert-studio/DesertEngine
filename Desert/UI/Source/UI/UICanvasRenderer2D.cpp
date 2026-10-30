@@ -1,6 +1,7 @@
 #include "UICanvasRenderer2D.hpp"
 
 #include <UI/UIOverlay.hpp>
+#include <UI/UIFocus.hpp>
 #include <UI/UIPaint.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
@@ -473,6 +474,11 @@ namespace Desert::UI
                 // code of its own, not a widget the walk has to know.
                 {
                     const bool      overNode = interactive && ( e == ctx.View.Hot || e == ctx.View.PointerTarget );
+                    // A text-input node is focused by the press that lands on it, BEFORE it paints, so the same
+                    // press places its caret (Slate focuses on mouse down) — the InputField's own rule.
+                    const bool textInput = interactive && focused != nullptr && tree.TakesTextInput( e );
+                    if ( textInput && overNode && input != nullptr && input->MouseDown && !ctx.View.PrevDown )
+                        *focused = e;
                     const UIPaintArgs paint{ .Dl          = dl,
                                              .Box         = rect,
                                              .Scale       = scale,
@@ -482,7 +488,12 @@ namespace Desert::UI
                                              .Hot         = overNode,
                                              .Pressed     = overNode && input != nullptr && input->MouseDown,
                                              .Captured    = e == ctx.View.Capture,
-                                             .Input       = input };
+                                             .Input       = input,
+                                             .Resources   = &ctx.View.Resources(),
+                                             .Style       = &st,
+                                             .Time        = ctx.View.Time,
+                                             .Focused     = textInput && *focused == e,
+                                             .HandledKeys = input != nullptr ? &ctx.View.ConsumedKeys : nullptr };
                     tree.Paint( e, paint );
                 }
 
@@ -505,7 +516,7 @@ namespace Desert::UI
                     // The ring answers WHY focus is here (ShowsFocusRing): a row the pointer moved onto or a
                     // screen's initial focus shows its hovered plate only; a keyboard / gamepad step shows
                     // the ring too.
-                    if ( focused != nullptr && *focused == e && !tree.Has<UIInputFieldData>( e ) &&
+                    if ( focused != nullptr && *focused == e && !IsTextEntry( tree, e ) &&
                          ShowsFocusRing( FocusCauseOf( ctx.View.FocusCause, e ) ) )
                         dl.AddRect(
                              mn, mx,
@@ -1257,8 +1268,7 @@ namespace Desert::UI
                     *focused = hovered;
                     cause    = UIFocusCause::Pointer;
                 }
-                const bool textEntry =
-                     *focused != NodeId::Null && tree.Valid( *focused ) && tree.Has<UIInputFieldData>( *focused );
+                const bool textEntry = IsTextEntry( tree, *focused );
                 const NodeId next =
                      ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
                                         NavigationOf( *input, textEntry, view.ConsumedKeys ), view.ViewportPx );

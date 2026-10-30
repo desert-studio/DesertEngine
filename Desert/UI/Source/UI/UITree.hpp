@@ -99,6 +99,16 @@ namespace Desert::UI
             return false;
         }
 
+        // Is @p n a TEXT-INPUT node by the tree's own declaration — one whose code (its Paint) edits text, as
+        // an authored InputField does? It is focusable, a press on it focuses it, its view's focus ring is
+        // its own to draw, and while it holds focus the keys that would navigate are its text (W/S, the
+        // pointer entering a button does not take focus away). Not pure: false for a store that has none.
+        [[nodiscard]] virtual bool TakesTextInput( NodeId n ) const
+        {
+            (void)n;
+            return false;
+        }
+
         // SLATE'S OnDragDetected: the operation a drag started on @p n carries (UIDragDrop.hpp), or nullopt
         // when @p n is no drag source. Asked once, on the press, for the nearest node at or above the element
         // the press landed on; an authored UIDraggableData answers for itself before this is asked. Not pure:

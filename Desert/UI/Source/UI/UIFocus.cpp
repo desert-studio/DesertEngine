@@ -147,6 +147,11 @@ namespace Desert::UI
         }
     } // namespace
 
+    bool IsTextEntry( const IUITree& tree, NodeId n )
+    {
+        return n != NodeId::Null && tree.Valid( n ) && ( tree.Has<UIInputFieldData>( n ) || tree.TakesTextInput( n ) );
+    }
+
     UINavigation NavigationOf( const UIInput& input, bool textEntry, std::span<const Common::KeyCode> consumed )
     {
         UINavigation nav = UINavigation::None;
@@ -416,7 +421,7 @@ namespace Desert::UI
         if ( !tree.Valid( pointerTarget ) || !tree.Has<UIButtonData>( pointerTarget ) ||
              tree.Get<UIButtonData>( pointerTarget )->Disabled )
             return NodeId::Null;
-        if ( focused != NodeId::Null && tree.Valid( focused ) && tree.Has<UIInputFieldData>( focused ) )
+        if ( IsTextEntry( tree, focused ) )
             return NodeId::Null;
         // Drawn and reachable this frame: the same list keyboard navigation chooses from, so the pointer can
         // never focus a control Tab could not (a button inside a Blocking panel is not in it).

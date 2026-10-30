@@ -763,6 +763,14 @@ namespace Desert::UI::Walk
             dl.PopClipRect();
     }
 
+    float LineHeightPx( IUICanvasResources& res, float fontPx )
+    {
+        const FontFace font = res.Font( res.DefaultFontHandle(), Text::kDefaultBakePixelHeight );
+        if ( font.Baked == nullptr || !font.Baked->Valid() || font.Baked->PixelHeight <= 0.0f )
+            return fontPx;
+        return ( font.Baked->Ascent - font.Baked->Descent ) * ( fontPx / font.Baked->PixelHeight );
+    }
+
     // Width in px of `text` at `fontSizePx` in the default font (for the input caret). 0 if no font.
     float MeasureTextPx( IUICanvasResources& res, const std::string& text, float fontSizePx )
     {

@@ -523,7 +523,7 @@ namespace Desert::UI::Walk
     bool IsFocusable( IUITree& tree, NodeId e )
     {
         if ( tree.Has<UIButtonData>( e ) || tree.Has<UIInputFieldData>( e ) || tree.Has<UIToggleData>( e ) ||
-             tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e ) )
+             tree.Has<UISliderData>( e ) || tree.Has<UIDropdownData>( e ) || tree.TakesTextInput( e ) )
             return true;
         // A SELECTABLE list takes focus (its arrows move the cursor); a display-only one does not, so Tab does
         // not stop on a chat log.

@@ -2,8 +2,11 @@
 
 #include <UI/UILayout.hpp>
 #include <Render2DCore/DrawList2D.hpp>
+#include <Common/Core/KeyCodes.hpp>
 
 #include <glm/glm.hpp>
+
+#include <vector>
 
 // WHAT A PAINT LEAF IS HANDED — Slate's SLeafWidget::OnPaint( Args, AllottedGeometry, …, OutDrawElements ).
 //
@@ -18,6 +21,8 @@
 namespace Desert::UI
 {
     struct UIInput;
+    class IUICanvasResources;
+    class ElementStyle;
 
     struct UIPaintArgs
     {
@@ -34,5 +39,19 @@ namespace Desert::UI
         // user's keyboard (UIKeyboardUser) — or null for a non-interactive draw. A leaf reads keys from here
         // and never from the host, so it cannot take a keystroke meant for another view.
         const UIInput* Input = nullptr;
+        // What a leaf that draws TEXT needs (a code editor, Slate's SMultiLineEditableText under a custom
+        // paint): the view's fonts and measuring (null for a draw with no resources), the node's resolved
+        // style (its theme's colours and fonts; null = none, every query takes the leaf's local value) and
+        // the view's clock (double clicks, caret blink).
+        IUICanvasResources* Resources = nullptr;
+        const ElementStyle* Style     = nullptr;
+        double              Time      = 0.0;
+        // The node holds its view's keyboard focus. Only a node that takes text input (IUITree::
+        // TakesTextInput) is ever focused through here: the walk focuses it on the press that lands on it.
+        bool Focused = false;
+        // SLATE'S FReply::Handled for keys: a focused leaf appends every key it acted on (a caret move, a
+        // Tab it indented with), so the same key does not also move focus or reach another control. Null
+        // for a draw with no input.
+        std::vector<Common::KeyCode>* HandledKeys = nullptr;
     };
 } // namespace Desert::UI

@@ -128,6 +128,12 @@ namespace Desert::UI
             NodeAt( n ).Captures = captures;
     }
 
+    void WidgetTree::SetTakesTextInput( NodeId n, bool takes )
+    {
+        if ( Valid( n ) )
+            NodeAt( n ).TextInput = takes;
+    }
+
     void WidgetTree::OnPaint( NodeId n, Delegate<void( const UIPaintArgs& )> onPaint )
     {
         if ( Valid( n ) )
@@ -375,6 +381,11 @@ namespace Desert::UI
     bool WidgetTree::CapturesPointer( NodeId n ) const
     {
         return Valid( n ) && NodeAt( n ).Captures;
+    }
+
+    bool WidgetTree::TakesTextInput( NodeId n ) const
+    {
+        return Valid( n ) && NodeAt( n ).TextInput;
     }
 
     std::optional<UIDragPayload> WidgetTree::DragSourceOf( NodeId n ) const
