@@ -15,13 +15,21 @@
 
 // THE VIEW'S RAIN OCCLUSION: the map, its block and the position lookup are Common/RainOcclusion.glslh (shared with
 // the precipitation). A surface is looked up a texel and a half out along its geometric normal, so a wall facing the
-// open sky reads the ground beside it rather than its own top.
+// open sky reads the ground beside it rather than its own top. A SLOPED face is also lifted by a slope-scaled bias
+// (the shadow map's slope-scaled depth bias, for the same reason): the map's 2x2 footprint reaches a texel up the
+// slope, where the face itself stands higher by texel * tan(slope), so a pitched roof or a tilted branch read itself
+// as its own roof and stayed bare (FIELD-WINTER p6: grey barn roof, snow in specks on the branches). The lift is
+// capped at 4 texels (76 degrees); a face that looks sideways or down (up <= 0) is not lifted.
 #include <Common/RainOcclusion.glslh>
 #include <Common/WeatherSnow.glslh>
 
 float DesertRainOcclusion( SurfaceInput i )
 {
-    return DesertRainOcclusionAt( i.WorldPosition + i.Normal * ( 1.5 * DesertRainOcclusionTexel() ) );
+    const float texel = DesertRainOcclusionTexel();
+    const vec3  n     = normalize( i.Normal );
+    const float tanSlope =
+         n.y > 0.0 ? min( sqrt( max( 1.0 - n.y * n.y, 0.0 ) ) / max( n.y, 1e-3 ), 4.0 ) : 0.0;
+    return DesertRainOcclusionAt( i.WorldPosition + n * ( 1.5 * texel ) + vec3( 0.0, 1.5 * texel * tanSlope, 0.0 ) );
 }
 
 // HOW WET THE WORLD IS AT THIS SURFACE, in [0, 1]. THE ONE ACCESSOR: today the scene's world parameter (one value
