@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cmath>
 #include <format>
+#include <map>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -133,7 +134,9 @@ namespace Desert::Graphic::System
         // (LandscapeDisplacementLodScale).
         void ApplyLandscapeDisplacement( TerrainInstance& instance, const LandscapeTileDraw& l,
                                          const DataDrivenMaterial& surface, const glm::vec3& camera,
-                                         const glm::mat4& projection, uint32_t viewHeight, int dicingRate )
+                                         const glm::mat4& projection, const glm::mat4& viewProjection,
+                                         const std::optional<glm::vec2>& slab, uint32_t viewHeight,
+                                         int dicingRate )
         {
             const auto read = [&]( const std::string& name )
             {
@@ -158,11 +161,17 @@ namespace Desert::Graphic::System
             instance.DisplacementView = glm::vec4( camera, 0.0f );
             instance.DiceWindow       = glm::vec4( 0.0f );
             instance.DiceRings        = glm::vec4( -1.0f );
+            instance.DiceClip         = glm::vec4( 0.0f );
             if ( magnitude <= 0.0f || instance.Params.w > 0.5f || l.SpacingCm <= 0.0f )
                 return;
 
-            // THE RINGS (UE r.Nanite.DicingRate: no sub-cell edge covers fewer than DicingRate pixels). A cell
-            // edge at distance d covers S * K / d pixels, so dice 2^j holds out to d_j = S * K / (rate * 2^j):
+            // THE RINGS (UE r.Nanite.DicingRate: a diced triangle spans DicingRate pixels). A cell at distance d
+            // spans S * K / d pixels across the view but only S * K / d * sin(a) along it, a the angle the ground
+            // is seen at (sin a = h / sqrt(h^2 + d^2), h the eye's height over the ground): the cell's pixel
+            // AREA is (S K / d)^2 sin(a), and a uniform dice x dice split keeps each sub-cell's area at rate^2
+            // when dice = S K sqrt(sin a) / (d rate). Diced by the across edge alone (FPS-MAC p7) a sub-cell at
+            // the eye's feet covered 2 x 0.7 pixels - 27 M vertices for 1.2 M pixels, and the 2x2 quads shaded
+            // several times over. Dice 2^j holds out to the d_j solving S K sqrt(sin a(d)) / d = rate 2^j:
             // square rings of cells around the camera's cell, each half-extent a whole number of cells, the same
             // integers for every tile (global cell of the camera minus the tile's first sample), so a cell's dice
             // - and the edge factor min(dice, neighbour's dice) the decode stitches with - agrees across tiles.
@@ -181,17 +190,62 @@ namespace Desert::Graphic::System
             instance.DiceWindow =
                  glm::vec4( cx, cz, fadeCells, static_cast<float>( dicingRate ) * l.SpacingCm / pixelsAtCm );
             instance.DisplacementView.w = 1.0f;
-            float outer                 = fadeCells;
+            // Rings finer than the fade's square only exist on a landscape with tiles near the eye (@p slab); h
+            // is taken to the farther of its lowest and highest displaced height - the steeper view, the finer
+            // dice.
+            if ( !slab )
+                return;
+            const float eyeHeight     = std::max( { std::abs( camera.y - ( slab->x - magnitude ) ),
+                                                    std::abs( camera.y - ( slab->y + magnitude ) ), l.SpacingCm } );
+            const auto  subCellPixels = [&]( float d )
+            {
+                const float sine = eyeHeight / std::sqrt( eyeHeight * eyeHeight + d * d );
+                return pixelsAtCm * std::sqrt( sine ) / std::max( d, 1.0f );
+            };
+            float outer = fadeCells;
             for ( int level = 1; level < kLandscapeDiceLevels; ++level )
             {
-                const float reach =
-                     pixelsAtCm / ( static_cast<float>( dicingRate ) * static_cast<float>( 1 << level ) );
-                const float half = std::min( std::floor( reach / l.SpacingCm ), outer );
+                const float target = static_cast<float>( dicingRate ) * static_cast<float>( 1 << level );
+                // subCellPixels falls with d; the across-edge reach (sin a = 1) bounds the root from above.
+                float near = 0.0f, far = pixelsAtCm / target;
+                for ( int step = 0; step < 32; ++step )
+                {
+                    const float mid                                 = 0.5f * ( near + far );
+                    ( subCellPixels( mid ) >= target ? near : far ) = mid;
+                }
+                const float reach = near;
+                const float half  = std::min( std::floor( reach / l.SpacingCm ), outer );
                 if ( half < 0.0f || reach < 0.5f * l.SpacingCm )
                     break;
                 instance.DiceRings[static_cast<glm::length_t>( level - 1 )] = half;
                 outer                                                       = half;
             }
+
+            // THE VIEW'S FOOTPRINT (UE Nanite culls every cluster outside the view before dicing it): the rings
+            // diced 2..16 are a square around the camera, and most of it is behind the camera, beside the view
+            // or under its bottom edge - FPS-MAC p8: 27 M vertices a frame at FIELD_Barn's eye for 1.2 M pixels.
+            // The rings are clipped to the cells the camera's frustum reaches between the landscape's lowest and
+            // highest displaced height near the camera (@p slab, the same for every tile of the landscape, so a
+            // border's two tiles agree on every cell's dice), widened by the displacement's sideways reach and
+            // two cells, so no visible cell borders a stitched one.
+            const float margin = std::ceil( magnitude / l.SpacingCm ) + 2.0f;
+            const float lo     = slab->x - magnitude;
+            const float hi     = slab->y + magnitude;
+            const float square = ( fadeCells + margin + 2.0f ) * l.SpacingCm;
+            const float reach =
+                 4.0f * square + 4.0f * std::max( std::abs( camera.y - lo ), std::abs( camera.y - hi ) );
+            const glm::vec4 foot = LandscapeViewFootprint( viewProjection, camera, lo, hi, reach );
+            if ( foot.x > foot.z )
+                return;
+            const auto cellOf = [&]( float world, float origin, float centre, int32_t first )
+            {
+                const float clamped = std::clamp( world, centre - square, centre + square );
+                return std::floor( ( clamped - origin ) / l.SpacingCm ) - static_cast<float>( first );
+            };
+            instance.DiceClip = glm::vec4( cellOf( foot.x, l.OriginX, camera.x, l.FirstSampleX ) - margin,
+                                           cellOf( foot.y, l.OriginZ, camera.z, l.FirstSampleZ ) - margin,
+                                           cellOf( foot.z, l.OriginX, camera.x, l.FirstSampleX ) + 1.0f + margin,
+                                           cellOf( foot.w, l.OriginZ, camera.z, l.FirstSampleZ ) + 1.0f + margin );
         }
 
         // The landscape material a tile drew with, for the landscape's ray tracing hit group: the values the
@@ -534,6 +588,33 @@ namespace Desert::Graphic::System
             tileLods[KeyOf( t.Landscape, 0, 0 )] =
                  TileLod( t.Landscape, Geometry::LODView{ frame.CameraPosition, frame.Projection } );
 
+        // Each landscape's height slab for the view's footprint on its dice (ApplyLandscapeDisplacement): the
+        // lowest and highest sample of its tiles within the across-edge reach of the ring diced 2 - no finer ring
+        // reaches a tile past it.
+        const uint32_t                            viewHeight = m_SceneRenderer->GetViewExtent().Height;
+        const int                                 dicingRate = m_SceneRenderer->GetDisplacementDicingRate();
+        std::map<std::array<float, 4>, glm::vec2> diceSlabs;
+        const auto                                slabKey = []( const LandscapeTileDraw& l )
+        { return std::array<float, 4>{ l.OriginX, l.OriginZ, l.BaseY, l.SpacingCm }; };
+        for ( const auto& t : m_Queue )
+        {
+            const LandscapeTileDraw& l = t.Landscape;
+            if ( dicingRate <= 0 || l.SpacingCm <= 0.0f )
+                continue;
+            const float ring2 = frame.Projection[1][1] * 0.5f * static_cast<float>( viewHeight ) * l.SpacingCm /
+                                ( static_cast<float>( dicingRate ) * 2.0f );
+            const float x0   = l.OriginX + static_cast<float>( l.FirstSampleX ) * l.SpacingCm;
+            const float z0   = l.OriginZ + static_cast<float>( l.FirstSampleZ ) * l.SpacingCm;
+            const float size = static_cast<float>( l.QuadsPerTile ) * l.SpacingCm;
+            const float dx = std::max( { 0.0f, x0 - frame.CameraPosition.x, frame.CameraPosition.x - x0 - size } );
+            const float dz = std::max( { 0.0f, z0 - frame.CameraPosition.z, frame.CameraPosition.z - z0 - size } );
+            if ( std::max( dx, dz ) > ring2 + l.SpacingCm )
+                continue;
+            const auto [slab, fresh] = diceSlabs.try_emplace( slabKey( l ), glm::vec2( l.MinY, l.MaxY ) );
+            if ( !fresh )
+                slab->second = glm::vec2( std::min( slab->second.x, l.MinY ), std::max( slab->second.y, l.MaxY ) );
+        }
+
         for ( const auto& t : m_Queue )
         {
             const auto [it, inserted] = groupIndex.try_emplace(
@@ -619,9 +700,11 @@ namespace Desert::Graphic::System
                 surface->SetParamRaw( name, value );
 
             TerrainInstance instance = LandscapeInstance( t, TileLodsOf( t.Landscape, tileLods ), layers );
-            ApplyLandscapeDisplacement( instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection,
-                                        m_SceneRenderer->GetViewExtent().Height,
-                                        m_SceneRenderer->GetDisplacementDicingRate() );
+            const auto      slab     = diceSlabs.find( slabKey( t.Landscape ) );
+            ApplyLandscapeDisplacement(
+                 instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection, frame.ViewProjection,
+                 slab != diceSlabs.end() ? std::optional<glm::vec2>( slab->second ) : std::nullopt, viewHeight,
+                 dicingRate );
             // The tile's displaced sub-vertices, evaluated once this frame (AddDicePoolPass) for every view's
             // draw.
             if ( const uint32_t pooled = LandscapeDicePoolVertexCount(

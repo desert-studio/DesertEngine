@@ -57,24 +57,37 @@ ivec2 LandscapeDiceCentre()
     return ivec2( floor( CurrentTerrain.DiceWindow.xy + vec2( 0.5 ) ) );
 }
 
-// The square of half-extent @p extent around the camera's cell clamped to the tile's grid of @p cells a side:
-// [x0, x1) x [z0, z1) (TerrainBatch.hpp LandscapeDiceRingRect); empty when the ring is absent (extent < 0).
-ivec4 LandscapeRingRectOf( int extent, int cells )
+// The main camera's view footprint (TerrainInstance.DiceClip): [x0, z0) .. [x1, z1) tile-local cells. UE Nanite
+// culls a cluster outside the view before dicing it; here the rings diced 2..16 are clipped to the footprint and a
+// cell outside it keeps the fade square's dice 1 (still displaced: no crack, and an off-screen bump still casts its
+// shadow into the view) - the rings stay nested (each clipped by the same rectangle) and the clip is in the
+// camera's global cells, so two tiles of a border agree on every cell's dice.
+ivec4 LandscapeDiceClip()
+{
+    return ivec4( floor( CurrentTerrain.DiceClip + vec4( 0.5 ) ) );
+}
+
+// The square of half-extent @p extent around the camera's cell (ring @p level; past the fade's square clipped to
+// the view's footprint) clamped to the tile's grid of @p cells a side: [x0, x1) x [z0, z1) (TerrainBatch.hpp
+// LandscapeDiceRingRect); empty when the ring is absent (extent < 0).
+ivec4 LandscapeRingRectOf( int extent, int level, int cells )
 {
     if ( extent < 0 )
         return ivec4( 0 );
-    ivec2 c = LandscapeDiceCentre();
-    return clamp( ivec4( c - ivec2( extent ), c + ivec2( extent + 1 ) ), ivec4( 0 ), ivec4( cells ) );
+    ivec2 c    = LandscapeDiceCentre();
+    ivec4 clip = level > 0 ? LandscapeDiceClip() : ivec4( -0x40000000, -0x40000000, 0x40000000, 0x40000000 );
+    ivec4 r    = ivec4( max( c - ivec2( extent ), clip.xy ), min( c + ivec2( extent + 1 ), clip.zw ) );
+    return clamp( r, ivec4( 0 ), ivec4( cells ) );
 }
 
 ivec4 LandscapeDiceRingRect( int level, int cells )
 {
-    return LandscapeRingRectOf( LandscapeDiceRingHalf( level ), cells );
+    return LandscapeRingRectOf( LandscapeDiceRingHalf( level ), level, cells );
 }
 
 ivec4 LandscapeDicePoolRingRect( int level, int cells )
 {
-    return LandscapeRingRectOf( LandscapeDicePoolRingHalf( level ), cells );
+    return LandscapeRingRectOf( LandscapeDicePoolRingHalf( level ), level, cells );
 }
 
 int LandscapeDiceRectArea( ivec4 r )
@@ -84,13 +97,15 @@ int LandscapeDiceRectArea( ivec4 r )
 
 // The dice of cell (@p x, @p z) of the tile's LOD-0 grid, also for a cell just past the tile (a neighbour tile's,
 // whose rings are the same squares - the camera's GLOBAL cell, the same half-extents): the finest ring holding it;
-// 1 in the fade's square, 0 outside it (undiced).
+// 1 in the fade's square (also where the view's footprint clips the finer rings away), 0 outside it (undiced).
 // LandscapeCellDicePool is the same cell's dice in the camera's rings (the pool's layout).
 int LandscapeCellDiceOf( int x, int z, bool pool )
 {
-    ivec2 d = abs( ivec2( x, z ) - LandscapeDiceCentre() );
-    int   m = max( d.x, d.y );
-    for ( int level = 4; level >= 0; --level )
+    ivec4 clip    = LandscapeDiceClip();
+    bool  outside = x < clip.x || z < clip.y || x >= clip.z || z >= clip.w;
+    ivec2 d       = abs( ivec2( x, z ) - LandscapeDiceCentre() );
+    int   m       = max( d.x, d.y );
+    for ( int level = outside ? 0 : 4; level >= 0; --level )
     {
         int extent = pool ? LandscapeDicePoolRingHalf( level ) : LandscapeDiceRingHalf( level );
         if ( extent >= 0 && m <= extent )
