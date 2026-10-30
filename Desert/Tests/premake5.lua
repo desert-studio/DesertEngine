@@ -30,6 +30,8 @@ local function DesertTestsCommonSettings(deps)
     objdir ("%{_MAIN_SCRIPT_DIR}/build/Tests/Intermediates/%{cfg.buildcfg}")
     -- TestSupport/*.hpp is included as "TestSupport/..." from every layer.
     includedirs { "%{_MAIN_SCRIPT_DIR}/Desert/Tests" }
+    -- C++ stand-ins for the shader includer's generated .glslh, for suites that compile shader text AS C++.
+    includedirs { "%{_MAIN_SCRIPT_DIR}/Desert/Tests/GlslAsCpp" }
     for _, p in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { p }
     end

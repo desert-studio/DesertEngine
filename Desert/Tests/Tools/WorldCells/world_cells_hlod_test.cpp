@@ -43,9 +43,10 @@ using Desert::Assets::EntityData;
 using Desert::Core::SceneSerialized;
 using Desert::Core::WorldPartitionGridSerialized;
 using Desert::Core::WorldPartitionSerialized;
-namespace Cells = Desert::Core::WorldCells;
-namespace Rules = Desert::Core::Rules;
-namespace CC    = Common::Content;
+namespace Cells  = Desert::Core::WorldCells;
+namespace Rules  = Desert::Core::Rules;
+namespace CC     = Common::Content;
+namespace Assets = Desert::Assets;
 
 namespace
 {

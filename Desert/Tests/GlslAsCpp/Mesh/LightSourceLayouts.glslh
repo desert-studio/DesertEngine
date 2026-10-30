@@ -1,0 +1,15 @@
+// C++ stand-in for the shader includer's GENERATED Mesh/LightSourceLayouts.glslh (GeneratedProtocolIncludes.hpp),
+// for the suites that compile Mesh/LightSources.glslh AS C++ (Common/Core/GlslAsCpp.hpp). The shader gets the text
+// the includer generates from the same field lists; here the lists are expanded straight into C++ members with
+// their GLSL spellings, so both sides read one source. The includer of LightSources.glslh includes
+// Engine/Graphic/ShaderProtocols/{PointLight,SpotLight}.hpp before its GLSL-as-C++ block.
+#define DESERT_GLSL_AS_CPP_LIGHT_MEMBER( type, cppName, glslName, init ) type glslName;
+struct PointLight
+{
+    DESERT_POINT_LIGHT_FIELDS( DESERT_GLSL_AS_CPP_LIGHT_MEMBER )
+};
+struct SpotLight
+{
+    DESERT_SPOT_LIGHT_FIELDS( DESERT_GLSL_AS_CPP_LIGHT_MEMBER )
+};
+#undef DESERT_GLSL_AS_CPP_LIGHT_MEMBER

@@ -25,6 +25,8 @@
 #include <cmath>
 #include <cstdint>
 #include <Common/Core/GlslAsCpp.hpp>
+#include <Engine/Graphic/ShaderProtocols/PointLight.hpp> // DESERT_POINT_LIGHT_FIELDS: GlslAsCpp/Mesh/LightSourceLayouts.glslh
+#include <Engine/Graphic/ShaderProtocols/SpotLight.hpp>  // DESERT_SPOT_LIGHT_FIELDS
 
 namespace Desert::Tests::CornellSymmetryRef
 {
