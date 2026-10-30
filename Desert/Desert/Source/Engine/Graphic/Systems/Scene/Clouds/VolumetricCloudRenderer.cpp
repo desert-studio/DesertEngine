@@ -1074,7 +1074,7 @@ namespace Desert::Graphic::System
             // point of the pass is that a column's optical depth accumulates downward and a thread per
             // texel would have to re-integrate everything above it.
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            Common::BoolResultStr dispatched =
+            Common::BoolResultStr   dispatched =
                  Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
                                             GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
                                             GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
@@ -1121,10 +1121,11 @@ namespace Desert::Graphic::System
     void VolumetricCloudRenderer::DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
                                                               const CloudGpuPayload&               payload )
     {
-        // THE VOLUME IS A PURE FUNCTION OF THE FIELD, and in the frame it is addressed in (wind-shifted, by producer
-        // and consumer alike) the wind is not one of its inputs while the field is rigid in it. It used to be
-        // re-marched every frame — 128 x 128 columns x 64 field samples, ~41 ms of a FIELD_Barn frame on MoltenVK
-        // — for the same bytes. Now only when what it marches moved (Graphic/Clouds/CloudAmortizedRefresh.hpp).
+        // THE VOLUME IS A PURE FUNCTION OF THE FIELD, and in the frame it is addressed in (wind-shifted, by
+        // producer and consumer alike) the wind is not one of its inputs while the field is rigid in it. It used
+        // to be re-marched every frame — 128 x 128 columns x 64 field samples, ~41 ms of a FIELD_Barn frame on
+        // MoltenVK — for the same bytes. Now only when what it marches moved
+        // (Graphic/Clouds/CloudAmortizedRefresh.hpp).
         CloudRefreshKey key;
         key.Value( FieldInputsKey( payload, WindIsRigid() ) );
         key.Value( static_cast<const void*>( m_SkyOcclusionVolume.get() ) );
@@ -1263,14 +1264,15 @@ namespace Desert::Graphic::System
             }
             m_ShadowMapImageResolution = resolution;
             m_ShadowMapScaleInUse      = quality.ShadowMapScale;
-            LOG_INFO( "[Clouds] Cloud shadow map {}x{} RGBA32F, two copies ({:.2f} MiB each) — {:.0f} km across the "
-                      "world, {:.1f} m per texel, snapped to a {:.0f} km grid, quality scale {:.2f}; re-marched "
-                      "only when its inputs move, in {} bands while only the wind does.",
-                      resolution, resolution,
-                      BytesToMiB( Core::Formats::CalculateImageSize( resolution, resolution,
-                                                                     Core::Formats::ImageFormat::RGBA32F ) ),
-                      2.0f * extentKm, 2.0f * extentKm * 1000.0f / static_cast<float>( resolution ), snapKm,
-                      quality.ShadowMapScale, kCloudShadowRefreshBands );
+            LOG_INFO(
+                 "[Clouds] Cloud shadow map {}x{} RGBA32F, two copies ({:.2f} MiB each) — {:.0f} km across the "
+                 "world, {:.1f} m per texel, snapped to a {:.0f} km grid, quality scale {:.2f}; re-marched "
+                 "only when its inputs move, in {} bands while only the wind does.",
+                 resolution, resolution,
+                 BytesToMiB( Core::Formats::CalculateImageSize( resolution, resolution,
+                                                                Core::Formats::ImageFormat::RGBA32F ) ),
+                 2.0f * extentKm, 2.0f * extentKm * 1000.0f / static_cast<float>( resolution ), snapKm,
+                 quality.ShadowMapScale, kCloudShadowRefreshBands );
         }
 
         // THE PLANET RADIUS IS TAKEN FROM THE PACKED BLOCK, not from the component, because the packer is
@@ -1300,8 +1302,10 @@ namespace Desert::Graphic::System
         key.Value( resolution );
         m_ShadowRefreshKey        = key.Get();
         m_ShadowRefreshResolution = resolution;
+        // The front is carried by the wind delta at most one texel of the map (CloudPlanShadowRefresh).
+        const float texelKm = 2.0f * extentKm / static_cast<float>( resolution );
         m_ShadowRefreshPlan =
-             CloudPlanShadowRefresh( m_ShadowRefresh, m_ShadowRefreshKey, windKm, windRigid, resolution );
+             CloudPlanShadowRefresh( m_ShadowRefresh, m_ShadowRefreshKey, windKm, windRigid, resolution, texelKm );
         const CloudShadowRefreshPlan plan = m_ShadowRefreshPlan;
 
         // The front the lit passes read, and the wind it was marched at: a Full plan rewrites it at this wind.
@@ -2258,7 +2262,8 @@ namespace Desert::Graphic::System
         // the texture) — never a submit-and-wait. The image is imported through @p textures, the one registration
         // of it this graph has, so the block entries and the sky capture that sample it later in the graph read
         // the same graph texture and are ordered after this copy.
-        // The cached field producers key on this count (FieldInputsKey): the images below change bytes they marched.
+        // The cached field producers key on this count (FieldInputsKey): the images below change bytes they
+        // marched.
         if ( !m_PendingUploads.empty() )
             ++m_UploadEpoch;
         for ( PendingUpload& upload : m_PendingUploads )

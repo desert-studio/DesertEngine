@@ -155,14 +155,23 @@ namespace Desert::Graphic
      * What this frame marches. @p key is every input except the wind (CloudFieldPayloadForKey, the authored
      * block, the medium, the push constant, the resolution, the sampled images); @p windRigid whether the wind
      * may be carried by translation at all.
+     *
+     * @p maxLagKm bounds how far the front may be carried: one texel of the map. The translation leaves a strip
+     * of that width at the upwind edge the map holds no march for (the sampler clamps it) and adds the curvature
+     * term above, so a front whose wind is further behind than a texel — the map was not declared for a while
+     * (clouds or casting switched off, no camera, no atmosphere) while the wind kept running, or the wind outran
+     * a refresh cycle — is re-marched whole instead of being dragged across the region.
      */
     [[nodiscard]] inline CloudShadowRefreshPlan CloudPlanShadowRefresh( const CloudShadowRefreshState& state,
                                                                         uint64_t key, const glm::vec3& windKm,
-                                                                        bool windRigid, uint32_t resolution )
+                                                                        bool windRigid, uint32_t resolution,
+                                                                        float maxLagKm )
     {
         CloudShadowRefreshPlan plan;
-        plan.WindKm = windKm;
-        if ( !state.FrontBuilt || state.FrontKey != key || ( !windRigid && windKm != state.FrontWindKm ) )
+        plan.WindKm          = windKm;
+        const float frontLag = glm::length( windKm - state.FrontWindKm );
+        if ( !state.FrontBuilt || state.FrontKey != key || ( !windRigid && windKm != state.FrontWindKm ) ||
+             frontLag > maxLagKm )
         {
             plan.Kind     = CloudShadowRefreshKind::Full;
             plan.Target   = state.Front;

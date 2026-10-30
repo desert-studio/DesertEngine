@@ -202,9 +202,11 @@ namespace Desert::Graphic::System
         // (DeclareFrameNodes, DeclareSkyOcclusionNodes), writing m_SkyOcclusionVolume (EnsureSkyOcclusionVolume).
         ComputeNodeDeclaration SkyOcclusionNode();
         // The volume's node when its inputs (SkyOcclusionInputsKey) moved since the bytes it holds were marched,
-        // none when they did not: the volume is a pure function of them (Graphic/Clouds/CloudAmortizedRefresh.hpp).
-        // Either way the volume may be read this frame. Settled by NoteSkyOcclusionAccepted.
-        void DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes, const CloudGpuPayload& payload );
+        // none when they did not: the volume is a pure function of them
+        // (Graphic/Clouds/CloudAmortizedRefresh.hpp). Either way the volume may be read this frame. Settled by
+        // NoteSkyOcclusionAccepted.
+        void DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
+                                         const CloudGpuPayload&               payload );
         void NoteSkyOcclusionAccepted( bool accepted );
         // Every input of the two cached field producers but the push constant and the wind: the field block as
         // they read it, the authored block, the medium (its variant and values), the sampled images and their
@@ -242,9 +244,9 @@ namespace Desert::Graphic::System
             return m_Present;
         }
 
-        /// The map the lit passes read this frame: the FRONT of the two persistent copies (CloudShadowRefreshState),
-        /// null unless HasShadowMap(). A reader imports it into the frame (FrameTransients::CloudShadowMap,
-        /// SceneViewInputsOf).
+        /// The map the lit passes read this frame: the FRONT of the two persistent copies
+        /// (CloudShadowRefreshState), null unless HasShadowMap(). A reader imports it into the frame
+        /// (FrameTransients::CloudShadowMap, SceneViewInputsOf).
         std::shared_ptr<Image> GetShadowMap() const
         {
             return m_ShadowMapValid ? m_ShadowMap : nullptr;
