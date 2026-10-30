@@ -308,6 +308,7 @@ namespace Desert::Editor::Control
         uint32_t    Alive     = 0;     ///< live particles in that copy
         uint32_t    Free      = 0;     ///< free slots in that copy
         uint32_t    FramesOld = 0;     ///< frames between the GPU writing that copy and this reading
+        uint32_t    Events    = 0;     ///< events the emitter stored over its last tick, in that copy (all kinds)
     };
     struct VFXSystemSnapshot
     {
@@ -832,6 +833,7 @@ namespace Desert::Editor::Control
                         emitter["alive"]     = Num( e.Alive );
                         emitter["free"]      = Num( e.Free );
                         emitter["framesOld"] = Num( e.FramesOld );
+                        emitter["events"]    = Num( e.Events );
                         emitters.push_back( Common::Json::Value( emitter ) );
                     }
                     Common::Json::Object entry;

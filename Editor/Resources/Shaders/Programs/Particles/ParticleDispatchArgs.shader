@@ -11,7 +11,7 @@
 // EVENTS (PORT-VFX-MODULES, UE emitter Event Handlers): in step mode spawned = the step's CPU budget plus what the
 // emitter's Event Handlers spawn from the events their sources raised the step before (Common/VFXEvents.glslh),
 // capped by the free count; and the emitter opens this step's half of every event channel it raises into, so its
-// Spawn+Update appends to an empty half.
+// Spawn+Update appends to an empty half - step 0 of a tick also zeroes the channel's tick count (VFXEvents.glslh).
 Shader "ParticleDispatchArgs"
 {
     Compute
@@ -92,11 +92,16 @@ Shader "ParticleDispatchArgs"
             Arguments[0] = uvec4( ( max( alive, spawned ) + PARTICLE_GROUP_SIZE - 1u ) / PARTICLE_GROUP_SIZE, 1u, 1u, 0u );
             Arguments[1] = uvec4( ( touched + PARTICLE_GROUP_SIZE - 1u ) / PARTICLE_GROUP_SIZE, 1u, 1u, 0u );
 
-            // Open this step's half of each channel the emitter raises into (its handlers take it next step).
+            // Open this step's half of each channel the emitter raises into (its handlers take it next step): its
+            // serial and count only, half 0's .z is the channel's tick count, zeroed by the tick's first step.
             for ( uint kind = 0u; kind < 3u; ++kind )
                 if ( EventTableData[0][kind] != 0u )
-                    EventsData[VFXEventHeaderIndex( VFXEventChannelOf( EventTableData[1u + kind] ), serial )] =
-                         uvec4( serial, 0u, 0u, 0u );
+                {
+                    const VFXEventChannel c = VFXEventChannelOf( EventTableData[1u + kind] );
+                    EventsData[VFXEventHeaderIndex( c, serial )].xy = uvec2( serial, 0u );
+                    if ( step == 0u )
+                        EventsData[VFXEventTickCountIndex( c )].z = 0u;
+                }
 
             uint next = 1u - slot;
             Slots[next] =

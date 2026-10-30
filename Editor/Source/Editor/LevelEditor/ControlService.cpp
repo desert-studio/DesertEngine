@@ -1752,7 +1752,8 @@ namespace Desert::Editor
                                                                          .GpuRead   = e.GpuRead,
                                                                          .Alive     = e.Alive,
                                                                          .Free      = e.Free,
-                                                                         .FramesOld = e.FramesOld } );
+                                                                         .FramesOld = e.FramesOld,
+                                                                         .Events    = e.Events } );
             }
         }
 

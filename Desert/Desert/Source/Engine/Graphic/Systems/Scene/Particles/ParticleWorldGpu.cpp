@@ -416,6 +416,7 @@ namespace Desert::Graphic::System
                         emitter.Alive     = read.Alive;
                         emitter.Free      = read.Free;
                         emitter.FramesOld = read.FramesOld;
+                        emitter.Events    = read.Events;
                         break;
                     }
     }
@@ -460,6 +461,7 @@ namespace Desert::Graphic::System
                 debug.Alive     = data[0];
                 debug.Free      = data[1];
                 debug.FramesOld = m_DebugSerial - data[2];
+                debug.Events    = data[4];
                 if ( IsDebugTable( gpu ) )
                 {
                     const uint32_t rows = std::min( data[3], kParticleDebugMaxRows );

@@ -318,7 +318,8 @@ Shader "ParticleSimulate"
         }
 
         // Appends one event of @p kind (world position, velocity, normal) to this step's half of the emitter's
-        // channel (Common/VFXEvents.glslh); its Dispatch Args opened the half.
+        // channel (Common/VFXEvents.glslh) and counts it in the channel's tick count; its Dispatch Args opened the
+        // half.
         void RaiseEvent( uint kind, vec3 world, vec3 velocity, vec3 normal )
         {
             const VFXEventChannel c      = VFXEventChannelOf( EventTableData[1u + kind] );
@@ -330,6 +331,7 @@ Shader "ParticleSimulate"
             EventsData[row]      = uvec4( floatBitsToUint( world ), 0u );
             EventsData[row + 1u] = uvec4( floatBitsToUint( velocity ), 0u );
             EventsData[row + 2u] = uvec4( floatBitsToUint( normal ), 0u );
+            atomicAdd( EventsData[VFXEventTickCountIndex( c )].z, 1u );
         }
 
         vec3 ReadVec3( uint n, uint c )

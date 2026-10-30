@@ -1169,6 +1169,18 @@
                                 "Type": "Float",
                                 "Source": "Value",
                                 "Value": [0.4, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "KillOnCollision",
+                                "Type": "Bool",
+                                "Source": "Value",
+                                "Value": [0, 0.0, 0.0, 0.0]
+                            },
+                            {
+                                "Name": "MinimumTimeBetweenEvents",
+                                "Type": "Float",
+                                "Source": "Value",
+                                "Value": [0.25, 0.0, 0.0, 0.0]
                             }
                         ]
                     },

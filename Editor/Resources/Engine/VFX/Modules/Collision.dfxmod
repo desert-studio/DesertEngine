@@ -6,11 +6,14 @@ Module "Collision"
     Usage ParticleUpdate
     Attribute Position vec3
     Attribute Velocity vec3
+    Attribute CollisionContact bool
+    Attribute CollisionRelease float
     Input Radius float = 2
     Input Thickness float = 50
     Input Restitution float = 0.4
     Input Friction float = 0.2
     Input KillOnCollision bool = 0
+    Input MinimumTimeBetweenEvents float = 0.25
 
     // Engine VFX module Collision (UE Niagara Content/Modules/Update/Collision, GPU Scene Depth mode; ported from
     // int/vfx VFX-PARAMS): the particle against the scene depth. Calling VFX_SceneDepthCollide makes the emitter
@@ -25,16 +28,35 @@ Module "Collision"
     //   Restitution     the normal speed kept after an impact, reversed (0 stops on the surface, 1 is elastic)
     //   Friction        the share of the tangential speed an impact removes, [0, 1]
     //   KillOnCollision UE's Kill response: the particle dies where it met the scene
-    // An impact (the particle moves INTO the surface) sets sim.Collided and sim.CollisionNormal. A particle resting
-    // on a surface keeps meeting it each step under gravity, as in UE. Off screen or behind the camera there is no
-    // depth to meet: depth collision is view-dependent by construction (UE: the same limit of the Scene Depth mode).
+    //   MinimumTimeBetweenEvents  s a particle must stay clear of the scene before an impact counts as a new contact
+    //                   (UE Niagara: the collision event's minimum time between events); 0 releases the contact on
+    //                   the first step without one
+    // CONTACT (UE Niagara: the particle's collision state attributes, an event on the transition into contact):
+    // CollisionContact is set on every step the depth query meets the particle and cleared only after
+    // CollisionRelease - MinimumTimeBetweenEvents from the last meeting - has run out without another. An impact
+    // (the particle moves INTO the surface) always gets the bounce response; it sets sim.Collided and
+    // sim.CollisionNormal - and so raises the emitter's Collision event - only when the particle was NOT in contact.
+    // A particle resting under gravity drops in and out of the query's reach each few steps (the snap puts its centre
+    // Radius from the surface along the normal, the query measures along the view ray): those re-impacts fall inside
+    // the release time and raise nothing. A new particle starts out of contact (attributes start at zero). Off screen
+    // or behind the camera there is no depth to meet: depth collision is view-dependent by construction (UE: the same
+    // limit of the Scene Depth mode).
     void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )
     {
-        const float radius = max( i.Radius, 0.0 );
+        const float radius       = max( i.Radius, 0.0 );
+        const bool  wasInContact = p.CollisionContact;
         vec3        contact;
         vec3        normal;
         if ( !VFX_SceneDepthCollide( sim, p.Position, radius, max( i.Thickness, 0.0 ), contact, normal ) )
+        {
+            // Clear of the scene: the contact holds until the release time runs out.
+            p.CollisionRelease = max( p.CollisionRelease - sim.DeltaTime, 0.0 );
+            if ( p.CollisionRelease <= 0.0 )
+                p.CollisionContact = false;
             return;
+        }
+        p.CollisionContact = true;
+        p.CollisionRelease = max( i.MinimumTimeBetweenEvents, 0.0 );
 
         // Out of the surface: the sphere rests on it.
         p.Position              = contact + normal * radius;
@@ -42,8 +64,11 @@ Module "Collision"
         if ( normalSpeed >= 0.0 )
             return; // already leaving the surface: no impact
 
-        sim.Collided        = true;
-        sim.CollisionNormal = normal;
+        if ( !wasInContact )
+        {
+            sim.Collided        = true; // the transition into contact: the Collision event
+            sim.CollisionNormal = normal;
+        }
         if ( i.KillOnCollision )
         {
             sim.Kill = true;

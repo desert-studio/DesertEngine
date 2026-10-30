@@ -62,16 +62,17 @@ namespace Desert::Graphic::System
     };
 
     // VFX-16 (UE Niagara Debugger, dev only): ParticleDebugReadback's push constant and its readback's shape. The
-    // readback is 4 header uints (alive, free, debug serial, rows written) then per row the pool index and the
-    // emitter's float attribute components, then its int components (their bits); one page is
-    // kParticleDebugMaxRows alive particles.
+    // readback is 8 header uints (alive, free, debug serial, rows written, the events the emitter stored over its
+    // last tick - Common/VFXEvents.glslh's tick counts -, 3 zeros) then per row the pool index and the emitter's
+    // float attribute components, then its int components (their bits); one page is kParticleDebugMaxRows alive
+    // particles.
     struct ParticleDebugPush
     {
         glm::uvec4 Page;  // x = last compact's slot, y = first alive row, z = rows (0 = counts only), w = float columns
         glm::uvec4 Range; // x = drawn alive half's offset, y = range count, z = pool base, w = debug serial (never 0)
         glm::uvec4 Columns; // x = int columns; yzw = 0
     };
-    constexpr uint32_t kParticleDebugHeaderUints = 4u;
+    constexpr uint32_t kParticleDebugHeaderUints = 8u; // ParticleDebugReadback.shader PARTICLE_DEBUG_HEADER_UINTS
     constexpr uint32_t kParticleDebugMaxRows     = 64u;
 
     // VFX-LIGHT (UE Niagara Light Renderer): ParticleLightReadback's push constant and its readback's shape - 4
@@ -108,6 +109,7 @@ namespace Desert::Graphic::System
         uint32_t                             Alive        = 0;
         uint32_t                             Free         = 0;
         uint32_t                             FramesOld    = 0;
+        uint32_t                             Events       = 0; // stored over the emitter's last tick (all kinds)
         bool                                 Read         = false;
         uint32_t                             FloatColumns = 0;
         uint32_t                             IntColumns   = 0;

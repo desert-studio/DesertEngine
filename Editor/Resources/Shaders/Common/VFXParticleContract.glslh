@@ -34,9 +34,11 @@
 // read a spawn module makes): the Initialize modules take a bound colour, base-size scale and lifetime from them,
 // AddVelocityInCone a bound direction as its axis. A particle not from a channel, or a field the emitter's
 // engine:SpawnFromChannel does not bind, reads Direction = 0, Color = 1 and Scalars = (0, 1, 0, 0).
-// Collided / CollisionNormal are set by engine:Collision when the particle moved INTO the scene this step (the normal
-// in the stack's frame, facing the camera); the host starts them false / zero, and raises the emitter's Collision
-// event from them (its Death event from Kill, its Location event every step it lives; Common/VFXEvents.glslh).
+// Collided / CollisionNormal are set by engine:Collision when the particle moved INTO the scene this step out of
+// contact (its CollisionContact attribute: the transition into contact, not every re-impact of a resting particle;
+// the normal in the stack's frame, facing the camera); the host starts them false / zero, and raises the emitter's
+// Collision event from them (its Death event from Kill, its Location event every step it lives;
+// Common/VFXEvents.glslh).
 // Event is 1 + the event row of a newborn an Event Handler spawned, 0 for every other particle; only
 // engine:SpawnFromEvent reads it.
 struct VFXSim

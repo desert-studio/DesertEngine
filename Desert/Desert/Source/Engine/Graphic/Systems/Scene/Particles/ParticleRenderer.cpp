@@ -114,6 +114,8 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, AttributeFloats );
         DESERT_SHADER_PARAMETER( StorageBuffer, AttributeInts );
         DESERT_SHADER_PARAMETER( StorageBuffer, Readback );
+        DESERT_SHADER_PARAMETER( StorageBuffer, EventTable );
+        DESERT_SHADER_PARAMETER( StorageBuffer, Events );
     };
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
@@ -928,6 +930,9 @@ namespace Desert::Graphic::System
                  .Storage( ParticleDebugReadbackShaderParameters::AttributeFloats, ve.FloatsRef, RDG::Access::StorageRead )
                  .Storage( ParticleDebugReadbackShaderParameters::AttributeInts, ve.IntsRef, RDG::Access::StorageRead )
                  .Storage( ParticleDebugReadbackShaderParameters::Readback, ve.DebugRef, RDG::Access::StorageWrite )
+                 .Storage( ParticleDebugReadbackShaderParameters::EventTable, ve.EventTableRef,
+                           RDG::Access::StorageRead )
+                 .Storage( ParticleDebugReadbackShaderParameters::Events, ve.EventsRef, RDG::Access::StorageRead )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleDebugPush ) ) );
         }
     }

@@ -7,7 +7,10 @@
 // source writes half n & 1 and every handler reads half (n - 1) & 1, the events of the step before, so a writer and
 // its readers never meet in one dispatch. A half is a header - uvec4( serial it holds, event count, 0, 0 ) - and
 // Capacity rows of VFX_EVENT_ROW_SIZE uvec4 (world position, world velocity, world normal, as float bits). The
-// source's Dispatch Args opens its half (serial, 0); its Spawn+Update appends with atomicAdd. A reader takes a half
+// source's Dispatch Args opens its half (serial, 0) - x and y only; its Spawn+Update appends with atomicAdd.
+// TICK COUNT (UE Niagara Debugger's per-frame event count): half 0's header .z counts the events the source stored
+// into the channel over its current tick - its step 0 Dispatch Args zeroes it, every stored event adds one - and
+// the Debug Readback copies it (ParticleDebugReadback, VFXEmitterDebugStats::Events). A reader takes a half
 // only when it holds the serial it expects, so the events of an emitter that did not run the step before are never
 // read twice. Emitters linked by events tick in one stage (VFXStackCompiler UnifyEventTickStages), so the source's
 // step n always ran before the handler's step n + 1 in the same chain.
@@ -50,6 +53,12 @@ VFXEventChannel VFXEventChannelOf( uvec4 row )
 uint VFXEventHeaderIndex( VFXEventChannel c, uint serial )
 {
     return c.Header + ( serial & 1u );
+}
+
+// The buffer row whose .z counts the channel's events of the current tick (TICK COUNT above).
+uint VFXEventTickCountIndex( VFXEventChannel c )
+{
+    return c.Header;
 }
 
 // The first uvec4 of event @p e of step @p serial.
