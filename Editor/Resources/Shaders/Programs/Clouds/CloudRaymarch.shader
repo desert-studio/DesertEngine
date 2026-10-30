@@ -174,6 +174,7 @@ Shader "CloudRaymarch"
         Uniform sampler LinearRepeatSampler;
         Uniform(2) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, GlobalFilterSampler)
+        #include <Common/CloudSceneDepth.glslh>
 
         // The noise volume, now an ASSET rather than a bake: four named channels from the Nubis deck
         // (p.96) — R,G Curly-Alligator LF/HF, B,A Alligator LF/HF — generated on the CPU by
@@ -440,13 +441,11 @@ Shader "CloudRaymarch"
             // the one the ray was CAST through would cut this frame's ray at a neighbour's geometry, and
             // the error would swing with the jitter, which is exactly the shimmer this work removes.
             //
-            // One full-res texel out of the 2x2 block stands for all four, and it is the TOP-LEFT one, not
-            // the centre: `(halfCoord * depthSize) / halfSize` truncates. The two readings differ exactly
-            // on a silhouette, where the choice decides whether this pixel's cloud is cut at the mountain
-            // or behind it; the guide's bilateral weights hide most of the residual.
-            ivec2 depthSize  = textureSize(SceneDepthTexture, 0);
-            ivec2 depthCoord = clamp((halfCoord * depthSize) / halfSize, ivec2(0, 0), depthSize - ivec2(1, 1));
-            float deviceDepth = texelFetch(SceneDepthTexture, depthCoord, 0).r;
+            // The ray runs to the FARTHEST surface of the full-res block this half-res pixel covers
+            // (Common/CloudSceneDepth.glslh, which says why one texel of the block flickered under thin
+            // foliage). The cloud between that surface and a nearer one in the same block is removed per
+            // full-res pixel by CloudUpsample.shader, which knows each pixel's own depth.
+            float deviceDepth = CloudFootprintFarthestDepth(halfCoord, halfSize);
 
             // The guide's scene channel, resolved for EVERY pixel and not only for the ones that have
             // geometry. A sky pixel's ray is still cut somewhere — at the far plane — and giving it that

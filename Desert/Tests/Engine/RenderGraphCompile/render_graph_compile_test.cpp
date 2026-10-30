@@ -3877,13 +3877,18 @@ TEST( RenderGraphCompile, PhasePassesAreRealGraphNodesThatDeclareTheirTargets )
          // The fog apply's image: the entry of its block (no material route), the read.
          { "Systems/Scene/Fog/HeightFogRenderer.cpp", ".Texture(HeightFogApplyShaderParameters::FogApplyTexture,"
                                                       "refs.Transients.HeightFog,RDG::Access::SampledGraphics" },
-         // The cloud composite's pair: entries of its block (the material route + both halves), each the read.
+         // The cloud composite's image: an entry of its block (with the material route), the read. The half-res
+         // pair it used to upsample is read by the upsample compute node instead (FOLIAGE-CLOUD-FLICKER), each
+         // half an entry of that node's block.
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
            ".Texture(VolumetricCloudCompositeShaderParameters::CloudScatterTexture,scatter,RDG::Access::"
            "SampledGraphics" },
          { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
-           ".Texture(VolumetricCloudCompositeShaderParameters::CloudGuideTexture,guide,RDG::Access::"
-           "SampledGraphics" },
+           ".Texture(VolumetricCloudShaderParameters::CloudReconstructionTexture,current.Scatter,RDG::Access::"
+           "SampledCompute" },
+         { "Systems/Scene/Clouds/VolumetricCloudRenderer.cpp",
+           ".Texture(VolumetricCloudShaderParameters::CloudReconstructionGuideTexture,current.Guide,RDG::Access::"
+           "SampledCompute" },
          // The cascades and the cloud shadow map are imported once per frame as scene-view inputs, and every lit
          // node binds them through BindSceneViewInputs (the block entry is the read; RDG-FAULT1).
          { "SceneRendererFrameDeferred.cpp", "view.ShadowCascades=mesh->AcquireCascadeMaps(graph);" },

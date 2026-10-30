@@ -8,7 +8,7 @@ Shader "CloudTemporalResolve"
         // CloudRaymarch.shader traces at a QUARTER of the framebuffer's size and jitters its rays so that
         // each quarter-res texel holds one of the four HALF-resolution pixels of its 2x2 block, a
         // different one every frame, walking {0, 2, 3, 1}. This pass turns that stream into a HALF-
-        // resolution image, and CloudComposite.shader upsamples the result exactly as it upsampled the
+        // resolution image, and CloudUpsample.shader upsamples the result exactly as it upsampled the
         // half-res trace before this stage existed.
         //
         // For each half-res pixel there are three cases:
@@ -108,7 +108,7 @@ Shader "CloudTemporalResolve"
         // targets are: radiance is pre-tonemap HDR and transmittance is in [0,1].
         layout(binding = 4, rgba16f) restrict writeonly uniform image2D ReconstructedScatterTexture;
 
-        // The reconstructed guide, which serves two readers: CloudComposite.shader upsamples through it,
+        // The reconstructed guide, which serves two readers: CloudUpsample.shader upsamples through it,
         // and NEXT frame's run of this pass reads it back as the history guide to detect disocclusions.
         // It carries THIS frame's distances with no temporal blending at all — a distance is a property of
         // the geometry in front of the camera now, and mixing it with a distance from three frames ago
@@ -148,22 +148,15 @@ Shader "CloudTemporalResolve"
         // compose reading SceneDepth).
         Uniform(7) texture2D SceneDepthTexture;
         #define SceneDepthTexture sampler2D(SceneDepthTexture, GlobalFilterSampler)
+        #include <Common/CloudSceneDepth.glslh>
+        // FOLIAGE-CLOUD-FLICKER: "this pixel's own scene depth" is now the FARTHEST surface of the full-res
+        // block under it, the depth the march cuts at (Common/CloudSceneDepth.glslh). A single texel of the block
+        // reproduced the flip described above one level down: under the TAA jitter a grass blade covers that
+        // texel on some frames and not on others, so .y swung between the blade and the sky and the
+        // disocclusion test below rejected a good history at every blade edge, every frame.
 
-        // The C++ side of this block is Graphic::CloudResolveParams (Engine/Graphic/Clouds/CloudPayload.hpp),
-        // where a static_assert pins every offset. Raw std430 rather than the ReadBuffer(n) sugar, as
-        // CloudParams.glslh does, because this header describes a structure.
-        //
-        // A BUFFER AND NOT A PUSH CONSTANT: two 4x4 matrices are already 128 bytes, which is the whole
-        // size Vulkan guarantees for push constants, and several desktop drivers report exactly that
-        // minimum. The camera and the frame state would not fit.
-        layout(std430, binding = 6) readonly buffer CloudResolveBuffer
-        {
-            mat4  InverseViewProjection; // clip -> world, this frame
-            mat4  PreviousViewProjection;    // world -> clip, the previous frame
-            vec3  CameraPosition;        // world units (centimetres)
-            float HistoryValid;          // 1 when the history targets hold a real previous frame
-            ivec2 SubPixelOffset;        // this frame's traced sub-pixel, {0,1} x {0,1}
-        };
+        // The block layout this pass shares with CloudUpsample.shader (Common/CloudResolveParams.glslh).
+        #include <Common/CloudResolveParams.glslh>
 
         LocalSize(8, 8, 1);
 
@@ -291,11 +284,9 @@ Shader "CloudTemporalResolve"
 
             // THIS PIXEL'S SCENE DISTANCE, by the march's own expression (CloudRaymarch.shader, the
             // `sceneKm` it writes into its guide's .y): the far plane where nothing was drawn, the opaque
-            // surface where something was. Same texel rule too — `(coord * depthSize) / size` truncates —
-            // so on the pixel this frame owns the two agree exactly.
-            ivec2 depthSize  = textureSize(SceneDepthTexture, 0);
-            ivec2 depthCoord = clamp((coord * depthSize) / size, ivec2(0, 0), depthSize - ivec2(1, 1));
-            float deviceDepth = texelFetch(SceneDepthTexture, depthCoord, 0).r;
+            // surface where something was. Same depth rule too — the farthest surface of the full-res block,
+            // Common/CloudSceneDepth.glslh — so on the pixel this frame owns the two agree exactly.
+            float deviceDepth = CloudFootprintFarthestDepth(coord, size);
 
             float ownSceneKm = length(farP - CameraPosition) * (1.0f / CLOUD_WORLD_UNITS_PER_KM);
             if (deviceDepth > 0.0f)

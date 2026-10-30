@@ -1,0 +1,51 @@
+// The scene depth a cloud texel is cut at, written once for the three programs that must agree on it:
+// CloudRaymarch.shader (where the ray stops), CloudTemporalResolve.shader (the distance its disocclusion test
+// and its guide's .y carry) and CloudUpsample.shader (which compares every full-resolution pixel's own depth
+// against that .y).
+//
+// THE FARTHEST SURFACE OF THE FOOTPRINT, not one texel of it. A half-resolution cloud texel stands for the
+// block of full-resolution pixels under it (2x2 at the usual ratio). It used to read ONE of them, the
+// top-left. Over thin alpha-masked geometry — grass blades, leaves, twigs against the sky — that one pixel is
+// covered on some frames and open on others, because the scene is rasterised with the TAA jitter and a blade
+// a pixel wide crosses it as the jitter walks. The texel's ray was then cut at the blade (no cloud) on one
+// frame and run to the sky (cloud) on the next, the resolve saw its scene distance jump by the whole sky and
+// threw the history away, and the composite received a different answer at every blade edge every frame:
+// the foliage-against-cloud flicker (FOLIAGE-CLOUD-FLICKER).
+//
+// The farthest surface of the block is stable under that jitter — a blade that covers part of the block never
+// covers all of it — and it is the right thing to trace to: the texel then holds the cloud IN FRONT OF THE
+// FARTHEST surface it covers, and the full-resolution upsample removes it from every pixel whose own surface
+// is nearer than the cloud (CloudUpsample.shader). That is Unreal's arrangement: the trace runs to the far
+// end of the footprint's depth range (VolumetricCloud.usf, SceneDepthMinAndMaxTexture) and the compose, which
+// reads each pixel's own scene depth, keeps the volume behind opaque by the cloud front.
+//
+// REVERSED-Z (Core/Projection.hpp): 1 is the near plane, 0 the far one and the sky, so the farthest surface is
+// the SMALLEST device depth.
+//
+// The includer declares `SceneDepthTexture` (the single-sample scene depth, as a combined sampler) before
+// including this file.
+
+// The block of the full-resolution depth that half-resolution pixel @p halfCoord covers on a @p halfSize
+// grid, inclusive. The half extent is the full one rounded UP, so the last row and column of the half grid
+// can cover nothing but the edge; the max() keeps that block one texel wide rather than empty.
+void CloudDepthFootprint(ivec2 halfCoord, ivec2 halfSize, ivec2 depthSize, out ivec2 first, out ivec2 last)
+{
+    ivec2 edge = depthSize - ivec2(1, 1);
+    first = clamp((halfCoord * depthSize) / halfSize, ivec2(0, 0), edge);
+    last  = clamp(((halfCoord + ivec2(1, 1)) * depthSize) / halfSize - ivec2(1, 1), first, edge);
+}
+
+// The smallest (farthest, reversed-Z) device depth over that block. 0 means the whole block is sky.
+float CloudFootprintFarthestDepth(ivec2 halfCoord, ivec2 halfSize)
+{
+    ivec2 depthSize = textureSize(SceneDepthTexture, 0);
+    ivec2 first;
+    ivec2 last;
+    CloudDepthFootprint(halfCoord, halfSize, depthSize, first, last);
+
+    float farthest = 1.0f;
+    for (int y = first.y; y <= last.y; ++y)
+        for (int x = first.x; x <= last.x; ++x)
+            farthest = min(farthest, texelFetch(SceneDepthTexture, ivec2(x, y), 0).r);
+    return farthest;
+}

@@ -1,0 +1,19 @@
+// CloudResolveBuffer, the one parameter block of the cloud reconstruction: read by CloudTemporalResolve.shader
+// (the reprojection) and by CloudUpsample.shader (the full-resolution compose), both bound to the one buffer
+// VolumetricCloudRenderer uploads per frame (m_ResolveParamsBuffer).
+
+// The C++ side of this block is Graphic::CloudResolveParams (Engine/Graphic/Clouds/CloudPayload.hpp),
+// where a static_assert pins every offset. Raw std430 rather than the ReadBuffer(n) sugar, as
+// CloudParams.glslh does, because this header describes a structure.
+//
+// A BUFFER AND NOT A PUSH CONSTANT: two 4x4 matrices are already 128 bytes, which is the whole
+// size Vulkan guarantees for push constants, and several desktop drivers report exactly that
+// minimum. The camera and the frame state would not fit.
+layout(std430, binding = 6) readonly buffer CloudResolveBuffer
+{
+    mat4  InverseViewProjection; // clip -> world, this frame
+    mat4  PreviousViewProjection;    // world -> clip, the previous frame
+    vec3  CameraPosition;        // world units (centimetres)
+    float HistoryValid;          // 1 when the history targets hold a real previous frame
+    ivec2 SubPixelOffset;        // this frame's traced sub-pixel, {0,1} x {0,1}
+};
