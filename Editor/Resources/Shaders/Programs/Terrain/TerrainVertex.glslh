@@ -54,7 +54,7 @@
         #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
         // The displaced sub-vertices themselves: evaluated once this frame (LandscapeDicePool.shader) into the dice
         // pool, which every view's draw reads - the camera's and each caster's (LandscapeDisplacement.glslh).
-        ReadBuffer(16) LandscapeVertexPool
+        ReadBuffer(23) LandscapeVertexPool
         {
             vec4 DicePoolVertices[];
         };

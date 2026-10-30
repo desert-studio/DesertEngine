@@ -360,7 +360,8 @@ namespace Desert::Graphic::System
 
     // The dice pool's vertices for the row (LandscapeDisplacement.glslh LandscapeDecodePoolVertex walks the same
     // order): each ring's cells outside the finer ring, (dice + 1)^2 sub-vertices a cell; 0 when it is not diced.
-    inline uint32_t LandscapeDicePoolVertexCount( uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row )
+    inline uint32_t LandscapeDicePoolVertexCount( uint32_t quadsPerTile, uint32_t gridLod,
+                                                  const TerrainInstance& row )
     {
         if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
             return 0u;

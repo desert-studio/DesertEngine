@@ -1629,7 +1629,8 @@ namespace Desert::Graphic
         if ( m_FrameReflectionCaptures )
             m_FrameReflectionCaptures->AddPasses( graph, textures, ReadsReflectionCaptures() );
         // The landscape's dice pool (its displaced sub-vertices, evaluated once), before any node that draws the
-        // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual shadows.
+        // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual
+        // shadows.
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
             auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );

@@ -286,10 +286,10 @@ namespace Desert::Graphic::System
             std::shared_ptr<Image2D> LayerHeights;
             uint32_t                 Vertices = 0;
         };
-        std::vector<DicePoolJob>           m_DicePoolJobs;
-        uint32_t                           m_DicePoolVertices = 0;
-        RDG::BufferRef                     m_DicePool;
-        std::shared_ptr<ComputePipeline>   m_DicePoolPipeline;
-        ShaderBindingLayoutCache           m_DicePoolLayout;
+        std::vector<DicePoolJob>         m_DicePoolJobs;
+        uint32_t                         m_DicePoolVertices = 0;
+        RDG::BufferRef                   m_DicePool;
+        std::shared_ptr<ComputePipeline> m_DicePoolPipeline;
+        ShaderBindingLayoutCache         m_DicePoolLayout;
     };
 } // namespace Desert::Graphic::System
