@@ -12,3 +12,6 @@
 Когда --subject viewport set Camera.Position 0,900,2500
 Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
 Тогда-вид 2_winter_high the whole field white under snow to the horizon, Terrain Far included, no sharp snow edge at grazing distance; barn and trees visible, roof white, wall faces dark and bare, no black patches
+Когда --subject viewport set Camera.Position -300,2221,-3600
+Когда --subject viewport set Camera.Direction -0.53,-0.51,-0.7
+Тогда-вид 3_winter_tree Tree 1 from 25 m above and aside: the crown's upper half white with snow as one layer (canopy normal baked in island_tree_01.gltf), its underside and the trunk dark
