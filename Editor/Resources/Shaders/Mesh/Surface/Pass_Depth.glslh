@@ -21,6 +21,9 @@ layout( depth_less ) out float gl_FragDepth;
 void main()
 {
 #if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+    // A `.Binned` cell (the deferred early-Z pass's twin of a G-buffer bin): `Material` is the row the vertex stage
+    // resolved from the instance id (SurfaceTypes.glslh); nothing otherwise.
+    DESERT_SURFACE_BEGIN_FRAGMENT();
     const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
                                                v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );

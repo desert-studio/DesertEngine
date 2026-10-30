@@ -106,8 +106,11 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceBinnedDefine     = "DESERT_SURFACE_BINNED";
     // VirtualShadowDepth (VIRT-GEOM step 17): the virtual shadow map's own binned table (GpuDriven::MeshPass::
     // VirtualShadow), whose groups are what its `.VirtualGeometry` cells are twins of.
-    inline constexpr std::array<std::string_view, 4> kSurfaceBinnedCellPasses = {
-         "Forward", "GBuffer", "ShadowDepth", "VirtualShadowDepth" };
+    // Depth (kSurfaceViewDepthPass, GRASS-VIS-11; UE r.EarlyZPass over the GPU Scene's cached draws): no table of
+    // its own - the deferred early-Z pass draws the G-buffer table's records through it first, from the same
+    // cull ("Deferred: Masked Depth Prepass", MeshRenderer::EarlyZBinTwinsOf), then the G-buffer draws them EQUAL.
+    inline constexpr std::array<std::string_view, 5> kSurfaceBinnedCellPasses = {
+         "Forward", "GBuffer", "ShadowDepth", "VirtualShadowDepth", "Depth" };
     // THE VIRTUAL GEOMETRY PERMUTATION (VIRT-GEOM step 11; UE: the Nanite raster's vertex factory): every binned
     // cell of a kSurfaceVirtualGeometryPaths path (`.Parallax` too) once more, named
     // `<Path>.<Pass>[.Parallax].Binned.VirtualGeometry`, after the binned cells, with kSurfaceBinnedDefine AND

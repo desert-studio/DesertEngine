@@ -301,9 +301,11 @@ namespace Desert::Graphic::System
         {
             if ( m_Error )
                 return;
-            if ( issue.Table == nullptr || issue.GroupCarriers.size() != issue.Table->Groups.size() )
+            if ( issue.Table == nullptr || issue.GroupCarriers.size() != issue.Table->Groups.size() ||
+                 ( !issue.GroupPipelines.empty() && issue.GroupPipelines.size() != issue.Table->Groups.size() ) )
             {
-                Fail( std::format( "binned mesh draws: {} carriers for {} groups", issue.GroupCarriers.size(),
+                Fail( std::format( "binned mesh draws: {} carriers and {} pipelines for {} groups",
+                                   issue.GroupCarriers.size(), issue.GroupPipelines.size(),
                                    issue.Table != nullptr ? issue.Table->Groups.size() : 0u ) );
                 return;
             }
@@ -319,9 +321,12 @@ namespace Desert::Graphic::System
                 const GpuDriven::IndirectGroup& indirect = issue.Table->Groups[group];
                 if ( indirect.BinCount == 0u )
                     continue;
+                const GraphicsPipeline* const pipeline = issue.GroupPipeline( group );
+                if ( !issue.GroupPipelines.empty() && pipeline == nullptr )
+                    continue; // not drawn by this issue (BinnedIssue::GroupPipelines)
                 const MaterialExecutor* carrier = issue.GroupCarriers[group];
                 const Shader*           recordedWith =
-                     indirect.Pipeline != nullptr ? indirect.Pipeline->GetSpecification().Shader.get() : nullptr;
+                     pipeline != nullptr ? pipeline->GetSpecification().Shader.get() : nullptr;
                 if ( carrier == nullptr || recordedWith == nullptr )
                 {
                     Fail( std::format( "binned mesh draws: group {} has no {}", group,
@@ -337,7 +342,7 @@ namespace Desert::Graphic::System
                                    } );
                 m_GroupBlock[group] = static_cast<uint32_t>( known - m_Blocks.begin() );
                 if ( known == m_Blocks.end() )
-                    m_Blocks.push_back( Block{ carrier, indirect.Pipeline, true } );
+                    m_Blocks.push_back( Block{ carrier, pipeline, true } );
                 else
                     known->Binned = true;
             }
@@ -607,7 +612,8 @@ namespace Desert::Graphic::System
                 if ( m_Binned->BinsIssued )
                     if ( auto recorded = GpuDriven::RecordIndirectGroups( api, groupBindings,
                                                                           m_Binned->GroupCarriers, m_Binned->Mode,
-                                                                          *m_Binned->Table, m_Binned->Culled );
+                                                                          *m_Binned->Table, m_Binned->Culled,
+                                                                          m_Binned->GroupPipelines );
                          !recorded )
                         return recorded;
                 // The VG raster after the bins: per group its clusters' one indirect draw (an empty group draws

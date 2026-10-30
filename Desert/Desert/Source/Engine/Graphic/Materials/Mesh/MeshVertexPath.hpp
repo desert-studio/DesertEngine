@@ -281,9 +281,13 @@ namespace Desert::Graphic
     // THE BINNED PERMUTATION of a cell (DShaderParser kSurfaceBinnedCellSuffix):
     // "<Template>/<Cell>[.Parallax].Binned", the cell a GPU-driven bin draws (GpuDriven::DrawCommandCache): it
     // reads World / PrevWorld / material row / primitive flags through its instance id and pushes nothing.
-    // Registered for every Forward / GBuffer / ShadowDepth mesh cell of a non-translucent template.
+    // Registered for every Forward / GBuffer / ShadowDepth / VirtualShadowDepth / Depth mesh cell of a
+    // non-translucent template (DShaderParser kSurfaceBinnedCellPasses).
     [[nodiscard]] std::string BinnedCellOf( std::string_view cellShader );
     [[nodiscard]] bool        IsBinnedCell( std::string_view shaderName );
+    // The inverse of BinnedCellOf: the cell a `.Binned` permutation is of ("<Template>/<Cell>[.Parallax]"); a name
+    // that is no binned cell is returned as it is.
+    [[nodiscard]] std::string_view BinnedBaseOf( std::string_view shaderName );
 
     // THE VIRTUAL GEOMETRY PERMUTATION of a binned Static or Instanced cell (DShaderParser
     // kSurfaceVirtualGeometryCellSuffix, kSurfaceVirtualGeometryPaths): "<Template>/<Cell>[.Parallax].Binned.

@@ -172,7 +172,16 @@ namespace Desert::Graphic::System
             RDG::BufferRef                       SubmeshTransforms; // DrawCommandBuffers::SubmeshTransforms
             GpuDriven::IndirectSubmissionMode    Mode;
             std::vector<const MaterialExecutor*> GroupCarriers;   // per Table->Groups
+            // Empty: each group draws with its own IndirectGroup::Pipeline. Otherwise per Table->Groups, the
+            // pipeline this issue draws the group's records with, null = this issue does not draw the group:
+            // the deferred early-Z pass's two issues of the G-buffer's one cull (MeshRenderer::DeclareEarlyZBins,
+            // the depth twins in "Deferred: Masked Depth Prepass", the equal-depth twins in "Deferred: GBuffer").
+            std::vector<const GraphicsPipeline*> GroupPipelines;
             std::optional<VirtualGeometryIssue>  VirtualGeometry; // drawn after the bins (phase 1 only)
+            [[nodiscard]] const GraphicsPipeline* GroupPipeline( const size_t group ) const
+            {
+                return GroupPipelines.empty() ? Table->Groups[group].Pipeline : GroupPipelines[group];
+            }
             // False: a VG-only issue (a list whose view culled no bins, the virtual shadow map's levels): Culled
             // is empty, only VirtualGeometry is drawn; GroupCarriers is then one null per group.
             bool BinsIssued = true;
@@ -1666,6 +1675,35 @@ namespace Desert::Graphic::System
         // Whether this frame's EarlyZPass puts @p surface in the deferred prepass: Masked = IsMaskedSurface, All =
         // every non-translucent surface, Off = none.
         [[nodiscard]] bool EarlyZAdmits( const DataDrivenMaterial* surface ) const;
+        // THE one rule EarlyZAdmits applies, by the cell's blend and name (a `.Binned` one is judged as its base
+        // cell): what a GPU-driven G-buffer group, which knows its cell shader and not its materials, is asked by.
+        [[nodiscard]] bool EarlyZAdmitsCell( Core::Formats::SurfaceBlendMode blend, std::string_view cellShader ) const;
+        // THE GPU-DRIVEN BINS' EARLY-Z TWINS (UE r.EarlyZPass over the GPU Scene's cached mesh draw commands: ONE
+        // cull, the same indirect records drawn by the depth pass and then by the base pass). Of a G-buffer group
+        // pipeline (its `<Template>/<Path>.GBuffer.Binned` cell on the G-buffer's state): Depth = the template's
+        // (path x Depth) `.Binned` cell on the prepass's depth state, Equal = the group's own cell in its
+        // SurfaceDepthEqualVariant (no clip) on the G-buffer's EQUAL / no-write state, both with the group's cull
+        // mode. Both or neither: none while either compiles (the group draws as before this frame, its clip and
+        // depth write in the G-buffer, and is asked again next frame), for a cell EarlyZAdmitsCell refuses, and for
+        // a cell without the twins (said once).
+        struct EarlyZBinTwins
+        {
+            const GraphicsPipeline* Depth = nullptr;
+            const GraphicsPipeline* Equal = nullptr;
+        };
+        [[nodiscard]] EarlyZBinTwins EarlyZBinTwinsOf( const GraphicsPipeline& group );
+        // Ready @p shader on @p passState's spec with @p cull, or null (compiling: silently, asked again; refused:
+        // said once under @p label).
+        [[nodiscard]] std::shared_ptr<GraphicsPipeline> EarlyZTwinPipeline( const std::shared_ptr<Shader>& shader,
+                                                                            const GraphicsPipeline&        passState,
+                                                                            CullMode                       cull,
+                                                                            const std::string&             label );
+        // This frame's two issues of the G-buffer view's phase-1 bins (the view's one cull): the depth twins of the
+        // paired groups into m_MaskedDepthDraws, and the G-buffer's issue - the paired groups through their equal
+        // twins, every other group through its own pipeline - kept for DeclareGBufferDraws (m_EarlyZGBufferIssue,
+        // stamped m_EarlyZBinFrame). Phase 2 (the post-occlusion bins) is not paired: what the HZB of this
+        // frame's depth newly finds visible draws as before, clip and depth write in its own G-buffer pass.
+        void DeclareEarlyZBins();
         // The G-buffer cell of @p built's @p path drawn EQUAL after the prepass: its SurfaceDepthEqualVariant. A
         // masked template's drops its clip; an opaque one's is the same program, but a sibling of its own, so the
         // Equal half never shares a recorder (its Materials / InstanceTransforms) with the Rest half's plain cell.
@@ -2011,6 +2049,20 @@ namespace Desert::Graphic::System
         std::map<PrepassCellKey, MaterialPipelineTracker::CellDraw> m_PrepassCellDraws;
         std::unordered_set<uint64_t>                                m_PrepassGpuSections; // GpuInstancedRenderData::Key
         std::optional<uint64_t>                                     m_PrepassFrame;
+        // The G-buffer groups' early-Z twins (EarlyZBinTwinsOf), per group pipeline: checked against the group's
+        // cell shader (a pipeline rebuilt at the same address is a new group) and held weakly (the PipelineCache
+        // owns them; one it dropped is resolved again). Pruned to this frame's groups by DeclareEarlyZBins.
+        struct EarlyZBinTwinSlot
+        {
+            std::weak_ptr<Shader>           GroupShader;
+            std::weak_ptr<GraphicsPipeline> Depth;
+            std::weak_ptr<GraphicsPipeline> Equal;
+            bool                            Refused = false; // no such cell / variant: not asked again
+        };
+        std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot> m_EarlyZBinTwins;
+        // The G-buffer's issue of the paired bins (DeclareEarlyZBins), valid for the frame m_EarlyZBinFrame names.
+        std::optional<MeshRendererDetail::BinnedIssue> m_EarlyZGBufferIssue;
+        std::optional<uint64_t>                         m_EarlyZBinFrame;
         ForwardPrepassStats                                         m_ForwardPrepassStats; // GetForwardPrepassStats
         // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
         // or Depth on the forward path, with the prepass's cells): static/instanced/grass/skinned not under the
