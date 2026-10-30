@@ -1,0 +1,21 @@
+# GI-EMISSIVE-LIGHTS-MOVING (case 5 of GI-EMISSIVE-LIGHTS): the same moving emissive prop under the hardware tracer, the TLAS traced every frame - the TLAS gather is kept (GI-ALL-LIGHTS step 8) and the moved row patched, the TLAS rebuilt only every Scalability GlobalIllumination.TlasUpdatesBeforeRebuild updates (its default 60).
+# The scene is GI-EMISSIVE-LIGHTS-MOVING-NORT.scn's (GI_Bistro_Night_MovingEmitter, the orbiting lamp-shade copy); the same precondition on F:/BistroFoliageProj. machine.json WITHOUT "HideRayTracing" (an RT device).
+# The counters are the session's: the first `state device` (before Simulate) is subtracted from the one after frame 300; profile-dump as in the NORT file (after frame 1, after frame 300).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night_MovingEmitter.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -150,250,300
+Дано --subject viewport set Camera.Direction -0.3,0.05,-0.95
+Дано run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Дано state device
+Когда run Action "Simulate"
+Когда frames 1
+Когда profile-dump
+Когда frames 149
+Тогда-вид 5_night_hwgi_moving_f150 frame 150 of the simulation: the moving glass and the light it casts at its frame-150 position
+Когда frames 150
+Когда state device
+Когда profile-dump
+Тогда-вид 5_night_hwgi_moving [gi_emissive_stream] state device.emissiveLights.gatherFullRebuilds == 1 (the TLAS gather kept, GI-ALL-LIGHTS step 8) and emissiveListFullRebuilds == 1; state device.tlasFullBuilds == 1 + the periodic rebuilds only (<= 1 + floor(299 / 61) = 5 over 300 frames at 60 updates per build), tlasUpdates == the remaining TLAS frames, tlasMovedRows > 0 (~ one per frame the prop moves); profile: "RayTracingScene: TlasGather" and "RayTracingScene: InstanceList" only in the first dump, "RayTracingScene: TlasGatherMove" + "RayTracingScene: InstancePatch" in the last; the moving glass lights the street beside its current position (this frame vs 5_night_hwgi_moving_f150 differ there and only there up to GI noise); 0 VUID
+Когда run Action "Stop"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Тогда 9_level override removed (machine.json clean of GlobalIllumination.Method)
