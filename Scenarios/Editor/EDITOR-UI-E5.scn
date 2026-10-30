@@ -1,0 +1,19 @@
+# EDITOR-UI-E5: the code field (Widgets::CodeEditor: UITextEditState model + UICodeLayout visible lines + the Lua
+# tokenizer, colours from the theme's Code.* slots) on the retained gallery.
+# Layout, reference px (1280x720, computed from WidgetGallery.cpp, NOT measured - check 1_gallery first): the code
+# panel stands right of the column, x 990..1270, y 60..280 (title "Lua" y 64..94); the field x 1000..1260,
+# y 100..270. Points = the viewport panel's points (E2: centre 640,360).
+# Typing goes as CHARACTER events (DesertCtl `input type`, new in E-5): a key event alone types nothing. One
+# `type` = one frame = one typed run = one undo step, so Ctrl+Z takes back the whole second line.
+Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 0_gallery справа от столбца галереи панель «Lua» с пустым полем кода: тёмный фон, полоса номеров слева с номером 1
+Когда input click Viewport 1130,150
+Когда input type Viewport - "local s = 'hi' -- greet"
+Когда input key Viewport - enter
+Когда input type Viewport - "return 42"
+Тогда [log] state: поле Gallery.Code держит фокус галереи; ни одно поле MainMenu не получило символы
+Тогда-вид 1_code две строки с номерами 1 и 2; `local` и `return` - синие (ключевое слово), `'hi'` - оранжевая (строка), `-- greet` - зелёная (комментарий), `42` - светло-зелёная (число), `s =` - светло-серый текст; каретка после 42, синяя рамка фокуса вокруг поля
+Когда input key Viewport - ctrl+z
+Тогда-вид 2_undo строка 2 пуста (ввод «return 42» отменён), номера 1-2 остались, каретка в начале строки 2; строка 1 без изменений и в тех же цветах
+Тогда [log] нет assert, VUID и ошибок UI в editor.log

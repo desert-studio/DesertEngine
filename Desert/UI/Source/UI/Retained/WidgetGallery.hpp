@@ -29,6 +29,8 @@ namespace Desert::UI
         // well that takes only colours ("gallery.color") and so refuses every item.
         static constexpr std::size_t kDragSlots = 3;
         std::vector<std::string>     DragLists[2] = { { "Rock", "Tree", "Bush" }, {} };
+
+        std::string Code; // the code row (Widgets::CodeEditor, Lua)
     };
 
     // Build the gallery into @p tree as a new root canvas bound to @p model; returns the canvas. @p model must

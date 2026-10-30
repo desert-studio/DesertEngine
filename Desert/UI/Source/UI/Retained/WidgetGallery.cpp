@@ -1,6 +1,7 @@
 #include <UI/Retained/WidgetGallery.hpp>
 
 #include <UI/Retained/WidgetBuilder.hpp>
+#include <UI/Text/UILuaTokenizer.hpp>
 
 #include <algorithm>
 #include <array>
@@ -288,6 +289,20 @@ namespace Desert::UI
                                                   GalleryColourWell( m ),
                                              } ],
                                    } ],
+                         } ],
+                    // The code row (Widgets::CodeEditor over the Lua tokenizer) stands beside the column: the
+                    // column already reaches the canvas' foot, and moving it would move every earlier row.
+                    Panel( "Gallery.CodePanel" )
+                         .Anchors( { 0.5f, 0.5f }, { 0.5f, 0.5f } )
+                         .Offsets( { 350.0f, -300.0f }, { 630.0f, -80.0f } )[ {
+                              Text( "Gallery.CodeTitle", std::string( "Lua" ), 18.0f )
+                                   .Anchors( { 0.0f, 0.0f }, { 1.0f, 0.0f } )
+                                   .Offsets( { 10.0f, 4.0f }, { -10.0f, 34.0f } ),
+                              CodeEditor( "Gallery.Code", Attribute<std::string>::Bound( [m] { return m->Code; } ),
+                                          [m]( const std::string& v ) { m->Code = v; },
+                                          std::make_shared<UILuaTokenizer>() )
+                                   .Anchors( { 0.0f, 0.0f }, { 1.0f, 1.0f } )
+                                   .Offsets( { 10.0f, 40.0f }, { -10.0f, -10.0f } ),
                          } ],
                } ]
              .Build( tree );
