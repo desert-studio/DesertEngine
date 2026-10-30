@@ -62,6 +62,13 @@ namespace Desert::Assets
             for ( const char c : slot )
                 out.push_back( static_cast<std::byte>( c ) );
         }
+        // The generated chain's shape (UE ReductionSettings in the static mesh DDC key): ratio count, each ratio's
+        // bits, the floor. Keyed whatever LodPolicy says: the displaced mesh's key builds on this one, and its
+        // Baked mesh bakes the chain under every policy (DisplacedMeshBuildInput::BakeLODs).
+        PutU32( out, static_cast<uint32_t>( settings.Import.LodChain.TriangleRatios.size() ) );
+        for ( const float ratio : settings.Import.LodChain.TriangleRatios )
+            PutU32( out, std::bit_cast<uint32_t>( ratio ) );
+        PutU32( out, settings.Import.LodChain.MinTriangles );
         PutU32( out, settings.BuilderVersion );
         return out;
     }

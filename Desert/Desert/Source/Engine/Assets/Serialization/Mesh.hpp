@@ -71,10 +71,19 @@ namespace Desert::Assets::Serialization
         // The material's header GUID; null = no material. The runtime handle is HandleForGuid of it.
         Common::Content::AssetGuid MaterialGuid;
 
-        // Baked LOD triangle sets (cooked at import, submesh-local, coarsest last). Empty => LODs are
-        // generated at load. New field — meshes cooked before it exists load via rfl::DefaultIfMissing with an
-        // empty list (so they fall back to load-time generation, unchanged).
+        // Baked LOD triangle sets (cooked at import, submesh-local, coarsest last). Generated at load only
+        // when LodChainCooked is false.
         std::vector<std::vector<IndexData>> LODs;
+
+        // THE LOD CHAIN IS THE COOK'S (MeshBinary v8; UE: a cooked mesh's LOD count is its
+        // FStaticMeshRenderData::LODResources, nothing is generated on load). True for a submesh whose LODs above
+        // are its whole chain - possibly none (LodPolicy None, or a chain whose targets the section cannot reach)
+        // - so the load appends exactly those. False = no cook decided the chain; the load generates
+        // Geometry::UnbakedLODChain. Every MeshBinary writer states it true (MeshDeriver, the skinned import,
+        // ProceduralCharacterFactory). A v6/v7 file states none and reads as cooked exactly when it carries LODs
+        // or is skinned (what its loads did), the upgrade DecodeMeshBinary applies and Tools/SceneMigrator writes
+        // back.
+        bool LodChainCooked = false;
 
         // THE SUBMESH'S CLUSTER LOD DAG (MeshBinary v7, VIRT-GEOM): built at cook for a mesh imported with
         // MeshImportSettings::VirtualGeometry, empty (no clusters) otherwise. Vertex refs are submesh-relative, as

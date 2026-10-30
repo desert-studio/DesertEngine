@@ -21,8 +21,9 @@ namespace Desert::Editor
     // everything ToMeshAssetData refuses (a UV layer past 1; the colour layer and UV 1 are written as streams).
     // Bakes each submesh's LOD triangle sets (meshopt, UE's LOD reduction) into SubmeshData.LODs, static or
     // skinned alike - a LOD only selects a subset of the index buffer, the skin weights ride on the kept
-    // vertices. Submeshes that already carry LODs (folded from authored source models) are kept.
-    void BakeMeshLODs( Assets::Serialization::MeshAssetData& data );
+    // vertices. Submeshes that already carry LODs (folded from authored source models) are kept. @p chain is the
+    // mesh's MeshImportSettings::LodChain: each level's triangle share and the floor (Geometry::LODChainTargets).
+    void BakeMeshLODs( Assets::Serialization::MeshAssetData& data, const Geometry::LODChainSettings& chain );
 
     Common::ResultStr<std::string> BuildMeshPlatformData( const Assets::MeshSourceAsset& asset );
 

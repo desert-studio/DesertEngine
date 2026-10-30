@@ -24,6 +24,7 @@
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Assets/MeshDisplacementSettings.hpp>
+#include <Engine/Geometry/LODChainSettings.hpp>
 #include <Engine/Geometry/SavedMeshForm.hpp>
 
 #include <cstddef>
@@ -45,7 +46,9 @@ namespace Desert::Assets
     // off.
     // 4 (FIELD-WINTER): IMPT states MeshImportSettings::Canopy (the leaf slots); a version-1..3 asset is raised
     // with none.
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 4;
+    // 5 (LOD-IMPORT): IMPT states MeshImportSettings::LodChain (the generated levels' triangle ratios and floor);
+    // a version-1..4 asset is raised with the default chain (Geometry::LODChainSettings{}).
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 5;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -133,6 +136,9 @@ namespace Desert::Assets
         // In the render-data key.
         bool                         VirtualGeometry                               = false;
         MeshCanopySettings           Canopy;
+        // UE FStaticMeshSourceModel::ReductionSettings per LOD: how coarse each generated level is
+        // (LodPolicy Generate). In the render-data key.
+        Geometry::LODChainSettings   LodChain;
         bool                         operator==( const MeshImportSettings& ) const = default;
     };
 

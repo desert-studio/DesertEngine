@@ -5,6 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Geometry/DisplacementTessellation.hpp>
+#include <Engine/Geometry/LODChainSettings.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
 #include <glm/glm.hpp>
@@ -71,8 +72,10 @@ namespace Desert::Assets
 
     inline constexpr Common::DDC::Deriver kDisplacedStaticMeshDeriver{
          "DisplacedStaticMesh", ".stmesh", { 0x5C0D7A41E92B36F8ULL, 0xA7E4193D0B65C2F1ULL } };
-    // 2: heights read from the cooked texture chain (as the GPU samples), no longer from the source pixels.
-    inline constexpr uint32_t kDisplacedMeshBuilderVersion = 2;
+    // 3: MeshBinary v8, each section states its LOD chain as cooked (none without BakeLODs; nothing generated on
+    //    load - GPU-COST-10; a v7 entry would read a chain-less section as generated). 2: heights read from the
+    //    cooked texture chain (as the GPU samples), no longer from the source pixels.
+    inline constexpr uint32_t kDisplacedMeshBuilderVersion = 3;
 
     struct DisplacedMeshBuildInput
     {
@@ -86,6 +89,9 @@ namespace Desert::Assets
         // cluster at its MaxLevel (the Runtime SDF/cards surface).
         std::optional<float> EdgeLengthCm;
         bool                 BakeLODs = false; // the drawn Baked mesh carries a LOD chain; collision reads LOD0
+        // The chain BakeLODs generates: the mesh's MeshImportSettings::LodChain (in the render-data key the
+        // displaced key builds on).
+        Geometry::LODChainSettings LodChain;
     };
 
     // Render-data key + topology and builder versions + level + LOD flag + every section's height -> the key.

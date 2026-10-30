@@ -18,6 +18,7 @@ using Desert::Vertex;
 using Desert::Geometry::BuildLODIndexBuffer;
 using Desert::Geometry::SelectLOD;
 using Desert::Geometry::SimplifyLODLevels;
+using Desert::Geometry::UnbakedLODChain;
 
 namespace
 {
@@ -78,7 +79,7 @@ TEST( MeshLOD, BakedEqualsGenerated )
 
     // Generate-at-load (BakedLODs empty).
     std::vector<Submesh> genSubs = { g.Sub };
-    const auto           gpuGen  = BuildLODIndexBuffer( g.Vertices, g.Indices, genSubs );
+    const auto           gpuGen  = BuildLODIndexBuffer( g.Vertices, g.Indices, genSubs, UnbakedLODChain() );
 
     // Cook: bake the levels, then assemble from them (BakedLODs populated).
     std::vector<float> pos;
@@ -92,7 +93,7 @@ TEST( MeshLOD, BakedEqualsGenerated )
          SimplifyLODLevels( pos.data(), g.Sub.VertexCount, g.Indices, Desert::Geometry::LODChainSettings{} );
     std::vector<Submesh> bakedSubs = { g.Sub };
     bakedSubs[0].BakedLODs         = baked;
-    const auto gpuBaked            = BuildLODIndexBuffer( g.Vertices, g.Indices, bakedSubs );
+    const auto gpuBaked            = BuildLODIndexBuffer( g.Vertices, g.Indices, bakedSubs, UnbakedLODChain() );
 
     EXPECT_TRUE( SameTris( gpuGen, gpuBaked ) ) << "baked GPU index buffer differs from generated";
 
@@ -127,7 +128,7 @@ TEST( MeshLOD, AssembleOffsetsAndReuse )
     };
 
     std::vector<Submesh> subs = { s };
-    const auto           gpu  = BuildLODIndexBuffer( verts, base, subs );
+    const auto           gpu  = BuildLODIndexBuffer( verts, base, subs, UnbakedLODChain() );
 
     ASSERT_EQ( subs[0].LODs.size(), 4u );
     EXPECT_EQ( subs[0].LODs[0].IndexOffset, 0u );

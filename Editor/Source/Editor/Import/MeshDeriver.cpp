@@ -34,7 +34,7 @@ namespace Desert::Editor
 {
     namespace Ser = Assets::Serialization;
 
-    void BakeMeshLODs( Ser::MeshAssetData& data )
+    void BakeMeshLODs( Ser::MeshAssetData& data, const Geometry::LODChainSettings& chain )
     {
         const size_t vertexCount = data.IsSkinned ? data.SkinnedVertices.size() : data.StaticVertices.size();
         for ( auto& sm : data.Submeshes )
@@ -77,7 +77,7 @@ namespace Desert::Editor
             }
 
             const auto levels = Geometry::SimplifyLODLevels( pos.data(), sm.VertexCount, localTris,
-                                                             Geometry::LODChainSettings{}, attrs.data() );
+                                                             chain, attrs.data() );
             sm.LODs.clear();
             sm.LODs.reserve( levels.size() );
             for ( const auto& lvl : levels )
@@ -533,7 +533,11 @@ namespace Desert::Editor
                 return Common::MakeError<std::string>( dags.GetError() );
         }
         else if ( generate )
-            BakeMeshLODs( out );
+            BakeMeshLODs( out, asset.Import.Settings.LodChain );
+        // THE COOK DECIDES THE CHAIN (UE: a cooked mesh's LODs are its LODResources): whatever LODs a section
+        // has now - none with LodPolicy None, or when no target of the chain improves on it - are all it draws.
+        for ( Ser::SubmeshData& submesh : out.Submeshes )
+            submesh.LodChainCooked = true;
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 
@@ -652,7 +656,10 @@ namespace Desert::Editor
             out.Submeshes.push_back( std::move( data ) );
         }
         if ( input.BakeLODs )
-            BakeMeshLODs( out );
+            BakeMeshLODs( out, input.LodChain );
+        // The cook's chain, as BuildMeshPlatformData states it: none without BakeLODs.
+        for ( Ser::SubmeshData& submesh : out.Submeshes )
+            submesh.LodChainCooked = true;
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 } // namespace Desert::Editor

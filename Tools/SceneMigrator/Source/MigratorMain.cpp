@@ -744,12 +744,18 @@ namespace Desert::Migration
                  bytes.size() >= 16 &&
                  std::string_view( bytes ).starts_with( std::string_view(
                       Common::Content::kMeshBinaryMagic, sizeof( Common::Content::kMeshBinaryMagic ) ) ) &&
-                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated == 3u || stated == 4u || stated == 5u ) )
+                 ( std::memcpy( &stated, bytes.data() + 12, 4 ), stated >= 3u && stated <= 7u ) )
             {
-                // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version.
-                const auto raised = stated == 5u
-                                         ? Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes )
-                                         : Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                // 3/4 are re-stated at the current version by the SkeletonGuid raise; 5 only gains the version;
+                // 6/7 gain the submesh LOD-chain row. Every raise re-encodes through the engine, so each writes v8.
+                const auto raised = [&]() -> Common::ResultStr<std::string>
+                {
+                    if ( stated >= 6u )
+                        return Desert::Migration::MigrateMeshBinaryToV8( path.string(), bytes );
+                    if ( stated == 5u )
+                        return Desert::Migration::MigrateMeshBinaryV5ToV6( path.string(), bytes );
+                    return Desert::Migration::MigrateMeshBinaryToV5( path.string(), bytes, skeletons );
+                }();
                 if ( !raised )
                 {
                     err << "FAIL   " << raised.GetError() << "\n";

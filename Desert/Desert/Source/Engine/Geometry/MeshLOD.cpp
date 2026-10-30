@@ -60,7 +60,8 @@ namespace Desert::Geometry
 
     std::vector<Index> BuildLODIndexBuffer( const std::vector<Vertex>& vertices,
                                             const std::vector<Index>&  baseIndices,
-                                            std::vector<Submesh>&      submeshes )
+                                            std::vector<Submesh>&      submeshes,
+                                            const LODChainSettings&    chain )
     {
         std::vector<Index> gpuIndices = baseIndices;
 
@@ -73,10 +74,11 @@ namespace Desert::Geometry
             if ( triCount < 8 || sm.VertexCount == 0 )
                 continue; // too small to bother
 
-            // Cooked LODs win; otherwise generate them now (unchanged pre-baking behaviour). Both are
-            // submesh-local triangles (indices relative to VertexOffset -> same baseVertex).
+            // A cooked chain is the submesh's whole chain, possibly empty (UE: a cooked mesh's LODs are its
+            // LODResources); only a mesh no cook made generates its chain now. Both are submesh-local triangles
+            // (indices relative to VertexOffset -> same baseVertex).
             std::vector<std::vector<Index>> levels;
-            if ( !sm.BakedLODs.empty() )
+            if ( sm.LodChainCooked )
             {
                 levels = sm.BakedLODs;
             }
@@ -100,8 +102,7 @@ namespace Desert::Geometry
                     pos.push_back( vertex.Position.z );
                     AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
                 }
-                levels =
-                     SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, LODChainSettings{}, attrs.data() );
+                levels = SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain, attrs.data() );
             }
 
             for ( const auto& lvl : levels )

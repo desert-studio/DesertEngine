@@ -217,6 +217,8 @@ namespace Desert::Geometry
             hi = glm::max( hi, v.Position );
         }
         sub.BoundingBox = { lo, hi };
+        // The written .skmesh states its LOD chain: LOD0 alone, cooked (SubmeshData::LodChainCooked).
+        sub.LodChainCooked = true;
         data.Submeshes.push_back( std::move( sub ) );
         return Common::MakeSuccess( std::move( data ) );
     }
