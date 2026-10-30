@@ -10,8 +10,11 @@
 //   2. machine.json is ALREADY loaded — by the Application, before the device
 //   (ApplicationInfo::MachineSettingsFile,
 //      the device reads HideRayTracing); Start refuses a path other than the one loaded;
-//   3. Scalability::QualityState::Initialize on the device's CapabilityCatalog, with machine.json as its Saver;
-//   4. subscribe the one global push the sampler path reads (RenderConfig::TextureFilter / AnisotropyLevel) and
+//   3. a machine that never chose a quality and has no recommendation valid for this device / driver / table runs
+//      the GPU benchmark once (UE RunHardwareBenchmark on a first launch; Engine/Core/GpuBenchmark.hpp) and caches
+//      the answer in machine.json (Recommended) — not in a ThisProcess run;
+//   4. Scalability::QualityState::Initialize on the device's CapabilityCatalog, with machine.json as its Saver;
+//   5. subscribe the one global push the sampler path reads (RenderConfig::TextureFilter / AnisotropyLevel) and
 //      apply it once for the starting resolution.
 // A table that cannot be read or parsed is an ERROR the host returns from OnAttach: there is no built-in copy of
 // the levels to fall back to (Scalability.hpp, QualityState::Initialize).

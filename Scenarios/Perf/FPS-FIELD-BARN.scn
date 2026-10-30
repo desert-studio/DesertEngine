@@ -6,6 +6,9 @@
 # layer drifts (the gameplay clock the sway reads is zero while editing - Graphic/InstanceWind.hpp:11-12).
 # GRASS-VIS: between A and B the same still-air view is measured again with the PPV (8180000000000003) asking for
 # GrassVisibilityBuffer (table A2, shot 1_static_vis), then the flag is put back so B is measured as before.
+# GPU-COST-15: then the same still-air view at sg.FoliageQuality Low and Epic through the palette command the game's
+# ApplyGameUserSettings shares the apply point with (QualityState; session-only in an unattended run, machine.json
+# untouched): Low = grass DensityScale 30 % / CullDistanceScale 50 % (Scalability.json Foliage), Epic = 100/100.
 # GPU timestamps: `--gpu-profile` on the Проект line switches them on with per-pass scopes (Sandbox.hpp:289-290).
 # [gpu] PASS when editor.log carries two "[Profiler] ---- per-pass breakdown" tables (one after 1_static, one
 # after 2_wind) with the same rows - "GPU: Frame Total", "Clouds: ShadowMap", "Clouds: SkyOcclusion" (gpu ms /
@@ -27,6 +30,14 @@
 Когда profile-dump
 Тогда-вид 1_static_vis the same still-air view with the PPV's GrassVisibilityBuffer on (GRASS-VIS): the frame matches 1_static - mean |diff| <= 2/255 (pixel diff, not thumbnails); editor.log 0 VUID, no "GrassVisibilityBuffer refused", no "no grass visibility buffer"; [Profiler] table A2 has "Grass: Visibility Raster" and "Grass: Visibility Resolve", and its "Deferred: GBuffer" + "Deferred: Masked Depth Prepass" gpu ms is below table A's
 Когда set 8180000000000003 PostProcessVolumeData.Settings.GrassVisibilityBuffer false
+Когда run Quality "Quality: Foliage Low"
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_foliage_low the still-air view at Foliage Low: the same field, the grass visibly sparser and ending nearer the camera, barn, trees and sky as in 1_static; editor.log 0 VUID; [Profiler] table F-Low follows, its "GPU: Frame Total" below table F-Epic's
+Когда run Quality "Quality: Foliage Epic"
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_foliage_epic the still-air view at Foliage Epic: the frame matches 1_static - mean |diff| <= 2/255 (pixel diff, not thumbnails); editor.log 0 VUID; [Profiler] table F-Epic follows, its "GPU: Frame Total" above table F-Low's
 Когда set 8180000000000004 WindSourceData.Speed 1500
 Когда run Action Simulate
 Когда frames 300

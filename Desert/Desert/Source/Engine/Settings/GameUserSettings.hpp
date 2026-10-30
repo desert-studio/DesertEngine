@@ -70,10 +70,23 @@ namespace Desert::Settings
     // positive sensitivity, a language this build knows. Refuses naming the field and the value.
     [[nodiscard]] Common::BoolResultStr ValidateGameUserSettings( const GameUserSettings& settings );
 
+    // Which file the settings came from: the player's own, or — on a first launch, before any was written — the
+    // game's defaults (UE: no Saved/Config GameUserSettings.ini yet, the one moment RunHardwareBenchmark runs).
+    enum class GameUserSettingsSource
+    {
+        PlayerFile,
+        ProjectDefaults
+    };
+    struct LoadedGameUserSettings
+    {
+        GameUserSettings       Settings;
+        GameUserSettingsSource Source = GameUserSettingsSource::PlayerFile;
+    };
+
     // The player's file when there is one; else the project's defaults; else a refusal naming both paths. A file
     // that is there but does not parse or validate is refused with its path — it does NOT fall through to the
     // project's, because that would silently undo what the player chose.
-    [[nodiscard]] Common::ResultStr<GameUserSettings>
+    [[nodiscard]] Common::ResultStr<LoadedGameUserSettings>
     LoadGameUserSettings( const std::filesystem::path& projectDirectory,
                           const std::filesystem::path& userDirectory );
 
@@ -81,17 +94,29 @@ namespace Desert::Settings
     [[nodiscard]] Common::BoolResultStr SaveGameUserSettings( const GameUserSettings&      settings,
                                                               const std::filesystem::path& userDirectory );
 
-    // Hands every value to its consumer: the window (mode, resolution — moved only when it differs from what
-    // the window already is — and VSync, which rebuilds the swapchain), the frame pacer, Audio::AudioMix,
-    // Localization (the language), and the applied scalability / sensitivity below. Refuses an invalid value
-    // before touching anything, and a window that cannot take the mode with the window's own reason.
+    // A FIRST LAUNCH (Source == ProjectDefaults) — UE ApplyHardwareBenchmarkResults: the six quality groups take the
+    // level the machine started on (Graphic::QualityBoot::Start — machine.json's saved selection, else the GPU
+    // benchmark's recommendation for this device, else High), never the project's defaults (Epic), and the
+    // result is written as the player's file; from then on that file is the only source of these levels and the
+    // recommendation never overwrites it. The rest of `settings` (display, audio, language) stays the project's.
+    // Needs QualityState initialized (QualityBoot::Start); refuses a save that fails, with SaveGameUserSettings'
+    // reason, and leaves `settings` untouched on any refusal.
+    [[nodiscard]] Common::BoolResultStr AdoptMachineQuality( GameUserSettings&            settings,
+                                                             const std::filesystem::path& userDirectory );
+
+    // Hands every value to its consumer (UE: UGameUserSettings::ApplySettings) — the game calls it ONCE at start
+    // and again after every change its options menu makes:
+    //   * the quality groups -> Common::Scalability::QualityState::SetGroupLevels, THE apply point every host
+    //     shares (UE: Scalability::SetQualityLevels), in one resolve; the renderer reads only ResolvedQuality,
+    //     never these settings. A group whose level did not change keeps its overrides (UE without bForce);
+    //   * the window (mode, resolution — moved only when it differs from what the window already is — and
+    //     VSync, which rebuilds the swapchain), the frame pacer, Audio::AudioMix, Localization (the language),
+    //     and the sensitivity below.
+    // Needs QualityState initialized (Graphic::QualityBoot::Start, after the device): before it, refused.
+    // Refuses an invalid value, or a quality the apply point refuses, before touching anything; a window that
+    // cannot take the mode with the window's own reason.
     [[nodiscard]] Common::BoolResultStr ApplyGameUserSettings( const GameUserSettings& settings, Window& window,
                                                                Engine::FramePacer& pacer );
-
-    // THE APPLY POINT OF THE QUALITY GROUPS (UE: Scalability::SetQualityLevels): what the last Apply set. The
-    // renderer reads its groups from here; until an Apply, every group is Epic — the picture this engine
-    // renders today.
-    [[nodiscard]] const ScalabilityLevels& AppliedScalability();
     // The look-input multiplier the last Apply set (1 until then), for the player controller to read.
     [[nodiscard]] float AppliedMouseSensitivity();
 } // namespace Desert::Settings

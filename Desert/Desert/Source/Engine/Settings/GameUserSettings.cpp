@@ -2,6 +2,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Json.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Audio/AudioMix.hpp>
 #include <Engine/Core/FramePacer.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Localization/LocaleFormat.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 
+#include <array>
 #include <format>
 #include <string_view>
 #include <system_error>
@@ -18,8 +20,7 @@ namespace Desert::Settings
 {
     namespace
     {
-        ScalabilityLevels s_AppliedScalability;
-        float             s_AppliedMouseSensitivity = 1.0f;
+        float s_AppliedMouseSensitivity = 1.0f;
 
         Common::BoolResultStr Refuse( std::string reason )
         {
@@ -40,6 +41,23 @@ namespace Desert::Settings
             return Common::MakeSuccess( true );
         }
 
+        // The player's groups as the engine's (a level here is 0..3 = Level::Low..Epic, the same order). The groups
+        // the player's file does not name keep what machine.json / the recommendation gave them.
+        static_assert( static_cast<int>( Common::Scalability::Level::Epic ) == kMaxQualityLevel,
+                       "a player's quality level 0..kMaxQualityLevel is Level::Low..Epic" );
+        std::array<Common::Scalability::QualityState::GroupLevel, 6> EngineGroupLevels( const ScalabilityLevels& q )
+        {
+            using Common::Scalability::Group;
+            using Common::Scalability::Level;
+            const auto level = []( const uint8_t value ) { return static_cast<Level>( value ); };
+            return { { { Group::ViewDistance, level( q.ViewDistance ) },
+                       { Group::Shadows, level( q.Shadows ) },
+                       { Group::PostProcess, level( q.PostProcess ) },
+                       { Group::Textures, level( q.Textures ) },
+                       { Group::Effects, level( q.Effects ) },
+                       { Group::Foliage, level( q.Foliage ) } } };
+        }
+
         Common::BoolResultStr CheckVolume( const char* name, float volume )
         {
             if ( !( volume >= 0.0f && volume <= 1.0f ) )
@@ -47,15 +65,32 @@ namespace Desert::Settings
             return Common::MakeSuccess( true );
         }
 
-        Common::ResultStr<GameUserSettings> ReadValid( const std::filesystem::path& file )
+        Common::ResultStr<LoadedGameUserSettings> ReadValid( const std::filesystem::path& file,
+                                                             const GameUserSettingsSource source )
         {
             auto parsed = Common::Json::ReadFile<GameUserSettings>( file );
             if ( !parsed )
-                return Common::MakeError<GameUserSettings>( parsed.GetError() );
+                return Common::MakeError<LoadedGameUserSettings>( parsed.GetError() );
             if ( const auto valid = ValidateGameUserSettings( parsed.GetValue() ); !valid )
-                return Common::MakeError<GameUserSettings>(
+                return Common::MakeError<LoadedGameUserSettings>(
                      std::format( "{}: {}", file.string(), valid.GetError() ) );
-            return parsed;
+            return Common::MakeSuccess( LoadedGameUserSettings{ parsed.GetValue(), source } );
+        }
+
+        // The engine's levels back as the player's (the inverse of EngineGroupLevels, same order).
+        ScalabilityLevels PlayerLevels( const Common::Scalability::QualitySelection& selection )
+        {
+            using Common::Scalability::Group;
+            const auto level = [&selection]( const Group group )
+            { return static_cast<uint8_t>( selection.Levels[static_cast<std::size_t>( group )] ); };
+            ScalabilityLevels q;
+            q.ViewDistance = level( Group::ViewDistance );
+            q.Shadows      = level( Group::Shadows );
+            q.PostProcess  = level( Group::PostProcess );
+            q.Textures     = level( Group::Textures );
+            q.Effects      = level( Group::Effects );
+            q.Foliage      = level( Group::Foliage );
+            return q;
         }
     } // namespace
 
@@ -94,20 +129,20 @@ namespace Desert::Settings
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<GameUserSettings> LoadGameUserSettings( const std::filesystem::path& projectDirectory,
+    Common::ResultStr<LoadedGameUserSettings> LoadGameUserSettings( const std::filesystem::path& projectDirectory,
                                                               const std::filesystem::path& userDirectory )
     {
         const std::filesystem::path user    = UserGameUserSettingsFile( userDirectory );
         const std::filesystem::path project = ProjectGameUserSettingsFile( projectDirectory );
         std::error_code             ec;
         if ( std::filesystem::exists( user, ec ) )
-            return ReadValid( user );
+            return ReadValid( user, GameUserSettingsSource::PlayerFile );
         // The project's defaults are CONTENT (UE: Config/Default*.ini ship inside the build): asked through the
         // same file layer as every asset, so a packaged game finds them in its archive (PackagedContentTrees
         // stages the project Config under the "Config" key) and the dev tree finds them on disk.
         if ( Common::Utils::FileSystem::Exists( project ) )
-            return ReadValid( project );
-        return Common::MakeError<GameUserSettings>(
+            return ReadValid( project, GameUserSettingsSource::ProjectDefaults );
+        return Common::MakeError<LoadedGameUserSettings>(
              std::format( "no game user settings: neither the player's {} nor the project's {} exists",
                           user.string(), project.string() ) );
     }
@@ -129,11 +164,35 @@ namespace Desert::Settings
         return Common::MakeSuccess( true );
     }
 
+    Common::BoolResultStr AdoptMachineQuality( GameUserSettings& settings, const std::filesystem::path& userDirectory )
+    {
+        if ( !Common::Scalability::QualityState::Initialized() )
+            return Refuse( "the machine's quality was not adopted: QualityState is not initialized "
+                           "(Graphic::QualityBoot::Start did not run or refused)" );
+        GameUserSettings adopted = settings;
+        adopted.Scalability      = PlayerLevels( Common::Scalability::QualityState::Selection() );
+        if ( const auto saved = SaveGameUserSettings( adopted, userDirectory ); !saved )
+            return saved;
+        const ScalabilityLevels& q = adopted.Scalability;
+        LOG_INFO( "[Settings] first launch: the player's quality is the machine's - ViewDistance {}, Shadows {}, "
+                  "PostProcess {}, Textures {}, Effects {}, Foliage {} (0 = Low .. 3 = Epic)",
+                  q.ViewDistance, q.Shadows, q.PostProcess, q.Textures, q.Effects, q.Foliage );
+        settings = std::move( adopted );
+        return Common::MakeSuccess( true );
+    }
+
     Common::BoolResultStr ApplyGameUserSettings( const GameUserSettings& settings, Window& window,
                                                  Engine::FramePacer& pacer )
     {
         if ( const auto valid = ValidateGameUserSettings( settings ); !valid )
             return NotApplied( valid.GetError() );
+
+        // The quality first: it is the one step that can refuse on state (QualityState not initialized), and a
+        // refusal must leave the window, the mix and the language as they were.
+        const auto groupLevels = EngineGroupLevels( settings.Scalability );
+        if ( const auto quality = Common::Scalability::QualityState::SetGroupLevels( groupLevels );
+             !quality.Refused.empty() )
+            return NotApplied( std::format( "the quality levels: {}", quality.Refused ) );
 
         // The window: moved only when it is not already there — the packaged game was CREATED from these same
         // DisplaySettings, and re-entering a mode it is in would restore and re-zoom it for nothing.
@@ -162,14 +221,8 @@ namespace Desert::Settings
         if ( const auto language = Localization::Localization::Get().SetLanguage( settings.Language ); !language )
             return NotApplied( language.GetError() );
 
-        s_AppliedScalability      = settings.Scalability;
         s_AppliedMouseSensitivity = settings.MouseSensitivity;
         return Common::MakeSuccess( true );
-    }
-
-    const ScalabilityLevels& AppliedScalability()
-    {
-        return s_AppliedScalability;
     }
 
     float AppliedMouseSensitivity()

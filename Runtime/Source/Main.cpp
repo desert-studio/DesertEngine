@@ -62,6 +62,9 @@ namespace Desert::Player
     static Core::PlayRequest s_PlayRequest;
     // Loaded in CreateApplication, before the window exists; applied in OnCreate, once it does.
     static Settings::GameUserSettings s_UserSettings;
+    // ProjectDefaults = no player file yet: a first launch, whose quality is the machine's (AdoptMachineQuality).
+    static Settings::GameUserSettingsSource s_UserSettingsSource = Settings::GameUserSettingsSource::PlayerFile;
+    static std::filesystem::path            s_UserDirectory;
 #if DESERT_DEV_INSTRUMENTS
     static std::optional<MovieRenderRequest>
          s_Movie; // --render-movie: offline render of a level (MovieRender.hpp)
@@ -76,20 +79,38 @@ namespace Desert::Player
 
         void OnCreate() override
         {
-            // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
-            // pacer, the mix, the language, the quality groups — reaches its consumers here.
-            if ( const auto applied =
-                      Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
-                 !applied )
-                LOG_ERROR( "[Settings] {}", applied.GetError() );
 #if DESERT_DEV_INSTRUMENTS
             // A movie is rendered on fixed time: frame N is at N / fps of world time on every run.
             if ( s_Movie.has_value() )
                 SetFixedDeltaTime( s_Movie->FrameStep() );
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this ) );
+            auto layer = std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this );
 #else
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this ) );
+            auto layer = std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this );
 #endif
+            // A FIRST LAUNCH (UE RunHardwareBenchmark + ApplyHardwareBenchmarkResults): no player file, so the
+            // levels loaded are the project's defaults (Epic). The layer's constructor started the machine's
+            // quality (its saved selection, else the GPU benchmark's recommendation, else High); those levels
+            // become the player's and are written as their file BEFORE the apply, so a weak machine never starts on
+            // Epic and every later start reads that file alone. Not for an offline movie render: its window is not
+            // the player's, and nothing of it is theirs to keep.
+            bool firstLaunch = s_UserSettingsSource == Settings::GameUserSettingsSource::ProjectDefaults;
+#if DESERT_DEV_INSTRUMENTS
+            firstLaunch = firstLaunch && !s_Movie.has_value();
+#endif
+            if ( firstLaunch )
+                if ( const auto adopted = Settings::AdoptMachineQuality( s_UserSettings, s_UserDirectory );
+                     !adopted )
+                    LOG_ERROR( "[Settings] {}", adopted.GetError() );
+            // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
+            // quality groups, the pacer, the mix, the language — reaches its consumers here. BETWEEN the layer's
+            // construction and its attach: the constructor starts the quality (QualityBoot::Start ->
+            // QualityState::Initialize on the device's catalog, machine.json's selection), so the player's group
+            // levels can go through that one apply point; the attach then loads the scene already at them.
+            if ( const auto applied =
+                      Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
+                 !applied )
+                LOG_ERROR( "[Settings] {}", applied.GetError() );
+            PushLayer( std::move( layer ) );
         }
 
         void OnDestroy() override
@@ -375,12 +396,14 @@ std::unique_ptr<Desert::Engine::Application> CreateApplication( int argc, char**
     // THE PLAYER'S SETTINGS (UE: UGameUserSettings::LoadSettings) — theirs from their own directory, else the
     // game's defaults from <project>/Config; neither is a refusal, not a guessed window. Before the
     // application: the window is CREATED in the player's mode, size and VSync rather than moved there.
-    auto userSettings = Desert::Settings::LoadGameUserSettings(
-         Desert::Project::ProjectContext::Directory(),
-         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name ) );
+    Desert::Player::s_UserDirectory =
+         Common::Settings::GameUserDirectory( Desert::Project::ProjectContext::Current().Name );
+    auto userSettings = Desert::Settings::LoadGameUserSettings( Desert::Project::ProjectContext::Directory(),
+                                                                Desert::Player::s_UserDirectory );
     if ( !userSettings )
         FailStartup( std::format( "Settings: {}", userSettings.GetError() ), 1 );
-    Desert::Player::s_UserSettings = userSettings.GetValue();
+    Desert::Player::s_UserSettings       = userSettings.GetValue().Settings;
+    Desert::Player::s_UserSettingsSource = userSettings.GetValue().Source;
 
     ApplicationInfo appInfo;
     appInfo.Title   = Desert::Project::ProjectContext::Current().Name;

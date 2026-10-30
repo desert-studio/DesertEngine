@@ -387,6 +387,21 @@
                 "PathTracing.PathsPerFrame": 4,
                 "PathTracing.SamplesPerPixel": 16384
             }
+        },
+        "Foliage": {
+            "Low": {
+                "Foliage.GrassDensityScalePercent": 30,
+                "Foliage.GrassCullDistanceScalePercent": 50
+            },
+            "Medium": {
+                "Foliage.GrassDensityScalePercent": 60,
+                "Foliage.GrassCullDistanceScalePercent": 75
+            },
+            "High": {},
+            "Epic": {},
+            "Cinematic": {
+                "Foliage.GrassCullDistanceScalePercent": 150
+            }
         }
     },
     "Recommend": {
@@ -450,6 +465,11 @@
                 30,
                 80,
                 160
+            ],
+            "Foliage": [
+                20,
+                50,
+                100
             ]
         },
         "MinVideoMemoryMiB": {

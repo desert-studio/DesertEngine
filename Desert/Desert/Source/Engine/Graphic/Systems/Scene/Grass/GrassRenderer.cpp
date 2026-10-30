@@ -128,6 +128,18 @@ namespace Desert::Graphic::System
             return std::sqrt( 1.0e6f / placement.Density );
         }
 
+        // The variety's placement under the view's Foliage quality (UE: grass.DensityScale x GrassDensity before
+        // FGrassBuilderBase sizes its grid, grass.CullDistanceScale x the Start / End cull distances): fewer, larger
+        // cells, and the thinning and the end pulled in by the same factor.
+        GrassPlacement ScaledPlacement( const GrassPlacement& authored, const GrassQuality& quality )
+        {
+            GrassPlacement placement = authored;
+            placement.Density *= quality.DensityScale;
+            placement.StartCullDistance *= quality.CullDistanceScale;
+            placement.EndCullDistance *= quality.CullDistanceScale;
+            return placement;
+        }
+
         // The view's four side planes (Gribb-Hartmann on the unjittered ViewProjection), normalised; the near and
         // far planes are left to the cull distance, so the depth convention does not matter.
         void SidePlanes( const glm::mat4& viewProjection, glm::vec4 ( &planes )[4] )
@@ -210,7 +222,8 @@ namespace Desert::Graphic::System
         // field), out to the variety's EndCullDistance through this lens. Without it every grass texture kept the
         // tail it was loaded with (mip 4 of a 2K atlas) at the camera's feet: a near patch of thin grey stalks.
         void NoteVarietyTextureDemand( const GrassVarietyDraw& variety, const Desert::Mesh& mesh,
-                                       const GrassFieldData& field, const ViewFrame& frame )
+                                       const GrassFieldData& field, const ViewFrame& frame,
+                                       const float endCullDistance )
         {
             const std::vector<uint32_t>& w          = field.Words;
             const uint32_t               viewHeight = frame.Split.Output.Height;
@@ -235,7 +248,7 @@ namespace Desert::Graphic::System
                                        height == kGrassNoHeight ? eye.y : height,
                                                origin.y + static_cast<float>( sz ) * spacing };
             const Geometry::LODView view{ eye, frame.Projection };
-            if ( glm::length( ground - eye ) > variety.Placement.EndCullDistance * DrawDistanceScale( view ) )
+            if ( glm::length( ground - eye ) > endCullDistance * DrawDistanceScale( view ) )
                 return;
             const GrassPlacement& p        = variety.Placement;
             const float           maxScale = std::max( { p.ScaleX.y, p.ScaleY.y, p.ScaleZ.y, 1.0e-3f } );
@@ -313,7 +326,7 @@ namespace Desert::Graphic::System
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
                                                               const ViewFrame& frame, const ViewVolumes& volumes )
     {
-        const GrassPlacement& p    = variety.Placement;
+        const GrassPlacement  p    = ScaledPlacement( variety.Placement, m_Quality );
         const float           cell = CellSizeCm( p );
         // Every distance of the field is authored for a 90-degree lens and read through this view's (UE scales the
         // grass HISM's cull distances by CalculateFieldOfViewDistanceScale the same way): a zoomed scope draws the
@@ -811,7 +824,8 @@ namespace Desert::Graphic::System
                     ++gpu->StableGenerations;
                     m_FrameGenerate.push_back( gpu );
                 }
-                NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame );
+                NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame,
+                                          ScaledPlacement( variety.Placement, m_Quality ).EndCullDistance );
 
                 const bool cameraList = volumes.List != CameraList::None;
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;

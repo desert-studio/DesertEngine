@@ -4,8 +4,9 @@
 // grid cell). The grid is WORLD-aligned (cell = sqrt(1e6 / Density) cm), so a cell grows the same instance from
 // every camera position; its seed is a hash of the cell. An instance is kept when its bilinear layer weight lies in
 // AllowedDensityRange and beats the cell's random draw (UE's RandomStream.GetFraction), when it is inside the view's
-// side planes, and - between StartCullDistance and EndCullDistance - when its fade draw beats the distance share
-// (the density falls to zero at EndCullDistance) - and a kept one shrinks by the same share, UE's
+// side planes, and - past StartCullDistance - when its fade draw beats the distance share: (Start / d)^2, a blade's
+// screen area (GRASS-DENSITY), times UE's fade to zero at EndCullDistance - and a kept one widens by that share and
+// lowers over the band's last fifth, UE's
 // PerInstanceFadeAmount as its grass materials spend it (scale to nothing at EndCullDistance), so the field thins and
 // lowers into the ground instead of ending at a line. Kept instances are appended to their bucket of Instances (one
 // mat4 each, the InstanceTransforms of Mesh/Surface/Vertex_Instanced.glslh / Vertex_GrassBlade.glslh): a mesh has one
@@ -340,9 +341,18 @@ Shader "GrassGenerate"
             float distance = length( position - p.Camera.xyz );
             if ( distance > p.Cull.y )
                 return;
-            float fade = Fraction( state );
-            float faded = clamp( ( distance - p.Cull.x ) / max( p.Cull.y - p.Cull.x, 1.0 ), 0.0, 1.0 );
-            if ( fade < faded )
+            // The share of the field kept at this distance (GRASS-DENSITY): beyond StartCullDistance S it falls
+            // with the square of the distance, (S / d)^2 - a blade's screen area falls so, and so does what it costs
+            // to draw it, so the instances a band of ground spends stay those it spent at S (UE's grass HISM keeps
+            // the full density out to its cull distance and spends it on sub-pixel instances) - and on top of that
+            // UE's fade, down to nothing at EndCullDistance. S = 0 states no full-density zone to scale from: the
+            // variety fades as UE's does, linearly. Nested: an instance kept at d is kept nearer, so walking does
+            // not reshuffle the field, only thins it; before S every instance is kept, as before.
+            float fade   = Fraction( state );
+            float faded  = clamp( ( distance - p.Cull.x ) / max( p.Cull.y - p.Cull.x, 1.0 ), 0.0, 1.0 );
+            float screen = p.Cull.x > 0.0 ? min( 1.0, ( p.Cull.x * p.Cull.x ) / max( distance * distance, 1.0 ) ) : 1.0;
+            float kept   = screen * ( 1.0 - faded );
+            if ( fade >= kept )
                 return;
 
             // UE FGrassBuilderBase::GetRandomScale (Z is up, the engine's Y).
@@ -363,7 +373,7 @@ Shader "GrassGenerate"
             // 1/share blades dropped around it, so its footprint grows by 1/sqrt(share) and the field's covered
             // area stays the same; the height drops only over the last 20 % of the range, so the far edge melts
             // into the ground instead of the whole band shrinking.
-            float share = max( 1.0 - faded, 0.05 );
+            float share = max( kept, 0.05 );
             float widen = inversesqrt( share );
             scale.x *= widen;
             scale.z *= widen;
