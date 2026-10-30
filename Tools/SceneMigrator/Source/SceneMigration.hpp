@@ -1194,6 +1194,9 @@ namespace Desert::Migration
         bool        GridHLODLayerRaised = false; // below kSceneVersionGridHLODLayer
         std::size_t GridsGivenHLODLayer = 0;     // grids given the world's former DefaultHLODLayer
         bool        RootSiblingIndexRaised  = false; // below kSceneVersionRootSiblingIndex
+        // v70 -> v71 is additive (no transform), but it IS a step: without its own flag a v70 file read as
+        // unchanged, and SceneMigrator printed "version unchanged" / "already at v71" over a v70 file.
+        bool        VolumetricFogRaised     = false; // below kSceneVersionVolumetricFog
         // World Partition's chain (keyed by the WPAR number the file states, not the scene number).
         int         StatedWorldPartitionVersion = 0; // what the file stated under kWorldPartitionSchemaTag
         bool        WorldPartitionTagRaised = false; // below kWorldPartitionVersionTagged: the stamp states WPAR
@@ -1254,7 +1257,7 @@ namespace Desert::Migration
                    SkySunFromLightRaised || SunCalendarRaised || GIMethodLadderRaised || DisplayTransferRaised ||
                    GridNamesRaised || LandscapeHeightKeysRaised || GridHLODLayerRaised || AssetKeysRaised ||
                    RootSiblingIndexRaised || WorldPartitionTagRaised || ReflectedAssetRefsRaised ||
-                   SunRotationRaised;
+                   SunRotationRaised || VolumetricFogRaised;
         }
     };
 

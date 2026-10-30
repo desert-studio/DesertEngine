@@ -1,16 +1,27 @@
 # NRC-RUN: executable form of NRC.scn [nrc_night] - PT 1 spp with the neural radiance cache vs without vs a 64 spp reference.
-# Frame checks (numeric): RMSE(nrc, ref) < RMSE(off, ref); mean luminance of nrc within 5 % of ref; state nrc active, trainingSamples > 0, trainLoss < firstTrainLoss; 0 VUID.
+# Frame checks (numeric): RMSE(nrc, ref) < RMSE(off, ref); mean luminance of nrc within 5 % of ref; 0 VUID.
+# Log checks: "[Scene]" loaded the scene at v71 (a v70 file is refused: migrate.sh --write it first); no "[RenderMethods] GI:" /
+# "Reflections:" lowering line (both axes PathTraced - the path tracer integrates them TOGETHER, GI alone is lowered to
+# HardwareTraced by the pair rule, RenderMethods.cpp LowerUnpairedPathTraced).
+# State checks, every Тогда: the line_NNN_state.txt just before it - nrc: requested "Nrc", status "Nrc", active true, reason "",
+# trainingSamples > 0, trainLoss < firstTrainLoss (before off: the cache trained 120 frames); before off / ref: requested "Off".
 Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/dnx_Night_pt.desce
 Дано run View "View mode: Lit"
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
 Когда run Quality "Quality: PathTracing.Denoiser Off"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 1"
+Когда run Quality "Quality: PathTracing.PathsPerFrame 1"
 Когда run Quality "Quality: PathTracing.RadianceCache Nrc"
 Когда frames 120
 Когда state nrc
 Тогда-вид nrc PT 1 spp ending paths in the neural cache: less noise than off, not black
-Когда state nrc
 Когда run Quality "Quality: PathTracing.RadianceCache Off"
+Когда frames 120
+Когда state nrc
 Тогда-вид off plain PT 1 spp
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
+Когда run Quality "Quality: PathTracing.PathsPerFrame 64"
+Когда frames 120
+Когда state nrc
 Тогда-вид ref 64 spp reference

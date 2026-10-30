@@ -2,7 +2,7 @@
 # «NRC — контракт»). PathTracing.RadianceCache Nrc: the path tracer's paths end in the cache where their spread passes the
 # threshold (or at the bounce limit), the cache trains online every frame from sparse training paths (self-training), and
 # the composite adds T * cache(x) * (D_d + D_s) into the accumulation and the denoiser's lobe sums.
-Дано F:/BistroFoliageProj dnx_Night_pt, GlobalIllumination.Method PathTraced, PathTracing.Denoiser Off, PathTracing.SamplesPerPixel 1, PathTracing.PathsPerFrame 1 (PT 1 spp), camera fixed on the street.
+Дано F:/BistroFoliageProj dnx_Night_pt, GlobalIllumination.Method PathTraced, Reflections.Method PathTraced (the path tracer integrates both; GI alone is lowered to HardwareTraced), PathTracing.Denoiser Off, PathTracing.SamplesPerPixel 1, PathTracing.PathsPerFrame 1 (PT 1 spp), camera fixed on the street.
 Когда PathTracing.RadianceCache Nrc; shoot nrc after 120 frames; DesertCtl state nrc.
 Когда PathTracing.RadianceCache Off; shoot off after 120 frames.
 Когда PathTracing.RadianceCache Off, PathTracing.SamplesPerPixel 64, PathTracing.PathsPerFrame 64; shoot ref after 120 frames.

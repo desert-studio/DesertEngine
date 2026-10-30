@@ -121,8 +121,10 @@ namespace Desert::Graphic
             if ( r.Effective != Method::PathTraced )
                 return;
             r.Effective = static_cast<Method>( static_cast<int>( Method::PathTraced ) - 1 );
-            if ( r.Limit == MethodLimit::None )
-                r.Limit = MethodLimit::PathTracerPair;
+            // The pair IS the reason, whatever put this axis on PathTraced: an override that set it there is not
+            // what lowered it ("GI: ScreenSpace -> HardwareTraced (machine override ... = PathTraced)" named the
+            // override that asked for PathTraced as the cause of not getting it).
+            r.Limit = MethodLimit::PathTracerPair;
             WalkDown( r, device, gBuffer, refusals );
         }
 
