@@ -2,6 +2,8 @@
 
 #include <unordered_map>
 
+#include <Common/Core/Singleton.hpp>
+
 #include <Engine/Graphic/API/Vulkan/VulkanDevice.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanUtils/VulkanHelper.hpp>
