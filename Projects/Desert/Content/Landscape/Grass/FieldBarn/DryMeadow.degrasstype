@@ -78,6 +78,12 @@
                 "Min": 0.0,
                 "Max": 1.0
             },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
+            },
             "Scaling": "LockXY",
             "ScaleX": {
                 "Min": 0.8,
@@ -162,6 +168,12 @@
                 "Min": 0.0,
                 "Max": 1.0
             },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
+            },
             "Scaling": "LockXY",
             "ScaleX": {
                 "Min": 0.8,
@@ -190,7 +202,7 @@
             "Kind": "Mesh",
             "Mesh": {
                 "Guid": "d3bd81114a742dcc6b7a3037c7dd83d7",
-                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01_medium/grass_bermuda_01_medium_grass_bermuda_01_medium_a.stmesh"
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_a.stmesh"
             },
             "Density": 60.0,
             "PlacementJitter": 1.0,
@@ -199,6 +211,12 @@
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
             },
             "Scaling": "Uniform",
             "ScaleX": {
@@ -228,7 +246,7 @@
             "Kind": "Mesh",
             "Mesh": {
                 "Guid": "d3bd83114a7431326b7a3237c7dd873d",
-                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01_medium/grass_bermuda_01_medium_grass_bermuda_01_medium_c.stmesh"
+                "Path": "Environments/FieldBarn/Meshes/grass_bermuda_01/grass_bermuda_01_grass_bermuda_01_medium_c.stmesh"
             },
             "Density": 60.0,
             "PlacementJitter": 1.0,
@@ -237,6 +255,12 @@
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
             },
             "Scaling": "Uniform",
             "ScaleX": {
@@ -266,7 +290,7 @@
             "Kind": "Mesh",
             "Mesh": {
                 "Guid": "9cf601bde61059a737e2cbfe2972b75a",
-                "Path": "Environments/FieldBarn/Meshes/grass_medium_01_tall/grass_medium_01_tall_grass_medium_01_tall_a.stmesh"
+                "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_a.stmesh"
             },
             "Density": 20.0,
             "PlacementJitter": 1.0,
@@ -275,6 +299,12 @@
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
             },
             "Scaling": "LockXY",
             "ScaleX": {
@@ -314,6 +344,12 @@
                 "Min": 0.0,
                 "Max": 1.0
             },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
+            },
             "Scaling": "Uniform",
             "ScaleX": {
                 "Min": 2.0,
@@ -351,6 +387,12 @@
             "AllowedDensityRange": {
                 "Min": 0.0,
                 "Max": 1.0
+            },
+            "Patches": {
+                "Coverage": 1.0,
+                "Size": 1500.0,
+                "Softness": 0.15,
+                "Group": 0
             },
             "Scaling": "Uniform",
             "ScaleX": {

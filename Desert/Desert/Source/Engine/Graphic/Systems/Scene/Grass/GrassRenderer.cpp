@@ -55,8 +55,11 @@ namespace Desert::Graphic::System
             // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
             // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic).
             glm::vec4 Lod;
+            // The variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = the noise seed's
+            // bits (shared by a Group).
+            glm::vec4 Patches;
         };
-        static_assert( sizeof( GrassParamsGpu ) == 256 );
+        static_assert( sizeof( GrassParamsGpu ) == 272 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -504,6 +507,12 @@ namespace Desert::Graphic::System
         params.Lean   = variety.Blade ? glm::vec4( glm::radians( variety.Blade->Tilt ),
                                                    glm::radians( variety.Blade->FacingJitter ), 0.0f, 0.0f )
                                       : glm::vec4( 0.0f );
+        {
+            const uint32_t seed =
+                 p.PatchGroup != 0u ? ( p.PatchGroup * 0x9E3779B1u ) ^ 0x68E31DA4u : params.Info.w ^ 0x2C1B3C6Du;
+            params.Patches = glm::vec4( std::clamp( p.PatchCoverage, 0.0f, 1.0f ), std::max( p.PatchSize, 1.0f ),
+                                        std::clamp( p.PatchSoftness, 0.0f, 1.0f ), std::bit_cast<float>( seed ) );
+        }
         // The world's snow buries every instance's root by its depth (Common/WeatherSnow.glslh): a blade shows only
         // what stands above the snow, and one shorter than it is gone, in every pass that draws or shades it.
         params.Lean.z = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );

@@ -131,6 +131,28 @@ namespace Desert::Assets::Serialization
     };
 
     /**
+     * @brief Where in the world a variety grows: broad noise patches with open ground between (wildflowers in
+     * drifts, tussocks in clumps). UE draws this with a noise term in the landscape material's grass output
+     * (ULandscapeGrassOutput's per-type weight); here the mask belongs to the variety, so a type authors it with
+     * the meshes it shapes. It multiplies the layer weight before the instance's keep draw, so a patch's rim
+     * thins instead of ending in a line.
+     */
+    struct GrassPatches
+    {
+        /// 0..1: about the share of the ground the variety grows on (1 = everywhere, no mask).
+        float Coverage = 1.0f;
+        /// The patch noise's cell, cm (a patch is about half of it across).
+        float Size = 1500.0f;
+        /// 0..1 of the noise range over which the density rises at a patch's rim (0 = a hard rim).
+        float Softness = 0.15f;
+        /// Varieties with the same non-zero Group share one noise (the same drifts: a flower's
+        /// several meshes); 0 = the variety's own.
+        uint32_t Group = 0;
+
+        [[nodiscard]] bool operator==( const GrassPatches& ) const = default;
+    };
+
+    /**
      * @brief One kind of grass a type grows (UE: FGrassVariety, LandscapeGrassType.h:30-158).
      *
      * Units are UE's: Density is instances per 1000 x 1000 cm (as FoliageTypeData::Density), distances are cm,
@@ -153,6 +175,8 @@ namespace Desert::Assets::Serialization
         float EndCullDistance   = 10000.0f;
         /// The layer weight an instance needs: kept when Min < weight <= Max and weight beats its random draw.
         FoliageFloatInterval AllowedDensityRange{ 0.0f, 1.0f };
+        /// The world patches the variety grows in (Coverage 1: everywhere the layer is).
+        GrassPatches         Patches;
         GrassScaling         Scaling = GrassScaling::Uniform;
         FoliageFloatInterval ScaleX{ 1.0f, 1.0f };
         FoliageFloatInterval ScaleY{ 1.0f, 1.0f };
