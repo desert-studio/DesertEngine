@@ -180,6 +180,15 @@ namespace Desert::Graphic::System
         // 4. Drops the entries no view asked for in @p frame.
         void EndFrame( uint64_t frame );
 
+        // The twin generation: changes whenever any Find() answer may have changed (an entry's geometry replaced,
+        // a twin re-indexed, an entry with a twin dropped, the cache switched off) and at no other time. Values
+        // are unique across every cache of the process, so a consumer that derived something from Find() answers
+        // (MeshRenderer's displaced ISM split) re-derives it exactly when this differs from what it held.
+        [[nodiscard]] uint64_t GetTwinGeneration() const
+        {
+            return m_TwinGeneration;
+        }
+
         // SKINNED (§9.8): the same levels, tessellation and cooked heights over the REST pose, emitted once per
         // (mesh, topology, levels, materials) into a SkinnedMesh twin (rest SkinnedVertex buffer + its skinned
         // records); the deformation is not shared - every frame "Displacement: Pose" + "Displacement: Skinned" move
@@ -372,8 +381,11 @@ namespace Desert::Graphic::System
         uint64_t EndSkinnedFrame( uint64_t frame );
         // SetQuality(off): every skinned entry dropped, its twin parked.
         void ClearSkinned();
+        // A Find() answer may have changed: a fresh process-unique generation.
+        void TwinsChanged();
 
         DisplacementQuality                  m_Quality;
+        uint64_t                             m_TwinGeneration = 0; // GetTwinGeneration; set by the constructor
         std::unordered_map<uint64_t, Entry>  m_Entries;
         std::unordered_multimap<uint64_t, std::weak_ptr<SharedGeometry>> m_Shared; // by HashKey
         // The GPU form of each live topology (CornerVertex | TriangleSubmesh | WeldPosition | WeldDirection).

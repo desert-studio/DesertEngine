@@ -768,17 +768,46 @@ namespace Desert::Graphic::System
         const GpuDriven::MaterialRowKey key{ .Material = material,
                                              .Instance = instance,
                                              .Variant = receiveSunShadows ? 0u : GpuDriven::kMaterialRowNoSunShadows };
-        if ( const auto found = m_FrameMaterialRows.find( key ); found != m_FrameMaterialRows.end() )
-            return found->second;
-        Core::Formats::MaterialParamRow row = MeshRendererDetail::EffectiveRow( material, instance );
-        if ( !receiveSunShadows )
-            Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows", glm::vec4( 0.0f ) );
-        const uint32_t index = registry.SyncMaterialRow( key, row );
-        m_FrameMaterialRows.emplace( key, index );
+        const auto [claimed, fresh] = ClaimFrameMaterialRow( key );
+        if ( !fresh )
+            return claimed->Index;
+        // The row is rebuilt and compared only when the template's row or the instance's overrides moved since the
+        // registry's row was derived (UE: cached mesh draw commands invalidated by a material change).
+        const GpuDriven::MaterialRowRevision revision{ .Template = material->GetParamRowRevision(),
+                                                       .Instance =
+                                                            instance != nullptr ? instance->GetParameterRevision() : 0 };
+        if ( const std::optional<uint32_t> reused = registry.ReuseMaterialRow( key, revision ) )
+            claimed->Index = *reused;
+        else
+        {
+            Core::Formats::MaterialParamRow row = MeshRendererDetail::EffectiveRow( material, instance );
+            if ( !receiveSunShadows )
+                Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows", glm::vec4( 0.0f ) );
+            claimed->Index = registry.SyncMaterialRow( key, row, revision );
+        }
+        const uint32_t index = claimed->Index;
         if ( index >= m_RowSurfaces.size() )
             m_RowSurfaces.resize( index + 1 );
         m_RowSurfaces[index] = { material, instance };
         return index;
+    }
+
+    std::pair<MeshRenderer::FrameMaterialRow*, bool>
+    MeshRenderer::ClaimFrameMaterialRow( const GpuDriven::MaterialRowKey& key )
+    {
+        FrameMaterialRow& row   = m_FrameMaterialRows[key];
+        const bool        fresh = row.Sync != m_MaterialRowSync;
+        row.Sync                = m_MaterialRowSync;
+        return { &row, fresh };
+    }
+
+    void MeshRenderer::BeginMaterialRowSync()
+    {
+        // Keys the previous sync did not claim leave (their template or instance may be freed); the rest keep
+        // their nodes. Only a key claimed by THIS sync is ever read (Sync == m_MaterialRowSync).
+        const uint64_t previous = m_MaterialRowSync;
+        std::erase_if( m_FrameMaterialRows, [previous]( const auto& held ) { return held.second.Sync != previous; } );
+        ++m_MaterialRowSync;
     }
 
     std::optional<uint32_t> MeshRenderer::FindMaterialRow( const DataDrivenMaterial* material,
@@ -788,8 +817,9 @@ namespace Desert::Graphic::System
         const GpuDriven::MaterialRowKey key{ .Material = material,
                                              .Instance = instance,
                                              .Variant = receiveSunShadows ? 0u : GpuDriven::kMaterialRowNoSunShadows };
-        if ( const auto found = m_FrameMaterialRows.find( key ); found != m_FrameMaterialRows.end() )
-            return found->second;
+        if ( const auto found = m_FrameMaterialRows.find( key );
+             found != m_FrameMaterialRows.end() && found->second.Sync == m_MaterialRowSync )
+            return found->second.Index;
         if ( m_MissingMaterialRowReported.insert( material ).second )
             LOG_ERROR( "[MeshRenderer] '{}' has no row in the scene material table this frame (SyncGpuScene registers "
                        "every queued draw's row before the upload); its draws are not recorded.",
@@ -1697,7 +1727,7 @@ namespace Desert::Graphic::System
         // records with (G-buffer twin, instanced variant, masked caster) is a cell of the same template and reads
         // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
         // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
-        m_FrameMaterialRows.clear();
+        BeginMaterialRowSync();
         // Every row's surface is forgotten with it and named again only by this frame's registrations (UE drops a
         // primitive's cached draw commands when it leaves the scene): a row no queued draw registers names a
         // template or instance that may be freed since (a re-imported mesh's materials), and resolving it read a

@@ -127,9 +127,12 @@ namespace Desert::Graphic
         {
             return m_Properties;
         }
-        MaterialPropertySet& GetPropertySetMutable()
+        // The revision of this instance's own parameters (MaterialPropertySet::GetRevision): moves with every
+        // override written, cleared or reset, so a row derived from them is re-derived exactly then. The
+        // properties are written only through this class (no mutable access), so no write can miss it.
+        [[nodiscard]] uint64_t GetParameterRevision() const
         {
-            return m_Properties;
+            return m_Properties.GetRevision();
         }
 
         // Drops every instance override so the instance renders with the parent material's values

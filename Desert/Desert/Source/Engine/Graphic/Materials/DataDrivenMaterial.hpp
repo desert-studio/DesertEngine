@@ -7,7 +7,11 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Shader.hpp>
 
+#include <Engine/Graphic/Materials/MaterialProperty.hpp> // NextMaterialRevision
+
 #include <glm/glm.hpp>
+
+#include <cstring>
 
 namespace Desert::Graphic
 {
@@ -74,13 +78,26 @@ namespace Desert::Graphic
             return m_Row;
         }
 
+        // The revision of GetParamRow's bytes: moves with every value written (SetParam, ApplyDefaults) and with
+        // every texture slot that reads differently now (the slots are pulled from the texture properties, so
+        // they are refreshed here first, as GetParamRow does), at no other time. Process-unique
+        // (NextMaterialRevision). MeshRenderer::RegisterMaterialRow rebuilds a row only when it moved.
+        [[nodiscard]] uint64_t GetParamRowRevision() const
+        {
+            WriteTextureSlots();
+            return m_RowRevision;
+        }
+
         // Write a scalar/vector param by name. The whole slot is written whatever the parameter's
         // declared width: the components past it are the generated struct's own padding, so there is
         // nothing there to damage, and the alternative — a per-type byte count — is a second statement of
         // a layout that the cell's MaterialLayout deliberately has only one of.
         bool SetParam( const std::string& name, const glm::vec4& value )
         {
-            return MaterialBinder::WriteRowParam( GetMaterialLayout(), m_Row, name, value );
+            const bool written = MaterialBinder::WriteRowParam( GetMaterialLayout(), m_Row, name, value );
+            if ( written )
+                m_RowRevision = NextMaterialRevision();
+            return written;
         }
 
         // The name the override producers use. Identical to SetParam now — it was a separate entry point
@@ -123,7 +140,8 @@ namespace Desert::Graphic
         // Seed every numeric param with its `Properties ... = default` value, at the cell layout's offset.
         void ApplyDefaults()
         {
-            m_Row = MaterialBinder::DefaultRow( GetMaterialLayout() );
+            m_Row         = MaterialBinder::DefaultRow( GetMaterialLayout() );
+            m_RowRevision = NextMaterialRevision();
         }
 
     private:
@@ -153,8 +171,14 @@ namespace Desert::Graphic
                               : "has no bindless slot: only sampled (Image2DUsage::Image2D), single-sample, "
                                 "non-storage images are in the table" );
                 }
-                m_Row[slot] = glm::vec4( glm::uintBitsToFloat( image.Index ),
-                                         glm::uintBitsToFloat( texture->GetBindlessSampler().Index ), 0.0f, 0.0f );
+                const glm::vec4 value( glm::uintBitsToFloat( image.Index ),
+                                       glm::uintBitsToFloat( texture->GetBindlessSampler().Index ), 0.0f, 0.0f );
+                // Bitwise: the slot holds index bits, and a NaN pattern must not read as a change every frame.
+                if ( std::memcmp( &m_Row[slot], &value, sizeof( value ) ) != 0 )
+                {
+                    m_Row[slot]   = value;
+                    m_RowRevision = NextMaterialRevision();
+                }
             }
         }
 
@@ -163,6 +187,7 @@ namespace Desert::Graphic
         // Mutable for the texture slots only: they are a projection of the texture properties, refreshed each
         // time the row is read (GetParamRow).
         mutable Core::Formats::MaterialParamRow m_Row;
+        mutable uint64_t                        m_RowRevision         = NextMaterialRevision(); // GetParamRowRevision
         mutable bool                            m_ReportedTextureSlot = false;
     };
 } // namespace Desert::Graphic

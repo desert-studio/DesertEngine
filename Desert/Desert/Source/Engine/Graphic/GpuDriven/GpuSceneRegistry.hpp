@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <utility>
@@ -138,6 +139,17 @@ namespace Desert::Graphic::GpuDriven
     // The component's Receive Shadows off zeroes the row's ReceiveSunShadows (MeshRenderer::SyncGpuScene).
     inline constexpr uint32_t kMaterialRowNoSunShadows = 1u;
 
+    // What a material row's values were derived from (UE: a cached mesh draw command stays valid until its material
+    // changes): the template's row revision (DataDrivenMaterial::GetParamRowRevision) and the instance's parameter
+    // revision (MaterialInstance::GetParameterRevision, 0 = no instance). Both are process-unique, so a key whose
+    // address was reused never matches. Template 0 = no revision: the row is always compared.
+    struct MaterialRowRevision
+    {
+        uint64_t Template = 0;
+        uint64_t Instance = 0;
+        bool     operator==( const MaterialRowRevision& ) const = default;
+    };
+
     struct MaterialRowKeyHash
     {
         [[nodiscard]] std::size_t operator()( const MaterialRowKey& key ) const noexcept
@@ -190,7 +202,14 @@ namespace Desert::Graphic::GpuDriven
         // that did not ask (the primitives' rule; every view of a frame may ask). Returns the index the draw names
         // as MaterialIndex / GpuDrawSlot::MaterialRow. An empty row (a template without parameters declares no
         // Materials block) takes no row: 0, which its shader never reads.
-        [[nodiscard]] uint32_t SyncMaterialRow( const MaterialRowKey& key, std::span<const glm::vec4> row );
+        // @p revision: what @p row was derived from (stored with it for ReuseMaterialRow; {} = none).
+        [[nodiscard]] uint32_t SyncMaterialRow( const MaterialRowKey& key, std::span<const glm::vec4> row,
+                                                MaterialRowRevision revision = {} );
+        // The row of @p key when it holds values derived from @p revision (a non-zero Template): asked for this
+        // frame as SyncMaterialRow would, with neither the row built nor its values compared. nullopt: the key
+        // has no row yet, or its values were derived from something else - build the row, SyncMaterialRow it.
+        [[nodiscard]] std::optional<uint32_t> ReuseMaterialRow( const MaterialRowKey& key,
+                                                                MaterialRowRevision   revision );
 
     private:
         static constexpr uint64_t kNoFrame = ~0ull;
@@ -200,7 +219,9 @@ namespace Desert::Graphic::GpuDriven
             std::vector<glm::vec4> Values;               // what the table holds at Row
             uint64_t               Frame     = kNoFrame; // the last frame that asked for it
             uint64_t               PrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
+            MaterialRowRevision    Revision;             // what Values were derived from ({} = unknown)
         };
+        void AskedThisFrame( MaterialEntry& entry ) const;
 
         struct Entry
         {

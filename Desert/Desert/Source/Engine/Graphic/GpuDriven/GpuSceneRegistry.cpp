@@ -87,7 +87,29 @@ namespace Desert::Graphic::GpuDriven
         entry.Frame     = m_Frame;
     }
 
-    uint32_t GpuSceneRegistry::SyncMaterialRow( const MaterialRowKey& key, const std::span<const glm::vec4> row )
+    void GpuSceneRegistry::AskedThisFrame( MaterialEntry& entry ) const
+    {
+        if ( entry.Frame != m_Frame ) // the first view of this frame to ask
+        {
+            entry.PrevFrame = entry.Frame;
+            entry.Frame     = m_Frame;
+        }
+    }
+
+    std::optional<uint32_t> GpuSceneRegistry::ReuseMaterialRow( const MaterialRowKey&      key,
+                                                                const MaterialRowRevision revision )
+    {
+        if ( revision.Template == 0 )
+            return std::nullopt;
+        const auto found = m_MaterialRows.find( key );
+        if ( found == m_MaterialRows.end() || found->second.Revision != revision )
+            return std::nullopt;
+        AskedThisFrame( found->second );
+        return found->second.Row;
+    }
+
+    uint32_t GpuSceneRegistry::SyncMaterialRow( const MaterialRowKey& key, const std::span<const glm::vec4> row,
+                                                const MaterialRowRevision revision )
     {
         if ( row.empty() )
             return 0u;
@@ -105,11 +127,8 @@ namespace Desert::Graphic::GpuDriven
             m_Scene.UpdateMaterialRow( entry.Row, row );
         if ( !sameValues )
             entry.Values.assign( row.begin(), row.end() );
-        if ( entry.Frame != m_Frame ) // the first view of this frame to ask
-        {
-            entry.PrevFrame = entry.Frame;
-            entry.Frame     = m_Frame;
-        }
+        entry.Revision = revision;
+        AskedThisFrame( entry );
         return entry.Row;
     }
 
