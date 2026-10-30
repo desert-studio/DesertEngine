@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <format>
 #include <optional>
 
@@ -561,6 +563,21 @@ namespace Desert::Graphic::System
                                 static_cast<int32_t>( std::floor( lo.y / cell ) ) - 1,
                                 static_cast<int32_t>( std::ceil( ( hi.x - lo.x ) / cell ) ) + 2,
                                 static_cast<int32_t>( std::ceil( ( hi.y - lo.y ) / cell ) ) + 2 );
+
+        // What this frame's generation would read (VarietyGpu::FrameKey); AddFrame adds the field's revision.
+        static_assert( sizeof( GrassParamsGpu ) % sizeof( uint32_t ) == 0 );
+        gpu.FrameKey.assign( sizeof( GrassParamsGpu ) / sizeof( uint32_t ), 0u );
+        std::memcpy( gpu.FrameKey.data(), &params, sizeof( GrassParamsGpu ) );
+        for ( int i = 0; i < 4; ++i )
+            gpu.FrameKey.push_back( static_cast<uint32_t>( gpu.Cells[i] ) );
+        gpu.FrameKey.push_back( gpu.Capacity );
+        for ( const void* buffer : { static_cast<const void*>( gpu.Instances.get() ),
+                                     static_cast<const void*>( gpu.Args.get() ) } )
+        {
+            const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
+            gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
+            gpu.FrameKey.push_back( static_cast<uint32_t>( static_cast<uint64_t>( address ) >> 32u ) );
+        }
         return &gpu;
     }
 
@@ -568,6 +585,7 @@ namespace Desert::Graphic::System
                                   const bool rayTracing )
     {
         m_Frame.clear();
+        m_FrameGenerate.clear();
         m_Settling = false;
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Finalize )
@@ -625,6 +643,19 @@ namespace Desert::Graphic::System
                 gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
+                const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
+                gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
+                gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                if ( gpu->FrameKey != gpu->GenerateKey )
+                {
+                    gpu->GenerateKey       = gpu->FrameKey;
+                    gpu->StableGenerations = 0;
+                }
+                if ( gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight() )
+                {
+                    ++gpu->StableGenerations;
+                    m_FrameGenerate.push_back( gpu );
+                }
                 NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame );
 
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;
@@ -670,65 +701,70 @@ namespace Desert::Graphic::System
         if ( m_Frame.empty() )
             return;
 
-        graph.AddPass(
-             "Grass: Generate", RDG::PassFlags::Compute,
-             [this]( RDG::PassBuilder& pass )
-             {
-                 const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
-                 for ( const VarietyGpu* gpu : m_Frame )
-                     pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
-                          .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
-                          .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
-                                    RDG::Access::StorageRead )
-                          .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
-                                    RDG::Access::StorageWrite )
-                          .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args,
-                                    RDG::Access::StorageWrite )
-                          .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::ivec4 ) ) );
-             },
-             [this]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 auto& renderer = Renderer::GetInstance();
-                 for ( uint32_t i = 0; i < m_Frame.size(); ++i )
+        // A frame whose varieties all keep their inputs generates nothing: the instances and the draw records
+        // GrassFinalize left stay in their persistent buffers (VarietyGpu::GenerateKey).
+        if ( !m_FrameGenerate.empty() )
+        {
+            graph.AddPass(
+                 "Grass: Generate", RDG::PassFlags::Compute,
+                 [this]( RDG::PassBuilder& pass )
                  {
-                     const VarietyGpu* gpu = m_Frame[i];
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                     bindings.PushConstants( &gpu->Cells, sizeof( gpu->Cells ) );
-                     const auto groupsX =
-                          ( static_cast<uint32_t>( gpu->Cells.z ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
-                     const auto groupsZ =
-                          ( static_cast<uint32_t>( gpu->Cells.w ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
-                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsZ, 1 );
-                          !dispatched )
-                         return dispatched;
-                 }
-                 return BOOLSUCCESS;
-             } );
+                     const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
+                     for ( const VarietyGpu* gpu : m_FrameGenerate )
+                         pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
+                              .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
+                                        RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::ivec4 ) ) );
+                 },
+                 [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto& renderer = Renderer::GetInstance();
+                     for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                     {
+                         const VarietyGpu* gpu = m_FrameGenerate[i];
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
+                         bindings.PushConstants( &gpu->Cells, sizeof( gpu->Cells ) );
+                         const auto groupsX =
+                              ( static_cast<uint32_t>( gpu->Cells.z ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
+                         const auto groupsZ =
+                              ( static_cast<uint32_t>( gpu->Cells.w ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
+                         if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsZ, 1 );
+                              !dispatched )
+                             return dispatched;
+                     }
+                     return BOOLSUCCESS;
+                 } );
 
-        graph.AddPass(
-             "Grass: Finalize", RDG::PassFlags::Compute,
-             [this]( RDG::PassBuilder& pass )
-             {
-                 const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
-                 for ( const VarietyGpu* gpu : m_Frame )
-                     pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
-                          .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
-                                    RDG::Access::StorageWrite )
-                          .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
-                                    RDG::Access::StorageWrite );
-             },
-             [this]( RDG::PassContext& context ) -> Common::BoolResultStr
-             {
-                 auto& renderer = Renderer::GetInstance();
-                 for ( uint32_t i = 0; i < m_Frame.size(); ++i )
+            graph.AddPass(
+                 "Grass: Finalize", RDG::PassFlags::Compute,
+                 [this]( RDG::PassBuilder& pass )
                  {
-                     RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
-                          !dispatched )
-                         return dispatched;
-                 }
-                 return BOOLSUCCESS;
-             } );
+                     const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
+                     for ( const VarietyGpu* gpu : m_FrameGenerate )
+                         pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
+                              .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
+                                        RDG::Access::StorageWrite );
+                 },
+                 [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 {
+                     auto& renderer = Renderer::GetInstance();
+                     for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                     {
+                         RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
+                         if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
+                              !dispatched )
+                             return dispatched;
+                     }
+                     return BOOLSUCCESS;
+                 } );
+        }
 
         // The blade levels whose BLAS this frame builds: their vertices, before the view's TLAS block requests the
         // builds (SceneRenderer).

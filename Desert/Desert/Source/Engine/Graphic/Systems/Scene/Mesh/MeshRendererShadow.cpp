@@ -596,15 +596,20 @@ namespace Desert::Graphic::System
         // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound) and by
         // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
         // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull
-        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying one is movable
-        // wherever it stands.
+        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying one makes the
+        // cascade movable only when one of its kept instances reaches it (UE: a WPO primitive invalidates the
+        // dynamic layer of the views its bounds touch, not of every view): a crown beyond the cascade's box
+        // draws nothing into it, so it must not force its movable layer every frame.
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                 continue;
             if ( ism.Wind.Sways() )
             {
-                movable = true;
+                const ShadowIsmField& swaying =
+                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+                for ( uint32_t k = swaying.First; k < swaying.First + swaying.Count && !movable; ++k )
+                    movable = reaches( m_ShadowCasterSetup.Instances[k] );
                 continue;
             }
             hash.Add( ism.Mesh->GetRenderRevision() );

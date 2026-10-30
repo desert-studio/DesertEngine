@@ -191,6 +191,15 @@ namespace Desert::Graphic::System
             RDG::BufferRef                                  FieldRef;
             glm::ivec4                                      Cells{ 0 };
             uint32_t                                        Index = 0; // stable section key base
+            // GrassGenerate's inputs this frame (FrameKey: the params, the cells, the capacity, the buffers, the
+            // field's revision) and the ones Instances / Args were last generated from (GenerateKey). Equal inputs
+            // generate equal instances, so a frame with the same ones dispatches nothing (UE: a component's grass
+            // is built once and kept until its inputs change, LandscapeGrass.cpp). StableGenerations counts the
+            // generations in a row from GenerateKey: the skip starts once every frame in flight's feedback copy
+            // (GrassFinalize) holds their counts, so the capacity read back stays the one they ask for.
+            std::vector<uint32_t> FrameKey;
+            std::vector<uint32_t> GenerateKey;
+            uint32_t              StableGenerations = 0;
         };
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
@@ -203,6 +212,7 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
+        std::vector<VarietyGpu*>         m_FrameGenerate; // this frame's whose inputs changed: the dispatched
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
