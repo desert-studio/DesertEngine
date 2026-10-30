@@ -1,0 +1,20 @@
+# GPU-ASYNC: the GI and distance-field compute passes on the async compute queue (UE RDG ERDGPassFlags::AsyncCompute:
+# Lumen's scene update, radiance cache and screen probes overlap the graphics queue). FPS-FIELD-BARN's project and
+# camera, still air, default machine settings (no machine.json overrides). Played by the lead on the task Editor
+# and on the int/fps fc979990b Editor (the before).
+# [log] PASS when editor.log, after `Когда profile-dump`, carries
+#   - "[Profiler] async compute queue: N segment(s)" with a segment naming the GlobalDistanceField / DistanceField
+#     passes and one naming the RadianceCache / ScreenProbes passes (ProfilerWindow::DumpProfilerToLog; the rows
+#     "RDG Async: <first> .. <last> (<n> passes)", VulkanRdgBackend::BeginPipeSegment), and the matching
+#     "[RDG] graph 'SceneView' async compute segments:" line;
+#   - "GPU: Frame Total" gpu ms below the int/fps run's;
+#   - no VUID line.
+# [frame] PASS when the shot is byte-equal to the int/fps shot of the same camera (or mean |diff| <= 1/255).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 120
+Когда profile-dump
+Тогда-вид 1_async FIELD_Barn at 1.7 m, still air: field, barn, trees and sky drawn, nothing black or missing, GI as on int/fps; editor.log has "[Profiler] async compute queue:" with the GI and distance-field segments

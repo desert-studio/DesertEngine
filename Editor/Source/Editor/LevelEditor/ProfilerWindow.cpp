@@ -14,6 +14,11 @@
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <ImGui/imgui.h>
 
+#include <cstdint>
+#include <format>
+#include <string>
+#include <string_view>
+
 namespace Desert::Editor
 {
     // The profiler table as text. Used by the panel's button AND by --gpu-profile, because a headless shot
@@ -134,6 +139,30 @@ namespace Desert::Editor
         LOG_INFO( "[Profiler] GPU self times sum to {:.3f} ms of a {:.3f} ms GPU frame ({:.1f} %); the "
                   "remainder is device work no pass is marked around.",
                   gpuSumMs, gpuFrameMs, gpuFrameMs > 0.0001 ? gpuSumMs / gpuFrameMs * 100.0 : 0.0 );
+
+        // THE ASYNC QUEUE, NAMED. Every compute-queue segment of the frame is one row the backend publishes under
+        // kGpuAsyncSegmentScopePrefix; its passes are the rows between its first and last pass. Their time
+        // overlaps the graphics queue, which is why the sum above may pass 100 % once a segment runs async. No
+        // segment row means every pass ran on the graphics queue (RenderPipeline.AsyncCompute off, or no
+        // separate compute family).
+        const std::string_view asyncPrefix = ::Common::Profiling::kGpuAsyncSegmentScopePrefix;
+        std::string            asyncLine;
+        double                 asyncMs  = 0.0;
+        uint32_t               segments = 0;
+        for ( const auto& s : prof.LastFrame() )
+        {
+            if ( !std::string_view( s.Name ).starts_with( asyncPrefix ) )
+                continue;
+            asyncLine += std::format( " [{} {:.3f} ms]", std::string_view( s.Name ).substr( asyncPrefix.size() ),
+                                      s.GpuMs );
+            asyncMs += s.GpuMs;
+            ++segments;
+        }
+        if ( segments == 0 )
+            LOG_INFO( "[Profiler] async compute queue: no segment (every pass ran on the graphics queue)" );
+        else
+            LOG_INFO( "[Profiler] async compute queue: {} segment(s), {:.3f} ms overlapping the graphics queue:{}",
+                      segments, asyncMs, asyncLine );
 
         // THE DRAW-CALL DETECTOR, READ WITHOUT A WINDOW. The counter itself landed with step 2 of
         // `Docs/World/PROGRAMME.md`, and its only reader was the viewport's perf HUD — which is ImGui,
