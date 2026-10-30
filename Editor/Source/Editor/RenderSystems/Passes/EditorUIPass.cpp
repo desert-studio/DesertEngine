@@ -137,6 +137,13 @@ namespace Desert::Editor::Render
                 input.Clipboard      = &clipboard;
             }
 
+            // ONE KEYBOARD FOR BOTH VIEWS (UIKeyboardUser): keys reach only the view that owns it, so a field
+            // focused in the gallery and a field focused in the level never both take the same keystroke. A
+            // hidden gallery cannot hold it.
+            if ( !pv.WidgetGallery && m_Keyboard.Owner == &m_GalleryView )
+                m_Keyboard.Owner = &m_UIView;
+            input.Keyboard = &m_Keyboard;
+
             std::vector<std::string> uiMessages;
             // EVERY CANVAS OF THE LEVEL, in authored order. This pass used to ask UI::SoleCanvas and REFUSE
             // a level with two canvases: an honest refusal while a view could hold the runtime state of one

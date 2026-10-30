@@ -51,6 +51,19 @@ namespace Desert::UI
         bool            Repeat = false;
     };
 
+    // ONE KEYBOARD PER USER (Slate's FSlateUser: one focus path per user, and keys go only down it). A host
+    // that draws several views for one person — the editor's level canvases and the widget gallery over
+    // them — hands every view the SAME UIKeyboardUser through UIInput::Keyboard, and only the view named
+    // Owner sees the frame's keys and typed text; every other view sees none and drops its focus, so one
+    // keystroke can never land in two fields. A press that lands on an element of a view, or a capture it
+    // takes, makes that view the owner (EndUIFrame) — the click that moves focus in Slate. Tab and the
+    // arrows then move focus inside the owner only. Which view owns the keyboard before anything has been
+    // clicked is the host's to say (it sets Owner); null owns nothing.
+    struct UIKeyboardUser
+    {
+        const UIViewContext* Owner = nullptr;
+    };
+
     // Pointer/mouse state for button interaction, in the SAME pixel space as the canvas viewport (top-left
     // origin). The host (runtime input, editor viewport) supplies it; MouseReleased is the down->up edge so a
     // click fires on release over a button. Pass nullptr to RenderCanvas2D for a non-interactive draw (buttons
@@ -95,6 +108,15 @@ namespace Desert::UI
         // The system clipboard, for the focused InputField's copy/cut/paste. The host owns it (it wraps its
         // window); null = no clipboard, and those three keys do nothing.
         IUIClipboard* Clipboard = nullptr;
+        // The user this frame's keys belong to, shared by every view the host draws for that user
+        // (UIKeyboardUser). Null: this host draws one view, and it holds the keyboard.
+        UIKeyboardUser* Keyboard = nullptr;
+
+        // Does @p view hold this user's keyboard (UIKeyboardUser)?
+        NO_DISCARD bool HoldsKeyboard( const UIViewContext& view ) const
+        {
+            return Keyboard == nullptr || Keyboard->Owner == &view;
+        }
 
         // Was @p key pressed (or auto-repeated) at least once this frame?
         NO_DISCARD bool Pressed( Common::KeyCode key ) const

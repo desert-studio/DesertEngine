@@ -8,6 +8,7 @@
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <UI/UICanvasContext.hpp>
+#include <UI/UICanvasRenderer2D.hpp>
 
 namespace Desert::Editor::Render
 {
@@ -72,6 +73,9 @@ namespace Desert::Editor::Render
         ::Desert::UI::WidgetTree              m_Gallery;
         ::Desert::UI::NodeId                  m_GalleryCanvas  = ::Desert::UI::NodeId::Null;
         ::Desert::UI::NodeId                  m_GalleryFocused = ::Desert::UI::NodeId::Null;
+        // The one keyboard both views share (UIKeyboardUser): the level's canvases own it until a press lands
+        // on the gallery, and get it back on a press on one of theirs or when the gallery is hidden.
+        ::Desert::UI::UIKeyboardUser          m_Keyboard{ .Owner = &m_UIView };
         // `--ui-press` under `--play`: walks seen with the scene in Play. The press waits for the second, whose
         // `Hot` was elected over the rows gameplay filled on the first (see the press gate in Declare).
         int m_CliPlayWalks = 0;

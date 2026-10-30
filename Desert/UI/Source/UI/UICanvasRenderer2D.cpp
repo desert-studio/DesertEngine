@@ -506,6 +506,23 @@ namespace Desert::UI
 
     using namespace Walk;
 
+    namespace
+    {
+        // The input @p view sees this frame: the pointer always, the keys and the typed text only while it
+        // holds its user's keyboard (UIKeyboardUser). Every control reads keys from the input it is handed,
+        // so scoping the input once here is what keeps a second view's focused field from also typing.
+        const UIInput* KeyboardScoped( const UIViewContext& view, const UIInput* input, UIInput& keyless )
+        {
+            if ( input == nullptr || input->HoldsKeyboard( view ) )
+                return input;
+            keyless = *input;
+            keyless.Keys.clear();
+            keyless.TypedText.clear();
+            keyless.Clipboard = nullptr;
+            return &keyless;
+        }
+    } // namespace
+
     void BeginUIFrame( UIViewContext& view, IUITree& tree, const Rect& viewportPx, float frameDtSeconds )
     {
         // This view is now looking at another scene. Entity ids are unique only inside a registry, so every
@@ -612,6 +629,9 @@ namespace Desert::UI
             return Common::MakeFormattedError(
                  "[UI] RenderCanvas2D was given a tree the open frame does not belong to (canvas {})",
                  static_cast<std::uint32_t>( canvasEntity ) );
+
+        UIInput keyless;
+        input = KeyboardScoped( view, input, keyless );
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
         WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
@@ -850,6 +870,8 @@ namespace Desert::UI
                        "must sit between BeginUIFrame and EndUIFrame" );
             return;
         }
+        UIInput keyless;
+        input = KeyboardScoped( view, input, keyless );
 
         // --- Pointer events, drag & drop -------------------------------------------------------------
         // Everything here runs on the freshly elected hot element, AFTER the tree is laid out: enter/exit
@@ -997,6 +1019,12 @@ namespace Desert::UI
                      Walk::CapturesPointer( tree, control ) )
                     view.Capture = control;
 
+                // THE CLICK MOVES THE KEYBOARD (UIKeyboardUser): a press that landed on an element of this
+                // view — the pointer is over it, so the election is not empty — makes it the owner, and the
+                // view that owned it drops its focus on its next frame.
+                if ( input->Keyboard != nullptr && view.HotNext != NodeId::Null )
+                    input->Keyboard->Owner = &view;
+
                 // Start a drag from a draggable element. The ghost is the source's own footprint, so the
                 // cursor carries something the size of what it picked up.
                 if ( view.HotNext != NodeId::Null && tree.Valid( view.HotNext ) &&
@@ -1137,7 +1165,12 @@ namespace Desert::UI
         // Before navigation, the pointer: a button it ENTERED takes focus (PointerFocusTarget), so a key
         // pressed in the same frame still wins, and a pointer resting still never pulls focus back.
         // Each move records its cause (UIFocusCause) with the control, for the focus ring.
-        if ( focused != nullptr )
+        // A view without its user's keyboard holds no focus: the focus path is one per user, and the view
+        // the click went to has it (UIKeyboardUser). Leaving the old focus in place would draw a second
+        // focus ring and hand the field its keys back the moment ownership returned without a click.
+        if ( focused != nullptr && input != nullptr && !input->HoldsKeyboard( view ) )
+            *focused = NodeId::Null;
+        else if ( focused != nullptr )
         {
             const NodeId before = *focused;
             UIFocusCause cause  = FocusCauseOf( view.FocusCause, *focused );
