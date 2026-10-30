@@ -1,31 +1,14 @@
 #ifndef DESERT_WEATHER_SNOW_GLSLH
 #define DESERT_WEATHER_SNOW_GLSLH
 
-// THE WORLD'S SNOW LAYER (FIELD-WINTER): the snow a weather preset lays on every lit surface that faces the sky,
-// the way UE's winter projects layer a snow material function over every master material driven by a parameter
-// collection (CitySample-style weather, Lagarde's "Water drop" for the wet half). Here the layer is the engine's,
-// written once and read by the surface pass headers (Mesh/Surface/SurfaceWeather.glslh) and the landscape
-// (Programs/Terrain/*.shader), and its LOOK is an asset: the scene's world parameter collection names the snow's
-// albedo / normal / ARM textures (a scanned CC0 snow set) as Texture parameters, and the weather preset drives
-// SnowCover; its DEPTH on open ground (SnowDepth, cm) is the grass generator's, which sinks every root by it
-// (GrassRenderer reads the parameter into GrassGenerate's params). Nothing here invents a colour: with no texture resolved the layer is absent, not white.
-//
-// The parameter keys are Serialization::WorldParameterKey of the names below (FNV-1a 32); WorldParameterTable.hpp
-// pins the same literals with static_asserts, so a renamed parameter fails the C++ build, not a frame.
-// Needs the bindless table (injected into every material-row cell by DShaderParser).
-#include <Common/WorldParameters.glslh>
-#include <Common/TangentNormal.glslh>
-
-const uint kDesertSnowCoverKey    = 0x0b8bf081u; // "SnowCover": 0 = none, 1 = everything that faces up is white
-const uint kDesertSnowAlbedoKey   = 0xc0678c8bu; // "SnowAlbedo" (Texture)
-const uint kDesertSnowNormalKey   = 0x253367e1u; // "SnowNormal" (Texture, OpenGL tangent space)
-const uint kDesertSnowArmKey      = 0xc2d545c4u; // "SnowArm" (Texture: R = occlusion, G = roughness, B = metal)
-const uint kDesertSnowTileSizeKey = 0x2fe67b17u; // "SnowTileSize": cm one texture repeat covers on the ground
-
-// The steepest face snow holds, as the up-ness (world normal . +Y) at full cover: 0.4 = 66 degrees off the
-// horizontal. Snow slides off anything steeper, so a wall (up = 0) stays bare at ANY cover (UE's snow material
-// functions mask by the world normal's Z the same way); SnowCover moves the threshold from flat-only (1) to this.
-const float kDesertSnowSteepestUp = 0.4;
+// THE WORLD'S SNOW LAYER (FIELD-WINTER): the weather layer a preset lays on every lit surface that faces the sky,
+// read by the surface pass headers (Mesh/Surface/SurfaceWeather.glslh) and the landscape (Programs/Terrain/*.shader).
+// WHAT the layer is — its look and where on a surface it lies — is the world's Surface Layer graph
+// (Common/SurfaceLayer.glslh, SNOW-LAYER): the collection names the graph (M_SnowLayer, M_SnowLayer_Dirty), the graph
+// reads SnowCover and samples its own textures. This file only gates it by the sky (the view's precipitation
+// occlusion) and lays its normal in the surface's frame. Its DEPTH on open ground (SnowDepth, cm) is the grass
+// generator's, which sinks every root by it (GrassRenderer reads the parameter into GrassGenerate's params).
+#include <Generated/SurfaceLayers.glslh>
 
 struct DesertSnowLayer
 {
@@ -33,24 +16,16 @@ struct DesertSnowLayer
     vec3  NormalWS; // world space
     float Roughness;
     float AO;
+    float Metallic;
     float Weight; // 0 = no snow here, 1 = only snow
 };
 
-// A Texture world parameter as a bindless texture; false while the collection names none or it is not resident.
-bool DesertWorldTexture( const uint key, out BindlessTexture t )
-{
-    const vec4 v = DesertWorldParameter( key );
-    t            = BindlessTexture( floatBitsToUint( v.x ), floatBitsToUint( v.y ), 0u, 0u );
-    return v.w > 0.5;
-}
-
 // The snow at @p worldPos on a surface whose WORLD normal is @p normalWS (the geometric one: snow buries the
 // surface's own relief), with @p exposure the share of the open sky that reaches it (1 - the view's precipitation
-// occlusion; 1 where the caller has none). Projected from above (snow falls, it does not wrap): u = +X, v = -Z. The
-// coverage is a threshold on how much the surface faces up, falling with SnowCover from flat-only to
-// kDesertSnowSteepestUp, broken up by the snow's own relief (its occlusion channel about the scan's mean), so the
-// edge on a roof or a branch is ragged like drifted snow, not a contour line. The snow's normal map is laid in a
-// frame around @p normalWS (T = +X and B = -Z projected onto the surface), so snow on a pitched roof slopes with it.
+// occlusion; 1 where the caller has none). The world's Surface Layer graph says what the snow looks like and how much
+// of the surface it covers (Weight); the exposure scales that. The layer's normal (tangent space in the top-projected
+// frame: T = +X and B = -Z projected onto the surface) is laid around @p normalWS, so snow on a pitched roof slopes
+// with it. With no layer named, or its textures not resident, the weight is 0: nothing here invents a colour.
 DesertSnowLayer DesertEvaluateSnow( const vec3 worldPos, const vec3 normalWS, const float exposure )
 {
     DesertSnowLayer snow;
@@ -58,38 +33,30 @@ DesertSnowLayer DesertEvaluateSnow( const vec3 worldPos, const vec3 normalWS, co
     snow.NormalWS  = normalWS;
     snow.Roughness = 1.0;
     snow.AO        = 1.0;
+    snow.Metallic  = 0.0;
     snow.Weight    = 0.0;
-
-    const float cover = clamp( DesertWorldParameter( kDesertSnowCoverKey ).x, 0.0, 1.0 );
-    BindlessTexture albedoMap, normalMap, armMap;
-    if ( cover <= 0.0 || exposure <= 0.0 || !DesertWorldTexture( kDesertSnowAlbedoKey, albedoMap ) ||
-         !DesertWorldTexture( kDesertSnowNormalKey, normalMap ) || !DesertWorldTexture( kDesertSnowArmKey, armMap ) )
+    if ( exposure <= 0.0 )
         return snow;
 
-    const float tile = max( DesertWorldParameter( kDesertSnowTileSizeKey ).x, 1.0 );
-    const vec2  uv   = vec2( worldPos.x, -worldPos.z ) / tile;
-    // All three maps are fetched here, in the control flow every pixel of the quad shares: an implicit-LOD fetch
-    // behind the per-pixel coverage branch below has undefined derivatives where the quad straddles the edge.
-    const vec3  arm    = SampleBindless( armMap, uv ).rgb;
-    // The normal map is cooked BC5 (Intent NormalMap: R and G only, blue reads 0), so its Z is reconstructed
-    // (Common/TangentNormal.glslh); `.xyz * 2 - 1` gave every texel Z = -1, a snow lit from behind itself (black).
-    const vec3  n      = DecodeTangentNormal( SampleBindless( normalMap, uv ).rg );
-    const vec3  albedo = SampleBindless( albedoMap, uv ).rgb;
-
-    const float up        = normalWS.y;
-    const float threshold = mix( 1.0, kDesertSnowSteepestUp, cover );
-    const float drift     = ( arm.r - 0.9 ) * 0.5; // the scan's relief about its mean occlusion breaks the edge up
-    snow.Weight           = smoothstep( threshold, threshold + 0.15, up + drift ) * clamp( exposure, 0.0, 1.0 );
+    DesertSurfaceLayerInput li;
+    li.WorldPosition                 = worldPos;
+    li.WorldNormal                   = normalWS;
+    li.TopUV                         = vec2( worldPos.x, -worldPos.z );
+    li.Up                            = normalWS.y;
+    const DesertSurfaceLayerOutput o = DesertEvaluateSurfaceLayer( li );
+    snow.Weight                      = clamp( o.Weight, 0.0, 1.0 ) * clamp( exposure, 0.0, 1.0 );
     if ( snow.Weight <= 0.0 )
         return snow;
 
+    const vec3 n    = dot( o.Normal, o.Normal ) > 1e-8 ? normalize( o.Normal ) : vec3( 0.0, 0.0, 1.0 );
     const vec3 east = vec3( 1.0, 0.0, 0.0 ) - normalWS * normalWS.x;
     const vec3 t    = dot( east, east ) > 1e-4 ? normalize( east ) : vec3( 0.0, 0.0, 1.0 );
-    const vec3 b    = cross( normalWS, t ); // = -Z on flat ground
+    const vec3 b    = cross( normalWS, t );
     snow.NormalWS   = normalize( t * n.x + b * n.y + normalWS * n.z );
-    snow.Albedo     = albedo;
-    snow.Roughness  = arm.g;
-    snow.AO         = arm.r;
+    snow.Albedo     = o.BaseColor.rgb;
+    snow.Roughness  = clamp( o.Roughness, 0.0, 1.0 );
+    snow.AO         = clamp( o.Occlusion, 0.0, 1.0 );
+    snow.Metallic   = clamp( o.Metallic, 0.0, 1.0 );
     return snow;
 }
 

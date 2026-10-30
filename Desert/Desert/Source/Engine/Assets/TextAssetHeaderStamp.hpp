@@ -110,8 +110,10 @@ namespace Desert::Assets
     inline constexpr uint32_t kWorldParametersSchemaVersion = 1;
     // A .dweatherpreset: one weather as data, stated from its first version (WTH-STATE;
     // Serialization/WeatherPreset.hpp).
+    //   2 - WTH-OVERCAST-2: CloudTypes[].Type is {Guid, Path} of the `.decloudtype` (was a bare path), and the
+    //       header's Dependencies are those GUIDs, so packaging carries the types with the preset.
     inline constexpr uint32_t kWeatherPresetSchemaTag     = Common::Content::FourCC( "WTHP" );
-    inline constexpr uint32_t kWeatherPresetSchemaVersion = 1;
+    inline constexpr uint32_t kWeatherPresetSchemaVersion = 2;
     // A .dsssprofile: one Burley subsurface profile (SSS-PROFILE; Serialization/SubsurfaceProfile.hpp).
     inline constexpr uint32_t kSubsurfaceProfileSchemaTag     = Common::Content::FourCC( "SSSP" );
     inline constexpr uint32_t kSubsurfaceProfileSchemaVersion = 1;

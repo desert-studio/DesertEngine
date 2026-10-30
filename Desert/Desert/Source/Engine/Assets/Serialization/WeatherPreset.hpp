@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/Serialization/WorldParameters.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>
 
@@ -47,12 +48,14 @@ namespace Desert::Assets::Serialization
         [[nodiscard]] bool operator==( const WeatherParameterValue& ) const = default;
     };
 
-    /// One cloud type the weather shows and how much of it (WTH-OVERCAST): `Type` the `.decloudtype` path relative
-    /// to the assets root, `Weight` 0..1 its share of CloudCoverage — the cloud layer's CloudTypeWeight of the
-    /// slot holding that type. A preset that states any type states the WHOLE set: a type it leaves out is at 0.
+    /// One cloud type the weather shows and how much of it (WTH-OVERCAST): `Type` the `.decloudtype` as {Guid, Path}
+    /// (the GUID resolves, the path — relative to the assets root — is for the reader; the GUID is one of the
+    /// header's Dependencies, so the cook and the packager carry the type with the preset), `Weight` 0..1 its share
+    /// of CloudCoverage — the cloud layer's CloudTypeWeight of the slot holding that type. A preset that states any
+    /// type states the WHOLE set: a type it leaves out is at 0.
     struct WeatherCloudTypeWeight
     {
-        std::string Type;
+        AssetGuidRef Type;
         float       Weight = 0.0f;
 
         [[nodiscard]] bool operator==( const WeatherCloudTypeWeight& ) const = default;
@@ -81,6 +84,11 @@ namespace Desert::Assets::Serialization
     /// wind speed >= 0.
     Common::BoolResultStr ValidateWeatherPresetData( const WeatherPresetData& data );
 
+    /// What the header's Dependencies state: the GUID of every cloud type the preset names, each once, sorted.
+    [[nodiscard]] std::vector<std::string> WeatherPresetDependencies( const WeatherPresetData& data );
+
+    /// Parses a `.dweatherpreset`. Refused: no header, another kind or version, invalid data, or header
+    /// Dependencies that are not exactly WeatherPresetDependencies.
     Common::ResultStr<WeatherPresetData> ParseWeatherPreset( const std::string& text );
 
     std::string WriteWeatherPreset( const WeatherPresetData& data );

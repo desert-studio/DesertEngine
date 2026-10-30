@@ -54,6 +54,7 @@
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MaterialFormat.hpp>
 #include <Engine/Assets/Serialization/FoliageType.hpp>
+#include <Engine/Assets/Serialization/WeatherPreset.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Common/Core/Serialization/GlmReflection.hpp>
 
@@ -3784,6 +3785,61 @@ namespace Desert::Migration
         std::string written = S::WriteVFXEffectType( data );
         if ( auto reread = S::ParseVFXEffectType( written ); !reread )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as VFXT 2: {}",
+                                                            reread.GetError() );
+        return Common::MakeSuccess( std::move( written ) );
+    }
+
+    Common::ResultStr<std::string> MigrateWeatherPresetV1ToV2(
+         const std::string&                                                         text,
+         const std::function<Common::ResultStr<std::string>( const std::string& )>& cloudTypeGuid )
+    {
+        // WTHP 2 IS WTHP 1 WITH EACH ROW'S Type AN OBJECT: every `"Type": "<path>"` value is replaced by
+        // `{"Guid": "<its header GUID>", "Path": "<path>"}`, then the body reads as v2 and the engine's own writer
+        // states the header's Dependencies from the rows.
+        namespace S = Assets::Serialization;
+        std::string       patched;
+        const std::string key  = "\"Type\"";
+        std::size_t       from = 0;
+        std::size_t       row  = 0;
+        for ( std::size_t at = text.find( key ); at != std::string::npos; at = text.find( key, from ), ++row )
+        {
+            const std::size_t colon = text.find( ':', at + key.size() );
+            const std::size_t open =
+                 colon == std::string::npos ? colon : text.find_first_not_of( " \t\r\n", colon + 1u );
+            if ( open == std::string::npos || text[open] != '"' )
+                return Common::MakeFormattedError<std::string>( "WTHP 1 CloudTypes[{}] Type is not a path string",
+                                                                row );
+            const std::size_t close = text.find( '"', open + 1u );
+            if ( close == std::string::npos )
+                return Common::MakeFormattedError<std::string>( "WTHP 1 CloudTypes[{}] Type has no closing quote",
+                                                                row );
+            const std::string path = text.substr( open + 1u, close - open - 1u );
+            const auto        guid = cloudTypeGuid( path );
+            if ( !guid )
+                return Common::MakeFormattedError<std::string>( "WTHP 1 CloudTypes[{}] '{}': {}", row, path,
+                                                                guid.GetError() );
+            patched += text.substr( from, open - from );
+            patched += "{\"Guid\": \"" + guid.GetValue() + "\", \"Path\": \"" + path + "\"}";
+            from = close + 1u;
+        }
+        patched += text.substr( from );
+
+        const auto v1 = Common::Json::Read<S::WeatherPresetData>( patched );
+        if ( !v1 )
+            return Common::MakeFormattedError<std::string>( "WTHP 1 body does not read: {}", v1.GetError() );
+        const S::WeatherPresetData& data = v1.GetValue();
+        if ( !data.Header )
+            return Common::MakeFormattedError<std::string>(
+                 "the file states no header, and this step raises WTHP 1 only" );
+        const auto stated = data.Header->Versions.find( "WTHP" );
+        if ( stated == data.Header->Versions.end() || stated->second != 1u )
+            return Common::MakeFormattedError<std::string>(
+                 "the header states WTHP {}, and this step raises WTHP 1 only",
+                 stated == data.Header->Versions.end() ? std::string( "nothing" )
+                                                       : std::to_string( stated->second ) );
+        std::string written = S::WriteWeatherPreset( data );
+        if ( auto reread = S::ParseWeatherPreset( written ); !reread )
+            return Common::MakeFormattedError<std::string>( "the raised file does not read as WTHP 2: {}",
                                                             reread.GetError() );
         return Common::MakeSuccess( std::move( written ) );
     }

@@ -132,7 +132,7 @@ namespace
     // `.dfx` too: its content step (VFXS 1 -> 2, VFX-09) runs in the same loop.
     constexpr std::array kLayoutOnlyExtensions{ ".danimgraph", ".dgraph", ".decloudtype", ".destrings",
                                                 ".detheme",    ".derig",  ".retarget",    ".skeleton",
-                                                ".defoliage",  ".dfx",    ".dfxtype" };
+                                                ".defoliage",  ".dfx",    ".dfxtype",     ".dweatherpreset" };
 
     bool IsLayoutOnly( const std::filesystem::path& path )
     {
@@ -365,6 +365,7 @@ namespace
          TextHeaderGate{ ".anim", "ANIM", Desert::Assets::kAnimationSchemaVersion },
          TextHeaderGate{ ".dfx", "VFXS", Desert::Assets::kVFXSystemSchemaVersion },
          TextHeaderGate{ ".dfxtype", "VFXT", Desert::Assets::kVFXEffectTypeSchemaVersion },
+         TextHeaderGate{ ".dweatherpreset", "WTHP", Desert::Assets::kWeatherPresetSchemaVersion },
     };
 
     const TextHeaderGate* TextHeaderGateFor( const std::filesystem::path& path )
@@ -1481,6 +1482,7 @@ namespace Desert::Migration
 
         int foliageRaised    = 0;
         int cloudTypesRaised = 0;
+        int weatherPresetsRaised = 0;
         int vfxSystemsRaised = 0;
         // Default effect types this pass created (or, under --check, would create): one per VFX root.
         std::set<std::string> createdEffectTypes;
@@ -1642,6 +1644,55 @@ namespace Desert::Migration
                         continue;
                     }
                     ++cloudTypesRaised;
+                    continue;
+                }
+            }
+            // WTHP 1 -> 2 (WTH-OVERCAST-2): each cloud type row states {Guid, Path}, the header its Dependencies.
+            // The GUID is the type file's own header GUID; the path is relative to the preset's assets root.
+            if ( path.extension() == ".dweatherpreset" )
+            {
+                const auto stated = ReadStatedVersion( path, text, "WTHP" );
+                if ( stated && stated.GetValue() == 1u )
+                {
+                    const auto assetsRoot = Common::Constants::Path::RootForContentPath(
+                         Common::Constants::Path::ContentDir::Weather, path );
+                    const auto cloudTypeGuid = [&]( const std::string& rel ) -> Common::ResultStr<std::string>
+                    {
+                        if ( !assetsRoot )
+                            return Common::MakeError<std::string>( "the preset is not under a Weather content "
+                                                                   "folder, so its assets root is unknown" );
+                        const std::filesystem::path typePath = *assetsRoot / rel;
+                        std::error_code             typeEc;
+                        if ( !std::filesystem::is_regular_file( typePath, typeEc ) )
+                            return Common::MakeError<std::string>( "no cloud type file '" + typePath.string() +
+                                                                   "'" );
+                        std::istringstream typeText( ReadAll( typePath ) );
+                        const auto         header = Common::Content::ReadTextHeaderObject( typeText );
+                        if ( !header )
+                            return Common::MakeError<std::string>(
+                                 "'" + typePath.string() + "' states no readable header: " + header.GetError() );
+                        const auto parsed =
+                             rfl::json::read<Common::Content::TextAssetHeaderSerialized>( header.GetValue() );
+                        if ( !parsed )
+                            return Common::MakeError<std::string>(
+                                 "'" + typePath.string() + "': unreadable header: " + parsed.error().what() );
+                        return Common::MakeSuccess( parsed.value().Guid );
+                    };
+                    const auto raised = Desert::Migration::MigrateWeatherPresetV1ToV2( text, cloudTypeGuid );
+                    if ( !raised )
+                    {
+                        err << "FAIL   " << path.string() << " — WTHP 1 -> 2: " << raised.GetError() << "\n";
+                        ++failed;
+                        continue;
+                    }
+                    out << ( check ? "would raise " : "raised " ) << path.string() << " WTHP 1 -> "
+                        << Desert::Assets::kWeatherPresetSchemaVersion << "\n";
+                    if ( !check && !WriteText( path, raised.GetValue(), err ) )
+                    {
+                        ++failed;
+                        continue;
+                    }
+                    ++weatherPresetsRaised;
                     continue;
                 }
             }
@@ -1912,10 +1963,11 @@ namespace Desert::Migration
             << texts.size() << " other text asset(s), " << relaid
             << ( check ? " would be re-laid-out, " : " re-laid-out, " ) << foliageRaised
             << ( check ? " foliage type(s) would be raised, " : " foliage type(s) raised, " ) << cloudTypesRaised
-            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << vfxSystemsRaised
-            << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " ) << animGraphsRaised
-            << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " ) << meshesRaised
-            << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
+            << ( check ? " cloud type(s) would be raised, " : " cloud type(s) raised, " ) << weatherPresetsRaised
+            << ( check ? " weather preset(s) would be raised, " : " weather preset(s) raised, " )
+            << vfxSystemsRaised << ( check ? " VFX system(s) would be raised, " : " VFX system(s) raised, " )
+            << animGraphsRaised << ( check ? " anim graph(s) would be raised, " : " anim graph(s) raised, " )
+            << meshesRaised << ( check ? " mesh(es) would be raised, " : " mesh(es) raised, " ) << tiles.size()
             << " landscape tile(s), " << texturesRaised
             << ( check ? " texture(s) would be raised, " : " texture(s) raised, " ) << recordsStated
             << ( check ? " import record(s) would state their source hash, "
@@ -1925,10 +1977,10 @@ namespace Desert::Migration
         failedOut = failed;
         if ( failed > 0 )
             return 1;
-        return ( check &&
-                 ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 || foliageRaised > 0 ||
-                   cloudTypesRaised > 0 || vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
-                   recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
+        return ( check && ( changed > 0 || materialsRaised > 0 || prefabsChanged > 0 || relaid > 0 ||
+                            foliageRaised > 0 || cloudTypesRaised > 0 || weatherPresetsRaised > 0 ||
+                            vfxSystemsRaised > 0 || animGraphsRaised > 0 || meshesRaised > 0 ||
+                            recordsStated > 0 || materialsRenamed > 0 || texturesRaised > 0 ) )
                     ? 1
                     : 0;
     }

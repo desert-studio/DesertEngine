@@ -68,7 +68,36 @@ namespace Desert::Assets::Serialization::ShaderGraph
         // vertex contract, no framebuffer and no draw of its own, because it never draws — it is
         // substituted into things that do.
         Volume = 2,
+        // THE WORLD'S SURFACE LAYER — what lies ON every lit surface of the world (snow, dirt, ash, moss), and
+        // like Volume a FRAGMENT rather than a program: the graph compiles to one GLSL function
+        // (Generated/SurfaceLayers.glslh) that every surface pass header and the landscape call where the
+        // weather is applied, so the layer covers every material without one of them being edited (UE's Material
+        // Layers are a stack inside EACH master material; here the world owns one layer). Which layer a world
+        // shows is a world parameter (WorldParameterType::SurfaceLayer) naming the graph, so switching it is a
+        // value, not a recompile; editing the graph regenerates the function and the surface programs reload.
+        SurfaceLayer = 3,
     };
+
+    /// A surface layer's id as the world parameter carries it: the low 24 bits of its graph name's FNV-1a, so the
+    /// float the table stores holds it exactly. The dispatcher in Generated/SurfaceLayers.glslh compares the same.
+    [[nodiscard]] constexpr uint32_t SurfaceLayerId( const std::string_view graphName )
+    {
+        uint32_t hash = 2166136261u;
+        for ( const char c : graphName )
+        {
+            hash ^= static_cast<uint8_t>( c );
+            hash *= 16777619u;
+        }
+        return ( hash & 0x00FFFFFFu ) | 0x00000001u; // never 0: 0 is "no layer"
+    }
+
+    /// The world parameter name a surface layer's texture is published under (and its key, hashed the same way as
+    /// every world parameter): the layer's textures ride the world's bindless parameter table, no binding of their
+    /// own.
+    [[nodiscard]] inline std::string SurfaceLayerTextureName( const std::string_view textureAsset )
+    {
+        return std::string( "SurfaceLayer:" ) + std::string( textureAsset );
+    }
 
     struct Pin
     {
@@ -85,6 +114,9 @@ namespace Desert::Assets::Serialization::ShaderGraph
         std::string          Kind;
         std::string          ParamName;              // TextureSample / *Param nodes: exposed property name
         std::array<float, 4> Value = { 1, 1, 1, 1 }; // *Const / *Param nodes: (default) value
+        std::string          Asset; // Layer Texture nodes: the texture asset (content-relative .detex), as UE's
+                                    // Texture Sample holds its texture
+
         float                X = 0.0f, Y = 0.0f;     // canvas position (captured on save)
         std::vector<Pin>     Inputs;
         std::vector<Pin>     Outputs;
@@ -137,6 +169,9 @@ namespace Desert::Assets::Serialization::ShaderGraph
     /// editor's. Missing fields take their defaults (a graph written by an older build is readable);
     /// malformed JSON is an error carrying reflect-cpp's own message, never a quietly empty graph.
     [[nodiscard]] Common::ResultStr<Document> ParseShaderGraph( const std::string& json );
+
+    /// The texture assets a Surface Layer graph samples (its Layer Texture nodes), in document order, unique.
+    [[nodiscard]] std::vector<std::string> SurfaceLayerTextures( const Document& doc );
 
     // NO WRITE FUNCTION HERE, and it is a line worth keeping: this unit turns bytes into a document and
     // back, and nothing in it touches the disk. `ShaderGraphAsset::Save` is what writes, because the

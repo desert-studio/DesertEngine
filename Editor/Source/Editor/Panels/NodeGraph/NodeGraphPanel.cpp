@@ -81,6 +81,20 @@ namespace Desert::Editor
         // passthrough). Shared by the "New" button and the File Explorer's create action.
         void PopulateStarter( SG::Document& doc, SG::Domain domain )
         {
+            if ( domain == SG::Domain::SurfaceLayer )
+            {
+                // THE INPUT AND AN OUTPUT WITH NOTHING WIRED: an unwired Weight lays nothing, so a new layer
+                // named by a world changes no pixel until the artist wires where it lies.
+                auto input  = SG::MakeNode( doc, "SurfaceLayerInput" );
+                input.X     = 0.0f;
+                input.Y     = 60.0f;
+                auto output = SG::MakeNode( doc, "SurfaceLayerOutput" );
+                output.X    = 360.0f;
+                output.Y    = 60.0f;
+                doc.Nodes.push_back( std::move( input ) );
+                doc.Nodes.push_back( std::move( output ) );
+                return;
+            }
             if ( domain == SG::Domain::Volume )
             {
                 // A CLOUD SAMPLE AND AN OUTPUT WITH NOTHING WIRED — which compiles to the SHIPPED medium
@@ -415,8 +429,63 @@ namespace Desert::Editor
         Compile();
     }
 
+    Common::BoolResultStr NodeGraphPanel::RegenerateSurfaceLayers( const SG::Document* editing )
+    {
+        std::vector<SG::Document> layers;
+        std::error_code           ec;
+        for ( const auto& entry : std::filesystem::directory_iterator( GraphsDirectory(), ec ) )
+        {
+            if ( entry.path().extension() != ".dgraph" )
+                continue;
+            const auto text = Common::Utils::FileSystem::ReadFileContent( entry.path() );
+            if ( !text )
+                return Common::MakeFormattedError<bool>( "surface layers: {}", text.GetError() );
+            auto doc = ::Desert::Assets::Serialization::ShaderGraph::ParseShaderGraph( text.GetValue() );
+            if ( !doc )
+                return Common::MakeFormattedError<bool>( "surface layers: {}: {}", entry.path().string(),
+                                                         doc.GetError() );
+            if ( doc.GetValue().DomainEnum() != SG::Domain::SurfaceLayer )
+                continue;
+            if ( editing != nullptr && doc.GetValue().Name == editing->Name )
+                continue; // the open document stands for its file
+            layers.push_back( doc.ExtractValue() );
+        }
+        if ( ec )
+            return Common::MakeFormattedError<bool>( "surface layers: {}: {}", GraphsDirectory().string(),
+                                                     ec.message() );
+        if ( editing != nullptr && editing->DomainEnum() == SG::Domain::SurfaceLayer )
+            layers.push_back( *editing );
+
+        const auto source = SG::CompileSurfaceLayers( std::move( layers ) );
+        if ( !source )
+            return Common::MakeFormattedError<bool>( "{}", source.GetError() );
+
+        const std::filesystem::path path =
+             Common::Constants::Path::SHADERDIR_PATH / "Generated" / "SurfaceLayers.glslh";
+        if ( const auto current = Common::Utils::FileSystem::ReadFileContent( path );
+             current && current.GetValue() == source.GetValue() )
+            return BOOLSUCCESS;
+        if ( const auto written = Common::Utils::FileSystem::WriteContentToFileAtomic( path, source.GetValue() );
+             !written )
+            return Common::MakeFormattedError<bool>( "surface layers: {}", written.GetError() );
+        LOG_INFO( "[SurfaceLayer] wrote {}", path.string() );
+        return BOOLSUCCESS;
+    }
+
     void NodeGraphPanel::Compile()
     {
+        // A surface layer is no program of its own: it is regenerated into the one include every surface program
+        // and the landscape compile against, and the shader hot reload rebuilds them in the background.
+        if ( m_Doc.DomainEnum() == SG::Domain::SurfaceLayer )
+        {
+            const auto regenerated = RegenerateSurfaceLayers( &m_Doc );
+            m_Status = regenerated ? m_Doc.Name + " compiled into Generated/SurfaceLayers.glslh — name it in a "
+                                                  "world parameter collection's SurfaceLayer row"
+                                   : "Compile error: " + regenerated.GetError();
+            m_StatusIsError = !regenerated;
+            return;
+        }
+
         const auto source = SG::CompileToDShader( m_Doc );
         if ( !source )
         {
@@ -606,7 +675,7 @@ namespace Desert::Editor
         ImGui::SetNextItemWidth( 130.0f );
         // SIZED FROM THE ARRAY, and it used to be a literal 2 sitting beside a live enum — so adding the
         // Volume domain would have compiled, offered two of three, and told nobody.
-        const char* kDomains[] = { "Surface", "Post Process", "Cloud Medium" };
+        const char* kDomains[] = { "Surface", "Post Process", "Cloud Medium", "Surface Layer" };
         int         domainIdx  = m_Doc.Domain;
         if ( ImGui::Combo( "##domain", &domainIdx, kDomains, static_cast<int>( std::size( kDomains ) ) ) )
             ChangeDomain( static_cast<SG::Domain>( domainIdx ) );
@@ -683,6 +752,15 @@ namespace Desert::Editor
                 ImGui::SetNextItemWidth( 140.0f );
                 if ( ImGui::InputText( std::format( "##pn{}", node.Id ).c_str(), buf, sizeof( buf ) ) )
                     node.ParamName = buf;
+            }
+            // A Layer Texture holds its texture (content-relative .detex), as UE's Texture Sample does.
+            if ( node.Kind == "LayerTexture" )
+            {
+                char buf[256];
+                std::snprintf( buf, sizeof( buf ), "%s", node.Asset.c_str() );
+                ImGui::SetNextItemWidth( 260.0f );
+                if ( ImGui::InputText( std::format( "##as{}", node.Id ).c_str(), buf, sizeof( buf ) ) )
+                    node.Asset = buf;
             }
             if ( spec && spec->HasColorValue )
             {

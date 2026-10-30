@@ -157,6 +157,14 @@ namespace Desert::Editor
         // names) come back as the error string.
         Common::ResultStr<std::string> CompileToDShader( const Document& doc );
 
+        // A Surface Layer graph as its GLSL function `DesertSurfaceLayer_<Name>` (Common/SurfaceLayer.glslh's
+        // contract).
+        Common::ResultStr<std::string> CompileSurfaceLayerFunction( const Document& doc );
+
+        // Every Surface Layer graph as the text of Generated/SurfaceLayers.glslh: one function each and the
+        // dispatcher DesertEvaluateSurfaceLayer, which runs the one the world's SurfaceLayer parameter names.
+        Common::ResultStr<std::string> CompileSurfaceLayers( std::vector<Document> layers );
+
         // REBUILD EVERY NODE'S PINS FROM THE CURRENT CATALOGUE — run on every load, like UE's
         // UEdGraphSchema::ReconstructNode / UK2Node::ReconstructNode (EdGraphSchema.cpp, K2Node.cpp:703).
         // It is not a format migration: nothing is written back, and a document whose nodes already

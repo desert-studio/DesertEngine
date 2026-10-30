@@ -1,4 +1,6 @@
 #pragma once
+
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1100,6 +1102,16 @@ namespace Desert::Migration
     // CullByViewFrustum false and MaxTimeWithoutRender 0 - what a v1 type did. The header's GUID kept; a file that
     // does not state VFXT 1 is an error naming what it states. PURE.
     Common::ResultStr<std::string> MigrateVFXEffectTypeV1ToV2( const std::string& text );
+
+    // The WTHP 2 text of a WTHP 1 `.dweatherpreset` (WTH-OVERCAST-2): every CloudTypes row's bare `.decloudtype`
+    // path becomes {Guid, Path}, the GUID the one @p cloudTypeGuid answers for that path (the type file's own
+    // header GUID), and the header's Dependencies become those GUIDs (WeatherPresetDependencies), so the cook and
+    // the packager carry the types with the preset. Every other value kept, the preset's GUID kept. A row whose
+    // type the resolver cannot answer is an error naming the row; a file that does not state WTHP 1 is an error
+    // naming what it states. PURE apart from @p cloudTypeGuid.
+    Common::ResultStr<std::string> MigrateWeatherPresetV1ToV2(
+         const std::string&                                                         text,
+         const std::function<Common::ResultStr<std::string>( const std::string& )>& cloudTypeGuid );
 
     // What MigrateInlineFoliageV32ToV33 did to one file, and the `.defoliage` files it needs written. The
     // step itself writes nothing: the files are written by the tool's write pass, beside the scene.

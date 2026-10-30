@@ -104,6 +104,13 @@ namespace Desert::Editor
         CreateNewGraphFile( const std::string&  directory,
                             ShaderGraph::Domain domain = ShaderGraph::Domain::Surface );
 
+        /// Rewrites Shaders/Generated/SurfaceLayers.glslh from every Surface Layer graph in the project's graph
+        /// directory (@p editing, when given, stands for its own file: the panel's unsaved document). Written only
+        /// when the text changes, so the surface programs that include it reload only on a real edit. The editor
+        /// runs it at start, so the file is never older than the graphs.
+        [[nodiscard]] static Common::BoolResultStr
+        RegenerateSurfaceLayers( const ShaderGraph::Document* editing = nullptr );
+
     private:
         void ChangeDomain( ShaderGraph::Domain domain ); // swaps the output node, prunes off-domain nodes
         void DrawToolbar();
