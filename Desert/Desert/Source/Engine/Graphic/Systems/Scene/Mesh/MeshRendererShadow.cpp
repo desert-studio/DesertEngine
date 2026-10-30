@@ -1020,10 +1020,10 @@ namespace Desert::Graphic::System
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
         std::vector<
-             std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
+             std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
              byMesh;
         m_ScratchShadowBucketOf.clear();
-        const auto bucketFor = [&]( Desert::StaticMesh* mesh,
+        const auto bucketFor = [&]( Desert::Mesh*       mesh,
                                     const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
             const auto [it, added] =
@@ -1136,7 +1136,7 @@ namespace Desert::Graphic::System
         singles.clear();
         for ( auto& [meshKey, bucket] : byMesh )
         {
-            Desert::StaticMesh* const mesh = meshKey.first;
+            Desert::Mesh* const mesh = meshKey.first;
             if ( instancingOn && bucket.size() >= 2 )
             {
                 // One draw per level, exactly as the geometry pass does it, and for the
@@ -1305,10 +1305,9 @@ namespace Desert::Graphic::System
         // the lit queues — a shader-graph object was lit like a solid and shadowed like a
         // hole in the world.
         //
-        // Per-object only, no instanced batching: the batching above keys on StaticMesh*,
-        // and this queue holds Mesh* (it also carries skinned and procedurally-built
-        // meshes). Casters here are counted in ones and twos, not in the hundreds the
-        // batching exists for.
+        // Per-object only, no instanced batching: this queue also carries skinned and
+        // procedurally-built meshes, and its casters are counted in ones and twos, not in
+        // the hundreds the batching exists for.
         //
         // Each draw casts its OWN submeshes (VisibleSubmeshMask), as every static caster does: an entity's draws
         // split its sections between this queue and the batched ones, and the silhouette is their union
