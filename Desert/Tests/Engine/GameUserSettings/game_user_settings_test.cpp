@@ -258,7 +258,7 @@ TEST_F( GameUserSettingsTest, ABrokenPlayerFileIsRefusedNotReplacedByTheProjects
 TEST_F( GameUserSettingsTest, AnOutOfRangeValueIsNotSaved )
 {
     GameUserSettings bad    = Sample();
-    bad.Scalability.Shadows = 4;
+    bad.Scalability.Shadows = 5; // 0..4 = Low..Cinematic
     EXPECT_FALSE( SaveGameUserSettings( bad, User() ) );
     EXPECT_FALSE( fs::exists( UserGameUserSettingsFile( User() ) ) );
     bad          = Sample();
@@ -311,8 +311,9 @@ TEST( GameUserSettingsApply, EveryValueReachesItsConsumer )
     EXPECT_EQ( at( Scal::Group::Textures ), settings.Scalability.Textures );
     EXPECT_EQ( at( Scal::Group::Effects ), settings.Scalability.Effects );
     EXPECT_EQ( at( Scal::Group::Foliage ), settings.Scalability.Foliage );
-    // A group the player's file does not name keeps the machine's level.
-    EXPECT_EQ( levels[static_cast<std::size_t>( Scal::Group::GlobalIllumination )], Scal::Level::High );
+    // The player's file holds every group (version 1): one the old six did not have comes from it too.
+    EXPECT_EQ( at( Scal::Group::GlobalIllumination ), settings.Scalability.GlobalIllumination );
+    EXPECT_EQ( at( Scal::Group::PathTracing ), settings.Scalability.PathTracing );
     EXPECT_FLOAT_EQ( AppliedMouseSensitivity(), 1.5f );
 
     // Applying the same settings again does not move a window that is already there.
