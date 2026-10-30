@@ -1,0 +1,10 @@
+# WG1: WorldGen's `landscape-smoke` preset (2 x 2 tiles of 255 quads at 1 m, FieldBarn grass and trees,
+# WorldGenMain.cpp:87) builds a scene the editor opens and renders. Generate it first (SHOTS-RUN.md):
+#   build/Bin/Debug/WorldGen.exe --preset landscape-smoke --project Projects/Desert --out Projects/Desert/Content/Scenes/WG1_LandscapeSmoke.desce --verify
+# The generated scene is a test output: delete it after the run, it is not committed.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WG1_LandscapeSmoke.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,2500,-2000
+Дано --subject viewport set Camera.Direction 0.6,-0.5,0.6
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид wg1_landscape WG1: the generated landscape - 2 x 2 tiles with relief, grass and trees on it, no hole between tiles, no untextured (checker / black) terrain; editor.log 0 VUID, no load refusal

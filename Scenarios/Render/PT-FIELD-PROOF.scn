@@ -1,0 +1,47 @@
+# PT-FIELD-PROOF: the path tracer draws every kind of content the raster path draws - FIELD_Barn's landscape, its
+# procedural trees, its mesh grass and blade cards, the volumetric sky clouds, then CornellDemo's glass sphere -
+# each frame non-black and non-empty (frame mean > 0, the content's own silhouette present, not a sky-only frame).
+# Cards: PT-FOLIAGE, PT-GRASS, PT-GRASS-BLADE, PT-LANDSCAPE, PT-CLOUDS, PT-GLASS (one editor session, Projects/Desert).
+# PathTracing.Denoiser stays at its default (Auto: DLSS Ray Reconstruction on the RTX box, else ReLAX); the
+# Off/ReLAX/RR comparison is PT-DENOISE.scn (the palette has no PathTracing.Denoiser entry yet - REMAINDER-SHOTS-SCN).
+# Frame wait: a zero-length viewport drag of N steps at 600,40 (the sky in every view below) renders N frames, the
+# REFL-RECAPTURE.scn idiom - DesertCtl has no frame-wait verb outside Play.
+# GI and Reflections both PathTraced: the path tracer integrates the two together, a lone PathTraced axis is
+# lowered (RenderMethods.cpp MethodLimit::PathTracerPair). The method overrides are saved to machine.json: the tail clears them (frame compares need default settings).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: GlobalIllumination.Method PathTraced"
+Дано run Quality "Quality: Reflections.Method PathTraced"
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид pt_foliage PT-FOLIAGE: the field's trees and the barn path-traced - crowns green with lit tops and dark undersides, trunks visible, not black cards, not missing (compare the raster FIELD-LIGHT 1_lit at the same camera: every tree there is here)
+Когда --subject viewport set Camera.Position 0,170,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.03,-1
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид pt_grass PT-GRASS: the mesh grass covers the ground out to the landscape edge in the path-traced frame (green, lit by the sun, shaded under the trees), not bare terrain
+Когда --subject viewport set Camera.Position 0,40,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.4,-1
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид pt_grass_blade PT-GRASS-BLADE: individual blade cards up close - the scan texture's veins and ragged alpha edge, both faces lit (two-sided), no opaque rectangles, no black blades
+Когда --subject viewport set Camera.Position 0,3000,6000
+Когда --subject viewport set Camera.Direction 0,-0.5,-1
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид pt_landscape PT-LANDSCAPE: the landscape from above path-traced - terrain layers and relief shading visible, both landscapes (Terrain and Terrain Far) present with no hole or seam between tiles
+Когда --subject viewport set Camera.Position 0,300,2500
+Когда --subject viewport set Camera.Direction 0.15,0.45,-1
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид pt_clouds_field PT-CLOUDS: FIELD_Barn's volumetric clouds in the path-traced sky (white lit tops, grey bases), not a bare gradient sky
+Когда run Scene "Open Scene Clouds_Showcase.desce"
+Когда --subject viewport set Camera.Position 0,200,0
+Когда --subject viewport set Camera.Direction 0,0.35,-1
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид pt_clouds_showcase PT-CLOUDS: Clouds_Showcase path-traced - the cloud layer fills the sky as in its raster frame
+Когда run Scene "Open Scene CornellDemo.desce"
+Когда --subject viewport set Camera.Position 0,200,650
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Когда --subject viewport drag 600,40 600,40 128
+Тогда-вид pt_glass PT-GLASS: CB_GlassSphere path-traced - refracted, inverted view of the box behind it inside the sphere, a caustic or bright spot on the floor, red/green walls bleeding colour; the sphere is not opaque grey and not missing
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Тогда pt_reset machine.json back to the level's GI method (the override cleared); editor.log 0 VUID over the whole run

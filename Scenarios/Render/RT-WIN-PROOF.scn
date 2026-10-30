@@ -1,0 +1,97 @@
+# RT-WIN-PROOF: the hardware ray-tracing cards on the Windows RTX box, one editor session in F:/BistroFoliageProj.
+# Cards: RT-LOCAL-SHADOWS, RT-SECTION-MATS, RT-SCENE-2, MR6, RT-LEDGER, VIEW-CLOSE-LEAK, SC-CAPTURE-SHARE,
+# SC-FRAME-GUARD, RT-TRANSLUCENT-REFL. VG-RASTER.scn [vg_vsm], VOLFOG-SHOWCASE.scn and FPS-CPU-LOAD.scn are the
+# group's other three sessions (SHOTS-RUN.md).
+# Frame wait: the zero-length drag at 600,40 (sky / upper facade) as in REFL-RECAPTURE.scn - DesertCtl has no
+# frame-wait verb outside Play. Log checks read the run's editor.log (play_scenario keeps only the last reply line
+# of a `state` step, so the ledger is read from the log's "ledger:" lines, RenderMethodsOverlay.hpp:32).
+# Every Quality / Anti-Aliasing override is saved to machine.json: the tail clears them.
+# Pixel diffs named below run after the session: python scripts/Dev/frames_compare.py <a.png> <b.png>.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Anti-Aliasing "Anti-Aliasing: TAA"
+Дано run Quality "Quality: Resolution.Percent 100"
+# --- RT-LOCAL-SHADOWS: the night street's 163 point + 27 spot lights shadowed by traced rays
+Когда run Quality "Quality: Shadows.Method CascadedMaps"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_local_shadows_maps reference: the night street, lamp-post / chair / awning shadows from the local lights' shadow maps
+Когда run Quality "Quality: Shadows.Method HardwareTraced"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_local_shadows_hw RT-LOCAL-SHADOWS: the same street under HardwareTraced shadows - every local-light shadow of rt_local_shadows_maps present (chairs, lamp posts, awnings on the cobbles), sharper at the contact, no light through walls, no lamp without a shadow; 0 VUID
+# --- RT-SECTION-MATS: a multi-section Bistro facade mesh, each section's own material in the BLAS hit shading
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда --subject viewport drag 600,40 600,40 32
+Когда run View "View mode: Reflections"
+Тогда-вид rt_section_mats_hw RT-SECTION-MATS: traced reflections of the facades in the shop windows and wet cobbles show each section's own material (stone wall, wood shutters, glass, metal signs differ) - not one material smeared over the whole mesh, no black hits
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: Reflections.Method PathTraced"
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид rt_section_mats_pt RT-SECTION-MATS: the same street path-traced (GI + Reflections PathTraced: the tracer pairs them) - per-section materials as in rt_section_mats_hw (shutters, signs, awning fabric keep their colours)
+Когда run Quality "Quality: GlobalIllumination.Method HardwareTraced"
+Когда run Quality "Quality: Reflections.Method HardwareTraced"
+# --- RT-SCENE-2: the ray-tracing scene overlay (drawn on every frame that built a TLAS, ViewportPanel.cpp:2268-2281)
+Тогда rt_scene_overlay RT-SCENE-2: the viewport's ray-tracing overlay lists the TLAS (instance count > 0, BLAS count > 0) and the render-methods overlay names Shadows HardwareTraced / Reflections HardwareTraced / GI HardwareTraced; editor.log "ledger:" rows for this view
+# --- MR6: DLSS (DLAA 100 / Quality 67 / Performance 50) and FSR Quality 67 against TAAU 67, same camera
+Когда run Quality "Quality: Resolution.Percent 67"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид mr6_taau_67 MR6 baseline: TAA upscaling from 67 %
+Когда run Anti-Aliasing "Anti-Aliasing: DLSS"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид mr6_dlss_67 MR6: DLSS Quality (67 %) - sharper thin geometry (railings, chair legs, cables) than mr6_taau_67, no ghosting; editor.log: DLSS evaluated (no "ignored" / fallback line)
+Когда run Quality "Quality: Resolution.Percent 50"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид mr6_dlss_50 MR6: DLSS Performance (50 %) - image intact, pixel-diff vs mr6_dlss_67 small
+Когда run Quality "Quality: Resolution.Percent 100"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид mr6_dlaa_100 MR6: DLAA at 100 % - the cleanest edges of the four
+Когда run Anti-Aliasing "Anti-Aliasing: FSR"
+Когда run Quality "Quality: Resolution.Percent 67"
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид mr6_fsr_67 MR6: FSR Quality (67 %) - pixel-diff vs mr6_taau_67 and mr6_dlss_67 measured (frames_compare.py), no shimmer bands; editor.log: FSR dispatched
+# --- RT-LEDGER + VIEW-CLOSE-LEAK: a second view opened and closed under FSR, then under DLSS -> no ledger rows left
+Когда run Scene "New Scene View"
+Когда --subject viewport drag 600,40 600,40 8
+Тогда rt_ledger_two_views RT-LEDGER: two views open (tab Scene 2 present), each with its render-methods overlay
+Когда run Scene "Close Scene View Scene 2"
+Когда --subject viewport drag 600,40 600,40 8
+Тогда view_close_fsr VIEW-CLOSE-LEAK (FSR): one view left, its image intact; editor.log has no "closed but N ledger rows" line
+Когда run Anti-Aliasing "Anti-Aliasing: DLSS"
+Когда run Scene "New Scene View"
+Когда --subject viewport drag 600,40 600,40 8
+Когда run Scene "Close Scene View Scene 2"
+Когда --subject viewport drag 600,40 600,40 8
+Тогда view_close_dlss RT-LEDGER / VIEW-CLOSE-LEAK (DLSS): after the close, 0 ledger rows of the closed view - editor.log has no "closed but N ledger rows"; the surviving view still upscales (no DLSS reset loop in the log)
+# --- SC-CAPTURE-SHARE + SC-FRAME-GUARD: the street's reflection capture B16_StreetCapture
+Когда run Anti-Aliasing "Anti-Aliasing: TAA"
+Когда run Quality "Quality: Resolution.Percent 100"
+Когда run Scene "Open Scene B16_Bistro_Street.desce"
+Когда --subject viewport set Camera.Position -440,300,-230
+Когда --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Когда --subject viewport drag 600,40 600,40 64
+Когда run View "View mode: Reflections"
+Тогда-вид sc_capture_share SC-CAPTURE-SHARE: the capture's reflections in the windows lit; editor.log: the capture's 6 faces are drawn from ONE surface cache (one "ledger:" surface-cache row for the capture, 6 faces on it, not 6 caches)
+Когда run View "View mode: Lit"
+Когда run Scene "New Viewport (same scene)"
+Когда --subject viewport drag 600,40 600,40 8
+Тогда sc_frame_guard SC-FRAME-GUARD: two viewports of the same scene; editor.log: the second UpdateScene of a frame only reads (its write is refused / skipped and logged once), no double capture update, 0 VUID
+# --- RT-TRANSLUCENT-REFL: CornellDemo glass sphere on / off under traced reflections
+Когда run Scene "Open Scene CornellDemo.desce"
+Когда --subject viewport set Camera.Position 0,200,650
+Когда --subject viewport set Camera.Direction 0,-0.1,-1
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_glass_on RT-TRANSLUCENT-REFL: the glass sphere and its reflection in the floor / walls (traced reflections see the translucent surface)
+Когда run Entity "CB_GlassSphere"
+Когда --subject selection set Translation 0,-10000,70
+Когда --subject viewport drag 600,40 600,40 32
+Тогда-вид rt_glass_off RT-TRANSLUCENT-REFL: the sphere moved out of the box; frames_compare.py rt_glass_on rt_glass_off != 0 inside the floor reflection area (not only where the sphere itself was)
+Когда --subject selection set Translation 0,150,70
+# --- tail: machine.json back to defaults
+Когда run Quality "Quality: Shadows.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Resolution.Percent Level"
+Тогда rt_reset overrides cleared; editor.log 0 VUID over the whole run

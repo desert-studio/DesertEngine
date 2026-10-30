@@ -15,3 +15,5 @@
 Когда --subject viewport drag 600,40 600,40 225
 Когда --subject viewport drag 600,40 600,40 225
 Тогда-вид 2_sun_moved тени повернулись (~20 deg); лог: ровно один «relit» после смены, затем «every capture settled», отражения обновлены
+# REFL-CAPTURE-NORM-3 (SHOTS-SCN 10-30): the recapture cost, read from this run's editor.log "[Profiler]" / capture timing rows.
+Тогда 3_recapture_cost REFL-CAPTURE-NORM-3: every recapture after the sun move costs <= 2 ms GPU (was 2.5-5 ms); the frame is 2_sun_moved

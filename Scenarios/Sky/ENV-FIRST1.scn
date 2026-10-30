@@ -1,0 +1,9 @@
+# ENV-FIRST1: the sky / environment of the first frames is deterministic - the same scenario played twice gives
+# the same pixels (no first-run-only LUT / irradiance state). Run it TWICE (SHOTS-RUN.md), then
+#   python scripts/Dev/frames_compare.py <run1>/env_first.png <run2>/env_first.png  -> 0 differing pixels
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Sky_PhysicalShowcase.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,200,0
+Дано --subject viewport set Camera.Direction 0,0.1,-1
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид env_first ENV-FIRST1: the physical sky and its lit ground; pixel-diff of run 1 vs run 2 = 0

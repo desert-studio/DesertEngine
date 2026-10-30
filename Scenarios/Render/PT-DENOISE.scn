@@ -1,16 +1,44 @@
 # PT-DENOISE: the path-traced image is clean from the first frame. PathTracing.Denoiser 1 (default at every level): System::PathTracer runs the spatial denoiser (PathTracerDenoise.shader: SVGF variance + 5 a-trous iterations over the demodulated sum / count, guides albedo/normal/depth from the paths) every frame; under DLSS Ray Reconstruction the paths go to it raw instead (1 path per jittered pixel centre per frame, no accumulation).
 # Headless shots (the project is outside the repo), F:/BistroFoliageProj, GI=PathTraced, PathTracing.Denoiser 1 and 0, 1 / 4 / 1024 paths.
-Дано F:/BistroFoliageProj, GI_Bistro_Day, GlobalIllumination.Method PathTraced, Lit, camera on the cobblestone street.
-Когда run Quality "Quality: PathTracing.Denoiser 1"; shoot after 1 traced frame, after 4, after 1024 paths (SamplesPerPixel reached).
-Тогда 0_day_dn_f1 frame 1 denoised: pavement noise (std of the difference to 0_day_ref_1024 over the pavement) >= 5x lower than 0_day_raw_f1; mean within 3 %; cobblestone seams as sharp as in the reference
-Тогда 1_day_dn_f4 frame 4 denoised: same criteria, lower noise than frame 1
-Когда run Quality "Quality: PathTracing.Denoiser 0"; shoot after 1 traced frame and after 1024 paths.
-Тогда 2_day_raw_f1 raw one-path frame (the noise baseline)
-Тогда 3_day_ref_1024 the 1024-path reference; with Denoiser 1 the 1024-path frame differs from it by < 1 % mean abs (the filter fades as the variance falls)
-Дано GI_Bistro_Night, same settings.
-Тогда 4_night_dn_f1 / 5_night_dn_f4 / 6_night_raw_f1 / 7_night_ref_1024 the same criteria at night (lamps, emissive windows: no smeared halos, no fireflies left)
-Тогда-вид 8_rr Upscaler DLSSRayReconstruction: the PT view keeps the upscaler, the image is clean on frame 1 and stays clean while the camera moves (no restart blur)
 # PT-DENOISE-16: PathTracing.Denoiser = Off(0) | ReLAX(1) | RR(2) | Auto(3, the default at every level: RR where DLSS Ray Reconstruction is offered, else ReLAX). RR keeps DLSS-RR on the PT view whatever AntiAliasing.Method says; its guides are the paths' own (DLSS-RR: Path Guides).
-Дано F:/BistroFoliageProj, GI_Bistro_Day, GlobalIllumination.Method PathTraced, Lit, camera on the cobblestone street.
-Когда run Quality "Quality: PathTracing.Denoiser 2"; shoot after 1 frame and after 8 frames of a pan.
-Тогда 9_rr_day 0 VUID; the log says DLSS Ray Reconstruction runs (no '[SceneRenderer] ... engine's temporal method instead'); HDR error vs 3_day_ref_1024 below 0_day_dn_f1 (r13 ReLAX) on the same frame
+# The prose spec this file held (kept as the criteria; the runnable steps follow):
+#   Дано F:/BistroFoliageProj, GI_Bistro_Day, GlobalIllumination.Method PathTraced, Lit, camera on the cobblestone street.
+#   Когда run Quality "Quality: PathTracing.Denoiser 1"; shoot after 1 traced frame, after 4, after 1024 paths (SamplesPerPixel reached).
+#   Тогда 0_day_dn_f1 frame 1 denoised: pavement noise (std of the difference to 0_day_ref_1024 over the pavement) >= 5x lower than 0_day_raw_f1; mean within 3 %; cobblestone seams as sharp as in the reference
+#   Тогда 1_day_dn_f4 frame 4 denoised: same criteria, lower noise than frame 1
+#   Когда run Quality "Quality: PathTracing.Denoiser 0"; shoot after 1 traced frame and after 1024 paths.
+#   Тогда 2_day_raw_f1 raw one-path frame (the noise baseline)
+#   Тогда 3_day_ref_1024 the 1024-path reference; with Denoiser 1 the 1024-path frame differs from it by < 1 % mean abs (the filter fades as the variance falls)
+#   Дано GI_Bistro_Night, same settings.
+#   Тогда 4_night_dn_f1 / 5_night_dn_f4 / 6_night_raw_f1 / 7_night_ref_1024 the same criteria at night (lamps, emissive windows: no smeared halos, no fireflies left)
+#   Тогда-вид 8_rr Upscaler DLSSRayReconstruction: the PT view keeps the upscaler, the image is clean on frame 1 and stays clean while the camera moves (no restart blur)
+#   Дано F:/BistroFoliageProj, GI_Bistro_Day, GlobalIllumination.Method PathTraced, Lit, camera on the cobblestone street.
+#   Когда run Quality "Quality: PathTracing.Denoiser 2"; shoot after 1 frame and after 8 frames of a pan.
+#   Тогда 9_rr_day 0 VUID; the log says DLSS Ray Reconstruction runs (no '[SceneRenderer] ... engine's temporal method instead'); HDR error vs 3_day_ref_1024 below 0_day_dn_f1 (r13 ReLAX) on the same frame
+# RUNNABLE FORM (SHOTS-SCN 10-30). The palette has no "Quality: PathTracing.Denoiser <name>" entry yet (the key exists,
+# Scalability.cpp:337, but QualityMethodOverridePaletteCommands emits only the three render methods): the first
+# step below is refused until it lands, BEFORE any override is written, so a refused run leaves machine.json clean.
+# 1024-path references need PathTracing.SamplesPerPixel, also not in the palette: the frames below are 1 / 4 / 64 frames.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Day.desce
+Дано run Quality "Quality: PathTracing.Denoiser Off"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -20,250,330
+Дано --subject viewport set Camera.Direction -0.6,0.05,-0.8
+Дано run Quality "Quality: GlobalIllumination.Method PathTraced"
+Дано run Quality "Quality: Reflections.Method PathTraced"
+Когда --subject viewport drag 600,40 600,40 1
+Тогда-вид 2_day_raw_f1 Denoiser Off, one path: the noise baseline
+Когда --subject viewport drag 600,40 600,40 64
+Тогда-вид 3_day_ref_64 Denoiser Off, 64 frames accumulated: the converged reference of this run
+Когда run Quality "Quality: PathTracing.Denoiser ReLAX"
+Когда --subject viewport drag 600,40 600,40 1
+Тогда-вид 0_day_dn_f1 ReLAX frame 1: pavement noise vs 3_day_ref_64 >= 5x lower than 2_day_raw_f1, mean within 3 %
+Когда --subject viewport drag 600,40 600,40 3
+Тогда-вид 1_day_dn_f4 ReLAX frame 4: lower noise than frame 1
+Когда run Quality "Quality: PathTracing.Denoiser RR"
+Когда --subject viewport drag 600,40 600,40 8
+Тогда-вид 9_rr_day RR: 0 VUID; editor.log says DLSS Ray Reconstruction runs (no "engine's temporal method instead"); HDR error vs 3_day_ref_64 below 0_day_dn_f1
+Когда run Quality "Quality: PathTracing.Denoiser Auto"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Когда run Quality "Quality: Reflections.Method Level"
+Тогда pt_denoise_reset overrides cleared (Denoiser back to Auto, the default at every level)

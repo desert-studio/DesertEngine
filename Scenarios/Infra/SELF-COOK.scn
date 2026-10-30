@@ -1,0 +1,5 @@
+# SELF-COOK: launching the editor writes nothing into Editor/Cooked/Meshes (meshes cook into the DDC, not the tree).
+# Before and after this run: `git -C <tree> status --porcelain Editor/Cooked` and the directory listing are equal.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Starter.desce
+Дано run View "View mode: Lit"
+Тогда self_cook SELF-COOK: Starter open; after quit Editor/Cooked/Meshes holds no new or changed file

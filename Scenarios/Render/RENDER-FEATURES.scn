@@ -1,0 +1,48 @@
+# RENDER-FEATURES: post-process and scalability cards on FIELD_Barn, one editor session in Projects/Desert.
+# Cards: MR2 (motion blur on/off), MR3 (depth of field on/off), SCAL-SPATIAL1 (render scale < 100 % without a
+# temporal method), BINDLESS-TEX (the Perf HUD's bindless row).
+# MR2 / MR3 have no palette toggle: they are the PostProcessVolume's authored fields (PostProcessSettings.hpp:188-205,
+# MotionBlurAmount 0 = off, DepthOfFieldFocalDistance 0 = off) set on FIELD_Barn's volume 8180000000000003 - an
+# unsaved scene edit, so machine.json is untouched. Motion: during Play the Walker walks its route (WalkRoute.lua).
+# Pixel diffs after the session: frames_compare.py mr2_blur_off mr2_blur_on / mr3_dof_off mr3_dof_on (both != 0).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,600,3200
+Дано --subject viewport set Camera.Direction 0,-0.3,-1
+# --- MR3: depth of field
+Когда set 8180000000000003 PostProcessVolumeData.Settings.DepthOfFieldFocalDistance 0
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид mr3_dof_off MR3 off: the whole field in focus
+Когда set 8180000000000003 PostProcessVolumeData.Settings.DepthOfFieldFocalDistance 1500
+Когда set 8180000000000003 PostProcessVolumeData.Settings.DepthOfFieldFstop 1.4
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид mr3_dof_on MR3 on (focus 15 m, f/1.4): the ground at ~15 m sharp, the far trees and the barn visibly blurred with round bokeh on bright spots; pixel-diff vs mr3_dof_off != 0 away from the focal plane
+Когда set 8180000000000003 PostProcessVolumeData.Settings.DepthOfFieldFocalDistance 0
+Когда set 8180000000000003 PostProcessVolumeData.Settings.DepthOfFieldFstop 4
+# --- MR2: motion blur, the Walker moving during Play
+Когда set 8180000000000003 PostProcessVolumeData.Settings.MotionBlurAmount 0
+Когда run Action "Play"
+Когда advance 1
+Тогда-вид mr2_blur_off MR2 off: Play, the Walker / camera in motion, every edge crisp
+Когда run Action "Stop"
+Когда set 8180000000000003 PostProcessVolumeData.Settings.MotionBlurAmount 1
+Когда run Action "Play"
+Когда advance 1
+Тогда-вид mr2_blur_on MR2 on (amount 1): the moving parts smeared along their motion, the static background sharp if the camera is still; pixel-diff vs mr2_blur_off != 0 on the moving parts
+Когда run Action "Stop"
+Когда set 8180000000000003 PostProcessVolumeData.Settings.MotionBlurAmount 0.5
+# --- SCAL-SPATIAL1: render scale below 100 % with no temporal method (spatial upscale only)
+Когда --subject viewport set Camera.Position 0,600,3200
+Когда --subject viewport set Camera.Direction 0,-0.3,-1
+Когда run Anti-Aliasing "Anti-Aliasing: FXAA"
+Когда run Quality "Quality: Resolution.Percent 67"
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид scal_spatial_67 SCAL-SPATIAL1: FXAA at 67 % - the frame fills the whole viewport (upscaled, not a 67 % image in a corner), softer than native but no garbage; editor.log 0 VUID, no "refused"
+Когда run Quality "Quality: Resolution.Percent Level"
+Когда run Anti-Aliasing "Anti-Aliasing: TAA"
+# --- BINDLESS-TEX: the Perf HUD's bindless row (PerfHudOverlay.cpp:116)
+Когда run Action "Toggle the Perf HUD"
+Когда --subject viewport drag 600,40 600,40 4
+Тогда bindless_hud BINDLESS-TEX: the viewport's Perf HUD shows "Bindless: N live / M" with N > 0 (FIELD_Barn's textures resident) and N <= M
+Когда run Action "Toggle the Perf HUD"
+Тогда features_reset Perf HUD off again (an editor preference: it persists); editor.log 0 VUID

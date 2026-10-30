@@ -1,0 +1,20 @@
+# CSM-ONE-PASS: every cascade of the sun's shadow map drawn in one pass (task/CSM-ONE-PASS b9d1e49a4) renders
+# BYTE-IDENTICAL frames to the per-cascade passes. The code is NOT in dev yet: land it first, then play this on
+# the base (int/b17, or the dev tip before the merge) and on the landed tip with default machine settings and
+#   python scripts/Dev/frames_compare.py <base>/<frame>.png <tip>/<frame>.png  -> 0 differing pixels, each frame
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано run Quality "Quality: Shadows.Method CascadedMaps"
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид csm_near CSM-ONE-PASS: near cascades (tree and barn shadows) - byte-equal to the base frame
+Когда --subject viewport set Camera.Position 0,600,4500
+Когда --subject viewport set Camera.Direction 0,-0.03,-1
+Когда --subject viewport drag 600,40 600,40 16
+Тогда-вид csm_far CSM-ONE-PASS: far cascades to the horizon - byte-equal to the base frame
+Когда run View "View mode: Shadow Cascades"
+Тогда-вид csm_cascades CSM-ONE-PASS: the cascade split colours - byte-equal to the base frame
+Когда run View "View mode: Lit"
+Когда run Quality "Quality: Shadows.Method Level"
+Тогда csm_reset override cleared
