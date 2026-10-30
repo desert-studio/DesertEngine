@@ -10,7 +10,7 @@
 // with the surviving instance counts and an instance remap.
 #include "MeshRendererInternal.hpp"
 
-#include <Engine/Graphic/InstanceCullDistance.hpp>
+#include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/MeshDrawArguments.hpp>
 #include <Engine/Graphic/Systems/Scene/Shadows/VirtualShadowMap.hpp>
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
@@ -67,6 +67,11 @@ namespace Desert::Graphic::System
             for ( const glm::mat4& transform : transforms )
                 Grow( box, WorldBox( local, transform, pad ) );
             return box;
+        }
+        // A gathered caster's world box (MeshRenderer::GatherShadowCasters) as an invalidation box.
+        VsmInvalidationBox GatheredBox( const Common::Math::AABB& world )
+        {
+            return { .Min = world.Min, .Max = world.Max };
         }
         VsmCullInstanceGpu CullInstance( const VsmInvalidationBox& box, const uint32_t draw, const uint32_t fetch )
         {
@@ -175,6 +180,16 @@ namespace Desert::Graphic::System
         VirtualShadowInvalidation result;
         // The pages drawn last frame lack a masked caster whose pipeline was still compiling: drop them all.
         result.StaticCastersChanged = std::exchange( m_VsmCastersPending, false );
+        // Every caster's box, LOD and kept instances are this frame's gather (GatherShadowCasters), the ones the
+        // levels' draws cull by; gathered for other queues, no caster can be told apart: every page drops.
+        if ( !ShadowCastersGathered() )
+        {
+            LOG_ERROR( "[Shadows] virtual shadow pages invalidated from casters gathered for other mesh queues (a "
+                       "queue changed after MeshRenderer::GatherShadowCasters); every cached page drops." );
+            result.StaticCastersChanged = true;
+            return result;
+        }
+        const ShadowCasterSetup& gathered = m_ShadowCasterSetup;
 
         // THE CASTERS THAT STAND STILL, each by a signature of what it draws and where (CascadeStaticSignature's
         // terms, without a frustum: the map's pages outlive any one level's window). One whose signature is known
@@ -208,6 +223,7 @@ namespace Desert::Graphic::System
         {
             if ( rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
+            const auto index = static_cast<uint32_t>( &rd - m_StaticQueue.data() );
             SignatureHash hash;
             hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
@@ -215,8 +231,7 @@ namespace Desert::Graphic::System
             hash.Add( rd.ForcedLOD );
             hash.Add( rd.LODBias );
             // The LOD it is drawn with follows the main camera: a change redraws its pages.
-            hash.Add( std::min( ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias ),
-                                Geometry::MaxAvailableLOD( rd.Mesh->GetSubmeshes() ) ) );
+            hash.Add( std::min( ShadowStaticLod( index ), Geometry::MaxAvailableLOD( rd.Mesh->GetSubmeshes() ) ) );
             const SectionShading shading = ShadingOf( rd );
             hash.Add( rd.SectionSlot );
             hash.Add( shading.Surface );
@@ -234,21 +249,20 @@ namespace Desert::Graphic::System
                 addRasteredSet( hash, m_ClusterWalkScratch );
             }
             addStill( hash.Value,
-                      [&rd] {
-                          return WorldBox( Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ), rd.Transform, 0.0f );
-                      } );
+                      [&gathered, index] { return GatheredBox( gathered.Statics[index].WorldBounds ); } );
         }
         for ( const auto& g : m_GenericQueue )
         {
             if ( g.Mesh == nullptr || !g.CastShadows )
                 continue;
+            const auto    index = static_cast<uint32_t>( &g - m_GenericQueue.data() );
             SignatureHash hash;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
             hash.Add( g.VisibleSubmeshMask );
-            hash.Add( ComputeLOD( g.Transform, g.Mesh, -1 ) );
-            addStill( hash.Value, [&g]
-                      { return WorldBox( Geometry::LocalBounds( g.Mesh->GetSubmeshes() ), g.Transform, 0.0f ); } );
+            hash.Add( ShadowGenericLod( index ) );
+            addStill( hash.Value,
+                      [&gathered, index] { return GatheredBox( gathered.Generics[index].WorldBounds ); } );
         }
 
         // THE CASTERS THAT MOVE BY THEMSELVES (swaying foliage, skinned meshes): their box now; last frame's box
@@ -256,18 +270,25 @@ namespace Desert::Graphic::System
         std::vector<VsmInvalidationBox>                            moving;
         std::vector<std::shared_ptr<const std::vector<glm::mat4>>> snapshots;
         std::unordered_map<uint64_t, std::vector<uint32_t>>        ismStates;
-        const auto*                                                lodCamera = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView                                    lodView =
-             lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
-                                                                     : Geometry::LODView{};
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                 continue;
+            const auto field = static_cast<uint32_t>( &ism - m_InstancedQueue.data() );
+            // The instances the main camera's cull distance keeps, each with the box the wind can reach and its
+            // level: the gather's (ShadowIsmInstances), the ones the levels draw.
+            const ShadowIsmField&    kept  = ShadowIsmInstances( field );
             const Common::Math::AABB local = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
             if ( ism.Wind.Sways() )
             {
-                moving.push_back( InstancesBox( *ism.Transforms, local, ism.Wind ) );
+                // The kept instances' boxes now (one not kept casts nothing; last frame's box, added below, covers
+                // the pages one leaving the cull distance was drawn in).
+                if ( kept.Count == 0 )
+                    continue;
+                VsmInvalidationBox box = GatheredBox( gathered.Instances[kept.First].WorldBounds );
+                for ( uint32_t k = kept.First + 1; k < kept.First + kept.Count; ++k )
+                    Grow( box, GatheredBox( gathered.Instances[k].WorldBounds ) );
+                moving.push_back( box );
                 continue;
             }
             // Keyed by its snapshot, as the cascades' cache is (m_VsmKeySnapshots keeps the address unique).
@@ -279,33 +300,25 @@ namespace Desert::Graphic::System
             hash.Add( ism.HiddenSubmeshes );
             // Its clustered set, as a static entry's (above): a submesh moving between the VSM cluster raster and
             // the levels' CPU walk redraws the field's pages.
-            if ( const auto field = static_cast<size_t>( &ism - m_InstancedQueue.data() );
-                 !m_VsmCarriedTwinsLastFrame.empty() && field < m_FieldPrimitives.size() )
+            if ( !m_VsmCarriedTwinsLastFrame.empty() && field < m_FieldPrimitives.size() )
             {
                 VsmRasteredSubmeshes( dynamic_cast<const Desert::StaticMesh*>( ism.Mesh ),
                                       m_FieldPrimitives[field], ism.HiddenSubmeshes, m_VsmCarriedTwinsLastFrame,
                                       m_ClusterWalkScratch );
                 addRasteredSet( hash, m_ClusterWalkScratch );
             }
+            // The box a field added or removed invalidates covers every instance, kept or not: it is made once per
+            // signature and outlives the camera's cull distance, which may keep any of them later.
             addStill( hash.Value, [&ism, &local] { return InstancesBox( *ism.Transforms, local, ism.Wind ); } );
             snapshots.push_back( ism.Transforms );
 
-            // What each instance casts follows the main camera (CollectIsmInstances' rules): its cull-distance
-            // fade and its LOD. An instance whose state changed redraws the pages under it alone (UE: an
-            // instance's own invalidation, not its component's).
-            const InstanceCullDistance lensCull = ScaledByLens( ism.CullDistance, DrawDistanceScale( lodView ) );
-            const uint32_t             maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
-            std::vector<uint32_t>      states( ism.Transforms->size(), 0u );
-            for ( size_t i = 0; i < states.size(); ++i )
-            {
-                const glm::mat4& transform = ( *ism.Transforms )[i];
-                if ( KeepsInstanceAtDistance( lensCull, static_cast<uint32_t>( i ), glm::vec3( transform[3] ),
-                                              lodView.Origin ) )
-                    states[i] =
-                         1u + std::min( Geometry::SelectLODFromBounds( transform, local, lodView,
-                                                                       ism.Mesh->GetLODScreenSizes(), -1, 0 ),
-                                        maxLevel );
-            }
+            // What each instance casts follows the main camera (the gather's kept instances and levels): 0 for
+            // one the cull distance drops, 1 + its level for one it keeps. An instance whose state changed redraws
+            // the pages under it alone (UE: an instance's own invalidation, not its component's).
+            const uint32_t        maxLevel = Geometry::MaxAvailableLOD( ism.Mesh->GetSubmeshes() );
+            std::vector<uint32_t> states( ism.Transforms->size(), 0u );
+            for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+                states[gathered.InstanceIndex[k]] = 1u + std::min( gathered.Instances[k].LodLevel, maxLevel );
             if ( const auto before = m_VsmIsmStates.find( hash.Value );
                  before != m_VsmIsmStates.end() && before->second.size() == states.size() )
             {
@@ -315,14 +328,13 @@ namespace Desert::Graphic::System
             }
             ismStates.insert_or_assign( hash.Value, std::move( states ) );
         }
-        for ( const auto& sd : m_SkinnedQueue )
+        for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
+            const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
+            // The pose's box, not the bind pose's (the gather's SkinnedPoseBounds): a swung arm leaves the bind
+            // bounds.
             if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() )
-            {
-                // The pose's box, not the bind pose's: a swung arm leaves the bind bounds.
-                const Common::Math::AABB pose = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
-                moving.push_back( { .Min = pose.Min, .Max = pose.Max } );
-            }
+                moving.push_back( GatheredBox( gathered.Skinned[i].WorldBounds ) );
         }
 
         // The casters that are not meshes (the terrain) say what they draw themselves.
