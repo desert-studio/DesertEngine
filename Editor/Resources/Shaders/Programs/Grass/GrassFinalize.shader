@@ -4,6 +4,10 @@
 // records of a mesh's level L - one bucket without a LOD chain - and bucket s for record s of a blade strip), the UNCLAMPED counts (the generator's atomic counts past the
 // capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback), and
 // the counters are reset for the next frame's generation. One thread.
+// The camera's list (GRASS-VIS, Mode.y): CameraArgs' records get its phase-1 counts the same way, and each bucket's
+// phase words (GrassGenerate.shader CameraArgs) freeze this frame's candidates and phase 1's drawn count for phase 2
+// and restart the counters. The post mode (Mode.x = 1, after phase 2) writes PostArgs' records: phase 2's appended
+// instances, right after phase 1's drawn ones in the camera's list.
 Shader "GrassFinalize"
 {
     Compute
@@ -20,8 +24,88 @@ Shader "GrassFinalize"
             uint FeedbackData[]; // per bucket the count the generator wanted, then 1 (this copy was written)
         };
 
+        Buffer(2) CameraArgs
+        {
+            uint CameraArguments[]; // Args' layout, then four phase words per bucket (GrassGenerate.shader)
+        };
+
+        Buffer(3) PostArgs
+        {
+            uint PostArguments[]; // Args' layout: the phase-2 draws
+        };
+
+        // Mirrors Graphic::System::GrassFinalizePush (GrassRenderer.cpp).
+        PushConstant PushConstants
+        {
+            uvec4 Mode; // x = 0 after the generation, 1 after phase 2; y = 1 when the camera's list was generated
+        };
+
+        // Phase 1's camera records, and the phase words frozen for phase 2.
+        void FinalizeCamera()
+        {
+            uint buckets = CameraArguments[0];
+            uint records = CameraArguments[2];
+            uint table   = 4u + records * 5u;
+            uint phases  = table + buckets * 4u;
+            uint group   = max( 1u, records / buckets );
+            for ( uint s = 0u; s < records; ++s )
+            {
+                uint b  = min( s / group, buckets - 1u );
+                uint at = table + b * 4u;
+                CameraArguments[4u + s * 5u + 1u] = min( CameraArguments[at], CameraArguments[at + 2u] );
+                CameraArguments[4u + s * 5u + 4u] = CameraArguments[at + 1u];
+            }
+            uint drawn = 0u;
+            for ( uint b = 0u; b < buckets; ++b )
+            {
+                uint at    = table + b * 4u;
+                uint phase = phases + b * 4u;
+                uint seen  = min( CameraArguments[at], CameraArguments[at + 2u] );
+                drawn += seen;
+                CameraArguments[phase + 1u] = min( CameraArguments[phase], CameraArguments[at + 2u] );
+                CameraArguments[phase]      = 0u;
+                CameraArguments[phase + 2u] = seen;
+                CameraArguments[phase + 3u] = 0u;
+                CameraArguments[at]         = 0u;
+            }
+            CameraArguments[3] = drawn;
+        }
+
+        // Phase 2's records: each bucket's appended count, within what phase 1 left of its capacity, after phase
+        // 1's drawn instances.
+        uint PostCount( uint at, uint phase )
+        {
+            uint room = CameraArguments[at + 2u] - min( CameraArguments[phase + 2u], CameraArguments[at + 2u] );
+            return min( CameraArguments[phase + 3u], room );
+        }
+        void FinalizePost()
+        {
+            uint buckets = CameraArguments[0];
+            uint records = CameraArguments[2];
+            uint table   = 4u + records * 5u;
+            uint phases  = table + buckets * 4u;
+            uint group   = max( 1u, records / buckets );
+            for ( uint s = 0u; s < records; ++s )
+            {
+                uint b = min( s / group, buckets - 1u );
+                PostArguments[4u + s * 5u + 1u] = PostCount( table + b * 4u, phases + b * 4u );
+                PostArguments[4u + s * 5u + 4u] = CameraArguments[table + b * 4u + 1u] + CameraArguments[phases + b * 4u + 2u];
+            }
+            uint drawn = 0u;
+            for ( uint b = 0u; b < buckets; ++b )
+                drawn += PostCount( table + b * 4u, phases + b * 4u );
+            PostArguments[3] = drawn;
+        }
+
         void main()
         {
+            if ( Mode.x == 1u )
+            {
+                FinalizePost();
+                return;
+            }
+            if ( Mode.y != 0u )
+                FinalizeCamera();
             uint buckets = Arguments[0];
             uint records = Arguments[2];
             uint table   = 4u + records * 5u;

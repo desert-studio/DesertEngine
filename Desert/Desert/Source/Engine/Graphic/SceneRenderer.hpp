@@ -1372,8 +1372,15 @@ namespace Desert::Graphic
         // GRASS-VIS (after the G-buffer, the terrain and the particles, BEFORE the draw bins' HZB, so this frame's
         // HZB still holds the grass): "Grass: Visibility Raster" into @p visibility over the G-buffer's depth, then
         // "Grass: Visibility Resolve" into the G-buffer. Nothing when the mesh renderer chose no section.
+        // @p postOcclusion (AddFrameGrassPostOcclusion): the two nodes over the grass's phase-2 records.
         void AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer,
-                                      const VirtualGeometry::VisibilityBufferFrame& visibility );
+                                      const VirtualGeometry::VisibilityBufferFrame& visibility, bool postOcclusion );
+        // GRASS-VIS phase 2, after AddFrameDrawBinsPostOcclusion built this frame's furthest HZB: the grass's
+        // "Grass: Post-Occlusion" re-test (GrassRenderer::AddFramePostOcclusion), then "Grass: GBuffer
+        // Post-Occlusion" and, with @p visibility, the visibility raster and resolve over phase 2's records.
+        void AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                         System::MeshRenderer* meshRenderer, const ViewFrame& frame,
+                                         const VirtualGeometry::VisibilityBufferFrame& visibility );
         // "Deferred: Forward Depth/Normal": the generic queue's opaque draws into G-buffer depth + normal.
         void AddFrameForwardDepthNormal( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer );

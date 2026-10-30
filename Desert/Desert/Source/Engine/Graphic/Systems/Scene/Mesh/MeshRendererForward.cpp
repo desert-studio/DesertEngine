@@ -2158,7 +2158,7 @@ namespace Desert::Graphic::System
         // The GPU-generated sections (the landscape grass), through the same pass's instanced cells.
         if ( instancingOn )
             BuildGpuInstancedDraws( list, instancedPipeline, instancedPass, frameState,
-                                    companion ? &*companion : nullptr );
+                                    companion ? &*companion : nullptr, false );
     }
 
     MeshRenderer::StaticPassCells MeshRenderer::StaticCellsOf( const MeshPass pass )

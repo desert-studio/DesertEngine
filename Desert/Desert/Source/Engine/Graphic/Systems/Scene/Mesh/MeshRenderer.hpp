@@ -434,9 +434,19 @@ namespace Desert::Graphic::System
             bool                                            CastShadows     = true;
             InstanceWind                                    Wind;
             std::shared_ptr<ShaderResources::StorageBuffer> Instances;
+            // OCCLUSION PER VIEW (GRASS-VIS; UE: each view culls its own instances): when set, the camera's own
+            // list - the instances the producer's HZB test left visible to the main view - which the camera passes
+            // (the prepasses, the G-buffer, forward, the grass visibility raster and resolve) draw; the cascades
+            // and the TLAS keep Instances / Refs, every kept instance, so what the camera cannot see still casts
+            // and reflects. Null: the camera draws Instances too.
+            std::shared_ptr<ShaderResources::StorageBuffer> CameraInstances;
             // GrassBlade only: the variety's shape, Vertex_GrassBlade.glslh's GrassBladeShape.
             std::shared_ptr<ShaderResources::StorageBuffer> BladeShape;
             const GpuInstanceRefs*                          Refs = nullptr; // the producer's, this frame
+            const GpuInstanceRefs* CameraRefs = nullptr; // with CameraInstances: phase 1's camera draws
+            // With CameraInstances: phase 2's (the instances this frame's HZB found visible after last frame's held
+            // them back), CameraInstances through records of their own, drawn only by the post-occlusion passes.
+            const GpuInstanceRefs* PostRefs = nullptr;
             // The instances Instances holds room for (GpuInstances.hpp header word 1): the TLAS rows reserved for
             // the producer (RayTracingGpuInstanceSource::Rows).
             uint32_t Capacity = 0;
@@ -1102,15 +1112,27 @@ namespace Desert::Graphic::System
         }
         // SETUP of "Grass: Visibility Raster" (the G-buffer's depth LOADed, tested, not written; no colour): the
         // sections' (GrassBlade x Visibility) cells atomic-max (depth | row | triangle) into @p visibility.
+        // @p postOcclusion (GRASS-VIS phase 2, "Grass: Visibility Raster Post-Occlusion"): only the sections' phase-2
+        // records (GpuInstancedRenderData::PostRefs), into a list of their own.
         void DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
-                                                RDG::BufferRef visibility );
-        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityRasterManual( const RDG::PassContext& context ) const;
+                                                RDG::BufferRef visibility, bool postOcclusion );
+        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
+                                                                               bool postOcclusion ) const;
         // SETUP of "Grass: Visibility Resolve" (the G-buffer LOADed, depth CloserOrEqual and written): one full-screen
         // triangle per section through its (GrassBlade x VisibilityResolve) cell, drawn by record 0 of
-        // @p resolveArgs (VirtualGeometry::VisibilityBuffer), reading @p visibility.
+        // @p resolveArgs (VirtualGeometry::VisibilityBuffer), reading @p visibility. @p postOcclusion: after phase
+        // 2's raster, the sections with phase-2 records resolve again (a phase-1 texel rewrites what it wrote).
         void DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
-                                                 RDG::BufferRef visibility, RDG::BufferRef resolveArgs );
-        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const;
+                                                 RDG::BufferRef visibility, RDG::BufferRef resolveArgs,
+                                                 bool postOcclusion );
+        [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
+                                                                                bool postOcclusion ) const;
+        // SETUP of "Grass: GBuffer Post-Occlusion" (GRASS-VIS phase 2, after this frame's HZB): the G-buffer path's
+        // GPU-instanced sections (not through the visibility buffer) drawn by their phase-2 records, LOADing the
+        // G-buffer, with their own clip and depth writes (they were not in the masked prepass).
+        void DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr
+        RenderGrassGBufferPostOcclusionManual( const RDG::PassContext& context ) const;
         // The sections this frame draws through the visibility buffer (empty: none, the G-buffer path for all).
         [[nodiscard]] bool DrawsGrassVisibility() const
         {
@@ -1646,6 +1668,10 @@ namespace Desert::Graphic::System
         std::vector<uint32_t>            m_GrassVisibilitySections;
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterDraws;  // "Grass: Visibility Raster"
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolveDraws; // "Grass: Visibility Resolve"
+        // GRASS-VIS phase 2: "Grass: Visibility Raster / Resolve Post-Occlusion", "Grass: GBuffer Post-Occlusion".
+        MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterPostDraws;
+        MeshRendererDetail::MeshDrawList m_GrassVisibilityResolvePostDraws;
+        MeshRendererDetail::MeshDrawList m_GrassGBufferPostDraws;
         RDG::BufferRef                   m_GrassResolveArgs{};
         MeshRendererDetail::MeshDrawList m_GBufferPostDraws; // "Deferred: GBuffer Post-Occlusion": phase-2 bins
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
@@ -2537,9 +2563,10 @@ namespace Desert::Graphic::System
         // cell) and into a cascade's movable list (their own masked caster, or the shared instanced caster).
         // @p companion: the other half of the forward prepass pairing (PairsWithPrepass) - the prepass draws a
         // section only when its cell is Ready in both passes and records it; the base pass draws what was recorded.
+        // @p postOcclusion (GRASS-VIS phase 2): only the sections with a camera list, by their phase-2 records.
         void BuildGpuInstancedDraws( MeshRendererDetail::MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                      MeshPass pass, const SceneFrameBinding& frameState,
-                                     const StaticPassCells* companion );
+                                     const StaticPassCells* companion, bool postOcclusion );
         // GRASS-VIS: @p gpu's (GrassBlade x Visibility) and (GrassBlade x VisibilityResolve) cells, and their pipelines
         // through the two carriers, all Ready - the section can leave the G-buffer this frame.
         [[nodiscard]] bool GrassVisibilityReady( const GpuInstancedRenderData& gpu );

@@ -40,11 +40,16 @@ namespace Desert::Graphic::System
             return GpuInstanceArgsOffset( level * static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() ) );
         }
 
-        // The producer's buffers into the cell: the instances, and a blade's shape (MeshPathOwnBinding).
-        void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu )
+        // GRASS-VIS: view keys of the post-occlusion draws' instances, apart from phase 1's of the same cell view.
+        constexpr uint32_t kGpuInstancedPostViewOffset = 0x04000000u;
+
+        // The producer's buffers into the cell: @p instances (the section's full list, or the camera's), and a
+        // blade's shape (MeshPathOwnBinding).
+        void BindGpuInstancedBuffers( DataDrivenMaterial& cell, const MeshRenderer::GpuInstancedRenderData& gpu,
+                                      const std::shared_ptr<ShaderResources::StorageBuffer>& instances )
         {
             if ( auto* sb = cell.Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
-                sb->SetBuffer( gpu.Instances );
+                sb->SetBuffer( instances );
             if ( gpu.Path == MeshVertexPath::GrassBlade )
                 if ( auto* sb = cell.Get<StorageBufferProperty>( kGrassBladeShapeBlock ) )
                     sb->SetBuffer( gpu.BladeShape );
@@ -71,7 +76,7 @@ namespace Desert::Graphic::System
 
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
                                                const MeshPass pass, const SceneFrameBinding& frameState,
-                                               const StaticPassCells* companion )
+                                               const StaticPassCells* companion, const bool postOcclusion )
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
@@ -93,6 +98,13 @@ namespace Desert::Graphic::System
         {
             if ( gpu.WorldBounds && frustum && !frustum->Intersects( *gpu.WorldBounds ) )
                 continue;
+            // OCCLUSION PER VIEW (GRASS-VIS): the camera passes draw the camera's list when the producer made one
+            // (GpuInstancedRenderData::CameraInstances); the post-occlusion passes draw only phase 2's records of it.
+            const bool cameraList = gpu.CameraInstances != nullptr && gpu.CameraRefs != nullptr;
+            if ( postOcclusion && ( !cameraList || gpu.PostRefs == nullptr ) )
+                continue;
+            const GpuInstanceRefs& refs     = cameraList ? *gpu.CameraRefs : *gpu.Refs;
+            const RDG::BufferRef   drawArgs = postOcclusion ? gpu.PostRefs->Args : refs.Args;
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
@@ -116,7 +128,8 @@ namespace Desert::Graphic::System
                 continue;
             if ( maskedPrepass && !masked )
                 continue;
-            const bool prepassed = pass == MeshPass::GBuffer && masked &&
+            // A post-occlusion draw was never in the masked prepass: it keeps its own clip and depth writes.
+            const bool prepassed = !postOcclusion && pass == MeshPass::GBuffer && masked &&
                                    std::find( m_MaskedPrepassed.begin(), m_MaskedPrepassed.end(), gpu.Key ) !=
                                         m_MaskedPrepassed.end();
             // One cell (and instance) per section x view pass.
@@ -206,10 +219,10 @@ namespace Desert::Graphic::System
             }
 
             // Recreated when the view's cell changed (Shadows.Method switched the Forward cell's permutation).
-            auto& instance = m_GpuInstancedInstances[view];
+            auto& instance = m_GpuInstancedInstances[postOcclusion ? view + kGpuInstancedPostViewOffset : view];
             if ( !instance || instance->GetParentMaterial() != cell )
                 instance = cell->CreateInstance( "GpuInstanced" );
-            BindGpuInstancedBuffers( *cell, gpu );
+            BindGpuInstancedBuffers( *cell, gpu, cameraList ? gpu.CameraInstances : gpu.Instances );
             // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.
             const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
             if ( !materialRow || !LendMaterialTable( *cell ) )
@@ -234,7 +247,7 @@ namespace Desert::Graphic::System
                             .Material           = cell->GetMaterialExecutor(),
                             .HiddenSubmeshMask  = SubmeshMask( ~uint64_t{ 1 } ),
                             .IndirectArgs       = m_GrassResolveArgs,
-                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectInstances  = refs.Instances,
                             .IndirectArgsOffset = GpuInstanceArgsOffset( 0 ),
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
@@ -250,8 +263,8 @@ namespace Desert::Graphic::System
                             .Transform          = glm::mat4( 1.0f ),
                             .Material           = cell->GetMaterialExecutor(),
                             .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
-                            .IndirectArgs       = gpu.Refs->Args,
-                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectArgs       = drawArgs,
+                            .IndirectInstances  = refs.Instances,
                             .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
                             .Push               = DrawPushFields{}
                                          .MaterialIndex( row )
@@ -328,7 +341,8 @@ namespace Desert::Graphic::System
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
                               m_CascadeCasterBias[shadowView], m_ParallaxQuality );
-            BindGpuInstancedBuffers( *caster, gpu );
+            // The full list (GRASS-VIS): the light sees what the camera's depth hides.
+            BindGpuInstancedBuffers( *caster, gpu, gpu.Instances );
             // The section's row is the scene material table's (SyncGpuScene), read by its masked caster cell.
             const std::optional<uint32_t> materialRow = FindMaterialRow( parent, gpu.Material.get() );
             if ( !materialRow || !LendMaterialTable( *caster ) )

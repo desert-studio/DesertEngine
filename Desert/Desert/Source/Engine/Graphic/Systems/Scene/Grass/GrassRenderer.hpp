@@ -116,8 +116,9 @@ namespace Desert::Graphic::System
     // (GpuInstances.hpp). Nothing is stored in the level and nothing is read back. A Blade variety draws the
     // renderer's own blade strip (one per segment count, a level per halving) through the GrassBlade vertex path:
     // the generator sorts its instances into one bucket per level by distance, so a far blade has fewer segments.
-    // GRASS-VIS: the previous frame's furthest HZB GrassGenerate drops hidden instances by (GpuCull_IsOccludedByHzb,
-    // the instance cull's test). Hzb invalid: nothing is tested, Neutral is bound in its place.
+    // GRASS-VIS: the previous frame's furthest HZB GrassGenerate culls the CAMERA's list by (GpuCull_IsOccludedByHzb,
+    // the instance cull's test); the cascades and the TLAS keep every kept instance (UE: occlusion per view). Hzb
+    // invalid: nothing is tested, Neutral is bound in its place and the camera draws the full list.
     struct GrassOcclusion
     {
         RDG::TextureRef Hzb{};     // last frame's furthest HZB of the view (SceneRenderer::FramePrevHzb)
@@ -146,10 +147,17 @@ namespace Desert::Graphic::System
         // to @p meshes. A view that is not the main one (a capture face) grows nothing. @p rayTracing: the view
         // builds a TLAS this frame (RayTracingSceneRequired): the Blade varieties' level BLASes are prepared and
         // handed with the sections (GrassBladeRayTracing.hpp). @p occlusion: what the generation tests its kept
-        // instances against; a tested frame's instances depend on last frame's depth, so every variety generates
-        // every such frame (VarietyGpu::GenerateKey holds nothing across them).
+        // the camera's list against; a tested frame's camera list depends on last frame's depth, so every variety
+        // generates every such frame (VarietyGpu::GenerateKey holds nothing across them).
         void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing,
                        const GrassOcclusion& occlusion );
+
+        // GRASS-VIS phase 2 (UE two-phase occlusion): after this frame's furthest HZB of the phase-1 depth, the
+        // instances last frame's HZB held back from the camera are re-tested against @p hzb (through the unjittered
+        // @p viewProjection it was built from; @p extent its mip-0 size and mip count) and the visible ones appended
+        // to the camera's list, drawn by the sections' PostRefs. False: nothing was added (no tested list this frame).
+        [[nodiscard]] bool AddFramePostOcclusion( RDG::Builder& graph, RDG::TextureRef hzb,
+                                                  const glm::mat4& viewProjection, const glm::uvec3& extent );
 
         // GRASS-VIS: the last AddFrame handed out more raster-stream rows than a visibility word addresses
         // (kGrassVisibilityMaxRows): the view refuses its grass visibility buffer path this frame.
@@ -208,6 +216,18 @@ namespace Desert::Graphic::System
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
+            // GRASS-VIS, the camera's list (Tested: sized like Instances / Args; otherwise one-word stand-ins the
+            // passes bind and never touch): CameraInstances / CameraArgs the instances last frame's HZB does not
+            // hide plus phase 2's, Candidates the hidden ones' spheres and rows, PostArgs phase 2's draw records.
+            bool                                            Tested = false;
+            std::shared_ptr<ShaderResources::StorageBuffer> CameraInstances;
+            std::shared_ptr<ShaderResources::StorageBuffer> CameraArgs;
+            std::shared_ptr<ShaderResources::StorageBuffer> Candidates;
+            std::shared_ptr<ShaderResources::StorageBuffer> PostArgs;
+            RDG::ExternalBuffer CameraInstancesImport, CameraArgsImport, CandidatesImport, PostArgsImport;
+            GpuInstanceRefs     CameraRefs; // phase 1's draws
+            GpuInstanceRefs     PostRefs;   // phase 2's: CameraInstances through PostArgs
+            RDG::BufferRef      CandidatesRef;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;
             glm::ivec4                                      Cells{ 0 };
@@ -226,7 +246,7 @@ namespace Desert::Graphic::System
         };
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
-                                                  const ViewFrame& frame );
+                                                  const ViewFrame& frame, bool testsHzb );
         // The blade strip of @p segments segments: one submesh per level, each halving the last down to one.
         [[nodiscard]] class Desert::Mesh* BladeStrip( uint32_t segments );
 
@@ -237,6 +257,7 @@ namespace Desert::Graphic::System
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
         std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
+        bool                             m_FrameTested = false; // the last AddFrame generated camera lists
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
         mutable ShaderBindingLayoutCache m_GenerateLayout;

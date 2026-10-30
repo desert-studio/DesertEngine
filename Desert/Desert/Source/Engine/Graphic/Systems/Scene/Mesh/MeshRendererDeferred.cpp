@@ -53,7 +53,7 @@ namespace Desert::Graphic::System
              m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr );
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false );
         m_MaskedDepthDraws.Declare( pass, view );
     }
 
@@ -63,14 +63,16 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
-                                                          const RDG::BufferRef visibility )
+                                                          const RDG::BufferRef visibility, const bool postOcclusion )
     {
-        m_GrassVisibilityRasterDraws.Clear();
+        MeshRendererDetail::MeshDrawList& list =
+             postOcclusion ? m_GrassVisibilityRasterPostDraws : m_GrassVisibilityRasterDraws;
+        list.Clear();
         if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !m_InstancedVisibilityPipeline )
             return;
-        BuildGpuInstancedDraws( m_GrassVisibilityRasterDraws, m_InstancedVisibilityPipeline.get(),
-                                MeshPass::Visibility, CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr );
-        m_GrassVisibilityRasterDraws.Declare( pass, view,
+        BuildGpuInstancedDraws( list, m_InstancedVisibilityPipeline.get(), MeshPass::Visibility,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
+        list.Declare( pass, view,
                                               [visibility]( RDG::BindingBlockBuilder&         block,
                                                             const RDG::ShaderBindingLayout& layout )
                                               {
@@ -81,24 +83,26 @@ namespace Desert::Graphic::System
                                               } );
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityRasterManual( const RDG::PassContext& context ) const
+    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
+                                                                           const bool postOcclusion ) const
     {
-        return m_GrassVisibilityRasterDraws.Record( context );
+        return ( postOcclusion ? m_GrassVisibilityRasterPostDraws : m_GrassVisibilityRasterDraws ).Record( context );
     }
 
     void MeshRenderer::DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
                                                            const RDG::BufferRef visibility,
-                                                           const RDG::BufferRef resolveArgs )
+                                                           const RDG::BufferRef resolveArgs, const bool postOcclusion )
     {
-        m_GrassVisibilityResolveDraws.Clear();
+        MeshRendererDetail::MeshDrawList& list =
+             postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws;
+        list.Clear();
         m_GrassResolveArgs = resolveArgs;
         if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !resolveArgs.IsValid() ||
              !m_InstancedVisibilityResolvePipeline )
             return;
-        BuildGpuInstancedDraws( m_GrassVisibilityResolveDraws, m_InstancedVisibilityResolvePipeline.get(),
-                                MeshPass::VisibilityResolve, CaptureFrameState( m_SceneRenderer->GetViewFrame() ),
-                                nullptr );
-        m_GrassVisibilityResolveDraws.Declare( pass, view,
+        BuildGpuInstancedDraws( list, m_InstancedVisibilityResolvePipeline.get(), MeshPass::VisibilityResolve,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
+        list.Declare( pass, view,
                                                [visibility]( RDG::BindingBlockBuilder&         block,
                                                              const RDG::ShaderBindingLayout& layout )
                                                {
@@ -109,9 +113,27 @@ namespace Desert::Graphic::System
                                                } );
     }
 
-    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context ) const
+    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
+                                                                            const bool postOcclusion ) const
     {
-        return m_GrassVisibilityResolveDraws.Record( context );
+        return ( postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws ).Record( context );
+    }
+
+    void MeshRenderer::DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GrassGBufferPostDraws.Clear();
+        if ( !m_InstancedGBufferPipeline || m_SceneRenderer == nullptr || m_SceneRenderer->GetMainCamera() == nullptr )
+            return;
+        // Phase 2's grass that the G-buffer path draws (a mesh variety, a blade off the visibility buffer): the
+        // section's (Instanced x GBuffer) cell with its own clip and depth writes, phase 2's records.
+        BuildGpuInstancedDraws( m_GrassGBufferPostDraws, m_InstancedGBufferPipeline.get(), MeshPass::GBuffer,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, true );
+        m_GrassGBufferPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGrassGBufferPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GrassGBufferPostDraws.Record( context );
     }
 
     void MeshRenderer::DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )

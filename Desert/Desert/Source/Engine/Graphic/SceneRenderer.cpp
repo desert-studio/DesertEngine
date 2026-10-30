@@ -1810,8 +1810,10 @@ namespace Desert::Graphic
         // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw.
-        // GRASS-VIS: with the grass visibility buffer the generation drops the instances last frame's furthest HZB
-        // hides, so it is this graph's first reader of that HZB (FramePrevHzb, reset here for the frame).
+        // GRASS-VIS: with the grass visibility buffer the generation keeps the instances last frame's furthest HZB
+        // hides out of the CAMERA's list (the cascades and the TLAS draw every one; phase 2 re-tests them after
+        // this frame's HZB, AddFrameGrassPostOcclusion), so it is this graph's first reader of that HZB
+        // (FramePrevHzb, reset here for the frame).
         m_FramePrevHzb = {};
         if ( !m_ViewProfile.SceneCapture )
         {
@@ -2269,10 +2271,11 @@ namespace Desert::Graphic
                  particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
             if ( grassVisibility.IsValid() )
-                AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility );
+                AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
-            // bins and this one finds visible.
+            // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
+            AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
             // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which
