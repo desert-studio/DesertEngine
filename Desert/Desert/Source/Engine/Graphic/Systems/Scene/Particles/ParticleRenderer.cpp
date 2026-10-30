@@ -705,6 +705,9 @@ namespace Desert::Graphic::System
                         if ( stack )
                             events->Ref = graph.RegisterExternal( events->Import,
                                                                   std::format( "VFXEvents{}", m_EventImports.size() ) );
+                        else
+                            m_EventImports.erase( at ); // the system's next emitter imports it again, not a
+                                                        // Ref never registered in this graph
                     }
                 }
                 else if ( stack )
