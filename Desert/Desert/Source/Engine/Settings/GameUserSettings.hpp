@@ -81,17 +81,19 @@ namespace Desert::Settings
     [[nodiscard]] Common::BoolResultStr SaveGameUserSettings( const GameUserSettings&      settings,
                                                               const std::filesystem::path& userDirectory );
 
-    // Hands every value to its consumer: the window (mode, resolution — moved only when it differs from what
-    // the window already is — and VSync, which rebuilds the swapchain), the frame pacer, Audio::AudioMix,
-    // Localization (the language), and the applied scalability / sensitivity below. Refuses an invalid value
-    // before touching anything, and a window that cannot take the mode with the window's own reason.
+    // Hands every value to its consumer (UE: UGameUserSettings::ApplySettings) — the game calls it ONCE at start
+    // and again after every change its options menu makes:
+    //   * the quality groups -> Common::Scalability::QualityState::SetGroupLevels, THE apply point every host
+    //     shares (UE: Scalability::SetQualityLevels), in one resolve; the renderer reads only ResolvedQuality,
+    //     never these settings. A group whose level did not change keeps its overrides (UE without bForce);
+    //   * the window (mode, resolution — moved only when it differs from what the window already is — and
+    //     VSync, which rebuilds the swapchain), the frame pacer, Audio::AudioMix, Localization (the language),
+    //     and the sensitivity below.
+    // Needs QualityState initialized (Graphic::QualityBoot::Start, after the device): before it, refused.
+    // Refuses an invalid value, or a quality the apply point refuses, before touching anything; a window that
+    // cannot take the mode with the window's own reason.
     [[nodiscard]] Common::BoolResultStr ApplyGameUserSettings( const GameUserSettings& settings, Window& window,
                                                                Engine::FramePacer& pacer );
-
-    // THE APPLY POINT OF THE QUALITY GROUPS (UE: Scalability::SetQualityLevels): what the last Apply set. The
-    // renderer reads its groups from here; until an Apply, every group is Epic — the picture this engine
-    // renders today.
-    [[nodiscard]] const ScalabilityLevels& AppliedScalability();
     // The look-input multiplier the last Apply set (1 until then), for the player controller to read.
     [[nodiscard]] float AppliedMouseSensitivity();
 } // namespace Desert::Settings

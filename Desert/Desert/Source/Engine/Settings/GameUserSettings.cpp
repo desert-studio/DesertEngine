@@ -2,6 +2,7 @@
 
 #include <Common/Core/Logger.hpp>
 #include <Common/Json/Json.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Audio/AudioMix.hpp>
 #include <Engine/Core/FramePacer.hpp>
@@ -10,6 +11,7 @@
 #include <Engine/Localization/LocaleFormat.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
 
+#include <array>
 #include <format>
 #include <string_view>
 #include <system_error>
@@ -18,8 +20,7 @@ namespace Desert::Settings
 {
     namespace
     {
-        ScalabilityLevels s_AppliedScalability;
-        float             s_AppliedMouseSensitivity = 1.0f;
+        float s_AppliedMouseSensitivity = 1.0f;
 
         Common::BoolResultStr Refuse( std::string reason )
         {
@@ -38,6 +39,23 @@ namespace Desert::Settings
                 return Refuse( std::format( "Scalability.{} is {}, a quality level is 0..{}", group, level,
                                             kMaxQualityLevel ) );
             return Common::MakeSuccess( true );
+        }
+
+        // The player's groups as the engine's (a level here is 0..3 = Level::Low..Epic, the same order). The groups
+        // the player's file does not name keep what machine.json / the recommendation gave them.
+        static_assert( static_cast<int>( Common::Scalability::Level::Epic ) == kMaxQualityLevel,
+                       "a player's quality level 0..kMaxQualityLevel is Level::Low..Epic" );
+        std::array<Common::Scalability::QualityState::GroupLevel, 6> EngineGroupLevels( const ScalabilityLevels& q )
+        {
+            using Common::Scalability::Group;
+            using Common::Scalability::Level;
+            const auto level = []( const uint8_t value ) { return static_cast<Level>( value ); };
+            return { { { Group::ViewDistance, level( q.ViewDistance ) },
+                       { Group::Shadows, level( q.Shadows ) },
+                       { Group::PostProcess, level( q.PostProcess ) },
+                       { Group::Textures, level( q.Textures ) },
+                       { Group::Effects, level( q.Effects ) },
+                       { Group::Foliage, level( q.Foliage ) } } };
         }
 
         Common::BoolResultStr CheckVolume( const char* name, float volume )
@@ -135,6 +153,13 @@ namespace Desert::Settings
         if ( const auto valid = ValidateGameUserSettings( settings ); !valid )
             return NotApplied( valid.GetError() );
 
+        // The quality first: it is the one step that can refuse on state (QualityState not initialized), and a
+        // refusal must leave the window, the mix and the language as they were.
+        const auto groupLevels = EngineGroupLevels( settings.Scalability );
+        if ( const auto quality = Common::Scalability::QualityState::SetGroupLevels( groupLevels );
+             !quality.Refused.empty() )
+            return NotApplied( std::format( "the quality levels: {}", quality.Refused ) );
+
         // The window: moved only when it is not already there — the packaged game was CREATED from these same
         // DisplaySettings, and re-entering a mode it is in would restore and re-zoom it for nothing.
         const DisplaySettings& display = settings.Display;
@@ -162,14 +187,8 @@ namespace Desert::Settings
         if ( const auto language = Localization::Localization::Get().SetLanguage( settings.Language ); !language )
             return NotApplied( language.GetError() );
 
-        s_AppliedScalability      = settings.Scalability;
         s_AppliedMouseSensitivity = settings.MouseSensitivity;
         return Common::MakeSuccess( true );
-    }
-
-    const ScalabilityLevels& AppliedScalability()
-    {
-        return s_AppliedScalability;
     }
 
     float AppliedMouseSensitivity()

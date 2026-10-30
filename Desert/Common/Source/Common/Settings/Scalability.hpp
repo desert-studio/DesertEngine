@@ -703,6 +703,16 @@ namespace Common::Scalability
 
         static ApplyReport SetGroupLevel( Group group,
                                           Level level ); // drops that group's overrides (UE behaviour)
+        // Several groups in ONE apply (one resolve, one publish, one save) — UE's Scalability::SetQualityLevels
+        // without bForce, which a game's ApplySettings calls at start and on every menu change: a group whose level
+        // CHANGES drops its overrides (as SetGroupLevel); a group already at the asked level is left as it is, its
+        // overrides kept, so re-applying the same settings on every start does not wipe a tuned group.
+        struct GroupLevel
+        {
+            Group Of = Group::Textures;
+            Level To = Level::High;
+        };
+        static ApplyReport SetGroupLevels( std::span<const GroupLevel> levels );
         static ApplyReport SetAllGroups( Level level );  // a menu's "Overall quality"; drops all overrides
         static ApplyReport SetOverride( Parameter parameter, ParameterValue value );
         static ApplyReport ClearOverride( Parameter parameter );

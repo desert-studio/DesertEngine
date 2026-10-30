@@ -1533,6 +1533,25 @@ namespace Common::Scalability
         return Apply( selection );
     }
 
+    QualityState::ApplyReport QualityState::SetGroupLevels( const std::span<const GroupLevel> levels )
+    {
+        QualitySelection selection = S().Selection;
+        for ( const GroupLevel& asked : levels )
+        {
+            Level& current = selection.Levels[static_cast<std::size_t>( asked.Of )];
+            if ( current == asked.To )
+                continue;
+            current = asked.To;
+            std::erase_if( selection.Overrides,
+                           [group = asked.Of]( const ParameterOverride& o )
+                           {
+                               const ParameterSpec* spec = FindSpec( o.Key );
+                               return spec != nullptr && spec->Owner == group;
+                           } );
+        }
+        return Apply( selection );
+    }
+
     QualityState::ApplyReport QualityState::SetAllGroups( Level level )
     {
         QualitySelection selection;

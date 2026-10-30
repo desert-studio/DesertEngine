@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <Audio/AudioMix.hpp>
+#include <Common/Settings/Scalability.hpp>
 #include <Engine/Core/FramePacer.hpp>
 #include <Engine/Core/Window.hpp>
 #include <Engine/Localization/LocalizationService.hpp>
@@ -272,6 +273,14 @@ TEST( GameUserSettingsProject, TheGamesOwnDefaultsLoadAndValidate )
 
 TEST( GameUserSettingsApply, EveryValueReachesItsConsumer )
 {
+    // The quality groups land in THE apply point (QualityState), which the game's QualityBoot initializes before
+    // the apply; here a session-only state on an empty table stands in for it (no machine.json is written).
+    namespace Scal = Common::Scalability;
+    Scal::QualitySelection machine;
+    machine.Levels.fill( Scal::Level::High );
+    Scal::QualityState::Initialize( Scal::ScalabilityTable{}, Scal::CapabilityCatalog{}, machine, nullptr );
+    Scal::QualityState::KeepInSession( "game_user_settings_test" );
+
     RecordingWindow        window;
     Engine::FramePacer     pacer;
     const GameUserSettings settings = Sample();
@@ -291,7 +300,17 @@ TEST( GameUserSettingsApply, EveryValueReachesItsConsumer )
     EXPECT_FLOAT_EQ( mix.ClassVolume( Audio::SoundClass::Voice ), 0.75f );
 
     EXPECT_EQ( Localization::Localization::Get().RequestedLanguage().Tag, "ru" );
-    EXPECT_EQ( AppliedScalability(), settings.Scalability );
+    const Scal::GroupLevels& levels = Scal::QualityState::Selection().Levels;
+    const auto               at     = [&levels]( Scal::Group group )
+    { return static_cast<int>( levels[static_cast<std::size_t>( group )] ); };
+    EXPECT_EQ( at( Scal::Group::ViewDistance ), settings.Scalability.ViewDistance );
+    EXPECT_EQ( at( Scal::Group::Shadows ), settings.Scalability.Shadows );
+    EXPECT_EQ( at( Scal::Group::PostProcess ), settings.Scalability.PostProcess );
+    EXPECT_EQ( at( Scal::Group::Textures ), settings.Scalability.Textures );
+    EXPECT_EQ( at( Scal::Group::Effects ), settings.Scalability.Effects );
+    EXPECT_EQ( at( Scal::Group::Foliage ), settings.Scalability.Foliage );
+    // A group the player's file does not name keeps the machine's level.
+    EXPECT_EQ( levels[static_cast<std::size_t>( Scal::Group::GlobalIllumination )], Scal::Level::High );
     EXPECT_FLOAT_EQ( AppliedMouseSensitivity(), 1.5f );
 
     // Applying the same settings again does not move a window that is already there.

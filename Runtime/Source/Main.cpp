@@ -76,20 +76,24 @@ namespace Desert::Player
 
         void OnCreate() override
         {
-            // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
-            // pacer, the mix, the language, the quality groups — reaches its consumers here.
-            if ( const auto applied =
-                      Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
-                 !applied )
-                LOG_ERROR( "[Settings] {}", applied.GetError() );
 #if DESERT_DEV_INSTRUMENTS
             // A movie is rendered on fixed time: frame N is at N / fps of world time on every run.
             if ( s_Movie.has_value() )
                 SetFixedDeltaTime( s_Movie->FrameStep() );
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this ) );
+            auto layer = std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, s_Movie, this );
 #else
-            PushLayer( std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this ) );
+            auto layer = std::make_unique<RuntimeLayer>( s_SceneOverride, s_PlayRequest, this );
 #endif
+            // UE's ApplySettings at startup: the window was created from these DisplaySettings, the rest — the
+            // quality groups, the pacer, the mix, the language — reaches its consumers here. BETWEEN the layer's
+            // construction and its attach: the constructor starts the quality (QualityBoot::Start ->
+            // QualityState::Initialize on the device's catalog, machine.json's selection), so the player's group
+            // levels can go through that one apply point; the attach then loads the scene already at them.
+            if ( const auto applied =
+                      Settings::ApplyGameUserSettings( s_UserSettings, *GetWindow(), GetFramePacer() );
+                 !applied )
+                LOG_ERROR( "[Settings] {}", applied.GetError() );
+            PushLayer( std::move( layer ) );
         }
 
         void OnDestroy() override
