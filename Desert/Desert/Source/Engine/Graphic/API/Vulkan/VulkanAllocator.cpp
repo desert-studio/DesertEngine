@@ -11,6 +11,7 @@
 #include <Engine/Graphic/API/Vulkan/VulkanRenderGraph.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <array>
+#include <mutex>
 #include <string_view>
 
 #include <algorithm>
@@ -352,6 +353,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !buffer || !allocation ) return;
         uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_BufferDeletionQueue.push_back( { buffer, allocation, frameIndex } );
     }
 
@@ -471,15 +473,18 @@ namespace Desert::Graphic::API::Vulkan
                 into.Bytes += total.Bytes;
                 into.Count += total.Count;
             }
-            for ( const BufferDeletionEntry& owed : m_BufferDeletionQueue )
             {
-                rollup[10].Bytes += AllocationSize( owed.Allocation );
-                ++rollup[10].Count;
-            }
-            for ( const ImageDeletionEntry& owed : m_ImageDeletionQueue )
-            {
-                rollup[10].Bytes += AllocationSize( owed.Allocation );
-                ++rollup[10].Count;
+                const std::lock_guard lock( m_DeletionMutex );
+                for ( const BufferDeletionEntry& owed : m_BufferDeletionQueue )
+                {
+                    rollup[10].Bytes += AllocationSize( owed.Allocation );
+                    ++rollup[10].Count;
+                }
+                for ( const ImageDeletionEntry& owed : m_ImageDeletionQueue )
+                {
+                    rollup[10].Bytes += AllocationSize( owed.Allocation );
+                    ++rollup[10].Count;
+                }
             }
             std::string bySubsystem;
             for ( const Subsystem& subsystem : rollup )
@@ -544,10 +549,19 @@ namespace Desert::Graphic::API::Vulkan
         }
 #endif
 
+        std::size_t owedCount   = 0;
+        std::size_t owedBuffers = 0;
+        std::size_t owedImages  = 0;
+        {
+            const std::lock_guard lock( m_DeletionMutex );
+            owedCount   = QueuedCountLocked();
+            owedBuffers = m_BufferDeletionQueue.size();
+            owedImages  = m_ImageDeletionQueue.size();
+        }
         LOG_DEBUG(
              "[VulkanAllocator] census: {} owed deletion(s) ({} buffer(s), {} image(s)); ledger {} object(s) "
              "{:.1f} MB;{} largest:{} grew:{}",
-             QueuedCount(), m_BufferDeletionQueue.size(), m_ImageDeletionQueue.size(), m_Ledger.LiveCount(),
+             owedCount, owedBuffers, owedImages, m_Ledger.LiveCount(),
              static_cast<double>( m_Ledger.LiveBytes() ) / MB, heaps, tags, grew );
     }
 
@@ -556,6 +570,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !image || !allocation ) return;
         uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_ImageDeletionQueue.push_back( { image, allocation, imageView, mipImageViews, frameIndex } );
     }
 
@@ -563,6 +578,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !framebuffer ) return;
         uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_FramebufferDeletionQueue.push_back( { framebuffer, frameIndex } );
     }
 
@@ -570,6 +586,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !renderPass ) return;
         uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_RenderPassDeletionQueue.push_back( { renderPass, frameIndex } );
     }
 
@@ -578,6 +595,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( queryPool == VK_NULL_HANDLE )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_QueryPoolDeletionQueue.push_back( { queryPool, frameIndex } );
     }
 
@@ -586,6 +604,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_PipelineDeletionQueue.push_back( { pipeline, layout, frameIndex } );
     }
 
@@ -595,6 +614,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( accelerationStructure == VK_NULL_HANDLE || destroy == nullptr )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_AccelerationStructureDeletionQueue.push_back( { accelerationStructure, destroy, frameIndex } );
     }
 
@@ -603,6 +623,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( descriptorPool == VK_NULL_HANDLE )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, frameIndex, {} } );
     }
 
@@ -611,6 +632,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !destroy )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_HostObjectDeletionQueue.push_back( { std::move( destroy ), frameIndex } );
     }
 
@@ -619,6 +641,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( pool == VK_NULL_HANDLE || sets.empty() )
             return;
         const uint32_t frameIndex = Engine::FrameManager::GetInstance().GetCurrentFrameIndex();
+        const std::lock_guard lock( m_DeletionMutex );
         m_DescriptorPoolDeletionQueue.push_back( { pool, frameIndex, std::move( sets ) } );
     }
 
@@ -681,6 +704,7 @@ namespace Desert::Graphic::API::Vulkan
 
     std::size_t VulkanAllocator::OwedBytes() const
     {
+        const std::lock_guard lock( m_DeletionMutex );
         std::size_t owed = 0;
         for ( const BufferDeletionEntry& entry : m_BufferDeletionQueue )
             owed += AllocationSize( entry.Allocation );
@@ -745,7 +769,13 @@ namespace Desert::Graphic::API::Vulkan
         // The frame condition is dropped deliberately rather than approximated with "any frame": there is
         // no next frame to wait for, and the caller has already idled the device, so every entry here is
         // finished with by construction.
-        return DestroyQueued( []( uint32_t ) { return true; } );
+        // REPEATED UNTIL A PASS FINDS NOTHING: a host-object destroy may queue further objects, which the pass
+        // that ran it no longer takes (DestroyQueued takes under its lock, then destroys).
+        std::size_t total = 0;
+        for ( std::size_t pass = DestroyQueued( []( uint32_t ) { return true; } ); pass > 0;
+              pass             = DestroyQueued( []( uint32_t ) { return true; } ) )
+            total += pass;
+        return total;
     }
 
     std::size_t VulkanAllocator::DestroyQueued( const std::function<bool( uint32_t )>& takeFrame )
@@ -757,154 +787,148 @@ namespace Desert::Graphic::API::Vulkan
         if ( device == VK_NULL_HANDLE )
             return 0;
 
+        // TAKE UNDER THE LOCK, DESTROY OUTSIDE IT. Every entry whose frame the ring has come back round to is
+        // moved out of its queue while m_DeletionMutex is held; nothing is destroyed until it is released. A
+        // loader thread queuing meanwhile lands in the queue for a later pass, and a host-object destroy that
+        // queues again (below) re-enters RT_Destroy* without the lock held.
+        const auto take = [&takeFrame]<typename Entry>( std::vector<Entry>& queue )
+        {
+            std::vector<Entry> taken;
+            std::vector<Entry> kept;
+            for ( Entry& entry : queue )
+            {
+                if ( takeFrame( entry.FrameIndex ) )
+                    taken.push_back( std::move( entry ) );
+                else
+                    kept.push_back( std::move( entry ) );
+            }
+            queue = std::move( kept );
+            return taken;
+        };
+
+        std::vector<AccelerationStructureDeletionEntry> accelerationStructures;
+        std::vector<BufferDeletionEntry>                buffers;
+        std::vector<ImageDeletionEntry>                 images;
+        std::vector<FramebufferDeletionEntry>           framebuffers;
+        std::vector<RenderPassDeletionEntry>            renderPasses;
+        std::vector<HostObjectDeletionEntry>            hostObjects;
+        std::vector<QueryPoolDeletionEntry>             queryPools;
+        std::vector<PipelineDeletionEntry>              pipelines;
+        std::vector<DescriptorPoolDeletionEntry>        descriptorPools;
+        {
+            const std::lock_guard lock( m_DeletionMutex );
+            accelerationStructures = take( m_AccelerationStructureDeletionQueue );
+            buffers                = take( m_BufferDeletionQueue );
+            images                 = take( m_ImageDeletionQueue );
+            framebuffers           = take( m_FramebufferDeletionQueue );
+            renderPasses           = take( m_RenderPassDeletionQueue );
+            hostObjects            = take( m_HostObjectDeletionQueue );
+            queryPools             = take( m_QueryPoolDeletionQueue );
+            pipelines              = take( m_PipelineDeletionQueue );
+
+            // Destroying a pool frees every set still in it. A free of that pool's sets queued AFTER the destroy
+            // (taken now, later in queue order) or on a frame the ring has not come round to yet (still queued)
+            // would then name dead handles - and a pool handle the driver hands out again: both are dropped with
+            // the pool here, under the lock, before any other thread can queue against a reused handle.
+            const std::vector<DescriptorPoolDeletionEntry> takenPools = take( m_DescriptorPoolDeletionQueue );
+            std::vector<VkDescriptorPool>                  destroyedPools;
+            const auto destroyedAlready = [&destroyedPools]( VkDescriptorPool pool )
+            { return std::find( destroyedPools.begin(), destroyedPools.end(), pool ) != destroyedPools.end(); };
+            for ( const DescriptorPoolDeletionEntry& entry : takenPools )
+            {
+                if ( !entry.Sets.empty() && destroyedAlready( entry.DescriptorPool ) )
+                    continue;
+                if ( entry.Sets.empty() )
+                    destroyedPools.push_back( entry.DescriptorPool );
+                descriptorPools.push_back( entry );
+            }
+            std::erase_if( m_DescriptorPoolDeletionQueue,
+                           [&destroyedAlready]( const DescriptorPoolDeletionEntry& entry )
+                           { return !entry.Sets.empty() && destroyedAlready( entry.DescriptorPool ); } );
+        }
+
         std::size_t destroyed = 0;
         // FIRST: an acceleration structure is destroyed before the buffer it lives in (queued on the same frame).
-        for ( auto it = m_AccelerationStructureDeletionQueue.begin();
-              it != m_AccelerationStructureDeletionQueue.end(); )
+        for ( const AccelerationStructureDeletionEntry& entry : accelerationStructures )
         {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                it->Destroy( device, it->AccelerationStructure, nullptr );
-                it = m_AccelerationStructureDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else
-                ++it;
-        }
-
-        for ( auto it = m_BufferDeletionQueue.begin(); it != m_BufferDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                m_Ledger.Release( LedgerKey( it->Allocation ) );
-                vmaDestroyBuffer( s_VmaAllocator, it->Buffer, it->Allocation );
-                it = m_BufferDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else ++it;
-        }
-
-        for ( auto it = m_ImageDeletionQueue.begin(); it != m_ImageDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                if ( it->ImageView != VK_NULL_HANDLE )
-                    vkDestroyImageView( device, it->ImageView, nullptr );
-                for ( auto view : it->MipImageViews )  vkDestroyImageView( device, view, nullptr );
-
-                m_Ledger.Release( LedgerKey( it->Allocation ) );
-                vmaDestroyImage( s_VmaAllocator, it->Image, it->Allocation );
-                it = m_ImageDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else ++it;
-        }
-
-        for ( auto it = m_FramebufferDeletionQueue.begin(); it != m_FramebufferDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                vkDestroyFramebuffer( device, it->Framebuffer, nullptr );
-                it = m_FramebufferDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else ++it;
-        }
-
-        for ( auto it = m_RenderPassDeletionQueue.begin(); it != m_RenderPassDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                vkDestroyRenderPass( device, it->RenderPass, nullptr );
-                it = m_RenderPassDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else ++it;
-        }
-
-        for ( auto it = m_HostObjectDeletionQueue.begin(); it != m_HostObjectDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                // Moved out first: the call may queue further destructions.
-                const std::function<void()> destroy = std::move( it->Destroy );
-                it                                  = m_HostObjectDeletionQueue.erase( it );
-                destroy();
-                ++destroyed;
-            }
-            else
-                ++it;
-        }
-
-        for ( auto it = m_QueryPoolDeletionQueue.begin(); it != m_QueryPoolDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                vkDestroyQueryPool( device, it->QueryPool, nullptr );
-                it = m_QueryPoolDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else
-                ++it;
-        }
-
-        for ( auto it = m_PipelineDeletionQueue.begin(); it != m_PipelineDeletionQueue.end(); )
-        {
-            if ( takeFrame( it->FrameIndex ) )
-            {
-                if ( it->Pipeline != VK_NULL_HANDLE )
-                    vkDestroyPipeline( device, it->Pipeline, nullptr );
-                if ( it->Layout != VK_NULL_HANDLE )
-                    vkDestroyPipelineLayout( device, it->Layout, nullptr );
-                it = m_PipelineDeletionQueue.erase( it );
-                ++destroyed;
-            }
-            else
-                ++it;
-        }
-
-        for ( auto it = m_DescriptorPoolDeletionQueue.begin(); it != m_DescriptorPoolDeletionQueue.end(); )
-        {
-            if ( !takeFrame( it->FrameIndex ) )
-            {
-                ++it;
-                continue;
-            }
-            if ( !it->Sets.empty() )
-            {
-                vkFreeDescriptorSets( device, it->DescriptorPool, static_cast<uint32_t>( it->Sets.size() ),
-                                      it->Sets.data() );
-                it = m_DescriptorPoolDeletionQueue.erase( it );
-                ++destroyed;
-                continue;
-            }
-            // Destroying the pool frees every set still in it. A free of this pool's sets queued on a
-            // frame the ring has not come round to yet would then name dead handles: drop it with the pool.
-            auto* const pool = it->DescriptorPool;
-            vkDestroyDescriptorPool( device, pool, nullptr );
-            auto next = static_cast<std::size_t>( m_DescriptorPoolDeletionQueue.erase( it ) -
-                                                  m_DescriptorPoolDeletionQueue.begin() );
+            entry.Destroy( device, entry.AccelerationStructure, nullptr );
             ++destroyed;
-            for ( std::size_t pending = 0; pending < m_DescriptorPoolDeletionQueue.size(); )
-            {
-                const auto& entry = m_DescriptorPoolDeletionQueue[pending];
-                if ( entry.DescriptorPool == pool && !entry.Sets.empty() )
-                {
-                    m_DescriptorPoolDeletionQueue.erase( m_DescriptorPoolDeletionQueue.begin() +
-                                                         static_cast<std::ptrdiff_t>( pending ) );
-                    if ( pending < next )
-                        --next;
-                }
-                else
-                    ++pending;
-            }
-            it = m_DescriptorPoolDeletionQueue.begin() + static_cast<std::ptrdiff_t>( next );
+        }
+
+        for ( const BufferDeletionEntry& entry : buffers )
+        {
+            m_Ledger.Release( LedgerKey( entry.Allocation ) );
+            vmaDestroyBuffer( s_VmaAllocator, entry.Buffer, entry.Allocation );
+            ++destroyed;
+        }
+
+        for ( const ImageDeletionEntry& entry : images )
+        {
+            if ( entry.ImageView != VK_NULL_HANDLE )
+                vkDestroyImageView( device, entry.ImageView, nullptr );
+            for ( VkImageView view : entry.MipImageViews )
+                vkDestroyImageView( device, view, nullptr );
+
+            m_Ledger.Release( LedgerKey( entry.Allocation ) );
+            vmaDestroyImage( s_VmaAllocator, entry.Image, entry.Allocation );
+            ++destroyed;
+        }
+
+        for ( const FramebufferDeletionEntry& entry : framebuffers )
+        {
+            vkDestroyFramebuffer( device, entry.Framebuffer, nullptr );
+            ++destroyed;
+        }
+
+        for ( const RenderPassDeletionEntry& entry : renderPasses )
+        {
+            vkDestroyRenderPass( device, entry.RenderPass, nullptr );
+            ++destroyed;
+        }
+
+        // The call may queue further destructions: they land in the queues for the frame current now and are
+        // retired when the ring comes back round to it (DrainDeletionQueue repeats until nothing is left).
+        for ( const HostObjectDeletionEntry& entry : hostObjects )
+        {
+            entry.Destroy();
+            ++destroyed;
+        }
+
+        for ( const QueryPoolDeletionEntry& entry : queryPools )
+        {
+            vkDestroyQueryPool( device, entry.QueryPool, nullptr );
+            ++destroyed;
+        }
+
+        for ( const PipelineDeletionEntry& entry : pipelines )
+        {
+            if ( entry.Pipeline != VK_NULL_HANDLE )
+                vkDestroyPipeline( device, entry.Pipeline, nullptr );
+            if ( entry.Layout != VK_NULL_HANDLE )
+                vkDestroyPipelineLayout( device, entry.Layout, nullptr );
+            ++destroyed;
+        }
+
+        for ( const DescriptorPoolDeletionEntry& entry : descriptorPools )
+        {
+            if ( !entry.Sets.empty() )
+                vkFreeDescriptorSets( device, entry.DescriptorPool, static_cast<uint32_t>( entry.Sets.size() ),
+                                      entry.Sets.data() );
+            else
+                vkDestroyDescriptorPool( device, entry.DescriptorPool, nullptr );
+            ++destroyed;
         }
 
         return destroyed;
     }
 
     std::size_t VulkanAllocator::QueuedCount() const
+    {
+        const std::lock_guard lock( m_DeletionMutex );
+        return QueuedCountLocked();
+    }
+
+    std::size_t VulkanAllocator::QueuedCountLocked() const
     {
         return m_BufferDeletionQueue.size() + m_ImageDeletionQueue.size() + m_FramebufferDeletionQueue.size() +
                m_RenderPassDeletionQueue.size() + m_QueryPoolDeletionQueue.size() +

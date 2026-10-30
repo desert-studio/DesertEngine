@@ -56,7 +56,8 @@ def run_windows(argv):
         print(f"[run_capped] SetInformationJobObject failed ({ctypes.get_last_error()})", file=sys.stderr)
         return 2
 
-    process = subprocess.Popen(argv)
+    # A WindowedApp gets no std handles unless they are passed explicitly (STARTF_USESTDHANDLES).
+    process = subprocess.Popen(argv, stdout=sys.stdout, stderr=sys.stderr)
     handle = kernel32.OpenProcess(0x0100 | 0x0001, False, process.pid)  # SET_QUOTA | TERMINATE
     if not handle or not kernel32.AssignProcessToJobObject(job, handle):
         process.kill()
