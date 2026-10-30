@@ -24,11 +24,6 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
-        {
-            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        }
-
         VkDeviceAddress BufferAddress( const RayTracingDeviceFunctions& functions, VkDevice device,
                                        VkBuffer buffer )
         {
@@ -84,7 +79,7 @@ namespace Desert::Graphic::API::Vulkan
             if ( layout.Segments.empty() || layout.VertexBytes == 0 || layout.IndexBytes == 0 )
                 return Common::MakeFormattedError<Plan>( "{} BLAS: a dynamic mesh layout with no geometry",
                                                          m_Name );
-            const auto logical = LogicalDevice();
+            const auto logical = VulkanLogicalDevice::Current();
             if ( !logical )
                 return Common::MakeFormattedError<Plan>( "{} BLAS: no Vulkan device", m_Name );
             const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
@@ -199,7 +194,7 @@ namespace Desert::Graphic::API::Vulkan
             const auto scratchBuffer = VulkanRdgBackend::BufferOf( scratch );
             if ( !scratchBuffer )
                 return Common::MakeError( scratchBuffer.GetError() );
-            const auto logical = LogicalDevice();
+            const auto logical = VulkanLogicalDevice::Current();
             if ( !logical || m_Handle == VK_NULL_HANDLE )
                 return Common::MakeFormattedError<bool>(
                      "{} BLAS build recorded without a prepared acceleration structure", m_Name );
