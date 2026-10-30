@@ -566,6 +566,9 @@ namespace
                                 report.StatedLightVersion,
                                 Desert::Migration::kLightVersionRotation, report.SunRotation.Aimed,
                                 report.SunRotation.Overrides, report.SunRotation.Undirected );
+        if ( report.VolumetricFogRaised )
+            out << " scene ->v" << Desert::Migration::kSceneVersionVolumetricFog
+                << " (fog and lights state the Volumetric Fog fields at their defaults)";
     }
 
     // The `.defoliage` files the v33 step minted, written BEFORE the scene that names them, so a scene never

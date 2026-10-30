@@ -3,7 +3,7 @@
 # optimiser step; the cache term is clamped by PathTracingAccumulate's MaxPathIntensity rule; System::PathTracer keeps the ReLAX
 # history under Nrc (PathTracer.hpp: a history drop logs "[PathTracer] denoiser history reset (...)"); render queries are
 # live-sized segments (capacity = peak demand of the last 8 read-backs x1.25), reported as state nrc.queryMemoryMB.
-Дано F:/BistroFoliageProj dnx_Night_pt, GlobalIllumination.Method PathTraced, PathTracing.Denoiser ReLAX, PathTracing.SamplesPerPixel 1, PathTracing.PathsPerFrame 1 (PT 1 spp), 1920x1080, camera fixed on the street.
+Дано F:/BistroFoliageProj dnx_Night_pt, GlobalIllumination.Method PathTraced, Reflections.Method PathTraced (the path tracer integrates both; GI alone is lowered to HardwareTraced), PathTracing.Denoiser ReLAX, PathTracing.SamplesPerPixel 1, PathTracing.PathsPerFrame 1 (PT 1 spp), 1920x1080, camera fixed on the street.
 Когда PathTracing.RadianceCache Nrc; 120 frames with the camera still, mean luminance of each frame 100..120 recorded; shoot nrc_still at frame 120; DesertCtl state nrc.
 Когда 30 frames of a slow pan (yaw 0.2 degree per frame); shoot nrc_pan at frame 150.
 Когда PathTracing.RadianceCache Off; the same 120 still frames, mean luminance of each frame 100..120 recorded; shoot off_still at frame 120.

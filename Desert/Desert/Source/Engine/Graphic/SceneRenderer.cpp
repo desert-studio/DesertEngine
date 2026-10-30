@@ -3831,10 +3831,23 @@ namespace Desert::Graphic
 
     System::PathTracer::RadianceCacheStatus SceneRenderer::GetRadianceCacheStatus() const
     {
-        const auto found = m_RenderSystems.find( "PathTracerSystem" );
-        if ( found == m_RenderSystems.end() )
-            return {};
-        return static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
+        // REQUESTED IS THE VIEW'S SETTING, NOT THE PATH TRACER'S LAST RUN. The path tracer learns
+        // PathTracing.RadianceCache only on a frame it traces, so on a view whose GI / reflections did not resolve
+        // to PathTraced it kept saying "requested Off" over a setting of Nrc - a request that was not carried out
+        // named no reason (state nrc after "Quality: PathTracing.RadianceCache Nrc" on a HardwareTraced view).
+        using Method = Common::Scalability::PathTracingRadianceCacheMethod;
+        System::PathTracer::RadianceCacheStatus status;
+        if ( const auto found = m_RenderSystems.find( "PathTracerSystem" ); found != m_RenderSystems.end() )
+            status = static_cast<const System::PathTracer*>( found->second.get() )->GetRadianceCacheStatus();
+        status.Requested = m_PathTracingSettings.RadianceCache;
+        if ( status.Requested != Method::Off && !PathTraced( m_RenderMethods ) )
+        {
+            status.Effective = Method::Off;
+            status.Reason    = "the path tracer does not run on this view -";
+            for ( const std::string& row : FormatRenderMethods( m_RenderMethods ) )
+                status.Reason += " " + row + ";";
+        }
+        return status;
     }
 
     const GpuDriven::DrawCommandCache* SceneRenderer::GetDrawCommandCache() const

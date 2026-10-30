@@ -5260,6 +5260,10 @@ namespace Desert::Migration
             report.RootSiblingIndexRaised  = true;
             report.RootSiblingIndexDropped = MigrateRootSiblingIndexV69ToV70( scene );
         }
+        // Additive: the record was read with the declared defaults, the save states them; the flag is what
+        // makes the file count as raised (SceneMigrator writes it, --check reports it).
+        if ( statedSceneVersion < kSceneVersionVolumetricFog )
+            report.VolumetricFogRaised = true;
 
         // World Partition's own chain, after the scene's: its numbers are its tag's (kWorldPartitionVersion*).
         RunWorldPartitionSteps( scene.Header, report );

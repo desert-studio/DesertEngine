@@ -465,6 +465,36 @@ namespace Common::Settings
             return Json::Value( rebuilt.Build() );
         }
 
+        // ForcedNeuralKernelPath BY NAME (NN-RUNTIME): the palette's names, "Auto" included - "Auto" is the device's
+        // selection, which the struct states as an absent value, so it is read as absent rather than handed to the
+        // enum reader (whose numeric fallback refused it as "invalid stoi argument", naming no path). Any other
+        // value is refused naming the four names. Returns the value to keep, or nothing (absent / refused).
+        std::optional<Json::Value> ScreenNeuralKernelPath( const Json::Node&       member,
+                                                           std::vector<Rejection>& rejections )
+        {
+            constexpr std::string_view kDeviceSelection = "Auto";
+            constexpr std::array       kPaths = { NeuralKernelPath::Fp32, NeuralKernelPath::Fp16,
+                                                  NeuralKernelPath::CoopMatFp16 };
+            if ( member.GetKind() == Json::Kind::Null )
+                return std::nullopt;
+            if ( const auto text = member.AsString() )
+            {
+                if ( text.GetValue() == kDeviceSelection )
+                    return std::nullopt;
+                for ( const NeuralKernelPath path : kPaths )
+                    if ( text.GetValue() == rfl::enum_to_string( path ) )
+                        return member.Raw();
+            }
+            rejections.push_back( { std::format( "ForcedNeuralKernelPath is ignored and keeps its default (the "
+                                                 "device's selection): {} names no kernel path - one of {}, {}, "
+                                                 "{}, {}",
+                                                 Json::Detail::DescribeFound( member.Raw() ), kDeviceSelection,
+                                                 rfl::enum_to_string( kPaths[0] ),
+                                                 rfl::enum_to_string( kPaths[1] ),
+                                                 rfl::enum_to_string( kPaths[2] ) ) } );
+            return std::nullopt;
+        }
+
         Common::ResultStr<ScreenedFile> ScreenFile( std::string_view text )
         {
             auto parsed = Json::Parse( text );
@@ -484,6 +514,12 @@ namespace Common::Settings
             root.ForEachMember(
                  [&]( std::string_view name, const Json::Node& member )
                  {
+                     if ( name == "ForcedNeuralKernelPath" )
+                     {
+                         if ( std::optional<Json::Value> path = ScreenNeuralKernelPath( member, screened.Rejections ) )
+                             kept.Set( name, std::move( *path ) );
+                         return;
+                     }
                      const Json::Value value =
                           name == "Quality"       ? ScreenQuality( member, screened.Rejections,
                                                                    { screened.Rejections, screened.Warnings,
