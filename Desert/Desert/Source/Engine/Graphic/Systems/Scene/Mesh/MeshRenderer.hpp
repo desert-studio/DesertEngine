@@ -1190,9 +1190,19 @@ namespace Desert::Graphic::System
                                                  bool postOcclusion );
         [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
                                                                                 bool postOcclusion ) const;
+        // SETUP of "Grass: Depth Prepass Post-Occlusion" (GRASS-VIS-13; the G-buffer's depth LOADed, no colour;
+        // after "Grass: Post-Occlusion Finalize" wrote phase 2's records, before "Grass: GBuffer Post-Occlusion";
+        // UE: the two-pass occlusion's second depth pass, grass HISM by the same rule as every mesh): the G-buffer
+        // path's sections EarlyZAdmits, by their phase-2 records through their (path x Depth) cell, each only when
+        // its DEPTH_EQUAL G-buffer half is Ready too (m_MaskedPrepassedPost). The exec records that list.
+        void DeclareGrassDepthPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr
+        RenderGrassDepthPostOcclusionManual( const RDG::PassContext& context ) const;
         // SETUP of "Grass: GBuffer Post-Occlusion" (GRASS-VIS phase 2, after this frame's HZB): the G-buffer path's
         // GPU-instanced sections (not through the visibility buffer) drawn by their phase-2 records, LOADing the
-        // G-buffer, with their own clip and depth writes (they were not in the masked prepass).
+        // G-buffer. A section "Grass: Depth Prepass Post-Occlusion" drew (m_MaskedPrepassedPost) is drawn EQUAL,
+        // without writes and without the clip (m_InstancedGBufferEqualPipeline); every other one with its own clip
+        // and depth writes.
         void DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr
         RenderGrassGBufferPostOcclusionManual( const RDG::PassContext& context ) const;
@@ -1827,6 +1837,10 @@ namespace Desert::Graphic::System
         // The GPU-instanced sections (GpuInstancedRenderData::Key) THIS frame's masked depth prepass drew: the
         // G-buffer draws exactly these through m_InstancedGBufferEqualPipeline, every other one as before.
         std::vector<uint32_t> m_MaskedPrepassed;
+        // The same for phase 2 (GRASS-VIS-13): the sections "Grass: Depth Prepass Post-Occlusion" drew by their
+        // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
+        // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
+        std::vector<uint32_t> m_MaskedPrepassedPost;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
@@ -1838,6 +1852,7 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterPostDraws;
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolvePostDraws;
         MeshRendererDetail::MeshDrawList m_GrassGBufferPostDraws;
+        MeshRendererDetail::MeshDrawList m_GrassDepthPostDraws; // "Grass: Depth Prepass Post-Occlusion"
         RDG::BufferRef                   m_GrassResolveArgs{};
         MeshRendererDetail::MeshDrawList m_GBufferPostDraws; // "Deferred: GBuffer Post-Occlusion": phase-2 bins
         // "Deferred: Depth Prepass Post-Occlusion": phase 2's paired bins and clusters through their depth twins.

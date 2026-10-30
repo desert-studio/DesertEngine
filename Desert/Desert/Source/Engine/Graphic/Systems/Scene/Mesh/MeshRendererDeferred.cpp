@@ -66,6 +66,7 @@ namespace Desert::Graphic::System
     {
         m_MaskedDepthDraws.Clear();
         m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
+        m_MaskedPrepassedPost.clear(); // phase 2's: "Grass: Depth Prepass Post-Occlusion" refills it this frame
         // This frame's admissions start empty here, whatever returns below: the G-buffer reads only a set stamped
         // with its own frame (PrepassCellDraw), and only when the static / skinned halves below ran.
         m_PrepassCellDraws.clear();
@@ -533,13 +534,34 @@ namespace Desert::Graphic::System
         return ( postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws ).Record( context );
     }
 
+    void MeshRenderer::DeclareGrassDepthPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GrassDepthPostDraws.Clear();
+        m_MaskedPrepassedPost.clear();
+        // Phase 2's grass by phase 1's rule (BuildGpuInstancedDraws' companion-less Depth call): the sections
+        // EarlyZAdmits whose DEPTH_EQUAL G-buffer half is Ready write their clipped depth here, through their
+        // phase-2 records, and are recorded in m_MaskedPrepassedPost for "Grass: GBuffer Post-Occlusion".
+        if ( m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && m_InstancedViewDepthPipeline &&
+             m_InstancedGBufferEqualPipeline && m_SceneRenderer != nullptr &&
+             m_SceneRenderer->GetMainCamera() != nullptr )
+            BuildGpuInstancedDraws( m_GrassDepthPostDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
+                                    CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, true );
+        m_GrassDepthPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGrassDepthPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GrassDepthPostDraws.Record( context );
+    }
+
     void MeshRenderer::DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
         m_GrassGBufferPostDraws.Clear();
         if ( !m_InstancedGBufferPipeline || m_SceneRenderer == nullptr || m_SceneRenderer->GetMainCamera() == nullptr )
             return;
-        // Phase 2's grass that the G-buffer path draws (a mesh variety, a blade off the visibility buffer): the
-        // section's (Instanced x GBuffer) cell with its own clip and depth writes, phase 2's records.
+        // Phase 2's grass that the G-buffer path draws (a mesh variety, a blade off the visibility buffer), phase
+        // 2's records: the sections "Grass: Depth Prepass Post-Occlusion" drew through their DEPTH_EQUAL cell (EQUAL,
+        // no writes, no clip), every other one through its (path x GBuffer) cell with its own clip and depth writes.
         BuildGpuInstancedDraws( m_GrassGBufferPostDraws, m_InstancedGBufferPipeline.get(), MeshPass::GBuffer,
                                 CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, true );
         m_GrassGBufferPostDraws.Declare( pass, view );

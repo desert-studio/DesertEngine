@@ -506,6 +506,23 @@ namespace Desert::Graphic
         if ( !grass->AddFramePostOcclusion( graph, hzb, frame.ViewProjection, extent ) )
             return;
         if ( const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: GBuffer Post-Occlusion" ) )
+        {
+            // PHASE 2'S GRASS DEPTH PASS (GRASS-VIS-13; UE two-pass occlusion with r.EarlyZPass: the grass HISM by
+            // the rule of every mesh): the G-buffer's depth LOADed, the phase-2 sections EarlyZAdmits write their
+            // clipped depth; "Grass: GBuffer Post-Occlusion" draws them EQUAL, without writes or clip. A node of its
+            // own, not "Deferred: Depth Prepass Post-Occlusion": that one runs before AddFramePostOcclusion above
+            // wrote phase 2's records, and only when the bins test this frame's HZB.
+            if ( meshRenderer->DrawsEarlyZ() )
+            {
+                RasterTargets depthOnly;
+                depthOnly.Depth = targets->Depth;
+                AddRaster(
+                     graph, "Grass: Depth Prepass Post-Occlusion", depthOnly, {}, RDG::LoadOp::Load(), {},
+                     [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                     { return meshRenderer->RenderGrassDepthPostOcclusionManual( context ); },
+                     [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                     { meshRenderer->DeclareGrassDepthPostOcclusionDraws( pass, view ); } );
+            }
             AddRaster(
                  graph, "Grass: GBuffer Post-Occlusion", *targets,
                  textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
@@ -513,6 +530,7 @@ namespace Desert::Graphic
                  { return meshRenderer->RenderGrassGBufferPostOcclusionManual( context ); },
                  [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
                  { meshRenderer->DeclareGrassGBufferPostOcclusionDraws( pass, view ); } );
+        }
         if ( visibility.IsValid() )
             AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
     }
