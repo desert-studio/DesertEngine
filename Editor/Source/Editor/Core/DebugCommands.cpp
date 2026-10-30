@@ -71,6 +71,19 @@ namespace Desert::Editor
             scene->GetVFXWorld().SetDebugSettings( settings );
             return PaletteCommandDone();
         };
+        // The panel's two HUD toggles (UE fx.Niagara.Debug.Enabled overview / the debug draw of system bounds):
+        // the viewport overview names how many emitters this view culled by their fixed Bounds.
+        const auto toggle = [scene]( bool VFX::VFXDebugSettings::*field )
+        {
+            VFX::VFXDebugSettings settings = scene->GetVFXWorld().GetDebugSettings();
+            settings.*field                = !( settings.*field );
+            scene->GetVFXWorld().SetDebugSettings( settings );
+            return PaletteCommandDone();
+        };
+        commands.push_back( { "Debug", "Particles: Viewport overview",
+                              [toggle] { return toggle( &VFX::VFXDebugSettings::Overview ); } } );
+        commands.push_back( { "Debug", "Particles: Draw bounds",
+                              [toggle] { return toggle( &VFX::VFXDebugSettings::DrawBounds ); } } );
         commands.push_back( { "Debug", "Particles: Freeze", [freeze] { return freeze( true ); } } );
         commands.push_back( { "Debug", "Particles: Unfreeze", [freeze] { return freeze( false ); } } );
         // UE's Niagara "Reset" (the debugger's restart of every system): the effects start again from age zero, so

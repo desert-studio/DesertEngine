@@ -137,8 +137,9 @@ namespace Desert::Graphic
         Instanced = 2, // one model matrix per INSTANCE, from the InstanceTransforms SSBO
         // A camera-facing quad per live particle, pulled from the particle pool (binding 9) through the alive
         // list (binding 10), as's sprite vertex factory. Only a template that declares `Usage ParticleSprites`
-        // has its cell (ParticleSprite.Forward); it has no G-buffer, glass or shadow-depth cell: sprites are drawn
-        // over the lit scene by ParticleRenderer and cast nothing.
+        // has its cell (ParticleSprite.Forward); an Opaque / Masked one also has ParticleSprite.GBuffer (UE:
+        // opaque particle materials draw in the base pass). Both are drawn by ParticleRenderer alone; no glass or
+        // shadow-depth cell.
         ParticleSprite = 3,
         // A procedural grass blade per instance (GRASS-BLADE; Ghost of Tsushima's blade, a vertex factory UE does
         // not have): the instance's matrix from InstanceTransforms (binding 17) places a blade strip whose
@@ -148,7 +149,8 @@ namespace Desert::Graphic
         // A camera-facing strip through an emitter's live particles in age order (UE: the Niagara ribbon vertex
         // factory, a material's "Used with Niagara Ribbons"), pulled from the same attribute columns / alive list
         // as the sprite path plus the pool's slots (binding 13, which particles are alive). Only a template that
-        // declares `Usage ParticleRibbons` has its cell (ParticleRibbon.Forward); drawn by ParticleRenderer only.
+        // declares `Usage ParticleRibbons` has its cell (ParticleRibbon.Forward; an Opaque / Masked one also
+        // ParticleRibbon.GBuffer); drawn by ParticleRenderer only.
         ParticleRibbon = 5,
     };
 

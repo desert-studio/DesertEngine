@@ -13,6 +13,13 @@
 #endif
 
 DESERT_SURFACE_VARYINGS( in )
+#ifdef DESERT_SURFACE_PARTICLE_SPRITE
+// An opaque / masked particle's G-buffer cell (ParticleSprite.GBuffer / ParticleRibbon.GBuffer, drawn by
+// ParticleRenderer::GBufferPass; UE's base pass for Opaque/Masked particle materials): the particle half of the input,
+// as the vertex factory wrote it for the Forward cell (Pass_ParticleSprite.glslh).
+layout( location = 12 ) in flat vec4 v_ParticleColor;
+layout( location = 13 ) in flat vec2 v_ParticleTimeRandom;
+#endif
 #ifdef DESERT_SURFACE_WEATHER
 #include <Mesh/Surface/SurfaceWeather.glslh>
 #endif
@@ -39,9 +46,18 @@ layout( depth_less ) out float gl_FragDepth;
 void main()
 {
     DESERT_SURFACE_BEGIN_FRAGMENT();
+#ifdef DESERT_SURFACE_PARTICLE_SPRITE
+    SurfaceInput i =
+         DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
+                              v_Surface.VertexColor, gl_FrontFacing );
+    i.Particle.Color        = v_ParticleColor;
+    i.Particle.RelativeTime = v_ParticleTimeRandom.x;
+    i.Particle.Random       = v_ParticleTimeRandom.y;
+#else
     const SurfaceInput i =
          DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN, v_Surface.UV1,
                               v_Surface.VertexColor, gl_FrontFacing );
+#endif
     DESERT_SURFACE_CLIP( i );
 #ifdef DESERT_SURFACE_WEATHER
     // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.

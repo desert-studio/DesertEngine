@@ -22,6 +22,14 @@ namespace Desert::Editor
                                 [&]( const Graphic::System::ParticleViewEmitterCull& c )
                                 { return c.Culled && c.EntityId == entity && c.Emitter == emitter; } );
         };
+        // This view's resolved sprite / ribbon draws of the emitter: "draws F+G" (forward + G-buffer).
+        const auto draws = [culls]( std::uint32_t entity, std::uint32_t emitter ) -> std::string
+        {
+            for ( const Graphic::System::ParticleViewEmitterCull& c : culls )
+                if ( c.EntityId == entity && c.Emitter == emitter )
+                    return std::format( ", draws {}+{}", c.ForwardDraws, c.GBufferDraws );
+            return {};
+        };
         const auto culledCount = std::count_if( culls.begin(), culls.end(),
                                                 []( const Graphic::System::ParticleViewEmitterCull& c )
                                                 { return c.Culled; } );
@@ -46,10 +54,11 @@ namespace Desert::Editor
         {
             rows.push_back( std::format( "  {}", system.EntityUuid ) );
             for ( const VFX::VFXEmitterDebugStats& e : system.Emitters )
-                rows.push_back( std::format( "    {}: {} / {}{}{}{}", e.Name,
+                rows.push_back( std::format( "    {}: {} / {}{}{}{}{}", e.Name,
                                              e.GpuRead ? std::to_string( e.Alive ) : std::string( "-" ), e.Capacity,
                                              e.Runs ? "" : " (inactive)",
                                              culled( system.EntityId, e.Emitter ) ? " (culled)" : "",
+                                             draws( system.EntityId, e.Emitter ),
                                              e.Channel.Overflow > 0 ? std::format( ", overflow {}", e.Channel.Overflow )
                                                                     : "" ) );
         }

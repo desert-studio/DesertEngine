@@ -154,6 +154,11 @@ namespace Desert::Core::Preprocess
     inline constexpr std::string_view kSurfaceParticleSpritePass        = "Forward";
     inline constexpr std::string_view kSurfaceParticleSpritePassInclude = "Mesh/Surface/Pass_ParticleSprite.glslh";
     inline constexpr std::string_view kSurfaceParticleSpriteDefine      = "DESERT_SURFACE_PARTICLE_SPRITE";
+    // An Opaque / Masked particle template also gets `ParticleSprite.GBuffer` (and `ParticleRibbon.GBuffer` with
+    // the ribbon usage): the particle vertex path under the mesh G-buffer header (UE: Opaque/Masked particle
+    // materials draw in the base pass). Both stages get kSurfaceParticleSpriteDefine; Depth Fade is not compiled
+    // there.
+    inline constexpr std::string_view kSurfaceParticleGBufferPass = "GBuffer";
     // THE PARTICLE RIBBON USAGE (UE: bUsedWithNiagaraRibbons). `Usage ParticleRibbons` adds the cell
     // `ParticleRibbon.Forward` after the sprite cell: the ribbon vertex path (Vertex_ParticleRibbon.glslh, a strip
     // through the emitter's live particles in age order) with the SAME particle pass header and define as the
