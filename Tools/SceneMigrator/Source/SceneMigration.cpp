@@ -3727,7 +3727,8 @@ namespace Desert::Migration
         // 0.35, the default type's: the fill every v7 type baked with (the bake's former constant), so a
         // raised library draws the sky it drew; a sheet type states its own after the raise.
         std::string patched = text;
-        patched.insert( end, ",\n        \"FillDensity\": " + std::format( "{}", Graphic::CloudTypeShape{}.FillDensity ) );
+        patched.insert( end, ",\n        \"FillDensity\": " +
+                                  std::format( "{}", Graphic::CloudTypeShape{}.FillDensity ) );
 
         const auto v7 = Common::Json::Read<Assets::CloudTypeData>( patched );
         if ( !v7 )
