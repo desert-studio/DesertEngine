@@ -4124,6 +4124,7 @@ namespace Desert::Graphic
         overlay.Color = resolvedColor;
         RDG::TextureDesc desc;
         desc.Size        = RDG::Extent3D{ frame.Split.Output.Width, frame.Split.Output.Height, 1 };
+        overlay.Extent               = { frame.Split.Output.Width, frame.Split.Output.Height };
         desc.Format      = ViewTargetFormats::kVelocity;
         overlay.Velocity = graph.CreateTexture( desc, "Overlay.Velocity" );
         desc.Format          = ViewTargetFormats::kResponsiveAA;

@@ -307,6 +307,12 @@ namespace Desert::Graphic
             targets->Resolves                         = {};
         }
         RenderPassDeclaration declared;
+        // The render area the node draws at: the overlay set's OUTPUT extent when it replaced the scene target,
+        // the target framebuffer's otherwise (a layered depth pass lays out nothing in pixels: (0, 0)).
+        if ( overlay.IsValid() && target == m_TargetFramebuffer )
+            declared.SetTargetExtent( overlay.Extent );
+        else if ( !layered && target )
+            declared.SetTargetExtent( { target->GetFramebufferWidth(), target->GetFramebufferHeight() } );
         if ( pass.Declare )
             pass.Declare( declared, textures.GraphRefs() );
         std::vector<RDG::TextureRef> images;

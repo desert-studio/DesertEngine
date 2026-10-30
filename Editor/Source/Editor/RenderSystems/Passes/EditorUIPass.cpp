@@ -63,8 +63,14 @@ namespace Desert::Editor::Render
             if ( !scene || !ctx.Target )
                 return;
 
-            const float w = static_cast<float>( ctx.Target->GetFramebufferWidth() );
-            const float h = static_cast<float>( ctx.Target->GetFramebufferHeight() );
+            // THE CANVAS IS THE NODE'S RENDER AREA (RenderPassDeclaration::TargetExtent), not ctx.Target's size:
+            // after the temporal resolve the UI draws into the OUTPUT-extent overlay set, while ctx.Target is the
+            // render-extent scene target - laid out there, the canvas filled only the render-scale corner of the
+            // image (87 % screen percentage: 1248x746 of 1435x857). UE: UMG's root fills the viewport's output
+            // size (SConstraintCanvas under the DPI scale), never the scene's internal resolution.
+            const glm::uvec2 extent = declared.TargetExtent();
+            const float      w      = static_cast<float>( extent.x );
+            const float      h      = static_cast<float>( extent.y );
 
             // Camera view-proj for world-space canvases (screen-space ignores it).
             glm::mat4        vp( 1.0f );
