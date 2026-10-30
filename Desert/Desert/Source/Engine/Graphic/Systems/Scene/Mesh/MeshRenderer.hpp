@@ -1546,19 +1546,23 @@ namespace Desert::Graphic::System
         // layer is redrawn, whether it holds a movable caster, whether its map is rebuilt.
         void PlanCascadeCache();
         // A hash of the static casters cascade @p cascade's caster box reaches (what they draw and where), and
-        // whether a movable caster reaches it: the cache key of the cascade's static layer.
-        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, bool& movable ) const;
+        // whether a movable caster reaches it: the cache key of the cascade's static layer. A still ISM field's
+        // part is its snapshot and the instances the gather keeps in the box with their levels
+        // (ShadowIsmInstances, gathered here when no view walked the field yet): what the layer draws.
+        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, bool& movable );
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
         // A hash of every caster in @p light's reach (what it draws into its views and where) - the meshes and the
         // non-mesh casters (IShadowCaster::LocalShadowSignature) - or nullopt when one of them moves by itself
         // every frame (a skinned mesh, swaying foliage): the cache key of a local view.
-        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const LocalShadowCasterLight& light ) const;
-        // The mesh casters alone in the sphere (@p centre, @p radius cm), or nullopt when one of them moves by itself
-        // every frame: the part of a local view's key the meshes give, and the rain occlusion map's key (the
-        // terrain under it changes only with the box, which RainOcclusionNeedsRecentre redraws on).
-        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius ) const;
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const LocalShadowCasterLight& light );
+        // The mesh casters alone in the sphere (@p centre, @p radius cm), or nullopt when one of them moves by
+        // itself every frame: the part of a local view's key the meshes give, and the rain occlusion map's key
+        // (the terrain under it changes only with the box, which RainOcclusionNeedsRecentre redraws on). Every
+        // caster's box is this frame's gather (GatherShadowCasters), an ISM field's the instances it keeps
+        // (ShadowIsmInstances, gathered here when no view walked the field yet): what the views draw.
+        [[nodiscard]] std::optional<uint64_t> LocalCasterSignature( const glm::vec3& centre, float radius );
         // The cache decision of each light given views by UpdateLocalShadows (m_LocalCachePlans): its key from
         // its casters and its views; the views of a light whose key changed (or that has none) go to
         // m_LocalRedraws.

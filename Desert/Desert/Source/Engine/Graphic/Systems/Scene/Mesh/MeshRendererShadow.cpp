@@ -548,7 +548,7 @@ namespace Desert::Graphic::System
         return h ^ ( key.Hidden.High.size() * 0x9E3779B97F4A7C15ull );
     }
 
-    uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, bool& movable ) const
+    uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, bool& movable )
     {
         // THE CASTER BOX, as BuildShadowCascadeDraws culls with: a static caster outside it is not in the cache,
         // so it moving changes nothing drawn.
@@ -574,6 +574,8 @@ namespace Desert::Graphic::System
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.ForcedLOD );
             hash.Add( rd.LODBias );
+            // The level the layer draws it at follows the main camera (ShadowStaticLod): a new one redraws.
+            hash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
             // The entry's section material decides the caster cell (opaque or masked) and a masked one's clip
             // (ShadingOf: the same answer the casters draw with).
             const SectionShading shading = ShadingOf( rd );
@@ -588,9 +590,13 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
+            hash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
         }
-        // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound); a
-        // swaying one is movable wherever it stands.
+        // A still instanced mesh is keyed by its snapshot (m_CascadeKeySnapshots says why that is sound) and by
+        // the instances the layer draws of it: the ones the main camera's cull distance keeps in the box, each
+        // with its level (the gather's, as BuildShadowCascadeDraws walks them), so an instance crossing the cull
+        // distance or a level redraws the layer instead of leaving its old depth cached. A swaying one is movable
+        // wherever it stands.
         for ( const auto& ism : m_InstancedQueue )
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
@@ -604,6 +610,15 @@ namespace Desert::Graphic::System
             hash.Add( ism.Transforms.get() );
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );
+            const ShadowIsmField& kept =
+                 ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+            for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
+            {
+                if ( !reaches( m_ShadowCasterSetup.Instances[k] ) )
+                    continue;
+                hash.Add( m_ShadowCasterSetup.InstanceIndex[k] );
+                hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
+            }
         }
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {

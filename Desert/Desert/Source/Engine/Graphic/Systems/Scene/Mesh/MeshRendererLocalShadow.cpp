@@ -23,15 +23,8 @@ namespace Desert::Graphic::System
             return glm::dot( d, d ) <= radius * radius;
         }
 
-        [[nodiscard]] bool CasterInSphere( const glm::mat4& transform, const Common::Math::AABB& local,
-                                           const glm::vec3& centre, const float radius )
-        {
-            if ( Geometry::IsEmpty( local ) )
-                return true; // a caster that states no bounds is everywhere, as the frustum test treats it
-            return BoxInSphere( Geometry::TransformBounds( transform, local ), centre, radius );
-        }
-
-        // The same test on a gathered world box (MeshRenderer::GatherShadowCasters): empty = everywhere.
+        // Whether a gathered caster's world box (MeshRenderer::GatherShadowCasters) is in the sphere: a caster
+        // that states no bounds (an empty box) is everywhere, as the frustum test treats it.
         [[nodiscard]] bool CasterInSphere( const Common::Math::AABB& world, const glm::vec3& centre,
                                            const float radius )
         {
@@ -97,7 +90,7 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const LocalShadowCasterLight& light ) const
+    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const LocalShadowCasterLight& light )
     {
         const std::optional<uint64_t> meshes = LocalCasterSignature( light.Lod.Origin, light.Reach );
         if ( !meshes )
@@ -119,7 +112,7 @@ namespace Desert::Graphic::System
         return hash.Value;
     }
 
-    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
+    std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius )
     {
         // The casters' boxes are this frame's gather (GatherShadowCasters), the ones every view culls by; gathered
         // for other queues, nothing is keyed and the view redraws.
@@ -137,6 +130,8 @@ namespace Desert::Graphic::System
             // One entry per section material: which submeshes it casts, and through which slot's route.
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.SectionSlot );
+            // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
+            hash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
         }
         for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
         {
@@ -146,6 +141,7 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
+            hash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
         }
         // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame.
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
@@ -159,16 +155,21 @@ namespace Desert::Graphic::System
         {
             if ( ism.Mesh == nullptr || !ism.CastShadows || !ism.Transforms || ism.Transforms->empty() )
                 continue;
-            const Common::Math::AABB local = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-            bool                     any   = false;
-            for ( const glm::mat4& instance : *ism.Transforms )
+            // The instances the main camera's cull distance keeps, by the box the wind can reach (the gather's):
+            // one the camera drops is in no view, and one entering or leaving the distance changes the key.
+            const ShadowIsmField& kept =
+                 ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
+            bool any = false;
+            for ( uint32_t k = kept.First; k < kept.First + kept.Count; ++k )
             {
-                if ( !CasterInSphere( instance, local, centre, radius ) )
+                if ( !CasterInSphere( m_ShadowCasterSetup.Instances[k].WorldBounds, centre, radius ) )
                     continue;
                 // Swaying foliage moves every frame, like a posed mesh.
                 if ( ism.Wind.Sways() )
                     return std::nullopt;
-                hash.Add( instance );
+                hash.Add( ( *ism.Transforms )[m_ShadowCasterSetup.InstanceIndex[k]] );
+                // The level the views draw it at follows the main camera (the gather's): a new one redraws.
+                hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
                 any = true;
             }
             if ( any )
