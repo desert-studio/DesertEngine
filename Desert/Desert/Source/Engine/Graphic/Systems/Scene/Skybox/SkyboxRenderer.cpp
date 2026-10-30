@@ -134,7 +134,8 @@ namespace Desert::Graphic::System
                 if ( behind )
                     m_ProceduralBehindPipeline = behind.GetValue();
                 else
-                    proceduralPipeline = Common::MakeError( behind.GetError() );
+                    proceduralPipeline =
+                        Common::MakeError<std::shared_ptr<Graphic::GraphicsPipeline>>( behind.GetError() );
             }
             if ( !proceduralPipeline )
             {
