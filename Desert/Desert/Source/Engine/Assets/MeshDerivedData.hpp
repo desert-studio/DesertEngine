@@ -95,7 +95,8 @@ namespace Desert::Assets
          "ImportedMeshSource", ".stmesh", { 0x51F3A9C0D4E6B812ULL, 0x2A7C15E8934FD061ULL } };
 
     // The importer's own determinism version (AssimpImporter -> MeshSourceFromImport): bump it whenever that
-    // conversion produces different bytes for the same source file.
+    // conversion produces different bytes for the same source file. The envelope layout (MSAS) is keyed beside
+    // it by MeshSourceDerivedDataKey, so an MSAS bump needs no bump here.
     // 2 (FIX8): the envelope's GUID is the source's import record's, no longer minted per import.
     // 3 (SKEL-eng3): MeshSourceAsset SRCE version 3 (the skin names its skeleton by GUID).
     inline constexpr uint32_t kMeshSourceBuilderVersion = 4; // 4: MikkTSpace tangents (Engine/Geometry/MikkTangents.hpp), vertices split on frame seams

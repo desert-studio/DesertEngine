@@ -1,3 +1,6 @@
+#ifndef DESERT_COMMON_TANGENT_NORMAL_GLSLH
+#define DESERT_COMMON_TANGENT_NORMAL_GLSLH
+
 // HOW A TANGENT-SPACE NORMAL IS READ OUT OF A TEXTURE, in one place for every shader that reads one.
 //
 // WHY THIS FILE EXISTS. `Core/Formats/TextureIntent.hpp` lets an artist mark a texture as a normal map,
@@ -59,3 +62,5 @@ vec3 SampleTangentNormal(sampler2D normalMap, vec2 uv)
 {
 	return DecodeTangentNormal(texture(normalMap, uv).rg);
 }
+
+#endif

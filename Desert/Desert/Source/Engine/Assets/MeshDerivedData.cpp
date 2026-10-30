@@ -142,8 +142,11 @@ namespace Desert::Assets
 
     uint64_t MeshSourceDerivedDataKey( const uint64_t sourceFileHash )
     {
-        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, &kMeshSourceBuilderVersion,
-                                     sizeof( kMeshSourceBuilderVersion ) );
+        // The entry's format is part of its key, as UE's DDC keys carry the deriver's version GUID: an entry
+        // written at an older MSAS layout (or by an older importer) is unreachable, so a lookup is a MISS and
+        // the source is re-imported - a stale entry is out of date, never "corrupt".
+        const uint32_t format[] = { kMeshSourceBuilderVersion, kMeshAssetSubsystemVersion };
+        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, format, sizeof( format ) );
     }
 
     bool IsEditedImportedMesh( const std::filesystem::path& assetPath )
