@@ -52,16 +52,18 @@
 
         #include <Programs/Terrain/LandscapeVertexEval.glslh>
 
-        // THE DISPLACEMENT'S INPUTS (LandscapeDisplacement.glslh): the tile's weightmap (as TerrainSurface.glslh and
-        // the casters' fragment stages declare it, same slots) and the landscape material's layer height array (as
-        // TerrainSurface.glslh declares it; its sampler state is named, numbered by the shared sampler rule), read
-        // here by every program so the casters and the camera displace one surface.
+        // The tile's weightmap, as TerrainSurface.glslh and the casters' fragment stages declare it (same slots), for
+        // LandscapeWeights.glslh; the layer heights the displacement reads are the pool compute's, not this stage's.
         Uniform(10) texture2D WeightmapTexture;
         Uniform(12) sampler WeightmapTextureSampler;
         #define WeightmapTexture sampler2D(WeightmapTexture, WeightmapTextureSampler)
-        Uniform(15) texture2DArray LayerHeightTexture;
-        Uniform sampler LayerHeightTextureSampler;
-        #define LayerHeightTexture sampler2DArray(LayerHeightTexture, LayerHeightTextureSampler)
+        // The displaced sub-vertices themselves: evaluated once this frame (LandscapeDicePool.shader) into the dice
+        // pool, which every view's draw reads - the camera's and each caster's (LandscapeDisplacement.glslh).
+        ReadBuffer(23) LandscapeVertexPool
+        {
+            vec4 DicePoolVertices[];
+        };
+        #define LANDSCAPE_DICE_POOL_READ
 
         #include <Common/LandscapeWeights.glslh>
         #include <Programs/Terrain/LandscapeDisplacement.glslh>

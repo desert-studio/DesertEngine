@@ -37,11 +37,19 @@ struct LandscapeDrawVertex
     bool Diced;
 };
 
-// Dice ring @p level's half-extent (cells; < 0 = no such ring): level 0 is the fade's square, dice 1 << level.
-int LandscapeDiceRingHalf( int level )
+// Dice ring @p level's half-extent as the MAIN CAMERA dices it (cells; < 0 = no such ring): level 0 is the fade's
+// square, dice 1 << level. The dice pool (LandscapeDicePool.shader) is laid out by these rings, whichever view reads it.
+int LandscapeDicePoolRingHalf( int level )
 {
     float h = level == 0 ? CurrentTerrain.DiceWindow.z : CurrentTerrain.DiceRings[clamp( level - 1, 0, 3 )];
     return CurrentTerrain.DisplacementView.w > 0.5 && h >= 0.0 ? int( h + 0.5 ) : -1;
+}
+
+// ...as THIS row's view draws it: a caster view stops at the finest dice its texels resolve (DicePool.y,
+// TerrainBatch.hpp LandscapeCasterDicedRow); the cells of the dropped rings fall into the finest kept one.
+int LandscapeDiceRingHalf( int level )
+{
+    return level > int( CurrentTerrain.DicePool.y + 0.5 ) ? -1 : LandscapeDicePoolRingHalf( level );
 }
 
 ivec2 LandscapeDiceCentre()
@@ -49,15 +57,24 @@ ivec2 LandscapeDiceCentre()
     return ivec2( floor( CurrentTerrain.DiceWindow.xy + vec2( 0.5 ) ) );
 }
 
-// Ring @p level clamped to the tile's grid of @p cells a side: [x0, x1) x [z0, z1) (TerrainBatch.hpp
-// LandscapeDiceRingRect); empty when the ring is absent.
-ivec4 LandscapeDiceRingRect( int level, int cells )
+// The square of half-extent @p extent around the camera's cell clamped to the tile's grid of @p cells a side:
+// [x0, x1) x [z0, z1) (TerrainBatch.hpp LandscapeDiceRingRect); empty when the ring is absent (extent < 0).
+ivec4 LandscapeRingRectOf( int extent, int cells )
 {
-    int extent = LandscapeDiceRingHalf( level );
     if ( extent < 0 )
         return ivec4( 0 );
     ivec2 c = LandscapeDiceCentre();
     return clamp( ivec4( c - ivec2( extent ), c + ivec2( extent + 1 ) ), ivec4( 0 ), ivec4( cells ) );
+}
+
+ivec4 LandscapeDiceRingRect( int level, int cells )
+{
+    return LandscapeRingRectOf( LandscapeDiceRingHalf( level ), cells );
+}
+
+ivec4 LandscapeDicePoolRingRect( int level, int cells )
+{
+    return LandscapeRingRectOf( LandscapeDicePoolRingHalf( level ), cells );
 }
 
 int LandscapeDiceRectArea( ivec4 r )
@@ -68,17 +85,28 @@ int LandscapeDiceRectArea( ivec4 r )
 // The dice of cell (@p x, @p z) of the tile's LOD-0 grid, also for a cell just past the tile (a neighbour tile's,
 // whose rings are the same squares - the camera's GLOBAL cell, the same half-extents): the finest ring holding it;
 // 1 in the fade's square, 0 outside it (undiced).
-int LandscapeCellDice( int x, int z )
+// LandscapeCellDicePool is the same cell's dice in the camera's rings (the pool's layout).
+int LandscapeCellDiceOf( int x, int z, bool pool )
 {
     ivec2 d = abs( ivec2( x, z ) - LandscapeDiceCentre() );
     int   m = max( d.x, d.y );
     for ( int level = 4; level >= 0; --level )
     {
-        int extent = LandscapeDiceRingHalf( level );
+        int extent = pool ? LandscapeDicePoolRingHalf( level ) : LandscapeDiceRingHalf( level );
         if ( extent >= 0 && m <= extent )
             return 1 << level;
     }
     return 0;
+}
+
+int LandscapeCellDice( int x, int z )
+{
+    return LandscapeCellDiceOf( x, z, false );
+}
+
+int LandscapeCellDicePool( int x, int z )
+{
+    return LandscapeCellDiceOf( x, z, true );
 }
 
 // Cell @p index of the cells of rectangle @p o outside rectangle @p i (inside @p o or empty), counted rows below
@@ -111,6 +139,80 @@ ivec2 LandscapeRectMinusRectCell( int index, ivec4 o, ivec4 i )
     index -= ih * side;
     int row = index / ow;
     return ivec2( o.x + index - row * ow, i.w + row );
+}
+
+// The inverse of LandscapeRectMinusRectCell: the index of cell @p c (in @p o, outside @p i) in that order.
+int LandscapeRectMinusRectIndex( ivec2 c, ivec4 o, ivec4 i )
+{
+    int ow = o.z - o.x;
+    int iw = i.z - i.x;
+    int ih = i.w - i.y;
+    if ( iw <= 0 || ih <= 0 || c.y < i.y )
+        return ( c.y - o.y ) * ow + c.x - o.x;
+    int below = ( i.y - o.y ) * ow;
+    int side  = ow - iw;
+    if ( c.y < i.w )
+        return below + ( c.y - i.y ) * side + ( c.x < i.x ? c.x - o.x : c.x - o.x - iw );
+    return below + ih * side + ( c.y - i.w ) * ow + c.x - o.x;
+}
+
+// THE DICE POOL (LandscapeDicePool.shader; UE: Nanite rasterises each vertex once, not once per triangle corner).
+// A tile drawn diced has its displaced sub-vertices evaluated ONCE per frame into a pool, laid out by the main
+// camera's rings - the ring diced 16, then 8, 4, 2, 1, each its square's cells outside the finer square (the draw's
+// own order), (dice + 1)^2 vertices a cell, row by row - from TerrainInstance.DicePool.x on. Every view of the
+// frame reads it: the camera's draw and each caster's (whose coarser dice is a subset of the camera's vertices).
+// Pool vertex @p vertex of a tile of @p cells a side; false past the pool's end.
+bool LandscapeDecodePoolVertex( int vertex, int cells, out LandscapeDrawVertex d )
+{
+    ivec4 inner = ivec4( 0 );
+    int   first = 0;
+    for ( int level = 4; level >= 0; --level )
+    {
+        ivec4 outer = LandscapeDicePoolRingRect( level, cells );
+        int   area  = LandscapeDiceRectArea( outer );
+        int   side  = ( 1 << level ) + 1;
+        int   count = ( area - LandscapeDiceRectArea( inner ) ) * side * side;
+        if ( vertex < first + count )
+        {
+            int   r    = vertex - first;
+            int   cell = r / ( side * side );
+            int   s    = r - cell * side * side;
+            ivec2 at   = LandscapeRectMinusRectCell( cell, outer, inner );
+            d.CellX    = at.x;
+            d.CellZ    = at.y;
+            d.SubZ     = s / side;
+            d.SubX     = s - d.SubZ * side;
+            d.Dice     = 1 << level;
+            d.Diced    = true;
+            return true;
+        }
+        first += count;
+        if ( area > 0 )
+            inner = outer;
+    }
+    return false;
+}
+
+// The pool vertex a view's (stitched) diced vertex @p d is: the cell's camera dice is a multiple of the view's.
+int LandscapeDicePoolIndex( LandscapeDrawVertex d, int cells )
+{
+    int   dice  = LandscapeCellDicePool( d.CellX, d.CellZ );
+    int   level = findLSB( dice );
+    int   scale = dice / d.Dice;
+    ivec4 inner = ivec4( 0 );
+    int   first = 0;
+    for ( int l = 4; l > level; --l )
+    {
+        ivec4 outer = LandscapeDicePoolRingRect( l, cells );
+        int   area  = LandscapeDiceRectArea( outer );
+        int   side  = ( 1 << l ) + 1;
+        first += ( area - LandscapeDiceRectArea( inner ) ) * side * side;
+        if ( area > 0 )
+            inner = outer;
+    }
+    int side = dice + 1;
+    int cell = LandscapeRectMinusRectIndex( ivec2( d.CellX, d.CellZ ), LandscapeDicePoolRingRect( level, cells ), inner );
+    return int( CurrentTerrain.DicePool.x + 0.5 ) + first + cell * side * side + d.SubZ * scale * side + d.SubX * scale;
 }
 
 // Draw vertex @p vertex of a tile whose grid has @p cells per side: the ring diced 16, then 8, 4, 2, 1 (each its
@@ -180,6 +282,8 @@ int LandscapeCellCorner( int c, int stride, int quads )
     return c * stride < quads ? c * stride : quads;
 }
 
+// THE EVALUATION (the pool's compute only: a vertex stage that reads the pool samples no layer height).
+#ifndef LANDSCAPE_DICE_POOL_READ
 // One layer height map fetch (TerrainInstance.InputSlices' w) at @p uv, at the mip the sub-cell's footprint reads.
 float LandscapeLayerHeightFetch( float slice, vec2 uv, float uvPerCm, float edgeCm )
 {
@@ -267,6 +371,8 @@ float LandscapeDisplacementHeight( vec3 worldPos, vec2 tileSample, float viewDis
                                  vec3( groundH, 0.0, 0.0 ) ).x;
 }
 
+#endif // !LANDSCAPE_DICE_POOL_READ
+
 // How much of the displacement a vertex at continuous LOD @p lod keeps: all of it on the LOD-0 grid, none from
 // LOD 1 on (see WHY NO CRACKS), a smooth ramp between so a LOD change never pops the relief.
 float LandscapeDisplacementLodScale( float lod )
@@ -281,6 +387,10 @@ struct LandscapeDisplacedVertex
     vec3 Normal;
     vec2 Local;
 };
+
+#ifndef LANDSCAPE_DICE_POOL_READ
+LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride, int iquads );
+#endif
 
 LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
 {
@@ -321,6 +431,30 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
             d.SubZ = LandscapeStitch( d.SubZ, d.Dice, LandscapeCellDice( d.CellX + 1, d.CellZ ) );
     }
 
+#ifdef LANDSCAPE_DICE_POOL_READ
+    // Evaluated once this frame by LandscapeDicePool.shader: two vec4 a vertex (position + local x, normal + local y).
+    int p = LandscapeDicePoolIndex( d, cells ) * 2;
+    vec4 pa = DicePoolVertices[p];
+    vec4 pb = DicePoolVertices[p + 1];
+    LandscapeDisplacedVertex pooled;
+    pooled.WorldPos = pa.xyz;
+    pooled.Normal   = pb.xyz;
+    pooled.Local    = vec2( pa.w, pb.w );
+    return pooled;
+#else
+    return LandscapeDicedPoint( d, stride, iquads );
+#endif
+}
+
+#ifndef LANDSCAPE_DICE_POOL_READ
+// Sub-vertex (@p d.SubX, @p d.SubZ) of diced cell (@p d.CellX, @p d.CellZ), displaced: the pool's evaluation.
+LandscapeDisplacedVertex LandscapeDicedPoint( LandscapeDrawVertex d, int stride, int iquads )
+{
+    int x0 = LandscapeCellCorner( d.CellX, stride, iquads );
+    int z0 = LandscapeCellCorner( d.CellZ, stride, iquads );
+    int x1 = LandscapeCellCorner( d.CellX + 1, stride, iquads );
+    int z1 = LandscapeCellCorner( d.CellZ + 1, stride, iquads );
+
     // The cell's triangle the sub-vertex is on — (00, 10, 11) where SubX >= SubZ, (00, 01, 11) otherwise, the
     // cell's diagonal being (00)-(11) — and its barycentric weights; a corner of the cell is exactly its corner.
     bool  lower = d.SubX >= d.SubZ;
@@ -356,5 +490,7 @@ LandscapeDisplacedVertex LandscapeDisplacedEvaluate( int vertex )
     v.WorldPos += v.Normal * ( ( h - CurrentTerrain.Displacement.y ) * magnitude * scale );
     return v;
 }
+
+#endif // !LANDSCAPE_DICE_POOL_READ
 
 #endif // LANDSCAPE_DISPLACEMENT_GLSLH

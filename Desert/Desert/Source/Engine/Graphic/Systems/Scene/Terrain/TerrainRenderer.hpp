@@ -3,6 +3,7 @@
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/MaterialOverrides.hpp>
@@ -24,6 +25,7 @@
 namespace Desert::Graphic
 {
     struct ViewFrame;
+    class FrameTextures;
 }
 
 namespace Desert::Graphic::System
@@ -105,6 +107,13 @@ namespace Desert::Graphic::System
         // forward program of every group of the frame (MeshRenderer::CaptureFrameState - the snapshot the meshes'
         // forward materials take). Forward path only; the deferred composite lights the G-buffer terrain.
         void ApplySceneFrame( const SceneFrameBinding& scene );
+
+        // After PrepareFrame, before any node that draws the terrain is declared: "Landscape: Dice Pool"
+        // (LandscapeDicePool.shader), the displaced sub-vertices of every tile the camera dices, evaluated ONCE
+        // into the frame's dice pool (UE: Nanite displaces a vertex once, its triangles index it) instead of once
+        // per triangle corner in every view; every terrain draw of the frame binds the pool. With no diced tile
+        // the pool is one zero vertex, still bound (the vertex stage declares it).
+        [[nodiscard]] Common::BoolResultStr AddDicePoolPass( RDG::Builder& graph, FrameTextures& textures );
 
         // Deferred path: draws the frame's terrain into the G-buffer, in a LOAD pass after the meshes'. SETUP of
         // that node: one binding block per G-buffer material of the frame's groups (the G-buffer shader samples
@@ -307,5 +316,22 @@ namespace Desert::Graphic::System
         // Per sun cascade view (PrepareLocalShadowViews): the camera's draws at the cascade's dicing; empty for a
         // view with no cascade this frame.
         std::vector<std::vector<FrameDraw>> m_CascadeDraws;
+
+        // THE DICE POOL (AddDicePoolPass): per diced camera row of the frame, what its compute reads; the row's
+        // DicePool.x is its first vertex. m_DicePool is this frame's graph buffer, bound by every terrain draw.
+        struct DicePoolJob
+        {
+            TerrainInstance          Row;
+            std::shared_ptr<Image2D> Heightmap;
+            std::shared_ptr<Image>   Weightmap; // the fallback when the tile has none
+            bool                     HasWeightmap = false;
+            std::shared_ptr<Image2D> LayerHeights;
+            uint32_t                 Vertices = 0;
+        };
+        std::vector<DicePoolJob>         m_DicePoolJobs;
+        uint32_t                         m_DicePoolVertices = 0;
+        RDG::BufferRef                   m_DicePool;
+        std::shared_ptr<ComputePipeline> m_DicePoolPipeline;
+        ShaderBindingLayoutCache         m_DicePoolLayout;
     };
 } // namespace Desert::Graphic::System
