@@ -34,6 +34,9 @@ namespace Desert::Graphic::System
         // entity's X, Z), in Bodies' order.
         std::vector<Assets::AssetHandle> BodyWaves;
         std::vector<glm::vec2>           BodyWaveOrigins;
+        // Each body's TargetWaveMaskDepth (cm, UE): the depth below which the GPU waves damp, read against the
+        // WaterInfo ground exactly as Water::QueryWaterBody damps the CPU's.
+        std::vector<float> BodyWaveMaskDepths;
         // The zone's bottom seen from above (UE WaterInfo ground depth); null over no landscape.
         std::shared_ptr<const Water::WaterInfoGround> Ground;
     };

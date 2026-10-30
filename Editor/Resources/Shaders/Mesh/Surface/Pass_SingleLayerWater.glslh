@@ -60,25 +60,6 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture;
 // The body's waves (binding 24, ahead of the tiles): the foam reads the same Gerstner sum the vertex path moved.
 #include <Mesh/Surface/WaterMeshTiles.glslh>
 
-// THE WATER INFO GROUND (UE WaterInfo texture, its ground channel; Water::WaterInfoGround): the landscape's height
-// under the zone seen from straight above, world Y in cm, over the square WaterInfoFrame names. Binding 25: free
-// in every surface cell (WaterMeshTiles.glslh lists the taken ones).
-layout( binding = 25 ) uniform texture2D WaterInfoTexture;
-
-// The still water column at a world (X, Z): the still level minus the ground below it, from above - not the scene
-// depth behind the pixel, so a mesh in the water is no shallows and the depth does not move with the camera.
-// 0 = no ground under it (open sea, or a zone without a landscape).
-float WaterGroundDepth( vec2 worldXZ, float stillY )
-{
-    if ( WaterInfoFrame.w < 0.5 )
-        return 0.0;
-    const vec2 uv = ( worldXZ - WaterInfoFrame.xy ) * WaterInfoFrame.z;
-    if ( any( lessThan( uv, vec2( 0.0 ) ) ) || any( greaterThan( uv, vec2( 1.0 ) ) ) )
-        return 0.0;
-    const float ground = textureLod( sampler2D( WaterInfoTexture, LinearClampSampler ), uv, 0.0 ).r;
-    return ground < -0.5e6 ? 0.0 : max( stillY - ground, 1.0 ); // over the ground's own level: the thinnest film
-}
-
 const float kWaterPi = 3.14159265;
 
 vec3 WaterWorldAt( vec2 uv, float deviceDepth )
@@ -109,7 +90,7 @@ float WaterHenyeyGreenstein( float cosTheta, float g )
 //     the breaker index (McCowan 1894: H / d = 0.78; the material states it, beaches range 0.6-1.2). Between crests
 //     the particle carries only what the last breaker left, so the surf is bands behind each bore, not a sheet.
 // `depth` <= 0: nothing behind the water (open sea), no bottom for a wave to break on.
-float WaterFoamAmount( vec2 label, float time, float jitter, float depth, SingleLayerWaterOutput w )
+float WaterFoamAmount( vec2 label, float time, float jitter, float depth, float atten, SingleLayerWaterOutput w )
 {
     const int   kAges = 12;
     const float decay = max( w.FoamDecaySeconds, 0.05 );
@@ -119,12 +100,12 @@ float WaterFoamAmount( vec2 label, float time, float jitter, float depth, Single
     {
         const float x        = ( float( k ) + jitter ) / float( kAges );
         const float age      = span * x * x;
-        const float J        = WaterWavesJacobian( label, time - age );
+        const float J        = mix( 1.0, WaterWavesJacobian( label, time - age ), atten ); // the damped surface
         const float whitecap = clamp( ( w.FoamJacobianThreshold - J ) / max( w.FoamJacobianSoftness, 1e-3 ), 0.0, 1.0 );
         float       surf     = 0.0;
         if ( depth > 0.0 )
         {
-            const float eta = WaterWavesDisplacement( label, time - age ).y;
+            const float eta = atten * WaterWavesDisplacement( label, time - age ).y;
             surf = smoothstep( 0.7 * w.FoamBreakerIndex, w.FoamBreakerIndex, 2.0 * eta / max( depth, 1.0 ) );
         }
         foam = max( foam, max( whitecap, surf ) * exp( -age / decay ) );
@@ -215,8 +196,10 @@ void main()
     // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky.
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
-    const float depth     = WaterGroundDepth( i.WorldPosition.xz, i.VertexColor.g );
-    const float amount    = clamp( WaterFoamAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, depth, w ), 0.0, 1.0 );
+    // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping.
+    const float depth     = WaterGroundDepth( i.UV1, i.VertexColor.g );
+    const float atten     = depth > 0.0 ? GerstnerDepthAttenuation( depth, WaterInfoFrame.w ) : 1.0;
+    const float amount    = clamp( WaterFoamAmount( WaterWavePlane( i.UV1 ), i.Time, jitter, depth, atten, w ), 0.0, 1.0 );
     const float foam      = amount * smoothstep( 0.85 - amount, 1.25 - amount, w.FoamCoverage );
     const vec3  foamN     = normalize( i.Normal );
     const vec3  foamLit   = w.FoamAlbedo * ( sun * max( dot( foamN, L ), 0.0 ) / kWaterPi + DesertAmbientIrradiance( foamN ) );

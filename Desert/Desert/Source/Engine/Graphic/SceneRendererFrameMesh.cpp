@@ -470,7 +470,8 @@ namespace Desert::Graphic
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return water->RenderManual( context ); }, [water, sceneCopy, waterInfo, view, frame]( RDG::PassBuilder& pass )
+             { return water->RenderManual( context ); },
+             [water, sceneCopy, waterInfo, view, frame]( RDG::PassBuilder& pass )
              { water->DeclareDraws( pass, sceneCopy, waterInfo, view, frame ); } );
     }
 

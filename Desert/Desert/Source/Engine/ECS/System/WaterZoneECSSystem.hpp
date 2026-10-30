@@ -55,6 +55,7 @@ namespace Desert::ECS
             std::vector<Assets::AssetHandle>      materials; // each body's WaterMaterial, in bodies' order
             std::vector<Assets::AssetHandle>      waves;     // each body's WaterWaves, in bodies' order
             std::vector<glm::vec2>                origins;   // each body's WaveOrigin (its X, Z)
+            std::vector<float>                    maskDepths; // each body's TargetWaveMaskDepth (cm)
             const auto                            view = registry.view<WaterBodyComponent, TransformComponent>();
             for ( const entt::entity entity : view )
             {
@@ -68,6 +69,7 @@ namespace Desert::ECS
                 materials.push_back( view.get<WaterBodyComponent>( entity ).Data.WaterMaterial );
                 waves.push_back( view.get<WaterBodyComponent>( entity ).Data.WaterWaves );
                 origins.push_back( centre );
+                maskDepths.push_back( view.get<WaterBodyComponent>( entity ).Data.TargetWaveMaskDepth );
             }
             if ( bodies.empty() )
                 return;
@@ -116,6 +118,7 @@ namespace Desert::ECS
                 draw.BodyMaterials           = materials;
                 draw.BodyWaves               = waves;
                 draw.BodyWaveOrigins         = origins;
+                draw.BodyWaveMaskDepths      = maskDepths;
                 draw.Ground                  = GroundFor( entity, ground, groundKey, spacingCm, draw.Zone );
                 renderCommandBuffer.Emplace<Graphic::Render::WaterZoneCommand>( std::move( draw ) );
             }

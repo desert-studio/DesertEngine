@@ -60,7 +60,7 @@ namespace Desert::Graphic::System
         struct WaterWavesBlock
         {
             glm::vec4                           Header{ 0.0f }; // x = count, y unused, zw = WaveOrigin
-            glm::vec4                           Info{ 0.0f };   // WaterInfoTexture: xy = lower (X, Z), z = 1 / side
+            glm::vec4 Info{ 0.0f }; // WaterInfoTexture: xy = lower (X, Z), z = 1 / side, w = mask depth
             std::array<WaterWaveRow, kMaxWaves> Rows{};
         };
         static_assert( sizeof( WaterWavesBlock ) == ( 2 + 2 * kMaxWaves ) * sizeof( glm::vec4 ) );
@@ -196,6 +196,7 @@ namespace Desert::Graphic::System
         Assets::AssetHandle material   = Assets::AssetHandle::Null();
         Assets::AssetHandle wavesAsset = Assets::AssetHandle::Null();
         glm::vec2           waveOrigin( 0.0f );
+        float                                         waveMaskDepth = 0.0f;
         std::shared_ptr<const Water::WaterInfoGround> ground;
         for ( const WaterZoneDraw& zone : m_Queue )
             if ( ground == nullptr )
@@ -211,6 +212,7 @@ namespace Desert::Graphic::System
                     material   = body;
                     wavesAsset = zone.BodyWaves[b];
                     waveOrigin = zone.BodyWaveOrigins[b];
+                    waveMaskDepth = zone.BodyWaveMaskDepths[b];
                 }
                 else if ( body != material )
                     WarnOnce( body, "differs from another body's in the same frame - drawn with the first one" );
@@ -305,7 +307,7 @@ namespace Desert::Graphic::System
                                  : CreateWaterInfoImage( 1u, { Water::kWaterInfoNoGroundCm } );
         }
         if ( ground != nullptr && ground->ExtentCm > 0.0f )
-            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, 1.0f );
+            waves.Info = glm::vec4( ground->Min, 1.0f / ground->ExtentCm, std::max( waveMaskDepth, 1.0f ) );
         if ( auto* tiles = program->Material->Get<StorageBufferProperty>( WaterShaderParameters::WaterTiles ) )
         {
             std::vector<std::byte> bytes( sizeof( WaterWavesBlock ) + rows.size() * sizeof( WaterTileRow ) );
