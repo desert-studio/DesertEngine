@@ -10,6 +10,9 @@ description: >
   had in common.
 ---
 
+**Владелец 10-29 — два параметра всегда: АРХИТЕКТУРА И NEXTGEN; вид — из ассетов, код — только размещение/LOD** (DEV_CONTRACT §00b).
+
+
 # Verifying a change in DesertEngine
 
 The engine's four most expensive defects — a tonemapper that reduced algebraically to the
