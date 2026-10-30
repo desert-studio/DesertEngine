@@ -433,7 +433,17 @@ namespace Desert::Editor
     {
         std::vector<SG::Document> layers;
         std::error_code           ec;
-        for ( const auto& entry : std::filesystem::directory_iterator( GraphsDirectory(), ec ) )
+        // A project with no ShaderGraphs folder authors no graphs, so it has no surface layers: the same answer as an
+        // empty folder (UE: a project without material layer assets), not an unreadable directory.
+        const auto graphsStatus       = std::filesystem::status( GraphsDirectory(), ec );
+        const bool hasGraphsDirectory = graphsStatus.type() != std::filesystem::file_type::not_found;
+        if ( !hasGraphsDirectory )
+            ec.clear();
+        else if ( ec )
+            return Common::MakeFormattedError<bool>( "surface layers: {}: {}", GraphsDirectory().string(),
+                                                     ec.message() );
+        for ( const auto& entry : hasGraphsDirectory ? std::filesystem::directory_iterator( GraphsDirectory(), ec )
+                                                     : std::filesystem::directory_iterator() )
         {
             if ( entry.path().extension() != ".dgraph" )
                 continue;
