@@ -462,11 +462,17 @@ namespace Desert::Graphic
         if ( meshRenderer == nullptr )
             return;
         const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
+        // The persistent WaterInfo ground, imported into this graph and left shader-readable for the next frame.
+        const RDG::TextureRef waterInfo =
+             textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+        if ( !waterInfo.IsValid() )
+            return;
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return water->RenderManual( context ); }, [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
-             { water->DeclareDraws( pass, sceneCopy, view, frame ); } );
+             { return water->RenderManual( context ); },
+             [water, sceneCopy, waterInfo, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, waterInfo, view, frame ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS

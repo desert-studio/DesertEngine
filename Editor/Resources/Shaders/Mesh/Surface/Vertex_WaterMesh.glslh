@@ -66,22 +66,39 @@ void main()
     // Zone-relative first (exact multiples of the quad size), then the zone's origin: two tiles sharing an edge add
     // the same two numbers, so the edge is at the same bits in both.
     const vec2 zoneLocal = t.Tile.xy + local;
-    const vec4 worldPos  = vec4( t.Zone.x + zoneLocal.x, t.Tile.z, t.Zone.y + zoneLocal.y, 1.0 );
+    const vec4 restPos   = vec4( t.Zone.x + zoneLocal.x, t.Tile.z, t.Zone.y + zoneLocal.y, 1.0 );
 
-    // The still surface: Y up; tangent along +X, bitangent along -Z (right-handed with the normal, the UV's v
-    // running with -Z), so a tangent-space ripple map reads as it does on a plane mesh.
-    const vec3 N = vec3( 0.0, 1.0, 0.0 );
-    const vec3 T = vec3( 1.0, 0.0, 0.0 );
-    const vec3 B = vec3( 0.0, 0.0, -1.0 );
+    // THE WAVES (UE WaterMeshVertexFactory GetWaterVertexFactoryIntermediates -> GetGerstnerShallowWaveOffset): the
+    // grid point is a particle of still water, the body's Gerstner sum carries it to its place at this instant. The
+    // same function the CPU floats things on (Common/GerstnerWave.glslh).
+    const float time     = cameraUB.Time;
+    const vec2  plane    = WaterWavePlane( restPos.xz );
+    // Damped over the shallows by the ground beneath (UE TargetWaveMaskDepth): a swell dies onto the beach instead
+    // of running up it at full height.
+    const float atten    = WaterWaveAttenuation( restPos.xz, restPos.y );
+    const vec3  offset   = WaterWavesDisplacement( plane, time ) * atten;
+    const vec4  worldPos = vec4( restPos.xyz + offset, 1.0 );
+
+    // The displaced surface's frame: Y up turned onto the wave normal; tangent along +X, bitangent along -Z
+    // (right-handed with the normal, the UV's v running with -Z), so a tangent-space ripple map reads as it does on
+    // a plane mesh.
+    const vec3 N = normalize( mix( vec3( 0.0, 1.0, 0.0 ), WaterWavesNormal( plane, time ), atten ) );
+    const vec3 T = normalize( vec3( N.y, -N.x, 0.0 ) );
+    const vec3 B = normalize( cross( N, T ) );
     v_Surface.WorldPosition = worldPos.xyz;
     v_Surface.Normal        = N;
     v_Surface.UV0           = vec2( worldPos.x, -worldPos.z ) * 0.01; // metres across the water
-    v_Surface.UV1           = v_Surface.UV0;
-    v_Surface.VertexColor   = vec4( 1.0 );
+    // UV1 = the particle's label: its still-water (X, Z) in cm. Gerstner is a Lagrangian description, so the foam
+    // pass follows ONE water particle back in time through it (Pass_SingleLayerWater.glslh).
+    v_Surface.UV1           = restPos.xz;
+    // r = the particle's height above the still level (cm), g = that level (cm).
+    v_Surface.VertexColor   = vec4( offset.y, restPos.y, 0.0, 1.0 );
     v_Surface.TBN           = mat3( T, B, N );
-    // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the surface does not move.
+    // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
+    // same sum one frame earlier (UE's water writes velocity from the previous frame's waves).
+    const vec4 prevPos    = vec4( restPos.xyz + WaterWavesDisplacement( plane, cameraUB.PrevTime ) * atten, 1.0 );
     v_Surface.Clip        = cameraUB.ViewProjection * worldPos;
-    v_Surface.PrevClip    = cameraUB.PrevViewProjection * worldPos;
+    v_Surface.PrevClip    = cameraUB.PrevViewProjection * prevPos;
     v_Surface.ObjectMoved = 0.0;
     gl_Position           = cameraUB.JitteredViewProjection * worldPos;
 }

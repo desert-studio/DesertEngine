@@ -1,15 +1,29 @@
-# WATER p1: UE single layer water from a material asset. Water_Ocean: the Ocean body names M_Water_Ocean
-# (Content/Water/Materials, a .demat of WaterSurface.shader: Surface domain, ShadingModel SingleLayerWater); swapping the asset to
-# M_Water_Swamp changes the look with the same code.
+# WATER: UE single layer water from a material asset, on a Landscape shore; Gerstner waves on the GPU (the body's
+# .dwaves, the same sum the CPU floats things on) and FOAM where the physics makes it: surf where the wave height
+# outgrows the depth (H/d past the breaker index 0.78), whitecaps where the surface's Jacobian folds, both decaying
+# on the water particle. The look (CC0 ambientCG Foam002, tint, thresholds) is M_Water_Ocean/M_Water_Swamp.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
-Дано --subject viewport set Camera.Position 0,170,0
-Дано --subject viewport set Camera.Direction 0.35,-0.6,-0.72
+Дано --subject viewport set Camera.Position 0,250,400
+Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
 Дано run View "View mode: Lit"
-Тогда-вид 1_shore камера 1.7 м над водой у берега, взгляд вниз: на мелководье видно дно (Seabed: DisplaceSlab + M_Shore_CoastSandRocks, Poly Haven CC0), преломлённое рябью (T_WaterRipple_A/B_N); вода не константа - Френель, синевато-зелёная толща по поглощению (M_Water_Ocean), без резкой границы; лог без "[Water]" отказов
-Когда --subject viewport set Camera.Position 0,40,-200
-Когда --subject viewport set Camera.Direction -0.15,-0.2,-0.97
-Тогда-вид 2_grazing скользящий взгляд на солнце (кадр отличается от 1_shore): по Френелю отражается небо, блик солнца на ряби
+Тогда-вид 1_shore пологий берег (Landscape Shore, слой ShoreSand = Poly Haven CC0 coast_sand_rocks_02) уходит под воду; волны ShoreSwell бегут к берегу; полоса пены (ambientCG CC0 Foam002) только у линии прибоя, где H/d >= 0.78 по глубине сверху (WaterInfo), дальше вода прозрачно-синяя; край берега плавный (без ступенек, ShoreFadeCm); вокруг куба пены нет; лог без "[Water]" отказов
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean_FoamMask.demat
+Тогда-вид 1b_shore_foamonly тот же вид берега с M_Water_Ocean_FoamMask (только маска пены): белая полоса только у линии прибоя, дальше от берега и вокруг куба тёмное
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean.demat
+Когда --subject viewport set Camera.Position 0,150,-2500
+Когда --subject viewport set Camera.Direction -0.15,-0.3,-0.94
+Тогда-вид 2_grazing скользящий взгляд на солнце над глубокой водой (кадр отличается от 1_shore): Gerstner-волны, по Френелю небо, блик солнца на ряби, пены нет
 Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Swamp.demat
-Когда --subject viewport set Camera.Position 0,170,0
-Когда --subject viewport set Camera.Direction 0.35,-0.6,-0.72
-Тогда-вид 3_material тот же вид с M_Water_Swamp: мутная зеленовато-бурая вода, меняется только ассет
+Когда --subject viewport set Camera.Position 0,250,400
+Когда --subject viewport set Camera.Direction 0,-0.25,-0.97
+Тогда-вид 3_material тот же вид с M_Water_Swamp: мутная зеленовато-бурая вода, желтоватая пена - меняется только ассет
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean.demat
+Когда set 2646278175089776126 WaterBodyData.WaterWaves assets:Water/Waves/StormOcean.dwaves
+Когда --subject viewport set Camera.Position 0,900,-5000
+Когда --subject viewport set Camera.Direction 0,-0.3,-0.95
+Тогда-вид 4_whitecaps сильный ветер (StormOcean): крутые волны, барашки только на гребнях, где поверхность складывается (якобиан < порога), с хвостом затухания за гребнем
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean_FoamMask.demat
+Тогда-вид 4b_whitecaps_foamonly отладочный материал M_Water_Ocean_FoamMask (DebugFoamMask = 1, только маска пены): белое только на гребнях StormOcean, тёмное между ними
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean.demat
+Когда set 2646278175089776126 WaterBodyData.WaterWaves assets:Water/Waves/CalmOcean.dwaves
+Тогда-вид 5_calm слабый ветер (CalmOcean), глубокая вода: пологая рябь, пены нет совсем

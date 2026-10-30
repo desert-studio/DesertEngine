@@ -134,6 +134,11 @@ namespace Desert::VFX
     {
         double           Age = 0.0; ///< seconds since the instance (re)started, including the lifecycle Delay
         SpawnAccumulator RateCarry;
+        /// The bursts' scaled counts carried between firings (error diffusion, starting at one half): a burst of
+        /// Count x scale births round(Count x scale) on its first firing and the exact Count x scale on average
+        /// over the loops, so a scaled single-particle burst (Count 1 at 75 %) still fires instead of truncating
+        /// to nothing every loop.
+        double BurstCarry = 0.5;
 
         /// The births of the next fixed step of @p stepSeconds: the step covers [Age, Age + stepSeconds).
         /// @p spawnCountScale (0..1, the Effects level's Effects.SpawnCountScalePercent) scales the rate and every

@@ -28,6 +28,9 @@ project "WorldCook"
     includedirs {
         "%{_MAIN_SCRIPT_DIR}/Tools/Shared",
     }
+    -- Every engine source root (Engine/Core/HLODMeshBuilder.hpp, Engine/Core/Serialize/WorldCells.hpp), as
+    -- GamePackager names them: the module table is the one list, not a hand copy here.
+    includedirs(DesertModuleLibs.IncludeDirs())
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do
         externalincludedirs { path }
@@ -71,7 +74,6 @@ project "WorldCook"
         "MeshOptimizer",
         "Voro",
         "Compressonator", -- BuildScripts/ThirdParty/Compressonator.lua: the BC7 encode
-        "MikkTSpace",
         "OpenSubdiv",
         "Embree", -- BuildScripts/ThirdParty/Embree.lua: the distance-field builder
         "OpenEXRCore",

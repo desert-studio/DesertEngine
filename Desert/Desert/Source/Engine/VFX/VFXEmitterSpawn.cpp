@@ -395,7 +395,13 @@ namespace Desert::VFX
             {
                 const double at = k * loop + burst.Time;
                 if ( at >= lo && at < hi )
-                    born += static_cast<std::uint32_t>( static_cast<double>( burst.Count ) * spawnCountScale );
+                {
+                    // Not a truncating cast: Count 1 x a scale below 1 was 0 births in every loop, forever.
+                    BurstCarry += static_cast<double>( burst.Count ) * spawnCountScale;
+                    const double whole = std::floor( BurstCarry );
+                    BurstCarry -= whole;
+                    born += static_cast<std::uint32_t>( whole );
+                }
             }
         return born;
     }

@@ -81,6 +81,13 @@ namespace Desert::Editor
         // The texture asset a source image is imported into (`<stem>.detex` beside it); an asset path is its own.
         static std::filesystem::path AssetPathFor( const std::filesystem::path& source );
 
+        // THE ONE READ OF THE PROJECT'S TEXTURE ENCODING (Config/Engine.json, Texture Encoding; UE
+        // UTextureEncodingProjectSettings): registers Project::CurrentRendererSettings().TextureEncoding as the
+        // engine's encoding source (Assets::SetTextureEncodingSource), read at every plan so a Project Settings
+        // change applies to the next encode. The editor at startup, TextureCook and PackageGame call it; none
+        // registers its own copy.
+        static void UseProjectTextureEncoding();
+
         // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
         // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
         static Common::ResultStr<std::string> BuildPlatformData( const std::filesystem::path& asset );

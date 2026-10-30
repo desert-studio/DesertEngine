@@ -279,8 +279,9 @@ namespace Desert::Editor
                 // content: staged with the rest of the tree, rowed in the registry gathered above, and listed
                 // in each HLOD unit's asset closure through the records' references.
                 auto hlods  = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
-                auto cooked = ::Desert::Core::WorldCells::CookWorld( scene.GetValue().Scene, registries,
-                                                                     hlods ? &hlods.GetValue() : nullptr );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld(
+                     scene.GetValue().Scene, registries, ::Desert::Core::WorldCells::PrefabFileReader(),
+                     hlods ? &hlods.GetValue() : nullptr );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError() +

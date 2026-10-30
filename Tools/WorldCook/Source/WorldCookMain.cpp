@@ -4,6 +4,7 @@
 #include <Engine/Core/Serialize/WorldCells.hpp>
 #include <Engine/Core/Serialize/EntityDescriptorIndex.hpp>
 #include <Engine/Core/Serialize/ExternalEntities.hpp>
+#include <Engine/Core/Serialize/PrefabExpansion.hpp>
 
 #include <ToolProject.hpp>
 
@@ -86,14 +87,22 @@ namespace Desert::WorldCook
                 else
                     return Common::MakeError<Options>( "a second source '" + arg + "'; one world per run" );
             }
+            // A path on the command line names a file where the command was given, never a content path: made
+            // absolute here, so the content resolver (Constants::Path::FullPath) never reads it as one.
+            options.Source =
+                 options.Source.empty() ? options.Source : fs::absolute( options.Source ).lexically_normal();
+            options.Out = options.Out.empty() ? options.Out : fs::absolute( options.Out ).lexically_normal();
+            for ( fs::path& registry : options.Registries )
+                registry = fs::absolute( registry ).lexically_normal();
             if ( options.Source.empty() || options.Out.empty() )
                 return Common::MakeError<Options>( "a source and --out are required" );
             // Without a registry mesh assets are placed by position alone and no unit's assets are known.
             // That is a legitimate cook (a world of primitives needs none), but it is CHOSEN, never defaulted.
             if ( options.Registries.empty() == !options.NoRegistry )
                 return Common::MakeError<Options>( "state exactly one of --registry <file>... or --no-registry" );
-            // Without a project a content path in the source (a landscape's tiles, a mesh) has nothing to resolve
-            // under, and the cook stops at the first one. Opening one is likewise CHOSEN, never defaulted.
+            // Without a project a content path in the source (a landscape's tiles, a mesh, a prefab instance's
+            // PrefabPath, WP21) has nothing to resolve under, and the cook stops at the first one. Opening one is
+            // likewise CHOSEN, never defaulted.
             if ( options.Project.empty() == !options.NoProject )
                 return Common::MakeError<Options>(
                      "state exactly one of --project <file.deproj> or --no-project" );
@@ -167,14 +176,13 @@ namespace Desert::WorldCook
         out << "WorldCook: descriptors " << descriptors.GetValue().Described << " described, "
             << descriptors.GetValue().Reused << " reused, " << descriptors.GetValue().Dropped << " dropped\n";
         const auto planned = Core::DescriptorIndex::Descriptors( descriptors.GetValue().Index );
-        // The same mesh and landscape HLOD builders editor Play and the packager use (WP-FAR-6/7): a cooked
-        // world's stand-ins do not depend on which cook built them.
+        const auto prefabs = Core::WorldCells::PrefabFileReader();
         // The HLODs are the ones Build HLODs saved beside the scene (WP-FAR-6B D1): packed here, never built.
         auto hlods = Core::WorldCells::ReadBuiltHLODs( options.Source );
         if ( hlods )
             out << "WorldCook: built HLODs " << Core::WorldCells::BuiltHLODDirectory( options.Source ).string()
                 << ": " << hlods.GetValue().Index.Cells.size() << " cell row(s)\n";
-        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries,
+        auto cooked = Core::WorldCells::CookWorld( scene.GetValue().Scene, planned, registries, prefabs,
                                                    hlods ? &hlods.GetValue() : nullptr );
         if ( !cooked )
         {
@@ -267,7 +275,7 @@ namespace Desert::WorldCook
             return 0;
 
         // THE ROUND TRIP, FROM DISK: what a reader gets back out of the directory holds exactly the source's
-        // records. Read through the same functions the runtime will use.
+        // records, prefab instances expanded. Read through the same functions the runtime will use.
         const auto verifyStart = std::chrono::steady_clock::now();
         const auto reader      = [&]( std::string_view name ) -> Common::ResultStr<std::vector<unsigned char>>
         {
@@ -296,14 +304,25 @@ namespace Desert::WorldCook
             err << "WorldCook: verify: " << back.GetError() << "\n";
             return 6;
         }
-        if ( Core::WorldCells::CanonicalRecords( back.GetValue() ) !=
-             Core::WorldCells::CanonicalRecords( scene.GetValue().Scene ) )
+        // The cells hold the EXPANDED world: every prefab instance replaced by its records, expanded exactly as
+        // the cook expanded it (same function, same reader). The source's own records are not what a reader gets
+        // back.
+        auto expanded = Core::WorldCells::ExpandPrefabInstances( scene.GetValue().Scene, prefabs );
+        if ( !expanded )
         {
-            err << "WorldCook: verify: the world assembled from the cells does not hold the source's records\n";
+            err << "WorldCook: verify: " << expanded.GetError() << "\n";
+            return 6;
+        }
+        if ( Core::WorldCells::CanonicalRecords( back.GetValue() ) !=
+             Core::WorldCells::CanonicalRecords( expanded.GetValue().Scene ) )
+        {
+            err << "WorldCook: verify: the world assembled from the cells does not hold the expanded source's "
+                   "records\n";
             return 7;
         }
         out << "  verify       : " << back.GetValue().Entities.size() << " records back from the cells, equal to "
-            << "the source (" << MsSince( verifyStart ) << " ms)\n";
+            << "the expanded source (" << expanded.GetValue().Instances << " prefab instances) ("
+            << MsSince( verifyStart ) << " ms)\n";
         return 0;
     }
 } // namespace Desert::WorldCook

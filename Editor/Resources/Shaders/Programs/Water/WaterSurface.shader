@@ -6,7 +6,7 @@ Shader "WaterSurface"
     // the water quadtree selected, drawn by Graphic::System::WaterRenderer with Mesh/Surface/Pass_SingleLayerWater.glslh
     // - the physics of light in water. The LOOK is the body's `.demat` of this template: the ripple normal maps and
     // their scroll, roughness and specular (EvaluateSurface), the volume's scattering, absorption, phase and the tint
-    // behind (EvaluateSingleLayerWater). Nothing here states a colour of its own.
+    // behind (EvaluateSingleLayerWater), the foam's texture, tint and thresholds. Nothing here states a colour of its own.
     Domain Surface
     Usage WaterMesh
     TwoSided
@@ -28,6 +28,16 @@ Shader "WaterSurface"
         Float       RippleAngleB ("Ripple Direction B (deg)", Range(-180,180), Category("Ripples")) = -70
         Float       RippleSpeed ("Ripple Speed (cm/s)", Range(0,500), Category("Ripples")) = 20
         Float       RippleStrength ("Ripple Strength", Range(0,4), Category("Ripples")) = 1
+        Texture2D   FoamTexture ("Foam Colour", Category("Foam"), Intent(Colour)) = "white"
+        Texture2D   FoamStructure ("Foam Structure", Category("Foam"), Intent(Mask)) = "white"
+        Color       FoamTint ("Foam Tint", Category("Foam")) = (1, 1, 1, 1)
+        Float       FoamTileSize ("Foam Tile Size (cm)", Range(10,10000), Category("Foam")) = 300
+        Float       FoamJacobianThreshold ("Whitecap Jacobian Threshold", Range(-1,1), Category("Foam")) = 0.5
+        Float       FoamJacobianSoftness ("Whitecap Jacobian Softness", Range(0.01,1), Category("Foam")) = 0.25
+        Float       FoamDecaySeconds ("Foam Decay (s)", Range(0.1,30), Category("Foam")) = 3
+        Float       FoamBreakerIndex ("Breaker Index H/d", Range(0.4,1.5), Category("Foam")) = 0.78
+        Float       ShoreFadeCm ("Shore Fade Depth (cm)", Range(0,500), Category("Shore")) = 40
+        Float       DebugFoamMask ("Debug: Foam Mask Only", Range(0,1), Category("Debug")) = 0
     }
 
     ShadingModel SingleLayerWater
@@ -68,6 +78,19 @@ Shader "WaterSurface"
             w.PhaseG                 = Material.PhaseG;
             w.ColorScaleBehindWater  = Material.ColorScaleBehindWater.rgb;
             w.RefractionOffset       = Material.RefractionStrength;
+            // The foam rides the water particle (UV1 = its still-water X, Z; Vertex_WaterMesh.glslh), at two scales
+            // so the sheet does not repeat.
+            const vec2 foamUv        = vec2( i.UV1.x, -i.UV1.y ) / max( Material.FoamTileSize, 1.0 );
+            const vec2 foamUv2       = mat2( 0.8, -0.6, 0.6, 0.8 ) * foamUv * 0.37 + vec2( 0.31, 0.17 );
+            w.FoamAlbedo             = SurfaceSampleMaterial( Material.FoamTexture, foamUv ).rgb * Material.FoamTint.rgb;
+            w.FoamCoverage           = 0.5 * ( SurfaceSampleMaterial( Material.FoamStructure, foamUv ).r +
+                                     SurfaceSampleMaterial( Material.FoamStructure, foamUv2 ).r );
+            w.FoamJacobianThreshold  = Material.FoamJacobianThreshold;
+            w.FoamJacobianSoftness   = Material.FoamJacobianSoftness;
+            w.FoamDecaySeconds       = Material.FoamDecaySeconds;
+            w.FoamBreakerIndex       = Material.FoamBreakerIndex;
+            w.ShoreFadeCm            = Material.ShoreFadeCm;
+            w.DebugFoamMask          = Material.DebugFoamMask;
             return w;
         }
     }
