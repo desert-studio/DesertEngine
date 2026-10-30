@@ -1,0 +1,20 @@
+# FIELD-BARN-4: a varied meadow on FIELD_Barn from Grass Type assets - wildflowers and tussocks grow in patches
+# (each variety's own noise mask, as UE's landscape grass output with a noise term), no rows, no repeating pattern;
+# and no pale grass cell with a hard edge (seen in FOLIAGE-PROOF scn-1028-094318 1_field_grass, lower left).
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 40
+Дано --subject selection set SunAzimuth 20
+Дано --subject viewport set Camera.FOV 70
+Дано --subject viewport set Camera.Position 0,900,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 1_field_grass the meadow by the barn has patches of yellow wildflowers and of tall tussocks among the blades, no rows, no repeating pattern; no pale cell with a straight edge
+# Low over the meadow: the flowers and tussocks read at the feet.
+Когда --subject viewport set Camera.Position -600,250,1800
+Когда --subject viewport set Camera.Direction 0.2,-0.35,-1
+Тогда-вид 1b_field_low flower heads and tussocks in clusters with open blade lawn between them
+# From above: the whole near field at once.
+Когда --subject viewport set Camera.Position 0,3500,3200
+Когда --subject viewport set Camera.Direction 0,-1,-0.55
+Тогда-вид 2_field_high seen from above the grass has no pale square with a hard edge; flower patches are irregular blobs, not a grid

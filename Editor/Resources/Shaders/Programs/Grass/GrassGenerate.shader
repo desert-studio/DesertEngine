@@ -40,6 +40,7 @@ Shader "GrassGenerate"
             vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
             vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
             vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
+            vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
         };
 
         ReadBuffer(0) Field
@@ -234,6 +235,15 @@ Shader "GrassGenerate"
             float patchy = weight;
             if ( p.Spread.y > 0.0 )
                 patchy *= 1.0 - p.Spread.y * PatchNoise( world, p.Spread.z, p.Info.w );
+            // Patches: the variety grows only where its own world noise rises above the share it leaves bare,
+            // fading in over Softness at a patch's rim (UE: a noise term in the landscape grass output's weight).
+            if ( p.Patches.x < 1.0 )
+            {
+                float rim = 1.0 - p.Patches.x;
+                float half = 0.5 * p.Patches.z;
+                patchy *= smoothstep( rim - half, rim + half + 1.0e-4,
+                                      PatchNoise( world, p.Patches.y, floatBitsToUint( p.Patches.w ) ) );
+            }
             if ( !( weight > p.Range.x && weight <= p.Range.y && patchy >= keep ) )
                 return;
 
