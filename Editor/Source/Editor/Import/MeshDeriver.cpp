@@ -195,9 +195,12 @@ namespace Desert::Editor
         // transferred from a proxy volume around the crown, derived at build like FStaticMeshBuilder's tangents).
         // The leaf sections' vertices, in the engine frame (cm, +Y up, the node's transform already baked in, so
         // one mesh is one plant), are measured as one crown:
-        //   - its TOP SURFACE, a height field over (x, z): the highest leaf per kCanopyCellCm cell, dilated over
-        //     kCanopyDilateCells cells (the precipitation map's footprint is wider than a card) and box-smoothed,
-        //     so neighbouring cards share one surface and one slope instead of each its own peak;
+        //   - its TOP SURFACE, a height field over (x, z): the highest leaf per kCanopyCellCm cell, box-smoothed,
+        //     so neighbouring cards share one surface and one slope instead of each its own peak. NOT dilated: a
+        //     max over a wider footprint raises the surface by slope x radius on a crown's flank, and a tall round
+        //     crown (island_tree_01, 4.4 m) read its upper leaves ~1 m under the top - past the shell, all
+        //     sheltered, green (FIELD-WINTER p12: median upper-leaf depth 103 cm with 2 cells, 45 cm without).
+        //     The precipitation map's wider footprint is the shader's (DesertCanopyLift's clearance texels);
         //   - its ELLIPSOID (the leaves' bounding box), whose outward normal is the crown's side and underside.
         // Per leaf vertex: DEPTH = how far it hangs under the top surface; NORMAL = the top surface's normal for a
         // vertex in the top shell facing up on the ellipsoid, the ellipsoid's on the sides, below and inside
@@ -205,7 +208,6 @@ namespace Desert::Editor
         // The depth goes to COLOR_0.a = kCanopyAlphaMax * (1 - depth / kCanopyDepthRangeCm): alpha <= 0.5 marks a
         // canopy vertex (SurfaceTypes.glslh DesertIsCanopyVertex, which must agree with both constants).
         constexpr float kCanopyCellCm       = 25.0f;
-        constexpr int   kCanopyDilateCells  = 2;
         constexpr float kCanopyShellCm      = 40.0f;
         constexpr float kCanopyDepthRangeCm = 1024.0f;
         constexpr float kCanopyAlphaMax     = 0.5f;
@@ -255,25 +257,15 @@ namespace Desert::Editor
             const glm::vec3 half   = glm::max( ( hi - lo ) * 0.5f, glm::vec3( 1e-3f ) );
             const glm::vec3 invR2  = 1.0f / ( half * half );
 
-            // Dilate (max over the footprint), then smooth (mean of the dilated cells around): the top surface.
-            std::map<Cell, float> dilated;
-            for ( const auto& [c, y] : highest )
-            {
-                float top = y;
-                for ( int dx = -kCanopyDilateCells; dx <= kCanopyDilateCells; ++dx )
-                    for ( int dz = -kCanopyDilateCells; dz <= kCanopyDilateCells; ++dz )
-                        if ( const auto it = highest.find( { c.first + dx, c.second + dz } ); it != highest.end() )
-                            top = std::max( top, it->second );
-                dilated[c] = top;
-            }
+            // Smooth (mean of the highest leaves in the cells around): the top surface.
             std::map<Cell, float> surface;
-            for ( const auto& [c, y] : dilated )
+            for ( const auto& [c, y] : highest )
             {
                 float sum = 0.0f;
                 int   n   = 0;
                 for ( int dx = -1; dx <= 1; ++dx )
                     for ( int dz = -1; dz <= 1; ++dz )
-                        if ( const auto it = dilated.find( { c.first + dx, c.second + dz } ); it != dilated.end() )
+                        if ( const auto it = highest.find( { c.first + dx, c.second + dz } ); it != highest.end() )
                         {
                             sum += it->second;
                             ++n;
