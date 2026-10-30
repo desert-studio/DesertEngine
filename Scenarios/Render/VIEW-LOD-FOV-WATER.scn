@@ -1,0 +1,13 @@
+# VIEW-LOD-FOV-WATER: the water quadtree reads the one view scale (DrawDistanceScale, VisibilityCulling.hpp) - every
+# LOD ring and the vertex morph stretch k times under a k-times lens, so a 10-degree scope keeps the far sea fine.
+# One camera spot, FOV 90 then FOV 10 (the editor viewport now accepts 5..170), wireframe shows the grid density.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
+Дано --subject viewport set Camera.Position 0,250,400
+Дано --subject viewport set Camera.Direction 0,-0.08,-1
+Дано --subject viewport set Camera.FOV 90
+Дано run View "View mode: Wireframe"
+Тогда-вид 1_fov90 FOV 90, сетка воды: мелкая у камеры, к горизонту квадраты крупнеют ступенями LOD (без щелей на границах)
+Когда --subject viewport set Camera.FOV 10
+Тогда-вид 2_fov10 FOV 10 с той же точки: viewport принял FOV 10 (вид сужен, без отказа в логе); дальние тайлы воды в центре кадра нарисованы мельче (ниже DensityIndex/LOD), чем те же тайлы на 1_fov90 - ячейки сетки на экране не крупнее, чем у камеры на 1_fov90; щелей нет
+Когда run View "View mode: Lit"
+Тогда-вид 3_fov10_lit FOV 10 в Lit: дальняя вода с волнами и бликами, без ступеней LOD и без щелей

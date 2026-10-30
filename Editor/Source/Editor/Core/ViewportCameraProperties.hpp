@@ -79,9 +79,10 @@ namespace Desert::Editor
     inline constexpr const char* kViewportForceVgPostCutRefusal = "Debug.ForceVirtualGeometryPostCutRefusal";
 
     /// The field of view the viewport's own FOV slider offers, in degrees — one range for the slider and for
-    /// a `set`, so a client cannot put the lens where a person's hands could not.
-    inline constexpr float kViewportCameraMinFOV = 20.0f;
-    inline constexpr float kViewportCameraMaxFOV = 120.0f;
+    /// a `set`, so a client cannot put the lens where a person's hands could not. UE's editor viewport range,
+    /// 5..170 (VIEW-LOD-FOV): a 10-degree scope is a lens the engine's LOD and draw distances follow.
+    inline constexpr float kViewportCameraMinFOV = 5.0f;
+    inline constexpr float kViewportCameraMaxFOV = 170.0f;
 
     // THE SUBJECT'S WIRE NAME IS NOT SPELLED HERE, deliberately. It lives once, in the protocol's own
     // kSubjects table (Control/ControlProtocol.hpp), which is what the parser matches against and what a
