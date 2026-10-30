@@ -12,5 +12,7 @@
 Тогда-вид 3_field_backlit the centre tree's trunk dark like the neighbouring trunks; the crowns lit through as before
 Когда run View "View mode: Shading Model"
 Тогда-вид 4_shading_model the centre trunk shows the Default Lit colour, the leaves the foliage colour
-Когда run View "View mode: Albedo (Unlit)"
-Тогда-вид 5_albedo the centre trunk shows bark albedo, not leaf albedo
+Когда run View "View mode: Virtual Geometry Clusters"
+Тогда-вид 5_vg_clusters which meshes the cluster raster draws (diagnostic)
+Когда run View "View mode: Lit"
+Тогда-вид 6_lit_again the centre trunk as in 3_field_backlit (diagnostic: does a view-mode round trip change it)
