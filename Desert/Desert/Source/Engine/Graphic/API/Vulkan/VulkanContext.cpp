@@ -311,7 +311,7 @@ namespace Desert::Graphic::API::Vulkan
         // Asked AFTER the rebuild too. A device that died during the PREVIOUS frame's submit is discovered
         // here — the submit itself returned VK_SUCCESS and the failure arrived asynchronously — and saying
         // so in this frame's result is what lets the loop stop now instead of one frame of illegal calls
-        // later. (The previous frame's own fence waits at its end, WaitSlot(next), surface it as well.)
+        // later. (The frame's fence wait, the first statement of VulkanRendererAPI::BeginFrame, surfaces it as well.)
         if ( Graphic::DeviceLost::IsLost() )
             return Common::MakeError( "the device was lost while preparing this frame." );
 

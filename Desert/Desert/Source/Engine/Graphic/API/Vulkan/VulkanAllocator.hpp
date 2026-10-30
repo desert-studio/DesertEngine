@@ -158,8 +158,8 @@ namespace Desert::Graphic::API::Vulkan
         // view whose extent changed), which the typed queues above cannot name.
         void RT_DestroyLater( std::function<void()> destroy );
 
-        /// The per-frame drain, called once per present after WaitSlot of the frame now current: destroys every
-        /// entry whose queuing frame that fence covers (IsRetired).
+        /// The per-frame drain, called once per frame at its start (VulkanRendererAPI::BeginFrame), after WaitSlot
+        /// of the frame now current: destroys every entry whose queuing frame that fence covers (IsRetired).
         void ProcessDeletionQueue();
         /// THE ONE RETIRE RULE, for every queue and every enqueuing thread. An entry carries the absolute frame
         /// number (FrameManager::GetAbsoluteFrameCount) current when it was queued. ProcessDeletionQueue runs

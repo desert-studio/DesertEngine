@@ -288,7 +288,9 @@ namespace Desert::Engine
             Runtime::ResourceRegistry::GetTextureService()->PumpUploads();
             Runtime::ResourceRegistry::GetTextureService()->UpdateStreaming();
 
-            // 3. Start recording commands for this frame
+            // 3. Start recording commands for this frame. Its first statement is the frame's one CPU wait on the GPU
+            // (row "Wait for GPU": the fence of frame N-k, k = frames in flight, VulkanRendererAPI::BeginFrame), so
+            // everything above it in this iteration overlaps the GPU still executing earlier frames.
             const auto frameBegun = Graphic::Renderer::GetInstance().BeginFrame();
             if ( !frameBegun.IsSuccess() )
             {
@@ -336,7 +338,9 @@ namespace Desert::Engine
                 m_Events.RouteDeferred();
             }
 
-            // 6. Submit all recorded commands and Present — CPU blocks here on submit/present (GPU-bound/vsync).
+            // 6. Submit all recorded commands and Present. No fence wait here (GPU-COST-11): the only block left in
+            // this row is vkQueuePresentKHR's own ("Vulkan: Present", a full presentation queue under FIFO vsync);
+            // the GPU throttle is step 3's "Wait for GPU".
             {
                 DESERT_PROFILE_SCOPE( "PresentFinalImage (Submit)" );
                 const auto presented = m_Window->PresentFinalImage();

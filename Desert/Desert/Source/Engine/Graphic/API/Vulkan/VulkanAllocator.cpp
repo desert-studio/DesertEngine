@@ -692,9 +692,9 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanAllocator::ProcessDeletionQueue()
     {
-        // The per-frame drain: the caller (VulkanRendererAPI::PresentFinalImage) has begun frame `current` and
-        // waited its slot's fence, the fence of frame current - framesInFlight; every entry queued on that
-        // frame or earlier, by any thread, is finished with (IsRetired).
+        // The per-frame drain: the caller (VulkanRendererAPI::BeginFrame, after its "Wait for GPU") has begun
+        // frame `current` and waited its slot's fence, the fence of frame current - framesInFlight; every entry
+        // queued on that frame or earlier, by any thread, is finished with (IsRetired).
         const Engine::FrameManager& frames         = Engine::FrameManager::GetInstance();
         const uint64_t              current        = frames.GetAbsoluteFrameCount();
         const uint32_t              framesInFlight = frames.GetMaxFramesInFlight();
@@ -763,7 +763,7 @@ namespace Desert::Graphic::API::Vulkan
     std::size_t VulkanAllocator::DrainDeletionQueue()
     {
         // WHY AN UNCONDITIONAL DRAIN EXISTS AT ALL, in the numbers that produced it. ProcessDeletionQueue
-        // above is reached from exactly one place — VulkanRendererAPI::PresentFinalImage — so it runs only while
+        // above is reached from exactly one place — VulkanRendererAPI::BeginFrame — so it runs only while
         // frames run. Shutdown releases the whole content of the engine AFTER the last frame: Renderer::Shutdown
         // clears every resource service, the scene renderers drop their passes and the swapchain gives its
         // capture buffer back, and every one of those calls RT_Destroy*, which QUEUES. Nothing ever came
