@@ -318,6 +318,9 @@ namespace Desert::Graphic::System
                 if ( draw.Sprite != nullptr )
                     ve.Draws.push_back( draw );
             }
+            ParticleViewEmitterCull& cull = m_ViewCulls.back();
+            for ( const ViewDraw& draw : ve.Draws )
+                ++( draw.GBuffer ? cull.GBufferDraws : cull.ForwardDraws );
             m_ViewEmitters.push_back( std::move( ve ) );
         }
     }

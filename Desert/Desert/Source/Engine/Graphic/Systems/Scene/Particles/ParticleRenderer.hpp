@@ -72,6 +72,10 @@ namespace Desert::Graphic::System
         uint32_t EntityId = 0; // the raw entt entity value, as VFXSystemDebugStats::EntityId
         uint32_t Emitter  = 0; // the emitter's index in its system
         bool     Culled   = false;
+        // The sprite / ribbon draws this view resolved for the emitter (UE stat Niagara's draw calls): Forward
+        // ones go to ParticlePass, G-buffer ones (Opaque / Masked on a deferred view) to ParticleGBuffer.
+        uint32_t ForwardDraws = 0;
+        uint32_t GBufferDraws = 0;
     };
 
     class ParticleRenderer final : public RenderSystem
