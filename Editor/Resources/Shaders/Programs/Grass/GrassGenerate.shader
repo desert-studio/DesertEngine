@@ -361,8 +361,7 @@ Shader "GrassGenerate"
             // above widens by (a survivor widened 1/sqrt(share): d / D here) - and each kept blade's own card is
             // lifted to the floor width (below), so no blade strip goes sub-pixel. The same nested draw: a blade
             // kept at d is kept nearer.
-            float floorShare =
-                p.Spread.w > 0.0 ? min( 1.0, ( p.Spread.w * p.Spread.w ) / max( distance * distance, 1.0 ) ) : 1.0;
+            float floorShare = GrassThinShare( distance, p.Spread.w );
             if ( fade >= min( kept, floorShare ) )
                 return;
 

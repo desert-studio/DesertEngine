@@ -23,6 +23,8 @@ invariant gl_Position;
 #endif
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
 #include <Common/ShadowCasterBias.glslh>
+// The field's distance thinning, the generator's own law (GrassThinShare): the caster thins a cascade by it.
+#include <Common/GrassFieldShare.glslh>
 #endif
 #include <Common/Velocity.glslh>
 
@@ -84,18 +86,20 @@ void main()
         return;
     }
     // THE CASCADE'S DENSITY (GPU-COST-20; MeshRenderer::BladeShadowSet): the cascade thins the field as the camera
-    // thins it (GrassGenerate's (S / d)^2 past StartCullDistance S) at max(d, ThinFrom) - the distance where one of
-    // the view's pixels is as wide as the cascade's texel - so a blade costs the cascade what it gives it in
-    // texels. The generator kept this blade at its own d, so the cascade keeps the ratio of the two shares, drawn
-    // by a hash of the blade's root (stable as the list reorders), and widens a survivor as the generator does
-    // (1 / sqrt(share)): the covered area stays the same. WindB.z: half x ThinFrom, half y S; 0 = every blade.
+    // thins it (GrassGenerate's (F / d)^2 past F = min(StartCullDistance S, the screen-width floor's D), one
+    // GrassThinShare) at max(d, ThinFrom) - the distance where one of the view's pixels is as wide as the cascade's
+    // texel - so a blade costs the cascade what it gives it in texels. The generator kept this blade at its own d,
+    // so the cascade keeps the ratio of the two shares (the fade is the generator's alone: it ends the field where
+    // the view ends it, the cascade adds none), drawn by a hash of the blade's root (stable as the list reorders),
+    // and widens a survivor as the generator does (1 / sqrt(share)): the covered area stays the same. WindB.z:
+    // half x ThinFrom, half y F (GpuInstanceBladeShadowLod::StartCull); 0 = every blade.
     {
         const vec2 thin = unpackHalf2x16( floatBitsToUint( m_PushConstants.WindB.z ) );
         if ( thin.x > 0.0 && thin.y > 0.0 )
         {
             const float d     = max( length( model[3].xyz - cameraUB.CasterWindOrigin.xyz ), 1.0 );
             const float at    = max( d, thin.x );
-            const float share = min( 1.0, thin.y * thin.y / ( at * at ) ) / min( 1.0, thin.y * thin.y / ( d * d ) );
+            const float share = GrassThinShare( at, thin.y ) / GrassThinShare( d, thin.y );
             if ( share < 1.0 )
             {
                 uvec2 key = floatBitsToUint( model[3].xz );

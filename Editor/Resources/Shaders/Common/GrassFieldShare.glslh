@@ -25,13 +25,23 @@ struct GrassFieldShare
     float Height; // a survivor's height multiplier, 1 down to 0 over the last 20 % of the fade
 };
 
+// The share a (F / d)^2 thinning keeps at @p distance past @p from F (1 before it; F = 0 states no thinning). The
+// one form of every distance thinning of the field: the generator's past StartCullDistance (below), its
+// screen-width floor's past D (GrassGenerate.shader, GRASS-WIDTH) and a cascade caster's
+// (Mesh/Surface/Vertex_GrassBlade.glslh, GPU-COST-20). Two such thinnings at once keep the smaller share:
+// min((S / d)^2, (D / d)^2) is one thinning from min(S, D).
+float GrassThinShare( float distance, float from )
+{
+    return from > 0.0 ? min( 1.0, ( from * from ) / max( distance * distance, 1.0 ) ) : 1.0;
+}
+
 // The field's share at @p distance for a variety with Start/EndCullDistance @p startCull / @p endCull (all in the
 // same units, cm; the caller passes them through its own lens).
 GrassFieldShare GrassFieldShareAt( float distance, float startCull, float endCull )
 {
     GrassFieldShare s;
     s.Faded      = clamp( ( distance - startCull ) / max( endCull - startCull, 1.0 ), 0.0, 1.0 );
-    float screen = startCull > 0.0 ? min( 1.0, ( startCull * startCull ) / max( distance * distance, 1.0 ) ) : 1.0;
+    float screen = GrassThinShare( distance, startCull );
     s.Kept       = screen * ( 1.0 - s.Faded );
     s.Widen      = inversesqrt( max( s.Kept, 0.05 ) );
     s.Height     = 1.0 - clamp( ( s.Faded - 0.8 ) / 0.2, 0.0, 1.0 );

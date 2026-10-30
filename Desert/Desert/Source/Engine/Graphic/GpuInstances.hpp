@@ -44,7 +44,9 @@ namespace Desert::Graphic
         float    Height      = 0.0f; // the tallest blade, cm (the shape's Height x the placement's largest scale)
         uint32_t Segments    = 1;    // the strip's level-0 segments; each level halves them down to one
         uint32_t Levels      = 0;    // the strip's levels = its record sets
-        float    StartCull   = 0.0f; // where the generator's (S / d)^2 thinning starts, cm through the lens
+        // where the generator's (F / d)^2 thinning starts, cm through the lens: F = min(StartCullDistance S, the
+        // screen-width floor's D) (GrassFieldShare.glslh GrassThinShare); 0: none
+        float    StartCull   = 0.0f;
         float    PixelSpread = 0.0f; // the main view's pixel size per cm of distance (0: orthographic, no thinning)
     };
 } // namespace Desert::Graphic

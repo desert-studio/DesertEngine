@@ -708,6 +708,10 @@ namespace Desert::Graphic::System
                  std::abs( frame.Projection[0][0] ) * 0.5f * static_cast<float>( frame.Split.Render.Width );
             params.Lean.w   = variety.Blade->MinScreenWidth / pixelsPerUnit;
             params.Spread.w = meanBladeWidth / params.Lean.w;
+            // The generator keeps min((S / d)^2, (D / d)^2) - one thinning from min(S, D) (GrassFieldShare.glslh
+            // GrassThinShare) - so a cascade thins from there too (GpuInstanceBladeShadowLod::StartCull).
+            float& thinFrom = gpu.ShadowLod.StartCull;
+            thinFrom        = thinFrom > 0.0f ? std::min( thinFrom, params.Spread.w ) : params.Spread.w;
         }
         {
             const uint32_t seed =
