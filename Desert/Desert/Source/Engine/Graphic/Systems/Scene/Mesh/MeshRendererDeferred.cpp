@@ -20,8 +20,25 @@ namespace Desert::Graphic::System
         // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
         // redraw follows on the deferred path.
         m_GeometryPass = MeshPass::GBuffer;
-        BuildStaticDraws( m_GBufferDraws );
-        BuildSkinnedDraws( m_GBufferDraws );
+        // THE DEFERRED EARLY-Z PAIRING (UE r.EarlyZPass; DeferredPrepassHalf): when "Deferred: Masked Depth
+        // Prepass" drew this frame's groups, the G-buffer draws them EQUAL through their DepthEqual cells (the Equal
+        // half) and every other one as before (the Rest half), each half one call of the same builders.
+        if ( m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && PrepassCurrent() )
+        {
+            m_IsmInstancesDrawn = 0;
+            m_DeferredHalf      = DeferredPrepassHalf::Equal;
+            BuildStaticDraws( m_GBufferDraws );
+            BuildSkinnedDraws( m_GBufferDraws );
+            m_DeferredHalf = DeferredPrepassHalf::Rest;
+            BuildStaticDraws( m_GBufferDraws );
+            BuildSkinnedDraws( m_GBufferDraws );
+            m_DeferredHalf = DeferredPrepassHalf::None;
+        }
+        else
+        {
+            BuildStaticDraws( m_GBufferDraws );
+            BuildSkinnedDraws( m_GBufferDraws );
+        }
         m_GeometryPass = MeshPass::Forward;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
@@ -42,6 +59,11 @@ namespace Desert::Graphic::System
     {
         m_MaskedDepthDraws.Clear();
         m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
+        // This frame's admissions start empty here, whatever returns below: the G-buffer reads only a set stamped
+        // with its own frame (PrepassCellDraw), and only when the static / skinned halves below ran.
+        m_PrepassCellDraws.clear();
+        m_PrepassGpuSections.clear();
+        m_PrepassFrame.reset();
         // This frame's grass visibility sections, decided before the prepass and the G-buffer skip them (GRASS-VIS).
         m_GrassVisibilitySections.clear();
         if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
@@ -49,12 +71,78 @@ namespace Desert::Graphic::System
             for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
                 if ( gpu.Path == MeshVertexPath::GrassBlade && GrassVisibilityReady( gpu ) )
                     m_GrassVisibilitySections.push_back( gpu.Key );
-        if ( !m_InstancedViewDepthPipeline || !m_InstancedGBufferEqualPipeline || m_SceneRenderer == nullptr ||
+        if ( m_EarlyZPass == ::Common::Scalability::EarlyZPassMode::Off || m_SceneRenderer == nullptr ||
              m_SceneRenderer->GetMainCamera() == nullptr )
             return;
-        BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false );
+        // The CPU-walked statics (per object, auto-batched, ISMs) and skinned meshes EarlyZAdmits: the Depth half of
+        // the pairing, through the forward prepass's (path x Depth) states (the G-buffer's depth format), with both
+        // halves' readiness folded and recorded for "Deferred: GBuffer" (m_PrepassCellDraws).
+        if ( m_StaticDepthPipeline && m_StaticGBufferEqualPipeline )
+        {
+            const ViewFrame* const frame = m_SceneRenderer->GetViewFrame();
+            m_PrepassFrame = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
+            m_GeometryPass = MeshPass::Depth;
+            m_DeferredHalf = DeferredPrepassHalf::Depth;
+            BuildStaticDraws( m_MaskedDepthDraws );
+            BuildSkinnedDraws( m_MaskedDepthDraws );
+            m_DeferredHalf = DeferredPrepassHalf::None;
+            m_GeometryPass = MeshPass::Forward;
+        }
+        // The GPU-instanced sections (the landscape grass): paired by BuildGpuInstancedDraws (m_MaskedPrepassed).
+        if ( m_InstancedViewDepthPipeline && m_InstancedGBufferEqualPipeline )
+            BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
+                                    CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false );
         m_MaskedDepthDraws.Declare( pass, view );
+        // The skin cache's streams the (Skinned x Depth) cell fetches by address (Vertex_Skinned.glslh).
+        for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+            pass.Read( streams, RDG::Access::StorageRead );
+    }
+
+    bool MeshRenderer::EarlyZAdmits( const DataDrivenMaterial* surface ) const
+    {
+        using Mode = ::Common::Scalability::EarlyZPassMode;
+        if ( surface == nullptr || IsTranslucentSurface( surface ) )
+            return false;
+        // A `.Parallax` surface writes its pixel depth offset in the G-buffer (Pass_GBuffer.glslh gl_FragDepth); the
+        // (path x Depth) cells write the geometric depth, so an EQUAL test against them would reject it. It keeps
+        // its own depth in the G-buffer until the Depth cells write the same offset (REMAINDER GRASS-VIS-10).
+        if ( IsParallaxCell( surface->GetShaderName() ) )
+            return false;
+        switch ( m_EarlyZPass )
+        {
+            case Mode::All:
+                return true;
+            case Mode::Masked:
+                return IsMaskedSurface( surface );
+            case Mode::Off:
+                return false;
+        }
+        return false;
+    }
+
+    bool MeshRenderer::DeferredHalfTakes( const DataDrivenMaterial* source, const PrepassCellKey& key ) const
+    {
+        using CellDraw = MaterialPipelineTracker::CellDraw;
+        switch ( m_DeferredHalf )
+        {
+            case DeferredPrepassHalf::None:
+                return true;
+            case DeferredPrepassHalf::Depth:
+                return EarlyZAdmits( source );
+            case DeferredPrepassHalf::Equal:
+                return PrepassCellDraw( key ) == CellDraw::Own;
+            case DeferredPrepassHalf::Rest:
+                return PrepassCellDraw( key ) != CellDraw::Own;
+        }
+        return true;
+    }
+
+    DataDrivenMaterial* MeshRenderer::DepthEqualCell( const DataDrivenMaterial* built, const MeshVertexPath path ) const
+    {
+        auto* const materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr || built == nullptr )
+            return nullptr;
+        return materials->GetVariant( built, path, MeshPass::GBuffer, SurfaceDepthEqualVariant() );
     }
 
     Common::BoolResultStr MeshRenderer::RenderMaskedDepthManual( const RDG::PassContext& context ) const
@@ -343,6 +431,18 @@ namespace Desert::Graphic::System
             return false;
         }
         m_StaticGBufferPipeline = gbufferPipeline.GetValue();
+        // The Equal half of the deferred early-Z pairing (DeclareGBufferDraws): EQUAL, no depth writes - the
+        // prepass's depth is final. Optional: refused, the statics clip and write their own depth here, said once.
+        GraphicsPipelineSpecification equalSpec = spec;
+        equalSpec.DebugName                     = "StaticMeshGBufferDepthEqual";
+        equalSpec.DepthCompareOp                = DepthCompare::Equal;
+        equalSpec.DepthWriteEnabled             = false;
+        if ( const auto equal = m_SceneRenderer->GetPipelineCache().GetOrCreate( equalSpec ) )
+            m_StaticGBufferEqualPipeline = equal.GetValue();
+        else
+            LOG_ERROR( "[MeshRenderer] no deferred early-Z pass for static meshes and ISMs: they clip and write their "
+                       "own depth in the G-buffer. {}",
+                       equal.GetError() );
 
         // (Static x GBuffer) for the meshes whose FORWARD material is not service-owned. There is exactly
         // one such material in the engine — MeshECSSystem::m_DefaultMaterial, which stands in for every
@@ -407,6 +507,9 @@ namespace Desert::Graphic::System
                         m_InstancedGBufferEqualPipeline = equalPipeline.GetValue();
                         m_InstancedViewDepthPipeline    = depthPipeline.GetValue();
                     }
+                    else
+                        refused = std::format( "depth: {} | equal: {}", depthPipeline ? "ok" : depthPipeline.GetError(),
+                                               equalPipeline ? "ok" : equalPipeline.GetError() );
                     // GRASS-VIS carriers: the raster tests the view's depth and writes none (its output is the
                     // visibility word), the resolve is a full-screen triangle into the G-buffer with the word's depth.
                     GraphicsPipelineSpecification visibility = depth;
@@ -427,14 +530,20 @@ namespace Desert::Graphic::System
                                    "raster: {} | resolve: {}",
                                    visibilityPipeline ? "ok" : visibilityPipeline.GetError(),
                                    resolvePipeline ? "ok" : resolvePipeline.GetError() );
-                    else
-                        refused = std::format( "depth: {} | equal: {}", depthPipeline ? "ok" : depthPipeline.GetError(),
-                                               equalPipeline ? "ok" : equalPipeline.GetError() );
                 }
                 if ( !refused.empty() )
-                    LOG_ERROR( "[MeshRenderer] no masked depth prepass: masked grass pays its alpha-tested overdraw "
-                               "in the G-buffer. {}",
+                    LOG_ERROR( "[MeshRenderer] no early-Z pass for instanced meshes: masked grass, auto-batched "
+                               "statics and ISMs clip and write their own depth in the G-buffer. {}",
                                refused );
+                // The Equal half's instanced spare (StaticCellsOf depthEqual): its own InstanceTransforms, so the
+                // two halves of one G-buffer never fill one buffer.
+                if ( m_InstancedGBufferEqualPipeline )
+                {
+                    m_InstancedGBufferEqualMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::GBuffer );
+                    if ( m_InstancedGBufferEqualMaterial )
+                        m_InstancedGBufferEqualInstance =
+                             m_InstancedGBufferEqualMaterial->CreateInstance( "StaticInstancedGBufferEqualBatch" );
+                }
                 m_InstancedGBufferMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::GBuffer );
                 if ( m_InstancedGBufferMaterial )
                 {
@@ -484,7 +593,20 @@ namespace Desert::Graphic::System
                            "the (Skinned x GBuffer) cell material was refused." );
             }
             else
+            {
                 m_SkinnedGBufferPipeline = skinned.GetValue();
+                // The Equal half of the deferred early-Z pairing, as the static one.
+                GraphicsPipelineSpecification equalSpec = sspec;
+                equalSpec.DebugName                     = "SkinnedMeshGBufferDepthEqual";
+                equalSpec.DepthCompareOp                = DepthCompare::Equal;
+                equalSpec.DepthWriteEnabled             = false;
+                if ( const auto equal = m_SceneRenderer->GetPipelineCache().GetOrCreate( equalSpec ) )
+                    m_SkinnedGBufferEqualPipeline = equal.GetValue();
+                else
+                    LOG_ERROR( "[MeshRenderer] no deferred early-Z pass for skinned meshes: they write their own "
+                               "depth in the G-buffer. {}",
+                               equal.GetError() );
+            }
         }
         else
         {

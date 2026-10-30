@@ -427,6 +427,10 @@ namespace Common::Scalability
                "the "
                "compute queue family)",
                1, Vis::Advanced },
+             { P::EarlyZPass, G::ViewDistance, "RenderPipeline.EarlyZPass", 0, 2, CL::None,
+               "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
+               "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",
+               Of( EarlyZPassMode::All ), Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -455,6 +459,8 @@ namespace Common::Scalability
                 return kShadowMethodNames;
             if ( parameter == Parameter::PathTracingRadianceCache )
                 return kPathTracingRadianceCacheNames;
+            if ( parameter == Parameter::EarlyZPass )
+                return kEarlyZPassNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&

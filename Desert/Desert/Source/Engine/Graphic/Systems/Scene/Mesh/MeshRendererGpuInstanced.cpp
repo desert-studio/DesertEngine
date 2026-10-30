@@ -108,12 +108,11 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
-            // The masked depth prepass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the Masked
-            // sections alone; the G-buffer draws a section it drew with an EQUAL depth test, without writes and
-            // without the clip (m_InstancedGBufferEqualPipeline, its cell in SurfaceDepthEqualVariant: UE's base
-            // pass after the masked early-Z pass). The forward depth prepass (Depth with a companion) draws every
-            // one.
-            const bool masked        = IsMaskedSurface( parent );
+            // The deferred early-Z pass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the sections
+            // this frame's EarlyZPass admits (EarlyZAdmits: the Masked ones, or under All every opaque one too); the
+            // G-buffer draws a section it drew with an EQUAL depth test, without writes and without the clip
+            // (m_InstancedGBufferEqualPipeline, its cell in SurfaceDepthEqualVariant: UE's base pass after the
+            // early-Z pass). The forward depth prepass (Depth with a companion) draws every one.
             const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
             // GRASS-VIS: a blade section this frame draws through the visibility buffer (m_GrassVisibilitySections,
             // chosen by DeclareMaskedDepthDraws) is in the Visibility raster and its resolve and nowhere else of the
@@ -126,10 +125,10 @@ namespace Desert::Graphic::System
                 continue;
             if ( viaVisibility && ( maskedPrepass || pass == MeshPass::GBuffer ) )
                 continue;
-            if ( maskedPrepass && !masked )
+            if ( maskedPrepass && !EarlyZAdmits( parent ) )
                 continue;
-            // A post-occlusion draw was never in the masked prepass: it keeps its own clip and depth writes.
-            const bool prepassed = !postOcclusion && pass == MeshPass::GBuffer && masked &&
+            // A post-occlusion draw was never in the early-Z pass: it keeps its own clip and depth writes.
+            const bool prepassed = !postOcclusion && pass == MeshPass::GBuffer &&
                                    std::find( m_MaskedPrepassed.begin(), m_MaskedPrepassed.end(), gpu.Key ) !=
                                         m_MaskedPrepassed.end();
             // One cell (and instance) per section x view pass.

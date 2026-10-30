@@ -280,6 +280,20 @@ namespace Common::Scalability
     static_assert( static_cast<std::size_t>( PathTracingRadianceCacheMethod::Nrc ) + 1 ==
                    kPathTracingRadianceCacheNames.size() );
 
+    // WHICH MESHES THE DEFERRED EARLY-Z PASS DRAWS (Parameter::EarlyZPass; UE r.EarlyZPass). Stored by name. Off:
+    // none, every mesh clips and writes its own depth in the G-buffer (UE 0). Masked: the masked ones (UE
+    // r.EarlyZPass masked-only), the G-buffer then draws them EQUAL without the clip. All: every opaque and masked
+    // one (UE 2, DDM_AllOpaque), so the G-buffer shades each texel once. Every device runs every mode (a depth-only
+    // pass), so no catalog list narrows it.
+    enum class EarlyZPassMode : int
+    {
+        Off    = 0,
+        Masked = 1,
+        All    = 2,
+    };
+    inline constexpr std::array<std::string_view, 3> kEarlyZPassNames{ "Off", "Masked", "All" };
+    static_assert( static_cast<std::size_t>( EarlyZPassMode::All ) + 1 == kEarlyZPassNames.size() );
+
     // THE CATALOG. Filled once per device (VulkanCapabilityCatalog::Build), then immutable for the device's
     // life; a device loss rebuilds it with the new device. Every list is ordered BEST FIRST where an order
     // exists, so "the best this device offers" is front() and a fallback walks the list.

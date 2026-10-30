@@ -3,6 +3,7 @@
 #include <Engine/Graphic/InstanceCullDistance.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Common/Core/Units.hpp>
+#include <Common/Settings/CapabilityCatalog.hpp>
 #include <unordered_set>
 
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
@@ -1137,6 +1138,16 @@ namespace Desert::Graphic::System
         {
             m_GrassVisibilityActive = active;
         }
+        // THE DEFERRED EARLY-Z PASS (UE r.EarlyZPass; Scalability EarlyZPass). SceneRenderer sets it per frame BEFORE
+        // "Deferred: Masked Depth Prepass". Off: no mesh is in the prepass, every one clips and writes its own depth
+        // in the G-buffer. Masked: the masked meshes of every kind (static, auto-batched, ISM, skinned, GPU-instanced)
+        // write their clipped depth there and the G-buffer draws them EQUAL, without writes and without the clip
+        // (DESERT_SURFACE_DEPTH_EQUAL). All (UE r.EarlyZPass 2): the opaque meshes too, so the G-buffer shades each
+        // texel once. Meshes the GPU-driven bins issue keep their G-buffer bins (the bins have no prepass twin).
+        void SetEarlyZPass( const ::Common::Scalability::EarlyZPassMode mode )
+        {
+            m_EarlyZPass = mode;
+        }
         // SETUP of "Grass: Visibility Raster" (the G-buffer's depth LOADed, tested, not written; no colour): the
         // sections' (GrassBlade x Visibility) cells atomic-max (depth | row | triangle) into @p visibility.
         // @p postOcclusion (GRASS-VIS phase 2, "Grass: Visibility Raster Post-Occlusion"): only the sections' phase-2
@@ -1632,8 +1643,33 @@ namespace Desert::Graphic::System
             MaterialInstance*       InstancedInstance = nullptr;
             const GraphicsPipeline* InstancedStandIn = nullptr;
             bool                    InstancingOn     = false;
+            // The G-buffer after the deferred early-Z pass (@p depthEqual of StaticCellsOf): EQUAL, no depth writes,
+            // the cells in their DESERT_SURFACE_DEPTH_EQUAL permutation (DepthEqualCell).
+            bool                    DepthEqual       = false;
         };
-        [[nodiscard]] StaticPassCells StaticCellsOf( MeshPass pass );
+        [[nodiscard]] StaticPassCells StaticCellsOf( MeshPass pass, bool depthEqual = false );
+        // WHICH HALF of the deferred early-Z pairing BuildStaticDraws / BuildSkinnedDraws build (UE: the depth pass
+        // and the base pass draw one mesh-draw list). None: no pairing (the forward path, or EarlyZPass Off).
+        // Depth: "Deferred: Masked Depth Prepass", the groups EarlyZAdmits; the readiness of both halves folded and
+        // recorded in m_PrepassCellDraws. Equal: "Deferred: GBuffer", the groups the prepass drew (recorded Own),
+        // through the DepthEqual cells. Rest: "Deferred: GBuffer", every other group, through the plain cells.
+        enum class DeferredPrepassHalf : uint8_t
+        {
+            None,
+            Depth,
+            Equal,
+            Rest,
+        };
+        // Whether the half being built takes the group of @p source (its surface) keyed @p key.
+        struct PrepassCellKey;
+        [[nodiscard]] bool DeferredHalfTakes( const DataDrivenMaterial* source, const PrepassCellKey& key ) const;
+        // Whether this frame's EarlyZPass puts @p surface in the deferred prepass: Masked = IsMaskedSurface, All =
+        // every non-translucent surface, Off = none.
+        [[nodiscard]] bool EarlyZAdmits( const DataDrivenMaterial* surface ) const;
+        // The G-buffer cell of @p built's @p path drawn EQUAL after the prepass: its SurfaceDepthEqualVariant. A
+        // masked template's drops its clip; an opaque one's is the same program, but a sibling of its own, so the
+        // Equal half never shares a recorder (its Materials / InstanceTransforms) with the Rest half's plain cell.
+        [[nodiscard]] DataDrivenMaterial* DepthEqualCell( const DataDrivenMaterial* built, MeshVertexPath path ) const;
         // Which part of the generic queue a list takes, and through which program of each draw's template.
         enum class GenericSlice : uint8_t
         {
@@ -1818,9 +1854,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
-        // THE PERMUTATION a Masked GPU-instanced section's G-buffer cell is drawn in after the masked depth
-        // prepass drew it (kSurfaceDepthEqualDefine: equal depth test, no clip; BuildGpuInstancedDraws), asked by
-        // the draw and by the cook (MaterialProgramVariants) from this one function.
+        // THE PERMUTATION a mesh's G-buffer cell is drawn in after the deferred early-Z pass drew it
+        // (kSurfaceDepthEqualDefine: equal depth test, no clip; DepthEqualCell, BuildGpuInstancedDraws), asked by
+        // the draws and by the cook (MaterialProgramVariants) from this one function.
         [[nodiscard]] static Core::ShaderVariant SurfaceDepthEqualVariant();
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
@@ -1922,6 +1958,17 @@ namespace Desert::Graphic::System
         // is final; CloserOrEqual passes on it). Null: no prepass, masked sections draw as before.
         std::shared_ptr<GraphicsPipeline> m_InstancedViewDepthPipeline;
         std::shared_ptr<GraphicsPipeline> m_InstancedGBufferEqualPipeline;
+        // The deferred early-Z pass's G-buffer states of the CPU-walked statics and skinned meshes (EQUAL, no depth
+        // writes; their prepass half is the forward prepass's Depth states, same depth format) and the instanced
+        // spare of the Equal half (its own InstanceTransforms, apart from the Rest half's m_InstancedGBufferMaterial).
+        // Null: those meshes are not prepassed (SetupGBufferPass said so).
+        std::shared_ptr<GraphicsPipeline>            m_StaticGBufferEqualPipeline;
+        std::shared_ptr<GraphicsPipeline>            m_SkinnedGBufferEqualPipeline;
+        std::shared_ptr<Graphic::DataDrivenMaterial> m_InstancedGBufferEqualMaterial;
+        MaterialInstancePtr                          m_InstancedGBufferEqualInstance;
+        // This frame's EarlyZPass (SetEarlyZPass) and the half being built (DeferredPrepassHalf).
+        ::Common::Scalability::EarlyZPassMode m_EarlyZPass   = ::Common::Scalability::EarlyZPassMode::All;
+        DeferredPrepassHalf m_DeferredHalf = DeferredPrepassHalf::None;
         // GRASS-VIS's two pass states (carriers: CellPipeline swaps in the section's cell): the visibility raster
         // (the masked prepass's depth state with depth writes off) and the resolve (the G-buffer's instanced state,
         // CullMode None - a full-screen triangle). Null: no grass visibility path, the sections keep the G-buffer.

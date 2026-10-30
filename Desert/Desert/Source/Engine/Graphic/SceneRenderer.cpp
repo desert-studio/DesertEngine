@@ -2263,7 +2263,12 @@ namespace Desert::Graphic
                 }
             }
             if ( meshRenderer != nullptr )
+            {
                 meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
+                // UE r.EarlyZPass: which meshes "Deferred: Masked Depth Prepass" draws (MeshRenderer::SetEarlyZPass).
+                meshRenderer->SetEarlyZPass( m_Quality.As<Common::Scalability::EarlyZPassMode>(
+                     Common::Scalability::Parameter::EarlyZPass ) );
+            }
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
