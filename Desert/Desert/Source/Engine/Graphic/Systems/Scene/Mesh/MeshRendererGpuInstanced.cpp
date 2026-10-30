@@ -103,6 +103,17 @@ namespace Desert::Graphic::System
             // one.
             const bool masked        = IsMaskedSurface( parent );
             const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
+            // GRASS-VIS: a blade section this frame draws through the visibility buffer (m_GrassVisibilitySections,
+            // chosen by DeclareMaskedDepthDraws) is in the Visibility raster and its resolve and nowhere else of the
+            // deferred geometry: not in the masked prepass, not in the G-buffer. Every other section is in neither.
+            const bool visibilityPass = pass == MeshPass::Visibility || pass == MeshPass::VisibilityResolve;
+            const bool viaVisibility  = gpu.Path == MeshVertexPath::GrassBlade &&
+                                       std::find( m_GrassVisibilitySections.begin(), m_GrassVisibilitySections.end(),
+                                                  gpu.Key ) != m_GrassVisibilitySections.end();
+            if ( visibilityPass && !viaVisibility )
+                continue;
+            if ( viaVisibility && ( maskedPrepass || pass == MeshPass::GBuffer ) )
+                continue;
             if ( maskedPrepass && !masked )
                 continue;
             const bool prepassed = pass == MeshPass::GBuffer && masked &&
@@ -139,9 +150,10 @@ namespace Desert::Graphic::System
                                MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
                 continue;
             }
+            // The resolve's full-screen triangle is never culled (its carrier is CullMode None).
             GraphicsPipeline* pipeline = CullPermutation(
                  CellPipeline( prepassed ? m_InstancedGBufferEqualPipeline.get() : instancedPipeline, *cell ),
-                 gpu.Material->IsTwoSided() );
+                 gpu.Material->IsTwoSided() || pass == MeshPass::VisibilityResolve );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
             if ( maskedPrepass )
@@ -208,6 +220,29 @@ namespace Desert::Graphic::System
             if ( maskedPrepass )
                 m_MaskedPrepassed.push_back( gpu.Key );
 
+            // THE RESOLVE (GRASS-VIS): one full-screen triangle per section - record 0 of the view's resolve table
+            // (VirtualGeometry::VisibilityBuffer: {3, 1, 0, 0, 0}, the strip's first three indices, which
+            // Vertex_GrassBlade.glslh's resolve branch places over the screen), every other submesh hidden. The
+            // transforms are still the section's: the fragment stage rebuilds the blade its pixel's word names.
+            if ( pass == MeshPass::VisibilityResolve )
+            {
+                if ( !m_GrassResolveArgs.IsValid() )
+                    continue;
+                list.Add( { .Pipeline           = pipeline,
+                            .Mesh               = gpu.Mesh,
+                            .Transform          = glm::mat4( 1.0f ),
+                            .Material           = cell->GetMaterialExecutor(),
+                            .HiddenSubmeshMask  = SubmeshMask( ~uint64_t{ 1 } ),
+                            .IndirectArgs       = m_GrassResolveArgs,
+                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectArgsOffset = GpuInstanceArgsOffset( 0 ),
+                            .Push               = DrawPushFields{}
+                                         .MaterialIndex( row )
+                                         .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
+                                         .PrimitiveFlags( 0u ) } );
+                continue;
+            }
+
             // One draw per LOD level the producer sorted its instances into, each reading its level's records.
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
                 list.Add( { .Pipeline           = pipeline,
@@ -223,6 +258,34 @@ namespace Desert::Graphic::System
                                          .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
                                          .PrimitiveFlags( 0u ) } );
         }
+    }
+
+    bool MeshRenderer::GrassVisibilityReady( const GpuInstancedRenderData& gpu )
+    {
+        auto* materials = Runtime::ResourceRegistry::GetMaterialService();
+        if ( materials == nullptr )
+            return false;
+        const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
+        if ( parent == nullptr || !materials->Owns( parent ) || materials->AwaitsTextures( parent ) )
+            return false;
+        // The same view keys BuildGpuInstancedDraws asks the cells under (one per section x view pass).
+        for ( const auto& [of, carrier] :
+              { std::pair{ MeshPass::Visibility, m_InstancedVisibilityPipeline.get() },
+                std::pair{ MeshPass::VisibilityResolve, m_InstancedVisibilityResolvePipeline.get() } } )
+        {
+            if ( carrier == nullptr )
+                return false;
+            const uint32_t      view = kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of );
+            DataDrivenMaterial* cell = ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, view, this ),
+                                                           parent, gpu.Path, of, view );
+            if ( cell == nullptr )
+                return false;
+            GraphicsPipeline* const pipeline = CullPermutation(
+                 CellPipeline( carrier, *cell ), gpu.Material->IsTwoSided() || of == MeshPass::VisibilityResolve );
+            if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
+                return false;
+        }
+        return true;
     }
 
     void MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
