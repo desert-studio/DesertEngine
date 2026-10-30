@@ -234,6 +234,8 @@ namespace Desert::Graphic
                 } );
             }
         }
+        // Counted whether or not every region landed: a partial write changed bytes a consumer may have cached.
+        ++m_WriteGeneration;
         return m_Image->WriteRegions( writes );
     }
 

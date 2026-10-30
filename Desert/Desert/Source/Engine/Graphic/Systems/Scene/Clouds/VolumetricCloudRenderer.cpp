@@ -664,6 +664,7 @@ namespace Desert::Graphic::System
 
         m_MediumVariant     = std::move( next );
         m_MediumVariantHash = hash;
+        m_MediumIsDefault   = next.IsDefault();
 
         if ( !BuildMediumPipelines() )
         {
@@ -1073,11 +1074,77 @@ namespace Desert::Graphic::System
             // point of the pass is that a column's optical depth accumulates downward and a thread per
             // texel would have to re-integrate everything above it.
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            return Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
-                                              GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
-                                              GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
+            Common::BoolResultStr dispatched =
+                 Renderer::DispatchCompute( bindings, *m_SkyOcclusionPipeline,
+                                            GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ),
+                                            GroupCount( kCloudSkyOcclusionResolution, kMarchWorkGroupSize ), 1 );
+            // A march that did not run leaves bytes no key describes: the next frame marches again.
+            if ( !dispatched )
+                m_SkyOcclusionBuilt = false;
+            return dispatched;
         };
         return occlusion;
+    }
+
+    bool VolumetricCloudRenderer::WindIsRigid() const
+    {
+        return CloudWindIsRigid( !m_HeroClouds.empty(), m_MediumIsDefault );
+    }
+
+    uint64_t VolumetricCloudRenderer::FieldInputsKey( const CloudGpuPayload& payload, const bool windRigid ) const
+    {
+        // EVERYTHING THE TWO PRODUCERS SAMPLE, by value where it is a value and by identity plus write count where
+        // it is an image: SampledVolumes and SampledMedium name the images, BindMedium the medium's values, the
+        // two uploads the blocks. An image whose texels change in place either goes through m_PendingUploads
+        // (counted by m_UploadEpoch, a batch still pending included) or is the clipmap (its WriteGeneration).
+        CloudRefreshKey key;
+        key.Value( CloudFieldPayloadForKey( payload, m_MediumIsDefault, windRigid ) );
+        key.Bytes( &m_AuthoredPayload, sizeof( m_AuthoredPayload ) );
+        key.Value( m_MediumVariantHash );
+        if ( !m_MediumValues.Params.empty() )
+            key.Bytes( m_MediumValues.Params.data(), m_MediumValues.Params.size() * sizeof( glm::vec4 ) );
+        for ( const std::shared_ptr<Image2D>& image : m_MediumImages )
+            key.Value( static_cast<const void*>( image.get() ) );
+        for ( const std::shared_ptr<Image3D>& volume : m_NoiseVolume )
+            key.Value( static_cast<const void*>( volume.get() ) );
+        key.Value( static_cast<const void*>( m_Clipmap.GetImage().get() ) );
+        key.Value( m_Clipmap.WriteGeneration() );
+        key.Value( m_ModellingShapeGeneration );
+        key.Value( static_cast<const void*>( m_FarWeatherMap.get() ) );
+        key.Value( static_cast<const void*>( m_LayoutPatternTexture.get() ) );
+        key.Value( static_cast<const void*>( m_LayoutMaskTexture.get() ) );
+        key.Value( static_cast<const void*>( m_AuthoredAtlas.get() ) );
+        key.Value( m_UploadEpoch + ( m_PendingUploads.empty() ? 0u : 1u ) );
+        return key.Get();
+    }
+
+    void VolumetricCloudRenderer::DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
+                                                              const CloudGpuPayload&               payload )
+    {
+        // THE VOLUME IS A PURE FUNCTION OF THE FIELD, and in the frame it is addressed in (wind-shifted, by producer
+        // and consumer alike) the wind is not one of its inputs while the field is rigid in it. It used to be
+        // re-marched every frame — 128 x 128 columns x 64 field samples, ~41 ms of a FIELD_Barn frame on MoltenVK
+        // — for the same bytes. Now only when what it marches moved (Graphic/Clouds/CloudAmortizedRefresh.hpp).
+        CloudRefreshKey key;
+        key.Value( FieldInputsKey( payload, WindIsRigid() ) );
+        key.Value( static_cast<const void*>( m_SkyOcclusionVolume.get() ) );
+        const uint64_t inputs = key.Get();
+
+        m_SkyOcclusionPendingKey.reset();
+        if ( m_SkyOcclusionBuilt && m_SkyOcclusionBuiltKey == inputs )
+            return;
+        nodes.push_back( SkyOcclusionNode() );
+        m_SkyOcclusionPendingKey = inputs;
+    }
+
+    void VolumetricCloudRenderer::NoteSkyOcclusionAccepted( const bool accepted )
+    {
+        // A refused node never ran: the volume still holds the bytes of the key it was last marched from.
+        const std::optional<uint64_t> pending = std::exchange( m_SkyOcclusionPendingKey, std::nullopt );
+        if ( !pending || !accepted )
+            return;
+        m_SkyOcclusionBuilt    = true;
+        m_SkyOcclusionBuiltKey = *pending;
     }
 
     std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareSkyOcclusionNodes()
@@ -1111,7 +1178,7 @@ namespace Desert::Graphic::System
 
         if ( m_Data.SkyOcclusionVolume && EnsureSkyOcclusionVolume() )
         {
-            nodes.push_back( SkyOcclusionNode() );
+            DeclareSkyOcclusionIfStale( nodes, payload );
             m_SkyOcclusionValid = true;
         }
         return nodes;
@@ -1119,18 +1186,19 @@ namespace Desert::Graphic::System
 
     void VolumetricCloudRenderer::SettleSkyOcclusionNodes( const bool accepted )
     {
+        NoteSkyOcclusionAccepted( accepted );
         if ( !accepted )
             m_SkyOcclusionValid = false;
     }
 
-    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes( RDG::Builder& graph )
+    std::vector<ComputeNodeDeclaration> VolumetricCloudRenderer::DeclareShadowMapNodes()
     {
         std::vector<ComputeNodeDeclaration> nodes;
         // Cleared FIRST and set only at the end, so every early return below leaves consumers with "no
         // cloud shadow this frame" rather than with the projection of a frame the sun has since left.
         m_ShadowMapValid   = false;
         m_ShadowMapPending = false;
-        m_ShadowMap        = {};
+        m_ShadowMap        = nullptr;
 
         if ( !m_ShadowMapPipeline || !m_ShadowParamsBuffer )
             return nodes;
@@ -1163,105 +1231,159 @@ namespace Desert::Graphic::System
         CloudGpuPayload payload{};
         if ( !BuildFieldPayload( payload ) )
             return nodes;
+        // Slot A, for the shadow map as well as for the eye: a hero cloud shades the ground under it because it IS
+        // the cloud field. Built before the key, which hashes it.
+        BuildAuthoredPayload( payload );
 
-        // A TRANSIENT OF THE FRAME GRAPH: written here, read by the lit passes of the same frame, never by a later
-        // one (the projection is rebuilt every frame). Its size is the tier's, not the view's; announced when the
-        // tier changes it.
-        if ( m_ShadowMapScaleInUse != quality.ShadowMapScale )
+        // TWO PERSISTENT COPIES AT THE TIER'S SIZE (Graphic/Clouds/CloudAmortizedRefresh.hpp), replaced together
+        // when the tier changes it; announced then.
+        if ( m_ShadowMapImageResolution != resolution || !m_ShadowMapImages[0] || !m_ShadowMapImages[1] )
         {
-            m_ShadowMapScaleInUse = quality.ShadowMapScale;
-            LOG_INFO( "[Clouds] Cloud shadow map {}x{} RGBA32F ({:.2f} MiB, a frame-graph transient) — {:.0f} km "
-                      "across the world, {:.1f} m per texel, snapped to a {:.0f} km grid, quality scale {:.2f}.",
+            m_ShadowRefresh            = {};
+            m_ShadowMapImageResolution = 0;
+            for ( uint32_t copy = 0; copy < 2u; ++copy )
+            {
+                const Core::Formats::Image2DSpecification spec{
+                     .Tag        = copy == 0u ? "CloudShadowMapA" : "CloudShadowMapB",
+                     .Width      = resolution,
+                     .Height     = resolution,
+                     .Format     = Core::Formats::ImageFormat::RGBA32F,
+                     .Usage      = Core::Formats::Image2DUsage::Image2D,
+                     .Properties = Core::Formats::Storage | Core::Formats::Sample,
+                };
+                m_ShadowMapImages[copy] = Image2D::Create( spec );
+                if ( !m_ShadowMapImages[copy] )
+                {
+                    LOG_ERROR( "[Clouds] the {}x{} RGBA32F cloud shadow map could not be created; the world is "
+                               "lit without cloud shadow.",
+                               resolution, resolution );
+                    m_ShadowMapImages = {};
+                    return nodes;
+                }
+            }
+            m_ShadowMapImageResolution = resolution;
+            m_ShadowMapScaleInUse      = quality.ShadowMapScale;
+            LOG_INFO( "[Clouds] Cloud shadow map {}x{} RGBA32F, two copies ({:.2f} MiB each) — {:.0f} km across the "
+                      "world, {:.1f} m per texel, snapped to a {:.0f} km grid, quality scale {:.2f}; re-marched "
+                      "only when its inputs move, in {} bands while only the wind does.",
                       resolution, resolution,
                       BytesToMiB( Core::Formats::CalculateImageSize( resolution, resolution,
                                                                      Core::Formats::ImageFormat::RGBA32F ) ),
                       2.0f * extentKm, 2.0f * extentKm * 1000.0f / static_cast<float>( resolution ), snapKm,
-                      quality.ShadowMapScale );
+                      quality.ShadowMapScale, kCloudShadowRefreshBands );
         }
-        const RDG::TextureRef shadowMap = graph.CreateTexture(
-             RDG::TextureDesc{ .Size   = RDG::Extent3D{ .Width = resolution, .Height = resolution },
-                               .Format = Core::Formats::ImageFormat::RGBA32F },
-             "Clouds.ShadowMap" );
 
-        // BUILD TIME: whether the node exists depends on these uploads, and they fill this frame's slot of the
-        // buffers before the graph executes.
+        // THE PLANET RADIUS IS TAKEN FROM THE PACKED BLOCK, not from the component, because the packer is
+        // where it is floored — and a map centred on a different sphere than the one the march intersects
+        // is a shadow displaced by the curvature.
+        const CloudShadowMapView marchedView =
+             CloudBuildShadowMapView( camera->GetPosition(), atmosphere.SunDirection, payload.Layer.x, extentKm,
+                                      snapKm, static_cast<float>( resolution ) );
+
+        CloudShadowPush push{};
+        push.MapToWorld = marchedView.MapToWorld;
+        push.Trace      = glm::vec4( marchedView.LightDirection, marchedView.SampleCount );
+        // The far plane the producer encodes its depths against, taken from the projection it is handed
+        // rather than compiled from a constant — see Graphic::CloudShadowPush. y: the first row marched.
+        push.Depth = glm::vec4( marchedView.FarDepthKm, 0.0f, 0.0f, 0.0f );
+
+        // WHAT THIS FRAME MARCHES. The map is a pure function of the field, the medium, the sun and the snapped
+        // anchor (the push constant): keyed on those and re-marched whole only when they move; while only the wind
+        // does, the front is read translated by the wind delta and the back is re-marched in bands at a frozen
+        // wind (CloudPlanShadowRefresh). Before this all 512 x 512 rays were re-marched every frame (~55 ms of a
+        // FIELD_Barn frame on MoltenVK) for the same bytes.
+        const bool      windRigid = WindIsRigid();
+        const glm::vec3 windKm( payload.Wind.x, payload.Wind.y, payload.Wind.z );
+        CloudRefreshKey key;
+        key.Value( FieldInputsKey( payload, windRigid ) );
+        key.Value( push );
+        key.Value( resolution );
+        m_ShadowRefreshKey        = key.Get();
+        m_ShadowRefreshResolution = resolution;
+        m_ShadowRefreshPlan =
+             CloudPlanShadowRefresh( m_ShadowRefresh, m_ShadowRefreshKey, windKm, windRigid, resolution );
+        const CloudShadowRefreshPlan plan = m_ShadowRefreshPlan;
+
+        // The front the lit passes read, and the wind it was marched at: a Full plan rewrites it at this wind.
+        const uint32_t  front = m_ShadowRefresh.Front;
+        const glm::vec3 frontWindKm =
+             plan.Kind == CloudShadowRefreshKind::Full ? windKm : m_ShadowRefresh.FrontWindKm;
+        m_ShadowMap        = m_ShadowMapImages[front];
+        m_ShadowMapView    = CloudShadowReprojectedView( marchedView, frontWindKm, windKm, kCloudWorldUnitsPerKm );
+        m_ShadowMapPending = true;
+        if ( plan.Kind == CloudShadowRefreshKind::Reuse )
+            return nodes;
+
+        // BUILD TIME: the node exists only when these uploads land, and they fill this frame's slot of the buffers
+        // before the graph executes. The field block at the wind the plan marches at (every band of the back copy
+        // is marched at the wind its first band was).
+        CloudGpuPayload marched = payload;
+        marched.Wind.x          = plan.WindKm.x;
+        marched.Wind.y          = plan.WindKm.y;
+        marched.Wind.z          = plan.WindKm.z;
         const auto shadowParams =
-             m_ShadowParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
-
-        // Slot A, for the shadow map as well as for the eye: a hero cloud shades the ground under it
-        // because it IS the cloud field, not because anything was added to the deferred pass.
-        BuildAuthoredPayload( payload );
+             m_ShadowParamsBuffer->SetData( &marched, static_cast<uint32_t>( sizeof( marched ) ) );
         const auto shadowAuthored = m_ShadowAuthoredBuffer->SetData(
              &m_AuthoredPayload, static_cast<uint32_t>( sizeof( m_AuthoredPayload ) ) );
 
-        // NO BLOCK, NO DISPATCH — the same answer this function already gives four lines up when
-        // BuildFieldPayload refuses, extended to the upload of what it built. A march that runs against
-        // the PREVIOUS frame's parameters does not merely look stale: the layer altitude, the planet
-        // radius and the map extent it reads must agree with the m_ShadowMapView computed below from the
-        // payload in hand, and a shadow map centred on one sphere while the eye march intersects another
-        // is the "seam at 30 km" this subsystem has already paid for once.
+        // NO BLOCK, NO DISPATCH, AND NO MAP: a march against the PREVIOUS frame's parameters would disagree with
+        // the projection computed from the payload in hand (the "seam at 30 km" this subsystem paid for once).
         if ( !shadowParams.IsSuccess() || !shadowAuthored.IsSuccess() )
         {
             LOG_ERROR( "[Clouds] the shadow map is not rendered this frame; its parameters were not "
                        "uploaded. field: {} | authored: {}",
                        shadowParams.IsSuccess() ? "ok" : shadowParams.GetError(),
                        shadowAuthored.IsSuccess() ? "ok" : shadowAuthored.GetError() );
+            m_ShadowMapPending = false;
+            m_ShadowMap        = nullptr;
             return nodes;
         }
+        push.Depth.y = static_cast<float>( plan.RowBegin );
 
-        // THE PLANET RADIUS IS TAKEN FROM THE PACKED BLOCK, not from the component, because the packer is
-        // where it is floored — and a map centred on a different sphere than the one the march intersects
-        // is a shadow displaced by the curvature.
-        m_ShadowMapView = CloudBuildShadowMapView( camera->GetPosition(), atmosphere.SunDirection, payload.Layer.x,
-                                                   extentKm, snapKm, static_cast<float>( resolution ) );
-
-        CloudShadowPush push{};
-        push.MapToWorld = m_ShadowMapView.MapToWorld;
-        push.Trace      = glm::vec4( m_ShadowMapView.LightDirection, m_ShadowMapView.SampleCount );
-        // The far plane the producer encodes its depths against, taken from the projection it is handed
-        // rather than compiled from a constant — see Graphic::CloudShadowPush.
-        push.Depth = glm::vec4( m_ShadowMapView.FarDepthKm, 0.0f, 0.0f, 0.0f );
-
-        // One Compute node: it samples the cloud volumes and writes the shadow map the lit passes sample
-        // (as a scene view input, SceneViewInputsOf).
-        ComputeNodeDeclaration shadow;
+        // One Compute node: it samples the cloud volumes and writes the plan's copy (the whole front, or a band of
+        // the back), which the lit passes sample as a scene view input (SceneViewInputsOf) once it is the front.
+        const std::shared_ptr<Image> m_ShadowMapImage = m_ShadowMapImages[plan.Target];
+        ComputeNodeDeclaration       shadow;
         shadow.Name = "Clouds: ShadowMap";
-        // SETUP: the shadow map it writes is a block entry (the graph imports, orders and barriers it); the
-        // volumes and buffers it samples are the renderer's own, bound by the pipeline's setters here, so the
-        // node's block is complete when it is declared; the exec only records.
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
         BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
         SampledMedium(
              SampledVolumes( DeclareComputeBlock( shadow.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
                                                   static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
-             .Storage( VolumetricCloudShaderParameters::CloudShadowMapTexture, shadowMap,
-                       RDG::Access::StorageWrite );
-        shadow.Record = [this, push, resolution]( RDG::PassContext& context,
-                                                  const FrameGraphRefs& ) -> Common::BoolResultStr
+             .Storage( VolumetricCloudShaderParameters::CloudShadowMapTexture, m_ShadowMapImage,
+                       RDG::Access::StorageWrite,
+                       plan.Target == front ? "Clouds.ShadowMap" : "Clouds.ShadowMapRefresh" );
+        shadow.Record = [this, push, resolution, rows = plan.RowCount](
+                             RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
         {
             DESERT_PROFILE_PASS( "Clouds: ShadowMap" );
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            return Renderer::DispatchCompute( bindings, *m_ShadowMapPipeline,
-                                              GroupCount( resolution, kMarchWorkGroupSize ),
-                                              GroupCount( resolution, kMarchWorkGroupSize ), 1 );
+            Common::BoolResultStr dispatched = Renderer::DispatchCompute(
+                 bindings, *m_ShadowMapPipeline, GroupCount( resolution, kMarchWorkGroupSize ),
+                 GroupCount( rows, kMarchWorkGroupSize ), 1 );
+            // A march that did not run leaves bytes no key describes: both copies are re-marched next frame.
+            if ( !dispatched )
+                m_ShadowRefresh = {};
+            return dispatched;
         };
         nodes.push_back( std::move( shadow ) );
-
-        m_ShadowMap        = shadowMap;
-        m_ShadowMapPending = true;
         return nodes;
     }
 
     void VolumetricCloudRenderer::SettleShadowMapNodes( bool accepted )
     {
         // BUILD TIME: the lit passes declared after this read HasShadowMap() to decide whether they import the
-        // map.
-        m_ShadowMapValid   = m_ShadowMapPending && accepted;
+        // map. A refused node never ran, so the copies still hold what the state says; only an accepted one
+        // advances it.
+        m_ShadowMapValid = m_ShadowMapPending && accepted;
+        if ( m_ShadowMapValid )
+            CloudCommitShadowRefresh( m_ShadowRefresh, m_ShadowRefreshPlan, m_ShadowRefreshKey,
+                                      m_ShadowRefreshResolution );
         m_ShadowMapPending = false;
         if ( !m_ShadowMapValid )
-            m_ShadowMap = {};
+            m_ShadowMap = nullptr;
     }
 
     void VolumetricCloudRenderer::SetCloudSettings( bool present, const ECS::VolumetricCloudData& data,
@@ -1891,7 +2013,7 @@ namespace Desert::Graphic::System
 
         if ( wantsSkyOcclusion && EnsureSkyOcclusionVolume() )
         {
-            nodes.push_back( SkyOcclusionNode() );
+            DeclareSkyOcclusionIfStale( nodes, payload );
             skyOcclusionReady = true;
         }
 
@@ -2114,6 +2236,7 @@ namespace Desert::Graphic::System
 
     void VolumetricCloudRenderer::SettleFrameNodes( bool accepted )
     {
+        NoteSkyOcclusionAccepted( accepted );
         const std::optional<FrameResult> pending = std::exchange( m_PendingResult, std::nullopt );
         if ( !accepted )
         {
@@ -2135,6 +2258,9 @@ namespace Desert::Graphic::System
         // the texture) — never a submit-and-wait. The image is imported through @p textures, the one registration
         // of it this graph has, so the block entries and the sky capture that sample it later in the graph read
         // the same graph texture and are ordered after this copy.
+        // The cached field producers key on this count (FieldInputsKey): the images below change bytes they marched.
+        if ( !m_PendingUploads.empty() )
+            ++m_UploadEpoch;
         for ( PendingUpload& upload : m_PendingUploads )
         {
             const RDG::TextureRef target = textures.Import( upload.Image, upload.Name );

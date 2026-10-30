@@ -167,7 +167,9 @@ Shader "CloudShadowMap"
         void main()
         {
             ivec2 size  = imageSize(CloudShadowMapTexture);
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+            // CloudShadowDepth.y: the first row of the band this dispatch marches (Graphic::CloudPlanShadowRefresh
+            // spreads a wind-only refresh of the back copy over bands; a full march starts at row 0).
+            ivec2 coord = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, int(CloudShadowDepth.y));
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
