@@ -14,12 +14,12 @@
 Тогда-вид 1_field_grass GPU grass and blades to the horizon with no holes along cells; the scattered trees/shrubs (S1) read as a field, not a grid
 # GI cost by pass (UE ProfileGPU / stat gpu: Lumen Scene Update, Screen Probe Gather, Reflections read from their
 # own rows): timestamps on, two averaging windows of frames, one [GpuProfile] line per pass into editor.log, off.
+# The averaging window is the wind step's 2 s of Play (DesertCtl `frames N` is not in dev: SCN-VERBS 93080ac1c).
 Когда run Debug "GPU profiling: On"
-Когда 120 frames render
-Когда run Debug "Log GPU pass timings"
-Когда run Debug "GPU profiling: Off"
 Когда run Action Simulate
 Когда advance 2
+Когда run Debug "Log GPU pass timings"
+Когда run Debug "GPU profiling: Off"
 Тогда-вид 2_field_wind the same view: grass and leaves displaced by the wind against 1_field_grass
 Когда run Action Stop
 # Against the sun: low sun (El 12) straight ahead of the camera (Az 180 = -Z), the tree line between.
