@@ -1049,6 +1049,24 @@ namespace Desert::Graphic::System
             block.PushConstantBytes( pushBytes );
             return block;
         }
+
+        // An image a cached producer samples, in its key: by IDENTITY — Image::GetHash, a random 64-bit id minted
+        // per image object and never reused, where the pointer is recycled the moment a hot-reloaded volume
+        // (CloudNoiseService::Register makes a fresh Image3D) lands at its predecessor's address — and, for a 2D
+        // image, by the device image it names now (GetResourceGeneration: a streaming swap replaces it in place).
+        // Bytes rewritten in place through this renderer's uploads are counted by m_UploadEpoch instead.
+        template <class ImageType>
+        void KeyImage( CloudRefreshKey& key, const std::shared_ptr<ImageType>& image )
+        {
+            if ( !image )
+            {
+                key.Value( uint64_t{ 0 } );
+                return;
+            }
+            key.Value( static_cast<uint64_t>( image->GetHash() ) );
+            if constexpr ( std::is_base_of_v<Image2D, ImageType> )
+                key.Value( image->GetResourceGeneration() );
+        }
     } // namespace
 
     ComputeNodeDeclaration VolumetricCloudRenderer::SkyOcclusionNode()
@@ -1091,7 +1109,8 @@ namespace Desert::Graphic::System
         return CloudWindIsRigid( !m_HeroClouds.empty(), m_MediumIsDefault );
     }
 
-    uint64_t VolumetricCloudRenderer::FieldInputsKey( const CloudGpuPayload& payload, const bool windRigid ) const
+    uint64_t VolumetricCloudRenderer::FieldInputsKey( const CloudGpuPayload& payload, const bool windRigid,
+                                                      const bool withHeroClouds ) const
     {
         // EVERYTHING THE TWO PRODUCERS SAMPLE, by value where it is a value and by identity plus write count where
         // it is an image: SampledVolumes and SampledMedium name the images, BindMedium the medium's values, the
@@ -1099,21 +1118,25 @@ namespace Desert::Graphic::System
         // (counted by m_UploadEpoch, a batch still pending included) or is the clipmap (its WriteGeneration).
         CloudRefreshKey key;
         key.Value( CloudFieldPayloadForKey( payload, m_MediumIsDefault, windRigid ) );
-        key.Bytes( &m_AuthoredPayload, sizeof( m_AuthoredPayload ) );
+        key.Value( withHeroClouds );
+        if ( withHeroClouds )
+        {
+            key.Bytes( &m_AuthoredPayload, sizeof( m_AuthoredPayload ) );
+            KeyImage( key, m_AuthoredAtlas );
+        }
         key.Value( m_MediumVariantHash );
         if ( !m_MediumValues.Params.empty() )
             key.Bytes( m_MediumValues.Params.data(), m_MediumValues.Params.size() * sizeof( glm::vec4 ) );
         for ( const std::shared_ptr<Image2D>& image : m_MediumImages )
-            key.Value( static_cast<const void*>( image.get() ) );
+            KeyImage( key, image );
         for ( const std::shared_ptr<Image3D>& volume : m_NoiseVolume )
-            key.Value( static_cast<const void*>( volume.get() ) );
-        key.Value( static_cast<const void*>( m_Clipmap.GetImage().get() ) );
+            KeyImage( key, volume );
+        KeyImage( key, m_Clipmap.GetImage() );
         key.Value( m_Clipmap.WriteGeneration() );
         key.Value( m_ModellingShapeGeneration );
-        key.Value( static_cast<const void*>( m_FarWeatherMap.get() ) );
-        key.Value( static_cast<const void*>( m_LayoutPatternTexture.get() ) );
-        key.Value( static_cast<const void*>( m_LayoutMaskTexture.get() ) );
-        key.Value( static_cast<const void*>( m_AuthoredAtlas.get() ) );
+        KeyImage( key, m_FarWeatherMap );
+        KeyImage( key, m_LayoutPatternTexture );
+        KeyImage( key, m_LayoutMaskTexture );
         key.Value( m_UploadEpoch + ( m_PendingUploads.empty() ? 0u : 1u ) );
         return key.Get();
     }
@@ -1127,8 +1150,8 @@ namespace Desert::Graphic::System
         // MoltenVK — for the same bytes. Now only when what it marches moved
         // (Graphic/Clouds/CloudAmortizedRefresh.hpp).
         CloudRefreshKey key;
-        key.Value( FieldInputsKey( payload, WindIsRigid() ) );
-        key.Value( static_cast<const void*>( m_SkyOcclusionVolume.get() ) );
+        key.Value( FieldInputsKey( payload, WindIsRigid(), /*withHeroClouds=*/true ) );
+        KeyImage( key, m_SkyOcclusionVolume );
         const uint64_t inputs = key.Get();
 
         m_SkyOcclusionPendingKey.reset();
@@ -1294,11 +1317,15 @@ namespace Desert::Graphic::System
         // does, the front is read translated by the wind delta and the back is re-marched in bands at a frozen
         // wind (CloudPlanShadowRefresh). Before this all 512 x 512 rays were re-marched every frame (~55 ms of a
         // FIELD_Barn frame on MoltenVK) for the same bytes.
-        const bool      windRigid = WindIsRigid();
+        //
+        // THE TWO COPIES HOLD THE WIND-RIGID FIELD ALONE, without slot A: a hero cloud stands in the world, not in
+        // the wind, and is re-marched on top of the front below (CloudShadowHeroRect), so it neither enters their
+        // key nor takes the band refresh away. Only an authored medium does (CloudAmortizedRefresh.hpp).
+        const bool      windRigid = m_MediumIsDefault;
         const glm::vec3 windKm( payload.Wind.x, payload.Wind.y, payload.Wind.z );
         CloudRefreshKey key;
-        key.Value( FieldInputsKey( payload, windRigid ) );
-        key.Value( push );
+        key.Value( FieldInputsKey( payload, windRigid, /*withHeroClouds=*/false ) );
+        key.Value( push ); // Wind and the band's origin unwritten yet: they are what the plan decides
         key.Value( resolution );
         m_ShadowRefreshKey        = key.Get();
         m_ShadowRefreshResolution = resolution;
@@ -1315,18 +1342,55 @@ namespace Desert::Graphic::System
         m_ShadowMap        = m_ShadowMapImages[front];
         m_ShadowMapView    = CloudShadowReprojectedView( marchedView, frontWindKm, windKm, kCloudWorldUnitsPerKm );
         m_ShadowMapPending = true;
-        if ( plan.Kind == CloudShadowRefreshKind::Reuse )
+
+        // THE HERO CLOUDS' PART: every texel whose ray can meet a hero cloud's box, re-marched whole — slot A, the
+        // current wind — into the front through the view the consumer reads it with (m_ShadowMapView), so those
+        // texels hold exactly the full march and every other texel the rigid field, which is the full march where
+        // no ray meets slot A. The rectangle the front's content already carries a patch in is re-marched with it:
+        // a hero cloud that moved or was removed must not leave its old shadow behind. A Full plan rewrites the
+        // whole front without slot A, so only this frame's rectangle needs it then.
+        const float               bottomRadiusKm = payload.Layer.x + std::max( payload.Layer.y, 0.0f );
+        const CloudShadowTexelRect heroRect      = CloudShadowHeroRect( m_AuthoredPayload, m_ShadowMapView.WorldToMap,
+                                                                        payload.Layer.x, bottomRadiusKm, resolution,
+                                                                        kCloudWorldUnitsPerKm );
+        CloudShadowTexelRect patchRect = heroRect;
+        if ( plan.Kind != CloudShadowRefreshKind::Full && !m_ShadowHeroFrontRect.Empty() )
+        {
+            if ( patchRect.Empty() )
+                patchRect = m_ShadowHeroFrontRect;
+            else
+            {
+                const uint32_t x0 = std::min( patchRect.X, m_ShadowHeroFrontRect.X );
+                const uint32_t y0 = std::min( patchRect.Y, m_ShadowHeroFrontRect.Y );
+                const uint32_t x1 = std::max( patchRect.X + patchRect.Width,
+                                              m_ShadowHeroFrontRect.X + m_ShadowHeroFrontRect.Width );
+                const uint32_t y1 = std::max( patchRect.Y + patchRect.Height,
+                                              m_ShadowHeroFrontRect.Y + m_ShadowHeroFrontRect.Height );
+                patchRect = CloudShadowTexelRect{ x0, y0, x1 - x0, y1 - y0 };
+            }
+        }
+        CloudRefreshKey heroKey;
+        heroKey.Value( m_ShadowRefreshKey );
+        heroKey.Value( FieldInputsKey( payload, /*windRigid=*/false, /*withHeroClouds=*/true ) );
+        heroKey.Value( front );
+        heroKey.Value( frontWindKm );
+        heroKey.Value( m_ShadowMapView.MapToWorld );
+        heroKey.Value( patchRect );
+        // Nothing to patch when no ray meets slot A and the front carries no earlier patch; nothing to re-patch
+        // when the front was not rewritten and the patch it carries was marched from the same inputs (no wind).
+        m_ShadowHeroPlanned     = !patchRect.Empty() && ( plan.Kind == CloudShadowRefreshKind::Full ||
+                                                      !m_ShadowHeroBuilt || m_ShadowHeroBuiltKey != heroKey.Get() );
+        m_ShadowHeroPendingRect = heroRect;
+        m_ShadowHeroPendingKey  = heroKey.Get();
+        const bool marchRigid   = plan.Kind != CloudShadowRefreshKind::Reuse;
+        if ( !marchRigid && !m_ShadowHeroPlanned )
             return nodes;
 
-        // BUILD TIME: the node exists only when these uploads land, and they fill this frame's slot of the buffers
-        // before the graph executes. The field block at the wind the plan marches at (every band of the back copy
-        // is marched at the wind its first band was).
-        CloudGpuPayload marched = payload;
-        marched.Wind.x          = plan.WindKm.x;
-        marched.Wind.y          = plan.WindKm.y;
-        marched.Wind.z          = plan.WindKm.z;
+        // BUILD TIME: the nodes exist only when these uploads land, and they fill this frame's slot of the buffers
+        // before the graph executes. The field block as it stands; the wind each dispatch marches at is its own
+        // push constant (a band of the back copy is marched at the wind its first band was).
         const auto shadowParams =
-             m_ShadowParamsBuffer->SetData( &marched, static_cast<uint32_t>( sizeof( marched ) ) );
+             m_ShadowParamsBuffer->SetData( &payload, static_cast<uint32_t>( sizeof( payload ) ) );
         const auto shadowAuthored = m_ShadowAuthoredBuffer->SetData(
              &m_AuthoredPayload, static_cast<uint32_t>( sizeof( m_AuthoredPayload ) ) );
 
@@ -1338,41 +1402,79 @@ namespace Desert::Graphic::System
                        "uploaded. field: {} | authored: {}",
                        shadowParams.IsSuccess() ? "ok" : shadowParams.GetError(),
                        shadowAuthored.IsSuccess() ? "ok" : shadowAuthored.GetError() );
-            m_ShadowMapPending = false;
-            m_ShadowMap        = nullptr;
+            m_ShadowMapPending  = false;
+            m_ShadowHeroPlanned = false;
+            m_ShadowMap         = nullptr;
             return nodes;
         }
-        push.Depth.y = static_cast<float>( plan.RowBegin );
 
-        // One Compute node: it samples the cloud volumes and writes the plan's copy (the whole front, or a band of
-        // the back), which the lit passes sample as a scene view input (SceneViewInputsOf) once it is the front.
-        const std::shared_ptr<Image> m_ShadowMapImage = m_ShadowMapImages[plan.Target];
-        ComputeNodeDeclaration       shadow;
-        shadow.Name = "Clouds: ShadowMap";
+        // One pipeline route for both nodes: the same three buffers at the same bytes; what differs is the push
+        // constant each Record carries.
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowParamsBinding, m_ShadowParamsBuffer.get() );
         m_ShadowMapPipeline->SetStorageBuffer( kCloudShadowAuthoredBinding, m_ShadowAuthoredBuffer.get() );
         BindMedium( m_ShadowMapPipeline.get(), m_ShadowMediumParamsBuffer.get() );
-        SampledMedium(
-             SampledVolumes( DeclareComputeBlock( shadow.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
-                                                  static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
-             .Storage( VolumetricCloudShaderParameters::CloudShadowMapTexture, m_ShadowMapImage,
-                       RDG::Access::StorageWrite,
-                       plan.Target == front ? "Clouds.ShadowMap" : "Clouds.ShadowMapRefresh" );
-        shadow.Record = [this, push, resolution, rows = plan.RowCount](
-                             RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        // @p passName a string literal: the profiler's GPU sink reads it a frame or two later.
+        const auto declare = [this]( ComputeNodeDeclaration& node, const char* passName,
+                                     const std::shared_ptr<Image>& target, const char* label,
+                                     const CloudShadowPush& nodePush, uint32_t columns, uint32_t rows )
         {
-            DESERT_PROFILE_PASS( "Clouds: ShadowMap" );
-            RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-            bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-            Common::BoolResultStr dispatched = Renderer::DispatchCompute(
-                 bindings, *m_ShadowMapPipeline, GroupCount( resolution, kMarchWorkGroupSize ),
-                 GroupCount( rows, kMarchWorkGroupSize ), 1 );
-            // A march that did not run leaves bytes no key describes: both copies are re-marched next frame.
-            if ( !dispatched )
-                m_ShadowRefresh = {};
-            return dispatched;
+            node.Name = passName;
+            SampledMedium(
+                 SampledVolumes( DeclareComputeBlock( node.Access, m_ShadowMapPipeline.get(), m_ShadowMapLayout,
+                                                      static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
+                 .Storage( VolumetricCloudShaderParameters::CloudShadowMapTexture, target,
+                           RDG::Access::StorageWrite, label );
+            node.Record = [this, passName, nodePush, columns, rows](
+                               RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+            {
+                DESERT_PROFILE_PASS_DYNAMIC( passName );
+                RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+                bindings.PushConstants( &nodePush, static_cast<uint32_t>( sizeof( nodePush ) ) );
+                Common::BoolResultStr dispatched = Renderer::DispatchCompute(
+                     bindings, *m_ShadowMapPipeline, GroupCount( columns, kMarchWorkGroupSize ),
+                     GroupCount( rows, kMarchWorkGroupSize ), 1 );
+                // A march that did not run leaves bytes no key describes: both copies are re-marched next frame.
+                if ( !dispatched )
+                {
+                    m_ShadowRefresh       = {};
+                    m_ShadowHeroBuilt     = false;
+                    m_ShadowHeroFrontRect = {};
+                }
+                return dispatched;
+            };
         };
-        nodes.push_back( std::move( shadow ) );
+
+        // The rigid field: the whole front, or a band of the back, without slot A, at the plan's wind.
+        if ( marchRigid )
+        {
+            CloudShadowPush rigid = push;
+            rigid.Depth.y         = static_cast<float>( plan.RowBegin );
+            rigid.Wind            = glm::vec4( plan.WindKm, 0.0f );
+            ComputeNodeDeclaration shadow;
+            // m_ShadowMapImage: the copy the plan writes, which the lit passes sample as a scene view input
+            // (SceneViewInputsOf) once it is the front.
+            const std::shared_ptr<Image> m_ShadowMapImage = m_ShadowMapImages[plan.Target];
+            declare( shadow, "Clouds: ShadowMap", m_ShadowMapImage,
+                     plan.Target == front ? "Clouds.ShadowMap" : "Clouds.ShadowMapRefresh", rigid, resolution,
+                     plan.RowCount );
+            nodes.push_back( std::move( shadow ) );
+        }
+
+        // The hero clouds' rectangle of the front, after the rigid march wrote it (the graph orders the two writes
+        // of the one image): slot A, the current wind, the consumer's view. Its own pass name, so the per-pass
+        // table shows what the hero clouds cost apart from the field.
+        if ( m_ShadowHeroPlanned )
+        {
+            CloudShadowPush hero = push;
+            hero.MapToWorld      = m_ShadowMapView.MapToWorld;
+            hero.Depth.y         = static_cast<float>( patchRect.Y );
+            hero.Depth.z         = static_cast<float>( patchRect.X );
+            hero.Wind            = glm::vec4( windKm, 1.0f );
+            ComputeNodeDeclaration patch;
+            declare( patch, "Clouds: ShadowMapHero", m_ShadowMapImages[front], "Clouds.ShadowMap", hero,
+                     patchRect.Width, patchRect.Height );
+            nodes.push_back( std::move( patch ) );
+        }
         return nodes;
     }
 
@@ -1383,9 +1485,32 @@ namespace Desert::Graphic::System
         // advances it.
         m_ShadowMapValid = m_ShadowMapPending && accepted;
         if ( m_ShadowMapValid )
+        {
+            const uint32_t frontBefore = m_ShadowRefresh.Front;
+            if ( m_ShadowHeroPlanned )
+            {
+                // The front now carries this frame's slot-A march over the hero rectangle, and nothing of slot A
+                // outside it (the earlier rectangle was re-marched with it).
+                m_ShadowHeroBuilt     = true;
+                m_ShadowHeroBuiltKey  = m_ShadowHeroPendingKey;
+                m_ShadowHeroFrontRect = m_ShadowHeroPendingRect;
+            }
+            else if ( m_ShadowRefreshPlan.Kind == CloudShadowRefreshKind::Full )
+            {
+                m_ShadowHeroBuilt     = false; // rewritten without slot A, and no hero cloud to patch in
+                m_ShadowHeroFrontRect = {};
+            }
             CloudCommitShadowRefresh( m_ShadowRefresh, m_ShadowRefreshPlan, m_ShadowRefreshKey,
                                       m_ShadowRefreshResolution );
-        m_ShadowMapPending = false;
+            // A completed back became the front: it was marched without slot A and carries no patch yet.
+            if ( m_ShadowRefresh.Front != frontBefore )
+            {
+                m_ShadowHeroBuilt     = false;
+                m_ShadowHeroFrontRect = {};
+            }
+        }
+        m_ShadowHeroPlanned = false;
+        m_ShadowMapPending  = false;
         if ( !m_ShadowMapValid )
             m_ShadowMap = nullptr;
     }

@@ -1,12 +1,15 @@
 #pragma once
 
+#include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudPayload.hpp>
 
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace Desert::Graphic
@@ -33,9 +36,21 @@ namespace Desert::Graphic
      *     bands at a frozen wind (CloudPlanShadowRefresh). The only term the translation does not carry is the
      *     planet's curvature across the delta, extentKm * |delta| / planetRadiusKm: centimetres for the metres of
      *     wind a refresh cycle spans.
-     * Two things break the rigidity and put the wind back into the key, i.e. back to a rebuild every frame the
-     * wind moves: an authored hero cloud (placed in WORLD space, Common/CloudAuthored.glslh) and an authored
-     * medium (a graph may read the world position). CloudWindIsRigid states that.
+     * Two things break the rigidity: an authored hero cloud (placed in WORLD space, Common/CloudAuthored.glslh)
+     * and an authored medium (a graph may read the world position). CloudWindIsRigid states that.
+     *
+     * THE SHADOW MAP SPLITS THE FIELD ALONG THAT LINE (UE's volumetric cloud shadow: the field marched in the
+     * frame that moves with the wind, the world-placed volumes a layer of their own). The two copies hold the
+     * wind-rigid field ALONE — the march skips slot A (CloudShadowPush::Wind.w = 0) — so a hero cloud no longer
+     * puts the wind into their key; only an authored medium does (the whole field is then non-rigid, and there
+     * is no rigid part to split off). The hero clouds' part is re-marched whole on every frame it can have
+     * moved (CloudShadowHeroRect): every texel whose ray can meet a hero cloud's box, into the FRONT in place,
+     * through the very view the consumer reads the front with, at the current wind and with slot A. NOT a
+     * second map the consumer multiplies in: a hero cloud's envelope CUTS the procedural field out
+     * (Common/CloudField.glslh SampleCloudField: the max of the two producers, the procedural one scaled by
+     * 1 - cutout), so its shadow is not a separable transmittance — the product of two maps would darken every
+     * texel where they overlap by the deck the cutout removed. Inside the rectangle the patch IS the full
+     * march; outside it no ray meets slot A, so the rigid copy IS the full march there.
      */
 
     /// FNV-1a over raw bytes: the key of a producer's inputs. Only trivially copyable values go in.
@@ -107,6 +122,105 @@ namespace Desert::Graphic
         return key;
     }
 
+    // ---- THE HERO CLOUDS' PART OF THE SHADOW MAP --------------------------------------------------------------
+
+    /// Texels of margin the hero rectangle is grown by on every side: one for the consumer's bilinear fetch,
+    /// which reads a texel's neighbour, and one for the front's wind lag (at most a texel, CloudPlanShadowRefresh),
+    /// across which a texel patched on an earlier frame of this front may have left the rectangle — such a texel
+    /// holds the full march of a ray that met no hero cloud then, i.e. the rigid field's own value, only while
+    /// it stands at least that lag away from every box.
+    inline constexpr uint32_t kCloudShadowHeroMarginTexels = 2u;
+
+    /// A rectangle of the map's texels; empty when Width or Height is 0.
+    struct CloudShadowTexelRect
+    {
+        uint32_t X      = 0;
+        uint32_t Y      = 0;
+        uint32_t Width  = 0;
+        uint32_t Height = 0;
+
+        [[nodiscard]] bool Empty() const
+        {
+            return Width == 0u || Height == 0u;
+        }
+    };
+
+    /**
+     * EVERY TEXEL WHOSE RAY CAN MEET A HERO CLOUD, as one rectangle of a @p resolution square map read through
+     * @p worldToMap (orthographic down the light, so a ray is one clip-space point), grown by
+     * kCloudShadowHeroMarginTexels and clipped to the map. Slot A samples only inside an instance's box
+     * (CloudAuthoredInBounds, the cutout included), so outside this rectangle the field a ray marches has no
+     * slot A in it at all.
+     *
+     * The box is in FIELD space (Common/CloudField.glslh): x and z planet-centred kilometres, y the altitude
+     * above the layer's base along the radius. Its planet-centred height is bounded by the sphere — highest at
+     * its top altitude over the column nearest the axis, lowest at its base altitude over the farthest corner —
+     * and the 8 corners of that superset are projected. @p bottomRadiusKm is the layer's base radius
+     * (CloudMakeLayer), @p planetRadiusKm the radius world y = 0 stands on.
+     */
+    [[nodiscard]] inline CloudShadowTexelRect CloudShadowHeroRect( const CloudAuthoredPayload& authored,
+                                                                   const glm::mat4& worldToMap, float planetRadiusKm,
+                                                                   float bottomRadiusKm, uint32_t resolution,
+                                                                   float worldUnitsPerKm )
+    {
+        const int32_t count = std::clamp( authored.Count, 0, static_cast<int32_t>( kCloudAuthoredSlots ) );
+        if ( count == 0 || resolution == 0u )
+            return {};
+
+        const float res = static_cast<float>( resolution );
+        glm::vec2   lo( std::numeric_limits<float>::max() );
+        glm::vec2   hi( std::numeric_limits<float>::lowest() );
+        for ( int32_t i = 0; i < count; ++i )
+        {
+            const CloudAuthoredInstanceGpu& instance = authored.Instances[i];
+            const glm::dvec3                boxMin( glm::vec3( instance.BoundsMin ) );
+            const glm::dvec3                boxMax( glm::vec3( instance.BoundsMax ) );
+
+            const double nearX = std::clamp( 0.0, boxMin.x, boxMax.x );
+            const double nearZ = std::clamp( 0.0, boxMin.z, boxMax.z );
+            const double farX  = std::max( std::abs( boxMin.x ), std::abs( boxMax.x ) );
+            const double farZ  = std::max( std::abs( boxMin.z ), std::abs( boxMax.z ) );
+            const double topR  = static_cast<double>( bottomRadiusKm ) + boxMax.y;
+            const double baseR = std::max( static_cast<double>( bottomRadiusKm ) + boxMin.y, 0.0 );
+            const double yHigh = std::sqrt( std::max( topR * topR - nearX * nearX - nearZ * nearZ, 0.0 ) );
+            const double yLow  = std::sqrt( std::max( baseR * baseR - farX * farX - farZ * farZ, 0.0 ) );
+            const double units = static_cast<double>( worldUnitsPerKm );
+            const float  worldYLow  = static_cast<float>( ( yLow - static_cast<double>( planetRadiusKm ) ) * units );
+            const float  worldYHigh = static_cast<float>( ( yHigh - static_cast<double>( planetRadiusKm ) ) * units );
+
+            for ( uint32_t corner = 0; corner < 8u; ++corner )
+            {
+                const glm::vec4 world( static_cast<float>( ( ( corner & 1u ) != 0u ? boxMax.x : boxMin.x ) * units ),
+                                       ( corner & 2u ) != 0u ? worldYHigh : worldYLow,
+                                       static_cast<float>( ( ( corner & 4u ) != 0u ? boxMax.z : boxMin.z ) * units ),
+                                       1.0f );
+                const glm::vec4 clip = worldToMap * world;
+                const float     w    = std::abs( clip.w ) > 1e-12f ? clip.w : 1.0f;
+                // The texel whose CENTRE the point lands on, in the producer's own convention
+                // (CloudShadowMap.shader main: uv = (coord + 0.5) / size).
+                const glm::vec2 texel =
+                     ( glm::vec2( clip.x, clip.y ) / w * 0.5f + glm::vec2( 0.5f ) ) * res - glm::vec2( 0.5f );
+                lo = glm::min( lo, texel );
+                hi = glm::max( hi, texel );
+            }
+        }
+
+        const float margin = static_cast<float>( kCloudShadowHeroMarginTexels );
+        const float x0     = std::floor( lo.x ) - margin;
+        const float y0     = std::floor( lo.y ) - margin;
+        const float x1     = std::ceil( hi.x ) + margin; // inclusive
+        const float y1     = std::ceil( hi.y ) + margin;
+        // Off the map, or a NaN corner (every compare false): no ray of the map meets slot A.
+        if ( !( x1 >= 0.0f && y1 >= 0.0f && x0 <= res - 1.0f && y0 <= res - 1.0f ) )
+            return {};
+        CloudShadowTexelRect rect;
+        rect.X      = static_cast<uint32_t>( std::max( x0, 0.0f ) );
+        rect.Y      = static_cast<uint32_t>( std::max( y0, 0.0f ) );
+        rect.Width  = static_cast<uint32_t>( std::min( x1, res - 1.0f ) ) - rect.X + 1u;
+        rect.Height = static_cast<uint32_t>( std::min( y1, res - 1.0f ) ) - rect.Y + 1u;
+        return rect;
+    }
+
     // ---- THE SHADOW MAP'S SCHEDULE ------------------------------------------------------------------------
 
     /// Bands a wind-only refresh of the back copy is spread over: the steady cost is 1/this of a full march,
@@ -154,7 +268,8 @@ namespace Desert::Graphic
     /**
      * What this frame marches. @p key is every input except the wind (CloudFieldPayloadForKey, the authored
      * block, the medium, the push constant, the resolution, the sampled images); @p windRigid whether the wind
-     * may be carried by translation at all.
+     * may be carried by translation at all (for the map: the medium is the shipped one — its copies hold the
+     * field without slot A, CloudShadowHeroRect).
      *
      * @p maxLagKm bounds how far the front may be carried: one texel of the map. The translation leaves a strip
      * of that width at the upwind edge the map holds no march for (the sampler clamps it) and adds the curvature

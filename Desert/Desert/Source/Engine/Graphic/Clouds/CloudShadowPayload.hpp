@@ -146,7 +146,7 @@ namespace Desert::Graphic
      * The producer's push constant: everything that changes with the sun and the camera rather than with
      * the weather.
      *
-     * Ninety-six bytes, inside the 128 Vulkan guarantees.
+     * A hundred and twelve bytes, inside the 128 Vulkan guarantees.
      *
      * THE FAR DEPTH IS HERE NOW, and it used to be derived in the shader from the same
      * `CLOUD_SHADOWMAP_EXTENT_KM` the shader compiles. That worked while the extent was one constant for
@@ -161,15 +161,21 @@ namespace Desert::Graphic
         glm::mat4 MapToWorld;
         // xyz = the direction the light travels, normalized; w = how many samples this ray takes.
         glm::vec4 Trace;
-        // x = the kilometres the map's clip z spans. The remaining three are unwritten: a push constant is
-        // laid out in vec4s and this is the only scalar the producer still needs.
+        // x = the kilometres the map's clip z spans; y, z = the first row and column this dispatch marches (a band
+        // of the back copy, or the hero clouds' rectangle of the front — Graphic/Clouds/CloudAmortizedRefresh.hpp);
+        // w unwritten.
         glm::vec4 Depth;
+        // xyz = the accumulated wind (km) this dispatch marches the field at, which is not the parameter block's
+        // when a band of the back copy is marched at its frozen wind; w = 1 when the march includes the hero
+        // clouds (slot A), 0 for the wind-rigid field alone.
+        glm::vec4 Wind;
     };
 
     static_assert( offsetof( CloudShadowPush, MapToWorld ) == 0 );
     static_assert( offsetof( CloudShadowPush, Trace ) == 64 );
     static_assert( offsetof( CloudShadowPush, Depth ) == 80 );
-    static_assert( sizeof( CloudShadowPush ) == 96 );
+    static_assert( offsetof( CloudShadowPush, Wind ) == 96 );
+    static_assert( sizeof( CloudShadowPush ) == 112 );
 
     /**
      * The consumer's uniform block — the CloudShadowUB of Programs/Deferred/DeferredLighting.shader,
