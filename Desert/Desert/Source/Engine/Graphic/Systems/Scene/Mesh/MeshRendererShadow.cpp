@@ -404,8 +404,8 @@ namespace Desert::Graphic::System
                 m_CascadeCasterBias[kCascadeMovableViewBase + v] = m_CascadeCasterBias[v];
             }
         }
-
-        PlanCascadeCache();
+        // The cache plan is NOT made here: the casters have not resolved this frame's draws yet (the grass
+        // sections, the terrain's cascade rows). SceneRenderer calls PlanCascadeCache once they have.
     }
 
     SceneResources::DirectionalShadowViews MeshRenderer::DirectionalShadows() const
@@ -650,10 +650,11 @@ namespace Desert::Graphic::System
         if ( !m_ShadowPipeline )
             return;
 
-        bool castersMove = false;
-        for ( const auto& weak : m_ShadowCasters )
-            if ( const auto caster = weak.lock(); caster && caster->CastsShadowThisFrame() )
-                castersMove = true;
+        for ( uint32_t v = 0; v < kCascadeViews; ++v )
+        {
+            m_CascadeKeyedCasters[v].clear();
+            m_CascadeUnkeyedCasters[v].clear();
+        }
 
         for ( uint32_t slot = 0; slot < m_CascadeSlots; ++slot )
         {
@@ -667,9 +668,29 @@ namespace Desert::Graphic::System
                 CascadeCacheState& state = m_CascadeCache[v];
                 if ( !m_CascadeStaticFB[v] )
                     continue;
-                bool          movable = castersMove;
+                bool          movable = false;
                 SignatureHash key;
                 key.Add( CascadeStaticSignature( v, movable ) );
+                // The non-mesh casters (the landscape): a keyed one is drawn into the static layer and its key is
+                // the layer's (a sculpted height, a streamed displacement mip, a moved camera's LOD or dice redraw
+                // it); an unkeyed one makes the cascade movable. Asked of THIS frame's draws: the plan runs after
+                // TerrainRenderer::PrepareLocalShadowViews.
+                for ( const auto& weak : m_ShadowCasters )
+                {
+                    const auto caster = weak.lock();
+                    if ( !caster )
+                        continue;
+                    if ( const std::optional<uint64_t> cast = caster->CascadeShadowSignature( v ) )
+                    {
+                        key.Add( *cast );
+                        m_CascadeKeyedCasters[v].push_back( weak );
+                    }
+                    else
+                    {
+                        movable = true;
+                        m_CascadeUnkeyedCasters[v].push_back( weak );
+                    }
+                }
                 key.Add( m_CascadeCasterVP[v] );
                 key.Add( m_CascadeCasterBias[v] );
                 EnsureShadowViewMaterials( kCascadeMovableViewBase + v );
@@ -1652,7 +1673,28 @@ namespace Desert::Graphic::System
                 SystemRasterPass pass{ .Name        = name + ".Static",
                                        .ExecuteFunc = [this, c]( RDG::PassContext& context,
                                                                  const FrameGraphRefs& ) -> Common::BoolResultStr
-                                       { return m_CascadeDraws[c].Record( context ); },
+                                       {
+                                           if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
+                                               return drawn;
+                                           // The keyed non-mesh casters (the landscape), into the cached layer
+                                           // their key is part of (PlanCascadeCache).
+                                           for ( const auto& [weak, firstBlock] : m_CascadeStaticCasters[c] )
+                                           {
+                                               const auto caster = weak.lock();
+                                               if ( !caster )
+                                               {
+                                                   continue; // gone since the setup: its draws went with it
+                                               }
+                                               if ( auto cast = caster->RecordShadowView( context, c, firstBlock,
+                                                                                          m_CascadeCasterVP[c],
+                                                                                          m_CascadeCasterBias[c] );
+                                                    !cast.IsSuccess() )
+                                               {
+                                                   return cast;
+                                               }
+                                           }
+                                           return BOOLSUCCESS;
+                                       },
                                        .TargetFramebuffer = m_CascadeStaticFB[c],
                                        .ClearDepth        = 1.0f };
                 pass.Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
@@ -1663,6 +1705,17 @@ namespace Desert::Graphic::System
                     m_CascadeDraws[c].Clear();
                     BuildShadowCascadeDraws( c, m_CascadeDraws[c], ShadowCasterLayer::Static );
                     m_CascadeDraws[c].Declare( declared, std::nullopt );
+                    m_CascadeStaticCasters[c].clear();
+                    uint32_t nextBlock = m_CascadeDraws[c].BlockCount();
+                    for ( const auto& weak : m_CascadeKeyedCasters[c] )
+                    {
+                        if ( const auto caster = weak.lock() )
+                        {
+                            const uint32_t declaredBlocks = caster->DeclareShadowView( declared, c );
+                            m_CascadeStaticCasters[c].emplace_back( weak, nextBlock );
+                            nextBlock += declaredBlocks;
+                        }
+                    }
                 };
                 frame.StaticPasses.push_back( std::move( pass ) );
             }
@@ -1682,9 +1735,9 @@ namespace Desert::Graphic::System
                      if ( auto drawn = m_CascadeMovableDraws[c].Record( context ); !drawn.IsSuccess() )
                          return drawn;
 
-                     // Casters that are not meshes (the tessellated terrain), recorded into THIS pass so the map
-                     // holds everyone's depth (IShadowCaster): the ones the Declare declared, each through its own
-                     // blocks.
+                     // Casters that are not meshes and keyed nothing (IShadowCaster::CascadeShadowSignature),
+                     // recorded into THIS pass so the map holds everyone's depth: the ones the Declare declared,
+                     // each through its own blocks.
                      for ( const auto& [weak, firstBlock] : m_CascadeCasters[c] )
                      {
                          const auto caster = weak.lock();
@@ -1713,10 +1766,10 @@ namespace Desert::Graphic::System
                 for ( const RDG::BufferRef& streams : m_SkinCacheReads )
                     declared.Read( streams, RDG::Access::StorageRead );
 
-                // The non-mesh casters declare their blocks after the list's
-                // (IShadowCaster::DeclareShadowView).
+                // The unkeyed non-mesh casters (PlanCascadeCache) declare their blocks after the list's
+                // (IShadowCaster::DeclareShadowView); the keyed ones are in the static layer.
                 uint32_t nextBlock = m_CascadeMovableDraws[c].BlockCount();
-                for ( const auto& weak : m_ShadowCasters )
+                for ( const auto& weak : m_CascadeUnkeyedCasters[c] )
                 {
                     if ( const auto caster = weak.lock() )
                     {

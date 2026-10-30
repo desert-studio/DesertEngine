@@ -129,10 +129,20 @@ namespace Desert::Graphic::System
     public:
         virtual ~IShadowCaster() = default;
 
-        // Whether this caster has anything to draw into the cascades this frame (asked before the graph is built,
-        // after the frame's draws were submitted). A non-mesh caster is drawn in the cascades' MOVABLE layer,
-        // every frame it casts, so a caster that casts nothing must say so or no cascade could ever stay cached.
+        // Whether this caster has anything to draw into a fixed view this frame (asked before the graph is built,
+        // after the frame's draws were submitted): the rain occlusion view's caster list.
         [[nodiscard]] virtual bool CastsShadowThisFrame() const = 0;
+
+        // THE SUN CASCADES' CACHE KEY (UE: a static landscape is drawn into the cached whole-scene shadow, and its
+        // depth redrawn only when the landscape, the light or the view's cascade changes). A hash of what this
+        // caster draws into cascade view @p view - every input of its depth there: placement, shape, level of
+        // detail, the contents of the textures its depth reads - or nullopt when what it draws there changes by
+        // itself every frame. A keyed caster is drawn into the cascade's STATIC layer (only on a frame its key,
+        // or the cascade's, changed), an unkeyed one into its movable layer every frame. Asked after this
+        // frame's draws into the cascades were resolved (TerrainRenderer::PrepareLocalShadowViews), by
+        // MeshRenderer::PlanCascadeCache; a caster with nothing to draw returns the hash of nothing (a constant),
+        // never nullopt.
+        [[nodiscard]] virtual std::optional<uint64_t> CascadeShadowSignature( uint32_t view ) const = 0;
 
         // THE LOCAL VIEWS' CACHE KEY (UE: a stationary light's cached shadow depth is kept until a caster in its
         // reach changes). A hash of what this caster draws into @p light's views — every input of its depth there:

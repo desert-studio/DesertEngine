@@ -1357,6 +1357,15 @@ namespace Desert::Graphic::System
         // per-cascade light matrices once per frame BEFORE the render graph records (intra-phase order is
         // nondeterministic). Called from SceneRenderer::OnUpdate, after GatherShadowCasters.
         void UpdateCascades();
+        // THE CACHE DECISION OF EACH CASCADE FOR THIS FRAME, from this frame's data alone (UE: the cached shadow
+        // map's invalidation is decided from the frame's primitives, never last frame's): after UpdateCascades
+        // fitted the matrices AND after every caster resolved what it draws into the cascades this frame - the
+        // meshes' gather, the GPU-instanced sections (GrassRenderer::AddFrame) and the non-mesh casters' draws
+        // (TerrainRenderer::PrepareLocalShadowViews), whose keys (IShadowCaster::CascadeShadowSignature) fold
+        // into the static layer's. Sets, per cascade: whether its static layer is redrawn, whether it holds a
+        // movable caster, whether its map is rebuilt, and which non-mesh casters each layer draws. Before it,
+        // UpdateCascades leaves every cascade with no work; nothing reads the plan in between.
+        void PlanCascadeCache();
         // THIS FRAME'S SHADOW CASTERS, gathered ONCE from the mesh queues for every shadow view (UE
         // GatherShadowPrimitives: one walk of the scene's primitives for every whole-scene shadow, not one per
         // view): each caster's world box - a skinned mesh's in this frame's pose (SkinnedPoseBounds) - and, on the
@@ -1574,9 +1583,6 @@ namespace Desert::Graphic::System
         // @p list.
         void BuildShadowCascadeDraws( uint32_t cascade, MeshRendererDetail::MeshDrawList& list,
                                       ShadowCasterLayer layer = ShadowCasterLayer::All );
-        // The cache decision of each cascade for this frame (UpdateCascades, after the fit): whether its static
-        // layer is redrawn, whether it holds a movable caster, whether its map is rebuilt.
-        void PlanCascadeCache();
         // A hash of the static casters cascade @p cascade's caster box reaches (what they draw and where), and
         // whether a movable caster reaches it: the cache key of the cascade's static layer. A still ISM field's
         // part is its snapshot and the instances the gather keeps in the box with their levels
@@ -1616,6 +1622,13 @@ namespace Desert::Graphic::System
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kCascadeViews];
+        // ...and the ones its static layer's Declare declared (".Static", into m_CascadeStaticFB[c]), the same way.
+        std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeStaticCasters[kCascadeViews];
+        // THE PLAN'S SPLIT OF THE NON-MESH CASTERS (PlanCascadeCache), per cascade: a caster that keyed what it
+        // draws there (IShadowCaster::CascadeShadowSignature) is in the static layer, one that did not in the
+        // movable layer. The Declares draw exactly these lists, so a layer never draws a caster its key missed.
+        std::vector<std::weak_ptr<IShadowCaster>> m_CascadeKeyedCasters[kCascadeViews];
+        std::vector<std::weak_ptr<IShadowCaster>> m_CascadeUnkeyedCasters[kCascadeViews];
         MeshRendererDetail::MeshDrawList m_GlassDraws;      // "Deferred: Glass" (block 0 = the glass executor's)
         MeshRendererDetail::MeshDrawList m_FrontLayerDraws; // "Translucency: Front Layer G-buffer"
         MeshRendererDetail::MeshDrawList m_CardCaptureDraws; // "SurfaceCache: Card Capture"

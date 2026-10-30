@@ -1261,6 +1261,54 @@ namespace Desert::Graphic::System
         return std::nullopt;
     }
 
+    std::optional<uint64_t> TerrainRenderer::CascadeShadowSignature( const uint32_t view ) const
+    {
+        ShadowSignatureHash           hash;
+        const std::vector<FrameDraw>& draws = ShadowViewDraws( view );
+        hash.Add( draws.size() );
+        // A cascade's draws are parallel to the queue (PrepareLocalShadowViews pushes one per tile, as
+        // PrepareFrame does for the camera's); anything else is not a cascade's list and is not cached.
+        if ( !draws.empty() && draws.size() != m_Queue.size() )
+            return std::nullopt;
+        for ( std::size_t i = 0; i < draws.size(); ++i )
+        {
+            const FrameDraw&       draw = draws[i];
+            const TerrainDrawData& t    = m_Queue[i];
+            if ( draw.Group >= m_FrameGroups.size() || draw.Row >= m_FrameGroups[draw.Group].Instances.size() )
+                return std::nullopt;
+            // The whole row TerrainShadow.shader's vertex stage reads: placement, LOD grid and borders, the
+            // visibility layer, the displacement and its dice (the camera's rings, the cascade's dice level, the
+            // row's first pool vertex).
+            hash.Add( m_FrameGroups[draw.Group].Instances[draw.Row] );
+            hash.Add( draw.VertexCount );
+            hash.Bytes( m_FrameGroups[draw.Group].Key.data(), m_FrameGroups[draw.Group].Key.size() );
+            // The heightmap's texels (sculpting edits them in place: HeightRevision) and the image itself (its
+            // device generation: a recreated one at the same address is another image).
+            hash.Add( t.Heightmap.get() );
+            if ( t.Heightmap )
+                hash.Add( t.Heightmap->GetResourceGeneration() );
+            hash.Add( t.Landscape.HeightRevision );
+            // The weightmap: its visibility channel cuts the holes, its layer weights drive the displacement.
+            hash.Add( t.Weights.Weightmap.get() );
+            hash.Add( t.Weights.Revision );
+            hash.Add( t.Weights.VisibilityLayer );
+        }
+        // The dice pool every diced row reads its displaced vertices from ("Landscape: Dice Pool", evaluated from
+        // the camera's rows): each job's row, its maps and the layer heights it samples.
+        if ( !draws.empty() )
+            for ( const DicePoolJob& job : m_DicePoolJobs )
+            {
+                hash.Add( job.Row );
+                hash.Add( job.Vertices );
+                hash.Add( job.Heightmap.get() );
+                hash.Add( job.Weightmap.get() );
+                hash.Add( job.LayerHeights.get() );
+                if ( job.LayerHeights )
+                    hash.Add( job.LayerHeights->GetResourceGeneration() );
+            }
+        return hash.Value;
+    }
+
     uint32_t TerrainRenderer::DeclareShadowView( RenderPassDeclaration& declared, const uint32_t view )
     {
         if ( !m_ShadowPipeline || ShadowViewDraws( view ).empty() )
