@@ -4,8 +4,10 @@ Shader "VirtualShadowMapDirtyMask"
     // "VSM: Dirty Mask" (UE: the page flags' hierarchy the per-page draw cull reads, VirtualShadowMapPageManagement /
     // CullPerPageDrawCommands). One thread per page-table entry of every level, after "VSM: Allocate": a page drawn this
     // frame (allocated, dirty, requested - the pages "VSM: Raster" writes, Common/VirtualShadowRaster.glslh) sets the bit
-    // of its cell, VSM_MASK_CELL_PAGES x VSM_MASK_CELL_PAGES window pages, in its level's words. "VSM: Cull Casters"
-    // then draws a caster into a level only where its footprint covers such a cell.
+    // of its cell, VSM_MASK_CELL_PAGES x VSM_MASK_CELL_PAGES window pages, in its level's words of the DRAWN mask (from
+    // word Params.x * VSM_MASK_WORDS_PER_LEVEL: the movers' cull), and a page whose static layer is redrawn also in the
+    // STATIC mask (the first Params.x levels' words: the still casters' cull, the clusters' cut, the instance cull).
+    // "VSM: Cull Casters" then draws a caster into a level only where its footprint covers such a cell.
     Compute
     {
         LocalSize(64, 1, 1);
@@ -23,13 +25,20 @@ Shader "VirtualShadowMapDirtyMask"
         };
         Buffer(2) VsmDirtyMask
         {
-            uint DirtyPageMask[]; // level l, cell c: bit c % 32 of word l * VSM_MASK_WORDS_PER_LEVEL + c / 32
+            // level l, cell c: bit c % 32 of word l * VSM_MASK_WORDS_PER_LEVEL + c / 32 (static), of word
+            // ( Params.x + l ) * VSM_MASK_WORDS_PER_LEVEL + c / 32 (drawn)
+            uint DirtyPageMask[];
         };
         // The level's pages this frame, for the host (VirtualShadowMapRenderer::GetLocalLightStats): x = requested,
         // y = rendered (requested and dirty: cleared and drawn), z = cached (requested, kept from an earlier frame).
         Buffer(3) VsmLevelStats
         {
             uvec4 LevelStats[];
+        };
+
+        PushConstant PushConstants
+        {
+            uvec4 Params; // x = the frame's level count (where the drawn mask starts)
         };
 
         void main()
@@ -63,7 +72,9 @@ Shader "VirtualShadowMapDirtyMask"
             const ivec2 windowPage = VsmWindowPageOfSlot( Levels[level], local );
             const uvec2 cell       = uvec2( windowPage ) / VSM_MASK_CELL_PAGES;
             const uint  index      = cell.y * VSM_MASK_CELLS + cell.x;
-            atomicOr( DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u], 1u << ( index % 32u ) );
+            atomicOr( DirtyPageMask[( Params.x + level ) * VSM_MASK_WORDS_PER_LEVEL + index / 32u], 1u << ( index % 32u ) );
+            if ( ( flags & VSM_FLAG_DIRTY_STATIC ) != 0u )
+                atomicOr( DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u], 1u << ( index % 32u ) );
         }
     }
 }

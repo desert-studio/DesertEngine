@@ -54,7 +54,9 @@ Shader "VirtualShadowMapCullCasters"
 
         PushConstant PushConstants
         {
-            uvec4 Params; // x = level, y = instance count, z = threads per row of groups
+            // x = level, y = instance count, z = threads per row of groups, w = the mask's first level ("VSM: Dirty
+            // Mask": 0 = the static mask, a still caster's node; the frame's level count = the drawn mask, the movers')
+            uvec4 Params;
         };
 
         bool CoversDrawnCell( uint level, ivec2 lowCell, ivec2 highCell )
@@ -64,7 +66,7 @@ Shader "VirtualShadowMapCullCasters"
                 for ( int x = lowCell.x; x <= highCell.x; ++x )
                 {
                     const uint index = uint( y ) * VSM_MASK_CELLS + uint( x );
-                    if ( ( DirtyPageMask[level * VSM_MASK_WORDS_PER_LEVEL + index / 32u] & ( 1u << ( index % 32u ) ) ) != 0u )
+                    if ( ( DirtyPageMask[( Params.w + level ) * VSM_MASK_WORDS_PER_LEVEL + index / 32u] & ( 1u << ( index % 32u ) ) ) != 0u )
                         return true;
                 }
             }

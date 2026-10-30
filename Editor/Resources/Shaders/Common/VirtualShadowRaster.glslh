@@ -7,8 +7,11 @@
 //
 // The pass has no attachment (RDG PassBuilder::RenderArea, 16384 x 16384): the fragment maps its virtual texel to the
 // page the page table gives it and atomic-maxes its depth into the pool. Only a page that is allocated, dirty and
-// requested this frame is written - "VSM: Clear Pages" cleared exactly those; a clean page keeps its cached depth and
-// a page no pixel asked for has no physical page. The rasterised depth is the level's standard-Z clip depth, 0 toward
+// requested this frame is written - "VSM: Clear Pages" cleared or re-merged exactly those; a clean page keeps its
+// cached depth and a page no pixel asked for has no physical page. The node's layer (VSM_RASTER_LAYER) says which
+// pages and which of the pool's layers: a still caster writes both layers of a page whose static layer is redrawn
+// (VSM_FLAG_DIRTY_STATIC), a mover the merged layer of every drawn page (over the static layer "VSM: Clear Pages"
+// copied there). The rasterised depth is the level's standard-Z clip depth, 0 toward
 // the sun, clamped (the caster pipelines draw with depth clamp, so a caster nearer the sun than the level's range
 // lands on 0). The pool stores 1 - depth so the atomic max keeps the occluder nearest the sun and a cleared texel (0)
 // reads as no occluder (VirtualShadowMapProject: occluder = 1 - bits).
@@ -28,15 +31,20 @@ layout( std430, binding = kVsmPageTableBinding ) restrict readonly buffer VsmPag
     VsmPageEntry Entries[];
 };
 layout( binding = kVsmPhysicalPoolBinding, r32ui ) restrict uniform uimage2D PhysicalPoolTexture;
-// The level this fragment rasterizes: the draw's (VirtualShadowMapFrame::RasterLevel, x = level index), unless the
-// includer names it per primitive first (VSM_RASTER_LEVEL: the cluster raster of every level in one pass,
-// Mesh/Surface/Pass_VirtualShadowDepth.glslh).
+// The level this fragment rasterizes and the node's layer: the draw's (VirtualShadowMapFrame::RasterLevel /
+// RasterLevelMovable, x = level index, y = VSM_LAYER_*), unless the includer names the level per primitive first
+// (VSM_RASTER_LEVEL: the cluster raster of every level in one pass, Mesh/Surface/Pass_VirtualShadowDepth.glslh - the
+// clusters are still casters, VSM_LAYER_STATIC).
 #ifndef VSM_RASTER_LEVEL
 layout( std430, binding = kVsmRasterLevelBinding ) restrict readonly buffer VsmRasterLevel
 {
     uvec4 RasterLevel;
 };
 #define VSM_RASTER_LEVEL RasterLevel.x
+#define VSM_RASTER_LAYER RasterLevel.y
+#endif
+#ifndef VSM_RASTER_LAYER
+#define VSM_RASTER_LAYER VSM_LAYER_STATIC
 #endif
 
 // @p depth is the caster's standard-Z depth at this fragment: the rasterised one (VsmRasterWrite), or a surface's
@@ -56,12 +64,17 @@ void VsmRasterWriteDepth( float depth )
     // as the atlas's near plane clips it.
     if ( Levels[level].Pages.z == VSM_LEVEL_LOCAL && depth <= 0.0 )
         return;
-    const VsmPageEntry entry = Entries[VsmLevelEntryIndex( Levels[level], level, texel / int( VSM_PAGE_SIZE ) )];
-    const uint         drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
+    const VsmPageEntry entry   = Entries[VsmLevelEntryIndex( Levels[level], level, texel / int( VSM_PAGE_SIZE ) )];
+    const bool         movable = VSM_RASTER_LAYER == VSM_LAYER_MOVABLE;
+    const uint         drawn   = VSM_FLAG_ALLOCATED | VSM_FLAG_REQUESTED | ( movable ? VSM_FLAG_DIRTY : VSM_FLAG_DIRTY_STATIC );
     if ( ( entry.Flags & drawn ) != drawn )
         return;
-    imageAtomicMax( PhysicalPoolTexture, VsmPoolPageOrigin( entry.Physical ) + ( texel & ivec2( int( VSM_PAGE_SIZE ) - 1 ) ),
-                    floatBitsToUint( 1.0 - clamp( depth, 0.0, 1.0 ) ) );
+    const ivec2 inPage = texel & ivec2( int( VSM_PAGE_SIZE ) - 1 );
+    const uint  bits   = floatBitsToUint( 1.0 - clamp( depth, 0.0, 1.0 ) );
+    imageAtomicMax( PhysicalPoolTexture, VsmPoolPageOrigin( entry.Physical ) + inPage, bits );
+    if ( !movable )
+        imageAtomicMax( PhysicalPoolTexture,
+                        VsmPoolStaticPageOrigin( entry.Physical, imageSize( PhysicalPoolTexture ).y ) + inPage, bits );
 }
 
 void VsmRasterWrite()

@@ -3,7 +3,7 @@ Shader "VirtualShadowMapInvalidate"
 {
     // "VSM: Invalidate" (UE VirtualShadowMapCacheManager: the cached page's validity against this frame's clipmap).
     // One thread per page-table entry of every level, first of the frame's page passes:
-    //   - a page requested and dirty last frame was cleared and drawn then: it is clean now;
+    //   - a page requested and dirty last frame was drawn then: both its layers are clean now;
     //   - last frame's requests are dropped ("VSM: Mark" makes this frame's);
     //   - a mapped page whose slot now stands for another world page (the window panned past it), of a level reset
     //     this frame (its depth range moved) or of a map reset whole (the sun turned, the static casters changed,
@@ -47,7 +47,7 @@ Shader "VirtualShadowMapInvalidate"
 
             const uint drawn = VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
             if ( ( flags & drawn ) == drawn )
-                flags &= ~VSM_FLAG_DIRTY;
+                flags &= ~( VSM_FLAG_DIRTY | VSM_FLAG_DIRTY_STATIC );
             flags &= ~( VSM_FLAG_REQUESTED | VSM_FLAG_MARK_KINDS );
 
             if ( ( flags & VSM_FLAG_ALLOCATED ) != 0u )

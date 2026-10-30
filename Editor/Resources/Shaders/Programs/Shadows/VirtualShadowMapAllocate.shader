@@ -4,7 +4,8 @@ Shader "VirtualShadowMapAllocate"
     // "VSM: Allocate" (UE VirtualShadowMapPageManagement.usf AllocateNewPageMappings). One thread per page-table
     // entry: a requested entry with no physical page takes the next available one ("VSM: Gather Available Pages":
     // empty first, then cached - whose old entry is unmapped, it was not requested this frame); every requested
-    // dirty entry goes on the dirty list, cleared by "VSM: Clear Pages" and drawn by the casters. A request the pool
+    // dirty entry goes on the dirty list, cleared (or its static layer copied) by "VSM: Clear Pages" and drawn by the
+    // casters; a new page draws both its layers. A request the pool
     // cannot hold is counted in Overflow and stays unmapped: its receivers are shaded from a coarser level
     // ("VSM: Project" falls back) or lit.
     Compute
@@ -33,9 +34,9 @@ Shader "VirtualShadowMapAllocate"
             uint  AllocationCursor;
             uint  DirtyCount;
             uint  Overflow;
-            uint  Reserved0;
-            uint  Reserved1;
-            uint  Reserved2;
+            uint  StaticRedrawn;  // of DirtyCount, the pages whose static layer is redrawn
+            uint  MovableRedrawn; // of DirtyCount, the pages whose static layer is copied (the movers drawn alone)
+            uint  Padding;
             uvec4 ClearArgs;
         };
         Buffer(4) VsmLists
@@ -76,11 +77,18 @@ Shader "VirtualShadowMapAllocate"
                     Entries[previous].Flags = 0u; // a cached page nobody requested: its entry is unmapped
                 Owners[physical] = index;
                 const ivec2 world  = VsmExpectedTag( Levels[level], local );
-                flags = ( flags & VSM_FLAG_MARK_KINDS ) | VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_REQUESTED;
+                flags = ( flags & VSM_FLAG_MARK_KINDS ) | VSM_FLAG_ALLOCATED | VSM_FLAG_DIRTY | VSM_FLAG_DIRTY_STATIC |
+                        VSM_FLAG_REQUESTED;
                 Entries[index]   = VsmPageEntry( physical, flags, world.x, world.y );
             }
             if ( ( flags & VSM_FLAG_DIRTY ) != 0u )
+            {
                 Lists[2u * count + atomicAdd( DirtyCount, 1u )] = index;
+                if ( ( flags & VSM_FLAG_DIRTY_STATIC ) != 0u )
+                    atomicAdd( StaticRedrawn, 1u );
+                else
+                    atomicAdd( MovableRedrawn, 1u );
+            }
         }
     }
 }

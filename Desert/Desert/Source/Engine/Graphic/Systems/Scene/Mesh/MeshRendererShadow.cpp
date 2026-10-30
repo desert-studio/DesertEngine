@@ -1063,7 +1063,8 @@ namespace Desert::Graphic::System
         // A sun cascade's layer issued from its GPU-culled bins (AttachBinned below; the static layer at the
         // cascade view, the movable layer at CascadeMovableView). Local views and VSM levels (layer All) issue
         // none.
-        const bool binnedLayer = layer != ShadowCasterLayer::All;
+        // A VSM level's two layers (its still casters and its movers) are both walked: the map issues no bins.
+        const bool binnedLayer = layer != ShadowCasterLayer::All && !IsVirtualShadowView( c );
         if ( binnedLayer )
             AttachBinned( list, GpuDriven::MeshPass::ShadowCascade, c );
         // THE CPU WALK of this view (CpuWalkHidden, the one rule of every view pass): a VSM level (its VG-only
