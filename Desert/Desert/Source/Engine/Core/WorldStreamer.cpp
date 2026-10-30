@@ -192,7 +192,7 @@ namespace Desert::Core
                          world.Scene.Entities.begin() + static_cast<std::ptrdiff_t>( slot.First + slot.Count ) );
                 }
                 if ( auto instantiated =
-                          SceneSerializer( scene, assets ).InstantiateRecords( made, source.SceneName, nullptr );
+                          SceneSerializer( &scene, &assets ).InstantiateRecords( made, source.SceneName, nullptr );
                      !instantiated )
                     return Common::MakeError<Result>(
                          "world streaming of '" + source.SceneName +
