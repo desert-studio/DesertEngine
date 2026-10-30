@@ -2239,6 +2239,7 @@ namespace Desert::Graphic::System
         {
             const DataDrivenMaterial* Surface  = nullptr;
             const MaterialInstance*   Instance = nullptr;
+            bool                      operator==( const RowSurface& ) const = default;
         };
         std::vector<RowSurface> m_RowSurfaces;
         // What the DrawCommandCache holds per primitive (m_BinnedFeed) and what this sync gathered (scratch): a
@@ -2248,6 +2249,12 @@ namespace Desert::Graphic::System
             const Desert::Mesh*   Mesh = nullptr;
             MeshGeometryBinding   Geometry;     // a re-upload to a new pool range rebins like a mesh change
             std::vector<uint32_t> MaterialRows; // per submesh
+            // Per submesh: the (template, instance) its row was registered for. A row index is in units of its
+            // own template's stride (GpuScene::AddMaterialRow returns first / slots), so two templates' rows share
+            // indices: the row alone does not name a surface (FOLIAGE-TRUNK-GLOW: a bark section resolved to the
+            // leaves' FoliageSurface cell and read the leaves' row), and a primitive whose rows keep their numbers
+            // while their surfaces change must still be re-added.
+            std::vector<RowSurface> Surfaces;
             uint32_t              FirstInstance     = 0;
             uint32_t              InstanceCount     = 1;
             uint64_t              HiddenSubmeshMask = 0;
@@ -2310,7 +2317,7 @@ namespace Desert::Graphic::System
         // there on the CPU path for that reason (no cell, bound textures, a movable caster in the VSM table).
         GpuDriven::PassPipelineResolution ResolveBinnedPipeline( GpuDriven::MeshPass       pass,
                                                                  GpuDriven::PrimitiveIndex primitive,
-                                                                 uint32_t                  materialRow );
+                                                                 uint32_t submesh, uint32_t materialRow );
         const GraphicsPipeline*           BinnedCellPipeline( const std::string&      cellShader,
                                                               const GraphicsPipeline* passState, bool twoSided );
         // DrawCommandCache's GroupPipelineResolver: @p group's PSO with the `.VirtualGeometry` permutation of its
