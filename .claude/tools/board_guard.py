@@ -188,7 +188,6 @@ BOARD = "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"
 TAIL_STATUSES = ("В работе", "Готово к старту", "На проверке", "Заблокировано")
 TAILS_SQL = ("SELECT \"Код\",\"Статус\",\"Зона\",\"Приоритет\",substr(\"Кто ведёт\",1,60) AS who,substr(\"Обновлено\",1,10) AS upd "
              f"FROM \"{BOARD}\" WHERE \"Статус\" IN ('В работе','Готово к старту','На проверке','Заблокировано') -- TAILS")
-SNAPSHOT_MAX_AGE = 12 * 3600
 FOREIGN = "Mac" if sys.platform == "win32" else "Windows"
 
 
@@ -236,6 +235,17 @@ def ingest_rows(s, resp, full, paged=False):
         s["board_t"] = time.time()
 
 
+def mirror_fresh(s):
+    """Owner 10-30: the board is read from Notion once per session (after /clear or /compact, and before a handover);
+    in between, the lead's own writes keep the local mirror current (create/update-page are mirrored above)."""
+    return s["board_t"] > 0 and s["board_t"] >= s.get("session_t", 0)
+
+
+def owner_named_waiting(s):
+    return sorted((c, r.get("status")) for c, r in s["board"].items() if r.get("prio") == "Владелец назвал"
+                  and r.get("status") in ("Бэклог", "Готово к старту", "Заблокировано"))
+
+
 def owner_quote_ok(s, prompt):
     m = re.search(r"ВЛАДЕЛЕЦ:\s*«([^»]{3,})»", prompt)
     if not m:
@@ -247,8 +257,8 @@ def owner_quote_ok(s, prompt):
 
 def launch_refusal(s, code, prompt):
     """Rule 5: while tails exist, only a tail (or a closer naming one, or an owner-quoted feature) may be launched."""
-    if time.time() - s["board_t"] > SNAPSHOT_MAX_AGE:
-        return ("снимок доски старше 12 ч — сначала один notion-query-data-sources с хвостами (он обновит снимок): " + TAILS_SQL)
+    if not s["board_t"]:
+        return ("зеркала доски нет — сначала один notion-query-data-sources с хвостами (он заполнит зеркало): " + TAILS_SQL)
     t = tails(s)
     row = s["board"].get(code) or {}
     if not t or (row.get("status") in TAIL_STATUSES and not row.get("new")) or code in s["agents"].values():
@@ -285,11 +295,10 @@ def stale_branch_refusal(code, prompt):
 
 def session_start(s):
     t = tails(s)
-    age = (time.time() - s["board_t"]) / 3600 if s["board_t"] else None
-    out = []
-    if age is None or age > SNAPSHOT_MAX_AGE / 3600:
-        out.append("[tails] снимок доски " + ("пуст" if age is None else f"старше {age:.0f} ч") +
-                   " — ПЕРВЫЙ вызов сессии: notion-query-data-sources " + TAILS_SQL)
+    s["session_t"] = time.time()
+    save(s)
+    out = ["[tails] зеркало доски обновляется раз за сессию (владелец 10-30) — ПЕРВЫЙ вызов сессии: "
+           "notion-query-data-sources " + TAILS_SQL + " ; перед передачей/паузой — тот же запрос ещё раз."]
     if t:
         by = {}
         for c, r in t.items():
@@ -351,11 +360,10 @@ def main():
     if "--owner-named-mirror" in sys.argv:
         # Notion's SQL allowance runs out (10-27): the unblock check is answered from the board mirror while it is fresh.
         s = load()
-        if time.time() - s["board_t"] > SNAPSHOT_MAX_AGE:
-            print("зеркало доски старше 12 ч — нужен настоящий запрос (TAILS_SQL)")
+        if not mirror_fresh(s):
+            print("зеркало доски не обновлено в этой сессии — нужен настоящий запрос (TAILS_SQL)")
             sys.exit(1)
-        rows = sorted((c, r.get("status")) for c, r in s["board"].items() if r.get("prio") == "Владелец назвал"
-                      and r.get("status") in ("Бэклог", "Готово к старту", "Заблокировано"))
+        rows = owner_named_waiting(s)
         print(f"после {' '.join(sorted(s['unblock']))} ждут «Владелец назвал» ({len(rows)}): " +
               " ".join(f"{c}[{st}]" for c, st in rows))
         s["unblock"].clear()
@@ -496,7 +504,17 @@ def main():
             deny("сначала приём на доске: агенты сдали, карточки не обновлены — " + ", ".join(late) +
                  ". accept.sh, затем по ~/.claude/tools/lead_templates.md §6: update_properties (Статус, «Чем доказано», Токены) + insert_content (итог/остаток).")
         if tool == "Agent" and s["unblock"]:
-            deny(unblock_reason(sorted(s["unblock"])))
+            if not s["board_t"]:
+                deny(unblock_reason(sorted(s["unblock"])))
+            # Answered from the mirror, no Notion query (owner 10-30): the waiting owner-named cards are shown once.
+            done = sorted(s["unblock"])
+            rows = owner_named_waiting(s)
+            s["unblock"].clear()
+            save(s)
+            sys.stderr.write(f"[board_guard] после {' '.join(done)} ждут «Владелец назвал» ({len(rows)}): " +
+                             " ".join(f"{c}[{st}]" for c, st in rows) + " — открой те, где в теле «после <КОД>»." +
+                             ("" if mirror_fresh(s) else " ЗЕРКАЛО СТАРОЕ (запрос этой сессии не прошёл, напр. лимит Notion): "
+                              "повтори TAILS-запрос при следующем приёме.") + "\n")
         if tool == "Agent":
             code = code_from_text(str(tin.get("prompt") or ""))
             if not code:
