@@ -963,8 +963,7 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
             return BOOLSUCCESS;
 
-        const ViewFrame& view  = *m_SceneRenderer->GetViewFrame();
-        uint32_t         block = 0;
+        uint32_t block = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
             if ( !IsDrawn( ve ) )
@@ -983,10 +982,6 @@ namespace Desert::Graphic::System
                     continue;
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
                 sprite.Material->SetMaterialIndex( draw.Row );
-                // The view's camera block, written beside the Bind that resolves the copy the draw reads (as
-                // MeshRenderer's SharedSceneSetup writes it right before its draws): written at declare, the
-                // G-buffer twins' vertex stage read a ZERO CameraUB (VFX-12 p36 A/B) - nothing drawn, no depth.
-                SceneCameraBind( sprite.Material.get(), view );
                 sprite.Material->Bind( sprite.Instance.get() );
                 // The last compact (index StepCount) filled slot StepCount & 1: six vertices per alive
                 // particle of alive half StepCount & 1 (the slot's FirstVertex).
@@ -1008,12 +1003,15 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
             return; // the exec draws nothing either
 
-        // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws, so the
-        // route fill is what the draws read. The camera block is written beside each Bind (RecordSpriteDraws).
-        // Only this pass's cells: a cell is drawn by one of the two passes (SpriteDraw::Pass).
+        // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and the
+        // view's camera block (as MeshRenderer writes its G-buffer cells' camera at declare), so the route fill is
+        // what the draws read. Only this pass's cells: a cell is drawn by one of the two passes (SpriteDraw::Pass).
         for ( auto& [cell, sprite] : m_Sprites )
             if ( sprite && ( sprite->Pass == MeshPass::GBuffer ) == gbuffer )
+            {
                 sprite->Rows.clear();
+                sprite->Drawn = false;
+            }
         for ( ViewEmitter& ve : m_ViewEmitters )
         {
             if ( !IsDrawn( ve ) )
@@ -1030,17 +1028,24 @@ namespace Desert::Graphic::System
                      draw.Material != nullptr ? draw.Material : draw.Sprite->Material.get();
                 draw.Row = MeshRendererDetail::AppendRow(
                      draw.Sprite->Rows, MeshRendererDetail::EffectiveRow( rowMaterial, instance ) );
+                draw.Sprite->Drawn = true;
             }
         }
         for ( auto& [cell, sprite] : m_Sprites )
         {
-            if ( !sprite || sprite->Rows.empty() || ( sprite->Pass == MeshPass::GBuffer ) != gbuffer )
+            // Drawn, not !Rows.empty(): a template with no parameters (DefaultSurface, the broken-material
+            // checker) appends no row and is still drawn - gating its camera on rows left the G-buffer twins'
+            // CameraUB unwritten (VFX-12 p36-p38: a zero camera, nothing drawn, no depth).
+            if ( !sprite || !sprite->Drawn || ( sprite->Pass == MeshPass::GBuffer ) != gbuffer )
                 continue;
             // Find: a sprite surface template with no parameters (or every row field dead) declares no row
             // block.
-            if ( auto* sb = sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
-                sb->SetRawData( sprite->Rows.data(),
-                                static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
+            if ( !sprite->Rows.empty() )
+                if ( auto* sb =
+                          sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
+                    sb->SetRawData( sprite->Rows.data(),
+                                    static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
+            SceneCameraBind( sprite->Material.get(), *view );
         }
 
         // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
