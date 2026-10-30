@@ -146,15 +146,15 @@ namespace Desert::Graphic::System
             const GpuDriven::MaterialRowKey key{ .Material = shared.get(),
                                                  .Owner    = ( static_cast<uint64_t>( g.Entity ) << 32u ) |
                                                           static_cast<uint64_t>( g.MotionPart ) };
-            const auto [it, inserted] = m_FrameMaterialRows.try_emplace( key, 0u );
-            if ( inserted )
+            const auto [claimed, fresh] = ClaimFrameMaterialRow( key );
+            if ( fresh )
             {
-                it->second = registry.SyncMaterialRow( key, shared->GetParamRow() );
+                claimed->Index = registry.SyncMaterialRow( key, shared->GetParamRow() );
                 // The row's surface, as RegisterMaterialRow records it: what ResolveBinnedPipeline turns the row
                 // back into a cell with.
-                if ( it->second >= m_RowSurfaces.size() )
-                    m_RowSurfaces.resize( it->second + 1 );
-                m_RowSurfaces[it->second] = { shared.get(), nullptr };
+                if ( claimed->Index >= m_RowSurfaces.size() )
+                    m_RowSurfaces.resize( claimed->Index + 1 );
+                m_RowSurfaces[claimed->Index] = { shared.get(), nullptr };
             }
             else
             {
@@ -167,7 +167,7 @@ namespace Desert::Graphic::System
                                "values).",
                                g.Entity, g.MotionPart, g.ShaderName );
             }
-            g.MaterialRow = it->second;
+            g.MaterialRow = claimed->Index;
         }
     }
 

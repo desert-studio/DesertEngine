@@ -1,9 +1,16 @@
 #include "MaterialProperty.hpp"
 
+#include <atomic>
 #include <string>
 
 namespace Desert::Graphic
 {
+    uint64_t NextMaterialRevision()
+    {
+        static std::atomic<uint64_t> s_Revisions{ 0 };
+        return s_Revisions.fetch_add( 1, std::memory_order_relaxed ) + 1;
+    }
+
     void MaterialPropertySet::SetProperty( const std::string& name, const MaterialPropertyValue& value,
                                            MaterialPropertyType type )
     {
@@ -24,7 +31,7 @@ namespace Desert::Graphic
             prop.bIsOverridden = true;
             m_Properties[name] = prop;
         }
-        m_bIsDirty = true;
+        Changed();
     }
 
     MaterialPropertyValue MaterialPropertySet::GetProperty( const std::string& name ) const
@@ -55,7 +62,7 @@ namespace Desert::Graphic
     {
         if ( m_Properties.erase( name ) == 0 )
             return false;
-        m_bIsDirty = true;
+        Changed();
         return true;
     }
 
@@ -66,12 +73,12 @@ namespace Desert::Graphic
             prop.Value         = prop.DefaultValue;
             prop.bIsOverridden = false;
         }
-        m_bIsDirty = true;
+        Changed();
     }
 
     void MaterialPropertySet::CopyFrom( const MaterialPropertySet& other )
     {
         m_Properties = other.m_Properties;
-        m_bIsDirty   = true;
+        Changed();
     }
 } // namespace Desert::Graphic

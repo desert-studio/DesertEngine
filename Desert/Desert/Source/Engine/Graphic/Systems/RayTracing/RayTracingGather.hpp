@@ -34,7 +34,6 @@ namespace Desert::Graphic::RayTracing
         std::span<const System::MeshRenderer::StaticMeshRenderData>    Static;
         std::span<const System::MeshRenderer::GenericMeshRenderData>   Generic; // only VisibleInRayTracing enter
         std::span<const System::MeshRenderer::InstancedMeshRenderData> Instanced;
-        std::span<const uint32_t>                                      InstancedGpuInstances;
         std::span<const System::MeshRenderer::SkinnedMeshRenderData>   Skinned;
         std::span<const System::MeshRenderer::GpuInstancedRenderData>  GpuInstanced; // the landscape grass
         glm::vec3 ViewOrigin{};             // cm; for the ISM distance cull only

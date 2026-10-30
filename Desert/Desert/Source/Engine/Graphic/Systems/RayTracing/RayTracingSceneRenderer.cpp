@@ -231,7 +231,6 @@ namespace Desert::Graphic::RayTracing
         return { .Static                = meshes.GetStaticQueue(),
                  .Generic               = meshes.GetGenericQueue(),
                  .Instanced             = meshes.GetInstancedQueue(),
-                 .InstancedGpuInstances = meshes.GetInstancedGpuInstances(),
                  .Skinned               = meshes.GetSkinnedQueue(),
                  .GpuInstanced          = meshes.GetGpuInstancedQueue(),
                  .ViewOrigin            = viewOrigin,
