@@ -423,6 +423,21 @@ namespace Desert::Graphic
         const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer Post-Occlusion" );
         if ( !targets || meshRenderer == nullptr )
             return;
+        // THE SECOND PHASE'S DEPTH PASS (UE two-pass occlusion: each phase's depth pass, then its base pass
+        // EQUAL): the G-buffer's depth LOADed, the phase-2 bins and post-cut clusters the early-Z split pairs
+        // write their depth through their depth twins; the G-buffer pass below draws them EQUAL, without writes or
+        // clip.
+        if ( meshRenderer->DrawsEarlyZ() )
+        {
+            RasterTargets depthOnly;
+            depthOnly.Depth = targets->Depth;
+            AddRaster(
+                 graph, "Deferred: Depth Prepass Post-Occlusion", depthOnly, {}, RDG::LoadOp::Load(), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderEarlyZPostOcclusionManual( context ); },
+                 [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshRenderer->DeclareEarlyZPostOcclusionDraws( pass, view ); } );
+        }
         AddRaster(
              graph, "Deferred: GBuffer Post-Occlusion", *targets,
              textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},

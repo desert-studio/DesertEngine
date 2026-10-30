@@ -353,18 +353,21 @@ namespace Desert::Graphic::System
             {
                 const VirtualGeometryIssue& vg = *issue.VirtualGeometry;
                 if ( vg.GroupCount != issue.Table->Groups.size() || vg.GroupCarriers.size() != vg.GroupCount ||
+                     ( !vg.GroupPipelines.empty() && vg.GroupPipelines.size() != vg.GroupCount ) ||
                      !vg.GroupArgs.IsValid() || !vg.Rows.IsValid() )
                 {
-                    Fail( std::format( "virtual geometry raster: {} bins and {} carriers for {} groups",
-                                       vg.GroupCount, vg.GroupCarriers.size(), issue.Table->Groups.size() ) );
+                    Fail( std::format(
+                         "virtual geometry raster: {} bins, {} carriers and {} pipelines for {} groups",
+                         vg.GroupCount, vg.GroupCarriers.size(), vg.GroupPipelines.size(),
+                         issue.Table->Groups.size() ) );
                     return;
                 }
                 for ( size_t group = 0; group < issue.Table->Groups.size(); ++group )
                 {
-                    const GraphicsPipeline* pipeline = issue.Table->Groups[group].VirtualGeometryPipeline;
+                    const GraphicsPipeline* pipeline = vg.GroupPipeline( *issue.Table, group );
                     const MaterialExecutor* carrier  = vg.GroupCarriers[group];
                     if ( pipeline == nullptr || carrier == nullptr )
-                        continue; // SetFrameVirtualGeometry said why
+                        continue; // SetFrameVirtualGeometry said why, or this issue does not raster the group
                     const Shader* recordedWith = pipeline->GetSpecification().Shader.get();
                     const auto    known =
                          std::find_if( m_Blocks.begin(), m_Blocks.end(),
@@ -625,7 +628,7 @@ namespace Desert::Graphic::System
                     {
                         if ( m_VgGroupBlock[group] >= blocks.size() )
                             continue;
-                        const GraphicsPipeline& pipeline = *m_Binned->Table->Groups[group].VirtualGeometryPipeline;
+                        const GraphicsPipeline&        pipeline = *vg.GroupPipeline( *m_Binned->Table, group );
                         const ClusterIndirectGroupDraw draw{ .Args       = vg.GroupArgs,
                                                              .ArgsOffset = uint64_t{ group } *
                                                                            VirtualGeometry::kRasterBinsArgsStride,
