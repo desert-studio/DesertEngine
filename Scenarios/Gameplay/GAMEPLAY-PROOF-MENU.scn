@@ -5,3 +5,10 @@
 Дано run Action "Play from Here"
 Дано advance 1
 Тогда-вид 6a_menu_layout the Mirage main menu: title and the Settings / Credits / Quit column, nothing hovered or focused yet
+# [6_menu] the pointer over Credits (viewport point (250, 336) = window point (324+250, 145+336)), then Tab.
+Когда input move - 574,481
+Когда advance 0.3
+Тогда-вид 6b_menu_hover Credits lit in its HoverColor (lighter violet than Settings and Quit); Settings and Quit unchanged
+Когда input key - - tab
+Когда advance 0.3
+Тогда-вид 6_menu the keyboard focus (the amber Selected accent) sits on a menu button after Tab; Credits still hovered under the pointer
