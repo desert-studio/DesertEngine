@@ -13,6 +13,7 @@
 #include <Engine/Graphic/RenderPass.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/Materials/MaterialBinder.hpp>
+#include <Engine/Graphic/Materials/DrawPushFields.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
 #include <Engine/Core/Formats/MaterialParamRow.hpp>
 #include <Common/Core/Logger.hpp>
@@ -1072,7 +1073,13 @@ namespace Desert::Graphic::System
     }
 
     // ── Record. The push constant is per-draw state, snapshotted by Vulkan at record: the row index AND the
-    // clip-from-world matrix, so one material serves the camera and every cascade. ────────────────────────
+    // clip-from-world matrix (and a light view's slope term), so one material serves the camera and every
+    // cascade. ────────────────────────────────────────────────────────────────────────────────────────────
+    // RENDER-THREADS M2b: the values travel BY VALUE, the group material is only read. Each draw's push block is
+    // a copy of the material's with the draw's fields over it (DrawPushFields, placed by name through the cell's
+    // reconciled layout exactly as Material::WritePushField places them), handed to the draw: two nodes recording
+    // the same group material (the shadow views share one Shadow material) read one unchanged material. UE: the
+    // landscape's mesh draw commands carry their own shader bindings, the record writes nothing shared.
     // Group g's draws go through the block the node's setup declared for its material (firstBlock + g). The
     // first refused draw is the node's error.
     Common::BoolResultStr
@@ -1080,6 +1087,7 @@ namespace Desert::Graphic::System
                                   const GraphicsPipeline&             pipeline,
                                   std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
                                   const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
+                                  const std::optional<glm::vec2>&             shadowSlope,
                                   const std::optional<VirtualShadowIndirect>& indirect )
     {
         std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
@@ -1087,26 +1095,36 @@ namespace Desert::Graphic::System
         for ( uint32_t group = 0; group < static_cast<uint32_t>( m_FrameGroups.size() ); ++group )
             blocks.push_back(
                  std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( firstBlock + group ) ) );
+        std::vector<std::byte> push;
         for ( size_t k = 0; k < draws.size(); ++k )
         {
-            const FrameDraw& draw     = draws[k];
-            auto*            material = ( m_Materials[m_FrameGroups[draw.Group].Key].*program ).get();
-            material->SetMaterialIndex( draw.Row );
-            material->SetPushMatrix( clipFromWorld );
+            const FrameDraw&        draw     = draws[k];
+            const auto*             material = ( m_Materials.at( m_FrameGroups[draw.Group].Key ).*program ).get();
+            const MaterialExecutor* executor = material->GetMaterialExecutor();
+            const Common::Memory::Buffer& block = executor->GetPushConstantBuffer();
+            push.assign( block.Size, std::byte{ 0 } );
+            if ( block.Data != nullptr && block.Size != 0u )
+                std::memcpy( push.data(), block.Data, block.Size );
+            DrawPushFields fields;
+            fields.MaterialIndex( draw.Row ).Transform( clipFromWorld );
+            if ( shadowSlope )
+                fields.ShadowSlope( shadowSlope->x, shadowSlope->y );
+            if ( auto written = fields.WriteInto( push, material->GetMaterialLayout() ); !written )
+                return Common::MakeFormattedError( "{}: terrain draw {} ('{}'): {}", context.GetPassName(), k,
+                                                   executor->GetDubugName(), written.GetError() );
             if ( indirect )
             {
                 // The level's cull kept or dropped this tile (AppendVirtualShadowDraws: record k of the
                 // terrain's).
                 const uint64_t offset = ( uint64_t{ indirect->FirstRecord } + k ) * kMeshDrawArgumentsBytes;
-                if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline,
-                                                                    material->GetMaterialExecutor(),
-                                                                    indirect->Arguments, offset );
+                if ( auto drawn = Renderer::DrawProceduralIndirect( *blocks[draw.Group], pipeline, executor,
+                                                                    indirect->Arguments, offset, push );
                      !drawn.IsSuccess() )
                     return drawn;
                 continue;
             }
-            if ( auto drawn = Renderer::GetInstance().DrawProcedural(
-                      *blocks[draw.Group], pipeline, material->GetMaterialExecutor(), draw.VertexCount, 1 );
+            if ( auto drawn = Renderer::DrawProcedural( *blocks[draw.Group], pipeline, executor, draw.VertexCount,
+                                                        1, push );
                  !drawn.IsSuccess() )
                 return drawn;
         }
@@ -1266,13 +1284,11 @@ namespace Desert::Graphic::System
         // constant part is already in casterViewProj (Graphic::CasterViewProj). A point/spot view's pair is
         // the light's (Graphic::LocalCasterBias), the same the meshes in that view take: the terrain drawn at
         // the light's LOD is pushed back by the rule every caster is, not by a constant of its own.
-        for ( const auto& group : m_FrameGroups )
-            m_Materials.at( group.Key ).Shadow->SetShadowSlopeBias( bias.SlopeBias, bias.SlopeClamp );
         // Its own row inside the view's: the terrain's share of the shadow cost, summed over views.
         DESERT_PROFILE_PASS( "TerrainShadowView" );
         // Through the blocks DeclareShadowView declared on this view's node.
         return RecordDraws( context, firstBlock, *m_ShadowPipeline, &ProgramMaterials::Shadow, casterViewProj,
-                            draws );
+                            draws, glm::vec2( bias.SlopeBias, bias.SlopeClamp ) );
     }
 
     void TerrainRenderer::AppendVirtualShadowEntries( std::vector<ShadowCasterEntry>& entries ) const
@@ -1441,11 +1457,9 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         // No caster bias in the virtual shadow map: its receivers are offset along their normals instead
         // (kVsmNormalBiasTexels, "VSM: Project").
-        for ( const auto& group : m_FrameGroups )
-            m_Materials.at( group.Key ).VirtualShadow->SetShadowSlopeBias( 0.0f, 0.0f );
         DESERT_PROFILE_PASS( "TerrainVirtualShadow" );
         return RecordDraws( context, firstBlock, *m_VirtualShadowPipeline, &ProgramMaterials::VirtualShadow,
-                            levelViewProj, m_FrameDraws,
+                            levelViewProj, m_FrameDraws, glm::vec2( 0.0f, 0.0f ),
                             VirtualShadowIndirect{ .Arguments = arguments, .FirstRecord = firstRecord } );
     }
 

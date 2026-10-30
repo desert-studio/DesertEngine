@@ -17,7 +17,7 @@
 
 namespace Desert::Graphic
 {
-    // THE PER-DRAW PUSH VALUES OF ONE MESH DRAW, BY VALUE (UE FMeshDrawCommand: the command is immutable and
+    // THE PER-DRAW PUSH VALUES OF ONE MESH OR TERRAIN DRAW, BY VALUE (UE FMeshDrawCommand: the command is immutable and
     // carries what differs per draw; the shared material is never written to record it). Built in the node's
     // setup next to the draw (MeshDrawCommand::Push); MeshDrawList::Record lays them, by name through the cell's
     // reconciled MaterialLayout (MaterialBinder::ResolvePush, the same placement Material::WritePushField uses),
@@ -27,6 +27,8 @@ namespace Desert::Graphic
     // A field the cell does not declare is skipped (BoneOffset on a static cell), exactly as WritePushField
     // skips it, unless the write is Required (Material::SetPrimitiveIndex / SetSkinnedBoneOffset verified it):
     // then a missing field is the draw's error. A value whose size is not the field's is always an error.
+    // TerrainRenderer::RecordDraws builds its push blocks the same way (row, clip-from-world, slope) and hands
+    // them to Renderer::DrawProcedural / DrawProceduralIndirect.
     class DrawPushFields
     {
     public:
@@ -70,6 +72,11 @@ namespace Desert::Graphic
         DrawPushFields& BoneOffset( const uint32_t firstBone, const bool required )
         {
             return Write( "BoneOffset", firstBone, required );
+        }
+        // Material::SetShadowSlopeBias (required: a light-view caster cell that is handed a slope declares it).
+        DrawPushFields& ShadowSlope( const float slopeBias, const float slopeClamp )
+        {
+            return Write( "ShadowSlope", glm::vec2( slopeBias, slopeClamp ), true );
         }
         // MaterialShadowSkinned / MaterialSilhouetteSkinned::SetSkinCache.
         DrawPushFields& SkinCache( const uint64_t address, const uint32_t vertexCount )

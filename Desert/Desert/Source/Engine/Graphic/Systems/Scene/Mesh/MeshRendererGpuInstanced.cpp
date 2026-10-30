@@ -179,9 +179,7 @@ namespace Desert::Graphic::System
                             .Push               = DrawPushFields{}
                                        .MaterialIndex( row )
                                        .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                       .PrimitiveFlags( 0u ),
-                            .BindTarget         = cell,
-                            .Instance           = instance.get() } );
+                                       .PrimitiveFlags( 0u ) } );
         }
     }
 
@@ -244,9 +242,7 @@ namespace Desert::Graphic::System
                             .Push = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .MaterialIndex( row )
-                                         .Wind( PackInstanceWind( gpu.Wind ) ),
-                            .BindTarget = caster,
-                            .Instance   = gpu.Material.get() } );
+                                         .Wind( PackInstanceWind( gpu.Wind ) ) } );
         }
     }
 } // namespace Desert::Graphic::System

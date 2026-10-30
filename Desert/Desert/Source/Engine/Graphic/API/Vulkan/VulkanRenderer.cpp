@@ -766,12 +766,13 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
                                                              const GraphicsPipeline&  pipeline,
                                                              const MaterialExecutor*  material,
+                                                             const std::span<const std::byte> push,
                                                              uint32_t vertexCount, uint32_t instanceCount )
     {
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
                                                bindings.GetContext().GetPassName(), vertexCount, instanceCount );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push ); !bound || !bound.GetValue() )
             return bound;
         // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
         DrawCounted( vertexCount, instanceCount, 0, 0 );
@@ -781,6 +782,7 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::DrawProceduralIndirect( const RDG::PassBindings& bindings,
                                                                      const GraphicsPipeline&  pipeline,
                                                                      const MaterialExecutor*  material,
+                                                                     const std::span<const std::byte> push,
                                                                      const RDG::BufferRef     args,
                                                                      const uint64_t           offset )
     {
@@ -800,7 +802,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( !buffer )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
                                                buffer.GetError() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push ); !bound || !bound.GetValue() )
             return bound;
         vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
@@ -816,7 +818,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( indexCount == 0u )
             return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
                                                bindings.GetContext().GetPassName() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, {} ); !bound || !bound.GetValue() )
             return bound;
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
@@ -924,7 +926,7 @@ namespace Desert::Graphic::API::Vulkan
         const MeshGeometry& geometry = mesh.GetGeometry();
         if ( !geometry.IsResident() )
             return Common::MakeFormattedError( "{}: mesh has no vertices on the GPU", pass );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material, drawPush ); !bound || !bound.GetValue() )
             return bound;
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
@@ -1093,7 +1095,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( draw.MaxDrawsPerCall == 0u )
             return Common::MakeFormattedError( "{}: an indirect group of zero draws per call", pass );
 
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material, {} );
              !bound || !bound.GetValue() )
             return bound;
         // Binding 2: the identity row stream, so a_VisibleRow = gl_InstanceIndex names the row of the cull's
@@ -1154,7 +1156,7 @@ namespace Desert::Graphic::API::Vulkan
                                                "`.VirtualGeometry` cell",
                                                pass, pipeline.GetSpecification().DebugName );
 
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material );
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, draw.Material, {} );
              !bound || !bound.GetValue() )
             return bound;
         // Binding 2 only: the cell reads its vertices through the cluster (no binding 0 / 1 attribute is consumed,
@@ -1172,7 +1174,8 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,
                                                                     const GraphicsPipeline&  pipeline,
-                                                                    const MaterialExecutor*  material )
+                                                                    const MaterialExecutor*  material,
+                                                                    const std::span<const std::byte> drawPush )
     {
         const RDG::PassContext&                  context = bindings.GetContext();
         const std::string_view                   pass    = context.GetPassName();
@@ -1227,6 +1230,17 @@ namespace Desert::Graphic::API::Vulkan
                                                                   static_cast<size_t>( pc.Size ) );
                 other.PushConstants = true;
             }
+        }
+        // The draw's own push block replaces the material's (it is a copy of it with the draw's values over it):
+        // the material is read, never written, to record the draw.
+        if ( !drawPush.empty() )
+        {
+            if ( materialPush.empty() )
+                return Common::MakeFormattedError( "{}: the draw carries a push block, its material has none", pass );
+            if ( drawPush.size() != materialPush.size() )
+                return Common::MakeFormattedError( "{}: the draw's push block is {} bytes, its material's {}", pass,
+                                                   drawPush.size(), materialPush.size() );
+            materialPush = drawPush;
         }
 
         const ShaderResource::ReflectionData& reflection = shader->GetReflectionData();

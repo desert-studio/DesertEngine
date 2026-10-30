@@ -1387,8 +1387,6 @@ namespace Desert::Graphic::System
                            push.BoneOffset( draw.First, /*required*/ true ).PrimitiveIndex( draw.GpuPrimitive );
                        return push;
                    }(),
-                   .BindTarget = material,
-                   .Instance   = draw.Instance,
                    .Instances =
                         instanced
                              ? std::span<const glm::mat4>( draw.Set->Transforms ).subspan( draw.First, draw.Count )

@@ -413,11 +413,6 @@ namespace Desert::Graphic::System
                                                   push.PrimitiveIndex( section.GpuPrimitive );
                                               return push;
                                           }(),
-                                          // A Shader Override draw has no instance: its values are its record's
-                                          // table row, and the scene's generic pass draws it without a Bind
-                                          // (Material::Bind reads the instance).
-                                          .BindTarget = instance != nullptr ? material : nullptr,
-                                          .Instance   = instance,
                                           // Its own rectangle of the capture atlas only (the pass cleared the
                                           // whole atlas: every capture of the frame is new).
                                           .Viewport = MeshDrawCommand::ViewportRegion{

@@ -195,17 +195,18 @@ namespace Desert::Graphic
     Common::BoolResultStr Renderer::DrawProcedural( const RDG::PassBindings& bindings,
                                                     const GraphicsPipeline&  pipeline,
                                                     const MaterialExecutor* material, uint32_t vertexCount,
-                                                    uint32_t instanceCount )
+                                                    uint32_t instanceCount, const std::span<const std::byte> push )
     {
-        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, vertexCount, instanceCount );
+        return s_RendererAPI->DrawProcedural( bindings, pipeline, material, push, vertexCount, instanceCount );
     }
 
     Common::BoolResultStr Renderer::DrawProceduralIndirect( const RDG::PassBindings& bindings,
                                                             const GraphicsPipeline&  pipeline,
                                                             const MaterialExecutor*  material,
-                                                            const RDG::BufferRef args, const uint64_t offset )
+                                                            const RDG::BufferRef args, const uint64_t offset,
+                                                            const std::span<const std::byte> push )
     {
-        return s_RendererAPI->DrawProceduralIndirect( bindings, pipeline, material, args, offset );
+        return s_RendererAPI->DrawProceduralIndirect( bindings, pipeline, material, push, args, offset );
     }
 
     Common::BoolResultStr Renderer::DrawIndexed( const RDG::PassBindings& bindings,
