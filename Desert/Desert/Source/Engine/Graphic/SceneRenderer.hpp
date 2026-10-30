@@ -1260,6 +1260,14 @@ namespace Desert::Graphic
         // MeshRenderer::SetFrameBinned. What phase 2 needs is kept in m_FrameDrawBins. A refusal is logged once
         // per message and leaves every pass on the CPU path.
         void AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame );
+        // LAST FRAME'S FURTHEST HZB OF THE MAIN VIEW in this graph (m_FramePrevHzb), registered from
+        // m_CullHzbHistory by its first reader - the grass generation (GRASS-VIS), the draw bins' phase 1, the GPU
+        // cull - and handed to the rest: invalid when the history is not @p width x @p height (the G-buffer depth)
+        // or the view has no previous frame (ViewFrame::HistoryValid). Reset per frame before the grass.
+        RDG::TextureRef FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame, uint32_t width, uint32_t height );
+        // The main view's G-buffer depth size an HZB is built from this frame (the deferred G-buffer pass, an HZB
+        // pipeline), or nothing: the size FramePrevHzb and the draw bins' phase 1 test the history against.
+        [[nodiscard]] std::optional<glm::uvec2> FrameHzbSize( RDG::Builder& graph, FrameTextures& textures );
         // VIRT-GEOM, right after AddFrameDrawBins: one "VirtualGeometry: Cluster Cut" + raster binning per cull
         // view of the draw bins (each drawn shadow cascade, then the main view) over the VG candidates phase 1
         // appended (m_FrameDrawBins->VgCandidates), at Scalability ViewDistance.VirtualGeometryMaxPixelsPerEdge,
@@ -1833,6 +1841,9 @@ namespace Desert::Graphic
         // returned, logged when it changes (a view that cannot allocate it keeps the G-buffer grass path).
         VirtualGeometry::VisibilityBuffer m_GrassVisibility;
         std::string                       m_GrassVisibilityError;
+        // The view's grass handed out more raster-stream rows than a visibility word addresses
+        // (GrassRenderer::VisibilityRowsOverflow) last frame: logged when it starts, the path refused while it lasts.
+        bool                              m_GrassVisibilityRowsOverflow = false;
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;
@@ -2084,7 +2095,8 @@ namespace Desert::Graphic
         std::optional<FrameDrawBins> m_FrameDrawBins;
         // This graph's furthest HZBs of the main view when the draw bins built them: last frame's (registered from
         // m_CullHzbHistory; invalid when phase 1 did not test it) and this frame's. AddFrameGpuCull reuses them
-        // instead of registering and building its own. Reset at the start of AddFrameDrawBins.
+        // instead of registering and building its own (FramePrevHzb). The previous one is reset before the grass
+        // generation (its first reader), this frame's at the start of AddFrameDrawBins.
         RDG::TextureRef            m_FramePrevHzb{};
         RDG::TextureRef            m_FrameFurthestHzb{};
         GpuDriven::CullPhaseCounts m_DrawBinPhaseCounts;

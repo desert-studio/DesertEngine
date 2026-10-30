@@ -40,10 +40,12 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <functional>
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <atomic>
 #include <chrono>
 #include <format>
@@ -1808,12 +1810,26 @@ namespace Desert::Graphic
         // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw.
+        // GRASS-VIS: with the grass visibility buffer the generation drops the instances last frame's furthest HZB
+        // hides, so it is this graph's first reader of that HZB (FramePrevHzb, reset here for the frame).
+        m_FramePrevHzb = {};
         if ( !m_ViewProfile.SceneCapture )
         {
+            System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
+            if ( m_GrassVisibilityBuffer && m_RenderPath == Core::RenderPath::Deferred )
+            {
+                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
+                {
+                    occlusion.Hzb = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
+                    occlusion.PrevViewProjection = frame.PrevViewProjection;
+                    occlusion.Extent             = glm::uvec3(
+                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
+                }
+            }
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
             UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
                  ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
-                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
@@ -2217,7 +2233,17 @@ namespace Desert::Graphic
             // GRASS-VIS: the visibility buffer is allocated and cleared BEFORE the G-buffer's setup decides which
             // blade sections leave it, so a buffer that could not be made keeps every blade on the G-buffer path.
             VirtualGeometry::VisibilityBufferFrame grassVisibility;
-            if ( m_GrassVisibilityBuffer && meshRenderer != nullptr )
+            // The grass's raster-stream rows past what a visibility word addresses alias ids: the path is refused
+            // this frame, by name when the overflow starts, and the blades draw through the G-buffer.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const bool rowsOverflow = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                                           ->VisibilityRowsOverflow();
+            if ( m_GrassVisibilityBuffer && rowsOverflow && !m_GrassVisibilityRowsOverflow )
+                LOG_ERROR( "[SceneRenderer] {}: the grass draws through the G-buffer: its instances need more "
+                           "visibility-buffer rows than a visibility word addresses (32 - kVisTriangleBits bits)",
+                           m_ViewResources.GetName() );
+            m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
+            if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
             {
                 auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height );
                 if ( made )

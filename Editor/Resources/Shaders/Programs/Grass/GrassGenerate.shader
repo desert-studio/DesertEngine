@@ -16,13 +16,17 @@
 // jittered grid (white of the grid's own blue noise). Scatter moves a blade past its own cell and Patchiness thins
 // the field by broad world patches, so a carpet stops reading as one evenly spaced stalk per cell. FacingJitter turns
 // each blade's facing back off its clump's and Tilt stands its root off the vertical in a direction of its own, so
-// near blades stop reading as one upright stalk with one lean. GrassFinalize
-// copies each bucket's count into its draw records.
+// near blades stop reading as one upright stalk with one lean. A kept instance the previous frame's furthest HZB
+// hides is dropped as well (GRASS-VIS; UE Nanite / the GPU instance cull: occlusion before the raster) - by the
+// instance cull's own test (Common/GpuCullTests.glslh GpuCull_IsOccludedByHzb) through the previous frame's
+// ViewProjection, when the view binds one (Hzb.w). GrassFinalize copies each bucket's count into its draw records.
 Shader "GrassGenerate"
 {
     Compute
     {
         LocalSize(8, 8, 1);
+
+        #include <Common/GpuCullTests.glslh>
 
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
@@ -63,9 +67,16 @@ Shader "GrassGenerate"
             uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, half screen size (a mesh level)
         };
 
+        Uniform sampler PointClampSampler;
+        Uniform(4) texture2D GrassHzbTexture; // the previous frame's furthest HZB of the view (neutral: none)
+
+        // Mirrors Graphic::System::GrassGeneratePush (GrassRenderer.cpp).
         PushConstant PushConstants
         {
-            ivec4 CellRange; // x, y = the first cell (world grid index), z, w = cells along x, z (the lens footprint's box)
+            ivec4 CellRange;          // x, y = the first cell (world grid index), z, w = cells along x, z (the lens
+                                      // footprint's box)
+            mat4  PrevViewProjection; // the view's previous frame, unjittered: what GrassHzbTexture was built through
+            uvec4 Hzb;                // xy = GrassHzbTexture's mip-0 size, z = its mip count, w = 1 when it is tested
         };
 
         const uint kFlagRandomRotation = 1u;
@@ -286,6 +297,15 @@ Shader "GrassGenerate"
             for ( int i = 0; i < 4; ++i )
                 if ( dot( p.Planes[i].xyz, centre ) + p.Planes[i].w < -radius )
                     return;
+            // Behind what the previous frame's depth held, by the sphere's box.
+            if ( Hzb.w != 0u )
+            {
+                GpuCullView view;
+                view.HzbExtent = uvec4( Hzb.xyz, 0u );
+                if ( GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, PrevViewProjection,
+                                              centre - vec3( radius ), centre + vec3( radius ) ) )
+                    return;
+            }
 
             float yaw = ( flags & kFlagRandomRotation ) != 0u ? Fraction( state ) * 6.28318530718 : 0.0;
             vec3  draws = vec3( 0.0 );

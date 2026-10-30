@@ -8,6 +8,7 @@
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/Systems/RenderSystem.hpp>
 #include <Engine/Graphic/Systems/Scene/Grass/GrassBladeRayTracing.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryLayout.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
 #include <glm/glm.hpp>
@@ -115,6 +116,16 @@ namespace Desert::Graphic::System
     // (GpuInstances.hpp). Nothing is stored in the level and nothing is read back. A Blade variety draws the
     // renderer's own blade strip (one per segment count, a level per halving) through the GrassBlade vertex path:
     // the generator sorts its instances into one bucket per level by distance, so a far blade has fewer segments.
+    // GRASS-VIS: the previous frame's furthest HZB GrassGenerate drops hidden instances by (GpuCull_IsOccludedByHzb,
+    // the instance cull's test). Hzb invalid: nothing is tested, Neutral is bound in its place.
+    struct GrassOcclusion
+    {
+        RDG::TextureRef Hzb{};     // last frame's furthest HZB of the view (SceneRenderer::FramePrevHzb)
+        RDG::TextureRef Neutral{}; // bound when Hzb is invalid (System.Black)
+        glm::mat4       PrevViewProjection{ 1.0f }; // what Hzb was built through, unjittered
+        glm::uvec3      Extent{ 0u };               // Hzb's mip-0 size and mip count
+    };
+
     class GrassRenderer final : public RenderSystem
     {
     public:
@@ -134,8 +145,18 @@ namespace Desert::Graphic::System
         // Before the cascades and the geometry: the generation nodes of this frame's view, and the sections handed
         // to @p meshes. A view that is not the main one (a capture face) grows nothing. @p rayTracing: the view
         // builds a TLAS this frame (RayTracingSceneRequired): the Blade varieties' level BLASes are prepared and
-        // handed with the sections (GrassBladeRayTracing.hpp).
-        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing );
+        // handed with the sections (GrassBladeRayTracing.hpp). @p occlusion: what the generation tests its kept
+        // instances against; a tested frame's instances depend on last frame's depth, so every variety generates
+        // every such frame (VarietyGpu::GenerateKey holds nothing across them).
+        void AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes, bool rayTracing,
+                       const GrassOcclusion& occlusion );
+
+        // GRASS-VIS: the last AddFrame handed out more raster-stream rows than a visibility word addresses
+        // (kGrassVisibilityMaxRows): the view refuses its grass visibility buffer path this frame.
+        [[nodiscard]] bool VisibilityRowsOverflow() const noexcept
+        {
+            return m_VisibilityRows > kGrassVisibilityMaxRows;
+        }
 
         // This frame's blade BLAS requests and resident BLASes (after AddFrame): the view's TLAS block hands them
         // to the RT scene with the landscape's.
@@ -223,7 +244,10 @@ namespace Desert::Graphic::System
         uint32_t                         m_NextIndex = 0;
         GrassBladeRayTracing             m_BladeRayTracing;
         // GRASS-VIS: the raster-stream rows handed out this frame (AddFrame resets it; PrepareVariety hands each
-        // blade variety its capacity's worth), bounded by VirtualGeometry::kMaxVisibleClusters.
-        uint32_t m_VisibilityRows = 0;
+        // blade variety its capacity's worth). A visibility word holds the row in its upper 32 - kVisTriangleBits
+        // bits (VirtualGeometryLayout.hpp): past kGrassVisibilityMaxRows the ids would alias (VisibilityRowsOverflow).
+        static constexpr uint64_t kGrassVisibilityMaxRows = uint64_t{ 1 }
+                                                            << ( 32u - VirtualGeometry::kVisTriangleBits );
+        uint64_t                  m_VisibilityRows = 0;
     };
 } // namespace Desert::Graphic::System
