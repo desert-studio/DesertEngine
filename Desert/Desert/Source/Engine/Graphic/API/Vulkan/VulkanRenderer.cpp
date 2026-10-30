@@ -1586,7 +1586,7 @@ namespace Desert::Graphic::API::Vulkan
         const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
         if ( Common::BoolResultStr begun = m_FrameLoop->BeginSlot( slot ); !begun )
             return begun;
-        m_RdgPool->BeginFrame( slot );
+        m_RdgPool->BeginFrame();
         m_RdgTransients->BeginFrameSlot( slot );
         m_RdgDescriptors->BeginFrameSlot( slot );
         return m_RdgBackend->BeginFrame( slot, m_RdgQueues, *m_RdgTransients, *m_RdgDescriptors );

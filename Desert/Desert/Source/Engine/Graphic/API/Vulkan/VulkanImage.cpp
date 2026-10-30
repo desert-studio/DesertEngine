@@ -1795,7 +1795,7 @@ namespace Desert::Graphic::API::Vulkan
         auto allocator = SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
                               ->GetVulkanAllocator()
                               .get();
-        // Deferred by frame index inside the allocator, so a volume released while a frame that still
+        // Deferred by frame number inside the allocator, so a volume released while a frame that still
         // references it is in flight is destroyed only once the GPU is done with it.
         allocator->RT_DestroyImage( m_Resource.Image, m_Resource.Allocation, m_Resource.ImageView, m_MipViews );
         m_Resource = {};
