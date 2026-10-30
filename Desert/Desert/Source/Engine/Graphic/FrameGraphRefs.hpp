@@ -123,11 +123,10 @@ namespace Desert::Graphic
         RDG::TextureRef FogAerialPerspective;
         RDG::TextureRef FogDistantSkyLight;
         RDG::TextureRef FogVolume;
-        // The clouds' reconstruction pair written this frame (VolumetricCloudRenderer::GetFrameResult: transients
-        // the view extracts as its history, SceneViewState::Clouds); invalid when the frame has none ->
-        // CloudComposite
+        // The clouds' full-resolution image written this frame (VolumetricCloudRenderer::GetFrameResult().Upsampled,
+        // CloudUpsample.shader: premultiplied radiance + transmittance per framebuffer pixel); invalid when the frame
+        // has none                                                             -> CloudComposite
         RDG::TextureRef CloudScatter;
-        RDG::TextureRef CloudGuide;
         // The cloud layer's shadow map (VolumetricCloudRenderer::GetShadowMap, a transient of this graph), set
         // once its shadow node was accepted; invalid when the frame has none   -> Deferred: Composite
         RDG::TextureRef CloudShadowMap;

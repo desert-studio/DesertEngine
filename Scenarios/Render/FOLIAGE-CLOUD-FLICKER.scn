@@ -1,0 +1,17 @@
+# FOLIAGE-CLOUD-FLICKER: grass blades and the tree canopy against a cloudy sky must not flicker frame to frame
+# (owner 10-30: "листва и трава конфилтуют на фоне облаков. постоянное мерцание"). Camera low, looking up past
+# the blades into the canopy and the cloud deck; nothing moves between the paired shots, so any difference
+# between 1_a/1_b (and 2_a/2_b, ~30 frames later) at a foliage edge over the sky is the cloud reconstruction.
+# Check: pixel diff of consecutive frames at foliage/grass edges over sky <= 2/255; clouds elsewhere unchanged
+# vs a dev shot of the same steps.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 35
+Дано --subject selection set SunAzimuth 110
+Дано --subject viewport set Camera.Position 0,40,2500
+Дано --subject viewport set Camera.Direction 0.15,0.25,-1
+Тогда-вид 1_a camera at 0.4 m looking up: grass blades and canopy edges over clouds, crisp, no cloud on the blades
+Тогда-вид 1_b the very next frame: identical to 1_a at every blade and leaf edge over the sky (<= 2/255)
+Тогда-вид 2_a ~30 frames later, same camera: identical to 1_a
+Тогда-вид 2_b the next frame: identical to 2_a

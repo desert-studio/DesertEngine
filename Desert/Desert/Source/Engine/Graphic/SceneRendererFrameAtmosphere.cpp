@@ -291,17 +291,17 @@ namespace Desert::Graphic
         VolumetricCloudHistory&             history = m_ViewState.Clouds();
         std::vector<ComputeNodeDeclaration> nodes   = clouds->DeclareFrameNodes( graph, frame, history );
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
-        // The resolve is the last node: its AddPass index is the writer whose loss the view's EndFrame checks.
-        const uint32_t resolvePass = graph.GetPassCount() + static_cast<uint32_t>( nodes.size() ) - 1u;
-        const bool     hasNodes    = !nodes.empty();
-        const bool     accepted    = AddComputeNodes( graph, textures, std::move( nodes ) );
+        // One AddPass per node from here: the resolve's index among the nodes (FrameResult::ResolveNode) plus this
+        // is the writer whose loss the view's EndFrame checks.
+        const uint32_t firstPass = graph.GetPassCount();
+        const bool     hasNodes  = !nodes.empty();
+        const bool     accepted  = AddComputeNodes( graph, textures, std::move( nodes ) );
         clouds->SettleFrameNodes( accepted );
-        // The composite (a translucency pass, added after this by AddFrameTranslucency) samples this frame's pair
-        // by graph ref: transients the view extracts as its history (SceneViewState::Clouds).
+        // The reconstruction pair is the view's history (SceneViewState::Clouds); the composite (a translucency pass,
+        // added after this by AddFrameTranslucency) reads the full-resolution upsample by graph ref.
         const System::VolumetricCloudRenderer::FrameResult result = clouds->GetFrameResult();
-        if ( accepted && hasNodes && result.Scatter.IsValid() )
-            history.SetWriterPass( resolvePass );
-        textures.Transients.CloudScatter = result.Scatter;
-        textures.Transients.CloudGuide   = result.Guide;
+        if ( accepted && hasNodes && result.Reconstruction.Scatter.IsValid() )
+            history.SetWriterPass( firstPass + result.ResolveNode );
+        textures.Transients.CloudScatter = result.Upsampled;
     }
 } // namespace Desert::Graphic

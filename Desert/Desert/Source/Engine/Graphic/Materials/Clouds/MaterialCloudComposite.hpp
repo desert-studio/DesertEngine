@@ -4,21 +4,12 @@
 
 namespace Desert::Graphic
 {
-    // Binds the two images the cloud composite pass reads: the RGBA16F scatter image (premultiplied
-    // radiance + transmittance) and the depth guide beside it (cloud front distance and scene distance,
-    // kilometres), which the shader upsamples the first through. No parameters — the march already
-    // resolved the lighting, and the pipeline's blend state does the rest.
-    //
-    // The pair comes from CloudTemporalResolve, not from the march itself: the march traces at a quarter
-    // of the view and the reconstruction turns four such frames into the half-resolution pair this
-    // composites. That is invisible here on purpose — the interface is "two half-res images of the same
-    // size", and it did not change when the producer behind it did.
     // The cloud composite program's material. It carries one value (the view's PreExposure) and no textures: the
-    // two images the pass reads -- the RGBA16F scatter image (premultiplied radiance + transmittance) and the
-    // depth guide beside it (cloud front distance and scene distance, kilometres), which the shader upsamples the
-    // first through -- are the reconstruction CloudTemporalResolve wrote this frame, imported into the frame graph
-    // and bound by shader name (CloudScatterTexture / CloudGuideTexture) through RDG::PassBindings in the composite pass
-    // (VolumetricCloudRenderer::CompositePass). The pipeline's blend state does the rest.
+    // one image the pass reads -- the full-resolution RGBA16F cloud image (premultiplied radiance + transmittance)
+    // CloudUpsample wrote this frame from CloudTemporalResolve's half-resolution reconstruction and each pixel's own
+    // scene depth -- is a transient of the frame graph, bound by shader name (CloudScatterTexture) through
+    // RDG::PassBindings in the composite pass (VolumetricCloudRenderer::CompositePass). The pipeline's blend state
+    // does the rest.
     class MaterialCloudComposite final : public Material
     {
     public:

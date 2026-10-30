@@ -63,6 +63,12 @@ namespace Desert::Graphic::System
      *                  cloud front distance, validated, and blended. It writes a TRANSIENT pair of the
      *                  frame graph that is extracted into the VIEW (SceneViewState::Clouds, UE's
      *                  FSceneViewState::VolumetricCloudRenderTarget) and registered back the next frame.
+     *   S2b UPSAMPLE   compute, RGBA16F at the target's FULL size. Unreal's ComposeVolumetricRTOverScene with its
+     *                  depth-aware upsample (UpsamplingMode 4): every pixel compares the half-res neighbours
+     *                  against its OWN scene depth and keeps the cloud behind opaque by the cloud front. A compute
+     *                  pass because the raster composite draws with the depth attached and cannot sample it.
+     *                  Without it a grass blade or a leaf against the sky took the cloud on some frames and not
+     *                  on others (FOLIAGE-CLOUD-FLICKER, CloudUpsample.shader).
      *   SM  SHADOW MAP compute, RGBA32F, 512x512 at the reference quality tier and scaled with it,
      *                  marched down the SUN's direction rather than the eye's,
      *                  and declared EARLY in the frame graph, because the lit passes read it. A
@@ -72,8 +78,8 @@ namespace Desert::Graphic::System
      * Common/CloudShadowMap.glslh for the encoding and Engine/Graphic/Clouds/CloudShadowPayload.hpp for the
      * projection. Independent of S1 and S2: it needs no scene depth and no view. S3  COMPOSITE  a fullscreen
      * triangle (CompositePass), added by SceneRenderer::AddFrameTranslucency right after the height fog apply and
-     * BEFORE everything else it composites, so particles land over the clouds rather than under them. It upsamples
-     * the HALF-resolution reconstruction, unchanged by mode 0.
+     * BEFORE everything else it composites, so particles land over the clouds rather than under them. It copies
+     * S2b's full-resolution image onto the scene with the over-operator and the view's PreExposure.
      *
      * WHERE IT RUNS. S0, S1 and S2 are in-frame compute dispatches and must be issued OUTSIDE an open
      * render pass, after the scene depth is finished. SceneRenderer::ExecuteVolumetricClouds() calls
@@ -98,8 +104,7 @@ namespace Desert::Graphic::System
     {
         DESERT_SHADER_PARAMETER( Texture, CloudScatterTexture );
         DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
-        DESERT_SHADER_PARAMETER( Texture, CloudGuideTexture );
-        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ), RDG::Erase( CloudGuideTexture ) };
+        static constexpr std::array kAll{ RDG::Erase( CloudScatterTexture ), RDG::Erase( LinearRepeatSampler ) };
     };
 
     class VolumetricCloudRenderer final : public RenderSystem
@@ -173,10 +178,19 @@ namespace Desert::Graphic::System
         std::vector<ComputeNodeDeclaration> DeclareSkyOcclusionNodes();
         void                                SettleSkyOcclusionNodes( bool accepted );
 
-        // The reconstruction pair the composite samples this frame (graph refs of the transient pair the resolve
-        // writes), after SettleFrameNodes. Both invalid when the frame has none (clouds off, or the nodes were
-        // refused): the composite then draws nothing.
-        using FrameResult = VolumetricCloudHistory::Refs;
+        // This frame's cloud images, after SettleFrameNodes. All invalid when the frame has none (clouds off, or the
+        // nodes were refused): the composite then draws nothing.
+        struct FrameResult
+        {
+            // The half-resolution reconstruction the resolve writes: the transient pair the view extracts as
+            // its history (SceneViewState::Clouds).
+            VolumetricCloudHistory::Refs Reconstruction;
+            // The full-resolution image the upsample writes and the composite reads 1:1.
+            RDG::TextureRef Upsampled;
+            // The resolve's position among the nodes DeclareFrameNodes returned: the writer whose loss the
+            // view's EndFrame checks (SceneRenderer::AddFrameVolumetricClouds turns it into a pass index).
+            uint32_t ResolveNode = 0;
+        };
         FrameResult GetFrameResult() const
         {
             return m_FrameResult;
@@ -529,6 +543,7 @@ namespace Desert::Graphic::System
 
         std::shared_ptr<ComputePipeline>  m_MarchPipeline;
         std::shared_ptr<ComputePipeline>  m_ResolvePipeline;
+        std::shared_ptr<ComputePipeline>  m_UpsamplePipeline;
         std::shared_ptr<ComputePipeline>  m_ShadowMapPipeline;
         std::shared_ptr<ComputePipeline>  m_SkyOcclusionPipeline;
         std::shared_ptr<GraphicsPipeline> m_CompositePipeline;
@@ -541,6 +556,7 @@ namespace Desert::Graphic::System
         ShaderBindingLayoutCache m_SkyOcclusionLayout;
         ShaderBindingLayoutCache m_MarchLayout;
         ShaderBindingLayoutCache m_ResolveLayout;
+        ShaderBindingLayoutCache m_UpsampleLayout;
 
         std::shared_ptr<ShaderResources::StorageBuffer> m_ParamsBuffer;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ResolveParamsBuffer;

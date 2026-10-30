@@ -49,6 +49,9 @@ namespace
         DESERT_SHADER_PARAMETER( Texture, CloudHistoryGuideTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, ReconstructedScatterTexture );
         DESERT_SHADER_PARAMETER( StorageTexture, ReconstructedGuideTexture );
+        DESERT_SHADER_PARAMETER( Texture, CloudReconstructionTexture );
+        DESERT_SHADER_PARAMETER( Texture, CloudReconstructionGuideTexture );
+        DESERT_SHADER_PARAMETER( StorageTexture, UpsampledCloudTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudModellingTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudFarWeatherTexture );
         DESERT_SHADER_PARAMETER( Texture, CloudLayoutPatternTexture );
@@ -69,6 +72,7 @@ namespace Desert::Graphic::System
         // One spelling with the material schema's own — the march program IS the cloud material shader.
         constexpr const char* kMarchShaderName        = kCloudMaterialShaderName;
         constexpr const char* kResolveShaderName      = "CloudTemporalResolve";
+        constexpr const char* kUpsampleShaderName     = "CloudUpsample";
         constexpr const char* kCompositeShaderName    = "CloudComposite";
         constexpr const char* kShadowMapShaderName    = kCloudShadowMapShaderName;
         constexpr const char* kSkyOcclusionShaderName = kCloudSkyOcclusionShaderName;
@@ -700,6 +704,23 @@ namespace Desert::Graphic::System
             return false;
         }
         m_ResolvePipeline = resolve.GetValue();
+
+        const auto upsampleShader = shaderService->GetByName( kUpsampleShaderName );
+        if ( !upsampleShader )
+        {
+            LOG_ERROR( "[Clouds] Compute shader '{}' is not registered. Expected "
+                       "Editor/Resources/Shaders/Programs/Clouds/{}.shader.",
+                       kUpsampleShaderName, kUpsampleShaderName );
+            return false;
+        }
+        const auto upsample =
+             ComputePipeline::Create( { .Shader = upsampleShader, .DebugName = kUpsampleShaderName } );
+        if ( !upsample )
+        {
+            LOG_ERROR( "[Clouds] the upsample pipeline was not built: {}", upsample.GetError() );
+            return false;
+        }
+        m_UpsamplePipeline = upsample.GetValue();
 
         const auto target = m_TargetFramebuffer.lock();
         if ( !target )
@@ -1807,8 +1828,8 @@ namespace Desert::Graphic::System
         // not the answer of the last frame that ran.
         m_SkyOcclusionValid = false;
 
-        if ( !m_MarchPipeline || !m_ResolvePipeline || !m_CompositePipeline || !m_ParamsBuffer ||
-             !m_ResolveParamsBuffer )
+        if ( !m_MarchPipeline || !m_ResolvePipeline || !m_UpsamplePipeline || !m_CompositePipeline ||
+             !m_ParamsBuffer || !m_ResolveParamsBuffer )
             return nodes;
 
         // The scale the scene colour is stored at this frame: the composite multiplies the cloud radiance by it.
@@ -2048,7 +2069,7 @@ namespace Desert::Graphic::System
         }
 
         // The temporal resolve: samples this frame's trace and, when valid, last frame's history; writes this
-        // frame's history slot, which the composite (CloudComposite, a Transparency raster node) samples.
+        // frame's history slot, which the upsample below reads.
         ComputeNodeDeclaration temporal;
         temporal.Name = "Clouds: TemporalResolve";
         // SETUP: the parameters are the renderer's own buffer, bound by the pipeline's setter here; this frame's
@@ -2062,8 +2083,8 @@ namespace Desert::Graphic::System
         // sampler reads floats either way.
         const std::shared_ptr<Image> fallback =
              FallbackTextures::Get().GetFallbackTexture2D( Core::Formats::ImageFormat::RGBA8F );
-        // This frame's pair, written by the resolve and sampled by the composite: transients of this graph that
-        // the view extracts for the next frame.
+        // This frame's pair, written by the resolve and read by the upsample: transients of this graph that the
+        // view extracts for the next frame.
         const VolumetricCloudHistory::Refs current = history.CreateCurrent( graph, halfExtent );
         // This frame's trace pair, by shader name. Linear + clamp: the reconstruction texelFetches the texel it
         // owns and bilinearly upsamples (texture(..., traceUv)) the ones it does not.
@@ -2105,10 +2126,46 @@ namespace Desert::Graphic::System
                                               GroupCount( m_HalfWidth, kMarchWorkGroupSize ),
                                               GroupCount( m_HalfHeight, kMarchWorkGroupSize ), 1 );
         };
+        const uint32_t resolveNode = static_cast<uint32_t>( nodes.size() );
         nodes.push_back( std::move( temporal ) );
 
+        // S2b -- THE FULL-RESOLUTION UPSAMPLE (CloudUpsample.shader): every pixel of the target compares the
+        // half-res reconstruction against its OWN scene depth, which the raster composite cannot sample (it draws
+        // with that depth attached). The same parameter block as the resolve -- the jittered inverse that matches
+        // the depth, and the camera -- uploaded once above for both readers.
+        const uint32_t         fullWidth  = target->GetFramebufferWidth();
+        const uint32_t         fullHeight = target->GetFramebufferHeight();
+        const RDG::TextureDesc upsampledDesc{ .Size   = RDG::Extent3D{ .Width = fullWidth, .Height = fullHeight },
+                                              .Format = ViewTargetFormats::kCloudTrace };
+        const RDG::TextureRef  upsampled = graph.CreateTexture( upsampledDesc, "Clouds.Upsampled" );
+        ComputeNodeDeclaration upsample;
+        upsample.Name = "Clouds: Upsample";
+        m_UpsamplePipeline->SetStorageBuffer( kCloudResolveParamsBinding, m_ResolveParamsBuffer.get() );
+        DeclareComputeBlock( upsample.Access, m_UpsamplePipeline.get(), m_UpsampleLayout, 0 )
+             .Texture( VolumetricCloudShaderParameters::CloudReconstructionTexture, current.Scatter,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Texture( VolumetricCloudShaderParameters::CloudReconstructionGuideTexture, current.Guide,
+                       RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+             .Sampler( VolumetricCloudShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+             .Texture( VolumetricCloudShaderParameters::SceneDepthTexture, depth, RDG::Access::SampledCompute,
+                       "SceneDepth.Compute" )
+             .Sampler( VolumetricCloudShaderParameters::GlobalFilterSampler, GlobalTextureFilterSampler() )
+             .Storage( VolumetricCloudShaderParameters::UpsampledCloudTexture, upsampled,
+                       RDG::Access::StorageWrite );
+        upsample.Record = [this, fullWidth, fullHeight]( RDG::PassContext& context,
+                                                         const FrameGraphRefs& ) -> Common::BoolResultStr
+        {
+            DESERT_PROFILE_PASS( "Clouds: Upsample" );
+            const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
+            return Renderer::DispatchCompute( bindings, *m_UpsamplePipeline,
+                                              GroupCount( fullWidth, kMarchWorkGroupSize ),
+                                              GroupCount( fullHeight, kMarchWorkGroupSize ), 1 );
+        };
+        nodes.push_back( std::move( upsample ) );
+
         // Published by SettleFrameNodes, i.e. once the graph accepted the nodes.
-        m_PendingResult = current;
+        m_PendingResult =
+             FrameResult{ .Reconstruction = current, .Upsampled = upsampled, .ResolveNode = resolveNode };
         return nodes;
     }
 
@@ -2213,8 +2270,7 @@ namespace Desert::Graphic::System
         config.ExecuteFunc = [this]( RDG::PassContext&     context,
                                      const FrameGraphRefs& refs ) -> Common::BoolResultStr
         {
-            if ( !refs.Transients.CloudScatter.IsValid() || !refs.Transients.CloudGuide.IsValid() ||
-                 !m_CompositeMaterial )
+            if ( !refs.Transients.CloudScatter.IsValid() || !m_CompositeMaterial )
                 return BOOLSUCCESS;
             // Through the block Declare declared below.
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
@@ -2223,26 +2279,22 @@ namespace Desert::Graphic::System
         };
         config.TargetFramebuffer = target;
 
-        // The composite samples the reconstruction the resolve node wrote this frame (m_ResolvedIndex is decided
-        // when the cloud nodes are declared, before this runs).
+        // The composite reads the full-resolution image the upsample node wrote this frame.
         config.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
         {
-            // The RECONSTRUCTION, not the trace: the composite upsamples half to full, and the half-res pair is
-            // what the resolve wrote this frame (imported by SceneRenderer).
+            // The UPSAMPLED image (CloudUpsample.shader, full resolution, published by SceneRenderer), texelFetched
+            // 1:1: the upsample needs each pixel's scene depth, which this pass draws with attached.
             const RDG::TextureRef scatter = refs.Transients.CloudScatter;
-            const RDG::TextureRef guide   = refs.Transients.CloudGuide;
-            if ( !scatter.IsValid() || !guide.IsValid() || !m_CompositeMaterial )
+            if ( !scatter.IsValid() || !m_CompositeMaterial )
                 return;
-            // The composite's one block: the shader's layout, the material route, and both halves from ONE slot
-            // (the shader indexes them with one set of coordinates) with the sampler the material route sampled
-            // them with (the image's own: linear, REPEAT). Each entry is the read's declaration.
+            // The composite's one block: the shader's layout, the material route, the image and its sampler
+            // state (linear, REPEAT; the fetch never filters). Each entry is the read's declaration.
             const MaterialExecutor& executor = *m_CompositeMaterial->GetMaterialExecutor();
             declared
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
                  .Texture( VolumetricCloudCompositeShaderParameters::CloudScatterTexture, scatter, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )
-                 .Sampler( VolumetricCloudCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
-                 .Texture( VolumetricCloudCompositeShaderParameters::CloudGuideTexture, guide, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
+                 .Sampler( VolumetricCloudCompositeShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() );
         };
 
         return config;

@@ -430,7 +430,8 @@ namespace Desert::Graphic
     // buffer is created at exactly the struct's size and the eight bytes of tail padding are not
     // allocated. Pinned here so that inserting a member and quietly changing the size is a build error.
     static_assert( sizeof( CloudResolveParams ) == 152,
-                   "The GLSL block in CloudTemporalResolve.shader reads exactly these members, in this "
+                   "The GLSL block in Common/CloudResolveParams.glslh (CloudTemporalResolve, CloudUpsample) reads "
+                   "exactly these members, in this "
                    "order, at these offsets." );
 
     inline constexpr uint32_t kCloudResolveParamsBytes = sizeof( CloudResolveParams );
