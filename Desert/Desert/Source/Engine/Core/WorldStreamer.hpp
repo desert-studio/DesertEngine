@@ -247,10 +247,10 @@ namespace Desert::Core
         // THE HLOD CELLS (see the top): @p rows per node of @p hierarchy, its saved row (null when missing or
         // stale - already said - or when it has no file), read from @p held. Makes the always-loaded nodes
         // entities one at a time, starts the HLOD residency and shows what stands in now.
-        [[nodiscard]] Common::BoolResultStr
-        BeginHLODCells( Rules::HLODHierarchy hierarchy, std::shared_ptr<const WorldCells::StoredHLODs> held,
-                        std::vector<const WorldCells::BuiltHLODCell*> rows,
-                        std::span<const Rules::HLODExclusion>         holes );
+        [[nodiscard]] Common::BoolResultStr BeginHLODCells( Rules::HLODHierarchy hierarchy,
+                                                            std::shared_ptr<const WorldCells::StoredHLODs> held,
+                                                            std::vector<const WorldCells::BuiltHLODCell*>  rows,
+                                                            std::span<const Rules::HLODExclusion>          holes );
 
         // The ResidencyWorld of the HLOD cells: their reads, activations and destructions (WorldStreamer.cpp).
         class HLODCellWorld;
@@ -288,10 +288,10 @@ namespace Desert::Core
         std::optional<Rules::HLODRuntime>      m_HLODs;
         // A streamed hierarchy only (BeginHLODCells): the hierarchy, its residency, the executor that streams its
         // cells and the world that executor acts on.
-        std::optional<Rules::HLODHierarchy>      m_HLODHierarchy;
-        std::optional<Rules::HLODResidency>      m_HLODResidency;
-        std::optional<Rules::ResidencyExecutor>  m_HLODExecutor;
-        std::unique_ptr<HLODCellWorld>           m_HLODCells;
+        std::optional<Rules::HLODHierarchy>     m_HLODHierarchy;
+        std::optional<Rules::HLODResidency>     m_HLODResidency;
+        std::optional<Rules::ResidencyExecutor> m_HLODExecutor;
+        std::unique_ptr<HLODCellWorld>          m_HLODCells;
         // False through BeginHLODs' first Sync (which sets every HLOD); after it each switch is logged.
         bool m_HLODSwitchesSaid = false;
 

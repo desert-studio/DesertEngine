@@ -45,8 +45,8 @@ namespace Desert::Core
             {
                 using Result = std::vector<Assets::EntityData>;
                 if ( unit >= m_UnitRows.size() )
-                    return Common::MakeError<Result>(
-                         std::format( "HLOD cell source: unit {} of {} does not exist", unit, m_UnitRows.size() ) );
+                    return Common::MakeError<Result>( std::format(
+                         "HLOD cell source: unit {} of {} does not exist", unit, m_UnitRows.size() ) );
                 Result out;
                 for ( const WorldCells::BuiltHLODCell* row : m_UnitRows[unit] )
                 {
@@ -331,17 +331,18 @@ namespace Desert::Core
                                     holes.push_back( missing.Reason );
                             for ( const std::uint64_t id : row->second->Ids )
                                 if ( byId.contains( Common::UUID( id ) ) )
-                                    return Common::MakeError<Result>( "world streaming of '" + snapshot->SceneName +
-                                                                      "': an HLOD record of " + node.Name +
-                                                                      " has a record's id; rename the world" );
+                                    return Common::MakeError<Result>(
+                                         "world streaming of '" + snapshot->SceneName + "': an HLOD record of " +
+                                         node.Name + " has a record's id; rename the world" );
                             nodeRows.push_back( row->second->File.has_value() && !row->second->Ids.empty()
                                                      ? row->second
                                                      : nullptr );
                         }
-                        LOG_INFO( "[WorldPartition] Play of '{0}': {1} saved HLOD(s) in {2} HLOD cell(s) from {3}, "
-                                  "{4} stale",
-                                  snapshot->SceneName, nodeRows.size(), hierarchy.GetValue().Cells.size(),
-                                  WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
+                        LOG_INFO(
+                             "[WorldPartition] Play of '{0}': {1} saved HLOD(s) in {2} HLOD cell(s) from {3}, "
+                             "{4} stale",
+                             snapshot->SceneName, nodeRows.size(), hierarchy.GetValue().Cells.size(),
+                             WorldCells::BuiltHLODDirectory( scenePath ).string(), staleUnits.size() );
                         if ( auto begun = streamer->BeginHLODCells( hierarchy.ExtractValue(), held,
                                                                     std::move( nodeRows ), holes );
                              !begun )
@@ -564,19 +565,21 @@ namespace Desert::Core
             return *m_Source;
         }
 
-        [[nodiscard]] Common::BoolResultStr Activate( std::size_t unit, std::span<const std::size_t> records ) override
+        [[nodiscard]] Common::BoolResultStr Activate( std::size_t                  unit,
+                                                      std::span<const std::size_t> records ) override
         {
             const std::vector<Assets::EntityData>* read = m_Loader.Records( unit );
             if ( read == nullptr || read->size() != records.size() )
-                return Common::MakeError( std::format( "world streaming of '{}': {} is activated with {} record(s) "
-                                                       "read and {} planned",
-                                                       m_Owner.m_SceneName, Name( unit ),
-                                                       read == nullptr ? 0 : read->size(), records.size() ) );
+                return Common::MakeError( std::format(
+                     "world streaming of '{}': {} is activated with {} record(s) "
+                     "read and {} planned",
+                     m_Owner.m_SceneName, Name( unit ), read == nullptr ? 0 : read->size(), records.size() ) );
             auto made = SceneSerializer( m_Owner.m_Scene, m_Owner.m_Assets )
                              .InstantiateRecords( *read, m_Owner.m_SceneName, nullptr );
             if ( made )
-                LOG_INFO( "[WorldPartition] '{0}': {1} loaded, {2} HLOD record(s); process {3}", m_Owner.m_SceneName,
-                          Name( unit ), records.size(), Common::Utils::ReadProcessFootprint().Describe() );
+                LOG_INFO( "[WorldPartition] '{0}': {1} loaded, {2} HLOD record(s); process {3}",
+                          m_Owner.m_SceneName, Name( unit ), records.size(),
+                          Common::Utils::ReadProcessFootprint().Describe() );
             return made;
         }
 
@@ -609,8 +612,8 @@ namespace Desert::Core
             std::vector<Rules::LoadOutcome> finished = m_Loader.TakeFinished();
             for ( const Rules::LoadOutcome& outcome : finished )
                 if ( !outcome.Ok )
-                    LOG_ERROR( "[WorldPartition] '{0}': reading {1} failed, it is retried: {2}", m_Owner.m_SceneName,
-                               Name( outcome.Unit ), outcome.Reason );
+                    LOG_ERROR( "[WorldPartition] '{0}': reading {1} failed, it is retried: {2}",
+                               m_Owner.m_SceneName, Name( outcome.Unit ), outcome.Reason );
             return finished;
         }
 
@@ -904,8 +907,8 @@ namespace Desert::Core
         auto residency = Rules::MakeHLODResidency( m_Partition, hierarchy, counts );
         if ( !residency )
             return failed( residency.GetError() );
-        m_HLODHierarchy = std::move( hierarchy );
-        m_HLODResidency = residency.ExtractValue();
+        m_HLODHierarchy               = std::move( hierarchy );
+        m_HLODResidency               = residency.ExtractValue();
         const Rules::HLODHierarchy& h = *m_HLODHierarchy;
         const Rules::HLODResidency& r = *m_HLODResidency;
 
@@ -949,8 +952,8 @@ namespace Desert::Core
             if ( !records )
                 return failed( records.GetError() );
             made += records.GetValue().size();
-            if ( auto instantiated =
-                      SceneSerializer( m_Scene, m_Assets ).InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
+            if ( auto instantiated = SceneSerializer( m_Scene, m_Assets )
+                                          .InstantiateRecords( records.GetValue(), m_SceneName, nullptr );
                  !instantiated )
                 return failed( "making " + Rules::DescribeHLODUnit( h, r, unit ) +
                                " failed: " + instantiated.GetError() );
@@ -966,8 +969,8 @@ namespace Desert::Core
             LOG_INFO( "[WorldPartition] '{0}': {1} loaded at the start of Play, above the cells Edit kept.",
                       m_SceneName, Rules::DescribeHLODUnit( h, r, unit ) );
         }
-        auto executor =
-             Rules::ResidencyExecutor::BeginFromAlwaysLoaded( r.Plan, r.Partition, m_Settings, r.Records, {}, atBegin );
+        auto executor = Rules::ResidencyExecutor::BeginFromAlwaysLoaded( r.Plan, r.Partition, m_Settings,
+                                                                         r.Records, {}, atBegin );
         if ( !executor )
             return failed( "the HLOD cells: " + executor.GetError() );
         m_HLODExecutor = executor.ExtractValue();
@@ -981,10 +984,11 @@ namespace Desert::Core
                            : std::to_string( holes.size() ) +
                                   " drawing record(s) have none and leave a hole while their cell is not drawn: " +
                                   Rules::DescribeHLODHoles( holes );
-        LOG_INFO( "[WorldPartition] '{0}': {1} HLOD(s) in {2} streamed HLOD cell(s) and {3} resident for the session "
-                  "({4} record(s) made one HLOD at a time); process before: {5}; after: {6}; {7}.",
-                  m_SceneName, h.Nodes.size(), r.Plan.Cells.size(), r.Plan.AlwaysLoaded.size(), made,
-                  before.Describe(), Common::Utils::ReadProcessFootprint().Describe(), holesText );
+        LOG_INFO(
+             "[WorldPartition] '{0}': {1} HLOD(s) in {2} streamed HLOD cell(s) and {3} resident for the session "
+             "({4} record(s) made one HLOD at a time); process before: {5}; after: {6}; {7}.",
+             m_SceneName, h.Nodes.size(), r.Plan.Cells.size(), r.Plan.AlwaysLoaded.size(), made, before.Describe(),
+             Common::Utils::ReadProcessFootprint().Describe(), holesText );
         return BOOLSUCCESS;
     }
 

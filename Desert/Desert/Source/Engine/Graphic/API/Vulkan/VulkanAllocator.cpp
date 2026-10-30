@@ -352,7 +352,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanAllocator::RT_DestroyBuffer( VkBuffer buffer, VmaAllocation allocation )
     {
         if ( !buffer || !allocation ) return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_BufferDeletionQueue.push_back( { buffer, allocation, queuedFrame } );
     }
@@ -569,7 +569,7 @@ namespace Desert::Graphic::API::Vulkan
                                            const std::vector<VkImageView>& mipImageViews )
     {
         if ( !image || !allocation ) return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_ImageDeletionQueue.push_back( { image, allocation, imageView, mipImageViews, queuedFrame } );
     }
@@ -577,7 +577,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanAllocator::RT_DestroyFramebuffer( VkFramebuffer framebuffer )
     {
         if ( !framebuffer ) return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_FramebufferDeletionQueue.push_back( { framebuffer, queuedFrame } );
     }
@@ -585,7 +585,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanAllocator::RT_DestroyRenderPass( VkRenderPass renderPass )
     {
         if ( !renderPass ) return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_RenderPassDeletionQueue.push_back( { renderPass, queuedFrame } );
     }
@@ -594,7 +594,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( queryPool == VK_NULL_HANDLE )
             return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_QueryPoolDeletionQueue.push_back( { queryPool, queuedFrame } );
     }
@@ -603,7 +603,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( pipeline == VK_NULL_HANDLE && layout == VK_NULL_HANDLE )
             return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_PipelineDeletionQueue.push_back( { pipeline, layout, queuedFrame } );
     }
@@ -613,7 +613,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( accelerationStructure == VK_NULL_HANDLE || destroy == nullptr )
             return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_AccelerationStructureDeletionQueue.push_back( { accelerationStructure, destroy, queuedFrame } );
     }
@@ -622,7 +622,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( descriptorPool == VK_NULL_HANDLE )
             return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_DescriptorPoolDeletionQueue.push_back( { descriptorPool, queuedFrame, {} } );
     }
@@ -631,7 +631,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( !destroy )
             return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_HostObjectDeletionQueue.push_back( { std::move( destroy ), queuedFrame } );
     }
@@ -640,7 +640,7 @@ namespace Desert::Graphic::API::Vulkan
     {
         if ( pool == VK_NULL_HANDLE || sets.empty() )
             return;
-        const uint64_t queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        const uint64_t        queuedFrame = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
         const std::lock_guard lock( m_DeletionMutex );
         m_DescriptorPoolDeletionQueue.push_back( { pool, queuedFrame, std::move( sets ) } );
     }

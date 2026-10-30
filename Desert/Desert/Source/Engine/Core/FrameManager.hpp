@@ -52,11 +52,20 @@ namespace Desert::Engine
             m_AbsoluteFrameCount.fetch_add( 1 );
         }
 
-        [[nodiscard]] uint32_t GetCurrentFrameIndex() const { return m_CurrentFrameIndex.load(); }
-        [[nodiscard]] uint32_t GetMaxFramesInFlight() const { return m_MaxFramesInFlight.load(); }
+        [[nodiscard]] uint32_t GetCurrentFrameIndex() const
+        {
+            return m_CurrentFrameIndex.load();
+        }
+        [[nodiscard]] uint32_t GetMaxFramesInFlight() const
+        {
+            return m_MaxFramesInFlight.load();
+        }
         /// The frame being recorded, counted from the first swapchain; never wraps (unlike the ring slot), so a
         /// deletion tagged with it is retired by one rule whatever thread queued it (VulkanAllocator::IsRetired).
-        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const { return m_AbsoluteFrameCount.load(); }
+        [[nodiscard]] uint64_t GetAbsoluteFrameCount() const
+        {
+            return m_AbsoluteFrameCount.load();
+        }
 
     private:
         std::atomic<uint32_t> m_CurrentFrameIndex{ 0 };

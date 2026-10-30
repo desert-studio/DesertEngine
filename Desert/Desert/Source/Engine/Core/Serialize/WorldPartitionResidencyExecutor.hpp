@@ -226,8 +226,8 @@ namespace Desert::Core::Rules
             {
                 if ( unit < executor.m_Plan.AlwaysLoaded.size() || unit >= ResidencyUnitCount( executor.m_Plan ) )
                     return Common::MakeError<ResidencyExecutor>(
-                         std::format( "ResidencyExecutor: unit {} was made at the start and is no cell of {}", unit,
-                                      ResidencyUnitCount( executor.m_Plan ) ) );
+                         std::format( "ResidencyExecutor: unit {} was made at the start and is no cell of {}",
+                                      unit, ResidencyUnitCount( executor.m_Plan ) ) );
                 executor.MarkActivated( unit );
             }
             for ( std::size_t record = 0; record < recordCount; ++record )

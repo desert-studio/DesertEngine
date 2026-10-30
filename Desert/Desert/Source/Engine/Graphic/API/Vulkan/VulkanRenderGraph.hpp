@@ -346,9 +346,9 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<Entry<VulkanRdgTexture>> m_Textures;
         std::vector<Entry<VulkanRdgBuffer>>  m_Buffers;
         // Written by BeginFrame (render thread), read by Retire on any thread.
-        std::atomic<uint64_t>                m_Frame{ 1 };
-        std::mutex                           m_RetiredMutex; // guards m_Retired only
-        std::vector<RetiredTexture>          m_Retired;
+        std::atomic<uint64_t>       m_Frame{ 1 };
+        std::mutex                  m_RetiredMutex; // guards m_Retired only
+        std::vector<RetiredTexture> m_Retired;
     };
 
     // The dedicated (extracted) render graph resources' own ledger, by resource name: VMA allocations outside

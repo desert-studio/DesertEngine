@@ -103,7 +103,7 @@ namespace Desert::Water
         /// The ring unit one view measures with: GetLODScale() stretched by the view's lens
         /// (Graphic::DrawDistanceScale), so a k-times zoom keeps every ring - and the vertex morph that reads the
         /// same unit - k times farther out. The tree itself stays lens-agnostic: it takes this one scalar.
-        [[nodiscard]] float GetViewLODScale( float viewDistanceScale ) const;
+        [[nodiscard]] float    GetViewLODScale( float viewDistanceScale ) const;
         [[nodiscard]] uint32_t QuadsPerSide( int32_t densityIndex ) const
         {
             return static_cast<uint32_t>( m_NumQuadsLOD0 ) >> static_cast<uint32_t>( densityIndex );

@@ -6,8 +6,8 @@ namespace Desert::Graphic
 {
     // The cloud composite program's material. It carries one value (the view's PreExposure) and no textures: the
     // one image the pass reads -- the full-resolution RGBA16F cloud image (premultiplied radiance + transmittance)
-    // CloudUpsample wrote this frame from CloudTemporalResolve's half-resolution reconstruction and each pixel's own
-    // scene depth -- is a transient of the frame graph, bound by shader name (CloudScatterTexture) through
+    // CloudUpsample wrote this frame from CloudTemporalResolve's half-resolution reconstruction and each pixel's
+    // own scene depth -- is a transient of the frame graph, bound by shader name (CloudScatterTexture) through
     // RDG::PassBindings in the composite pass (VolumetricCloudRenderer::CompositePass). The pipeline's blend state
     // does the rest.
     class MaterialCloudComposite final : public Material

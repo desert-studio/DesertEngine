@@ -1019,12 +1019,11 @@ namespace Desert::Graphic::System
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
         // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
-        std::vector<
-             std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
+        std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
              byMesh;
         m_ScratchShadowBucketOf.clear();
-        const auto bucketFor = [&]( Desert::Mesh*       mesh,
-                                    const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
+        const auto bucketFor = [&]( Desert::Mesh*     mesh,
+                                    const SubmeshMask hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
             const auto [it, added] =
                  m_ScratchShadowBucketOf.try_emplace( ShadowBucketKey{ mesh, hidden }, byMesh.size() );

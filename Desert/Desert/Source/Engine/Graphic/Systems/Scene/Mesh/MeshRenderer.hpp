@@ -2626,9 +2626,9 @@ namespace Desert::Graphic::System
         // finds it without a search (BuildShadowCascadeDraws); a member so its nodes persist.
         struct ShadowBucketKey
         {
-            const Desert::Mesh*       Mesh = nullptr;
-            SubmeshMask               Hidden{};
-            bool                      operator==( const ShadowBucketKey& ) const = default;
+            const Desert::Mesh* Mesh = nullptr;
+            SubmeshMask         Hidden{};
+            bool                operator==( const ShadowBucketKey& ) const = default;
         };
         struct ShadowBucketKeyHash
         {

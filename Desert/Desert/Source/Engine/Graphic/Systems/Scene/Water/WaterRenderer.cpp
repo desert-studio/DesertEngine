@@ -337,7 +337,7 @@ namespace Desert::Graphic::System
             const Water::WaterQuadTree                  tree( zone.Zone, zone.Bodies );
             const std::vector<Water::WaterTileInstance> tiles =
                  tree.Traverse( observer, lensScale, &frustum, verticalExtent );
-            const float viewLODScale = tree.GetViewLODScale( lensScale );
+            const float     viewLODScale = tree.GetViewLODScale( lensScale );
             const glm::vec2 origin = tree.GetRootMin();
             for ( const Water::WaterTileInstance& tile : tiles )
             {
