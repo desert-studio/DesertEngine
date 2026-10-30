@@ -1,0 +1,11 @@
+# VIRT-GEOM-FAR: after VIRT-GEOM the small far meshes on Water_Ocean (Cube_60m, Sphere_150m) left the frame.
+# A far small mesh is drawn (coarse), never dropped. Same views as LAND-OLD.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/Water_Ocean.desce
+Дано --subject viewport set Camera.Position 0,250,400
+Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
+Дано run View "View mode: Lit"
+Тогда-вид 1_shore вдали на воде малый шар и куб, как кадр WATER p10; editor.log ошибок 0
+Когда set 2646278175089776126 WaterBodyData.WaterWaves assets:Water/Waves/StormOcean.dwaves
+Когда --subject viewport set Camera.Position 0,900,-5000
+Когда --subject viewport set Camera.Direction 0,-0.3,-0.95
+Тогда-вид 4_whitecaps без изменений против LAND-OLD p5
