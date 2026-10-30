@@ -406,7 +406,8 @@ namespace Desert::Engine::Neural
             records = capacity = kNrcMaxTrainingPaths;
         const uint32_t       dispatched = Groups( rows ) * kGroup;
         const RDG::BufferRef input      = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( dispatched ) * kFusedMlpWidth * sizeof( float ) }, "NRC.Input" );
+             RDG::BufferDesc{ static_cast<uint64_t>( dispatched ) * kFusedMlpWidth * sizeof( float ) },
+             "NRC.Input" );
         NrcPush push;
         push.Rows  = glm::uvec4( strideVec4, firstRow, dispatched, records );
         push.Extra = glm::uvec4( countIndex, capacity, countBase, 0u );
@@ -512,7 +513,7 @@ namespace Desert::Engine::Neural
                 return Common::MakeFormattedError( "NRC training forward: {}", forward.GetError() );
 
             const RDG::BufferRef outputGrad = graph.CreateBuffer(
-                 RDG::BufferDesc{ uint64_t( kNrcTrainingBatch ) * kFusedMlpWidth * sizeof( float ) },
+                 RDG::BufferDesc{ static_cast<uint64_t>( kNrcTrainingBatch ) * kFusedMlpWidth * sizeof( float ) },
                  "NRC.OutputGrad" );
             NrcPush lossPush;
             lossPush.Rows = glm::uvec4( step, kNrcTrainingBatch, kNrcMaxTrainingPaths, 0u );

@@ -62,6 +62,15 @@ foreach(layer IN LISTS DESERT_EDITOR_LAYERS)
     _desert_editor_compile_settings(${layer})
 endforeach()
 
+# The Windows system libraries EditorCore's own sources call, on EditorCore and not on one executable: the
+# control channel's socket (Editor/Core/Control/ControlSocket.cpp, AF_UNIX over Winsock, and the DACL that keeps
+# the socket file to its owner) and the system file dialogs (Editor/Platform/Windows/DesktopPlatformWindows.cpp).
+# Every binary that links EditorCore gets them -- the Editor, and GamePackager, whose unity object holding the
+# packer's members also holds ControlSocket. Not the engine: the shipped game has no control channel.
+if(DESERT_IS_WINDOWS)
+    target_link_libraries(EditorCore PUBLIC ws2_32 advapi32 comdlg32 shell32 ole32)
+endif()
+
 if(DESERT_IS_MACOS)
     desert_add_library(${DESERT_EDITOR_OBJC_LIB} SOURCES ${DESERT_EDITOR_OBJC_FILES})
     desert_depend_on_codegen(${DESERT_EDITOR_OBJC_LIB})
@@ -84,7 +93,6 @@ if(DESERT_IS_WINDOWS)
     # A windowed app that still enters through main() (WINDOWED + /ENTRY:mainCRTStartup).
     target_link_options(Editor PRIVATE /ENTRY:mainCRTStartup)
     target_sources(Editor PRIVATE "Resources/Branding/Editor.rc")
-    target_link_libraries(Editor PRIVATE ws2_32 advapi32 comdlg32 shell32 ole32)
 endif()
 desert_copy_streamline_runtime(Editor)
 # The OIDN runtime (PathTracing.Denoiser OIDN), cmake/DesertDependencies.cmake.

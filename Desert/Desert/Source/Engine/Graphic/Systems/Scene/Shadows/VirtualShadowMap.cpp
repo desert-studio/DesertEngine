@@ -930,7 +930,7 @@ namespace Desert::Graphic::System
              {
                  DESERT_PROFILE_PASS( "VSM: Project" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
-                 return Renderer::GetInstance().DispatchCompute(
+                 return Renderer::DispatchCompute(
                       bindings, *pipeline, Common::Math::DivideRoundUp( width, kScreenTile ),
                       Common::Math::DivideRoundUp( height, kScreenTile ), 1 );
              } );
@@ -979,7 +979,7 @@ namespace Desert::Graphic::System
                  DESERT_PROFILE_PASS( "VSM: Project Local" );
                  RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
                  bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
-                 return Renderer::GetInstance().DispatchCompute(
+                 return Renderer::DispatchCompute(
                       bindings, *pipeline, Common::Math::DivideRoundUp( push.x, kScreenTile ),
                       Common::Math::DivideRoundUp( push.y, kScreenTile ), push.z );
              } );

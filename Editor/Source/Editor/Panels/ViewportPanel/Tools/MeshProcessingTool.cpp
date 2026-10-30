@@ -173,7 +173,7 @@ namespace Desert::Editor::Tools
             {
                 if ( ms.ActiveTool != m_Session->Tool && ms.ReqCancel )
                     ms.ReqCancel = false;
-                Restore( scene );
+                Restore( scene, *m_Session );
                 m_Session.reset();
             }
         }
@@ -189,7 +189,7 @@ namespace Desert::Editor::Tools
                                    ms.DeformLattice.ZResolution );
             if ( dims != m_Session->Lattice->Dims && !BuildLattice( ms ) )
             {
-                Restore( scene );
+                Restore( scene, *m_Session );
                 m_Session.reset();
                 return;
             }
@@ -224,11 +224,11 @@ namespace Desert::Editor::Tools
                 m_Session->PendingCancel.Raise();
                 m_Session->Pending = {};
             }
-            Recompute( scene, ms );
+            Recompute( scene, ms, *m_Session );
         }
         if ( m_Session && m_Session->Pending.valid() &&
              m_Session->Pending.wait_for( std::chrono::seconds( 0 ) ) == std::future_status::ready )
-            ApplyResult( scene, ms );
+            ApplyResult( scene, ms, *m_Session );
 
         if ( ms.ReqAccept )
         {
@@ -270,7 +270,7 @@ namespace Desert::Editor::Tools
             m_Session->OtherCommitted = std::move( p.CommittedB );
             m_Session->NameA          = std::move( p.NameA );
             HideOther( scene );
-            Recompute( scene, ms );
+            Recompute( scene, ms, *m_Session );
             return;
         }
         const auto selected = SessionEntity( ms.ActiveTool );
@@ -337,7 +337,7 @@ namespace Desert::Editor::Tools
             m_Session.reset();
             return;
         }
-        Recompute( scene, ms );
+        Recompute( scene, ms, *m_Session );
     }
 
     void MeshProcessingTool::DrawWarpVisualization( const MS& ms, const glm::mat4& viewProj, const glm::vec2& viewportPos,
@@ -370,7 +370,7 @@ namespace Desert::Editor::Tools
         }
     }
 
-    void MeshProcessingTool::Recompute( ::Desert::Core::Scene& scene, MS& ms )
+    void MeshProcessingTool::Recompute( ::Desert::Core::Scene& scene, MS& ms, Session& session )
     {
         m_Smooth        = ms.DeformSmooth;
         m_Offset        = ms.DeformOffset;
@@ -395,22 +395,22 @@ namespace Desert::Editor::Tools
         // or the panel (UE's FDynamicMeshOperator gets the same snapshot from its factory, MakeNewOperator).
         // Warp: object space -> the gizmo's frame, as UE's FMeshSpaceDeformerOp::ObjectToGizmo.
         const glm::dmat4 objectToGizmo =
-             m_Session->Tool == MS::Tool::Warp
-                  ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) * glm::dmat4( WorldOf( scene, m_Session->Entity ) )
+             session.Tool == MS::Tool::Warp
+                  ? glm::inverse( glm::dmat4( ms.WarpGizmo ) ) * glm::dmat4( WorldOf( scene, session.Entity ) )
                   : glm::dmat4( 1.0 );
         // Remesh: the edge length is world cm (UE measures the mesh it shows), so the entity's transform.
-        const glm::dmat4                    objectToWorld( WorldOf( scene, m_Session->Entity ) );
-        std::optional<Geometry::FFDLattice> lattice = m_Session->Lattice;
+        const glm::dmat4                    objectToWorld( WorldOf( scene, session.Entity ) );
+        std::optional<Geometry::FFDLattice> lattice = session.Lattice;
         auto cancel                                 = std::make_shared<Geometry::ProgressCancel>();
-        m_Session->PendingCancel                    = CancelOnDrop( cancel );
-        m_Session->PendingStarted                   = std::chrono::steady_clock::now();
-        m_Session->Pending                          = Common::JobSystem::Get().Async(
-             [cancel = std::move( cancel ), tool = m_Session->Tool, input = m_Session->Input, smooth = m_Smooth,
+        session.PendingCancel                    = CancelOnDrop( cancel );
+        session.PendingStarted                   = std::chrono::steady_clock::now();
+        session.Pending                          = Common::JobSystem::Get().Async(
+             [cancel = std::move( cancel ), tool = session.Tool, input = session.Input, smooth = m_Smooth,
               offset = m_Offset, voxWrap = m_VoxWrap, voxBoolean = m_VoxBoolean, voxMorph = m_VoxMorph,
-              voxBlend = m_VoxBlend, other = m_Session->OtherInput, normals = m_Normals, tangents = m_Tangents,
+              voxBlend = m_VoxBlend, other = session.OtherInput, normals = m_Normals, tangents = m_Tangents,
               holeFill = m_HoleFill, holes = m_HoleFillSelected, jacket = m_Jacket, remesh = m_Remesh,
               simplify = m_Simplify, project = m_Project, weldEdges = m_WeldEdges,
-              targetMesh = m_Session->TargetMesh, targetToInput = m_Session->TargetToInput, warp = m_Warp,
+              targetMesh = session.TargetMesh, targetToInput = session.TargetToInput, warp = m_Warp,
               latticeSettings = m_Lattice, points = m_LatticePoints, lattice = std::move( lattice ), objectToGizmo,
               objectToWorld]() -> Common::ResultStr<Geometry::DeformOutcome>
              {
@@ -451,34 +451,38 @@ namespace Desert::Editor::Tools
                          return Geometry::Warp( *input, warp, objectToGizmo );
                  }
              } );
-        ms.DeformStatus = std::format( "{}: computing...", ProcessingToolName( m_Session->Tool ) );
+        ms.DeformStatus = std::format( "{}: computing...", ProcessingToolName( session.Tool ) );
     }
 
-    void MeshProcessingTool::ApplyResult( ::Desert::Core::Scene& scene, MS& ms )
+    void MeshProcessingTool::ApplyResult( ::Desert::Core::Scene& scene, MS& ms, Session& session )
     {
-        Common::ResultStr<Geometry::DeformOutcome> out = m_Session->Pending.get();
-        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ProcessingToolName( m_Session->Tool ),
+        Common::ResultStr<Geometry::DeformOutcome> out = session.Pending.get();
+        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ProcessingToolName( session.Tool ),
                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
-                                                             m_Session->PendingStarted )
+                                                             session.PendingStarted )
                        .count() );
         if ( !out.IsSuccess() )
         {
             // A refused setting shows the input, not a stale preview.
             ms.DeformStatus = out.GetError();
-            Restore( scene );
-            m_Session->Preview.reset();
+            Restore( scene, session );
+            session.Preview.reset();
             return;
         }
         std::string report = out.GetValue().Report;
         auto preview = std::make_shared<const Geometry::DynamicMesh3>( std::move( out.ExtractValue().Mesh ) );
-        if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), preview ); !set.IsSuccess() )
+        const auto            entity = scene.FindEntityByID( session.Entity );
+        Common::BoolResultStr set    = Common::MakeError<bool>( "the entity is no longer in the scene" );
+        if ( entity )
+            set = ECS::SetEditableMesh( scene.GetRegistry(), entity->get().GetHandle(), preview );
+        if ( !set.IsSuccess() )
         {
             ms.DeformStatus = set.GetError();
-            Restore( scene );
-            m_Session->Preview.reset();
+            Restore( scene, session );
+            session.Preview.reset();
             return;
         }
-        m_Session->Preview = std::move( preview );
+        session.Preview = std::move( preview );
         ms.DeformStatus    = std::move( report );
     }
 
@@ -494,38 +498,40 @@ namespace Desert::Editor::Tools
         m_Session->OtherHidden = true;
     }
 
-    void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene )
+    void MeshProcessingTool::Restore( ::Desert::Core::Scene& scene, Session& session )
     {
-        if ( m_Session->OtherHidden )
+        if ( session.OtherHidden )
         {
-            m_Session->OtherHidden = false;
-            if ( const auto ref = scene.FindEntityByID( m_Session->Other ); ref )
+            session.OtherHidden = false;
+            if ( const auto ref = scene.FindEntityByID( session.Other ); ref )
             {
                 ECS::Entity b = ref->get();
-                if ( !m_Session->OtherVisibility )
+                if ( !session.OtherVisibility )
                 {
                     if ( b.HasComponent<ECS::VisibilityComponent>() )
                         b.RemoveComponent<ECS::VisibilityComponent>();
                 }
                 else if ( b.HasComponent<ECS::VisibilityComponent>() )
-                    b.SetVisible( *m_Session->OtherVisibility );
+                    b.SetVisible( *session.OtherVisibility );
             }
         }
-        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
-        if ( component == nullptr )
+        const auto                entity    = scene.FindEntityByID( session.Entity );
+        ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, session.Entity );
+        if ( !entity || component == nullptr )
             return;
-        switch ( PlanMeshRestore( component->GetEditableMesh(), m_Session->Committed ) )
+        const auto handle = entity->get().GetHandle();
+        switch ( PlanMeshRestore( component->GetEditableMesh(), session.Committed ) )
         {
             case MeshRestore::Unchanged:
                 break;
             case MeshRestore::Clear:
-                ECS::ClearEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle() );
+                ECS::ClearEditableMesh( scene.GetRegistry(), handle );
                 break;
             case MeshRestore::Set:
-                if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Committed );
+                if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), handle, session.Committed );
                      !set.IsSuccess() )
                     LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}",
-                               ProcessingToolName( m_Session->Tool ), set.GetError() );
+                               ProcessingToolName( session.Tool ), set.GetError() );
                 break;
         }
     }
@@ -576,7 +582,7 @@ namespace Desert::Editor::Tools
         if ( !refA || !refB )
             return refuse( "an input is no longer in the scene" );
         // A goes back to what it held; the result lands on a copy of A, in A's frame (the operator ran there).
-        Restore( scene );
+        Restore( scene, *m_Session );
         const auto&                tc = refA->get().GetComponent<ECS::TransformComponent>();
         Commands::XformEntityState state{ m_Session->Entity, m_Session->Preview, tc.GetTranslation(), tc.GetRotation(),
                                           tc.GetScale(),          std::nullopt,       std::nullopt };

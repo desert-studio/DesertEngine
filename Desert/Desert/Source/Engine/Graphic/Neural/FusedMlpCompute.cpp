@@ -335,11 +335,12 @@ namespace Desert::Engine::Neural
 
         const uint32_t       L = inputs.Shape.MatrixCount();
         FusedMlpGraphOutputs out;
-        out.Output =
-             graph.CreateBuffer( RDG::BufferDesc{ uint64_t( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
-                                 "NeuralFusedMlp.Output" );
+        out.Output      = graph.CreateBuffer(
+             RDG::BufferDesc{ static_cast<uint64_t>( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
+             "NeuralFusedMlp.Output" );
         out.Activations = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( L ) * inputs.Batch * kFusedMlpWidth * FusedMlpStoredElementBytes( path ) },
+             RDG::BufferDesc{ static_cast<uint64_t>( L ) * inputs.Batch * kFusedMlpWidth *
+                              FusedMlpStoredElementBytes( path ) },
              "NeuralFusedMlp.Activations" );
 
         // Forward: h_0 = input, h_{l+1} = ReLU(W_l h_l), y = W_last h_last.
@@ -372,9 +373,9 @@ namespace Desert::Engine::Neural
             return Common::MakeError<RDG::BufferRef>( acquired.GetError() );
         Kernel& inference = *acquired.GetValue();
 
-        const RDG::BufferRef output =
-             graph.CreateBuffer( RDG::BufferDesc{ uint64_t( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
-                                 "NeuralFusedMlp.InferenceOutput" );
+        const RDG::BufferRef output = graph.CreateBuffer(
+             RDG::BufferDesc{ static_cast<uint64_t>( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
+             "NeuralFusedMlp.InferenceOutput" );
         graph.AddPass(
              "NN: Inference", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -416,10 +417,11 @@ namespace Desert::Engine::Neural
         const uint32_t       batch = inputs.Batch;
         FusedMlpGraphOutputs out   = forward;
         out.Grads                  = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( L ) * batch * kFusedMlpWidth * FusedMlpStoredElementBytes( path ) },
+             RDG::BufferDesc{ static_cast<uint64_t>( L ) * batch * kFusedMlpWidth *
+                              FusedMlpStoredElementBytes( path ) },
              "NeuralFusedMlp.Grads" );
         out.WeightGrad = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( L ) * kFusedMlpWidth * kFusedMlpWidth * sizeof( float ) },
+             RDG::BufferDesc{ static_cast<uint64_t>( L ) * kFusedMlpWidth * kFusedMlpWidth * sizeof( float ) },
              "NeuralFusedMlp.WeightGrad" );
 
         const NeuralMlpPush push{ .Batch = batch, .MatrixCount = L };
@@ -561,8 +563,8 @@ namespace Desert::Engine::Neural
         };
 
         FusedMlpResult gpu;
-        gpu.Output.resize( size_t( problem.Batch ) * kFusedMlpWidth );
-        gpu.WeightGrad.resize( size_t( L ) * kFusedMlpWidth * kFusedMlpWidth );
+        gpu.Output.resize( static_cast<size_t>( problem.Batch ) * kFusedMlpWidth );
+        gpu.WeightGrad.resize( static_cast<size_t>( L ) * kFusedMlpWidth * kFusedMlpWidth );
         const auto output = bytesOf( m_Output, gpu.Output.size() * sizeof( float ), "output" );
         if ( !output )
             return Common::MakeError<FusedMlpPathCheck>( output.GetError() );
@@ -572,9 +574,11 @@ namespace Desert::Engine::Neural
         if ( !weightGrad )
             return Common::MakeError<FusedMlpPathCheck>( weightGrad.GetError() );
         std::memcpy( gpu.WeightGrad.data(), weightGrad.GetValue().data(), weightGrad.GetValue().size() );
-        const auto activations = bytesOf(
-             m_Activations, size_t( L ) * problem.Batch * kFusedMlpWidth * FusedMlpStoredElementBytes( m_Path ),
-             "activation" );
+        const auto activations =
+             bytesOf( m_Activations,
+                      static_cast<size_t>( L ) * problem.Batch * kFusedMlpWidth *
+                           FusedMlpStoredElementBytes( m_Path ),
+                      "activation" );
         if ( !activations )
             return Common::MakeError<FusedMlpPathCheck>( activations.GetError() );
         gpu.Activations = FromStored( activations.GetValue(), m_Path );
@@ -588,7 +592,7 @@ namespace Desert::Engine::Neural
         if ( !reference )
             return Common::MakeFormattedError<FusedMlpPathCheck>(
                  "NN {} activation read-back holds {} values, the shape needs {}", name, gpu.Activations.size(),
-                 size_t( L ) * problem.Batch * kFusedMlpWidth );
+                 static_cast<size_t>( L ) * problem.Batch * kFusedMlpWidth );
 
         FusedMlpPathCheck check;
         check.Path   = m_Path;

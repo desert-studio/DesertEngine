@@ -161,12 +161,12 @@ namespace Desert::Editor::Tools
 
         void               Begin( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // Starts the operator in the background with the panel's settings (they become the "computed with" ones).
-        void               Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        void               Recompute( ::Desert::Core::Scene& scene, Core::ModelingState& ms, Session& session );
         // The background operator finished: its mesh becomes the preview, or its refusal the status.
-        void               ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
+        void               ApplyResult( ::Desert::Core::Scene& scene, Core::ModelingState& ms, Session& session );
         // VoxBoolean: hides input B for the session (Restore shows it again).
         void               HideOther( ::Desert::Core::Scene& scene );
-        void               Restore( ::Desert::Core::Scene& scene );
+        void               Restore( ::Desert::Core::Scene& scene, Session& session );
         [[nodiscard]] bool Accept( ::Desert::Core::Scene& scene, Core::ModelingState& ms );
         // VoxBoolean's and VoxMorph's Accept (UE UBaseCreateFromSelectedTool::OnShutdown): the preview becomes a
         // NEW entity (a copy of A carrying the result), the inputs are deleted / hidden / kept - all one undo
