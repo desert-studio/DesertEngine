@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -20,6 +21,8 @@ namespace Desert::Graphic::System
                                           const float viewHeightPixels, const uint64_t frame,
                                           const bool requestLevels )
     {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::ApplyDisplacement" );
+
         // BAKED displacement (§1g): the cooked dense mesh IS the geometry - no levels, no cache entry - drawn with
         // the displaced slots like a twin (no double relief). Captures substitute too: every view draws one surface.
         for ( StaticMeshRenderData& data : m_StaticQueue )
@@ -217,62 +220,91 @@ namespace Desert::Graphic::System
                     data.MaterialSlots = data.MaterialSlots->Displaced;
             }
 
-        // Split each displaced ISM record by the twin its instances draw: the base keeps the undisplaced ones, every
-        // twin gets a record of its own with the displaced material, each instance keeping its GPU-scene row.
-        std::vector<InstancedMeshRenderData> twins;
+        // Split each displaced ISM record by the twin its instances draw: the base keeps the undisplaced ones,
+        // every twin gets a record of its own with the displaced material, each instance keeping its GPU-scene
+        // row. The split is cached (m_DisplacedSplits): re-derived only when the record names another transform
+        // snapshot or the cache's twin generation moved, so a steady frame neither asks Find() per instance nor
+        // allocates.
+        if ( frame != m_DisplacedSplitFrame )
+        {
+            const uint64_t previous = m_DisplacedSplitFrame;
+            std::erase_if( m_DisplacedSplits,
+                           [previous]( const auto& held ) { return held.second.Frame != previous; } );
+            m_DisplacedSplitFrame = frame;
+        }
+        const uint64_t generation = cache.GetTwinGeneration();
+        m_DisplacedTwinRecords.clear();
         for ( InstancedMeshRenderData& ism : m_InstancedQueue )
         {
-            if ( ism.Mesh == nullptr || !ism.DisplacedMaterial || !ism.Mesh->GetDisplacementTopology() )
+            if ( ism.Mesh == nullptr || !ism.DisplacedMaterial || !ism.Mesh->GetDisplacementTopology() ||
+                 !ism.Transforms )
                 continue;
-            const std::vector<glm::mat4>& transforms = *ism.Transforms;
-            std::vector<std::pair<std::shared_ptr<StaticMesh>, uint32_t>> drawn;
-            drawn.reserve( transforms.size() );
-            bool anyTwin = false;
-            for ( size_t i = 0; i < transforms.size(); ++i )
+            DisplacedSplit& split = m_DisplacedSplits[DisplacedSplitKey{ ism.Entity, ism.HiddenSubmeshes }];
+            split.Frame           = frame;
+            if ( split.Snapshot != ism.Transforms || split.TwinGeneration != generation )
             {
-                drawn.emplace_back( cache.Find( ism.Entity, ismPart( i, ism.HiddenSubmeshes ) ),
-                                    static_cast<uint32_t>( i ) );
-                anyTwin = anyTwin || drawn.back().first != nullptr;
-            }
-            if ( !anyTwin )
-                continue;
-            // Group by twin, in first-seen order (deterministic draw order).
-            std::vector<std::shared_ptr<StaticMesh>> order;
-            for ( const auto& [twin, i] : drawn )
-                if ( std::find( order.begin(), order.end(), twin ) == order.end() )
-                    order.push_back( twin );
-            InstancedMeshRenderData base = ism;
-            bool                    keepBase = false;
-            for ( const std::shared_ptr<StaticMesh>& twin : order )
-            {
-                auto subset = std::make_shared<std::vector<glm::mat4>>();
-                auto ids    = std::make_shared<std::vector<uint32_t>>();
-                for ( const auto& [t, i] : drawn )
-                    if ( t == twin )
-                    {
-                        subset->push_back( transforms[i] );
-                        ids->push_back( i );
-                    }
-                InstancedMeshRenderData group = ism;
-                group.Transforms               = std::move( subset );
-                group.InstanceIds              = std::move( ids );
-                if ( twin == nullptr )
+                split.Snapshot       = ism.Transforms;
+                split.TwinGeneration = generation;
+                split.Groups.clear();
+                const std::vector<glm::mat4>&                                 transforms = *ism.Transforms;
+                std::vector<std::pair<std::shared_ptr<StaticMesh>, uint32_t>> drawn;
+                drawn.reserve( transforms.size() );
+                bool anyTwin = false;
+                for ( size_t i = 0; i < transforms.size(); ++i )
                 {
-                    base     = group;
-                    keepBase = true;
+                    drawn.emplace_back( cache.Find( ism.Entity, ismPart( i, ism.HiddenSubmeshes ) ),
+                                        static_cast<uint32_t>( i ) );
+                    anyTwin = anyTwin || drawn.back().first != nullptr;
+                }
+                if ( anyTwin )
+                {
+                    // Group by twin, in first-seen order (deterministic draw order).
+                    for ( const auto& [twin, i] : drawn )
+                        if ( std::none_of( split.Groups.begin(), split.Groups.end(),
+                                           [&twin]( const DisplacedSplitGroup& g ) { return g.Twin == twin; } ) )
+                            split.Groups.push_back( DisplacedSplitGroup{ .Twin = twin } );
+                    for ( DisplacedSplitGroup& group : split.Groups )
+                    {
+                        auto subset = std::make_shared<std::vector<glm::mat4>>();
+                        auto ids    = std::make_shared<std::vector<uint32_t>>();
+                        for ( const auto& [t, i] : drawn )
+                            if ( t == group.Twin )
+                            {
+                                subset->push_back( transforms[i] );
+                                ids->push_back( i );
+                            }
+                        group.Transforms  = std::move( subset );
+                        group.InstanceIds = std::move( ids );
+                    }
+                }
+            }
+            if ( split.Groups.empty() )
+                continue; // no instance draws a twin: the record draws as queued
+            const DisplacedSplitGroup* base = nullptr;
+            for ( const DisplacedSplitGroup& group : split.Groups )
+            {
+                if ( group.Twin == nullptr )
+                {
+                    base = &group;
                     continue;
                 }
-                group.Mesh     = twin.get(); // held by the cache past this frame's draws
-                group.Material = ism.DisplacedMaterial;
-                twins.push_back( std::move( group ) );
+                InstancedMeshRenderData& twin = m_DisplacedTwinRecords.emplace_back( ism );
+                twin.Transforms               = group.Transforms;
+                twin.InstanceIds              = group.InstanceIds;
+                twin.Mesh                     = group.Twin.get(); // held by the cache past this frame's draws
+                twin.Material                 = ism.DisplacedMaterial;
             }
-            if ( keepBase )
-                ism = std::move( base );
+            if ( base != nullptr )
+            {
+                ism.Transforms  = base->Transforms;
+                ism.InstanceIds = base->InstanceIds;
+            }
             else
                 ism.Transforms.reset(); // every instance draws a twin: the record is dropped below
         }
         std::erase_if( m_InstancedQueue, []( const InstancedMeshRenderData& ism ) { return !ism.Transforms; } );
-        for ( InstancedMeshRenderData& twin : twins )
+        for ( InstancedMeshRenderData& twin : m_DisplacedTwinRecords )
             m_InstancedQueue.push_back( std::move( twin ) );
+        m_DisplacedTwinRecords.clear();
     }
 } // namespace Desert::Graphic::System

@@ -391,8 +391,8 @@ namespace Desert::Graphic::System
             InstanceCullDistance CullDistance;
             // The field's foliage type's wind (FO-7) at this frame's gameplay time; still for any other ISM.
             InstanceWind Wind;
-            // Where this field's GpuScene instances start in GetInstancedGpuInstances() (SyncGpuScene): instance
-            // i is GpuScene instance GetInstancedGpuInstances()[FirstGpuInstance + i] - its TLAS custom index and
+            // This field's first GpuScene instance (SyncGpuScene; a field's instances are one contiguous run):
+            // instance i is GpuScene instance FirstGpuInstance + i - its TLAS custom index and
             // its GI card-table row (one row per instance, 1:1 with the TLAS instance).
             uint32_t FirstGpuInstance = 0;
         };
@@ -821,7 +821,7 @@ namespace Desert::Graphic::System
         {
             return m_GenericQueue;
         }
-        // This frame's ISM / foliage fields; with GetInstancedGpuInstances, one TLAS instance per field instance.
+        // This frame's ISM / foliage fields; one TLAS instance per field instance (FirstGpuInstance + i).
         [[nodiscard]] std::span<const InstancedMeshRenderData> GetInstancedQueue() const
         {
             return m_InstancedQueue;
@@ -836,11 +836,6 @@ namespace Desert::Graphic::System
         [[nodiscard]] std::span<const GpuDriven::PrimitiveIndex> GetFieldPrimitives() const
         {
             return m_FieldPrimitives;
-        }
-        // Every queued field's per-instance GPU-scene rows, end to end (InstancedMeshRenderData::FirstGpuInstance).
-        [[nodiscard]] std::span<const uint32_t> GetInstancedGpuInstances() const
-        {
-            return m_InstancedGpuInstances;
         }
         // Cascaded shadow maps: the CEILING on directional-shadow cascades — how many the arrays below
         // hold and how many the ShadowUB block can carry. It is the block's own constant, so the cascades
@@ -2228,11 +2223,25 @@ namespace Desert::Graphic::System
         // is not empty), what a generic draw names while its pipeline compiles (BuildGenericDraws).
         std::optional<uint32_t> m_GenericStandInRow;
 
-        // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row (GpuScene::AddMaterialRow).
-        // SyncGpuScene registers the row of every (template, instance) a queued draw shades with BEFORE the scene's
-        // upload, so the table is at its final size and content before any pass is declared; the draw paths only
-        // look rows up and lend the table to the recording cell. Cleared at each SyncGpuScene.
-        std::unordered_map<GpuDriven::MaterialRowKey, uint32_t, GpuDriven::MaterialRowKeyHash> m_FrameMaterialRows;
+        // THE SCENE MATERIAL TABLE, the one source of every mesh draw's Materials[] row
+        // (GpuScene::AddMaterialRow). SyncGpuScene registers the row of every (template, instance) a queued draw
+        // shades with BEFORE the scene's upload, so the table is at its final size and content before any pass is
+        // declared; the draw paths only look rows up and lend the table to the recording cell. A row counts for
+        // the SyncGpuScene that claimed it (Sync == m_MaterialRowSync); the nodes are kept across syncs (no
+        // per-frame map rebuild), and a key no sync claimed since the previous one is dropped at the next
+        // SyncGpuScene.
+        struct FrameMaterialRow
+        {
+            uint32_t Index = 0;
+            uint64_t Sync  = 0; // the SyncGpuScene (m_MaterialRowSync) that registered Index
+        };
+        std::unordered_map<GpuDriven::MaterialRowKey, FrameMaterialRow, GpuDriven::MaterialRowKeyHash>
+                 m_FrameMaterialRows;
+        uint64_t m_MaterialRowSync = 0;
+        // @p key's entry for this SyncGpuScene and whether this sync had not claimed it before (its Index is then
+        // the caller's to set). Starts the sync's registrations: BeginMaterialRowSync.
+        std::pair<FrameMaterialRow*, bool> ClaimFrameMaterialRow( const GpuDriven::MaterialRowKey& key );
+        void                               BeginMaterialRowSync();
         // The surface and instance each scene material row was registered for (RegisterMaterialRow), indexed by
         // row: what ResolveBinnedPipeline turns a GpuDrawSlot's MaterialRow back into a cell with.
         struct RowSurface
@@ -2288,8 +2297,23 @@ namespace Desert::Graphic::System
         // Attaches (pass, view)'s issue to @p list when it is active this frame.
         void AttachBinned( MeshRendererDetail::MeshDrawList& list, GpuDriven::MeshPass pass,
                            uint32_t viewKey ) const;
-        std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_BinnedFeed;
-        std::unordered_map<GpuDriven::PrimitiveIndex, BinnedPrimitiveFeed> m_ScratchBinnedFeed;
+        // Per GpuScene primitive index (dense: the scene's rows are reused slots), the cache's entry and this
+        // feed's gather. Persistent, so a steady scene allocates nothing per frame (was two maps of per-primitive
+        // nodes and row vectors rebuilt and freed by every feed): Frame is this feed's when FrameFeed ==
+        // m_BinnedFeedSerial, Held is the cache's when IsHeld; publishing swaps the two (no copy).
+        struct BinnedFeedSlot
+        {
+            BinnedPrimitiveFeed Held;
+            BinnedPrimitiveFeed Frame;
+            uint64_t            FrameFeed = 0;
+            bool                IsHeld    = false;
+        };
+        std::vector<BinnedFeedSlot>            m_BinnedFeed;
+        std::vector<GpuDriven::PrimitiveIndex> m_BinnedFrameTouched; // this feed's primitives, first-claim order
+        std::vector<GpuDriven::PrimitiveIndex> m_BinnedHeld;         // every slot with IsHeld
+        uint64_t                               m_BinnedFeedSerial = 0;
+        // This feed's entry of @p primitive, else the cache's, else null (ResolveBinnedPipeline).
+        [[nodiscard]] const BinnedPrimitiveFeed* BinnedFeedOf( GpuDriven::PrimitiveIndex primitive ) const;
         std::unordered_set<std::string>                                    m_BinnedRefused; // said once each
         // The bins' PSOs BinnedCellPipeline found still compiling (their draws answered PipelineUnavailable): the
         // frame one of them leaves the driver, FeedDrawCommandCache re-resolves the cache's draws.
@@ -2363,7 +2387,41 @@ namespace Desert::Graphic::System
         // UE-style Instanced Static Meshes (one entity = N instances). Folded into the shared instanced
         // pipeline/SSBO alongside the auto-batched static meshes (geometry + shadow passes).
         std::vector<InstancedMeshRenderData> m_InstancedQueue;
-        std::vector<uint32_t>                m_InstancedGpuInstances; // see GetInstancedGpuInstances
+        // ApplyDisplacement's split of a displaced ISM record by the twin each instance draws (UE keeps a
+        // primitive's cached draw commands until its proxy or the resources they name change): derived from the
+        // record's transform snapshot and the cache's Find() answers, so it is kept while the record names the
+        // SAME snapshot object (held here, so its address cannot be reused while compared) and the cache's twin
+        // generation is unchanged. Groups in first-seen twin order; a null Twin is the base's undisplaced
+        // instances; no group = no instance draws a twin. A record no view of the last frame split is dropped.
+        struct DisplacedSplitKey
+        {
+            uint32_t Entity          = 0;
+            uint64_t HiddenSubmeshes = 0; // the section group: its instances are their own cache entries
+            bool     operator==( const DisplacedSplitKey& ) const = default;
+        };
+        struct DisplacedSplitKeyHash
+        {
+            [[nodiscard]] std::size_t operator()( const DisplacedSplitKey& key ) const noexcept
+            {
+                return std::hash<uint64_t>{}( key.HiddenSubmeshes * 0x9E3779B97F4A7C15ull ^ key.Entity );
+            }
+        };
+        struct DisplacedSplitGroup
+        {
+            std::shared_ptr<Desert::StaticMesh>           Twin; // null = the base mesh
+            std::shared_ptr<const std::vector<glm::mat4>> Transforms;
+            std::shared_ptr<const std::vector<uint32_t>>  InstanceIds;
+        };
+        struct DisplacedSplit
+        {
+            std::shared_ptr<const std::vector<glm::mat4>> Snapshot;
+            uint64_t                                      TwinGeneration = 0;
+            uint64_t                                      Frame          = 0;
+            std::vector<DisplacedSplitGroup>              Groups;
+        };
+        std::unordered_map<DisplacedSplitKey, DisplacedSplit, DisplacedSplitKeyHash> m_DisplacedSplits;
+        uint64_t                                                                     m_DisplacedSplitFrame = 0;
+        std::vector<InstancedMeshRenderData> m_DisplacedTwinRecords;  // scratch: the twins' records, capacity kept
         std::vector<uint32_t>                m_OtherGpuInstances;     // see GetOtherGpuInstances
         std::vector<GpuInstancedRenderData>  m_GpuInstancedQueue;
         // The (material copy, its instance) of each GPU-instanced section and pass/cascade, keyed by the view key.

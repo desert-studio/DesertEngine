@@ -26,9 +26,25 @@ namespace Desert::Graphic
     using MaterialPropertyValue = std::variant<float, int, bool, glm::vec2, glm::vec3, glm::vec4, glm::mat4,
                                                void* // texture pointer
                                                >;
+
+    // A fresh material parameter revision, unique across the process (MaterialPropertySet::GetRevision,
+    // DataDrivenMaterial::GetParamRowRevision): an object created at a freed one's address never shows the old
+    // object's revision, so a cache keyed by address and revision cannot alias.
+    [[nodiscard]] uint64_t NextMaterialRevision();
+
     class MaterialPropertySet
     {
     public:
+        MaterialPropertySet() = default;
+        // A copy is another set: its own revision (a cache that held the source's never takes the copy for it).
+        MaterialPropertySet( const MaterialPropertySet& other ) : m_Properties( other.m_Properties )
+        {
+        }
+        MaterialPropertySet& operator=( const MaterialPropertySet& other )
+        {
+            CopyFrom( other );
+            return *this;
+        }
 
         struct MaterialProperty
         {
@@ -69,8 +85,24 @@ namespace Desert::Graphic
         void ResetToDefaults();
         void CopyFrom( const MaterialPropertySet& other );
 
+        // Changes with every write of a property's value, override flag or presence (every mutating member above
+        // takes a fresh NextMaterialRevision) and at no other time: MeshRenderer::RegisterMaterialRow re-reads an
+        // instance's overrides only when it moved (UE: a MaterialInstance parameter change marks the cached mesh
+        // draw commands that use it dirty).
+        [[nodiscard]] uint64_t GetRevision() const
+        {
+            return m_Revision;
+        }
+
     private:
+        void Changed()
+        {
+            m_bIsDirty = true;
+            m_Revision = NextMaterialRevision();
+        }
+
         std::unordered_map<std::string, MaterialProperty> m_Properties;
         bool                                              m_bIsDirty = true;
+        uint64_t                                          m_Revision = NextMaterialRevision();
     };
 } // namespace Desert::Graphic

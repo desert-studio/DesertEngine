@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -123,7 +124,21 @@ namespace Desert::Graphic::System
         return Common::MakeSuccess( Result{ record } );
     }
 
-    DisplacementCache::DisplacementCache()  = default;
+    namespace
+    {
+        // Process-wide, so two caches never hand out the same generation (GetTwinGeneration).
+        std::atomic<uint64_t> s_TwinGenerations{ 0 };
+    } // namespace
+
+    DisplacementCache::DisplacementCache()
+    {
+        TwinsChanged();
+    }
+
+    void DisplacementCache::TwinsChanged()
+    {
+        m_TwinGeneration = s_TwinGenerations.fetch_add( 1, std::memory_order_relaxed ) + 1;
+    }
     DisplacementCache::~DisplacementCache() = default;
 
     void DisplacementCache::SetQuality( const DisplacementQuality& quality )
@@ -139,6 +154,7 @@ namespace Desert::Graphic::System
                 if ( entry.Current )
                     RetireTwin( entry.Current->Twin );
             m_Entries.clear();
+            TwinsChanged();
             ClearSkinned();
             m_Shared.clear();
             m_Pools.clear();
@@ -642,6 +658,7 @@ namespace Desert::Graphic::System
             RetireTwin( std::move( geometry.Twin ) );
         geometry.Twin = StaticMesh::MakeDisplacedTwin( *pool.Mesh, pool.Vertices, pool.Streams, indexBuffer, ranges,
                                                        pool.Capacity, growth );
+        TwinsChanged(); // every entry of this geometry draws the new twin
         return BOOLSUCCESS;
     }
 
@@ -832,6 +849,7 @@ namespace Desert::Graphic::System
                 if ( entry.Current )
                     RetireTwin( entry.Current->Twin );
                 entry.Current = emitted.GetValue();
+                TwinsChanged();
                 m_Shared.emplace( HashKey( entry.Current->Key ), entry.Current );
                 ++m_Stats.Rebuilt;
             }
@@ -844,6 +862,7 @@ namespace Desert::Graphic::System
                 if ( entry.Current )
                     RetireTwin( entry.Current->Twin );
                 entry.Current = std::move( shared );
+                TwinsChanged();
                 continue;
             }
             if ( entry.Pending.valid() )
@@ -898,9 +917,15 @@ namespace Desert::Graphic::System
 
     void DisplacementCache::EndFrame( const uint64_t frame )
     {
+        bool droppedTwin = false;
         for ( const auto& [key, entry] : m_Entries )
             if ( entry.LastFrame != frame && entry.Current )
+            {
                 RetireTwin( entry.Current->Twin ); // this frame's draws may still name it
+                droppedTwin = true;
+            }
+        if ( droppedTwin )
+            TwinsChanged();
         std::erase_if( m_Entries, [frame]( const auto& item ) { return item.second.LastFrame != frame; } );
         std::erase_if( m_Shared, []( const auto& shared ) { return shared.second.expired(); } );
         std::erase_if( m_Pools, []( const auto& pool ) { return pool.second.expired(); } );

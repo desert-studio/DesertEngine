@@ -7,6 +7,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <utility>
@@ -88,6 +90,12 @@ namespace Desert::Graphic
         // The wind itself, written to the row every frame it changes (GpuScene::SetWind): the binned instanced
         // vertex stage reads it there.
         GpuDriven::PrimitiveWind Wind{};
+        // The co-owned, immutable vector Transforms views (InstancedMeshRenderData::Transforms: the component's
+        // runtime snapshot, replaced and never mutated when the authored transforms change). The registry keeps
+        // the one its instance rows were last written or verified from; the same object next frame is the same
+        // contents (it cannot be freed and its address reused while held), so the per-instance comparison is
+        // skipped (UE: instance data is re-uploaded on UpdateInstances, not compared every frame). Null: compared.
+        std::shared_ptr<const std::vector<glm::mat4>> Snapshot;
     };
 } // namespace Desert::Graphic
 
@@ -130,6 +138,17 @@ namespace Desert::Graphic::GpuDriven
     };
     // The component's Receive Shadows off zeroes the row's ReceiveSunShadows (MeshRenderer::SyncGpuScene).
     inline constexpr uint32_t kMaterialRowNoSunShadows = 1u;
+
+    // What a material row's values were derived from (UE: a cached mesh draw command stays valid until its
+    // material changes): the template's row revision (DataDrivenMaterial::GetParamRowRevision) and the instance's
+    // parameter revision (MaterialInstance::GetParameterRevision, 0 = no instance). Both are process-unique, so a
+    // key whose address was reused never matches. Template 0 = no revision: the row is always compared.
+    struct MaterialRowRevision
+    {
+        uint64_t Template                                       = 0;
+        uint64_t Instance                                       = 0;
+        bool     operator==( const MaterialRowRevision& ) const = default;
+    };
 
     struct MaterialRowKeyHash
     {
@@ -183,7 +202,14 @@ namespace Desert::Graphic::GpuDriven
         // that did not ask (the primitives' rule; every view of a frame may ask). Returns the index the draw names
         // as MaterialIndex / GpuDrawSlot::MaterialRow. An empty row (a template without parameters declares no
         // Materials block) takes no row: 0, which its shader never reads.
-        [[nodiscard]] uint32_t SyncMaterialRow( const MaterialRowKey& key, std::span<const glm::vec4> row );
+        // @p revision: what @p row was derived from (stored with it for ReuseMaterialRow; {} = none).
+        [[nodiscard]] uint32_t SyncMaterialRow( const MaterialRowKey& key, std::span<const glm::vec4> row,
+                                                MaterialRowRevision revision = {} );
+        // The row of @p key when it holds values derived from @p revision (a non-zero Template): asked for this
+        // frame as SyncMaterialRow would, with neither the row built nor its values compared. nullopt: the key
+        // has no row yet, or its values were derived from something else - build the row, SyncMaterialRow it.
+        [[nodiscard]] std::optional<uint32_t> ReuseMaterialRow( const MaterialRowKey& key,
+                                                                MaterialRowRevision   revision );
 
     private:
         static constexpr uint64_t kNoFrame = ~0ull;
@@ -193,7 +219,9 @@ namespace Desert::Graphic::GpuDriven
             std::vector<glm::vec4> Values;               // what the table holds at Row
             uint64_t               Frame     = kNoFrame; // the last frame that asked for it
             uint64_t               PrevFrame = kNoFrame; // the one before (DiscardFrame restores it)
+            MaterialRowRevision    Revision;             // what Values were derived from ({} = unknown)
         };
+        void AskedThisFrame( MaterialEntry& entry ) const;
 
         struct Entry
         {
@@ -222,6 +250,8 @@ namespace Desert::Graphic::GpuDriven
             uint64_t Content      = 0;
             uint64_t FrameContent = 0;
             uint64_t ContentSync  = 0; // the Sync (m_SyncSerial) FrameContent is being summed in
+            // A field: the snapshot its instance rows equal (MotionFieldRecord::Snapshot), null when unverified.
+            std::shared_ptr<const std::vector<glm::mat4>> Instances;
         };
         // The primitives an entity owns in this Sync's submission order (index == MotionKey::Slot).
         struct Owned
@@ -229,6 +259,20 @@ namespace Desert::Graphic::GpuDriven
             PrimitiveIndex Primitive = kInvalidIndex;
             Entry*         Held      = nullptr;
         };
+
+        // Per entity, what the current Sync gathered of it: the primitives it owns in submission order (index ==
+        // MotionKey::Slot) and its distinct field transform sets (index == the field's slot). Kept across Syncs so
+        // a steady scene allocates nothing per frame (was a map of vectors built and freed by every Sync): a slot
+        // is emptied the first time a Sync names its entity (Sync == m_SyncSerial), and one no view named in the
+        // last frame is dropped by BeginFrame.
+        struct EntityScratch
+        {
+            uint64_t                      Sync  = 0;
+            uint64_t                      Frame = kNoFrame;
+            std::vector<Owned>            Primitives;
+            std::vector<const glm::mat4*> FieldSets;
+        };
+        EntityScratch& ScratchOf( uint32_t entity );
 
         Entry& Touch( MotionKey key, const MotionRecord& record, bool& fresh );
         // The first record of the primitive this Sync (it was fresh: no earlier view of the frame synced it)
@@ -243,6 +287,7 @@ namespace Desert::Graphic::GpuDriven
         GpuScene                                            m_Scene;
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
+        std::unordered_map<uint32_t, EntityScratch>                           m_EntityScratch;
         std::vector<glm::mat4>                              m_FramePalettes;
         uint64_t                                            m_SyncSerial = 0;
         std::vector<std::pair<Entry*, bool>>                m_ContentTouched; // entry, added this Sync

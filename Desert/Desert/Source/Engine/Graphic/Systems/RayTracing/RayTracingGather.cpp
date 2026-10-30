@@ -279,7 +279,7 @@ namespace Desert::Graphic::RayTracing
                 RayTracingPrimitive& primitive = out.Primitives.emplace_back();
                 primitive.Geometry             = geometry;
                 primitive.World                = transforms[instance];
-                primitive.GpuSceneRow          = inputs.InstancedGpuInstances[data.FirstGpuInstance + instance];
+                primitive.GpuSceneRow          = data.FirstGpuInstance + static_cast<uint32_t>( instance );
                 primitive.SourceMesh           = data.Mesh;
                 primitive.CastShadows          = field.CastShadows;
                 primitive.Translucent          = AllTranslucent( field.Sections );
