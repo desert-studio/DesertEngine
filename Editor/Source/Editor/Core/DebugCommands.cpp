@@ -3,10 +3,12 @@
 #include "Editor/Core/PanelRequests.hpp"
 
 #include <Common/Core/CrashHandler.hpp>
+#include <Common/Core/Profiler.hpp>
 #include <Engine/Core/EngineContext.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Graphic/API/Vulkan/VulkanContext.hpp>
 
+#include <algorithm>
 #include <memory>
 
 namespace Desert::Editor
@@ -47,6 +49,51 @@ namespace Desert::Editor
                              static_cast<double>( ledger.LiveBytes() ) / ( 1024.0 * 1024.0 ) );
                    for ( const auto& row : ledger.ByTag() )
                        LOG_INFO( "[AllocLedger] tag '{}': {} x, {} B", row.Tag, row.Count, row.Bytes );
+                   return PaletteCommandDone();
+               } } );
+    }
+
+    void AppendGpuProfileCommands( std::vector<PaletteCommand>& commands )
+    {
+        const auto enable = []( const bool on ) -> Common::BoolResultStr
+        {
+            auto& profiler = Common::Profiling::Profiler::Get();
+            if ( on && !profiler.GetGpuSink() )
+                return Common::MakeError<bool>( "this device reports no GPU timestamps; there is nothing to time." );
+            profiler.GpuEnabled()    = on;
+            profiler.GpuPassScopes() = on;
+            return PaletteCommandDone();
+        };
+        commands.push_back( { "Debug", "GPU profiling: On", [enable] { return enable( true ); } } );
+        commands.push_back( { "Debug", "GPU profiling: Off", [enable] { return enable( false ); } } );
+        // The published window (Profiler::LastFrame, averaged per frame over AvgWindowSeconds), most expensive
+        // self time first: the self column is the one that sums to the frame (see ScopeResult::GpuSelfMs).
+        commands.push_back(
+             { "Debug", "Log GPU pass timings", []() -> Common::BoolResultStr
+               {
+                   const auto& profiler = Common::Profiling::Profiler::Get();
+                   if ( !profiler.GpuEnabled() )
+                       return Common::MakeError<bool>( "GPU profiling is off: run Debug.GPU profiling: On and let "
+                                                       "one averaging window pass first." );
+                   std::vector<Common::Profiling::ScopeResult> rows;
+                   double                                      frameMs = 0.0;
+                   for ( const auto& row : profiler.LastFrame() )
+                   {
+                       if ( row.Name == Common::Profiling::kGpuFrameTotalScope )
+                           frameMs = row.GpuMs;
+                       else if ( row.GpuCalls > 0 )
+                           rows.push_back( row );
+                   }
+                   if ( rows.empty() )
+                       return Common::MakeError<bool>( "no GPU pass has been timed yet: let one averaging window "
+                                                       "pass after GPU profiling: On." );
+                   std::sort( rows.begin(), rows.end(),
+                              []( const auto& a, const auto& b ) { return a.GpuSelfMs > b.GpuSelfMs; } );
+                   LOG_INFO( "[GpuProfile] frame {:.3f} ms GPU, {:.3f} ms CPU, {} pass(es)", frameMs,
+                             profiler.LastFrameMs(), rows.size() );
+                   for ( const auto& row : rows )
+                       LOG_INFO( "[GpuProfile] {:>8.3f} ms self {:>8.3f} ms incl x{} {}", row.GpuSelfMs, row.GpuMs,
+                                 row.GpuCalls, row.Name );
                    return PaletteCommandDone();
                } } );
     }
