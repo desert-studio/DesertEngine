@@ -192,9 +192,18 @@ namespace Desert::Graphic
         // header's vertex stage (the base pass's very gl_Position), Mesh/Surface/Pass_Depth.glslh's fragment stage
         // (nothing / the opacity mask's clip / the relief's depth). The base pass then tests equal and writes none.
         Depth = 6,
+        // THE VISIBILITY BUFFER RASTER (GRASS-VIS; UE: Nanite's raster into VisBuffer64): the view's grass blades
+        // written as one 64-bit word per pixel (Common/VisibilityBuffer.glslh: reversed-Z depth bits over the
+        // blade's raster-stream row and triangle) by an atomic max, no colour, the view's depth tested and not
+        // written. A Masked template clips first, so the word holds the nearest blade that survives its mask.
+        Visibility = 7,
+        // THE VISIBILITY BUFFER RESOLVE: one full-screen triangle per grass variety into the G-buffer, the
+        // material evaluated ONCE per pixel from the triangle the word names (Mesh/Surface/
+        // Pass_VisibilityResolve.glslh), its depth written from the word.
+        VisibilityResolve = 8,
     };
 
-    inline constexpr uint32_t kMeshPassCount = 7;
+    inline constexpr uint32_t kMeshPassCount = 9;
 
     // (path x pass) -> the surface CELL that draws it, "<Path>.<Pass>" (DShaderParser's SurfaceCellName), or
     // nullptr where the pass is not drawn through a surface template's cell (Glass, which is its own program).

@@ -20,18 +20,23 @@ namespace Desert::Graphic
         // with no surface evaluated. Glass is not a cell of its own: the translucent template's Forward cell draws
         // it.
         constexpr const char* kMeshCells[kMeshVertexPathCount][kMeshPassCount] = {
-             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth  View depth
+             // Forward  GBuffer  Glass  Shadow depth  Depth/normal  Virtual shadow depth  View depth  Visibility
+             // Visibility resolve
              { "Static.Forward", "Static.GBuffer", nullptr, "Static.ShadowDepth", nullptr,
-               "Static.VirtualShadowDepth", "Static.Depth" },
+               "Static.VirtualShadowDepth", "Static.Depth", nullptr, nullptr },
              { "Skinned.Forward", "Skinned.GBuffer", nullptr, "Skinned.ShadowDepth", nullptr,
-               "Skinned.VirtualShadowDepth", "Skinned.Depth" },
+               "Skinned.VirtualShadowDepth", "Skinned.Depth", nullptr, nullptr },
              { "Instanced.Forward", "Instanced.GBuffer", nullptr, "Instanced.ShadowDepth", nullptr,
-               "Instanced.VirtualShadowDepth", "Instanced.Depth" },
-             { "ParticleSprite.Forward", "ParticleSprite.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr },
+               "Instanced.VirtualShadowDepth", "Instanced.Depth", nullptr, nullptr },
+             { "ParticleSprite.Forward", "ParticleSprite.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr,
+               nullptr, nullptr },
              // The GPU-generated grass casts into the cascades only (MeshRenderer::BuildGpuInstancedShadowDraws).
+             // Its view may draw it through the visibility buffer instead of Depth + GBuffer (GRASS-VIS,
+             // MeshRenderer::DeclareGrassVisibilityDraws): the Visibility raster, then the resolve.
              { "GrassBlade.Forward", "GrassBlade.GBuffer", nullptr, "GrassBlade.ShadowDepth", nullptr, nullptr,
-               "GrassBlade.Depth" },
-             { "ParticleRibbon.Forward", "ParticleRibbon.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr },
+               "GrassBlade.Depth", "GrassBlade.Visibility", "GrassBlade.VisibilityResolve" },
+             { "ParticleRibbon.Forward", "ParticleRibbon.GBuffer", nullptr, nullptr, nullptr, nullptr, nullptr,
+               nullptr, nullptr },
         };
 
         // THE FORWARD PREPASS RELATION: the forward base pass draws an opaque mesh only where "Forward: Depth
@@ -286,6 +291,10 @@ namespace Desert::Graphic
                 return "VirtualShadowDepth";
             case MeshPass::Depth:
                 return "Depth";
+            case MeshPass::Visibility:
+                return "Visibility";
+            case MeshPass::VisibilityResolve:
+                return "VisibilityResolve";
         }
         return "?";
     }

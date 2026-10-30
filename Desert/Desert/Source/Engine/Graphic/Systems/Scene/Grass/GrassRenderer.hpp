@@ -200,6 +200,8 @@ namespace Desert::Graphic::System
             std::vector<uint32_t> FrameKey;
             std::vector<uint32_t> GenerateKey;
             uint32_t              StableGenerations = 0;
+            // GRASS-VIS: this frame's first raster-stream row (GrassBladeShapeGpu::Visibility.x), Blade only.
+            uint32_t VisibilityRow = 0;
         };
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,
@@ -220,5 +222,8 @@ namespace Desert::Graphic::System
         mutable ShaderBindingLayoutCache m_FinalizeLayout;
         uint32_t                         m_NextIndex = 0;
         GrassBladeRayTracing             m_BladeRayTracing;
+        // GRASS-VIS: the raster-stream rows handed out this frame (AddFrame resets it; PrepareVariety hands each
+        // blade variety its capacity's worth), bounded by VirtualGeometry::kMaxVisibleClusters.
+        uint32_t                         m_VisibilityRows = 0;
     };
 } // namespace Desert::Graphic::System

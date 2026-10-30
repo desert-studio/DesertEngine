@@ -1,0 +1,70 @@
+#ifndef DESERT_VISIBILITY_BUFFER_GLSLH
+#define DESERT_VISIBILITY_BUFFER_GLSLH
+// THE VIEW'S VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite VisBuffer64, Ghost of Tsushima's grass): one 64-bit word per
+// pixel, the twin of Graphic::VirtualGeometry::PackVisibility (VirtualGeometryLayout.hpp):
+//   high 32 bits  the reversed-Z depth's float bits (nearer = larger, so atomicMax keeps the nearest; positive floats
+//                 order as their bits do)
+//   low 32 bits   (raster-stream row << kVisTriangleBits) | triangle. A row names one entry of the view's raster
+//                 stream: a grass blade instance (its variety's VisibilityRowBase + its instance index) today, a
+//                 visible cluster of the virtual geometry's SW raster later (VirtualGeometryRenderer.hpp, NOT YET).
+//   0             nothing drawn (the far plane).
+// A storage BUFFER, not an R64_UINT image: shaderBufferInt64Atomics is Vulkan 1.2 core, the image form needs
+// VK_EXT_shader_image_atomic_int64, which MoltenVK does not expose (Capability::ShaderBufferInt64Atomics).
+// The pixel's word is VisibilityWords[y x VisibilityWidth + x]; the width is the buffer's own header (word 0 low 32
+// bits), so a reader never needs the view's extent pushed.
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_shader_atomic_int64 : require
+
+#include <Generated/SceneBindings.glslh>
+
+#define kVisTriangleBits 7u
+#define kVisTriangleMask 0x7Fu
+
+layout( std430, binding = kVgRasterVisibilityBinding ) restrict buffer VisibilityBuffer
+{
+    uvec4    VisibilityHeader; // x = width, y = height (pixels), z, w = 0
+    uint64_t VisibilityWords[];
+};
+
+uint64_t DesertPackVisibility( const float reversedDepth, const uint row, const uint triangle )
+{
+    return ( uint64_t( floatBitsToUint( reversedDepth ) ) << 32 ) |
+           uint64_t( ( row << kVisTriangleBits ) | ( triangle & kVisTriangleMask ) );
+}
+
+// False outside the buffer's extent (a view resized this frame before the buffer follows).
+bool DesertVisibilityPixel( const ivec2 pixel, out uint index )
+{
+    index = 0u;
+    if ( pixel.x < 0 || pixel.y < 0 || uint( pixel.x ) >= VisibilityHeader.x || uint( pixel.y ) >= VisibilityHeader.y )
+        return false;
+    index = uint( pixel.y ) * VisibilityHeader.x + uint( pixel.x );
+    return true;
+}
+
+void DesertWriteVisibility( const ivec2 pixel, const float reversedDepth, const uint row, const uint triangle )
+{
+    uint index;
+    if ( DesertVisibilityPixel( pixel, index ) )
+        atomicMax( VisibilityWords[index], DesertPackVisibility( reversedDepth, row, triangle ) );
+}
+
+// The pixel's word: false where nothing was drawn. @p depth is the reversed-Z depth, @p row / @p triangle the payload.
+bool DesertReadVisibility( const ivec2 pixel, out float depth, out uint row, out uint triangle )
+{
+    depth    = 0.0;
+    row      = 0u;
+    triangle = 0u;
+    uint index;
+    if ( !DesertVisibilityPixel( pixel, index ) )
+        return false;
+    const uint64_t word = VisibilityWords[index];
+    if ( word == uint64_t( 0 ) )
+        return false;
+    const uint payload = uint( word & uint64_t( 0xFFFFFFFFu ) );
+    depth              = uintBitsToFloat( uint( word >> 32 ) );
+    row                = payload >> kVisTriangleBits;
+    triangle           = payload & kVisTriangleMask;
+    return true;
+}
+#endif

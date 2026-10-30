@@ -183,6 +183,15 @@ namespace Desert::Core::Preprocess
     // Vertex_GrassBlade.glslh (a procedural blade placed by the instance's matrix and shaped by the variety's
     // GrassBladeShape), the pass headers are the meshes'.
     inline constexpr std::string_view kSurfaceGrassBladePath = "GrassBlade";
+    // THE GRASS VISIBILITY CELLS (GRASS-VIS; UE: Nanite's programmable raster into the visibility buffer and its
+    // material pass over it). An Opaque / Masked `Usage GrassBlades` template also gets, after its blade cells,
+    // `GrassBlade.Visibility` (the blade vertex path; Mesh/Surface/Pass_Visibility.glslh: the mask's clip, then
+    // the 64-bit atomic max of depth and raster-stream row into the view's visibility buffer, no colour) and
+    // `GrassBlade.VisibilityResolve` (a full-screen triangle, Vertex_GrassBlade.glslh's resolve branch;
+    // Mesh/Surface/Pass_VisibilityResolve.glslh: the word's blade triangle rebuilt by the same BladeAt, the surface
+    // evaluated once per pixel with analytic texture gradients, the G-buffer and the depth written).
+    inline constexpr std::array<std::string_view, 2> kSurfaceGrassVisibilityPasses = { "Visibility",
+                                                                                      "VisibilityResolve" };
     // THE WATER MESH USAGE (UE: the water mesh vertex factory, FWaterMeshVertexFactory, and the SingleLayerWater
     // mesh pass). A template of `ShadingModel SingleLayerWater` declares `Usage WaterMesh` and gets ONE more cell,
     // `WaterMesh.SingleLayerWater`: the vertex stage is Vertex_WaterMesh.glslh (the water quadtree's tiles,

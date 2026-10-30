@@ -29,7 +29,19 @@
 #include <Common/CameraUB.glslh>
 #include <Common/BindlessTextures.glslh>
 
-#ifdef DESERT_SURFACE_PASS_Hit
+#if defined( DESERT_SURFACE_PASS_VisibilityResolve )
+// THE VISIBILITY RESOLVE (GRASS-VIS, Pass_VisibilityResolve.glslh): a quad of the full-screen pass spans several
+// blades, so its implicit derivatives are not the surface's. The pass sets the analytic gradient of UV0 across one
+// pixel before it evaluates the surface; a fetch uses it, scaled by the view's material bias as the raster's bias
+// form scales it (UE Nanite: analytic UV derivatives in the material pass).
+vec2 g_DesertVisibilityUVdx = vec2( 0.0 );
+vec2 g_DesertVisibilityUVdy = vec2( 0.0 );
+vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
+{
+    const float scale = exp2( cameraUB.MaterialMipBias );
+    return SampleBindlessGrad( materialTexture, uv, g_DesertVisibilityUVdx * scale, g_DesertVisibilityUVdy * scale );
+}
+#elif defined( DESERT_SURFACE_PASS_Hit )
 // A ray hit samples at the ray cone's mip (Common/BindlessTextures.glslh RayHitTextureLod, g_DesertRayHitLod).
 vec4 SurfaceSampleMaterial( BindlessTexture materialTexture, vec2 uv )
 {

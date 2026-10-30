@@ -187,7 +187,11 @@ namespace Desert::Core
     inline constexpr uint32_t kVgRasterDagsBinding               = kVirtualGeometryRasterBindingFirst + 1u;
     inline constexpr uint32_t kVgRasterVisibleClustersBinding    = kVirtualGeometryRasterBindingFirst + 2u;
     inline constexpr uint32_t kVgRasterPrimitiveDrawsBinding     = kVirtualGeometryRasterBindingFirst + 3u;
-    inline constexpr uint32_t kVirtualGeometryRasterBindingCount = 4u;
+    // THE VIEW'S VISIBILITY BUFFER (GRASS-VIS, Common/VisibilityBuffer.glslh `VisibilityBuffer`): one uint64 word per
+    // pixel (VirtualGeometryLayout.hpp PackVisibility), written by the Visibility cells' atomic max and read by the
+    // VisibilityResolve cells; bound by name (the grass renderer's buffer, GrassRenderer::VisibilityFrame).
+    inline constexpr uint32_t kVgRasterVisibilityBinding         = kVirtualGeometryRasterBindingFirst + 4u;
+    inline constexpr uint32_t kVirtualGeometryRasterBindingCount = 5u;
 
     // Raised from 24 (TAA1 step 4), then from 27 (the scene depth joined the range), then from 28 (the scene
     // shading word and the light grid joined it), then from 31 (the MegaLights volume joined it), then from 35
@@ -198,11 +202,11 @@ namespace Desert::Core
     // view's fog joined the scene-read range and pushed the raster range up by four), then from 54 (the virtual
     // shadow map's reader tables joined the scene-read range after the fog and pushed the raster range up by four
     // again), then from 58 (the virtual geometry raster's four slots got a range of their own), to sit above every
-    // range; see the paragraph on moving it above (10-22: no generated `.shader` under Resources spells a
-    // TextureBinding).
+    // range, then from 62 (the visibility buffer joined the virtual geometry raster's range, GRASS-VIS); see the
+    // paragraph on moving it above (10-22: no generated `.shader` under Resources spells a TextureBinding).
     inline constexpr uint32_t kGraphOwnedBindingFirst =
          kVirtualGeometryRasterBindingFirst + kVirtualGeometryRasterBindingCount;
-    static_assert( kGraphOwnedBindingFirst == 62u,
+    static_assert( kGraphOwnedBindingFirst == 63u,
                    "the graph's window opens right above the virtual geometry raster's range" );
 
     /**
@@ -283,6 +287,7 @@ namespace Desert::Core
          DESERT_SCENE_BINDING_ROW( kVgRasterDagsBinding ),
          DESERT_SCENE_BINDING_ROW( kVgRasterVisibleClustersBinding ),
          DESERT_SCENE_BINDING_ROW( kVgRasterPrimitiveDrawsBinding ),
+         DESERT_SCENE_BINDING_ROW( kVgRasterVisibilityBinding ),
          DESERT_SCENE_BINDING_ROW( kVirtualGeometryRasterBindingCount ),
          DESERT_SCENE_BINDING_ROW( kGraphOwnedBindingFirst ),
          DESERT_SCENE_BINDING_ROW( kSsrFrontLayerSet ),

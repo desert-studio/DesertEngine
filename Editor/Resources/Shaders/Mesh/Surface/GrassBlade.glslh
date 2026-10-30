@@ -18,7 +18,48 @@ struct GrassBladeShapeData
     vec4 Size;                         // Height cm, Stiffness, Curvature, card count
     vec4 Bend;                         // CurvatureSpread, BendSpread
     vec4 Cards[GRASS_BLADE_MAX_CARDS]; // atlas rect: u0, v tip, u1, v root (texture space, v down the image)
+    // The view's visibility buffer (GRASS-VIS, Common/VisibilityBuffer.glslh): x = the variety's first raster-stream
+    // row (instance i is row x + i), y = the strip's level-0 segments, z = its bucket (= strip level) count.
+    uvec4 Visibility;
+    uvec4 BucketFirst[2]; // the first instance of bucket b < 8, [b / 4][b % 4] (GrassRenderer's bucket table)
 };
+
+// The strip level instance @p instance was drawn with (GrassGenerate's bucket = GrassRenderer::BladeStrip's
+// submesh) and its segments: level 0 has Visibility.y, each next one half the last, down to one.
+uint BladeLevelSegments( GrassBladeShapeData shape, uint instance )
+{
+    uint segments = max( shape.Visibility.y, 1u );
+    for ( uint b = 1u; b < min( shape.Visibility.z, 8u ); ++b )
+    {
+        if ( instance < shape.BucketFirst[b / 4u][b % 4u] )
+            break;
+        segments = max( 1u, segments / 2u );
+    }
+    return segments;
+}
+
+// Triangle @p triangle of a level of @p segments segments (GrassBladeRayTracing.cpp MakeGrassBladeStripLevel: rows
+// of two vertices (side -1, +1) at t = row / segments, triangles (a, a+1, a+2) and (a+1, a+3, a+2), a = 2 x row):
+// its three vertices' (side, t), in the order the strip's index buffer names them.
+void BladeTriangleCorners( uint segments, uint triangle, out vec2 c0, out vec2 c1, out vec2 c2 )
+{
+    const float row  = float( triangle >> 1u );
+    const float s    = float( max( segments, 1u ) );
+    const float t0   = row / s;
+    const float t1   = ( row + 1.0 ) / s;
+    if ( ( triangle & 1u ) == 0u )
+    {
+        c0 = vec2( -1.0, t0 );
+        c1 = vec2( 1.0, t0 );
+        c2 = vec2( -1.0, t1 );
+    }
+    else
+    {
+        c0 = vec2( 1.0, t0 );
+        c1 = vec2( 1.0, t1 );
+        c2 = vec2( -1.0, t1 );
+    }
+}
 
 // The card a blade draws: its colour draw (instance column 0's w) picks one of the variety's cards, uniformly.
 vec4 BladeCard( GrassBladeShapeData shape, float draw )

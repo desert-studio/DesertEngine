@@ -2085,6 +2085,8 @@ namespace Desert::Core::Preprocess
         includes.emplace_back( kSurfaceRayHitPassInclude );
         includes.emplace_back( kSurfaceRayHitRecordInclude );
         includes.push_back( SurfaceVertexInclude( kSurfaceGrassBladePath ) );
+        for ( const std::string_view pass : kSurfaceGrassVisibilityPasses )
+            includes.push_back( SurfacePassInclude( pass, SurfaceBlendMode::Opaque ) );
         includes.push_back( SurfaceVertexInclude( kSurfaceWaterMeshPath ) );
         includes.emplace_back( kSurfaceSingleLayerWaterPassInclude );
         return includes;
@@ -3225,6 +3227,25 @@ namespace Desert::Core::Preprocess
                 {
                     if ( !SurfaceBlendHasPass( result.Surface.Blend, pass ) )
                         continue;
+                    DShaderPass cell;
+                    cell.Name  = SurfaceCellName( kSurfaceGrassBladePath, pass );
+                    cell.State = cellState;
+                    for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
+                        cell.Stages.emplace(
+                             stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
+                                                              includeBlock, autoDecls, result.Surface.Blend,
+                                                              shadingModelDefine, result.Surface.ResponsiveAA,
+                                                              opacityMaskFunction, false, heightFunctions,
+                                                              false ) );
+                    result.Meta.PassNames.push_back( cell.Name );
+                    result.Surface.Cells.push_back( cell.Name );
+                    result.Passes.push_back( std::move( cell ) );
+                }
+            // `Usage GrassBlades`, Opaque / Masked: the visibility raster and resolve cells (GRASS-VIS), after the
+            // blade cells. A translucent blade has no G-buffer texel to resolve into.
+            if ( result.Surface.UsedWithGrassBlades && !Formats::IsTranslucentBlend( result.Surface.Blend ) )
+                for ( const std::string_view pass : kSurfaceGrassVisibilityPasses )
+                {
                     DShaderPass cell;
                     cell.Name  = SurfaceCellName( kSurfaceGrassBladePath, pass );
                     cell.State = cellState;

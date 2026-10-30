@@ -1,0 +1,114 @@
+// Surface cell pass: THE VISIBILITY BUFFER RESOLVE (GRASS-VIS, MeshRenderer "Grass: Visibility Resolve"; UE 5 Nanite's
+// material pass over VisBuffer64, NaniteVertexFactory.ush FetchNaniteMaterialPixelParameters + the base pass PS).
+// One full-screen triangle per blade variety (Vertex_GrassBlade.glslh's resolve branch) into the G-buffer: a pixel
+// whose word (Common/VisibilityBuffer.glslh) names a row of THIS variety (Blade.Visibility.x, + its capacity) rebuilds
+// the blade triangle that won it - the same BladeAt the raster placed it with, the same wind push, the level from the
+// bucket table - takes the perspective-correct barycentrics of the pixel centre, evaluates the surface ONCE and
+// writes the texel through the G-buffer's one writer (GBufferOutputs.glslh) with the word's depth. Every other pixel
+// is discarded. Texture LOD: the analytic gradient of UV0 across one pixel (g_DesertVisibilityUVdx / dy, read by
+// SurfaceTypes.glslh SurfaceSampleMaterial) - a quad of this pass spans several blades, its implicit derivatives
+// would not be the surface's.
+#include <Common/MaterialTransport.glslh>
+#include <Common/VisibilityBuffer.glslh>
+
+layout( std430, binding = 17 ) readonly buffer InstanceTransforms
+{
+    mat4 transforms[];
+};
+#include <Mesh/Surface/GrassBlade.glslh>
+layout( std430, binding = 13 ) readonly buffer GrassBladeShape
+{
+    GrassBladeShapeData Blade;
+};
+
+#ifdef DESERT_SURFACE_WEATHER
+#include <Mesh/Surface/SurfaceWeather.glslh>
+#endif
+#include <Mesh/Surface/GBufferOutputs.glslh>
+layout( depth_any ) out float gl_FragDepth;
+
+// Perspective-correct barycentrics of the pixel at @p ndc in the triangle of clip positions @p c0..c2.
+vec3 VisibilityBarycentrics( const vec4 c0, const vec4 c1, const vec4 c2, const vec2 ndc )
+{
+    const vec2  p0 = c0.xy / c0.w, p1 = c1.xy / c1.w, p2 = c2.xy / c2.w;
+    const float area = ( p1.x - p0.x ) * ( p2.y - p0.y ) - ( p2.x - p0.x ) * ( p1.y - p0.y );
+    if ( abs( area ) < 1.0e-20 )
+        return vec3( 1.0, 0.0, 0.0 );
+    const float l1 = ( ( ndc.x - p0.x ) * ( p2.y - p0.y ) - ( p2.x - p0.x ) * ( ndc.y - p0.y ) ) / area;
+    const float l2 = ( ( p1.x - p0.x ) * ( ndc.y - p0.y ) - ( ndc.x - p0.x ) * ( p1.y - p0.y ) ) / area;
+    const vec3  w  = vec3( 1.0 - l1 - l2, l1, l2 ) / vec3( c0.w, c1.w, c2.w );
+    return w / ( w.x + w.y + w.z );
+}
+
+void main()
+{
+    float depth;
+    uint  row, triangle;
+    if ( !DesertReadVisibility( ivec2( gl_FragCoord.xy ), depth, row, triangle ) )
+        discard;
+    if ( row < Blade.Visibility.x )
+        discard;
+    const uint instance = row - Blade.Visibility.x;
+    if ( instance >= uint( transforms.length() ) )
+        discard;
+
+    const mat4 model    = transforms[instance];
+    const uint segments = BladeLevelSegments( Blade, instance );
+    vec2       corner[3];
+    BladeTriangleCorners( segments, triangle, corner[0], corner[1], corner[2] );
+    const vec4 windPrev = vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 );
+    BladePoint point[3];
+    vec3       previous[3];
+    vec4       jittered[3];
+    for ( int k = 0; k < 3; ++k )
+    {
+        point[k]    = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, m_PushConstants.WindB );
+        previous[k] = BladeAt( Blade, model, corner[k].x, corner[k].y, m_PushConstants.WindA, windPrev ).Position;
+        jittered[k] = cameraUB.JitteredViewProjection * vec4( point[k].Position, 1.0 );
+    }
+
+    // The pixel centre and its two neighbours in NDC (the raster's own convention: the view's render extent is the
+    // buffer's), so UV0's gradient across one pixel is analytic.
+    const vec2 extent = vec2( VisibilityHeader.xy );
+    const vec2 ndc    = gl_FragCoord.xy / extent * 2.0 - 1.0;
+    const vec3 b      = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc );
+    const vec3 bx = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 2.0 / extent.x, 0.0 ) );
+    const vec3 by = VisibilityBarycentrics( jittered[0], jittered[1], jittered[2], ndc + vec2( 0.0, 2.0 / extent.y ) );
+
+    const vec4 card = BladeCard( Blade, model[0].w );
+    vec2       uv[3];
+    vec3       normal[3];
+    for ( int k = 0; k < 3; ++k )
+    {
+        uv[k]     = BladeCardUV( card, corner[k].x, corner[k].y );
+        normal[k] = BladeNormal( point[k], corner[k].x );
+    }
+    const vec2 uv0 = b.x * uv[0] + b.y * uv[1] + b.z * uv[2];
+    g_DesertVisibilityUVdx = ( bx.x * uv[0] + bx.y * uv[1] + bx.z * uv[2] ) - uv0;
+    g_DesertVisibilityUVdy = ( by.x * uv[0] + by.y * uv[1] + by.z * uv[2] ) - uv0;
+
+    const vec3 position = b.x * point[0].Position + b.y * point[1].Position + b.z * point[2].Position;
+    const vec3 n        = normalize( b.x * normal[0] + b.y * normal[1] + b.z * normal[2] );
+    const vec3 right    = normalize( b.x * point[0].Right + b.y * point[1].Right + b.z * point[2].Right );
+    const vec3 along    = normalize( b.x * point[0].Along + b.y * point[1].Along + b.z * point[2].Along );
+    const float t       = b.x * corner[0].y + b.y * corner[1].y + b.z * corner[2].y;
+    // The raster's facing (two-sided blades): the triangle's winding as the jittered projection put it on screen.
+    const vec2 s0 = jittered[0].xy / jittered[0].w, s1 = jittered[1].xy / jittered[1].w,
+               s2 = jittered[2].xy / jittered[2].w;
+    const bool frontFacing = ( ( s1.x - s0.x ) * ( s2.y - s0.y ) - ( s2.x - s0.x ) * ( s1.y - s0.y ) ) > 0.0;
+
+    // The vertex stage's interpolants (Vertex_GrassBlade.glslh), at this pixel.
+    SurfaceInput i = DesertSurfaceInput( position, n, uv0, mat3( right, along, n ), vec2( model[2].w, t ), vec4( 1.0 ),
+                                         frontFacing );
+#ifdef DESERT_SURFACE_WEATHER
+    i.ObjectScaleUp       = 1.0;
+    const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
+#else
+    const SurfaceOutput s = EvaluateSurface( i );
+#endif
+    const vec3 prevPosition = b.x * previous[0] + b.y * previous[1] + b.z * previous[2];
+    gl_FragDepth            = depth;
+    DesertWriteGBuffer( i, s, cameraUB.ViewProjection * vec4( position, 1.0 ),
+                        cameraUB.PrevViewProjection * vec4( prevPosition, 1.0 ), 0.0,
+                        ( m_PushConstants.PrimitiveFlags & DESERT_PRIMITIVE_FLAG_NO_CONTACT_SHADOW ) == 0u );
+}

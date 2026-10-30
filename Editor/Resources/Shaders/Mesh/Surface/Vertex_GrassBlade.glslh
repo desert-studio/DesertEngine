@@ -42,12 +42,29 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 
 #include <Common/MaterialTransport.glslh>
 
+#ifdef DESERT_SURFACE_PASS_VisibilityResolve
+// THE VISIBILITY RESOLVE (GRASS-VIS, Mesh/Surface/Pass_VisibilityResolve.glslh): no blade is placed here - the draw
+// is one full-screen triangle (the strip's first three indices, GrassRenderer's resolve record), the fragment stage
+// rebuilds the blade triangle its pixel's visibility word names with the same BladeAt.
+void main()
+{
+    const vec2 corner = vec2( float( ( gl_VertexIndex << 1 ) & 2 ), float( gl_VertexIndex & 2 ) );
+    gl_Position       = vec4( corner * 2.0 - 1.0, 0.0, 1.0 );
+}
+#else
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 DESERT_SURFACE_VARYINGS( out )
+#endif
+#ifdef DESERT_SURFACE_PASS_Visibility
+// The blade's raster-stream row (Common/VisibilityBuffer.glslh): the variety's first row + the instance index.
+layout( location = 15 ) flat out uint v_VisibilityRow;
 #endif
 
 void main()
 {
+#ifdef DESERT_SURFACE_PASS_Visibility
+    v_VisibilityRow = Blade.Visibility.x + uint( gl_InstanceIndex );
+#endif
     const mat4       model  = transforms[gl_InstanceIndex];
     const float      side   = a_Position.x;
     const float      t      = a_Position.y;
@@ -87,3 +104,4 @@ void main()
                                          cameraUB.ShadowSlopeBias, cameraUB.ShadowSlopeClamp );
 #endif
 }
+#endif // DESERT_SURFACE_PASS_VisibilityResolve
