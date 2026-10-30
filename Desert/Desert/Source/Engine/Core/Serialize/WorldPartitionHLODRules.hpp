@@ -37,8 +37,6 @@
 //                     refuses a private/transient mesh for the same reason.
 //   HiddenSubmeshes — see above.
 //   SkinnedMesh     — a skinned mesh; UE batches only INSTANCED skinned meshes, and there are none here.
-//   PrefabInstance  — the instance's body is in the .deprefab, not in this file (see UnplacedPrefabInstances).
-//                     Reached by editor Play's in-memory plan only: a cook expands every instance first (WP21).
 //   Unreadable      — a mesh block of the wrong shape; the Issue says where, as it does for the loader.
 //   CustomShaderMaterial — every material the batch would bind draws with its own (DSL) shader. The ISM draw
 //                     path is the batched lit one and skips such a component whole (MeshECSSystem, "Instanced
@@ -93,7 +91,6 @@ namespace Desert::Core::Rules
         EditorMesh,
         HiddenSubmeshes,
         SkinnedMesh,
-        PrefabInstance,
         Unreadable,
         CustomShaderMaterial,
         LandscapeTile,
@@ -251,9 +248,17 @@ namespace Desert::Core::Rules
                 }
             }
 
+            // A prefab instance never reaches here: the cook, Build HLODs and Play all build from the world
+            // ExpandPrefabInstances made (WP21, WP21-PLAY). One that does is a caller that skipped the expansion -
+            // named, not turned into a hole.
             if ( record.PrefabPath.has_value() && !record.PrefabPath->empty() )
             {
-                hlod.NotInstanced.push_back( { index, HLODExclusion::PrefabInstance } );
+                issues.push_back( Common::Json::Issue{
+                     record.id.has_value()
+                          ? std::format( "Entities[id={}]", static_cast<std::uint64_t>( *record.id ) )
+                          : std::format( "Entities[{}]", index ),
+                     "a record of an expanded world (ExpandPrefabInstances)",
+                     "an unexpanded instance of '" + *record.PrefabPath + "'" } );
                 continue;
             }
             // A landscape tile draws terrain from its height file, not from a mesh block (the reason above).
