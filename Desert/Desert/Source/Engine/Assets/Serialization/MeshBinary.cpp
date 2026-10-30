@@ -158,11 +158,16 @@ namespace Desert::Assets::Serialization
             SecClusterHierarchy,  // version 7: Geometry::ClusterHierarchyNode
             SecClusterVertexRefs, // version 7: uint32
             SecClusterTriangles,  // version 7: uint32
+            SecSubmeshLodChains,  // version 8: uint32 per submesh, kSubmeshLodChainCooked or 0
             SecCount_             // one past the last id; also the number of rows in the table
         };
         static_assert( SecSubmeshes == Common::Content::kMeshBinarySubmeshSectionId );
         constexpr uint32_t kSectionCount   = SecCount_ - 1; // the current version has every row
-        constexpr uint32_t kSectionCountV6 = SecUV1;        // version 6: through UV1, no cluster DAG
+        constexpr uint32_t kSectionCountV7 = SecClusterTriangles; // version 7: no submesh LOD-chain row
+        constexpr uint32_t kSectionCountV6 = SecUV1;              // version 6: through UV1, no cluster DAG
+
+        // The SubmeshLodChains value of a submesh whose LODs are its whole cooked chain (LodChainCooked).
+        constexpr uint32_t kSubmeshLodChainCooked = 1u;
 
         constexpr uint32_t kFlagIsSkinned = Common::Content::kMeshFlagIsSkinned;
 
@@ -206,6 +211,7 @@ namespace Desert::Assets::Serialization
                     return sizeof( Geometry::ClusterHierarchyNode );
                 case SecClusterVertexRefs:
                 case SecClusterTriangles:
+                case SecSubmeshLodChains:
                     return sizeof( uint32_t );
                 default:
                     return 0;
@@ -252,6 +258,8 @@ namespace Desert::Assets::Serialization
                     return "ClusterVertexRefs";
                 case SecClusterTriangles:
                     return "ClusterTriangles";
+                case SecSubmeshLodChains:
+                    return "SubmeshLodChains";
                 default:
                     return "<unknown>";
             }
@@ -298,6 +306,8 @@ namespace Desert::Assets::Serialization
 
         std::vector<BinSubmesh> submeshes;
         submeshes.reserve( data.Submeshes.size() );
+        std::vector<uint32_t> lodChains;
+        lodChains.reserve( data.Submeshes.size() );
         for ( const SubmeshData& s : data.Submeshes )
         {
             BinSubmesh rec{};
@@ -323,6 +333,7 @@ namespace Desert::Assets::Serialization
                 lodIndices.insert( lodIndices.end(), level.begin(), level.end() );
             }
             submeshes.push_back( rec );
+            lodChains.push_back( s.LodChainCooked ? kSubmeshLodChainCooked : 0u );
         }
 
         std::vector<BinMorphTarget> morphTargets;
@@ -412,6 +423,7 @@ namespace Desert::Assets::Serialization
              { SecClusterHierarchy, AsBytes( dagHierarchy.data(), dagHierarchy.size() ), dagHierarchy.size() },
              { SecClusterVertexRefs, AsBytes( dagVertexRefs.data(), dagVertexRefs.size() ), dagVertexRefs.size() },
              { SecClusterTriangles, AsBytes( dagTriangles.data(), dagTriangles.size() ), dagTriangles.size() },
+             { SecSubmeshLodChains, AsBytes( lodChains.data(), lodChains.size() ), lodChains.size() },
         };
 
         // Offsets are computed before anything is written, because the table sits in front of the
@@ -488,9 +500,10 @@ namespace Desert::Assets::Serialization
                  who, header.ByteOrder, kByteOrderTag );
         }
 
-        // VERSIONS 6 AND 7 ARE READ: v6 is v7 without the cluster-DAG sections (one reader, a section count that
-        // depends on the version). Versions 1-4 named the rig by a bone hash (SKEL-TREE replaced it with the
-        // skeleton's GUID); Tools/SceneMigrator raises them and 5, this reader refuses them by name.
+        // VERSIONS 6 TO 8 ARE READ: v6 is v7 without the cluster-DAG sections, v7 is v8 without the submesh
+        // LOD-chain row (one reader, a section count that depends on the version). Versions 1-4 named the rig by
+        // a bone hash (SKEL-TREE replaced it with the skeleton's GUID); Tools/SceneMigrator raises them and 5,
+        // this reader refuses them by name.
         if ( !Common::Content::IsReadableMeshBinaryVersion( header.Version ) )
         {
             return Common::MakeFormattedError<MeshAssetData>(
@@ -511,7 +524,9 @@ namespace Desert::Assets::Serialization
                  who, header.FileSize, bytes.size() );
         }
 
-        const uint32_t sectionCount = header.Version >= 7u ? kSectionCount : kSectionCountV6;
+        const uint32_t sectionCount = header.Version >= 8u   ? kSectionCount
+                                      : header.Version >= 7u ? kSectionCountV7
+                                                             : kSectionCountV6;
         if ( header.SectionCount != sectionCount )
         {
             return Common::MakeFormattedError<MeshAssetData>(
@@ -723,6 +738,35 @@ namespace Desert::Assets::Serialization
                              static_cast<size_t>( range.Count ) * sizeof( IndexData ) );
             }
         }
+
+        // THE COOKED LOD CHAIN (v8): one row per submesh, 0 or kSubmeshLodChainCooked. A v6/v7 file states none
+        // and is upgraded to what its loads did: a submesh carrying LODs drew exactly those, one without generated
+        // them.
+        if ( header.Version >= 8u )
+        {
+            if ( N( SecSubmeshLodChains ) != data.Submeshes.size() )
+            {
+                return Common::MakeFormattedError<MeshAssetData>(
+                     "'{}' carries {} LOD-chain rows for {} submeshes.", who, N( SecSubmeshLodChains ),
+                     data.Submeshes.size() );
+            }
+            for ( size_t i = 0; i < data.Submeshes.size(); ++i )
+            {
+                uint32_t chain = 0;
+                std::memcpy( &chain, At( SecSubmeshLodChains ) + i * sizeof( uint32_t ), sizeof( chain ) );
+                if ( chain != 0u && chain != kSubmeshLodChainCooked )
+                {
+                    return Common::MakeFormattedError<MeshAssetData>(
+                         "'{}' submesh {} states LOD chain {}; a writer states 0 (generated at load) or {} "
+                         "(cooked).",
+                         who, i, chain, kSubmeshLodChainCooked );
+                }
+                data.Submeshes[i].LodChainCooked = chain == kSubmeshLodChainCooked;
+            }
+        }
+        else
+            for ( SubmeshData& submesh : data.Submeshes )
+                submesh.LodChainCooked = !submesh.LODs.empty();
 
         // One per face or none: a partial list would pair groups with the wrong triangles past its end.
         if ( N( SecPolyGroups ) != 0 && N( SecPolyGroups ) != N( SecIndices ) )

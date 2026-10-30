@@ -124,6 +124,7 @@ namespace Desert::Assets
             {
                 Submesh submesh{ s.Name,       s.VertexOffset, s.VertexCount, s.IndexOffset,
                                  s.IndexCount, s.Transform,    s.BoundingBox };
+                submesh.LodChainCooked = s.LodChainCooked;
                 for ( const auto& level : s.LODs )
                 {
                     std::vector<Index> tris;

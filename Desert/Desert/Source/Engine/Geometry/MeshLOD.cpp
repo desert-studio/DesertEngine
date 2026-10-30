@@ -74,10 +74,11 @@ namespace Desert::Geometry
             if ( triCount < 8 || sm.VertexCount == 0 )
                 continue; // too small to bother
 
-            // Cooked LODs win; otherwise generate them now (unchanged pre-baking behaviour). Both are
-            // submesh-local triangles (indices relative to VertexOffset -> same baseVertex).
+            // A cooked chain is the submesh's whole chain, possibly empty (UE: a cooked mesh's LODs are its
+            // LODResources); only a mesh no cook made generates its chain now. Both are submesh-local triangles
+            // (indices relative to VertexOffset -> same baseVertex).
             std::vector<std::vector<Index>> levels;
-            if ( !sm.BakedLODs.empty() )
+            if ( sm.LodChainCooked )
             {
                 levels = sm.BakedLODs;
             }

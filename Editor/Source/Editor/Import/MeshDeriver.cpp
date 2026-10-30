@@ -534,6 +534,10 @@ namespace Desert::Editor
         }
         else if ( generate )
             BakeMeshLODs( out, asset.Import.Settings.LodChain );
+        // THE COOK DECIDES THE CHAIN (UE: a cooked mesh's LODs are its LODResources): whatever LODs a section
+        // has now - none with LodPolicy None, or when no target of the chain improves on it - are all it draws.
+        for ( Ser::SubmeshData& submesh : out.Submeshes )
+            submesh.LodChainCooked = true;
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 
@@ -653,6 +657,9 @@ namespace Desert::Editor
         }
         if ( input.BakeLODs )
             BakeMeshLODs( out, input.LodChain );
+        // The cook's chain, as BuildMeshPlatformData states it: none without BakeLODs.
+        for ( Ser::SubmeshData& submesh : out.Submeshes )
+            submesh.LodChainCooked = true;
         return Common::MakeSuccess( Ser::EncodeMeshBinary( out ) );
     }
 } // namespace Desert::Editor

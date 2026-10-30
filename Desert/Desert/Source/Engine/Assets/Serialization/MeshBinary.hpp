@@ -101,6 +101,10 @@ namespace Desert::Assets::Serialization
     /// `SkeletonSignature` is gone); Tools/SceneMigrator raises 3 and 4.
     /// Version 6 (DISPLACE-5) states a skinned mesh's displacement mode in the header byte v5 wrote as zero
     /// (MeshBinaryHeader.hpp); the reader reads version 6 only, the migrator raises 5 by its version field.
+    /// Version 7 (VIRT-GEOM) appends the six cluster-DAG sections; version 8 (GPU-COST-9) appends
+    /// `SubmeshLodChains`, one uint32 per submesh: 1 = its LODs are the cook's whole chain, possibly none
+    /// (SubmeshData::LodChainCooked), 0 = generated at load. Versions 6-8 are read by one function; a v6/v7
+    /// submesh reads as cooked exactly when it carries LODs, and Tools/SceneMigrator re-states those files as v8.
     using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
     using Common::Content::kMeshBinaryMagic;

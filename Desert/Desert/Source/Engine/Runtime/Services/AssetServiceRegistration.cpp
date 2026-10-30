@@ -213,7 +213,7 @@ namespace Desert::Runtime
                     indices += submesh.IndexCount;
                     if ( skinned )
                         continue; // a skinned mesh uploads no LOD chain (SkinnedMesh.cpp)
-                    if ( submesh.BakedLODs.empty() )
+                    if ( !submesh.LodChainCooked )
                         indices +=
                              Geometry::AutoLODIndexTarget( submesh.IndexCount, Geometry::UnbakedLODChain() );
                     else

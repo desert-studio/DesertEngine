@@ -63,8 +63,11 @@ namespace Common::Content
     /// Version 6 (DISPLACE-5) gives the skinned mesh's displacement mode the header byte v5 wrote as zero.
     /// Version 7 (VIRT-GEOM) appends the six cluster-DAG sections (MeshBinary.hpp); its prefix is v6's, and a v6
     /// file IS a v7 file with those sections absent, so both are read (kMeshBinaryOldestReadVersion).
+    /// Version 8 (GPU-COST-9) appends the SubmeshLodChains section: per submesh, whether its LODs are the cook's
+    /// whole chain (Assets::Serialization::SubmeshData::LodChainCooked). v6/v7 are read with it derived from the
+    /// LODs present (what their loads did); Tools/SceneMigrator writes them back as v8.
     inline constexpr uint32_t kMeshBinaryVersion =
-         7; // 7: cluster DAG; 6: skinned DisplacementMode; 5: SkeletonGuid
+         8; // 8: cooked LOD chain per submesh; 7: cluster DAG; 6: skinned DisplacementMode; 5: SkeletonGuid
     inline constexpr uint32_t    kMeshBinaryOldestReadVersion = 6;
     [[nodiscard]] constexpr bool IsReadableMeshBinaryVersion( const uint32_t version )
     {

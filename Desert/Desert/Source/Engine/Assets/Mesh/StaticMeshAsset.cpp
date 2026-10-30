@@ -151,11 +151,13 @@ namespace Desert::Assets
         for ( const auto& i : data.Indices )
             m_Indices.push_back( { i.V1, i.V2, i.V3 } );
 
-        // Baked LOD chain (if the asset was cooked with LODs): the simplified triangle sets StaticMesh appends
-        // instead of re-simplifying at load. Empty -> generated at load. CPU render data like the arrays above.
+        // Baked LOD chain: the simplified triangle sets StaticMesh appends instead of simplifying at load. A
+        // cooked chain is the whole chain, possibly empty; only a chain no cook decided is generated at load. CPU
+        // render data like the arrays above.
         for ( size_t s = 0; s < m_Submeshes.size() && s < data.Submeshes.size(); ++s )
         {
-            auto& baked = m_Submeshes[s].BakedLODs;
+            m_Submeshes[s].LodChainCooked = data.Submeshes[s].LodChainCooked;
+            auto& baked                   = m_Submeshes[s].BakedLODs;
             baked.clear();
             baked.reserve( data.Submeshes[s].LODs.size() );
             for ( const auto& lvl : data.Submeshes[s].LODs )
