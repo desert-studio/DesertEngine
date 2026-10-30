@@ -80,6 +80,33 @@ namespace Desert::UI
                      tree, hot, [&tree]( NodeId t )
                      { return tree.Has<UIScrollViewData>( t ) || tree.Has<UIListViewData>( t ); } );
             }
+
+            // Does a press on control @p n hold the pointer until the button is up (UIViewContext::Capture)?
+            // A slider does: its value follows the pointer along the track, and a drag that leaves the track
+            // must keep moving the handle (to the clamp) rather than drop it where the edge was crossed —
+            // SSlider captures on press for exactly this. A button does NOT: a press dragged off a button and
+            // released elsewhere is a cancelled click, which needs the button to stop hearing the pointer.
+            bool CapturesPointer( IUITree& tree, NodeId n )
+            {
+                return n != NodeId::Null && tree.Valid( n ) && tree.Has<UISliderData>( n );
+            }
+
+            // The pointer shape over @p hot (or for the captor @p capture, which wins while it holds): what the
+            // nearest node at or above it states (IUITree::CursorOf), else the control kind's own — a text
+            // field's I-beam — else the default arrow.
+            UICursorShape CursorFor( IUITree& tree, NodeId hot, NodeId capture )
+            {
+                const NodeId from = capture != NodeId::Null ? capture : hot;
+                if ( const NodeId stating = NearestAtOrAbove( tree, from,
+                                                              [&tree]( NodeId t )
+                                                              { return tree.CursorOf( t ).has_value(); } );
+                     stating != NodeId::Null )
+                    return *tree.CursorOf( stating );
+                const NodeId control = capture != NodeId::Null ? capture : PointerTargetOf( tree, hot );
+                if ( control != NodeId::Null && tree.Valid( control ) && tree.Has<UIInputFieldData>( control ) )
+                    return UICursorShape::TextBeam;
+                return UICursorShape::Default;
+            }
         } // namespace
 
         // Recursively draw one element. `forcedRect` (non-null) is the rect assigned by a parent auto-layout
@@ -497,6 +524,8 @@ namespace Desert::UI
             view.PointerTarget = NodeId::Null;
         if ( view.WheelTarget != NodeId::Null && !tree.Valid( view.WheelTarget ) )
             view.WheelTarget = NodeId::Null;
+        if ( view.Capture != NodeId::Null && !tree.Valid( view.Capture ) )
+            view.Capture = NodeId::Null;
 
         // The election is over the whole frame: every canvas of this view writes into it in draw order and
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
@@ -918,10 +947,34 @@ namespace Desert::UI
                         emit( ev->OnEnterMessage );
             }
 
+            // One press of @p button on this frame's election: the next click of the series the last press
+            // started, or the first of a new one (UIPressRecord).
+            auto recordPress = [&]( UIPointerButton button )
+            {
+                const UIPressRecord& last   = view.LastPress;
+                const bool           series = last.Clicks > 0 && last.Button == button &&
+                                    last.Target == view.HotNext &&
+                                    view.Time - last.Time <= static_cast<double>( input->DoubleClickSeconds ) &&
+                                    glm::length( input->MousePx - last.Pos ) <= UIPressRecord::kDoubleClickSlopPx;
+                view.LastPress = UIPressRecord{ .Button = button,
+                                                .Target = view.HotNext,
+                                                .Pos    = input->MousePx,
+                                                .Time   = view.Time,
+                                                .Frame  = view.FrameIndex,
+                                                .Clicks = series ? last.Clicks + 1 : 1 };
+            };
+
             const bool pressed = input->MouseDown && !view.PrevDown; // UIInput carries held + release only
             if ( pressed )
             {
                 route( view.HotNext, &UIPointerEventsData::OnDownMessage );
+                recordPress( UIPointerButton::Left );
+
+                // The press takes the capture when the control it lands on holds the pointer (CapturesPointer).
+                // The control is resolved from THIS frame's election, the element the press was made on.
+                if ( const NodeId control = Walk::PointerTargetOf( tree, view.HotNext );
+                     Walk::CapturesPointer( tree, control ) )
+                    view.Capture = control;
 
                 // Start a drag from a draggable element. The ghost is the source's own footprint, so the
                 // cursor carries something the size of what it picked up.
@@ -993,6 +1046,14 @@ namespace Desert::UI
 
             view.PrevDown = input->MouseDown;
 
+            if ( input->MouseMiddleDown && !view.PrevMiddleDown )
+                recordPress( UIPointerButton::Middle );
+            view.PrevMiddleDown = input->MouseMiddleDown;
+
+            // The capture lasts while the button that took it is held — and not past its captor.
+            if ( !input->MouseDown || !tree.Valid( view.Capture ) )
+                view.Capture = NodeId::Null;
+
             // The ghost rides on top of everything, drawn after the tree so nothing overlaps it.
             if ( view.Drag.Active )
             {
@@ -1036,8 +1097,14 @@ namespace Desert::UI
         // than here, so it stays readable between the two.
         const NodeId prevPointerTarget = view.PointerTarget;
         view.Hot                       = view.HotNext;
-        view.PointerTarget             = Walk::PointerTargetOf( tree, view.Hot );
-        view.WheelTarget               = Walk::WheelTargetOf( tree, view.Hot );
+        // A captor keeps the pointer wherever it went (UIViewContext::Capture); a frame with no pointer at all
+        // holds no capture.
+        if ( input == nullptr )
+            view.Capture = NodeId::Null;
+        view.PointerTarget = view.Capture != NodeId::Null ? view.Capture : Walk::PointerTargetOf( tree, view.Hot );
+        view.WheelTarget   = Walk::WheelTargetOf( tree, view.Hot );
+        view.Cursor =
+             input != nullptr ? Walk::CursorFor( tree, view.Hot, view.Capture ) : UICursorShape::Default;
 
         // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
         // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.

@@ -3,6 +3,7 @@
 #include <Editor/Core/EditorPreferences.hpp>
 #include <Editor/Core/GizmoState.hpp>
 #include <Editor/Core/Selection/AuthoringContext.hpp>
+#include <Editor/Core/Selection/UIPreview.hpp>
 #include <Editor/Core/Selection/ViewportMode.hpp>
 #include <Editor/Panels/ViewportPanel/CameraPilot.hpp>
 #include <Editor/Panels/ViewportPanel/ViewportPanel.hpp>
@@ -140,6 +141,14 @@ namespace Desert::Editor
         //
         // Note which one saves and which one does not, because that IS К10: the grid is the USER'S ANSWER
         // and persists on the click; 2D UI mode is a VIEWPORT MODE and persists nowhere at all.
+        // The retained widget gallery (UIPreview::WidgetGallery) under a name, so EDITOR-UI-E1.scn can show
+        // it. A view toggle like the 2D UI mode: it persists nowhere.
+        commands.push_back( { "UI", "UI: Toggle the widget gallery", []
+                              {
+                                  auto& pv         = Core::UIPreview::Get();
+                                  pv.WidgetGallery = !pv.WidgetGallery;
+                                  return PaletteCommandDone();
+                              } } );
         commands.push_back( { "View", "Toggle the grid", []
                               {
                                   auto& view    = EditorPreferences::Get().DebugView;

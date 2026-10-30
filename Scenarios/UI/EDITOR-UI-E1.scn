@@ -1,0 +1,8 @@
+# EDITOR-UI-E1: the retained widget tree (Desert/UI/Source/UI/Retained) drawn by the same walk as a level's canvas.
+# The gallery is built by WidgetBuilder (UI/Retained/WidgetGallery.cpp) and shown over the level by the palette
+# entry "UI: Toggle the widget gallery"; --ui-pointer / --ui-press feed it as they feed the level's canvases.
+Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 1_gallery галерея по центру: заголовок, кнопка «Click me» и счётчик, слайдер 0.5, флажок, поле ввода «Desert», «Picked: none», список из 5 строк; те же виджеты, что ECS-канва с теми же UI*Data, пиксель в пиксель
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 2_mainmenu MainMenu без галереи совпадает с кадром dev (pixel diff = 0)

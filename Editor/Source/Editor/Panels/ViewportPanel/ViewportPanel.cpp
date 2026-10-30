@@ -1899,7 +1899,7 @@ namespace Desert::Editor
             // FOCUS, as Slate's does (FSlateUser keyboard focus), not the hover the pointer needs: a menu
             // keeps answering ↑/↓ while the cursor rests on another panel.
             const bool playing = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
-            if ( m_UIPreview || playing )
+            if ( m_UIPreview || playing || pv.WidgetGallery )
             {
                 const bool down = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Left );
                 pv.Enabled      = true;
@@ -1909,6 +1909,36 @@ namespace Desert::Editor
                 pv.Released     = pv.Down && !down; // down->up edge
                 pv.Down         = down;
                 pv.RightDown    = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Right );
+                pv.MiddleDown   = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Middle );
+                pv.DoubleClickSeconds = ImGui::GetIO().MouseDoubleClickTime;
+                // The shape the UI asked for last frame (the pass writes it after its EndUIFrame).
+                if ( m_ViewportData.IsHovered )
+                {
+                    using ::Desert::UI::UICursorShape;
+                    switch ( pv.Cursor )
+                    {
+                        case UICursorShape::Default:
+                            break; // the panel's own cursor stands
+                        case UICursorShape::TextBeam:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_TextInput );
+                            break;
+                        case UICursorShape::Hand:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
+                            break;
+                        case UICursorShape::ResizeLeftRight:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+                            break;
+                        case UICursorShape::ResizeUpDown:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeNS );
+                            break;
+                        case UICursorShape::ResizeAll:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeAll );
+                            break;
+                        case UICursorShape::NotAllowed:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_NotAllowed );
+                            break;
+                    }
+                }
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
                 // The keys the UI listens to, as events (UIInput::Keys). Fresh presses only — the same edge
                 // ImGui::IsKeyPressed( key, false ) gave the old per-meaning flags. Down/S come after Up/W, so

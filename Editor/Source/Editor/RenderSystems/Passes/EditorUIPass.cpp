@@ -13,6 +13,7 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Editor/Core/Selection/UIPreview.hpp>
+#include <UI/Retained/WidgetGallery.hpp>
 #include <Editor/Core/UIProbeRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
@@ -124,7 +125,9 @@ namespace Desert::Editor::Render
                                         pv.MousePx.y * ( h / pv.DisplaySize.y ) };
                 input.MouseDown      = pv.Down;
                 input.MouseReleased  = pv.Released;
-                input.MouseRightDown = pv.RightDown;
+                input.MouseRightDown     = pv.RightDown;
+                input.MouseMiddleDown    = pv.MiddleDown;
+                input.DoubleClickSeconds = pv.DoubleClickSeconds;
                 input.ScrollDelta   = pv.Scroll;
                 input.Keys           = pv.Keys;
                 input.Mods           = pv.Mods;
@@ -176,6 +179,38 @@ namespace Desert::Editor::Render
             UI::EndUIFrame( m_UIView, scene->GetRegistry(), m_Render2D.GetDrawList(), feed ? &input : nullptr,
                             feed ? &pv.Focused : nullptr, feed ? &clicked : nullptr,
                             feed ? &uiMessages : nullptr );
+
+            // THE RETAINED WIDGET GALLERY, a tree of its own drawn in a view of its own over the level's
+            // canvases (a view is bound to one store: UIViewContext::Scene). Built on first show; its clicks
+            // and messages are its own and go to its delegates, never to the level's dispatch below.
+            UI::UICursorShape cursor = m_UIView.Cursor;
+            if ( pv.WidgetGallery )
+            {
+                if ( !m_Gallery.Valid( m_GalleryCanvas ) )
+                    m_GalleryCanvas = UI::BuildWidgetGallery( m_Gallery, m_GalleryModel );
+                m_GalleryView.Materials            = &m_Render2D.Materials();
+                m_GalleryView.RenderTextures       = &m_RenderTextures;
+                m_GalleryView.AuthoringPreview     = !feed;
+                m_GalleryView.DrivesSceneAnimation = false;
+
+                std::string              galleryClicked;
+                std::vector<std::string> galleryMessages;
+                m_Gallery.RefreshAttributes();
+                UI::BeginUIFrame( m_GalleryView, m_Gallery, UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
+                if ( const auto drawn = UI::RenderCanvas2D( m_GalleryView, m_Gallery, m_GalleryCanvas,
+                                                            m_Render2D.GetDrawList(), nullptr, feed ? &input : nullptr,
+                                                            feed ? &galleryClicked : nullptr,
+                                                            feed ? &m_GalleryFocused : nullptr );
+                     !drawn )
+                    LOG_ERROR( "[UI Preview] widget gallery: {}", drawn.GetError() );
+                UI::EndUIFrame( m_GalleryView, m_Gallery, m_Render2D.GetDrawList(), feed ? &input : nullptr,
+                                feed ? &m_GalleryFocused : nullptr, feed ? &galleryClicked : nullptr,
+                                feed ? &galleryMessages : nullptr );
+                m_Gallery.DispatchFrame( m_GalleryView, galleryClicked, galleryMessages );
+                if ( m_GalleryView.Cursor != UI::UICursorShape::Default )
+                    cursor = m_GalleryView.Cursor;
+            }
+            pv.Cursor = feed ? cursor : UI::UICursorShape::Default;
 
             // BEFORE Flush and AFTER the frame: this is the one moment the frame's draw list is complete
             // and still readable, and it is the same object Flush is about to turn into draw calls — so the

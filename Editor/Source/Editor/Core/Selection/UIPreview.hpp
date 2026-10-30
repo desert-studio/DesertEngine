@@ -33,12 +33,23 @@ namespace Desert::Editor::Core
         // would be a second place computing the same fact, and the two would eventually disagree about
         // which frame the click was in.
         bool                                  RightDown = false;
+        bool MiddleDown = false; // MMB held; its edge is derived in the frame, as the right one's is
+        // The double-click interval the host's toolkit uses (ImGui's MouseDoubleClickTime), so a double click
+        // in the preview is the same gesture as one anywhere else in the editor (UIInput::DoubleClickSeconds).
+        float DoubleClickSeconds = 0.5f;
         float       Scroll    = 0.0f;  // wheel notches (drives ScrollView)
         std::vector<::Desert::UI::UIKeyEvent> Keys; // key presses this frame, in order (UIInput::Keys)
         ::Desert::UI::UIKeyMods Mods = ::Desert::UI::UIKeyMods::None; // modifiers held (UIInput::Mods)
         std::string TypedText; // UTF-8 chars typed this frame (drives the focused InputField)
 
         entt::entity Focused = entt::null; // persisted keyboard focus across frames
+
+        // Draw the retained widget gallery (UI/Retained/WidgetGallery.hpp) over the level in this view, with
+        // the preview's input -- "UI: Toggle the widget gallery". Feeds input as Preview does.
+        bool WidgetGallery = false;
+        // WRITTEN BY THE PASS, read by the panel: the pointer shape the UI frame asked for
+        // (UIViewContext::Cursor), shown by the ViewportPanel while the viewport is hovered.
+        ::Desert::UI::UICursorShape Cursor = ::Desert::UI::UICursorShape::Default;
 
         static UIPreview& Get()
         {

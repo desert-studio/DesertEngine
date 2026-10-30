@@ -64,8 +64,18 @@ namespace Desert::UI
         // desktop toolkit does — and that edge is derived inside the frame from UIViewContext::PrevRightDown
         // exactly as the left one is, because a host that reported the edge itself would be a second place
         // computing the same fact.
-        bool  MouseRightDown = false;
-        float ScrollDelta    = 0.0f; // mouse-wheel notches this frame (+ = up); drives ScrollView
+        bool MouseRightDown = false;
+        // The MIDDLE button, held — the pan button of every graph, curve and node editor. Like the right one
+        // it is reported held and its press edge is derived inside the frame (UIViewContext::PrevMiddleDown);
+        // the press lands in UIViewContext::LastPress with Button = Middle.
+        bool  MouseMiddleDown = false;
+        float ScrollDelta     = 0.0f; // mouse-wheel notches this frame (+ = up); drives ScrollView
+        // THE HOST'S DOUBLE-CLICK INTERVAL, in seconds — the OS setting (Windows GetDoubleClickTime, macOS
+        // NSEvent.doubleClickInterval), which is the user's and not the UI's to choose. Whether a press IS a
+        // double click is decided inside the frame, in one place (UIViewContext::LastPress), from this and the
+        // view's own clock, as the press edges are: a host that reported "double-clicked" itself would be a
+        // second place counting the same clicks. 0.5 s is the default of both systems.
+        float DoubleClickSeconds = 0.5f;
         // The modifiers HELD this frame, for the pointer: a Shift-click extends a list's selection and a
         // Ctrl/Cmd-click toggles a row (UE FPointerEvent::GetModifierKeys). Keys carry their own.
         UIKeyMods Mods = UIKeyMods::None;

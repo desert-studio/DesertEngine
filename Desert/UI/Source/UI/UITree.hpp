@@ -1,6 +1,7 @@
 #pragma once
 
 #include <UI/Args/ArgKind.hpp>
+#include <UI/UICursor.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -72,6 +73,16 @@ namespace Desert::UI
         // WidgetComponent is a scene component; the widget tree itself has no world). nullopt when the host
         // gives the node no placement.
         [[nodiscard]] virtual std::optional<glm::vec3> WorldOrigin( NodeId n ) const = 0;
+
+        // The pointer shape @p n asks for while the pointer is over it or it holds the capture — a splitter's
+        // resize arrows, a link's hand. nullopt = the node states none, and the framework's own answer for
+        // its control kind stands (a text field's I-beam). Not pure: a store whose authored data carries no
+        // cursor (the ECS scene today) truthfully states none for every node.
+        [[nodiscard]] virtual std::optional<UICursorShape> CursorOf( NodeId n ) const
+        {
+            (void)n;
+            return std::nullopt;
+        }
 
         template <class T>
         [[nodiscard]] const T* Get( NodeId n ) const
