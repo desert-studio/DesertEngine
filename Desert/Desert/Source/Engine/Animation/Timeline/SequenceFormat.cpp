@@ -30,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 namespace Desert::Animation::Timeline::Format

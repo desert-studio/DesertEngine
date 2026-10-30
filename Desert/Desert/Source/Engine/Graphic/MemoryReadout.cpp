@@ -4,6 +4,9 @@
 #include <format>
 #include <iterator>
 #include <cstdio>
+#include <cstdint>
+#include <optional>
+#include <string>
 
 namespace Desert::Graphic
 {

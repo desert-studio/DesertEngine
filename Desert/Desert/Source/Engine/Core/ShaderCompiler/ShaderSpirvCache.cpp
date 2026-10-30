@@ -2,9 +2,11 @@
 
 #include <Common/Content/DerivedDataCache.hpp>
 
+#include <array>
 #include <atomic>
 #include <cstring>
 #include <format>
+#include <vector>
 
 namespace Desert::Core
 {

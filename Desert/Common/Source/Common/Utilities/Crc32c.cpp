@@ -3,6 +3,7 @@
 #include <array>
 #include <bit>
 #include <climits>
+#include <cstdint>
 #include <cstring>
 
 // THE FEATURE MACRO, NOT THE ARCHITECTURE MACRO. `__aarch64__` says the instruction set; only

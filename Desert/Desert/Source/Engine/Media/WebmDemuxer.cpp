@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstdint>
 #include <cstring>
 #include <format>
+#include <string>
+#include <vector>
 
 namespace Desert::Media
 {

@@ -6,9 +6,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstring>
 #include <format>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace Desert::Media

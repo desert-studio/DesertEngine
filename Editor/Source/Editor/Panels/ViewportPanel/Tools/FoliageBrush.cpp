@@ -7,7 +7,11 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <functional>
 #include <limits>
+#include <optional>
+#include <vector>
 
 namespace Desert::Editor::Tools
 {

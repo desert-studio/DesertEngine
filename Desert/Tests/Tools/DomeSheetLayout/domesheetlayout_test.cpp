@@ -14,6 +14,8 @@
 
 #include <cmath>
 #include <set>
+#include <string>
+#include <vector>
 
 using namespace Desert::DomeSheet;
 

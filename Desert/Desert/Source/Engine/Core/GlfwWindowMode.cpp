@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Glfw.hpp>
 
+#include <cstdint>
 #include <format>
 
 namespace Desert

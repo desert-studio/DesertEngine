@@ -2,9 +2,12 @@
 
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
 #include <istream>
+#include <optional>
 
 namespace Common::Content
 {

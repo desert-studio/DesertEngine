@@ -1,6 +1,7 @@
 #include "TimeModel.hpp"
 
 #include <cmath>
+#include <cstdint>
 
 namespace Desert::Animation
 {

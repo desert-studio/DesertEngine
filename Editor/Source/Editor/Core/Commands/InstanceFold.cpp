@@ -1,6 +1,9 @@
 #include "InstanceFold.hpp"
 
+#include <cstdint>
 #include <sstream>
+#include <string>
+#include <vector>
 
 namespace Desert::Editor::Commands
 {

@@ -2,6 +2,10 @@
 
 #include "Mesh.hpp"
 
+#include <cstdint>
+#include <memory>
+#include <vector>
+
 namespace Desert::Animation
 {
     class Skeleton;

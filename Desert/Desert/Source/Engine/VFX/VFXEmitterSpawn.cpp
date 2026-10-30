@@ -3,9 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <limits>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace Desert::VFX
 {

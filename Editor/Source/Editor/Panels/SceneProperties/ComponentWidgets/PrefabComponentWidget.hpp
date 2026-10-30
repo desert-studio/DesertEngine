@@ -2,6 +2,8 @@
 
 #include "IComponentWidget.hpp"
 
+#include <string>
+
 namespace Desert::Editor
 {
     class PrefabComponentWidget final : public IComponentWidget

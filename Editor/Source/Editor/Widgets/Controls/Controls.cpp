@@ -3,6 +3,7 @@
 #include <ImGui/imgui_internal.h>
 
 #include <cmath>
+#include <string>
 
 namespace Desert::Editor
 {

@@ -5,6 +5,7 @@
 #include <Projects/ProjectContext.hpp>
 
 #include <filesystem>
+#include <string_view>
 
 namespace Desert::Core
 {

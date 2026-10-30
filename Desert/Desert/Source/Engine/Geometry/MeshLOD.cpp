@@ -3,6 +3,7 @@
 #include "MeshSimplifier.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace Desert::Geometry
 {

@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Desert::Animation::Graph
 {

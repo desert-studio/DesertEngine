@@ -7,7 +7,9 @@
 #include <iterator>
 #include <optional>
 #include <set>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::HeaderTool
 {

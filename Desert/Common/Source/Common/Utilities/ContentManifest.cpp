@@ -5,9 +5,13 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <cstdint>
 #include <format>
 #include <fstream>
+#include <string>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace Common::Utils
 {

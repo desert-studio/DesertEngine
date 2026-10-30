@@ -27,6 +27,7 @@
 
 #include <glm/gtc/epsilon.hpp>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>

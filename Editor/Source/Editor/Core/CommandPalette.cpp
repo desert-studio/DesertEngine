@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstring>
 #include <format>
+#include <vector>
 
 namespace Desert::Editor
 {

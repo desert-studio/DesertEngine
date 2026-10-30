@@ -3,6 +3,10 @@
 #include <assimp/mesh.h>
 #include <assimp/scene.h>
 
+#include <array>
+#include <cstdint>
+#include <vector>
+
 namespace Desert::Editor
 {
     SceneVertexStreams StreamsOf( const aiScene& scene )

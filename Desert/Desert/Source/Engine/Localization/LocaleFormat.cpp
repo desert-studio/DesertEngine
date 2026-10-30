@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <string>
+#include <string_view>
 
 namespace Desert::Localization
 {

@@ -1,7 +1,12 @@
 #include "SkeletonReference.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Animation
 {

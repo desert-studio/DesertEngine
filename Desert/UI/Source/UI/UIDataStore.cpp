@@ -2,9 +2,14 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cstdint>
 #include <cstdio>
 #include <format>
+#include <memory>
+#include <optional>
 #include <string>
+#include <variant>
+#include <vector>
 
 namespace Desert::UI
 {

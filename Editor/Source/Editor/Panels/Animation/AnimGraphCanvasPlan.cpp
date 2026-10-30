@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
+#include <string>
+#include <vector>
 
 namespace Desert::Editor::Graph
 {

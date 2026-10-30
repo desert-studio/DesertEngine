@@ -1,6 +1,7 @@
 #include "MultiEdit.hpp"
 
 #include <cstring>
+#include <vector>
 
 namespace Desert::Editor
 {

@@ -1,6 +1,9 @@
 #include "PluralRules.hpp"
 
 #include <cmath>
+#include <cstdint>
+#include <optional>
+#include <string_view>
 
 namespace Desert::Localization
 {

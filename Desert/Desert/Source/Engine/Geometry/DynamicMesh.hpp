@@ -2,6 +2,8 @@
 
 #include "Mesh.hpp"
 
+#include <vector>
+
 namespace Desert
 {
     class DynamicMesh : public Mesh

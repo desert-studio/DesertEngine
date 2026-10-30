@@ -1,5 +1,8 @@
 #include "LandscapeGrassTypeService.hpp"
 
+#include <memory>
+#include <string>
+
 namespace Desert::Runtime
 {
     void LandscapeGrassTypeService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )

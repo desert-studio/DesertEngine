@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace Desert::World::Landscape
 {

@@ -7,6 +7,8 @@
 #include <limits>
 #include <type_traits>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace Desert::Animation::Timeline
 {

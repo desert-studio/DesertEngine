@@ -3,7 +3,9 @@
 #include <array>
 #include <cmath>
 #include <numbers>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace Desert::Animation
 {

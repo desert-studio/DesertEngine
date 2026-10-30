@@ -2,6 +2,9 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <string>
+#include <string_view>
+
 namespace Desert::ShaderResources
 {
     // A NULL BUFFER IS NOT REGISTERED UNDER ITS NAME. Since Г13 the two factories refuse to hand back a

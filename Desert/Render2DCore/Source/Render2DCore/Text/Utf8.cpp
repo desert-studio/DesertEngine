@@ -1,5 +1,9 @@
 #include "Utf8.hpp"
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace Desert::Text
 {
     namespace

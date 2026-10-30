@@ -43,6 +43,7 @@
 
 #include "DomeSheetLayout.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

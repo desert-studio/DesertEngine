@@ -1,5 +1,7 @@
 #include "DrawCounters.hpp"
 
+#include <cstdint>
+
 // The whole translation unit is the instrument. Under Shipping the header's inline no-ops take over and
 // nothing here has a caller; compiling it to an empty object keeps the file in the build (so it cannot
 // rot unnoticed) while leaving nothing for the linker to pull in.

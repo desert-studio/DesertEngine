@@ -1,5 +1,7 @@
 #include "RenderRigistry.hpp"
 
+#include <memory>
+
 namespace Desert::Editor::Render
 {
     RenderRegistry::RenderRegistry( const std::shared_ptr<::Desert::Core::Scene>& scene ) : m_Scene( scene )

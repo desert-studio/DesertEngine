@@ -9,6 +9,9 @@
 #include <optional>
 #include <tuple>
 #include <utility>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // The pose graph's structure: node kinds and their pins, lookups, and the evaluation plan. Kept apart from
 // the Evaluator because the loader (AnimGraphSerialization.cpp) refuses an unplannable graph and links no

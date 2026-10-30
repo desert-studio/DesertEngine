@@ -2,6 +2,8 @@
 
 #include <format>
 #include <iterator>
+#include <string>
+#include <vector>
 
 namespace Desert::Animation
 {

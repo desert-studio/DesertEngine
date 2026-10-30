@@ -6,6 +6,7 @@
 #include <cstring>
 #include <format>
 #include <type_traits>
+#include <vector>
 
 namespace Desert::Core
 {

@@ -1,6 +1,12 @@
 #include "MaterialInstance.hpp"
 #include "Material.hpp"
 
+#include <memory>
+#include <optional>
+#include <string>
+#include <variant>
+#include <vector>
+
 namespace Desert::Graphic
 {
     MaterialInstance::MaterialInstance( Material* parentMaterial, const std::string& name )

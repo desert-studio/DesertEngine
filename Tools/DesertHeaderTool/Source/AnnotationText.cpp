@@ -1,6 +1,8 @@
 #include "AnnotationText.hpp"
 
 #include <cctype>
+#include <string>
+#include <vector>
 
 namespace Desert::HeaderTool
 {

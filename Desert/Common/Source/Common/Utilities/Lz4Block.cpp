@@ -1,5 +1,6 @@
 #include "Lz4Block.hpp"
 
+#include <cstdint>
 #include <cstring>
 #include <vector>
 

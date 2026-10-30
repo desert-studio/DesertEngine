@@ -6,8 +6,11 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <format>
+#include <string>
+#include <vector>
 
 namespace Desert::Media
 {

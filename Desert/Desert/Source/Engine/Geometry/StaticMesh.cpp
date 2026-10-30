@@ -4,6 +4,7 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <cstdint>
 #include <vector>
 
 namespace Desert

@@ -7,6 +7,7 @@
 // `std::abs( int )` is declared here and NOT by <cmath>, which carries only the floating-point
 // overloads. libc++ drags it in anyway; MSVC does not, and the Windows-only defect register already
 // holds two entries of exactly this shape (<algorithm> for std::clamp, twice).
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <limits>

@@ -6,6 +6,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>

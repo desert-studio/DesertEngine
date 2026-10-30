@@ -1,6 +1,9 @@
 #include "ProceduralFoliageResimulate.hpp"
 
+#include <cstdint>
+#include <optional>
 #include <utility>
+#include <vector>
 
 namespace Desert::Editor::Tools
 {

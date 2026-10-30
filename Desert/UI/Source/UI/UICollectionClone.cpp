@@ -1,5 +1,7 @@
 #include "UIDataStore.hpp"
 
+#include <memory>
+
 namespace Desert::UI
 {
     // Alone in this file on purpose: see the declaration. Copying the records copies each record's store,

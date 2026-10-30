@@ -8,6 +8,8 @@
 #include "TimelineFixtures.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <vector>
 
 using namespace TimelineFixtures;
 

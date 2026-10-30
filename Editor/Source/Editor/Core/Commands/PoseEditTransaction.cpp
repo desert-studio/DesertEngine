@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <format>
+#include <functional>
 #include <utility>
 
 namespace Desert::Editor

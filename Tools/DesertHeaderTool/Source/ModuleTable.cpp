@@ -1,5 +1,10 @@
 #include "ModuleTable.hpp"
 
+#include <set>
+#include <string>
+#include <string_view>
+#include <vector>
+
 extern "C"
 {
 #include <lauxlib.h>

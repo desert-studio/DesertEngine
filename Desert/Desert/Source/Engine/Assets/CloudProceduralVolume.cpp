@@ -8,12 +8,14 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <string_view>
 #include <unordered_map>
 
 // Common/CloudNoise.glslh COMPILED AS C++ for the body's silhouette noise (SHAPE-NOISE), the arrangement

@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <variant>
+#include <vector>
 
 namespace Desert::Editor
 {

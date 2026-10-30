@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <bit>
 #include <cstddef>
+#include <cstring>
 #include <fstream>
 #include <istream>
 #include <limits>

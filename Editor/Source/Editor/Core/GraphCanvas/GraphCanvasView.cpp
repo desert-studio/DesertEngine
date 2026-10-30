@@ -4,6 +4,8 @@
 #include <imgui-node-editor/imgui_node_editor.h>
 
 #include <algorithm>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace ed = ax::NodeEditor;

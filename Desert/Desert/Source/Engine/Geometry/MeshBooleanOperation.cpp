@@ -1,6 +1,7 @@
 #include "MeshBooleanOperation.hpp"
 
 #include <cstddef>
+#include <memory>
 
 namespace Desert::Geometry
 {
