@@ -67,16 +67,22 @@ namespace Desert::Graphic::System
             glm::uvec4 Info;
             glm::uvec4 Buckets; // x = bucket count, y = the bucket table's first word in Args
             glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
-            glm::vec4  Spread;  // x = Scatter (cells), y = Patchiness, z = PatchSize
-            glm::vec4  Lean;    // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
+            // x = Scatter (cells), y = Patchiness, z = PatchSize, w = the screen-width floor's distance (cm, 0: none)
+            glm::vec4  Spread;
+            // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm), w = the screen-width
+            // floor's width per unit of distance (MinScreenWidth / pixels per unit; 0: none)
+            glm::vec4  Lean;
             // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
             // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic).
             glm::vec4 Lod;
             // The variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = the noise seed's
             // bits (shared by a Group).
             glm::vec4 Patches;
+            // A blade's cards' widths, cm at scale 1 (card i at [i / 4][i % 4], Buckets.z of them): the card an
+            // instance draws (Mesh/Surface/GrassBlade.glslh BladeCard) is lifted to the screen-width floor.
+            glm::vec4 CardWidths[2];
         };
-        static_assert( sizeof( GrassParamsGpu ) == 336 );
+        static_assert( sizeof( GrassParamsGpu ) == 368 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -661,6 +667,23 @@ namespace Desert::Graphic::System
         params.Info    = glm::uvec4( variety.Layer, capacity, static_cast<uint32_t>( submeshes.size() ),
                                      static_cast<uint32_t>( variety.Key * 0x9E3779B97F4A7C15ull >> 32 ) );
         params.Buckets = glm::uvec4( buckets, static_cast<uint32_t>( GpuInstanceArgsOffset( records ) / 4u ), 0u, 0u );
+        // A blade's cards' widths (the vertex stage's: Height x du / dv x the instance's width scale) and their
+        // mean, the mean blade's width at the ScaleX range's middle.
+        float meanBladeWidth = 0.0f;
+        if ( variety.Blade )
+        {
+            const GrassBladeDraw& b     = *variety.Blade;
+            const size_t          cards = std::min( b.Cards.size(), std::size( params.CardWidths ) * 4u );
+            for ( size_t i = 0; i < cards; ++i )
+            {
+                const glm::vec4& card  = b.Cards[i];
+                const float      width = b.Height * ( card.z - card.x ) / std::max( card.w - card.y, 1.0e-4f );
+                params.CardWidths[i / 4u][i % 4u] = width;
+                meanBladeWidth += width;
+            }
+            params.Buckets.z = static_cast<uint32_t>( cards );
+            meanBladeWidth *= cards > 0 ? 0.5f * ( p.ScaleX.x + p.ScaleX.y ) / static_cast<float>( cards ) : 0.0f;
+        }
         params.Blade = variety.Blade ? glm::vec4( lodDistance, variety.Blade->ClumpSize, variety.Blade->Clumping,
                                                   variety.Blade->ClumpPull )
                                      : glm::vec4( 0.0f );
@@ -670,6 +693,22 @@ namespace Desert::Graphic::System
         params.Lean   = variety.Blade ? glm::vec4( glm::radians( variety.Blade->Tilt ),
                                                    glm::radians( variety.Blade->FacingJitter ), 0.0f, 0.0f )
                                       : glm::vec4( 0.0f );
+        // THE BLADE'S SCREEN-WIDTH FLOOR (GRASS-WIDTH): the distance at which the mean blade - the cards' mean
+        // width at the ScaleX range's middle - stands MinScreenWidth render pixels wide through this lens
+        // (|Projection[0][0]| x Render.Width / 2 pixels per unit of x / depth; the width axis is the blade's
+        // horizontal). Past it GrassGenerate keeps (D / d)^2 of the blades (the law its distance thinning widens
+        // by) and lifts each instance's own card to the floor width, so no blade triangle is narrower than the
+        // floor and the pixel shader runs about once per covered pixel instead of up to four times (quad
+        // overshade of sub-pixel strips; GRASS-VIS-9, GPU-COST-18). 0 - no floor: none authored, an
+        // orthographic lens, no render extent.
+        if ( variety.Blade && perspective && variety.Blade->MinScreenWidth > 0.0f && frame.Split.Render.Width > 0u &&
+             meanBladeWidth > 0.0f )
+        {
+            const float pixelsPerUnit =
+                 std::abs( frame.Projection[0][0] ) * 0.5f * static_cast<float>( frame.Split.Render.Width );
+            params.Lean.w   = variety.Blade->MinScreenWidth / pixelsPerUnit;
+            params.Spread.w = meanBladeWidth / params.Lean.w;
+        }
         {
             const uint32_t seed =
                  p.PatchGroup != 0u ? ( p.PatchGroup * 0x9E3779B1u ) ^ 0x68E31DA4u : params.Info.w ^ 0x2C1B3C6Du;

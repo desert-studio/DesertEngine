@@ -1,0 +1,47 @@
+// THE GRASS FIELD'S DISTANCE LAW (GRASS-DENSITY, GRASS-FIELD): ONE definition of how much of a grass variety's field
+// stands at a distance, read by the generator that thins the blades (Programs/Grass/GrassGenerate.shader) and by the
+// ground's far cover that carries on what the thinning removed (Common/LandscapeGrassCover.glslh). Two copies of
+// this law drifted once already: the generator thinned by (S / d)^2 while the cover took on only the fade, so the
+// thinned field past S lost coverage the ground never made up (GRASS-VIS-15).
+//
+// Past StartCullDistance S the share of instances kept falls with the square of the distance, (S / d)^2 - a blade's
+// screen area falls so, and so does what it costs to draw it - and on top of that UE's fade, down to nothing at
+// EndCullDistance E. S = 0 states no full-density zone to scale from: the variety fades as UE's does, linearly.
+// A survivor stands for the 1 / share blades dropped around it, so its footprint widens by 1 / sqrt(share) (the
+// share clamped at 0.05: past that a survivor does not grow further) at its own height; the height falls only over
+// the last 20 % of the fade, so the far edge melts into the ground instead of the whole band shrinking.
+//
+// So the share of the full field's covered ground the survivors still cover is kept x widen x height - sqrt(share)
+// while the share is above 0.05 - and the cover takes on the rest, 1 - that. Before S nothing is thinned: the
+// coverage is 1 and the cover adds nothing.
+#ifndef GRASS_FIELD_SHARE_GLSLH
+#define GRASS_FIELD_SHARE_GLSLH
+
+struct GrassFieldShare
+{
+    float Faded;  // UE's fade between S and E, 0..1
+    float Kept;   // the share of the field's instances kept: (S / d)^2 x (1 - Faded)
+    float Widen;  // a survivor's width multiplier, 1 / sqrt(max(Kept, 0.05))
+    float Height; // a survivor's height multiplier, 1 down to 0 over the last 20 % of the fade
+};
+
+// The field's share at @p distance for a variety with Start/EndCullDistance @p startCull / @p endCull (all in the
+// same units, cm; the caller passes them through its own lens).
+GrassFieldShare GrassFieldShareAt( float distance, float startCull, float endCull )
+{
+    GrassFieldShare s;
+    s.Faded      = clamp( ( distance - startCull ) / max( endCull - startCull, 1.0 ), 0.0, 1.0 );
+    float screen = startCull > 0.0 ? min( 1.0, ( startCull * startCull ) / max( distance * distance, 1.0 ) ) : 1.0;
+    s.Kept       = screen * ( 1.0 - s.Faded );
+    s.Widen      = inversesqrt( max( s.Kept, 0.05 ) );
+    s.Height     = 1.0 - clamp( ( s.Faded - 0.8 ) / 0.2, 0.0, 1.0 );
+    return s;
+}
+
+// The share of the full field's covered ground the kept, widened survivors still cover (1 before S).
+float GrassFieldCoverage( GrassFieldShare s )
+{
+    return min( 1.0, s.Kept * s.Widen * s.Height );
+}
+
+#endif // GRASS_FIELD_SHARE_GLSLH

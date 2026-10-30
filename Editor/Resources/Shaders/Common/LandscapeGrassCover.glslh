@@ -1,11 +1,14 @@
 // THE GRASS FIELD'S FAR COVER (GRASS-FIELD): one field of grass from the blade at the camera to the landscape's edge.
 // The generator (Programs/Grass/GrassGenerate.shader) grows each grass layer's blades where its weight allows and
-// thins them with distance - between StartCullDistance and EndCullDistance a blade survives with the share
-// 1 - faded. The blades it drops are not gone from the field: the ground's own shading carries them on, here, from
+// thins them with distance by the field's one law (Common/GrassFieldShare.glslh): past StartCullDistance S it keeps
+// (S / d)^2 of them times UE's fade to EndCullDistance, and widens each survivor by 1 / sqrt(share) at its own
+// height, so the survivors cover only sqrt(share) of the ground the full field did (GrassFieldCoverage). The
+// coverage they lose is not gone from the field: the ground's own shading carries it on, here, from
 // the SAME data - the tile's layer weights and the layer's grass types (LandscapeECSSystem::EmitGrass sums the
 // varieties into TerrainInstance::GrassCover*: leaf area index, the blades' mean albedo from the blade asset and its
-// material, the material's subsurface colour and roughness). So the cover rises exactly as the blades thin and the
-// field has no line where the blades end.
+// material, the material's subsurface colour and roughness). So the cover rises exactly as the blades' coverage
+// falls - by the same function, not a copy of it - and the field has no line where the blades end, nor a balder band
+// past S where the blades thin and the ground did not yet take over (GRASS-VIS-15).
 //
 // The look of a canopy seen from afar is a canopy's, not a tint (Ross-Goudriaan's turbid medium, the model leaf
 // canopies are measured against): the share of the ground a ray from the eye meets blades over is the gap
@@ -19,6 +22,7 @@
 #ifndef LANDSCAPE_GRASS_COVER_GLSLH
 #define LANDSCAPE_GRASS_COVER_GLSLH
 
+#include <Common/GrassFieldShare.glslh>
 #include <Common/TerrainInstance.glslh>
 
 struct LandscapeGrassCover
@@ -27,7 +31,7 @@ struct LandscapeGrassCover
     vec3  Subsurface; // the blade material's SubsurfaceColor
     float Roughness;
     float Opacity;    // the blade material's subsurface Opacity (UE's pin: the density the sun crosses to it)
-    float Lai;        // the leaf area index the thinned-out blades leave to the cover at this point
+    float Lai;        // the leaf area index of the coverage the thinned-out blades leave to the cover here
 };
 
 // The cover at a point of tile @p t with layer weights @p w0 / @p w1, @p viewDistance from the camera.
@@ -45,9 +49,10 @@ LandscapeGrassCover LandscapeGrassCoverAt( TerrainInstance t, vec4 w0, vec4 w1, 
         vec4  rng = t.GrassCoverRange[i];
         if ( t.GrassCover[i].a <= 0.0 || t.LayerColors[i].a < 0.5 || w <= rng.z )
             continue;
-        // The generator's share of dropped blades at this distance (its `faded`).
-        float faded = clamp( ( viewDistance - rng.x ) / max( rng.y - rng.x, 1.0 ), 0.0, 1.0 );
-        float lai   = t.GrassCover[i].a * w * faded;
+        // The coverage the generator's thinning loses at this distance (GrassFieldShare: the same share and the
+        // same widening the blades get); 0 before StartCullDistance, so the unthinned field is left as it is.
+        float lost = 1.0 - GrassFieldCoverage( GrassFieldShareAt( viewDistance, rng.x, rng.y ) );
+        float lai  = t.GrassCover[i].a * w * lost;
         c.Albedo += lai * t.GrassCover[i].rgb;
         c.Subsurface += lai * t.GrassCoverLight[i].rgb;
         c.Roughness += lai * t.GrassCoverLight[i].a;

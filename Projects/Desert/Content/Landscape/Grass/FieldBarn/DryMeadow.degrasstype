@@ -37,6 +37,7 @@
                 "PatchSize": 700.0,
                 "Segments": 6,
                 "LodDistance": 500,
+                "MinScreenWidth": 1.5,
                 "Cards": [
                     [
                         0.873,
@@ -127,6 +128,7 @@
                 "ClumpPull": 0.4,
                 "Segments": 6,
                 "LodDistance": 600,
+                "MinScreenWidth": 1.5,
                 "Cards": [
                     [
                         0.873,
