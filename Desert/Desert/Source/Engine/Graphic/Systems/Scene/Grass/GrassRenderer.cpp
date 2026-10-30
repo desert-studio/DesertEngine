@@ -10,6 +10,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -20,12 +21,15 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <iterator>
 #include <optional>
+#include <tuple>
 
 namespace Desert::Graphic::System
 {
@@ -38,11 +42,22 @@ namespace Desert::Graphic::System
         constexpr uint32_t kFlagBlade            = 8u;
         // GpuInstanceBucket: count, first, capacity, and a mesh level's half screen size (bit pattern; 0 for a blade).
         constexpr uint32_t kBucketWords = 4u;
+        // GRASS-VIS: CameraArgs' words per bucket after its bucket table (GrassGenerate.shader CameraArgs):
+        // candidates appended, candidates frozen, phase 1's drawn, phase 2's appended.
+        constexpr uint32_t kPhaseWords = 4u;
+        // GRASS-VIS-7: Feedback's words per variety past its bucket counts (GrassFinalize.shader Feedback): the
+        // written mark, the full list's drawn count, the camera's phase-1 drawn count, phase 2's appended count.
+        constexpr uint32_t kFeedbackTailWords = 4u;
+        // A camera candidate's two uvec4 (GrassGenerate.shader Candidates): its sphere and its row of Instances.
+        constexpr uint32_t kCandidateBytes = 32u;
+        // GrassGenerate's phase 2 runs one thread per slot (64 a group); its groups wrap at this many along x.
+        constexpr uint32_t kPostGroupsX = 1024u;
 
         // Mirrors GrassGenerate's GrassParams (std430).
         struct GrassParamsGpu
         {
-            glm::vec4  Planes[4];
+            glm::vec4  Planes[4];       // the full list's volume (the camera's side planes swept along the lights)
+            glm::vec4  CameraPlanes[4]; // the camera's side planes (its own list)
             glm::vec4  Camera;
             glm::vec4  Cull;
             glm::vec4  Range;
@@ -61,7 +76,7 @@ namespace Desert::Graphic::System
             // bits (shared by a Group).
             glm::vec4 Patches;
         };
-        static_assert( sizeof( GrassParamsGpu ) == 272 );
+        static_assert( sizeof( GrassParamsGpu ) == 336 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -127,6 +142,28 @@ namespace Desert::Graphic::System
             for ( int i = 0; i < 4; ++i )
                 planes[i] = raw[i] / glm::length( glm::vec3( raw[i] ) );
         }
+
+        // GRASS-VIS-6: @p planes (normalised, inside where n.p + w >= 0) swept along every light of @p sweeps by its
+        // reach: an instance at p darkens p + t * Travel for t in [0, Reach], which stays inside plane i for some t
+        // exactly when n.p + w + Reach * max(0, n.Travel) >= 0 - so each plane moves out by its largest such term.
+        // Per plane, so the volume holds the swept camera volume of every light (a little more where two planes'
+        // sweeps meet). True when a plane moved.
+        template <size_t N>
+        bool SweepPlanes( glm::vec4 ( &planes )[4],
+                          const std::array<MeshRenderer::DirectionalCasterSweep, N>& sweeps )
+        {
+            bool moved = false;
+            for ( glm::vec4& plane : planes )
+            {
+                float out = 0.0f;
+                for ( const MeshRenderer::DirectionalCasterSweep& sweep : sweeps )
+                    out = std::max( out,
+                                    sweep.Reach * std::max( 0.0f, glm::dot( glm::vec3( plane ), sweep.Travel ) ) );
+                plane.w += out;
+                moved = moved || out > 0.0f;
+            }
+            return moved;
+        }
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
         struct GrassGenerateShaderParameters
         {
@@ -134,14 +171,37 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, Params );
             DESERT_SHADER_PARAMETER( StorageBuffer, Instances );
             DESERT_SHADER_PARAMETER( StorageBuffer, Args );
+            DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+            DESERT_SHADER_PARAMETER( Texture, GrassHzbTexture );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CameraInstances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CameraArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, Candidates );
         };
+
+        // GrassGenerate's push block, std430 (Programs/Grass/GrassGenerate.shader PushConstants).
+        struct GrassGeneratePush
+        {
+            glm::ivec4 CellRange{ 0 }; // phase 2: x = candidate slots, y = groups along x
+            glm::mat4  HzbViewProjection{ 1.0f };
+            glm::uvec4 Hzb{ 0u }; // xy = mip-0 size, z = mip count, w = the phase (0 untested, 1, 2)
+        };
+        static_assert( sizeof( GrassGeneratePush ) == 96 );
 
         // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
         struct GrassFinalizeShaderParameters
         {
             DESERT_SHADER_PARAMETER( StorageBuffer, Args );
             DESERT_SHADER_PARAMETER( StorageBuffer, Feedback );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CameraArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, PostArgs );
         };
+
+        // GrassFinalize's push block (Programs/Grass/GrassFinalize.shader PushConstants).
+        struct GrassFinalizePush
+        {
+            glm::uvec4 Mode{ 0u }; // x = 0 after the generation, 1 after phase 2; y = 1 with a camera list
+        };
+        static_assert( sizeof( GrassFinalizePush ) == 16 );
 
         // WHAT A VARIETY ASKS OF ITS TEXTURES (TEX-STREAMING). UE streams a grass HISM's textures like any
         // primitive's: the distance from the view to the component's bounds, the mesh's size at that distance
@@ -251,7 +311,7 @@ namespace Desert::Graphic::System
     }
 
     GrassRenderer::VarietyGpu* GrassRenderer::PrepareVariety( const GrassVarietyDraw& variety, Desert::Mesh& mesh,
-                                                              const ViewFrame& frame )
+                                                              const ViewFrame& frame, const ViewVolumes& volumes )
     {
         const GrassPlacement& p    = variety.Placement;
         const float           cell = CellSizeCm( p );
@@ -264,6 +324,9 @@ namespace Desert::Graphic::System
         const bool              perspective = std::abs( frame.Projection[2][3] ) != 0.0f;
         const double            tanX        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[0][0] ) );
         const double            tanY        = 1.0 / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
+        // The lens's wedge bounds what is generated (the cells, the capacity) only while the full list is the
+        // camera's own volume: swept along a light (GRASS-VIS-6) it reaches past the wedge, anywhere in the disc.
+        const bool              wedge       = perspective && !volumes.Swept;
         const float             radius      = p.EndCullDistance * lens;
         // The floor of the share of cells generated (GrassGenerate LensShare): 1 / k through a zoomed lens - flat
         // ground far away, where it holds the authored lens's instances per pixel; slopes facing the camera and
@@ -314,11 +377,12 @@ namespace Desert::Graphic::System
         VarietyGpu&  gpu    = m_Varieties[variety.Key];
         // What the GPU counted for each bucket FramesInFlight frames ago (GrassFinalize), when this frame's copy
         // has been written since the feedback buffer was made for this bucket count.
-        std::vector<uint32_t> counted( buckets + 1u, 0u );
+        std::vector<uint32_t> counted( buckets + kFeedbackTailWords, 0u );
         bool                  fedBack = false;
+        gpu.Drawn                     = std::nullopt;
         if ( gpu.Feedback && gpu.Buckets == buckets )
         {
-            if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + 1u ) * 4u );
+            if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + kFeedbackTailWords ) * 4u );
                  !read.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
@@ -326,6 +390,8 @@ namespace Desert::Graphic::System
             else
             {
                 fedBack = counted[buckets] != 0u;
+                if ( fedBack )
+                    gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
             }
         }
         if ( gpu.LowFrames.size() != buckets )
@@ -356,7 +422,7 @@ namespace Desert::Graphic::System
             const double outer = !ring || b + 1u == buckets ? static_cast<double>( radius )
                                                             : std::min<double>( radius, ( b + 1.0 ) * lodDistance );
             uint32_t     needed = inner >= radius ? 0u : RingCapacity( inner, outer, cell, moved );
-            if ( perspective && needed > 0u )
+            if ( wedge && needed > 0u )
                 needed = std::min<uint32_t>(
                      needed, static_cast<uint32_t>( std::ceil( ViewFootprintArea( outer, tanX, tanY, margin ) /
                                                                ( static_cast<double>( cell ) * cell ) ) ) );
@@ -407,8 +473,9 @@ namespace Desert::Graphic::System
         m_Settling = m_Settling || gpu.SettleReads > 0u;
 
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
-             gpu.BucketCapacities != capacities || !gpu.Instances )
+             gpu.BucketCapacities != capacities || !gpu.Instances || gpu.List != volumes.List )
         {
+            gpu.List             = volumes.List;
             gpu.Mesh             = &mesh;
             gpu.Capacity         = capacity;
             gpu.Buckets          = buckets;
@@ -460,9 +527,49 @@ namespace Desert::Graphic::System
                 LOG_ERROR( "[Grass] the argument records were not written: {}", wrote.GetError() );
                 return nullptr;
             }
+            // The camera's list (GRASS-VIS): the same records and bucket table, its own counts; CameraArgs adds
+            // the phase words, and only an HZB-tested list has candidates and phase 2's records (PlanesAndHzb).
+            // What this frame's list does not use is a one-word stand-in (the passes bind it, Hzb.w / Mode.y keep
+            // it idle).
+            if ( volumes.List != CameraList::None )
+            {
+                gpu.CameraInstances = ShaderResources::StorageBuffer::Create(
+                     "GrassCameraInstances", std::max( capacity, 1u ) * sizeof( glm::mat4 ), 5, true );
+                std::vector<uint32_t> cameraArgs = args;
+                cameraArgs.resize( args.size() + static_cast<size_t>( buckets ) * kPhaseWords, 0u );
+                const auto cameraBytes = static_cast<uint32_t>( cameraArgs.size() * 4u );
+                gpu.CameraArgs = ShaderResources::StorageBuffer::Create( "GrassCameraArgs", cameraBytes, 6, true );
+                if ( const auto wrote = gpu.CameraArgs->SetData( cameraArgs.data(), cameraBytes ); !wrote.IsSuccess() )
+                {
+                    LOG_ERROR( "[Grass] the camera list's records were not written: {}", wrote.GetError() );
+                    return nullptr;
+                }
+            }
+            else
+            {
+                gpu.CameraInstances = ShaderResources::StorageBuffer::Create( "GrassCameraInstances", 16u, 5, true );
+                gpu.CameraArgs      = ShaderResources::StorageBuffer::Create( "GrassCameraArgs", 16u, 6, true );
+            }
+            if ( volumes.List == CameraList::PlanesAndHzb )
+            {
+                gpu.Candidates = ShaderResources::StorageBuffer::Create(
+                     "GrassCandidates", std::max( capacity, 1u ) * kCandidateBytes, 7, true );
+                gpu.PostArgs = ShaderResources::StorageBuffer::Create( "GrassPostArgs", argBytes, 3, true );
+                if ( const auto wrote = gpu.PostArgs->SetData( args.data(), argBytes ); !wrote.IsSuccess() )
+                {
+                    LOG_ERROR( "[Grass] the camera list's phase-2 records were not written: {}", wrote.GetError() );
+                    return nullptr;
+                }
+            }
+            else
+            {
+                gpu.Candidates = ShaderResources::StorageBuffer::Create( "GrassCandidates", 16u, 7, true );
+                gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
+            }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
-            if ( !gpu.Feedback || gpu.Feedback->GetSize() != ( buckets + 1u ) * 4u )
-                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", ( buckets + 1u ) * 4u, 1 );
+            if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
+                 !gpu.Feedback || gpu.Feedback->GetSize() != feedbackBytes )
+                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", feedbackBytes, 1 );
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
@@ -478,7 +585,9 @@ namespace Desert::Graphic::System
             std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
             // The variety's rows of this frame's raster stream (GRASS-VIS): instance i is row VisibilityRow + i
             // of the view's visibility buffer, the bucket table tells the resolve which strip level drew it.
-            gpu.VisibilityRow = m_VisibilityRows;
+            // Past kGrassVisibilityMaxRows the view refuses the path this frame (VisibilityRowsOverflow), so a
+            // row cut to 32 bits here is never resolved.
+            gpu.VisibilityRow = static_cast<uint32_t>( m_VisibilityRows );
             m_VisibilityRows += std::max( capacity, 1u );
             gpu.ShapeData.Visibility = glm::uvec4( gpu.VisibilityRow, b.Segments,
                                                    std::min( buckets, kGrassBladeVisibilityMaxBuckets ), 0u );
@@ -494,7 +603,8 @@ namespace Desert::Graphic::System
         }
 
         GrassParamsGpu params{};
-        SidePlanes( frame.ViewProjection, params.Planes );
+        std::copy( std::begin( volumes.Full ), std::end( volumes.Full ), std::begin( params.Planes ) );
+        std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( params.CameraPlanes ) );
         params.Camera = glm::vec4( frame.CameraPosition, radius );
         params.Cull   = glm::vec4( p.StartCullDistance * lens, radius, cell,
                                    std::clamp( p.PlacementJitter, 0.0f, 0.99f ) * 0.5f );
@@ -549,7 +659,7 @@ namespace Desert::Graphic::System
         const auto      pad = static_cast<float>( margin );
         glm::vec2       lo  = eye - ( radius + pad );
         glm::vec2       hi  = eye + ( radius + pad );
-        if ( perspective )
+        if ( wedge )
         {
             const glm::mat3 toWorld( frame.InvView );
             glm::vec2       seenLo = eye, seenHi = eye;
@@ -591,11 +701,22 @@ namespace Desert::Graphic::System
     }
 
     void GrassRenderer::AddFrame( RDG::Builder& graph, const ViewFrame& frame, MeshRenderer& meshes,
-                                  const bool rayTracing )
+                                  const bool rayTracing, const GrassOcclusion& occlusion )
     {
+        const bool testsHzb = occlusion.Hzb.IsValid();
+        // The two volumes (GRASS-VIS-6): the camera's side planes, and the same planes swept along every light
+        // whose cascades this frame fitted (UpdateCascades ran before this) for the full list the cascades and
+        // the TLAS draw. While they differ the camera keeps a list of its own even with no HZB to test.
+        ViewVolumes volumes;
+        SidePlanes( frame.ViewProjection, volumes.Camera );
+        std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( volumes.Full ) );
+        volumes.Swept = SweepPlanes( volumes.Full, meshes.DirectionalCasterSweeps() );
+        volumes.List  = testsHzb ? CameraList::PlanesAndHzb : volumes.Swept ? CameraList::Planes : CameraList::None;
         m_Frame.clear();
         m_FrameGenerate.clear();
         m_Settling       = false;
+        m_FrameTested    = testsHzb;
+        m_FrameNeutral   = occlusion.Neutral;
         m_VisibilityRows = 0;
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Finalize )
@@ -632,7 +753,7 @@ namespace Desert::Graphic::System
                 if ( mesh == nullptr || variety.Sections.empty() || !mesh->GetGeometry().IsResident() ||
                      mesh->GetGeometry().IndexCount == 0 )
                     continue;
-                VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame );
+                VarietyGpu* gpu = PrepareVariety( variety, *mesh, frame, volumes );
                 if ( gpu == nullptr )
                     continue;
                 Common::BoolResultStr imported = Renderer::ImportBuffer( gpu->Instances, gpu->InstancesImport );
@@ -642,6 +763,13 @@ namespace Desert::Graphic::System
                     imported = Renderer::ImportBuffer( gpu->Params, gpu->ParamsImport );
                 if ( imported )
                     imported = Renderer::ImportBuffer( gpu->Feedback, gpu->FeedbackImport );
+                for ( const auto& [buffer, into] :
+                      { std::pair{ &gpu->CameraInstances, &gpu->CameraInstancesImport },
+                        std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
+                        std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
+                        std::pair{ &gpu->PostArgs, &gpu->PostArgsImport } } )
+                    if ( imported )
+                        imported = Renderer::ImportBuffer( *buffer, *into );
                 if ( !imported )
                 {
                     LOG_ERROR( "[Grass] a variety's buffers are not in the frame graph: {}", imported.GetError() );
@@ -651,23 +779,33 @@ namespace Desert::Graphic::System
                 gpu->Refs.Args      = graph.RegisterExternal( gpu->ArgsImport, "GrassArgs" );
                 gpu->ParamsRef      = graph.RegisterExternal( gpu->ParamsImport, "GrassParams" );
                 gpu->FeedbackRef    = graph.RegisterExternal( gpu->FeedbackImport, "GrassFeedback" );
+                gpu->CameraRefs.Instances = graph.RegisterExternal( gpu->CameraInstancesImport, "GrassCameraInstances" );
+                gpu->CameraRefs.Args      = graph.RegisterExternal( gpu->CameraArgsImport, "GrassCameraArgs" );
+                gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
+                gpu->PostRefs.Instances   = gpu->CameraRefs.Instances;
+                gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
+                if ( gpu->Drawn )
+                    DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z );
                 const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
+                gpu->FrameKey.push_back( static_cast<uint32_t>( volumes.List ) );
                 if ( gpu->FrameKey != gpu->GenerateKey )
                 {
                     gpu->GenerateKey       = gpu->FrameKey;
                     gpu->StableGenerations = 0;
                 }
-                if ( gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight() )
+                // Instances culled by last frame's depth are this frame's only: a tested frame always generates.
+                if ( testsHzb || gpu->StableGenerations < EngineContext::GetInstance().GetMaxFramesInFlight() )
                 {
                     ++gpu->StableGenerations;
                     m_FrameGenerate.push_back( gpu );
                 }
                 NoteVarietyTextureDemand( variety, *mesh, *field.Field, frame );
 
+                const bool cameraList = volumes.List != CameraList::None;
                 std::vector<MeshRenderer::GpuInstancedRenderData> sections;
                 sections.reserve( variety.Sections.size() );
                 for ( uint32_t s = 0; s < variety.Sections.size(); ++s )
@@ -679,8 +817,11 @@ namespace Desert::Graphic::System
                            .CastShadows      = variety.Placement.CastDynamicShadow,
                            .Wind             = variety.Wind,
                            .Instances        = gpu->Instances,
+                           .CameraInstances  = cameraList ? gpu->CameraInstances : nullptr,
                            .BladeShape       = gpu->Shape,
                            .Refs             = &gpu->Refs,
+                           .CameraRefs       = cameraList ? &gpu->CameraRefs : nullptr,
+                           .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
                            .Levels           = variety.Blade ? 1u : gpu->Buckets,
@@ -715,9 +856,15 @@ namespace Desert::Graphic::System
         // GrassFinalize left stay in their persistent buffers (VarietyGpu::GenerateKey).
         if ( !m_FrameGenerate.empty() )
         {
+            GrassGeneratePush push;
+            push.HzbViewProjection = occlusion.PrevViewProjection;
+            // GrassGenerate.shader Hzb.w: 1 the camera's list by its planes and the HZB, 3 by its planes only, 0 one list.
+            push.Hzb = testsHzb ? glm::uvec4( occlusion.Extent, 1u )
+                                : glm::uvec4( 0u, 0u, 0u, volumes.List == CameraList::Planes ? 3u : 0u );
+            const RDG::TextureRef hzb = testsHzb ? occlusion.Hzb : occlusion.Neutral;
             graph.AddPass(
                  "Grass: Generate", RDG::PassFlags::Compute,
-                 [this]( RDG::PassBuilder& pass )
+                 [this, hzb]( RDG::PassBuilder& pass )
                  {
                      const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
                      for ( const VarietyGpu* gpu : m_FrameGenerate )
@@ -730,16 +877,28 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args,
                                         RDG::Access::StorageWrite )
-                              .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::ivec4 ) ) );
+                              .Sampler( GrassGenerateShaderParameters::PointClampSampler,
+                                        RDG::SamplerDesc::PointClamp() )
+                              .Texture( GrassGenerateShaderParameters::GrassHzbTexture, hzb,
+                                        RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                              .Storage( GrassGenerateShaderParameters::CameraInstances, gpu->CameraRefs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::Candidates, gpu->CandidatesRef,
+                                        RDG::Access::StorageWrite )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
                  },
-                 [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
                  {
                      auto& renderer = Renderer::GetInstance();
                      for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
                      {
                          const VarietyGpu* gpu = m_FrameGenerate[i];
                          RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
-                         bindings.PushConstants( &gpu->Cells, sizeof( gpu->Cells ) );
+                         GrassGeneratePush variety = push;
+                         variety.CellRange         = gpu->Cells;
+                         bindings.PushConstants( &variety, sizeof( variety ) );
                          const auto groupsX =
                               ( static_cast<uint32_t>( gpu->Cells.z ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
                          const auto groupsZ =
@@ -762,14 +921,22 @@ namespace Desert::Graphic::System
                               .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args,
                                         RDG::Access::StorageWrite )
                               .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
-                                        RDG::Access::StorageWrite );
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
+                                        RDG::Access::StorageWrite )
+                              .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
                  },
-                 [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+                 [this, cameraList = volumes.List != CameraList::None]( RDG::PassContext& context )
+                      -> Common::BoolResultStr
                  {
                      auto& renderer = Renderer::GetInstance();
                      for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
                      {
-                         RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
+                         RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
+                         const GrassFinalizePush mode{ glm::uvec4( 0u, cameraList ? 1u : 0u, 0u, 0u ) };
+                         bindings.PushConstants( &mode, sizeof( mode ) );
                          if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
                               !dispatched )
                              return dispatched;
@@ -783,5 +950,95 @@ namespace Desert::Graphic::System
         if ( const Common::BoolResultStr blades = m_BladeRayTracing.AddPass( graph ); !blades )
             LOG_ERROR( "[Grass] the blade grass is not in the view's TLAS; rays miss it this frame: {}",
                        blades.GetError() );
+    }
+
+    bool GrassRenderer::AddFramePostOcclusion( RDG::Builder& graph, const RDG::TextureRef hzb,
+                                               const glm::mat4& viewProjection, const glm::uvec3& extent )
+    {
+        // A tested frame generates every variety (AddFrame), so m_FrameGenerate is the frame's whole list.
+        if ( !m_FrameTested || m_FrameGenerate.empty() || !m_Generate || !m_Finalize )
+            return false;
+        // No HZB of this frame (GrassGenerate.shader Hzb.z = 0): nothing to re-test against, so every candidate is
+        // appended - drawn once more than an HZB would let through, never dropped.
+        const bool             tests = hzb.IsValid();
+        const RDG::TextureRef  bound = tests ? hzb : m_FrameNeutral;
+        GrassGeneratePush push;
+        push.HzbViewProjection = viewProjection;
+        push.Hzb               = tests ? glm::uvec4( extent, 2u ) : glm::uvec4( 0u, 0u, 0u, 2u );
+        graph.AddPass(
+             tests ? "Grass: Post-Occlusion" : "Grass: Post-Occlusion (no HZB)", RDG::PassFlags::Compute,
+             [this, bound]( RDG::PassBuilder& pass )
+             {
+                 const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
+                 for ( const VarietyGpu* gpu : m_FrameGenerate )
+                     pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
+                          .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef, RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
+                                    RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::Args, gpu->Refs.Args, RDG::Access::StorageRead )
+                          .Sampler( GrassGenerateShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                          .Texture( GrassGenerateShaderParameters::GrassHzbTexture, bound, RDG::Access::SampledCompute,
+                                    RDG::SubresourceRange::All() )
+                          .Storage( GrassGenerateShaderParameters::CameraInstances, gpu->CameraRefs.Instances,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassGenerateShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassGenerateShaderParameters::Candidates, gpu->CandidatesRef,
+                                    RDG::Access::StorageRead )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
+             },
+             [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 auto& renderer = Renderer::GetInstance();
+                 for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                 {
+                     const VarietyGpu* gpu = m_FrameGenerate[i];
+                     // One thread per instance slot of the camera's list: a group is 64 threads (8 x 8).
+                     const uint32_t groups = ( std::max( gpu->Capacity, 1u ) + 63u ) / 64u;
+                     const uint32_t groupsX = std::min( groups, kPostGroupsX );
+                     const uint32_t groupsY = ( groups + groupsX - 1u ) / groupsX;
+                     RDG::PassBindings bindings( context, context.GetBindingBlock( i ) );
+                     GrassGeneratePush variety = push;
+                     variety.CellRange = glm::ivec4( static_cast<int32_t>( gpu->Capacity ),
+                                                     static_cast<int32_t>( groupsX ), 0, 0 );
+                     bindings.PushConstants( &variety, sizeof( variety ) );
+                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsY, 1 );
+                          !dispatched )
+                         return dispatched;
+                 }
+                 return BOOLSUCCESS;
+             } );
+
+        graph.AddPass(
+             "Grass: Post-Occlusion Finalize", RDG::PassFlags::Compute,
+             [this]( RDG::PassBuilder& pass )
+             {
+                 const auto& layout = m_FinalizeLayout.Get( m_Finalize->GetSpecification().Shader );
+                 for ( const VarietyGpu* gpu : m_FrameGenerate )
+                     pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
+                          .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args, RDG::Access::StorageRead )
+                          .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
+                                    RDG::Access::StorageWrite )
+                          .Storage( GrassFinalizeShaderParameters::CameraArgs, gpu->CameraRefs.Args,
+                                    RDG::Access::StorageRead )
+                          .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
+                                    RDG::Access::StorageWrite )
+                          .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
+             },
+             [this]( RDG::PassContext& context ) -> Common::BoolResultStr
+             {
+                 auto& renderer = Renderer::GetInstance();
+                 for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
+                 {
+                     RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
+                     const GrassFinalizePush mode{ glm::uvec4( 1u, 1u, 0u, 0u ) };
+                     bindings.PushConstants( &mode, sizeof( mode ) );
+                     if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 ); !dispatched )
+                         return dispatched;
+                 }
+                 return BOOLSUCCESS;
+             } );
+        return true;
     }
 } // namespace Desert::Graphic::System

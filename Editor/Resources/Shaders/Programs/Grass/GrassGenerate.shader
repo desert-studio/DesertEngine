@@ -16,18 +16,37 @@
 // jittered grid (white of the grid's own blue noise). Scatter moves a blade past its own cell and Patchiness thins
 // the field by broad world patches, so a carpet stops reading as one evenly spaced stalk per cell. FacingJitter turns
 // each blade's facing back off its clump's and Tilt stands its root off the vertical in a direction of its own, so
-// near blades stop reading as one upright stalk with one lean. GrassFinalize
-// copies each bucket's count into its draw records.
+// near blades stop reading as one upright stalk with one lean. GrassFinalize copies each bucket's count into its draw
+// records.
+// OCCLUSION PER VIEW (GRASS-VIS; UE Nanite / the GPU instance cull: two-phase HZB occlusion, the shadow views and the
+// ray-traced scene culled by their own frusta, never by the camera's depth). Instances / Args hold every kept
+// instance: the cascades and the TLAS draw them, so grass the camera cannot see still casts and reflects. When the
+// view binds an HZB (Hzb.w = 1) the camera's own list, CameraInstances / CameraArgs (the same bucket table), gets
+// only those the previous frame's furthest HZB does not hide (Common/GpuCullTests.glslh GpuCull_IsOccludedByHzb,
+// the instance cull's test, through that frame's ViewProjection); a hidden one becomes a candidate (its sphere and
+// its row of Instances). Phase 2 (Hzb.w = 2, one thread per candidate slot, after this frame's furthest HZB is
+// built from the phase-1 depth) re-tests the candidates through this frame's ViewProjection and appends the ones
+// now visible to the camera list after phase 1's; GrassFinalize's post mode writes their draw records (PostArgs);
+// a frame whose own HZB was not built (Hzb.z = 0 in phase 2) appends every candidate untested, so a missing HZB
+// never drops grass. THE TWO VOLUMES (GRASS-VIS-6; UE: the casters of a whole-scene shadow are culled by the
+// cascade's volume swept along the light, not by the camera's side planes): Planes bound the full list - the
+// camera's side planes, each moved out along every shadowed directional light by that light's caster reach, so an
+// instance outside the frame whose shadow falls into it is kept - and CameraPlanes the camera's own list. While
+// the two differ the camera always has its own list (Hzb.w = 3 without an HZB to test, 1 with one); Hzb.w = 0 only
+// when they are the same volume, and the camera draws the full list.
 Shader "GrassGenerate"
 {
     Compute
     {
         LocalSize(8, 8, 1);
 
+        #include <Common/GpuCullTests.glslh>
+
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
         {
-            vec4  Planes[4]; // the view's left / right / bottom / top planes, xyz.n + w >= 0 inside
+            vec4  Planes[4];       // the full list's: the camera's side planes swept along the shadowed lights, xyz.n + w >= 0 inside
+            vec4  CameraPlanes[4]; // the camera's left / right / bottom / top planes (its own list)
             vec4  Camera;    // xyz = view position (cm), w = EndCullDistance through the lens
             vec4  Cull;      // x, y = Start/EndCullDistance through the lens (DrawDistanceScale), z = cell (cm), w = max jitter (cells)
             vec4  Range;     // x/y = AllowedDensityRange, z = MaxScaleWeightAttenuation, w = bounds radius (local)
@@ -63,9 +82,40 @@ Shader "GrassGenerate"
             uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, half screen size (a mesh level)
         };
 
+        Uniform sampler PointClampSampler;
+        // Phase 1: the previous frame's furthest HZB of the view; phase 2: this frame's (neutral: none tested).
+        Uniform(4) texture2D GrassHzbTexture;
+
+        // The camera's list (Hzb.w != 0): the same layout as Instances / Args, then per bucket four words -
+        // the candidates appended, the candidates of this frame and phase 1's drawn count (both frozen by
+        // GrassFinalize), and phase 2's appended count (GrassRenderer.cpp kPhaseWords).
+        Buffer(5) CameraInstances
+        {
+            mat4 GrassCameraInstancesData[];
+        };
+
+        Buffer(6) CameraArgs
+        {
+            uint CameraArguments[];
+        };
+
+        // Per instance slot two uvec4: the hidden instance's sphere (xyz centre, w radius, as float bits) and its
+        // row of Instances (x), at the bucket's first slot + the candidate's index.
+        Buffer(7) Candidates
+        {
+            uvec4 GrassCandidatesData[];
+        };
+
+        // Mirrors Graphic::System::GrassGeneratePush (GrassRenderer.cpp).
         PushConstant PushConstants
         {
-            ivec4 CellRange; // x, y = the first cell (world grid index), z, w = cells along x, z (the lens footprint's box)
+            ivec4 CellRange;         // phase 1: x, y = the first cell (world grid index), z, w = cells along x, z
+                                     // (the lens footprint's box); phase 2: x = candidate slots, y = groups along x
+            mat4  HzbViewProjection; // unjittered, what GrassHzbTexture was built through (phase 1 the previous frame's)
+            uvec4 Hzb;               // xy = GrassHzbTexture's mip-0 size, z = its mip count (0 in phase 2: none
+                                     // built this frame, every candidate is visible), w = the mode: 0 one list,
+                                     // 1 the camera's list by its planes and the HZB, 2 phase 2, 3 the camera's
+                                     // list by its planes only
         };
 
         const uint kFlagRandomRotation = 1u;
@@ -174,9 +224,48 @@ Shader "GrassGenerate"
             return clamp( k * k * ( s / s2 ) * ( authored2 / max( d2, 1.0 ) ), p.ScaleZ.w, 1.0 );
         }
 
+        // Phase 2: one thread per instance slot of the camera's list. A slot holding one of this frame's candidates
+        // (below its bucket's frozen candidate count) whose sphere this frame's furthest HZB no longer hides appends
+        // its instance after phase 1's drawn ones.
+        void PostOcclusion( GrassParams p )
+        {
+            uint slot = ( gl_WorkGroupID.y * uint( CellRange.y ) + gl_WorkGroupID.x ) * 64u + gl_LocalInvocationIndex;
+            if ( slot >= uint( CellRange.x ) )
+                return;
+            uint phases = p.Buckets.y + p.Buckets.x * 4u;
+            for ( uint b = 0u; b < p.Buckets.x; ++b )
+            {
+                uint table = p.Buckets.y + b * 4u;
+                uint first = Arguments[table + 1u];
+                if ( slot < first || slot >= first + Arguments[table + 2u] )
+                    continue;
+                uint phase = phases + b * 4u;
+                if ( slot - first >= CameraArguments[phase + 1u] )
+                    return;
+                vec4        sphere = uintBitsToFloat( GrassCandidatesData[2u * slot] );
+                GpuCullView view;
+                view.HzbExtent = uvec4( Hzb.xyz, 0u );
+                if ( Hzb.z != 0u &&
+                     GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
+                                              sphere.xyz - vec3( sphere.w ), sphere.xyz + vec3( sphere.w ) ) )
+                    return;
+                uint index = CameraArguments[phase + 2u] + atomicAdd( CameraArguments[phase + 3u], 1u );
+                if ( index >= Arguments[table + 2u] )
+                    return;
+                GrassCameraInstancesData[first + index] =
+                     GrassInstancesData[GrassCandidatesData[2u * slot + 1u].x];
+                return;
+            }
+        }
+
         void main()
         {
             GrassParams p = GrassParamsData[0];
+            if ( Hzb.w == 2u )
+            {
+                PostOcclusion( p );
+                return;
+            }
             if ( gl_GlobalInvocationID.x >= uint( CellRange.z ) || gl_GlobalInvocationID.y >= uint( CellRange.w ) )
                 return;
             ivec2 cell  = CellRange.xy + ivec2( gl_GlobalInvocationID.xy );
@@ -280,12 +369,28 @@ Shader "GrassGenerate"
             scale.z *= widen;
             scale.y *= 1.0 - clamp( ( faded - 0.8 ) / 0.2, 0.0, 1.0 );
 
-            // Inside the view's side planes, by the instance's bounding sphere.
+            // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
+            // bounding sphere; the camera's own list also inside the camera's.
             float radius = p.Range.w * max( scale.x, max( scale.y, scale.z ) );
             vec3  centre = position + vec3( 0.0, p.ScaleY.z * scale.y, 0.0 );
+            bool  inCamera = true;
             for ( int i = 0; i < 4; ++i )
+            {
                 if ( dot( p.Planes[i].xyz, centre ) + p.Planes[i].w < -radius )
                     return;
+                if ( dot( p.CameraPlanes[i].xyz, centre ) + p.CameraPlanes[i].w < -radius )
+                    inCamera = false;
+            }
+            // Behind what the previous frame's depth held, by the sphere's box: kept for the cascades and the TLAS,
+            // a phase-2 candidate for the camera.
+            bool hidden = false;
+            if ( Hzb.w == 1u && inCamera )
+            {
+                GpuCullView view;
+                view.HzbExtent = uvec4( Hzb.xyz, 0u );
+                hidden = GpuCull_IsOccludedByHzb( GrassHzbTexture, PointClampSampler, view, HzbViewProjection,
+                                                  centre - vec3( radius ), centre + vec3( radius ) );
+            }
 
             float yaw = ( flags & kFlagRandomRotation ) != 0u ? Fraction( state ) * 6.28318530718 : 0.0;
             vec3  draws = vec3( 0.0 );
@@ -357,12 +462,33 @@ Shader "GrassGenerate"
             position.y -= p.Lean.z;
             // A blade's forward axis carries the height multiplier (its lean is a share of its height) and the
             // columns' w its three draws (Vertex_GrassBlade.glslh); a mesh's are its scaled axes.
+            mat4 instance;
             if ( blade )
-                GrassInstancesData[index] = mat4( vec4( basis[0] * scale.x, draws.x ), vec4( basis[1] * scale.y, draws.y ),
-                                           vec4( basis[2] * scale.y, draws.z ), vec4( position, 1.0 ) );
+                instance = mat4( vec4( basis[0] * scale.x, draws.x ), vec4( basis[1] * scale.y, draws.y ),
+                                 vec4( basis[2] * scale.y, draws.z ), vec4( position, 1.0 ) );
             else
-                GrassInstancesData[index] = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
-                                           vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
+                instance = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
+                                 vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
+            GrassInstancesData[index] = instance;
+
+            // The camera's list: the visible instance at once, the hidden one as a candidate for phase 2. Both
+            // counts together stay within the bucket's kept count, so neither passes its capacity.
+            if ( ( Hzb.w != 1u && Hzb.w != 3u ) || !inCamera )
+                return;
+            uint first = Arguments[table + 1u];
+            if ( !hidden )
+            {
+                uint seen = atomicAdd( CameraArguments[table], 1u );
+                if ( seen < Arguments[table + 2u] )
+                    GrassCameraInstancesData[first + seen] = instance;
+                return;
+            }
+            uint candidate = atomicAdd( CameraArguments[p.Buckets.y + p.Buckets.x * 4u + bucket * 4u], 1u );
+            if ( candidate < Arguments[table + 2u] )
+            {
+                GrassCandidatesData[2u * ( first + candidate )]      = floatBitsToUint( vec4( centre, radius ) );
+                GrassCandidatesData[2u * ( first + candidate ) + 1u] = uvec4( index, 0u, 0u, 0u );
+            }
         }
     }
 }

@@ -9,6 +9,7 @@
 #include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
 #include <Engine/Graphic/RenderConfig.hpp>
 #include <Engine/Graphic/PostProcessing/LensFlareRules.hpp>
@@ -26,6 +27,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <functional>
 #include <initializer_list>
 #include <map>
@@ -428,6 +430,76 @@ namespace Desert::Graphic
              { return meshRenderer->RenderGBufferPostOcclusionManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareGBufferPostOcclusionDraws( pass, view ); } );
+    }
+
+    void SceneRenderer::AddFrameGrassVisibility( RDG::Builder& graph, FrameTextures& textures,
+                                                 System::MeshRenderer*                         meshRenderer,
+                                                 const VirtualGeometry::VisibilityBufferFrame& visibility,
+                                                 const bool                                    postOcclusion )
+    {
+        // THE GRASS VISIBILITY BUFFER (GRASS-VIS; UE 5 Nanite: the raster into VisBuffer64, then the material pass).
+        // The raster LOADs the G-buffer's depth (the opaque scene, the terrain, the particles), tests it and writes
+        // none: a blade fragment that survives its mask atomic-maxes its word, so the nearest wins whatever order
+        // the draws ran in and no overdraw is shaded. The resolve LOADs the G-buffer and writes each won texel
+        // once, with the word's depth, so the HZB built next and every later pass see the grass as before.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: Visibility Resolve" );
+        if ( !targets || meshRenderer == nullptr || !meshRenderer->DrawsGrassVisibility() )
+            return;
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
+        // GRASS-VIS phase 2 (@p postOcclusion): the same two nodes over phase 2's records, after this frame's HZB;
+        // the words still hold phase 1's winners, and the G-buffer depth they resolved rejects what lies behind.
+        AddRaster(
+             graph, postOcclusion ? "Grass: Visibility Raster Post-Occlusion" : "Grass: Visibility Raster", depthOnly,
+             {}, RDG::LoadOp::Load(), {},
+             [meshRenderer, postOcclusion]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGrassVisibilityRasterManual( context, postOcclusion ); },
+             [meshRenderer, view, words = visibility.Words, postOcclusion]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGrassVisibilityRasterDraws( pass, view, words, postOcclusion ); } );
+        AddRaster(
+             graph, postOcclusion ? "Grass: Visibility Resolve Post-Occlusion" : "Grass: Visibility Resolve",
+             *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer, postOcclusion]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGrassVisibilityResolveManual( context, postOcclusion ); },
+             [meshRenderer, view, words = visibility.Words, args = visibility.ResolveArgs,
+              postOcclusion]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGrassVisibilityResolveDraws( pass, view, words, args, postOcclusion ); } );
+    }
+
+    void SceneRenderer::AddFrameGrassPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                    System::MeshRenderer* meshRenderer, const ViewFrame& frame,
+                                                    const VirtualGeometry::VisibilityBufferFrame& visibility )
+    {
+        // GRASS-VIS phase 2 (UE two-phase occlusion): the grass last frame's HZB held back from the camera, tested
+        // against this frame's furthest HZB of the phase-1 depth (built by AddFrameDrawBinsPostOcclusion), then
+        // drawn into the same G-buffer: the visibility buffer's sections by a second raster and resolve, the rest
+        // by their cells. None built this frame (GRASS-VIS-6): the candidates are drawn untested - phase 1 kept
+        // them out on last frame's depth alone, so dropping them would lose grass on the frame's own say-so.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        auto* grass = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] );
+        if ( grass == nullptr || meshRenderer == nullptr || m_ViewProfile.SceneCapture )
+            return;
+        const std::optional<glm::uvec2> hzbSize = m_FrameFurthestHzb.IsValid()
+                                                       ? FrameHzbSize( graph, textures )
+                                                       : std::optional<glm::uvec2>{};
+        const RDG::TextureRef hzb = hzbSize ? m_FrameFurthestHzb : RDG::TextureRef{};
+        const glm::uvec3      extent =
+             hzbSize ? glm::uvec3( *hzbSize,
+                                   static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) )
+                     : glm::uvec3( 0u );
+        if ( !grass->AddFramePostOcclusion( graph, hzb, frame.ViewProjection, extent ) )
+            return;
+        if ( const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Grass: GBuffer Post-Occlusion" ) )
+            AddRaster(
+                 graph, "Grass: GBuffer Post-Occlusion", *targets,
+                 textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+                 [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshRenderer->RenderGrassGBufferPostOcclusionManual( context ); },
+                 [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshRenderer->DeclareGrassGBufferPostOcclusionDraws( pass, view ); } );
+        if ( visibility.IsValid() )
+            AddFrameGrassVisibility( graph, textures, meshRenderer, visibility, true );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )

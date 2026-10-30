@@ -42,17 +42,98 @@ namespace Desert::Graphic::System
     {
         m_MaskedDepthDraws.Clear();
         m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
+        // This frame's grass visibility sections, decided before the prepass and the G-buffer skip them (GRASS-VIS).
+        m_GrassVisibilitySections.clear();
+        if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
+             m_SceneRenderer != nullptr && m_SceneRenderer->GetMainCamera() != nullptr )
+            for ( const GpuInstancedRenderData& gpu : m_GpuInstancedQueue )
+                if ( gpu.Path == MeshVertexPath::GrassBlade && GrassVisibilityReady( gpu ) )
+                    m_GrassVisibilitySections.push_back( gpu.Key );
         if ( !m_InstancedViewDepthPipeline || !m_InstancedGBufferEqualPipeline || m_SceneRenderer == nullptr ||
              m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr );
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, false );
         m_MaskedDepthDraws.Declare( pass, view );
     }
 
     Common::BoolResultStr MeshRenderer::RenderMaskedDepthManual( const RDG::PassContext& context ) const
     {
         return m_MaskedDepthDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareGrassVisibilityRasterDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                          const RDG::BufferRef visibility, const bool postOcclusion )
+    {
+        MeshRendererDetail::MeshDrawList& list =
+             postOcclusion ? m_GrassVisibilityRasterPostDraws : m_GrassVisibilityRasterDraws;
+        list.Clear();
+        if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !m_InstancedVisibilityPipeline )
+            return;
+        BuildGpuInstancedDraws( list, m_InstancedVisibilityPipeline.get(), MeshPass::Visibility,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
+        list.Declare( pass, view,
+                                              [visibility]( RDG::BindingBlockBuilder&         block,
+                                                            const RDG::ShaderBindingLayout& layout )
+                                              {
+                                                  if ( SceneViewDetail::LayoutReadsBuffer(
+                                                            layout, SceneResources::kVisibilityBuffer.Name ) )
+                                                      block.Storage( SceneResources::kVisibilityBuffer, visibility,
+                                                                     RDG::Access::StorageWrite );
+                                              } );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityRasterManual( const RDG::PassContext& context,
+                                                                           const bool postOcclusion ) const
+    {
+        return ( postOcclusion ? m_GrassVisibilityRasterPostDraws : m_GrassVisibilityRasterDraws ).Record( context );
+    }
+
+    void MeshRenderer::DeclareGrassVisibilityResolveDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                           const RDG::BufferRef visibility,
+                                                           const RDG::BufferRef resolveArgs, const bool postOcclusion )
+    {
+        MeshRendererDetail::MeshDrawList& list =
+             postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws;
+        list.Clear();
+        m_GrassResolveArgs = resolveArgs;
+        if ( m_GrassVisibilitySections.empty() || !visibility.IsValid() || !resolveArgs.IsValid() ||
+             !m_InstancedVisibilityResolvePipeline )
+            return;
+        BuildGpuInstancedDraws( list, m_InstancedVisibilityResolvePipeline.get(), MeshPass::VisibilityResolve,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, postOcclusion );
+        list.Declare( pass, view,
+                                               [visibility]( RDG::BindingBlockBuilder&         block,
+                                                             const RDG::ShaderBindingLayout& layout )
+                                               {
+                                                   if ( SceneViewDetail::LayoutReadsBuffer(
+                                                             layout, SceneResources::kVisibilityBuffer.Name ) )
+                                                       block.Storage( SceneResources::kVisibilityBuffer, visibility,
+                                                                      RDG::Access::StorageRead );
+                                               } );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
+                                                                            const bool postOcclusion ) const
+    {
+        return ( postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws ).Record( context );
+    }
+
+    void MeshRenderer::DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GrassGBufferPostDraws.Clear();
+        if ( !m_InstancedGBufferPipeline || m_SceneRenderer == nullptr || m_SceneRenderer->GetMainCamera() == nullptr )
+            return;
+        // Phase 2's grass that the G-buffer path draws (a mesh variety, a blade off the visibility buffer): the
+        // section's (Instanced x GBuffer) cell with its own clip and depth writes, phase 2's records.
+        BuildGpuInstancedDraws( m_GrassGBufferPostDraws, m_InstancedGBufferPipeline.get(), MeshPass::GBuffer,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, true );
+        m_GrassGBufferPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGrassGBufferPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GrassGBufferPostDraws.Record( context );
     }
 
     void MeshRenderer::DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
@@ -326,6 +407,26 @@ namespace Desert::Graphic::System
                         m_InstancedGBufferEqualPipeline = equalPipeline.GetValue();
                         m_InstancedViewDepthPipeline    = depthPipeline.GetValue();
                     }
+                    // GRASS-VIS carriers: the raster tests the view's depth and writes none (its output is the
+                    // visibility word), the resolve is a full-screen triangle into the G-buffer with the word's depth.
+                    GraphicsPipelineSpecification visibility = depth;
+                    visibility.DebugName                     = "GrassVisibilityRaster";
+                    visibility.DepthWriteEnabled             = false;
+                    GraphicsPipelineSpecification resolve    = ispec;
+                    resolve.DebugName                        = "GrassVisibilityResolve";
+                    resolve.CullMode                         = CullMode::None;
+                    const auto visibilityPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( visibility );
+                    const auto resolvePipeline    = m_SceneRenderer->GetPipelineCache().GetOrCreate( resolve );
+                    if ( visibilityPipeline && resolvePipeline )
+                    {
+                        m_InstancedVisibilityPipeline        = visibilityPipeline.GetValue();
+                        m_InstancedVisibilityResolvePipeline = resolvePipeline.GetValue();
+                    }
+                    else
+                        LOG_ERROR( "[MeshRenderer] no grass visibility buffer path: the blades keep the G-buffer. "
+                                   "raster: {} | resolve: {}",
+                                   visibilityPipeline ? "ok" : visibilityPipeline.GetError(),
+                                   resolvePipeline ? "ok" : resolvePipeline.GetError() );
                     else
                         refused = std::format( "depth: {} | equal: {}", depthPipeline ? "ok" : depthPipeline.GetError(),
                                                equalPipeline ? "ok" : equalPipeline.GetError() );

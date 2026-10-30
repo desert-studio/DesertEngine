@@ -224,6 +224,12 @@ namespace Desert::Editor
         LOG_INFO( "[Profiler] draws {} / instances {} (an instanced batch is ONE draw and many instances; "
                   "the two are printed apart because culling moves them in different proportions)",
                   drawCounters.Draws, drawCounters.Instances );
+        // GRASS-VIS-7: the grass culling read as numbers (Graphic::GrassDrawCounters): camera below full is the
+        // shadow casters the camera does not draw, post the instances phase 2 brought back from last frame's HZB.
+        const Graphic::GrassDrawCounters grass = Graphic::DrawCounter::LastFrameGrass();
+        LOG_INFO( "[Profiler] Grass full {} camera {} post {} (instances drawn, {} varieties read back frames in "
+                  "flight late)",
+                  grass.Full, grass.Camera, grass.Post, grass.Varieties );
         LOG_INFO( "[Profiler] ---- end ----" );
     }
 
@@ -288,6 +294,11 @@ namespace Desert::Editor
         ImGui::SameLine();
         if ( ImGui::Button( "Dump to Log" ) )
             DumpProfilerToLog();
+        if ( const Graphic::GrassDrawCounters grass = Graphic::DrawCounter::LastFrameGrass(); grass.Varieties > 0u )
+            ImGui::Text( "Grass drawn: full %llu  camera %llu  post %llu",
+                         static_cast<unsigned long long>( grass.Full ),
+                         static_cast<unsigned long long>( grass.Camera ),
+                         static_cast<unsigned long long>( grass.Post ) );
 
         ImGui::Separator();
 

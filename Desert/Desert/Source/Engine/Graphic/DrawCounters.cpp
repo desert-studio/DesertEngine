@@ -23,6 +23,9 @@ namespace Desert::Graphic
         PassCounters g_PassFinished{};
         // The pass MeshPassScope opened; kCountedMeshPasses = none (a draw outside the mesh passes).
         uint32_t g_ActivePass = kCountedMeshPasses;
+        // Written by GrassRenderer::AddFrame while the frame graph is built, not by the recording funnels.
+        GrassDrawCounters g_GrassRecording;
+        GrassDrawCounters g_GrassFinished;
     } // namespace
 
     void DrawCounter::Roll()
@@ -31,6 +34,8 @@ namespace Desert::Graphic
         g_Recording     = DrawCounters{};
         g_PassFinished  = g_PassRecording;
         g_PassRecording = PassCounters{};
+        g_GrassFinished  = g_GrassRecording;
+        g_GrassRecording = GrassDrawCounters{};
     }
 
     void DrawCounter::Record( uint32_t instanceCount )
@@ -68,6 +73,19 @@ namespace Desert::Graphic
     MeshPassDrawCounters DrawCounter::LastFrameMeshPass( const uint32_t pass )
     {
         return pass < kCountedMeshPasses ? g_PassFinished[pass] : MeshPassDrawCounters{};
+    }
+
+    void DrawCounter::RecordGrass( const uint32_t full, const uint32_t camera, const uint32_t post )
+    {
+        g_GrassRecording.Full += full;
+        g_GrassRecording.Camera += camera;
+        g_GrassRecording.Post += post;
+        ++g_GrassRecording.Varieties;
+    }
+
+    GrassDrawCounters DrawCounter::LastFrameGrass()
+    {
+        return g_GrassFinished;
     }
 
     DrawCounters DrawCounter::LastFrame()

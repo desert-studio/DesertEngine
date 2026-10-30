@@ -38,6 +38,19 @@ namespace Desert::Graphic
         uint32_t BinsIssued = 0; ///< bin records those calls named (a culled-empty bin included)
     };
 
+    // GRASS-VIS-7: the grass instances the GPU drew (GrassFinalize's drawn counts, read back without a wait
+    // FramesInFlight frames after their generation, UE's GPU-culling stats the same way), summed over every view
+    // and variety a GrassRenderer::AddFrame of the frame drew. Full: the list the cascades and the TLAS draw (the
+    // camera's side planes swept along the shadowed suns); Camera: the camera's phase-1 list (the full list's count
+    // when the camera has no list of its own); Post: phase 2's appended (UE two-phase occlusion), 0 without one.
+    struct GrassDrawCounters
+    {
+        uint64_t Full      = 0;
+        uint64_t Camera    = 0;
+        uint64_t Post      = 0;
+        uint32_t Varieties = 0; ///< the varieties whose counts had come back
+    };
+
     // THE SNAPSHOT IS OF THE FRAME THAT FINISHED, never of the one being recorded. A HUD reading the live
     // counter would show a number that grows while it is being looked at, and two panels reading it in the
     // same frame would disagree — which is the defect shape this project keeps finding, an instrument
@@ -77,6 +90,10 @@ namespace Desert::Graphic
         static void RecordBins( uint32_t bins, uint32_t calls );
         /// The finished frame's counters of @p pass (every view's draws of it summed).
         [[nodiscard]] static MeshPassDrawCounters LastFrameMeshPass( uint32_t pass );
+        /// One grass variety's read-back drawn counts (GrassRenderer::AddFrame; GrassDrawCounters).
+        static void RecordGrass( uint32_t full, uint32_t camera, uint32_t post );
+        /// The finished frame's grass counts.
+        [[nodiscard]] static GrassDrawCounters LastFrameGrass();
 #else
         static void Roll()
         {
@@ -101,6 +118,13 @@ namespace Desert::Graphic
         {
         }
         [[nodiscard]] static MeshPassDrawCounters LastFrameMeshPass( uint32_t )
+        {
+            return {};
+        }
+        static void RecordGrass( uint32_t, uint32_t, uint32_t )
+        {
+        }
+        [[nodiscard]] static GrassDrawCounters LastFrameGrass()
         {
             return {};
         }

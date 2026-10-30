@@ -50,6 +50,7 @@ namespace Desert::Graphic
     {
         // Taken whole: a switch, a mode or a count has no value between its two ends.
         target.EnableSSAO               = volume.EnableSSAO;
+        target.GrassVisibilityBuffer    = volume.GrassVisibilityBuffer;
         target.GlobalIlluminationMethod = volume.GlobalIlluminationMethod;
         target.ReflectionsMethod        = volume.ReflectionsMethod;
         target.ShadowsMethod            = volume.ShadowsMethod;

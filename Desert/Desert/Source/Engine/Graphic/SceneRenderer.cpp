@@ -40,10 +40,12 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <functional>
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <atomic>
 #include <chrono>
 #include <format>
@@ -351,6 +353,11 @@ namespace Desert::Graphic
                                "grow: {}",
                                init.GetError() );
                 }
+                // Its visibility buffer (GRASS-VIS): without it the view refuses GrassVisibilityBuffer by this error.
+                if ( const auto init = m_GrassVisibility.Initialize(); !init )
+                    LOG_ERROR( "[SceneRenderer] no grass visibility buffer; GrassVisibilityBuffer keeps the G-buffer "
+                               "grass path: {}",
+                               init.GetError() );
 
                 // The water surface (WATER-W6): drawn by its own deferred node (AddFrameWater), after the scene
                 // copy.
@@ -1047,6 +1054,20 @@ namespace Desert::Graphic
              quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
+        // The grass visibility buffer is what the view asks for; it runs only on a device with 64-bit storage-buffer
+        // atomics in the fragment stage. Asked for without them it is refused by name once and the grass keeps
+        // the G-buffer path (masked depth prepass + GBuffer) - never a silent fallback.
+        {
+            const bool supported =
+                 EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64;
+            m_GrassVisibilityBuffer = post.GrassVisibilityBuffer && supported;
+            if ( post.GrassVisibilityBuffer && !supported && !m_GrassVisibilityRefusal )
+            {
+                m_GrassVisibilityRefusal = true;
+                LOG_ERROR( "[SceneRenderer] GrassVisibilityBuffer refused: the device has no shaderInt64 + "
+                           "shaderBufferInt64Atomics + fragmentStoresAndAtomics; grass draws through the G-buffer." );
+            }
+        }
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.
@@ -1789,12 +1810,28 @@ namespace Desert::Graphic
         // scene's sync too: AddFrame submits the grass sections (MeshRenderer::SubmitGpuInstanced), and
         // SyncGpuScene registers the material rows of exactly the sections queued by then — a section queued
         // after it has no row in the scene material table and is refused at draw.
+        // GRASS-VIS: with the grass visibility buffer the generation keeps the instances last frame's furthest HZB
+        // hides out of the CAMERA's list (the cascades and the TLAS draw every one; phase 2 re-tests them after
+        // this frame's HZB, AddFrameGrassPostOcclusion), so it is this graph's first reader of that HZB
+        // (FramePrevHzb, reset here for the frame).
+        m_FramePrevHzb = {};
         if ( !m_ViewProfile.SceneCapture )
         {
+            System::GrassOcclusion occlusion{ .Neutral = textures.GraphRefs().System.Black };
+            if ( m_GrassVisibilityBuffer && m_RenderPath == Core::RenderPath::Deferred )
+            {
+                if ( const std::optional<glm::uvec2> hzbSize = FrameHzbSize( graph, textures ) )
+                {
+                    occlusion.Hzb = FramePrevHzb( graph, frame, hzbSize->x, hzbSize->y );
+                    occlusion.PrevViewProjection = frame.PrevViewProjection;
+                    occlusion.Extent             = glm::uvec3(
+                         *hzbSize, static_cast<uint32_t>( std::bit_width( std::max( hzbSize->x, hzbSize->y ) ) ) );
+                }
+            }
             // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
             UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
                  ->AddFrame( graph, frame, *UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ),
-                             RayTracing::RayTracingSceneRequired( m_RenderMethods ) );
+                             RayTracing::RayTracingSceneRequired( m_RenderMethods ), occlusion );
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
         }
 
@@ -2195,6 +2232,36 @@ namespace Desert::Graphic
             auto* meshRenderer = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
             const std::vector<RDG::TextureRef> gbuffer = textures.Colors( m_GBuffer, "GBuffer" );
 
+            // GRASS-VIS: the visibility buffer is allocated and cleared BEFORE the G-buffer's setup decides which
+            // blade sections leave it, so a buffer that could not be made keeps every blade on the G-buffer path.
+            VirtualGeometry::VisibilityBufferFrame grassVisibility;
+            // The grass's raster-stream rows past what a visibility word addresses alias ids: the path is refused
+            // this frame, by name when the overflow starts, and the blades draw through the G-buffer.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            const bool rowsOverflow = UNIQUE_GET_AS( System::GrassRenderer, m_RenderSystems["GrassSystem"] )
+                                           ->VisibilityRowsOverflow();
+            if ( m_GrassVisibilityBuffer && rowsOverflow && !m_GrassVisibilityRowsOverflow )
+                LOG_ERROR( "[SceneRenderer] {}: the grass draws through the G-buffer: its instances need more "
+                           "visibility-buffer rows than a visibility word addresses (32 - kVisTriangleBits bits)",
+                           m_ViewResources.GetName() );
+            m_GrassVisibilityRowsOverflow = m_GrassVisibilityBuffer && rowsOverflow;
+            if ( m_GrassVisibilityBuffer && !rowsOverflow && meshRenderer != nullptr )
+            {
+                auto made = m_GrassVisibility.AddFrame( graph, m_RenderExtent.Width, m_RenderExtent.Height );
+                if ( made )
+                {
+                    grassVisibility = made.GetValue();
+                    m_GrassVisibilityError.clear();
+                }
+                else if ( made.GetError() != m_GrassVisibilityError )
+                {
+                    m_GrassVisibilityError = made.GetError();
+                    LOG_ERROR( "[SceneRenderer] {}: the grass draws through the G-buffer: {}",
+                               m_ViewResources.GetName(), m_GrassVisibilityError );
+                }
+            }
+            if ( meshRenderer != nullptr )
+                meshRenderer->SetGrassVisibilityActive( grassVisibility.IsValid() );
             AddFrameGBuffer( graph, textures, meshRenderer );
             AddFrameTerrainGBuffer( graph, textures );
             // The opaque / masked particle sprites and ribbons, into the same G-buffer (UE: in the base pass); a
@@ -2203,9 +2270,12 @@ namespace Desert::Graphic
             if ( auto* particles = UNIQUE_GET_AS( System::ParticleRenderer, m_RenderSystems["ParticleSystem"] );
                  particles != nullptr && !m_ViewProfile.SceneCapture )
                 AddSystemRaster( graph, textures, particles->GBufferPass() );
+            if ( grassVisibility.IsValid() )
+                AddFrameGrassVisibility( graph, textures, meshRenderer, grassVisibility, false );
             // Two-phase occlusion: this frame's HZB of that depth, then what last frame's HZB held back from the
-            // bins and this one finds visible.
+            // bins and this one finds visible - and from the grass's camera list (GRASS-VIS).
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
+            AddFrameGrassPostOcclusion( graph, textures, meshRenderer, frame, grassVisibility );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
             // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which

@@ -50,6 +50,13 @@ namespace Desert::Core
         PROPERTY( DisplayName( "Enable SSAO" ), Category( "Rendering Features" ) )
         bool EnableSSAO = true;
 
+        // Grass blades rasterise into a 64-bit visibility buffer (depth | instance | blade) with atomicMax and their
+        // surface material is evaluated once per pixel by a full-screen resolve, instead of overdrawing the G-buffer
+        // through a masked depth prepass. Needs DeviceCapabilities::SupportsVisibilityBuffer64; a device without it
+        // keeps the G-buffer grass path and logs the refusal once (UE: Nanite visibility buffer).
+        PROPERTY( DisplayName( "Grass Visibility Buffer" ), Category( "Rendering Features" ) )
+        bool GrassVisibilityBuffer = false;
+
         // THE THREE RENDER METHODS this view ASKS for (Common/Settings/RenderMethods.hpp). What it gets is
         // Graphic::ResolveRenderMethods' minimum of this, the machine's Scalability ceiling and the device, walked
         // down to an implemented method; a downgrade is one log line and an overlay row. A declared method whose

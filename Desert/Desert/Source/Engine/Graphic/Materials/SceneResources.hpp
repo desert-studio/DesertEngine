@@ -180,6 +180,10 @@ namespace Desert::Graphic::SceneResources
     inline constexpr RDG::StorageBufferParameter kVgRasterDags{ "VgRasterDags" };
     inline constexpr RDG::StorageBufferParameter kVgRasterVisibleClusters{ "VgRasterVisibleClusters" };
     inline constexpr RDG::StorageBufferParameter kVgRasterPrimitiveDraws{ "VgRasterPrimitiveDraws" };
+    // The view's visibility buffer (Common/VisibilityBuffer.glslh `VisibilityBuffer`, binding 62; GRASS-VIS): written by
+    // the grass Visibility cells' atomic max, read by the VisibilityResolve cells; bound by the mesh pass that draws
+    // them (MeshRenderer::DeclareGrassVisibilityRasterDraws / ...ResolveDraws), never by a material.
+    inline constexpr RDG::StorageBufferParameter kVisibilityBuffer{ "VisibilityBuffer" };
     inline constexpr RDG::StorageBufferParameter kObjectBones{ kObjectBonesName };
     inline constexpr RDG::StorageBufferParameter kWorldParameters{ kWorldParametersName };
     inline constexpr RDG::UniformBufferParameter kRainOcclusionBlock{ kRainOcclusionBlockName };

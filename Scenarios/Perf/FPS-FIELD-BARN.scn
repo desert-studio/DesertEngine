@@ -4,6 +4,8 @@
 # Two measurements of the same view, 300 frames of warm-up each: A = still air (the scene's one WindSource at
 # Speed 0, edit mode), B = the scene's own wind (Speed 1500 cm/s) under Simulate, so foliage sways and the cloud
 # layer drifts (the gameplay clock the sway reads is zero while editing - Graphic/InstanceWind.hpp:11-12).
+# GRASS-VIS: between A and B the same still-air view is measured again with the PPV (8180000000000003) asking for
+# GrassVisibilityBuffer (table A2, shot 1_static_vis), then the flag is put back so B is measured as before.
 # GPU timestamps: `--gpu-profile` on the Проект line switches them on with per-pass scopes (Sandbox.hpp:289-290).
 # [gpu] PASS when editor.log carries two "[Profiler] ---- per-pass breakdown" tables (one after 1_static, one
 # after 2_wind) with the same rows - "GPU: Frame Total", "Clouds: ShadowMap", "Clouds: SkyOcclusion" (gpu ms /
@@ -20,6 +22,11 @@
 Когда frames 300
 Когда profile-dump
 Тогда-вид 1_static FIELD_Barn at 1.7 m, still air: field, barn, trees and sky drawn, nothing black or missing; [Profiler] table A (GPU: Frame Total, Clouds: ShadowMap, Clouds: ShadowMapHero on int/fps, Clouds: SkyOcclusion, MeshRenderer::* / Mesh: *) follows in editor.log
+Когда set 8180000000000003 PostProcessVolumeData.Settings.GrassVisibilityBuffer true
+Когда frames 300
+Когда profile-dump
+Тогда-вид 1_static_vis the same still-air view with the PPV's GrassVisibilityBuffer on (GRASS-VIS): the frame matches 1_static - mean |diff| <= 2/255 (pixel diff, not thumbnails); editor.log 0 VUID, no "GrassVisibilityBuffer refused", no "no grass visibility buffer"; [Profiler] table A2 has "Grass: Visibility Raster" and "Grass: Visibility Resolve", and its "Deferred: GBuffer" + "Deferred: Masked Depth Prepass" gpu ms is below table A's
+Когда set 8180000000000003 PostProcessVolumeData.Settings.GrassVisibilityBuffer false
 Когда set 8180000000000004 WindSourceData.Speed 1500
 Когда run Action Simulate
 Когда frames 300

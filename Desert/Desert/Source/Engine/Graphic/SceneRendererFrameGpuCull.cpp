@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <format>
 #include <map>
+#include <optional>
 #include <unordered_map>
 #include <span>
 #include <string>
@@ -183,11 +184,42 @@ namespace Desert::Graphic
         }
     } // namespace
 
+    std::optional<glm::uvec2> SceneRenderer::FrameHzbSize( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* meshes = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        const auto* hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
+        if ( meshes == nullptr || meshes->MainViewPass() != GpuDriven::MeshPass::GBuffer || !m_GBuffer ||
+             hzbRenderer == nullptr || !hzbRenderer->CanBuild() )
+            return std::nullopt;
+        const auto depthDesc = graph.GetTextureDesc( textures.Depth( m_GBuffer, "GBuffer" ) );
+        if ( !depthDesc )
+            return std::nullopt;
+        return glm::uvec2( depthDesc.GetValue().Size.Width, depthDesc.GetValue().Size.Height );
+    }
+
+    RDG::TextureRef SceneRenderer::FramePrevHzb( RDG::Builder& graph, const ViewFrame& frame, const uint32_t width,
+                                                 const uint32_t height )
+    {
+        if ( m_FramePrevHzb.IsValid() )
+        {
+            const auto desc = graph.GetTextureDesc( m_FramePrevHzb );
+            return desc && desc.GetValue().Size.Width == width && desc.GetValue().Size.Height == height
+                        ? m_FramePrevHzb
+                        : RDG::TextureRef{};
+        }
+        if ( width == 0u || m_CullHzbHistory.Physical == nullptr || m_CullHzbHistory.Desc.Size.Width != width ||
+             m_CullHzbHistory.Desc.Size.Height != height || !frame.HistoryValid() )
+            return {};
+        m_FramePrevHzb = graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
+        return m_FramePrevHzb;
+    }
+
     void SceneRenderer::AddFrameDrawBins( RDG::Builder& graph, FrameTextures& textures, const ViewFrame& frame )
     {
         m_FrameGpuSceneTables.reset();
         m_FrameDrawBins.reset();
-        m_FramePrevHzb     = {};
         m_FrameFurthestHzb = {};
         const auto refuse  = [this]( std::string message )
         {
@@ -232,29 +264,19 @@ namespace Desert::Graphic
         // projects into. Otherwise frustum only, and phase 2 is empty.
         FrameDrawBins             bins;
         const GpuDriven::MeshPass mainPass = meshes->MainViewPass();
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        const auto* hzbRenderer = UNIQUE_GET_AS( System::HZBRenderer, m_RenderSystems["HZBSystem"] );
-        uint32_t    hzbWidth = 0, hzbHeight = 0;
-        if ( mainPass == GpuDriven::MeshPass::GBuffer && m_GBuffer && hzbRenderer != nullptr &&
-             hzbRenderer->CanBuild() )
-        {
-            if ( const auto depthDesc = graph.GetTextureDesc( textures.Depth( m_GBuffer, "GBuffer" ) ) )
-            {
-                hzbWidth  = depthDesc.GetValue().Size.Width;
-                hzbHeight = depthDesc.GetValue().Size.Height;
-            }
-        }
-        bins.MainTestsHzb = hzbWidth != 0u && m_CullHzbHistory.Physical != nullptr &&
-                            m_CullHzbHistory.Desc.Size.Width == hzbWidth &&
-                            m_CullHzbHistory.Desc.Size.Height == hzbHeight && frame.HistoryValid();
+        const std::optional<glm::uvec2> hzbSize   = FrameHzbSize( graph, textures );
+        const uint32_t                  hzbWidth  = hzbSize ? hzbSize->x : 0u;
+        const uint32_t                  hzbHeight = hzbSize ? hzbSize->y : 0u;
+        const RDG::TextureRef           prevHzb   = hzbSize ? FramePrevHzb( graph, frame, hzbWidth, hzbHeight )
+                                                            : RDG::TextureRef{};
+        bins.MainTestsHzb                         = prevHzb.IsValid();
         {
             GpuDriven::CullViewInput mainInput = MakeCullView(
                  mainPass, frame.ViewProjection, frame.PrevViewProjection, camera->GetFrustum(), lod, lensScale,
                  lodFlag | ( bins.MainTestsHzb ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
             if ( bins.MainTestsHzb )
             {
-                m_FramePrevHzb    = graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
-                mainInput.PrevHzb = m_FramePrevHzb;
+                mainInput.PrevHzb = prevHzb;
                 mainInput.View.HzbExtent =
                      glm::uvec4( hzbWidth, hzbHeight,
                                  static_cast<uint32_t>( std::bit_width( std::max( hzbWidth, hzbHeight ) ) ), 0u );
@@ -504,11 +526,10 @@ namespace Desert::Graphic
         // a previous frame (PrevViewProjection projects into it).
         // The draw bins' HZBs when they built this frame's (AddFrameDrawBinsPostOcclusion): the history is
         // registered once per graph and extracted once.
-        const bool binsHzb = m_FrameFurthestHzb.IsValid();
-        const bool prevHzbValid =
-             binsHzb ? m_FramePrevHzb.IsValid()
-                     : m_CullHzbHistory.Physical != nullptr && m_CullHzbHistory.Desc.Size.Width == width &&
-                            m_CullHzbHistory.Desc.Size.Height == height && frame.HistoryValid();
+        const bool            binsHzb = m_FrameFurthestHzb.IsValid();
+        const RDG::TextureRef prevHzb =
+             binsHzb ? m_FramePrevHzb : FramePrevHzb( graph, frame, width, height );
+        const bool prevHzbValid = prevHzb.IsValid();
         {
             GpuDriven::CullViewInput mainInput =
                  MakeCullView( GpuDriven::MeshPass::GBuffer, frame.ViewProjection, frame.PrevViewProjection,
@@ -516,8 +537,7 @@ namespace Desert::Graphic
                                lodFlag | ( prevHzbValid ? GpuDriven::CullViewFlags::kTestHzb : 0u ) );
             if ( prevHzbValid )
             {
-                mainInput.PrevHzb =
-                     binsHzb ? m_FramePrevHzb : graph.RegisterExternal( m_CullHzbHistory, "GPUDriven.PrevHzb" );
+                mainInput.PrevHzb = prevHzb;
                 mainInput.View.HzbExtent = glm::uvec4(
                      width, height, static_cast<uint32_t>( std::bit_width( std::max( width, height ) ) ), 0u );
             }

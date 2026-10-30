@@ -65,6 +65,9 @@ namespace Desert::Graphic::API::Vulkan
         m_Capabilities.SupportsTextureCompressionBC = m_DeviceCaps.Has( Capability::TextureCompressionBC );
         m_Capabilities.SupportsMultiDrawIndirect    = m_DeviceCaps.Has( Capability::MultiDrawIndirect );
         m_Capabilities.SupportsBufferDeviceAddress  = m_DeviceCaps.Has( Capability::BufferDeviceAddress );
+        m_Capabilities.SupportsVisibilityBuffer64   = m_DeviceCaps.Has( Capability::ShaderInt64 ) &&
+                                                      m_DeviceCaps.Has( Capability::ShaderBufferInt64Atomics ) &&
+                                                      m_DeviceCaps.Has( Capability::FragmentStoresAndAtomics );
         m_Capabilities.MaxDrawIndirectCount         = deviceProperties.limits.maxDrawIndirectCount;
         // The NN layer's features, limits and kernel path, probed and selected once (DeviceCapsProbe).
         m_Capabilities.Neural = m_DeviceCaps.Neural;

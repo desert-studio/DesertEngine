@@ -112,6 +112,11 @@ namespace Desert::Engine
         /// tracer. Readers: SurfaceCache (whether to build the list) and DesertCtl `state device`.
         bool SupportsBufferDeviceAddress = false;
 
+        /// shaderInt64 + shaderBufferInt64Atomics + fragmentStoresAndAtomics (DeviceCaps rows): the fragment stage
+        /// atomic-maxes a 64-bit (depth, id) word into a storage buffer. Reader: SceneRenderer's grass visibility
+        /// buffer (GRASS-VIS), which is refused by name without it and the grass keeps the G-buffer path.
+        bool SupportsVisibilityBuffer64 = false;
+
         // --- Ray tracing hidden by the machine (NO-RT) ------------------------------------------------
         /// machine.json "HideRayTracing": the backend probed this device as one without ray tracing (Catalog
         /// RayTracingModes = None), so `rt` reads "hidden" rather than "off". Readers: the start-up log and
