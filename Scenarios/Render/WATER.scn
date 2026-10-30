@@ -7,6 +7,9 @@
 Дано --subject viewport set Camera.Direction 0,-0.25,-0.97
 Дано run View "View mode: Lit"
 Тогда-вид 1_shore пологий берег (Landscape Shore, слой ShoreSand = Poly Haven CC0 coast_sand_rocks_02) уходит под воду; волны ShoreSwell бегут к берегу; полоса пены (ambientCG CC0 Foam002) только у линии прибоя, где H/d >= 0.78 по глубине сверху (WaterInfo), дальше вода прозрачно-синяя; край берега плавный (без ступенек, ShoreFadeCm); вокруг куба пены нет; лог без "[Water]" отказов
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean_FoamMask.demat
+Тогда-вид 1b_shore_foamonly тот же вид берега с M_Water_Ocean_FoamMask (только маска пены): белая полоса только у линии прибоя, дальше от берега и вокруг куба тёмное
+Когда set 2646278175089776126 WaterBodyData.WaterMaterial assets:Water/Materials/M_Water_Ocean.demat
 Когда --subject viewport set Camera.Position 0,150,-2500
 Когда --subject viewport set Camera.Direction -0.15,-0.3,-0.94
 Тогда-вид 2_grazing скользящий взгляд на солнце над глубокой водой (кадр отличается от 1_shore): Gerstner-волны, по Френелю небо, блик солнца на ряби, пены нет
