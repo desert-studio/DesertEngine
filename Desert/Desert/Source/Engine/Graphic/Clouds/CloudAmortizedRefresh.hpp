@@ -125,10 +125,10 @@ namespace Desert::Graphic
     // ---- THE HERO CLOUDS' PART OF THE SHADOW MAP --------------------------------------------------------------
 
     /// Texels of margin the hero rectangle is grown by on every side: one for the consumer's bilinear fetch,
-    /// which reads a texel's neighbour, and one for the front's wind lag (at most a texel, CloudPlanShadowRefresh),
-    /// across which a texel patched on an earlier frame of this front may have left the rectangle — such a texel
-    /// holds the full march of a ray that met no hero cloud then, i.e. the rigid field's own value, only while
-    /// it stands at least that lag away from every box.
+    /// which reads a texel's neighbour, and one for the front's wind lag (at most a texel,
+    /// CloudPlanShadowRefresh), across which a texel patched on an earlier frame of this front may have left the
+    /// rectangle — such a texel holds the full march of a ray that met no hero cloud then, i.e. the rigid field's
+    /// own value, only while it stands at least that lag away from every box.
     inline constexpr uint32_t kCloudShadowHeroMarginTexels = 2u;
 
     /// A rectangle of the map's texels; empty when Width or Height is 0.
@@ -159,9 +159,9 @@ namespace Desert::Graphic
      * (CloudMakeLayer), @p planetRadiusKm the radius world y = 0 stands on.
      */
     [[nodiscard]] inline CloudShadowTexelRect CloudShadowHeroRect( const CloudAuthoredPayload& authored,
-                                                                   const glm::mat4& worldToMap, float planetRadiusKm,
-                                                                   float bottomRadiusKm, uint32_t resolution,
-                                                                   float worldUnitsPerKm )
+                                                                   const glm::mat4&            worldToMap,
+                                                                   float planetRadiusKm, float bottomRadiusKm,
+                                                                   uint32_t resolution, float worldUnitsPerKm )
     {
         const int32_t count = std::clamp( authored.Count, 0, static_cast<int32_t>( kCloudAuthoredSlots ) );
         if ( count == 0 || resolution == 0u )
@@ -176,24 +176,25 @@ namespace Desert::Graphic
             const glm::dvec3                boxMin( glm::vec3( instance.BoundsMin ) );
             const glm::dvec3                boxMax( glm::vec3( instance.BoundsMax ) );
 
-            const double nearX = std::clamp( 0.0, boxMin.x, boxMax.x );
-            const double nearZ = std::clamp( 0.0, boxMin.z, boxMax.z );
-            const double farX  = std::max( std::abs( boxMin.x ), std::abs( boxMax.x ) );
-            const double farZ  = std::max( std::abs( boxMin.z ), std::abs( boxMax.z ) );
-            const double topR  = static_cast<double>( bottomRadiusKm ) + boxMax.y;
-            const double baseR = std::max( static_cast<double>( bottomRadiusKm ) + boxMin.y, 0.0 );
-            const double yHigh = std::sqrt( std::max( topR * topR - nearX * nearX - nearZ * nearZ, 0.0 ) );
-            const double yLow  = std::sqrt( std::max( baseR * baseR - farX * farX - farZ * farZ, 0.0 ) );
-            const double units = static_cast<double>( worldUnitsPerKm );
-            const float  worldYLow  = static_cast<float>( ( yLow - static_cast<double>( planetRadiusKm ) ) * units );
-            const float  worldYHigh = static_cast<float>( ( yHigh - static_cast<double>( planetRadiusKm ) ) * units );
+            const double nearX    = std::clamp( 0.0, boxMin.x, boxMax.x );
+            const double nearZ    = std::clamp( 0.0, boxMin.z, boxMax.z );
+            const double farX     = std::max( std::abs( boxMin.x ), std::abs( boxMax.x ) );
+            const double farZ     = std::max( std::abs( boxMin.z ), std::abs( boxMax.z ) );
+            const double topR     = static_cast<double>( bottomRadiusKm ) + boxMax.y;
+            const double baseR    = std::max( static_cast<double>( bottomRadiusKm ) + boxMin.y, 0.0 );
+            const double yHigh    = std::sqrt( std::max( topR * topR - nearX * nearX - nearZ * nearZ, 0.0 ) );
+            const double yLow     = std::sqrt( std::max( baseR * baseR - farX * farX - farZ * farZ, 0.0 ) );
+            const double units    = static_cast<double>( worldUnitsPerKm );
+            const float worldYLow = static_cast<float>( ( yLow - static_cast<double>( planetRadiusKm ) ) * units );
+            const float worldYHigh =
+                 static_cast<float>( ( yHigh - static_cast<double>( planetRadiusKm ) ) * units );
 
             for ( uint32_t corner = 0; corner < 8u; ++corner )
             {
-                const glm::vec4 world( static_cast<float>( ( ( corner & 1u ) != 0u ? boxMax.x : boxMin.x ) * units ),
-                                       ( corner & 2u ) != 0u ? worldYHigh : worldYLow,
-                                       static_cast<float>( ( ( corner & 4u ) != 0u ? boxMax.z : boxMin.z ) * units ),
-                                       1.0f );
+                const glm::vec4 world(
+                     static_cast<float>( ( ( corner & 1u ) != 0u ? boxMax.x : boxMin.x ) * units ),
+                     ( corner & 2u ) != 0u ? worldYHigh : worldYLow,
+                     static_cast<float>( ( ( corner & 4u ) != 0u ? boxMax.z : boxMin.z ) * units ), 1.0f );
                 const glm::vec4 clip = worldToMap * world;
                 const float     w    = std::abs( clip.w ) > 1e-12f ? clip.w : 1.0f;
                 // The texel whose CENTRE the point lands on, in the producer's own convention

@@ -162,8 +162,8 @@ namespace Desert::Graphic
         // xyz = the direction the light travels, normalized; w = how many samples this ray takes.
         glm::vec4 Trace;
         // x = the kilometres the map's clip z spans; y, z = the first row and column this dispatch marches (a band
-        // of the back copy, or the hero clouds' rectangle of the front — Graphic/Clouds/CloudAmortizedRefresh.hpp);
-        // w unwritten.
+        // of the back copy, or the hero clouds' rectangle of the front —
+        // Graphic/Clouds/CloudAmortizedRefresh.hpp); w unwritten.
         glm::vec4 Depth;
         // xyz = the accumulated wind (km) this dispatch marches the field at, which is not the parameter block's
         // when a band of the back copy is marched at its frozen wind; w = 1 when the march includes the hero

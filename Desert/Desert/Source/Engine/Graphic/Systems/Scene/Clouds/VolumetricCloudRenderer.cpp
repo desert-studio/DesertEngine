@@ -1349,10 +1349,10 @@ namespace Desert::Graphic::System
         // no ray meets slot A. The rectangle the front's content already carries a patch in is re-marched with it:
         // a hero cloud that moved or was removed must not leave its old shadow behind. A Full plan rewrites the
         // whole front without slot A, so only this frame's rectangle needs it then.
-        const float               bottomRadiusKm = payload.Layer.x + std::max( payload.Layer.y, 0.0f );
-        const CloudShadowTexelRect heroRect      = CloudShadowHeroRect( m_AuthoredPayload, m_ShadowMapView.WorldToMap,
-                                                                        payload.Layer.x, bottomRadiusKm, resolution,
-                                                                        kCloudWorldUnitsPerKm );
+        const float                bottomRadiusKm = payload.Layer.x + std::max( payload.Layer.y, 0.0f );
+        const CloudShadowTexelRect heroRect =
+             CloudShadowHeroRect( m_AuthoredPayload, m_ShadowMapView.WorldToMap, payload.Layer.x, bottomRadiusKm,
+                                  resolution, kCloudWorldUnitsPerKm );
         CloudShadowTexelRect patchRect = heroRect;
         if ( plan.Kind != CloudShadowRefreshKind::Full && !m_ShadowHeroFrontRect.Empty() )
         {
@@ -1366,7 +1366,7 @@ namespace Desert::Graphic::System
                                               m_ShadowHeroFrontRect.X + m_ShadowHeroFrontRect.Width );
                 const uint32_t y1 = std::max( patchRect.Y + patchRect.Height,
                                               m_ShadowHeroFrontRect.Y + m_ShadowHeroFrontRect.Height );
-                patchRect = CloudShadowTexelRect{ x0, y0, x1 - x0, y1 - y0 };
+                patchRect         = CloudShadowTexelRect{ x0, y0, x1 - x0, y1 - y0 };
             }
         }
         CloudRefreshKey heroKey;
@@ -1378,8 +1378,9 @@ namespace Desert::Graphic::System
         heroKey.Value( patchRect );
         // Nothing to patch when no ray meets slot A and the front carries no earlier patch; nothing to re-patch
         // when the front was not rewritten and the patch it carries was marched from the same inputs (no wind).
-        m_ShadowHeroPlanned     = !patchRect.Empty() && ( plan.Kind == CloudShadowRefreshKind::Full ||
-                                                      !m_ShadowHeroBuilt || m_ShadowHeroBuiltKey != heroKey.Get() );
+        m_ShadowHeroPlanned =
+             !patchRect.Empty() && ( plan.Kind == CloudShadowRefreshKind::Full || !m_ShadowHeroBuilt ||
+                                     m_ShadowHeroBuiltKey != heroKey.Get() );
         m_ShadowHeroPendingRect = heroRect;
         m_ShadowHeroPendingKey  = heroKey.Get();
         const bool marchRigid   = plan.Kind != CloudShadowRefreshKind::Reuse;
@@ -1424,8 +1425,8 @@ namespace Desert::Graphic::System
                                                       static_cast<uint32_t>( sizeof( CloudShadowPush ) ) ) ) )
                  .Storage( VolumetricCloudShaderParameters::CloudShadowMapTexture, target,
                            RDG::Access::StorageWrite, label );
-            node.Record = [this, passName, nodePush, columns, rows](
-                               RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+            node.Record = [this, passName, nodePush, columns,
+                           rows]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
             {
                 DESERT_PROFILE_PASS_DYNAMIC( passName );
                 RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
