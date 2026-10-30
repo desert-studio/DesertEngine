@@ -31,6 +31,13 @@ namespace Desert::Graphic::System
             return BoxInSphere( Geometry::TransformBounds( transform, local ), centre, radius );
         }
 
+        // The same test on a gathered world box (MeshRenderer::GatherShadowCasters): empty = everywhere.
+        [[nodiscard]] bool CasterInSphere( const Common::Math::AABB& world, const glm::vec3& centre,
+                                           const float radius )
+        {
+            return Geometry::IsEmpty( world ) || BoxInSphere( world, centre, radius );
+        }
+
         // The key of the light's views themselves: where they look from, what they cover, where they are drawn.
         void AddViews( SignatureHash& hash, const LocalShadowViewPayload* rows, const uint32_t count )
         {
@@ -114,12 +121,16 @@ namespace Desert::Graphic::System
 
     std::optional<uint64_t> MeshRenderer::LocalCasterSignature( const glm::vec3& centre, const float radius ) const
     {
+        // The casters' boxes are this frame's gather (GatherShadowCasters), the ones every view culls by; gathered
+        // for other queues, nothing is keyed and the view redraws.
+        if ( !ShadowCastersGathered() )
+            return std::nullopt;
         SignatureHash hash;
-        for ( const auto& rd : m_StaticQueue )
+        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
         {
+            const StaticMeshRenderData& rd = m_StaticQueue[i];
             if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !CasterInSphere( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ), centre,
-                                  radius ) )
+                 !CasterInSphere( m_ShadowCasters.Statics[i].WorldBounds, centre, radius ) )
                 continue;
             hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
@@ -127,19 +138,21 @@ namespace Desert::Graphic::System
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.SectionSlot );
         }
-        for ( const auto& g : m_GenericQueue )
+        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
         {
+            const GenericMeshRenderData& g = m_GenericQueue[i];
             if ( g.Mesh == nullptr || !g.CastShadows ||
-                 !CasterInSphere( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ), centre, radius ) )
+                 !CasterInSphere( m_ShadowCasters.Generics[i].WorldBounds, centre, radius ) )
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
         }
         // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame.
-        for ( const auto& sd : m_SkinnedQueue )
+        for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
+            const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
             if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 CasterInSphere( sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ), centre, radius ) )
+                 CasterInSphere( m_ShadowCasters.Skinned[i].WorldBounds, centre, radius ) )
                 return std::nullopt;
         }
         for ( const auto& ism : m_InstancedQueue )

@@ -1323,8 +1323,17 @@ namespace Desert::Graphic::System
 
         // Cascaded shadow maps (R32F light-space depth, one framebuffer per cascade). Recompute the
         // per-cascade light matrices once per frame BEFORE the render graph records (intra-phase order is
-        // nondeterministic). Called from SceneRenderer::OnUpdate.
+        // nondeterministic). Called from SceneRenderer::OnUpdate, after GatherShadowCasters.
         void UpdateCascades();
+        // THIS FRAME'S SHADOW CASTERS, gathered ONCE from the mesh queues for every shadow view (UE
+        // GatherShadowPrimitives: one walk of the scene's primitives for every whole-scene shadow, not one per
+        // view): each caster's world box - a skinned mesh's in this frame's pose (SkinnedPoseBounds) - and, on the
+        // first view that draws it, its LOD level asked of the main camera and an ISM field's kept instances
+        // (IsmInstanceReach). The sun cascades and their cache keys, the rain occlusion view, the local lights'
+        // views and keys and the VSM levels all cull by these boxes; none walks a queue for bounds or LOD itself.
+        // Called from SceneRenderer::OnUpdate before UpdateCascades, and again at the end of ApplyDisplacement,
+        // whose twins replace queued entries.
+        void GatherShadowCasters();
 
         // MORPH TARGETS BEFORE SKINNING (UE FSkeletalMeshObjectGPUSkin::Update -> GPUMorphUpdateCS). Runs the
         // morph graph of this frame: one compute node per skinned component whose MorphComponent revision moved
@@ -2552,6 +2561,54 @@ namespace Desert::Graphic::System
             SubmeshMask                 Hidden{};
         };
         std::vector<ShadowSingle> m_ScratchShadowSingles;
+        // THIS FRAME'S SHADOW CASTERS (GatherShadowCasters): one row per queued entry, what no view changes.
+        static constexpr uint32_t kShadowLodUnknown = ~0u;
+        struct ShadowCasterRow
+        {
+            Common::Math::AABB WorldBounds; // empty: no known extent, in every view (IsVisibleInView's rule)
+            uint32_t LodLevel = kShadowLodUnknown; // ComputeLOD from the main camera, on the first view drawing it
+        };
+        struct ShadowIsmField
+        {
+            uint64_t Gather = 0; // the gather Instances[First, First + Count) are of; another: not gathered yet
+            uint32_t First  = 0;
+            uint32_t Count  = 0;
+        };
+        struct ShadowCasterSetup
+        {
+            uint64_t                     Gather = 0; // bumped by each GatherShadowCasters
+            std::vector<ShadowCasterRow> Statics;    // per m_StaticQueue entry
+            std::vector<ShadowCasterRow> Generics;   // per m_GenericQueue entry
+            std::vector<ShadowCasterRow> Skinned;    // per m_SkinnedQueue entry: the posed box
+            std::vector<ShadowIsmField>  Fields;     // per m_InstancedQueue entry
+            // The instances of the gathered fields the main camera's cull distance keeps, end to end: the box the
+            // wind can reach and the level, and the instance's index in its field's transforms.
+            std::vector<ShadowCasterRow> Instances;
+            std::vector<uint32_t>        InstanceIndex;
+        };
+        ShadowCasterSetup m_ShadowCasters;
+        // Whether m_ShadowCasters is of the queues as they stand (one row per entry of each): a queue changed
+        // after the last GatherShadowCasters breaks the order SceneRenderer::OnUpdate keeps.
+        [[nodiscard]] bool ShadowCastersGathered() const;
+        // The level of static / generic caster @p index, asked of the camera once per gather.
+        [[nodiscard]] uint32_t ShadowStaticLod( uint32_t index );
+        [[nodiscard]] uint32_t ShadowGenericLod( uint32_t index );
+        // ISM field @p field's kept instances (Instances / InstanceIndex), gathered on the first view that walks
+        // the field this gather: a field every view leaves to its bins costs no per-instance work.
+        const ShadowIsmField& ShadowIsmInstances( uint32_t field );
+        // A view's static caster buckets by (mesh, hidden submeshes): the index of each key's bucket, so the walk
+        // finds it without a search (BuildShadowCascadeDraws); a member so its nodes persist.
+        struct ShadowBucketKey
+        {
+            const Desert::StaticMesh* Mesh = nullptr;
+            SubmeshMask               Hidden{};
+            bool                      operator==( const ShadowBucketKey& ) const = default;
+        };
+        struct ShadowBucketKeyHash
+        {
+            [[nodiscard]] std::size_t operator()( const ShadowBucketKey& key ) const noexcept;
+        };
+        std::unordered_map<ShadowBucketKey, std::size_t, ShadowBucketKeyHash> m_ScratchShadowBucketOf;
         // Masked casters of one cascade: per cascade copy, its rows / instance transforms / bone poses end to
         // end (each uploaded once before the copy's draws are recorded), and the draws naming their slice.
         struct MaskedCasterSet

@@ -429,16 +429,145 @@ namespace Desert::Graphic::System
         return views;
     }
 
+    void MeshRenderer::GatherShadowCasters()
+    {
+        ShadowCasterSetup& setup = m_ShadowCasters;
+        ++setup.Gather;
+        setup.Statics.resize( m_StaticQueue.size() );
+        setup.Generics.resize( m_GenericQueue.size() );
+        setup.Skinned.resize( m_SkinnedQueue.size() );
+        setup.Fields.resize( m_InstancedQueue.size() );
+        setup.Instances.clear();
+        setup.InstanceIndex.clear();
+        // The box is the one IsVisibleInView would build per view from the same transform and local bounds, built
+        // once; an empty local box stays empty (no extent: in every view).
+        const auto worldBox = []( const glm::mat4& transform, const Common::Math::AABB& local )
+        { return Geometry::IsEmpty( local ) ? local : Geometry::TransformBounds( transform, local ); };
+        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+        {
+            const StaticMeshRenderData& rd = m_StaticQueue[i];
+            setup.Statics[i]               = ShadowCasterRow{};
+            if ( rd.Mesh != nullptr && rd.CastShadows )
+                setup.Statics[i].WorldBounds =
+                     worldBox( rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) );
+        }
+        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
+        {
+            const GenericMeshRenderData& g = m_GenericQueue[i];
+            setup.Generics[i]              = ShadowCasterRow{};
+            if ( g.Mesh != nullptr && g.CastShadows )
+                setup.Generics[i].WorldBounds =
+                     worldBox( g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) );
+        }
+        for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
+        {
+            const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
+            setup.Skinned[i]                = ShadowCasterRow{};
+            if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
+                continue;
+            // The box of this frame's pose, not the bind pose's: an arm raised out of the rest box still reaches
+            // the views it shadows (UE culls a skeletal mesh by its posed bounds); the box a virtual shadow map
+            // level invalidates and culls it by too.
+            setup.Skinned[i].WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
+        }
+        // A field's instances are gathered by the first view that walks it (ShadowIsmInstances).
+        for ( ShadowIsmField& field : setup.Fields )
+            field = ShadowIsmField{};
+    }
+
+    bool MeshRenderer::ShadowCastersGathered() const
+    {
+        const ShadowCasterSetup& setup = m_ShadowCasters;
+        return setup.Statics.size() == m_StaticQueue.size() && setup.Generics.size() == m_GenericQueue.size() &&
+               setup.Skinned.size() == m_SkinnedQueue.size() && setup.Fields.size() == m_InstancedQueue.size();
+    }
+
+    uint32_t MeshRenderer::ShadowStaticLod( const uint32_t index )
+    {
+        ShadowCasterRow& row = m_ShadowCasters.Statics[index];
+        if ( row.LodLevel == kShadowLodUnknown )
+        {
+            const StaticMeshRenderData& rd = m_StaticQueue[index];
+            row.LodLevel                   = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+        }
+        return row.LodLevel;
+    }
+
+    uint32_t MeshRenderer::ShadowGenericLod( const uint32_t index )
+    {
+        ShadowCasterRow& row = m_ShadowCasters.Generics[index];
+        if ( row.LodLevel == kShadowLodUnknown )
+        {
+            const GenericMeshRenderData& g = m_GenericQueue[index];
+            row.LodLevel                   = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 );
+        }
+        return row.LodLevel;
+    }
+
+    const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field )
+    {
+        ShadowCasterSetup& setup  = m_ShadowCasters;
+        ShadowIsmField&    caster = setup.Fields[field];
+        if ( caster.Gather == setup.Gather )
+            return caster;
+        caster =
+             ShadowIsmField{ .Gather = setup.Gather, .First = static_cast<uint32_t>( setup.Instances.size() ) };
+        const InstancedMeshRenderData& ism = m_InstancedQueue[field];
+        // THE LOD AND THE CULL DISTANCE ARE THE MAIN CAMERA'S, as the geometry pass measures them: an instance
+        // faded out of the view casts no shadow either, and a caster drawn at a coarser level than the object the
+        // camera sees casts a silhouette that does not match it (CollectIsmInstances' rule, asked once here).
+        const auto*             camera = m_SceneRenderer->GetMainCamera();
+        const Geometry::LODView lodView =
+             camera != nullptr ? Geometry::LODView{ camera->GetPosition(), camera->GetProjectionMatrix() }
+                               : Geometry::LODView{};
+        const Common::Math::AABB      localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
+        const InstanceCullDistance    lensCull    = ScaledByLens( ism.CullDistance, DrawDistanceScale( lodView ) );
+        const std::vector<glm::mat4>& transforms  = *ism.Transforms;
+        for ( uint32_t k = 0; k < static_cast<uint32_t>( transforms.size() ); ++k )
+        {
+            const std::optional<Common::Math::AABB> reach =
+                 IsmInstanceReach( lensCull, k, transforms[k], localBounds, ism.Wind, lodView.Origin );
+            if ( !reach )
+                continue;
+            setup.Instances.push_back(
+                 { .WorldBounds = *reach,
+                   .LodLevel    = Geometry::SelectLODFromBounds( transforms[k], localBounds, lodView,
+                                                                 ism.Mesh->GetLODScreenSizes(), -1, 0 ) } );
+            setup.InstanceIndex.push_back( k );
+        }
+        caster.Count = static_cast<uint32_t>( setup.Instances.size() ) - caster.First;
+        return caster;
+    }
+
+    std::size_t MeshRenderer::ShadowBucketKeyHash::operator()( const ShadowBucketKey& key ) const noexcept
+    {
+        std::size_t h = std::hash<const void*>{}( key.Mesh );
+        h ^= std::hash<uint64_t>{}( key.Hidden.Low ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) + ( h >> 2u );
+        h ^= std::hash<const void*>{}( key.Hidden.High.data() ) + 0x9E3779B97F4A7C15ull + ( h << 6u ) +
+             ( h >> 2u );
+        return h ^ ( key.Hidden.High.size() * 0x9E3779B97F4A7C15ull );
+    }
+
     uint64_t MeshRenderer::CascadeStaticSignature( const uint32_t cascade, bool& movable ) const
     {
         // THE CASTER BOX, as BuildShadowCascadeDraws culls with: a static caster outside it is not in the cache,
         // so it moving changes nothing drawn.
-        const Core::Frustum frustum( m_CascadeCasterVP[cascade], glm::mat4( 1.0f ) );
-        SignatureHash       hash;
-        for ( const auto& rd : m_StaticQueue )
+        // Casters gathered for other queues: no key can be trusted, the layer is redrawn (and its draws refused,
+        // BuildShadowCascadeDraws says why).
+        if ( !ShadowCastersGathered() )
         {
-            if ( rd.Mesh == nullptr || !rd.CastShadows ||
-                 !IsVisibleInView( frustum, rd.Transform, Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+            movable = true;
+            return 0;
+        }
+        const Core::Frustum frustum( m_CascadeCasterVP[cascade], glm::mat4( 1.0f ) );
+        // The gathered boxes (GatherShadowCasters), the ones BuildShadowCascadeDraws culls with.
+        const auto reaches = [&frustum]( const ShadowCasterRow& row )
+        { return IsVisibleInView( frustum, row.WorldBounds ); };
+        SignatureHash hash;
+        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
+        {
+            const StaticMeshRenderData& rd = m_StaticQueue[i];
+            if ( rd.Mesh == nullptr || !rd.CastShadows || !reaches( m_ShadowCasters.Statics[i] ) )
                 continue;
             hash.Add( rd.Mesh->GetRenderRevision() );
             hash.Add( rd.Transform );
@@ -452,10 +581,10 @@ namespace Desert::Graphic::System
             hash.Add( shading.Surface );
             hash.Add( shading.Instance );
         }
-        for ( const auto& g : m_GenericQueue )
+        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
         {
-            if ( g.Mesh == nullptr || !g.CastShadows ||
-                 !IsVisibleInView( frustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            const GenericMeshRenderData& g = m_GenericQueue[i];
+            if ( g.Mesh == nullptr || !g.CastShadows || !reaches( m_ShadowCasters.Generics[i] ) )
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
@@ -476,10 +605,11 @@ namespace Desert::Graphic::System
             hash.Add( ism.Transforms->size() );
             hash.Add( ism.Material.get() );
         }
-        for ( const auto& sd : m_SkinnedQueue )
+        for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
         {
+            const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
             if ( sd.Mesh != nullptr && sd.CastShadows && !sd.BoneMatrices.empty() &&
-                 IsVisibleInView( frustum, sd.Transform, Geometry::LocalBounds( sd.Mesh->GetSubmeshes() ) ) )
+                 reaches( m_ShadowCasters.Skinned[i] ) )
                 movable = true;
         }
         for ( const auto& gpu : m_GpuInstancedQueue )
@@ -814,6 +944,14 @@ namespace Desert::Graphic::System
         // only when it changed, what moves by itself is drawn over the copied cache every frame.
         const bool drawStatic  = layer != ShadowCasterLayer::Movable;
         const bool drawMovable = layer != ShadowCasterLayer::Static;
+        if ( !ShadowCastersGathered() )
+        {
+            LOG_ERROR(
+                 "[Shadows] shadow view {} drawn from casters gathered for other mesh queues (a queue changed "
+                 "after MeshRenderer::GatherShadowCasters); it draws no mesh caster this frame.",
+                 c );
+            return;
+        }
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching LightViewProjection[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
@@ -855,29 +993,32 @@ namespace Desert::Graphic::System
         if ( c >= kVsmViewBase && c < kRainOcclusionView )
             cascadeFrustum.Open( Core::PLANE_FAR );
 
-        // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is
-        // deliberate rather than convenient: a caster drawn into the cascade at a coarser
-        // level than the object the camera sees casts a silhouette that does not match the
-        // object it belongs to. The per-object caster loop below has always asked it this
-        // way (ComputeLOD reads the main camera); the batched paths simply did not ask.
-        const auto*     lodCamera       = m_SceneRenderer->GetMainCamera();
-        const Geometry::LODView lodView =
-             lodCamera != nullptr ? Geometry::LODView{ lodCamera->GetPosition(), lodCamera->GetProjectionMatrix() }
-                                  : Geometry::LODView{};
+        // THE LOD OF A CASTER IS ASKED FROM THE CAMERA, not from the light, and that is deliberate rather than
+        // convenient: a caster drawn into the cascade at a coarser level than the object the camera sees casts a
+        // silhouette that does not match the object it belongs to. Asked once per gather (ShadowStaticLod,
+        // ShadowGenericLod, ShadowIsmInstances), the same level in every view; the box every view culls a caster
+        // by is the gathered one (GatherShadowCasters).
+        const ShadowCasterSetup& gathered = m_ShadowCasters;
+        const auto               inView   = [&cascadeFrustum]( const Common::Math::AABB& box )
+        { return IsVisibleInView( cascadeFrustum, box ); };
 
-        // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
+        // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins. The buckets
+        // in first-seen order; the key's bucket found by m_ScratchShadowBucketOf, not by a search.
         std::vector<
              std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
-                   byMesh;
+             byMesh;
+        m_ScratchShadowBucketOf.clear();
         const auto bucketFor = [&]( Desert::StaticMesh* mesh,
                                     const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
-            for ( auto& [key, v] : byMesh )
-                if ( key.first == mesh && key.second == hidden )
-                    return v;
-            byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<const StaticMeshRenderData*>{} );
-            return byMesh.back().second;
+            const auto [it, added] =
+                 m_ScratchShadowBucketOf.try_emplace( ShadowBucketKey{ mesh, hidden }, byMesh.size() );
+            if ( added )
+                byMesh.emplace_back( std::make_pair( mesh, hidden ), std::vector<const StaticMeshRenderData*>{} );
+            return byMesh[it->second].second;
         };
+        const auto staticIndex = [this]( const StaticMeshRenderData* rd )
+        { return static_cast<uint32_t>( rd - m_StaticQueue.data() ); };
         // MASKED CASTERS, by the material's blend mode (ShadowCasterCellFor): each draws through its own
         // template's ShadowDepth cell on a per-cascade copy of its material, with its mask texture and clip
         // threshold. One set per copy: its rows, instance transforms or bone poses end to end, uploaded once in
@@ -922,15 +1063,15 @@ namespace Desert::Graphic::System
                                      const GpuDriven::PrimitiveIndex primitive,
                                      const uint64_t                  hidden ) -> std::optional<SubmeshMask>
         { return CpuWalkHidden( walkView, mesh, primitive, hidden ); };
-        for ( const auto& rd : m_StaticQueue )
+        for ( std::size_t i = 0; i < m_StaticQueue.size(); ++i )
         {
+            const StaticMeshRenderData& rd = m_StaticQueue[i];
             if ( !drawStatic || rd.Mesh == nullptr || !rd.CastShadows )
                 continue;
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
                  walkHidden( rd.Mesh, rd.Mesh->GetSubmeshes().size(), rd.GpuPrimitive, rd.HiddenSubmeshes );
-            if ( !walk || !IsVisibleInView( cascadeFrustum, rd.Transform,
-                                            Geometry::LocalBounds( rd.Mesh->GetSubmeshes() ) ) )
+            if ( !walk || !inView( gathered.Statics[i].WorldBounds ) )
                 continue;
             const SubmeshMask hidden = *walk;
             // The caster takes the material the LIT draw shows, by the same mapping: one entry per section
@@ -964,7 +1105,7 @@ namespace Desert::Graphic::System
             draw.Transform = rd.Transform;
             draw.Instance  = inst;
             draw.Row       = *row;
-            draw.LodLevel  = ComputeLOD( rd.Transform, rd.Mesh, rd.ForcedLOD, rd.LODBias );
+            draw.LodLevel          = ShadowStaticLod( static_cast<uint32_t>( i ) );
             draw.HiddenSubmeshMask = hidden;
             m_ScratchMaskedDraws.push_back( draw );
         }
@@ -992,8 +1133,7 @@ namespace Desert::Graphic::System
                 levels.clear();
                 levels.reserve( bucket.size() );
                 for ( const auto* rd : bucket )
-                    levels.push_back(
-                         std::min( ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ), maxLevel ) );
+                    levels.push_back( std::min( ShadowStaticLod( staticIndex( rd ) ), maxLevel ) );
 
                 for ( const uint32_t level : Geometry::DistinctLODs( levels ) )
                 {
@@ -1054,15 +1194,21 @@ namespace Desert::Graphic::System
                 // Per-instance, against this cascade. A cascade covers a slice of the view,
                 // so a forest spread over the map has most of its instances outside every
                 // one of the four — and the batch is a single draw whose cost is entirely
-                // its instance count.
-                const Common::Math::AABB localBounds = Geometry::LocalBounds( ism.Mesh->GetSubmeshes() );
-
-                // The cull distance from the MAIN camera, as the geometry pass measures it:
-                // an instance faded out of the view casts no shadow either.
+                // its instance count. The instances the main camera's cull distance keeps, with the box the
+                // wind can reach and the level, are the gather's (ShadowIsmInstances: asked once per field).
+                const ShadowIsmField& field =
+                     ShadowIsmInstances( static_cast<uint32_t>( &ism - m_InstancedQueue.data() ) );
                 auto& visible = m_ScratchIsmVisible;
                 auto& levels  = m_ScratchLodLevels;
-                CollectIsmInstances( *ism.Transforms, localBounds, cascadeFrustum, ism.CullDistance, ism.Wind,
-                                     lodView, lodView, ism.Mesh->GetLODScreenSizes(), visible, levels );
+                visible.clear();
+                levels.clear();
+                for ( uint32_t k = field.First; k < field.First + field.Count; ++k )
+                {
+                    if ( !inView( gathered.Instances[k].WorldBounds ) )
+                        continue;
+                    visible.push_back( ( *ism.Transforms )[gathered.InstanceIndex[k]] );
+                    levels.push_back( gathered.Instances[k].LodLevel );
+                }
                 if ( visible.empty() )
                     continue;
 
@@ -1134,7 +1280,7 @@ namespace Desert::Graphic::System
                         .Transform         = rd->Transform,
                         .Material          = casterExecutor,
                         .HiddenSubmeshMask = single.Hidden,
-                        .LodLevel          = ComputeLOD( rd->Transform, rd->Mesh, rd->ForcedLOD, rd->LODBias ) } );
+                        .LodLevel          = ShadowStaticLod( staticIndex( rd ) ) } );
         }
 
         // Meshes drawn with a data-driven material (shader graph, Shader Override, per-slot
@@ -1157,22 +1303,22 @@ namespace Desert::Graphic::System
         // (DShaderParser refuses it on a shader with no Surface block), a template draws only through its mesh
         // cells, and a slot material with a mesh cell never reaches this queue (CustomSlotMaterial). The generic
         // lit draw runs the shader's own program, which clips nothing, so an opaque caster is what it shows.
-        for ( const auto& g : m_GenericQueue )
+        for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
         {
+            const GenericMeshRenderData& g = m_GenericQueue[i];
             if ( !drawStatic || g.Mesh == nullptr || !g.CastShadows )
                 continue;
             // Asked before the CPU frustum test, so a record the bins hold costs this loop no culling work.
             const std::optional<SubmeshMask> walk =
                  walkHidden( g.Mesh, g.Mesh->GetSubmeshes().size(), g.GpuPrimitive, ~g.VisibleSubmeshMask );
-            if ( walk &&
-                 IsVisibleInView( cascadeFrustum, g.Transform, Geometry::LocalBounds( g.Mesh->GetSubmeshes() ) ) )
+            if ( walk && inView( gathered.Generics[i].WorldBounds ) )
             {
                 list.Add( { .Pipeline          = casters.Static,
                             .Mesh              = g.Mesh,
                             .Transform         = g.Transform,
                             .Material          = casterExecutor,
                             .HiddenSubmeshMask = *walk,
-                            .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ) } );
+                            .LodLevel          = ShadowGenericLod( static_cast<uint32_t>( i ) ) } );
             }
         }
 
@@ -1201,11 +1347,15 @@ namespace Desert::Graphic::System
                 const SkinnedMeshRenderData* Data       = nullptr;
                 uint32_t                     BoneOffset = 0;
                 uint64_t                     Hidden     = 0;
+                std::size_t                  Index      = 0; // into m_SkinnedQueue
             };
             std::vector<OpaqueCaster> opaqueCasters;
-            for ( const auto& sd : m_SkinnedQueue )
+            for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
             {
-                if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() )
+                const SkinnedMeshRenderData& sd = m_SkinnedQueue[i];
+                // Culled by the box of this frame's pose (GatherShadowCasters), in every view.
+                if ( sd.Mesh == nullptr || !sd.CastShadows || sd.BoneMatrices.empty() ||
+                     !inView( gathered.Skinned[i].WorldBounds ) )
                     continue;
                 uint64_t opaqueVisible = 0;
                 for ( const SkinnedSection& section : sd.Sections )
@@ -1242,13 +1392,13 @@ namespace Desert::Graphic::System
                     draw.GpuPrimitive = sd.GpuPrimitive;
                     draw.HiddenSubmeshMask = section.HiddenSubmeshes;
                     if ( IsVirtualShadowView( c ) )
-                        draw.WorldBounds = SkinnedPoseBounds( *sd.Mesh, sd.Transform, sd.BoneMatrices );
+                        draw.WorldBounds = gathered.Skinned[i].WorldBounds;
                     set.Transforms.insert( set.Transforms.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
                     m_ScratchMaskedDraws.push_back( draw );
                 }
                 if ( opaqueVisible == 0 )
                     continue;
-                opaqueCasters.push_back( { &sd, static_cast<uint32_t>( skinBones.size() ), ~opaqueVisible } );
+                opaqueCasters.push_back( { &sd, static_cast<uint32_t>( skinBones.size() ), ~opaqueVisible, i } );
                 skinBones.insert( skinBones.end(), sd.BoneMatrices.begin(), sd.BoneMatrices.end() );
             }
             if ( !opaqueCasters.empty() )
@@ -1266,8 +1416,7 @@ namespace Desert::Graphic::System
                     // A virtual shadow map level culls the caster by its posed box (CollectVirtualShadowCull).
                     std::optional<Common::Math::AABB> pose;
                     if ( IsVirtualShadowView( c ) )
-                        pose = SkinnedPoseBounds( *caster.Data->Mesh, caster.Data->Transform,
-                                                  caster.Data->BoneMatrices );
+                        pose = gathered.Skinned[caster.Index].WorldBounds;
                     list.Add(
                          { .Pipeline          = casters.Skinned,
                            .Mesh              = caster.Data->Mesh,
