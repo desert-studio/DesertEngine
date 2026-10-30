@@ -199,17 +199,46 @@ SCAN_ROOTS = ("Desert", "Editor", "Runtime", "Tools")
 # and "Source/Common", which is why `#include <Core/Layer.hpp>` resolves. Missing a root would make
 # the gate STRICTER than intended rather than blinder, but it would also misreport where a symbol
 # comes from, so they are listed rather than guessed.
-INCLUDE_ROOTS = (
+#
+# The ENGINE MODULES' roots are not restated here: the build puts every module's source root (the parent of its
+# FOLDER, Desert/<Module>/Source/<Module> when the row names none) on the engine include path straight from
+# cmake/DesertModuleTable.cmake (DesertModules.cmake, _desert_source_roots), and this gate reads the same rows.
+# A hand list here once missed Desert/PhysicsCore/Source and so reported every file reaching a standard header
+# only through <PhysicsCore/...> as having no supplier. NON_MODULE_INCLUDE_ROOTS are the roots that are not modules.
+NON_MODULE_INCLUDE_ROOTS = (
     "Desert/Desert/Source",
-    "Desert/Common/Source",
     "Desert/Common/Source/Common",
-    "Desert/CoreReflection/Source",
-    "Desert/Render2DCore/Source",
-    "Desert/UI/Source",
     "Editor/Source",
     "Runtime/Source",
     "Tools/SceneMigrator/Source",
 )
+
+MODULE_TABLE = "cmake/DesertModuleTable.cmake"
+MODULE_ROW = re.compile(r"^[ \t]*desert_module\([ \t]*([A-Za-z0-9]+)\b([^)\n]*)\)", re.M)
+MODULE_FOLDER = re.compile(r'\bFOLDER[ \t]+"([^"]+)"')
+
+
+def module_include_roots(repo):
+    """Every engine module's source root, read from the module table the build reads."""
+    try:
+        with open(os.path.join(repo, MODULE_TABLE), encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        fail_to_scan(f"{MODULE_TABLE} is unreadable: {exc}", "The module include roots come from it.")
+    roots = []
+    for name, rest in MODULE_ROW.findall(text):
+        m = MODULE_FOLDER.search(rest)
+        folder = m.group(1) if m else f"Desert/{name}/Source/{name}"
+        root = folder.rsplit("/", 1)[0]
+        if root not in roots:
+            roots.append(root)
+    if not roots:
+        fail_to_scan(f"{MODULE_TABLE} has no desert_module() row, so the module include roots would be empty.")
+    return roots
+
+
+# Filled by main() from NON_MODULE_INCLUDE_ROOTS and the module table.
+INCLUDE_ROOTS = ()
 
 SOURCE_EXTS = (".cpp", ".hpp", ".h", ".cc", ".inl")
 
@@ -353,6 +382,11 @@ def main():
             compiled[name] = (header, [re.compile(p) for p in pats])
         except re.error as exc:
             fail_to_scan(f"register row '{name}' has an unusable pattern: {exc}")
+
+    global INCLUDE_ROOTS
+    INCLUDE_ROOTS = NON_MODULE_INCLUDE_ROOTS + tuple(
+        r for r in module_include_roots(repo) if r not in NON_MODULE_INCLUDE_ROOTS
+    )
 
     files = tracked_sources(repo)
     for root in SCAN_ROOTS:
