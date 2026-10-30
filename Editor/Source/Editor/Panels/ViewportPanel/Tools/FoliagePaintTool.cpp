@@ -198,8 +198,10 @@ namespace Desert::Editor::Tools
             }
 
         auto& e = scene.CreateNewEntity( "Foliage_" + type->GetDisplayName() );
-        e.AddComponent<ECS::FoliageComponent>().FoliageType            = type->GetMetadata().Handle;
-        e.AddComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = meshHandle;
+        e.AddComponent<ECS::FoliageComponent>().FoliageType = type->GetMetadata().Handle;
+        ECS::InstancedStaticMeshDesc ism;
+        ism.MeshHandle = meshHandle;
+        ECS::SetInstancedStaticMesh( *e.GetRegistry(), e.GetHandle(), ism );
         const auto newUuid = e.GetComponent<ECS::UUIDComponent>().UUID;
         Core::FoliagePaint::SetActiveOnly( newUuid );
         Core::FoliagePaint::SetEditingType( newUuid );
@@ -841,13 +843,18 @@ namespace Desert::Editor::Tools
                         all = false;
                         continue;
                     }
-                    ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
-                         before ? field.Before : field.After;
+                    {
+                        const auto&                  restored = ref->get();
+                        ECS::InstancedStaticMeshDesc ism =
+                             restored.GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                        ism.InstanceTransforms = before ? field.Before : field.After;
+                        ECS::SetInstancedStaticMesh( *restored.GetRegistry(), restored.GetHandle(), ism );
+                    }
                     Core::FoliagePaint::Selection()[field.Entity] =
                          before ? field.SelectedBefore : field.SelectedAfter;
                     if ( const auto& place = before ? field.PlaceBefore : field.PlaceAfter; place.has_value() )
                     {
-                        ref->get().GetComponent<ECS::TransformComponent>().Translation = place->Translation;
+                        ref->get().SetLocalTranslation( place->Translation );
                         ref->get().GetComponent<ECS::TagComponent>().Tag               = place->Tag;
                     }
                 }
@@ -992,10 +999,10 @@ namespace Desert::Editor::Tools
         // in.
         World::Foliage::CellCoord CellOfField( const ECS::Entity& field, double cellSize )
         {
-            const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
             if ( instances.empty() )
             {
-                const auto& at = field.GetComponent<ECS::TransformComponent>().Translation;
+                const auto& at = field.GetComponent<ECS::TransformComponent>().GetTranslation();
                 return ::Desert::Core::Rules::CellOf( at.x, at.z, cellSize );
             }
             std::map<std::pair<int32_t, int32_t>, std::size_t> counts;
@@ -1110,7 +1117,7 @@ namespace Desert::Editor::Tools
                         continue;
                 }
                 const auto  uuid      = field.GetComponent<ECS::UUIDComponent>().UUID;
-                const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+                const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
                 const auto& selected  = Core::FoliagePaint::Selection()[uuid];
                 stroke.Touch( uuid, instances, selected );
                 gather.Fields.push_back( uuid );
@@ -1173,21 +1180,21 @@ namespace Desert::Editor::Tools
                 const auto  tag     = CellFieldBase( leadTag ).value_or( leadTag );
                 const auto onGrid  = RuntimeGridOf( gather.Lead );
                 const bool visible = !gather.Lead.HasComponent<ECS::VisibilityComponent>() ||
-                                     gather.Lead.GetComponent<ECS::VisibilityComponent>().Visible;
+                                     gather.Lead.GetComponent<ECS::VisibilityComponent>().IsVisible();
                 for ( std::size_t i = unique.size(); i < out.size(); ++i )
                 {
                     const auto& cell  = out[i].Cell;
                     auto&       field = scene.CreateNewEntity( CellFieldTag( tag, cell ) );
                     // NOLINTNEXTLINE(bugprone-unchecked-optional-access) cellSize is set: only a scatter adds
                     // fields
-                    field.GetComponent<ECS::TransformComponent>().Translation =
-                         World::Foliage::FoliageCellAnchor( cell, *cellSize );
+                    field.SetLocalTranslation( World::Foliage::FoliageCellAnchor( cell, *cellSize ) );
                     field.AddComponent<ECS::FoliageComponent>().FoliageType = type;
-                    auto& ism         = field.AddComponent<ECS::InstancedStaticMeshComponent>();
-                    ism.MeshHandle    = lead.MeshHandle;
-                    ism.MaterialSlots = lead.MaterialSlots;
-                    ism.CastShadows   = lead.CastShadows;
-                    ism.CastContactShadow = lead.CastContactShadow;
+                    ECS::InstancedStaticMeshDesc ism;
+                    ism.MeshHandle        = lead.GetMeshHandle();
+                    ism.MaterialSlots     = lead.GetMaterialSlots();
+                    ism.CastShadows       = lead.GetCastShadows();
+                    ism.CastContactShadow = lead.GetCastContactShadow();
+                    ECS::SetInstancedStaticMesh( *field.GetRegistry(), field.GetHandle(), ism );
                     // The new cell's field streams on the row's grid, the grid its cell was cut by.
                     if ( onGrid.has_value() )
                         field.AddComponent<ECS::RuntimeGridComponent>().Data.Grid = *onGrid;
@@ -1206,22 +1213,25 @@ namespace Desert::Editor::Tools
                     return Common::MakeFormattedError<bool>(
                          "foliage: field {} vanished while its cell was written",
                          static_cast<uint64_t>( gather.Fields[i] ) );
-                auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-                auto& selected  = Core::FoliagePaint::Selection()[gather.Fields[i]];
+                ECS::InstancedStaticMeshDesc desc =
+                     ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                auto& selected = Core::FoliagePaint::Selection()[gather.Fields[i]];
                 if ( !slotOf[i].has_value() )
                 {
-                    instances.clear();
+                    desc.InstanceTransforms.clear();
+                    ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
                     selected.clear();
                     continue;
                 }
-                instances = std::move( out[*slotOf[i]].Instances );
-                selected  = std::move( out[*slotOf[i]].Selected );
+                desc.InstanceTransforms = std::move( out[*slotOf[i]].Instances );
+                ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
+                selected = std::move( out[*slotOf[i]].Selected );
                 if ( !cellSize.has_value() )
                     continue;
                 // The field is now its cell's (a field whose grid changed was filed by its instances): its entity
                 // moves into that cell (FoliageCells.hpp, THE INVARIANT) and a cell field's name follows the cell.
                 const auto& cell        = out[*slotOf[i]].Cell;
-                auto&       translation = ref->get().GetComponent<ECS::TransformComponent>().Translation;
+                const glm::vec3 translation = ref->get().GetComponent<ECS::TransformComponent>().GetTranslation();
                 auto&       tag         = ref->get().GetComponent<ECS::TagComponent>().Tag;
                 const FoliageFieldPlace now{ translation, tag };
                 FoliageFieldPlace       wanted = now;
@@ -1235,7 +1245,7 @@ namespace Desert::Editor::Tools
                     return Common::MakeFormattedError<bool>(
                          "foliage: field {} was re-filed without being gathered",
                          static_cast<uint64_t>( gather.Fields[i] ) );
-                translation = wanted.Translation;
+                ref->get().SetLocalTranslation( wanted.Translation );
                 tag         = wanted.Tag;
             }
 
@@ -1250,7 +1260,7 @@ namespace Desert::Editor::Tools
                   FieldsOfType( scene, row.GetComponent<ECS::FoliageComponent>().FoliageType ) )
             {
                 FoliageSelection all(
-                     field.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms.size() );
+                     field.GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms().size() );
                 for ( uint32_t i = 0; i < all.size(); ++i )
                     all[i] = i;
                 wanted[field.GetComponent<ECS::UUIDComponent>().UUID] = std::move( all );
@@ -1265,7 +1275,7 @@ namespace Desert::Editor::Tools
                      const auto ref = scene.FindEntityByID( uuid );
                      if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                          return nullptr;
-                     return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+                     return &ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
                  },
                  []( const Common::UUID& uuid ) { return Core::FoliagePaint::SelectionOf( uuid ); },
                  [&]( const Common::UUID& uuid ) -> std::optional<FoliageFieldPlace>
@@ -1273,7 +1283,7 @@ namespace Desert::Editor::Tools
                      const auto ref = scene.FindEntityByID( uuid );
                      if ( !ref )
                          return std::nullopt;
-                     return FoliageFieldPlace{ ref->get().GetComponent<ECS::TransformComponent>().Translation,
+                     return FoliageFieldPlace{ ref->get().GetComponent<ECS::TransformComponent>().GetTranslation(),
                                                ref->get().GetComponent<ECS::TagComponent>().Tag };
                  } );
         }
@@ -1314,7 +1324,7 @@ namespace Desert::Editor::Tools
         // Copies: creating a field may move the registry's storage under a reference.
         const ECS::ProceduralFoliageData volume =
              found->get().GetComponent<ECS::ProceduralFoliageComponent>().Data;
-        const glm::vec3 center = found->get().GetComponent<ECS::TransformComponent>().Translation;
+        const glm::vec3 center = found->get().GetComponent<ECS::TransformComponent>().GetTranslation();
 
         std::vector<Assets::Asset<Assets::FoliageTypeAsset>> assets;
         std::vector<Assets::Serialization::FoliageTypeData>  types;
@@ -1452,8 +1462,9 @@ namespace Desert::Editor::Tools
             transaction->Touch( fieldIds[existing] );
             if ( auto field = fieldAt( existing ) )
             {
-                field->GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms =
-                     std::move( instances );
+                ECS::InstancedStaticMeshDesc ism = field->GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+                ism.InstanceTransforms           = std::move( instances );
+                ECS::SetInstancedStaticMesh( *field->GetRegistry(), field->GetHandle(), ism );
                 Core::FoliagePaint::Selection().erase( fieldIds[existing] );
             }
         };
@@ -1477,12 +1488,12 @@ namespace Desert::Editor::Tools
             // FO-6: a cell field stands at its cell's centre; a world that is not partitioned keeps the field
             // where a painted one stands, at the origin (instances are world transforms either way).
             if ( const auto& cellSize = host.CellSize; cellSize.has_value() )
-                field.GetComponent<ECS::TransformComponent>().Translation =
-                     World::Foliage::FoliageCellAnchor( fresh.Cell, *cellSize );
+                field.SetLocalTranslation( World::Foliage::FoliageCellAnchor( fresh.Cell, *cellSize ) );
             field.AddComponent<ECS::FoliageComponent>().FoliageType = type->GetMetadata().Handle;
-            auto& ism              = field.AddComponent<ECS::InstancedStaticMeshComponent>();
+            ECS::InstancedStaticMeshDesc ism;
             ism.MeshHandle         = type->GetMeshHandle();
             ism.InstanceTransforms = fresh.Instances;
+            ECS::SetInstancedStaticMesh( *field.GetRegistry(), field.GetHandle(), ism );
             field.AddComponent<ECS::ProceduralFoliageFieldComponent>().Owner = volumeId;
             if ( volumeGrid.has_value() )
                 field.AddComponent<ECS::RuntimeGridComponent>().Data.Grid = *volumeGrid;
@@ -1517,7 +1528,7 @@ namespace Desert::Editor::Tools
                  !World::Foliage::FoliageCellTouchesDisc( CellOfField( field, *cellSize ), *cellSize, around->x,
                                                           around->z, radius ) )
                 continue;
-            const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            const auto& instances = field.GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
             all.insert( all.end(), instances.begin(), instances.end() );
         }
         return all;
@@ -1778,12 +1789,12 @@ namespace Desert::Editor::Tools
             if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
             const auto& instances =
-                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
             stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             if ( !shift )
                 Core::FoliagePaint::Selection()[uuid].clear();
             // The instance's mesh box (Geometry::LocalBounds, the culler's extent), not a stand-in sphere.
-            const auto  meshHandle = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle;
+            const auto  meshHandle = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetMeshHandle();
             const auto* mesh       = Runtime::ResourceRegistry::GetMeshService()->GetAsset( meshHandle );
             // FO-8: a Prefab field draws no mesh of its own; its instance box is the first realized instance's
             // meshes, in that instance's space (every instance is the same prefab).
@@ -1806,7 +1817,7 @@ namespace Desert::Editor::Tools
                     if ( !e.HasComponent<ECS::StaticMeshComponent>() )
                         continue;
                     const auto* part = Runtime::ResourceRegistry::GetMeshService()->GetAsset(
-                         e.GetComponent<ECS::StaticMeshComponent>().MeshHandle );
+                         e.GetComponent<ECS::StaticMeshComponent>().GetMeshHandle() );
                     if ( !part )
                         continue;
                     const Common::Math::AABB local = Geometry::LocalBounds( part->GetSubmeshes() );
@@ -1874,9 +1885,11 @@ namespace Desert::Editor::Tools
             auto ref = scene.FindEntityByID( uuid );
             if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
-            auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
-            stroke.Touch( uuid, instances, selected );
-            edit( instances, selected );
+            ECS::InstancedStaticMeshDesc desc =
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+            stroke.Touch( uuid, desc.InstanceTransforms, selected );
+            edit( desc.InstanceTransforms, selected );
+            ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
             edited.push_back( uuid );
         }
         // FO-6: an instance moved over a cell edge goes to the neighbour cell's field (UE
@@ -1911,7 +1924,7 @@ namespace Desert::Editor::Tools
             if ( !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
             auto& selected = Core::FoliagePaint::Selection()[uuid];
-            stroke.Touch( uuid, ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms,
+            stroke.Touch( uuid, ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms(),
                           selected );
             selected = selection;
             total += selection.size();
@@ -1935,7 +1948,7 @@ namespace Desert::Editor::Tools
             if ( selected.empty() || !ref || !ref->get().HasComponent<ECS::InstancedStaticMeshComponent>() )
                 continue;
             const auto& instances =
-                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms();
             for ( const uint32_t i : selected )
             {
                 if ( i >= instances.size() )
@@ -1991,11 +2004,14 @@ namespace Desert::Editor::Tools
             const auto type = ResolveType( manager, ref->get().GetComponent<ECS::FoliageComponent>().FoliageType );
             if ( !type )
                 continue;
-            auto& instances = ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms;
+            ECS::InstancedStaticMeshDesc desc =
+                 ref->get().GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+            auto& instances = desc.InstanceTransforms;
             stroke.Touch( uuid, instances, Core::FoliagePaint::SelectionOf( uuid ) );
             const auto added = FoliageFill( type->GetData(), triangles, Core::FoliagePaint::PaintDensity(), filter,
                                             stroke.Random() );
             instances.insert( instances.end(), added.begin(), added.end() );
+            ECS::SetInstancedStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
             placed += added.size();
             LOG_INFO( "[Foliage] fill '{}': {} placed on {} triangles; field now {}", type->GetDisplayName(),
                       added.size(), triangles.size(), instances.size() );
@@ -2092,9 +2108,9 @@ namespace Desert::Editor::Tools
         }
         Assets::AssetHandle mesh;
         if ( e.HasComponent<ECS::StaticMeshComponent>() )
-            mesh = e.GetComponent<ECS::StaticMeshComponent>().MeshHandle;
+            mesh = e.GetComponent<ECS::StaticMeshComponent>().GetMeshHandle();
         else if ( e.HasComponent<ECS::InstancedStaticMeshComponent>() )
-            mesh = e.GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle;
+            mesh = e.GetComponent<ECS::InstancedStaticMeshComponent>().GetMeshHandle();
         if ( !mesh )
             return Common::MakeError(
                  "foliage from selection: the selected entity draws no mesh asset (a primitive or no mesh)" );
@@ -2175,8 +2191,10 @@ namespace Desert::Editor::Tools
         const auto survivors = FieldsOfType( scene, newType );
         for ( auto& moved : FieldsOfType( scene, source.GetComponent<ECS::FoliageComponent>().FoliageType ) )
         {
-            moved.GetComponent<ECS::FoliageComponent>().FoliageType            = newType;
-            moved.GetComponent<ECS::InstancedStaticMeshComponent>().MeshHandle = type->GetMeshHandle();
+            moved.GetComponent<ECS::FoliageComponent>().FoliageType = newType;
+            ECS::InstancedStaticMeshDesc ism = moved.GetComponent<ECS::InstancedStaticMeshComponent>().GetDesc();
+            ism.MeshHandle                   = type->GetMeshHandle();
+            ECS::SetInstancedStaticMesh( *moved.GetRegistry(), moved.GetHandle(), ism );
             moved.GetComponent<ECS::TagComponent>().Tag = "Foliage_" + type->GetDisplayName();
         }
         FoliageStroke stroke( 0u );
@@ -2185,7 +2203,7 @@ namespace Desert::Editor::Tools
             return filed;
         auto fields = FieldsOfType( scene, newType );
         for ( std::size_t i = 1; i < fields.size(); ++i )
-            if ( fields[i].GetComponent<ECS::InstancedStaticMeshComponent>().InstanceTransforms.empty() )
+            if ( fields[i].GetComponent<ECS::InstancedStaticMeshComponent>().GetInstanceTransforms().empty() )
             {
                 const auto uuid = fields[i].GetComponent<ECS::UUIDComponent>().UUID;
                 if ( Core::FoliagePaint::IsActive( uuid ) )
@@ -2234,7 +2252,7 @@ namespace Desert::Editor::Tools
             return Common::MakeFormattedError<bool>( "{}", e.GetError() );
         auto&      entity  = e.GetValue();
         const bool visible = !entity.HasComponent<ECS::VisibilityComponent>() ||
-                             entity.GetComponent<ECS::VisibilityComponent>().Visible;
+                             entity.GetComponent<ECS::VisibilityComponent>().IsVisible();
         for ( auto& each : FieldsOfType( scene, entity.GetComponent<ECS::FoliageComponent>().FoliageType ) )
             scene.SetVisibleRecursive( each, !visible );
         return BOOLSUCCESS;

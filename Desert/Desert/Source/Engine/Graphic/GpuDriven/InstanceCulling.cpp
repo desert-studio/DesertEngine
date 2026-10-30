@@ -38,6 +38,11 @@ namespace Desert::Graphic::GpuDriven
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVisibility );
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVsmDirtyMask );
             DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVisibleInstanceIds );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgPrimitiveDags );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgDagEntries );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgCutViewOf );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgCandidates );
+            DESERT_SHADER_PARAMETER( StorageBuffer, GpuCullVgCandidateCount );
             DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
             DESERT_SHADER_PARAMETER( Texture, GpuCullHzbTexture );
         };
@@ -50,11 +55,13 @@ namespace Desert::Graphic::GpuDriven
         constexpr uint32_t    kStepPost      = 2u;
         constexpr uint32_t    kStepArgs      = 3u;
 
-        // InstanceCull.shader's push block: Params, Params2.
+        // InstanceCull.shader's push block: Params, Params2, Params3 (x = VG primitive rows, y = VG candidate
+        // rows per cut view; 0 = no append).
         struct CullPush
         {
             glm::uvec4 Params{ 0u };
             glm::uvec4 Params2{ 0u };
+            glm::uvec4 Params3{ 0u };
         };
 
         glm::uvec3 Grid( const uint64_t threads )
@@ -135,7 +142,19 @@ namespace Desert::Graphic::GpuDriven
             // (written by step 3 only) is filled with this unread buffer there: every slot of the layout is bound.
             RDG::BufferRef  ArgsSlot;
             RDG::TextureRef Hzb;
+            // The VG candidate append (VirtualGeometryCandidateInput / Output); zero buffers when it is off.
+            RDG::BufferRef VgPrimitiveDags, VgDagEntries, VgCutViewOf, VgCandidates, VgCandidateCount;
         };
+
+        // Fills the VG slots of a dispatch that appends no candidate (Params3 = 0): every slot is bound.
+        void BindNoVirtualGeometry( RDG::Builder& graph, DispatchBinds& b, const std::string& suffix )
+        {
+            b.VgPrimitiveDags  = ZeroBuffer( graph, "GPUDriven.NoVgPrimitiveDags" + suffix );
+            b.VgDagEntries     = ZeroBuffer( graph, "GPUDriven.NoVgDagEntries" + suffix );
+            b.VgCutViewOf      = ZeroBuffer( graph, "GPUDriven.NoVgCutViewOf" + suffix );
+            b.VgCandidates     = ZeroBuffer( graph, "GPUDriven.NoVgCandidates" + suffix );
+            b.VgCandidateCount = ZeroBuffer( graph, "GPUDriven.NoVgCandidateCount" + suffix );
+        }
 
         void BindAll( RDG::PassBuilder& pass, const InstanceCulling::Program& program,
                       const GpuSceneBuffers& scene, const DispatchBinds& b, const bool argsAsIndirect )
@@ -160,6 +179,11 @@ namespace Desert::Graphic::GpuDriven
                  .Storage( P::GpuCullOccludedCount, b.OccludedCount, W )
                  .Storage( P::GpuCullVisibility, b.Visibility, W )
                  .Storage( P::GpuCullVsmDirtyMask, b.DirtyMask, R )
+                 .Storage( P::GpuCullVgPrimitiveDags, b.VgPrimitiveDags, R )
+                 .Storage( P::GpuCullVgDagEntries, b.VgDagEntries, R )
+                 .Storage( P::GpuCullVgCutViewOf, b.VgCutViewOf, R )
+                 .Storage( P::GpuCullVgCandidates, b.VgCandidates, W )
+                 .Storage( P::GpuCullVgCandidateCount, b.VgCandidateCount, W )
                  .Sampler( P::PointClampSampler, RDG::SamplerDesc::PointClamp() )
                  .Texture( P::GpuCullHzbTexture, b.Hzb, RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
                  .PushConstantBytes( static_cast<uint32_t>( sizeof( CullPush ) ) );
@@ -195,10 +219,24 @@ namespace Desert::Graphic::GpuDriven
     Common::ResultStr<MainPhaseResult> InstanceCulling::AddMainPhase(
          RDG::Builder& graph, const GpuSceneBuffers& scene, const std::span<const PassDrawTable> tables,
          const std::span<const PassDrawBuffers> passes, const std::span<const CullViewInput> views,
-                                   const RDG::TextureRef neutralHzb ) const
+         const RDG::TextureRef neutralHzb, const VirtualGeometryCandidateInput& virtualGeometry ) const
     {
         if ( views.empty() )
             return Common::MakeError<MainPhaseResult>( "GPUDriven: Cull: no view to cull for" );
+        const bool appendsVg = virtualGeometry.PrimitiveDags.IsValid();
+        if ( appendsVg && ( !virtualGeometry.DagEntries.IsValid() || !virtualGeometry.CutViewOf.IsValid() ||
+                            virtualGeometry.PrimitiveRows == 0u || virtualGeometry.Capacity == 0u ||
+                            virtualGeometry.CutViews == 0u ) )
+            return Common::MakeError<MainPhaseResult>( std::format(
+                 "GPUDriven: Cull: virtual-geometry candidates half given (entries {}, view map {}, {} primitive "
+                 "rows, capacity {} per cut view, {} cut views)",
+                 virtualGeometry.DagEntries.IsValid() ? "valid" : "invalid",
+                 virtualGeometry.CutViewOf.IsValid() ? "valid" : "invalid", virtualGeometry.PrimitiveRows,
+                 virtualGeometry.Capacity, virtualGeometry.CutViews ) );
+        if ( appendsVg && uint64_t{ virtualGeometry.Capacity } * virtualGeometry.CutViews > UINT32_MAX )
+            return Common::MakeError<MainPhaseResult>(
+                 std::format( "GPUDriven: Cull: {} cut views x {} candidate rows pass the row index range",
+                              virtualGeometry.CutViews, virtualGeometry.Capacity ) );
         if ( tables.size() != kMeshPassCount || passes.size() != kMeshPassCount )
             return Common::MakeError<MainPhaseResult>(
                  std::format( "GPUDriven: Cull: {} pass tables / {} pass buffers, expected one per MeshPass ({})",
@@ -248,6 +286,19 @@ namespace Desert::Graphic::GpuDriven
         result.Carry.DispatchArgs = ZeroBuffer( graph, "GPUDriven.PostOcclusionArgs" );
         result.Carry.Visibility   = graph.CreateBuffer(
              RDG::BufferDesc{ .Bytes = occludedCapacity * sizeof( uint32_t ) }, "GPUDriven.Visibility" );
+        if ( appendsVg )
+        {
+            result.VirtualGeometry.Capacity = virtualGeometry.Capacity;
+            result.VirtualGeometry.CutViews = virtualGeometry.CutViews;
+            result.VirtualGeometry.Rows     = graph.CreateBuffer(
+                 RDG::BufferDesc{ .Bytes = uint64_t{ virtualGeometry.Capacity } * virtualGeometry.CutViews *
+                                           kVirtualGeometryCandidateBytes },
+                 "GPUDriven.VgCandidates" );
+            // [0] = binned VG instances, [1 + v] = cut view v's append count.
+            result.VirtualGeometry.Count =
+                 ZeroBuffer( graph, "GPUDriven.VgCandidateCount",
+                             std::max<uint64_t>( 16u, ( uint64_t{ virtualGeometry.CutViews } + 1u ) * 4u ) );
+        }
 
         for ( uint32_t p = 0; p < kMeshPassCount; ++p )
         {
@@ -255,6 +306,16 @@ namespace Desert::Graphic::GpuDriven
                 continue;
             DispatchBinds binds;
             binds.Views         = viewBuffer;
+            if ( appendsVg )
+            {
+                binds.VgPrimitiveDags  = virtualGeometry.PrimitiveDags;
+                binds.VgDagEntries     = virtualGeometry.DagEntries;
+                binds.VgCutViewOf      = virtualGeometry.CutViewOf;
+                binds.VgCandidates     = result.VirtualGeometry.Rows;
+                binds.VgCandidateCount = result.VirtualGeometry.Count;
+            }
+            else
+                BindNoVirtualGeometry( graph, binds, std::format( ".P{}", p ) );
             binds.Occluded      = result.Carry.OccludedInstances;
             binds.OccludedCount = result.Carry.OccludedCount;
             binds.DispatchArgs  = result.Carry.DispatchArgs;
@@ -305,16 +366,20 @@ namespace Desert::Graphic::GpuDriven
             push.Params2 = { hasBins ? bins : 0u, capacity,
                              hasBins ? static_cast<uint32_t>( table.PrimitiveDraws.size() ) : 0u,
                              hasHzb ? 1u : 0u };
+            push.Params3 = appendsVg
+                                ? glm::uvec4( virtualGeometry.PrimitiveRows, virtualGeometry.Capacity, 0u, 0u )
+                                : glm::uvec4( 0u );
             AddStep( graph, std::format( "GPUDriven: Cull Init Draws P{}", p ), *m_Program, scene, binds, push,
                      uint64_t{ local } * std::max( bins, 1u ), false );
             push.Params.x = kStepMain;
             AddStep( graph, std::format( "GPUDriven: Cull Phase 1 P{}", p ), *m_Program, scene, binds, push,
                      uint64_t{ local } * instances, false );
             for ( uint32_t k = 0; k < local; ++k )
-                result.Draws[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
-                                                          .VisibleInstances  = binds.Visible,
+                result.Draws[groups[p][k]] = CulledDraws{ .IndirectDraws      = binds.Draws,
+                                                          .VisibleInstances   = binds.Visible,
                                                           .VisibleInstanceIds = binds.VisibleIds,
-                                                          .FirstIndirectDraw = k * bins };
+                                                          .FirstIndirectDraw  = k * bins,
+                                                          .VisibleRowEnd      = ( k + 1u ) * capacity };
         }
         return Common::MakeSuccess( std::move( result ) );
     }
@@ -367,6 +432,7 @@ namespace Desert::Graphic::GpuDriven
             binds.DispatchArgs  = carry.DispatchArgs;
             binds.Visibility    = carry.Visibility;
             binds.DirtyMask     = ZeroBuffer( graph, "GPUDriven.NoVsmMask2" );
+            BindNoVirtualGeometry( graph, binds, std::format( "2.P{}", p ) ); // phase 2 appends no candidate
 
             const PassDrawTable&   table   = tables[p];
             const PassDrawBuffers& pass    = passes[p];
@@ -407,10 +473,11 @@ namespace Desert::Graphic::GpuDriven
             AddStep( graph, std::format( "GPUDriven: Cull Phase 2 P{}", p ), *m_Program, scene, binds, push, 0u,
                      true );
             for ( uint32_t k = 0; k < local; ++k )
-                result[groups[p][k]] = CulledDraws{ .IndirectDraws     = binds.Draws,
-                                                    .VisibleInstances  = binds.Visible,
-                                                          .VisibleInstanceIds = binds.VisibleIds,
-                                                    .FirstIndirectDraw = k * bins };
+                result[groups[p][k]] = CulledDraws{ .IndirectDraws      = binds.Draws,
+                                                    .VisibleInstances   = binds.Visible,
+                                                    .VisibleInstanceIds = binds.VisibleIds,
+                                                    .FirstIndirectDraw  = k * bins,
+                                                    .VisibleRowEnd      = ( k + 1u ) * table.VisibleCapacity };
         }
         return Common::MakeSuccess( std::move( result ) );
     }

@@ -1,0 +1,227 @@
+#ifndef DESERT_NEURAL_RADIANCE_CACHE_GLSLH
+#define DESERT_NEURAL_RADIANCE_CACHE_GLSLH
+
+// THE NEURAL RADIANCE CACHE'S SHADER-SIDE CONTRACT (Engine/Graphic/Neural/NeuralRadianceCache.hpp holds the
+// whole contract; every constant and layout here mirrors it by name and value). Included by PathTracer.shader
+// (PATH_TRACING_NRC=1: the trace writes queries and training samples) and NeuralRadianceCache.shader (encode,
+// loss, input gradient, Adam, composite).
+
+// ---- Constants (NeuralRadianceCache.hpp kNrc*) ----
+#define NRC_INPUT_DIMS 58
+#define NRC_OUTPUT_DIMS 3
+#define NRC_ONE_BLOB_BINS 4
+#define NRC_HASH_LEVELS 16
+#define NRC_HASH_FEATURES 2
+#define NRC_HASH_TABLE_SIZE 262144u
+#define NRC_COARSEST_CELL_CM 1600.0
+#define NRC_FINEST_CELL_CM 4.0
+#define NRC_HASH_GRAD_SCALE 16384.0
+#define NRC_HASH_GRAD_CLAMP 16.0
+#define NRC_SPREAD_THRESHOLD 0.01
+#define NRC_MAX_TRAINING_PATHS 16384u
+#define NRC_MAX_TRAINING_VERTICES 8u
+#define NRC_UNBIASED_TRAINING_PATHS 16u
+#define NRC_MIN_THROUGHPUT 1.0e-4
+#define NRC_ALBEDO_EPSILON 1.0e-3
+#define NRC_TRAINING_BATCH 16384u
+#define NRC_TRAINING_STEPS 4u
+#define NRC_TRAINING_SAMPLES 65536u
+#define NRC_LOSS_EPSILON 0.01
+#define NRC_NO_SELF_QUERY 0xFFFFFFFFu
+
+// Counters (NrcCounter).
+#define NRC_COUNTER_TRAINING_SAMPLES 0
+#define NRC_COUNTER_SELF_QUERIES 1
+#define NRC_COUNTER_TRAINING_PATHS 2
+#define NRC_COUNTER_RENDER_QUERIES 3
+// Counter NRC_COUNTER_SEGMENTS + s: the query slots path s of the frame claimed (its segment of Queries; claims
+// past the segment's capacity are refused and the path goes on without the cache).
+#define NRC_COUNTER_SEGMENTS 4
+#define NRC_HALF_MAX 65504.0
+
+// ---- Records (std430; NrcVertexGpu / NrcQueryGpu / NrcTrainingSampleGpu) ----
+// A.xyz = world position (cm) bits, A.w = packUnorm2x16(octahedral(w_o) * 0.5 + 0.5)
+// B.x = packUnorm2x16(octahedral(normal) * 0.5 + 0.5), B.y = packUnorm2x16(vec2(roughness, 0)),
+// B.z = packUnorm4x8(vec4(D_d, 0)), B.w = packUnorm4x8(vec4(D_s, 0))
+struct NrcVertex
+{
+    uvec4 A;
+    uvec4 B;
+};
+
+// One path of the image that ended in the cache, appended to its path's segment (64 B). Lobes: x / y =
+// packHalf2x16 of DiffuseWeight = T (1 - share) / D_d1 and .a = lum(I_d) before the cache, z / w = SpecularWeight
+// = T share / D_s1 and .a = lum(I_s) before the cache. Weight: x / y = packHalf2x16 of (T.rg), (T.b, 0); z = the
+// pixel (y * width + x); w = 0. Halves saturate at NRC_HALF_MAX.
+struct NrcQuery
+{
+    NrcVertex Vertex;
+    uvec4     Lobes;
+    uvec4     Weight;
+};
+
+struct NrcQueryData
+{
+    vec3 Throughput;     // T
+    vec4 DiffuseWeight;  // rgb T (1 - share) / D_d1, a lum(I_d) before the cache
+    vec4 SpecularWeight; // rgb T share / D_s1, a lum(I_s) before the cache
+    uint Pixel;
+};
+
+uvec2 NrcPackHalf4(vec4 v)
+{
+    v = clamp(v, vec4(-NRC_HALF_MAX), vec4(NRC_HALF_MAX));
+    return uvec2(packHalf2x16(v.xy), packHalf2x16(v.zw));
+}
+
+vec4 NrcUnpackHalf4(uvec2 p)
+{
+    return vec4(unpackHalf2x16(p.x), unpackHalf2x16(p.y));
+}
+
+void NrcPackQuery(NrcQueryData d, out uvec4 lobes, out uvec4 weight)
+{
+    lobes  = uvec4(NrcPackHalf4(d.DiffuseWeight), NrcPackHalf4(d.SpecularWeight));
+    weight = uvec4(NrcPackHalf4(vec4(d.Throughput, 0.0)), d.Pixel, 0u);
+}
+
+NrcQueryData NrcUnpackQuery(NrcQuery q)
+{
+    NrcQueryData d;
+    d.DiffuseWeight  = NrcUnpackHalf4(q.Lobes.xy);
+    d.SpecularWeight = NrcUnpackHalf4(q.Lobes.zw);
+    d.Throughput     = NrcUnpackHalf4(q.Weight.xy).rgb;
+    d.Pixel          = q.Weight.z;
+    return d;
+}
+
+// Radiance.rgb = (R_end - R_i) / T_i, Radiance.a = uintBitsToFloat(self query index | NRC_NO_SELF_QUERY),
+// Throughput.rgb = T_end / T_i.
+struct NrcTrainingSample
+{
+    NrcVertex Vertex;
+    vec4      Radiance;
+    vec4      Throughput;
+};
+
+// The vertex as the encoder reads it.
+struct NrcVertexData
+{
+    vec3  Position; // cm
+    vec3  Wo;       // toward the previous vertex
+    vec3  Normal;
+    float Roughness;
+    vec3  Diffuse;  // D_d
+    vec3  Specular; // D_s
+};
+
+vec2 NrcOctEncode(vec3 n)
+{
+    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    vec2 e = n.xy;
+    if (n.z < 0.0)
+        e = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    return e;
+}
+
+vec3 NrcOctDecode(vec2 e)
+{
+    vec3 n = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+    if (n.z < 0.0)
+        n.xy = (1.0 - abs(n.yx)) * vec2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
+    return normalize(n);
+}
+
+NrcVertex NrcPackVertex(vec3 positionCm, vec3 wo, vec3 normal, float roughness, vec3 diffuse, vec3 specular)
+{
+    NrcVertex v;
+    v.A = uvec4(floatBitsToUint(positionCm), packUnorm2x16(NrcOctEncode(wo) * 0.5 + 0.5));
+    v.B = uvec4(packUnorm2x16(NrcOctEncode(normal) * 0.5 + 0.5), packUnorm2x16(vec2(clamp(roughness, 0.0, 1.0), 0.0)),
+                packUnorm4x8(vec4(clamp(diffuse, 0.0, 1.0), 0.0)), packUnorm4x8(vec4(clamp(specular, 0.0, 1.0), 0.0)));
+    return v;
+}
+
+NrcVertexData NrcUnpackVertex(NrcVertex v)
+{
+    NrcVertexData d;
+    d.Position  = uintBitsToFloat(v.A.xyz);
+    d.Wo        = NrcOctDecode(unpackUnorm2x16(v.A.w) * 2.0 - 1.0);
+    d.Normal    = NrcOctDecode(unpackUnorm2x16(v.B.x) * 2.0 - 1.0);
+    d.Roughness = unpackUnorm2x16(v.B.y).x;
+    d.Diffuse   = unpackUnorm4x8(v.B.z).rgb;
+    d.Specular  = unpackUnorm4x8(v.B.w).rgb;
+    return d;
+}
+
+// The factorisation divisor (the paper's D_d + D_s), per channel, floored.
+vec3 NrcFactor(NrcVertexData d)
+{
+    return max(d.Diffuse + d.Specular, vec3(NRC_ALBEDO_EPSILON));
+}
+
+// ---- The input encoding (NeuralRadianceCache.hpp "Input row columns", "The hash grid") ----
+
+// One-blob bin @p bin of NRC_ONE_BLOB_BINS for @p v in [0, 1] (Muller et al. 2019): a Gaussian of sigma 1 / k
+// centred on the bin.
+float NrcOneBlob(float v, uint bin)
+{
+    const float k = float(NRC_ONE_BLOB_BINS);
+    const float d = (float(bin) + 0.5) / k - v;
+    return exp(-d * d * k * k * 0.5);
+}
+
+// A unit direction as (theta / pi, phi / 2 pi), both in [0, 1].
+vec2 NrcSpherical(vec3 d)
+{
+    return vec2(acos(clamp(d.z, -1.0, 1.0)) * (1.0 / 3.14159265358979), atan(d.y, d.x) * (0.5 / 3.14159265358979) + 0.5);
+}
+
+// Level @p level's cells per cm: the coarsest cell is NRC_COARSEST_CELL_CM, each level finer by
+// b = (coarsest / finest)^(1 / (levels - 1)), so the last is NRC_FINEST_CELL_CM.
+float NrcLevelScale(uint level)
+{
+    const float b = pow(NRC_COARSEST_CELL_CM / NRC_FINEST_CELL_CM, 1.0 / float(NRC_HASH_LEVELS - 1));
+    return pow(b, float(level)) / NRC_COARSEST_CELL_CM;
+}
+
+// Corner @p corner (bit 0 x, 1 y, 2 z) of the cell holding @p positionCm at @p level: its entry index in the table
+// ([level][NRC_HASH_TABLE_SIZE], features follow at entry * NRC_HASH_FEATURES) and its trilinear weight. Every level
+// is hashed (instant-ngp's spatial hash; the integer corner reinterpreted as unsigned).
+void NrcHashCorner(vec3 positionCm, uint level, uint corner, out uint entry, out float weight)
+{
+    const vec3  p    = positionCm * NrcLevelScale(level);
+    const vec3  base = floor(p);
+    const vec3  f    = p - base;
+    const uvec3 o    = uvec3(corner & 1u, (corner >> 1u) & 1u, (corner >> 2u) & 1u);
+    const vec3  w    = mix(1.0 - f, f, vec3(o));
+    const uvec3 c    = uvec3(ivec3(base) + ivec3(o));
+    weight           = w.x * w.y * w.z;
+    entry = level * NRC_HASH_TABLE_SIZE + ((c.x ^ (c.y * 2654435761u) ^ (c.z * 805459861u)) & (NRC_HASH_TABLE_SIZE - 1u));
+}
+
+// Column @p column (>= 32) of the input row: the non-positional encodings ([32, 64) of the row layout).
+float NrcEncodeColumn(NrcVertexData d, uint column)
+{
+    const uint k = NRC_ONE_BLOB_BINS;
+    if (column < 32u + 2u * k)
+    {
+        const vec2 s = NrcSpherical(d.Wo);
+        const uint c = column - 32u;
+        return NrcOneBlob(c < k ? s.x : s.y, c % k);
+    }
+    if (column < 32u + 4u * k)
+    {
+        const vec2 s = NrcSpherical(d.Normal);
+        const uint c = column - (32u + 2u * k);
+        return NrcOneBlob(c < k ? s.x : s.y, c % k);
+    }
+    if (column < 32u + 5u * k)
+        return NrcOneBlob(1.0 - exp(-d.Roughness), column - (32u + 4u * k));
+    if (column < 32u + 5u * k + 3u)
+        return d.Diffuse[column - (32u + 5u * k)];
+    if (column < NRC_INPUT_DIMS)
+        return d.Specular[column - (32u + 5u * k + 3u)];
+    return 0.0;
+}
+
+#endif

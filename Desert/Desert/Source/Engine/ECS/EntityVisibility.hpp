@@ -31,6 +31,6 @@ namespace Desert::ECS
         if ( entity == entt::null || !registry.valid( entity ) )
             return false;
 
-        return registry.has<VisibilityComponent>( entity ) && !registry.get<VisibilityComponent>( entity ).Visible;
+        return registry.has<VisibilityComponent>( entity ) && !registry.get<VisibilityComponent>( entity ).IsVisible();
     }
 } // namespace Desert::ECS

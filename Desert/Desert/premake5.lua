@@ -163,6 +163,10 @@ local function EngineModuleLibrary(module)
         -- off while attached) includes its siblings as "Luau/...", from these two roots.
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/CodeGen/include",
         "%{_MAIN_SCRIPT_DIR}/ThirdParty/luau/Common/include",
+        -- Intel Open Image Denoise 2.x, headers only: the library is LOADED at run time from beside the
+        -- executable (Engine/Graphic/Denoise/OidnDenoiser.cpp), nothing links it (Desert/Dependencies.lua
+        -- DesertCopyOidnRuntime).
+        "%{_MAIN_SCRIPT_DIR}/ThirdParty/OIDN/include",
     }
 
     for name, path in DesertSortedPairs(deps.Common.IncludeDir) do

@@ -141,6 +141,15 @@ namespace Desert::Graphic::RDG
         // with a ColorTarget / DepthTarget on the same pass, outside a Raster pass, and with a zero side.
         void RenderArea( uint32_t width, uint32_t height );
 
+        // RDG-EXTERNAL (ExternalQueueSync, RDGCompileResult.hpp). This pass's work runs on another API's queue
+        // on the same GPU (Intel OIDN on CUDA / HIP over memory the graph's queue shares): the graph's
+        // submission ends after the pass's barriers and signals @p sync.Signal, and the work recorded after the
+        // pass waits @p sync.Wait. The resources it declares (Read / Write, Copy accesses: the other API reads
+        // and writes them as raw memory) get their barriers as for any pass. Refused outside a Copy pass, with
+        // AsyncCompute, a null semaphore, the two points on different semaphores, or Wait.Value <=
+        // Signal.Value.
+        void ExternalQueue( const ExternalQueueSync& sync );
+
         // RDG-FAULT1. Declares the parameter block of one draw / dispatch this pass records, against the shader it
         // records with (UE: the pass parameter struct handed to AddPass, validated before the pass runs). Every
         // entry of the block IS the declaration of its access - no separate Read / Write for it - so the binding
@@ -406,6 +415,8 @@ namespace Desert::Graphic::RDG
             // PassBuilder::RenderArea; zero when the render area is the attachments' size.
             uint32_t                      AreaWidth  = 0;
             uint32_t                      AreaHeight = 0;
+            // PassBuilder::ExternalQueue.
+            std::optional<ExternalQueueSync> External;
             ExecFunction                  Exec;
             // RDG-FAULT1: the binding blocks its setup declared (PassBuilder::Bindings) and the first malformed
             // declaration of THIS pass. A pass with a declaration error is a Declaration fault, not a graph error.

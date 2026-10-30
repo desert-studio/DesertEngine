@@ -10,9 +10,10 @@ namespace Desert::Graphic::API::Vulkan
 {
     // The device-level entry points acceleration structures need. The loader exports only core symbols; the
     // VK_KHR_acceleration_structure ones exist only through vkGetDeviceProcAddr on a device that ENABLED the
-    // extension (asking otherwise is undefined, and some drivers hand back a stub). So the table is filled
-    // iff DeviceCaps carries AccelerationStructure (the probe enabled it together with bufferDeviceAddress,
-    // which the AS row depends on) and is empty on every other device.
+    // extension (asking otherwise is undefined, and some drivers hand back a stub). So the AS entries are filled
+    // iff DeviceCaps carries AccelerationStructure, and GetBufferDeviceAddress iff it carries BufferDeviceAddress
+    // (its own row, core 1.2, enabled whenever supported): a device that cannot trace still reads buffers by
+    // address (the skin cache's streams, the GI emissive list's mesh buffers).
     struct RayTracingDeviceFunctions
     {
         PFN_vkCreateAccelerationStructureKHR           CreateAccelerationStructure           = nullptr;
@@ -20,7 +21,9 @@ namespace Desert::Graphic::API::Vulkan
         PFN_vkGetAccelerationStructureBuildSizesKHR    GetAccelerationStructureBuildSizes    = nullptr;
         PFN_vkCmdBuildAccelerationStructuresKHR        CmdBuildAccelerationStructures        = nullptr;
         PFN_vkGetAccelerationStructureDeviceAddressKHR GetAccelerationStructureDeviceAddress = nullptr;
-        // Core 1.2 (bufferDeviceAddress); loaded through the device like the rest so one table answers.
+        // Core 1.2 (bufferDeviceAddress); loaded through the device like the rest so one table answers. Present
+        // without the AS entries on a device without ray tracing: callers that only need an address test this
+        // pointer, never Complete().
         PFN_vkGetBufferDeviceAddress GetBufferDeviceAddress = nullptr;
 
         // Every entry resolved. False on a device without AccelerationStructure, and false when a driver that

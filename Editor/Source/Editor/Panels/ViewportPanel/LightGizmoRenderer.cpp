@@ -1144,8 +1144,8 @@ namespace Desert::Editor
             return;
 
         const auto&   smc  = entity.GetComponent<ECS::SkinnedMeshComponent>();
-        Desert::Mesh* mesh = smc.RuntimeMesh ? static_cast<Desert::Mesh*>( smc.RuntimeMesh.get() )
-                                             : Runtime::ResourceRegistry::GetMeshService()->Get( smc.MeshHandle );
+        Desert::Mesh* mesh = smc.GetRuntimeMesh() ? static_cast<Desert::Mesh*>( smc.GetRuntimeMesh().get() )
+                                             : Runtime::ResourceRegistry::GetMeshService()->Get( smc.GetMeshHandle() );
         if ( !mesh || !mesh->IsSkinned() )
             return;
         const Animation::Skeleton& skeleton = static_cast<SkinnedMesh*>( mesh )->GetSkeleton();

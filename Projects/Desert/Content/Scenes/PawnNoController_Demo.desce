@@ -5,15 +5,11 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 70,
+            "SCNE": 71,
             "UNIT": 1,
             "WPAR": 1
         },
-        "Dependencies": [
-            "04f3bb576e64e248daad7640edbe91c5",
-            "df51ca6ed9cb71779a9b5634db0863bc",
-            "f6f923426f71eb4a270b1db46ebceeff"
-        ]
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "df51ca6ed9cb71779a9b5634db0863bc", "f6f923426f71eb4a270b1db46ebceeff"]
     },
     "SceneName": "Pawn No Controller Demo",
     "Entities": [
@@ -21,45 +17,21 @@
             "id": 1001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                -0.614159345626831,
-                0.30455127358436584,
-                -0.09725314378738403
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.614159345626831, 0.30455127358436584, -0.09725314378738403],
+            "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
-                "Color": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "Color": [1.0, 1.0, 1.0],
                 "Intensity": 1.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
-                "AtmosphereSunDiskColorScale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
-                "BloomTint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
@@ -69,65 +41,30 @@
                 "ContactShadowLength": 0.0,
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
             }
         },
         {
             "id": 1002,
             "siblingIndex": 1,
             "Tag": "Sky",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "SkyAtmosphere": {
                 "Enabled": true,
                 "SkyBrightness": 1.0,
                 "HorizonFalloff": 0.8500000238418579,
-                "ZenithColor": [
-                    0.07999999821186066,
-                    0.25999999046325684,
-                    0.699999988079071
-                ],
-                "HorizonColor": [
-                    0.5,
-                    0.6600000262260437,
-                    0.9200000166893005
-                ],
-                "GroundColor": [
-                    0.1599999964237213,
-                    0.1899999976158142,
-                    0.23999999463558197
-                ],
-                "NightColor": [
-                    0.009999999776482582,
-                    0.019999999552965164,
-                    0.05000000074505806
-                ],
+                "ZenithColor": [0.07999999821186066, 0.25999999046325684, 0.699999988079071],
+                "HorizonColor": [0.5, 0.6600000262260437, 0.9200000166893005],
+                "GroundColor": [0.1599999964237213, 0.1899999976158142, 0.23999999463558197],
+                "NightColor": [0.009999999776482582, 0.019999999552965164, 0.05000000074505806],
                 "SunIntensity": 22.0,
-                "SunColor": [
-                    1.0,
-                    0.9599999785423279,
-                    0.8799999952316284
-                ],
+                "SunColor": [1.0, 0.9599999785423279, 0.8799999952316284],
                 "SunAngularDiameter": 2.291800022125244,
                 "SunGlow": 1.0,
-                "SunsetColor": [
-                    1.0,
-                    0.41999998688697815,
-                    0.18000000715255737
-                ],
+                "SunsetColor": [1.0, 0.41999998688697815, 0.18000000715255737],
                 "SunsetIntensity": 1.0,
                 "StarIntensity": 1.0,
                 "AutoRebakeEnvironment": true,
@@ -138,51 +75,23 @@
                 "Model": 0,
                 "AtmosphereHeight": 60.0,
                 "MultiScatteringFactor": 1.0,
-                "GroundAlbedo": [
-                    0.4019779860973358,
-                    0.4019779860973358,
-                    0.4019779860973358
-                ],
+                "GroundAlbedo": [0.4019779860973358, 0.4019779860973358, 0.4019779860973358],
                 "RayleighScatteringScale": 0.03310000151395798,
-                "RayleighScattering": [
-                    0.17528699338436127,
-                    0.4096069931983948,
-                    1.0
-                ],
+                "RayleighScattering": [0.17528699338436127, 0.4096069931983948, 1.0],
                 "RayleighExponentialDistribution": 8.0,
                 "MieScatteringScale": 0.003996000159531832,
-                "MieScattering": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieScattering": [1.0, 1.0, 1.0],
                 "MieAbsorptionScale": 0.0004440000047907233,
-                "MieAbsorption": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "MieAbsorption": [1.0, 1.0, 1.0],
                 "MieAnisotropy": 0.800000011920929,
                 "MieExponentialDistribution": 1.2000000476837158,
                 "OtherAbsorptionScale": 0.0018810000037774444,
-                "OtherAbsorption": [
-                    0.3455609977245331,
-                    1.0,
-                    0.04518900066614151
-                ],
+                "OtherAbsorption": [0.3455609977245331, 1.0, 0.04518900066614151],
                 "AbsorptionTipAltitude": 25.0,
                 "AbsorptionTipValue": 1.0,
                 "AbsorptionTentWidth": 15.0,
-                "SkyLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
-                "SkyAndAerialPerspectiveLuminanceFactor": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "SkyLuminanceFactor": [1.0, 1.0, 1.0],
+                "SkyAndAerialPerspectiveLuminanceFactor": [1.0, 1.0, 1.0],
                 "AerialPerspectiveViewDistanceScale": 1.0,
                 "AerialPerspectiveStartDepth": 0.10000000149011612,
                 "AerialPerspectiveDistance": 96.0
@@ -194,11 +103,7 @@
                 },
                 "Intensity": 1.0,
                 "Rotation": 0.0,
-                "Tint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ]
+                "Tint": [1.0, 1.0, 1.0]
             },
             "TimeOfDay": {
                 "DriveSunFromTimeOfDay": false,
@@ -218,36 +123,16 @@
             "id": 3002,
             "siblingIndex": 2,
             "Tag": "Floor",
-            "Translation": [
-                0.0,
-                -10.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                30.0,
-                0.20000000298023224,
-                30.0
-            ],
+            "Translation": [0.0, -10.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [30.0, 0.20000000298023224, 30.0],
             "Collider": {
                 "Shape": 0,
-                "HalfExtents": [
-                    1500.0,
-                    10.0,
-                    1500.0
-                ],
+                "HalfExtents": [1500.0, 10.0, 1500.0],
                 "Radius": 50.0,
                 "HalfHeight": 50.0,
                 "Axis": 1,
-                "Center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ]
+                "Center": [0.0, 0.0, 0.0]
             },
             "RigidBody": {
                 "Type": 0,
@@ -274,36 +159,16 @@
             "id": 3010,
             "siblingIndex": 4,
             "Tag": "Landmark_A",
-            "Translation": [
-                300.0,
-                75.0,
-                -600.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.5,
-                1.5,
-                1.5
-            ],
+            "Translation": [300.0, 75.0, -600.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.5, 1.5, 1.5],
             "Collider": {
                 "Shape": 0,
-                "HalfExtents": [
-                    75.0,
-                    75.0,
-                    75.0
-                ],
+                "HalfExtents": [75.0, 75.0, 75.0],
                 "Radius": 50.0,
                 "HalfHeight": 50.0,
                 "Axis": 1,
-                "Center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ]
+                "Center": [0.0, 0.0, 0.0]
             },
             "RigidBody": {
                 "Type": 0,
@@ -330,36 +195,16 @@
             "id": 3011,
             "siblingIndex": 5,
             "Tag": "Landmark_B",
-            "Translation": [
-                -400.0,
-                100.0,
-                -900.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                2.0,
-                2.0,
-                2.0
-            ],
+            "Translation": [-400.0, 100.0, -900.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [2.0, 2.0, 2.0],
             "Collider": {
                 "Shape": 0,
-                "HalfExtents": [
-                    100.0,
-                    100.0,
-                    100.0
-                ],
+                "HalfExtents": [100.0, 100.0, 100.0],
                 "Radius": 50.0,
                 "HalfHeight": 50.0,
                 "Axis": 1,
-                "Center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ]
+                "Center": [0.0, 0.0, 0.0]
             },
             "RigidBody": {
                 "Type": 0,
@@ -386,36 +231,16 @@
             "id": 3012,
             "siblingIndex": 6,
             "Tag": "Landmark_C",
-            "Translation": [
-                600.0,
-                50.0,
-                200.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [600.0, 50.0, 200.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Collider": {
                 "Shape": 0,
-                "HalfExtents": [
-                    50.0,
-                    50.0,
-                    50.0
-                ],
+                "HalfExtents": [50.0, 50.0, 50.0],
                 "Radius": 50.0,
                 "HalfHeight": 50.0,
                 "Axis": 1,
-                "Center": [
-                    0.0,
-                    0.0,
-                    0.0
-                ]
+                "Center": [0.0, 0.0, 0.0]
             },
             "RigidBody": {
                 "Type": 0,
@@ -442,21 +267,9 @@
             "id": 4000,
             "siblingIndex": 7,
             "Tag": "Pawn",
-            "Translation": [
-                0.0,
-                100.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 100.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "CharacterController": {
                 "Radius": 34.0,
                 "Height": 176.0,
@@ -480,21 +293,9 @@
             "parent": 4000,
             "siblingIndex": 8,
             "Tag": "Body",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.6000000238418579,
-                1.7999999523162842,
-                0.6000000238418579
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.6000000238418579, 1.7999999523162842, 0.6000000238418579],
             "StaticMesh": {
                 "Primitive": "Capsule",
                 "MeshHandle": {
@@ -514,28 +315,12 @@
             "parent": 4000,
             "siblingIndex": 9,
             "Tag": "CameraArm",
-            "Translation": [
-                0.0,
-                60.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 60.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "SpringArm": {
                 "TargetArmLength": 450.0,
-                "SocketOffset": [
-                    0.0,
-                    80.0,
-                    0.0
-                ],
+                "SocketOffset": [0.0, 80.0, 0.0],
                 "DoCollisionTest": true,
                 "ProbeSize": 12.0,
                 "EnableCameraLag": false,
@@ -547,21 +332,9 @@
             "parent": 4002,
             "siblingIndex": 10,
             "Tag": "PlayerCamera",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Camera": {
                 "AutoActivateForPlayer": true,
                 "FOV": 60.0,
@@ -573,28 +346,12 @@
             "id": 13938200367345369301,
             "siblingIndex": 3,
             "Tag": "PostProcessVolume",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [
-                    500.0,
-                    500.0,
-                    500.0
-                ],
+                "Extent": [500.0, 500.0, 500.0],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -640,32 +397,22 @@
                     "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
+                    "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [
-                        1.0,
-                        0.8600000143051147,
-                        0.6200000047683716
-                    ],
-                    "LensFlareGhostTintOuter": [
-                        0.44999998807907104,
-                        0.6800000071525574,
-                        1.0
-                    ],
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
             }
         }

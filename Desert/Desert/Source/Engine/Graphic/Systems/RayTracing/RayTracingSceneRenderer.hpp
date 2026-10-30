@@ -18,6 +18,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 // THE VIEW'S TLAS (UE FRayTracingScene::Create + its build pass). Every frame whose resolved methods trace rays
@@ -26,8 +27,9 @@
 //   * the instance rows are a graph buffer filled by Builder::QueueBufferUpload (AccelStructBuildInput);
 //   * the scratch is a graph transient (AccelStructBuildWrite), sized by the API for this frame's count;
 //   * the TLAS storage is the view's PERSISTENT acceleration structure, registered as a graph external
-//     (AccelStructBuildWrite) — kept across frames, rebuilt every frame (instances move), recreated only when the
-//     instance count outgrows it. A reader (RT-SHADOWS, ray-traced reflections / GI) declares AccelStructRead on
+//     (AccelStructBuildWrite) — kept across frames, updated in place on a frame whose rows only moved and built
+//     otherwise (RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild), recreated only when the instance count
+//     outgrows it. A reader (RT-SHADOWS, ray-traced reflections / GI) declares AccelStructRead on
 //     RayTracingSceneFrame::Tlas and binds it through RDG::ShaderResourceKind::AccelerationStructure.
 // A frame whose methods trace no ray declares nothing: no pass, no buffer, no upload.
 //
@@ -38,8 +40,16 @@ namespace Desert::Graphic::System
     class MeshRenderer;
 }
 
+namespace Desert::Graphic::GpuDriven
+{
+    class GpuScene;
+    struct PrimitiveChange;
+}
+
 namespace Desert::Graphic::RayTracing
 {
+    struct RayTracingGatherInputs;
+
     inline constexpr std::string_view kTlasPassName               = "RayTracingScene.TLAS";
     inline constexpr std::string_view kTlasInstancesName          = "RayTracingScene.Instances";
     inline constexpr std::string_view kTlasScratchName            = "RayTracingScene.Scratch";
@@ -70,6 +80,8 @@ namespace Desert::Graphic::RayTracing
         // restarts its accumulation when either says the traced scene is not the previous frame's.
         uint64_t InstanceHash    = 0;
         bool     DynamicGeometry = false;
+        // The TLAS was updated in place from its last build (only rows moved), not built (TlasBuildSizes::Update).
+        bool Updated = false;
         // The GPU side of the frame's segment records (RayTracingGatherResult::SegmentRecords, one row each),
         // which the TLAS rows' SBT offsets index (a ray query's hit -> its vertex/index streams and alpha-test
         // material). Valid exactly when Built.
@@ -81,26 +93,26 @@ namespace Desert::Graphic::RayTracing
     // instance's first segment record (RayTracingSegmentRecord): a ray query adds the hit's geometry index to it.
     // At least one row: a graph buffer cannot be empty, and an empty TLAS is built with a primitive count of 0
     // over it.
+    inline void EncodeInstanceRow( const RayTracingInstance& instance, std::byte* const row )
+    {
+        std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
+        // The whole 24-bit field (kNoGpuSceneRow is its last value, and an instance with no row carries it).
+        const uint32_t indexAndMask =
+             ( instance.CustomIndex & kNoGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
+        // Flags 0: culling is the ray's choice and opacity each segment's (RayTracingGeometrySegment::Opaque).
+        const uint32_t sbtAndFlags = instance.FirstSegmentRecord & kMaxSegmentRecord;
+        const uint64_t address =
+             static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetDeviceAddress();
+        std::memcpy( row + 48, &indexAndMask, sizeof( indexAndMask ) );
+        std::memcpy( row + 52, &sbtAndFlags, sizeof( sbtAndFlags ) );
+        std::memcpy( row + 56, &address, sizeof( address ) );
+    }
     [[nodiscard]] inline std::vector<std::byte> EncodeInstanceRows( std::span<const RayTracingInstance> instances )
     {
         const std::size_t      rows = instances.empty() ? 1u : instances.size();
         std::vector<std::byte> bytes( rows * kInstanceRowBytes );
         for ( std::size_t i = 0; i < instances.size(); ++i )
-        {
-            const RayTracingInstance& instance = instances[i];
-            std::byte* const          row      = bytes.data() + i * kInstanceRowBytes;
-            std::memcpy( row, instance.Transform.data(), kInstanceTransformBytes );
-            // The whole 24-bit field (kNoGpuSceneRow is its last value, and an instance with no row carries it).
-            const uint32_t indexAndMask =
-                 ( instance.CustomIndex & kNoGpuSceneRow ) | ( static_cast<uint32_t>( instance.Mask ) << 24u );
-            // Flags 0: culling is the ray's choice and opacity each segment's (RayTracingGeometrySegment::Opaque).
-            const uint32_t sbtAndFlags = instance.FirstSegmentRecord & kMaxSegmentRecord;
-            const uint64_t address =
-                 static_cast<const RayTracingGeometryResource*>( instance.Geometry )->GetDeviceAddress();
-            std::memcpy( row + 48, &indexAndMask, sizeof( indexAndMask ) );
-            std::memcpy( row + 52, &sbtAndFlags, sizeof( sbtAndFlags ) );
-            std::memcpy( row + 56, &address, sizeof( address ) );
-        }
+            EncodeInstanceRow( instances[i], bytes.data() + i * kInstanceRowBytes );
         return bytes;
     }
 
@@ -147,54 +159,101 @@ namespace Desert::Graphic::RayTracing
         return bytes;
     }
 
+    // THE CPU ROWS OF A TLAS, kept across frames by the view (RayTracingSceneRenderer): encoded once when its
+    // instance list is built, then patched row by row while only rows move (PatchRayTracingSceneRow), so a still
+    // frame encodes nothing and a moving primitive re-encodes its own row. Hash: what the rows trace, comparable
+    // across frames (RayTracingSceneFrame::InstanceHash) - FNV-1a over every row when encoded; a patch that
+    // changes a row's bytes folds the row's index and new bytes in, so the hash moves exactly when a row did.
+    struct RayTracingSceneRows
+    {
+        std::vector<std::byte> Instances;                       // EncodeInstanceRows (at least one row)
+        std::vector<std::byte> PrimitiveInstances;              // EncodePrimitiveInstanceRows
+        uint32_t               Count = 0;                       // the CPU rows
+        uint64_t               Hash  = 14695981039346656037ull; // FNV-1a 64 offset basis
+    };
+    [[nodiscard]] inline RayTracingSceneRows EncodeRayTracingSceneRows( const RayTracingInstanceList& list )
+    {
+        RayTracingSceneRows rows;
+        rows.Instances          = EncodeInstanceRows( list.Instances );
+        rows.PrimitiveInstances = EncodePrimitiveInstanceRows( list.Ranges );
+        rows.Count              = static_cast<uint32_t>( list.Instances.size() );
+        for ( const std::byte b : rows.Instances )
+            rows.Hash = ( rows.Hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        return rows;
+    }
+    // Re-encodes row @p index of @p rows from @p instance; true when its bytes changed (the hash took them in).
+    inline bool PatchRayTracingSceneRow( RayTracingSceneRows& rows, const uint32_t index,
+                                         const RayTracingInstance& instance )
+    {
+        std::array<std::byte, kInstanceRowBytes> encoded{};
+        EncodeInstanceRow( instance, encoded.data() );
+        std::byte* const row = rows.Instances.data() + static_cast<std::size_t>( index ) * kInstanceRowBytes;
+        if ( std::memcmp( row, encoded.data(), kInstanceRowBytes ) == 0 )
+            return false;
+        std::memcpy( row, encoded.data(), kInstanceRowBytes );
+        rows.Hash = ( rows.Hash ^ index ) * 1099511628211ull;
+        for ( const std::byte b : encoded )
+            rows.Hash = ( rows.Hash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        return true;
+    }
+
     // Declares this frame's TLAS build when @p required (RayTracingSceneRequired of the view's methods); declares
     // nothing and answers Built = false otherwise. Errors: the target could not be prepared (the frame then has
     // no TLAS, and a reader must not be declared). @p blasInputs: the BLASes this graph builds before the TLAS
     // (RayTracingScene.DynamicGeometry); the TLAS build reads them, which orders it after their builds.
     // @p blasBuiltInThisGraph: some of them were (re)built in this graph (RayTracingSceneFrame::DynamicGeometry).
-    // @p gpuRows: the GPU-written rows after @p list's (prepared for this frame), or null when there are none.
+    // @p gpuRows: the GPU-written rows after @p sceneRows' (prepared for this frame), or null when there are none.
+    // @p update: @p sceneRows hold the instances of the target's last build in the same order, only moved since:
+    // the TLAS is updated in place when the target can take it (RayTracingSceneTarget::Prepare;
+    // RayTracingSceneFrame::Updated), built otherwise.
     [[nodiscard]] inline Common::ResultStr<RayTracingSceneFrame>
-    AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingInstanceList& list,
+    AddRayTracingScenePass( RDG::Builder& graph, bool required, const RayTracingSceneRows& sceneRows,
                             RayTracingSceneTarget& target, std::span<const RDG::BufferRef> blasInputs = {},
-                            const bool blasBuiltInThisGraph = false, RayTracingGpuInstanceRows* gpuRows = nullptr )
+                            const bool blasBuiltInThisGraph = false, RayTracingGpuInstanceRows* gpuRows = nullptr,
+                            const bool update = false )
     {
         RayTracingSceneFrame frame;
         if ( !required )
             return Common::MakeSuccess( frame );
 
-        const auto     cpuRows                        = static_cast<uint32_t>( list.Instances.size() );
+        const uint32_t cpuRows                        = sceneRows.Count;
         const uint32_t gpuRowCount                    = gpuRows != nullptr ? gpuRows->GetRows() : 0u;
         frame.InstanceCount                           = cpuRows + gpuRowCount;
-        const Common::ResultStr<TlasBuildSizes> sizes = target.Prepare( frame.InstanceCount );
+        const Common::ResultStr<TlasBuildSizes> sizes = target.Prepare( frame.InstanceCount, update );
         if ( !sizes )
             return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kTlasPassName, sizes.GetError() );
-
-        std::vector<std::byte> rows = EncodeInstanceRows( list.Instances );
-        frame.InstanceHash          = 14695981039346656037ull; // FNV-1a 64 offset basis
-        for ( const std::byte b : rows )
-            frame.InstanceHash = ( frame.InstanceHash ^ static_cast<uint64_t>( b ) ) * 1099511628211ull;
+        frame.Updated      = sizes.GetValue().Update;
+        frame.InstanceHash = sceneRows.Hash;
+        // A BLAS BUILT in this graph, not one merely read: resident dynamic BLASes (landscape tiles, procedural
+        // meshes built in an earlier frame) are blasInputs every frame without anything having changed.
+        frame.DynamicGeometry = blasBuiltInThisGraph;
         if ( gpuRowCount > 0 )
         {
             frame.InstanceHash = ( frame.InstanceHash ^ gpuRows->GetKey() ) * 1099511628211ull;
             // The GPU rows follow the CPU rows; the pass below writes every one of them.
+            std::vector<std::byte> rows( sceneRows.Instances.begin(),
+                                         sceneRows.Instances.begin() +
+                                              static_cast<std::ptrdiff_t>( cpuRows * kInstanceRowBytes ) );
             rows.resize( static_cast<std::size_t>( frame.InstanceCount ) * kInstanceRowBytes );
+            frame.InstanceBytes = rows.size();
+            frame.Instances     = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
+            graph.QueueBufferUpload( frame.Instances, rows );
         }
-        frame.InstanceBytes = rows.size();
-        // A BLAS BUILT in this graph, not one merely read: resident dynamic BLASes (landscape tiles, procedural meshes
-        // built in an earlier frame) are blasInputs every frame without anything having changed.
-        frame.DynamicGeometry = blasBuiltInThisGraph;
-        frame.Instances = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
-        graph.QueueBufferUpload( frame.Instances, rows );
+        else
+        {
+            frame.InstanceBytes = sceneRows.Instances.size();
+            frame.Instances     = graph.CreateBuffer( RDG::BufferDesc{ frame.InstanceBytes }, kTlasInstancesName );
+            graph.QueueBufferUpload( frame.Instances, sceneRows.Instances );
+        }
         if ( gpuRowCount > 0 )
             if ( const Common::BoolResultStr written = gpuRows->AddPass( graph, frame.Instances, cpuRows );
                  !written )
                 return Common::MakeFormattedError<RayTracingSceneFrame>( "{}: {}", kGpuInstancesPassName,
                                                                          written.GetError() );
-        const std::vector<std::byte> ranges = EncodePrimitiveInstanceRows( list.Ranges );
-        frame.PrimitiveInstanceBytes        = ranges.size();
+        frame.PrimitiveInstanceBytes = sceneRows.PrimitiveInstances.size();
         frame.PrimitiveInstances =
              graph.CreateBuffer( RDG::BufferDesc{ frame.PrimitiveInstanceBytes }, kPrimitiveInstancesName );
-        graph.QueueBufferUpload( frame.PrimitiveInstances, ranges );
+        graph.QueueBufferUpload( frame.PrimitiveInstances, sceneRows.PrimitiveInstances );
         frame.ScratchBytes = sizes.GetValue().ScratchBytes;
         const RDG::BufferRef scratch =
              graph.CreateBuffer( RDG::BufferDesc{ frame.ScratchBytes }, kTlasScratchName );
@@ -203,6 +262,7 @@ namespace Desert::Graphic::RayTracing
         const RDG::BufferRef instances = frame.Instances;
         const RDG::BufferRef tlas      = frame.Tlas;
         const uint32_t       count     = frame.InstanceCount;
+        const bool           updates   = frame.Updated;
         graph.AddPass(
              kTlasPassName, RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
@@ -213,7 +273,8 @@ namespace Desert::Graphic::RayTracing
                  pass.Write( scratch, RDG::Access::AccelStructBuildWrite );
                  pass.Write( tlas, RDG::Access::AccelStructBuildWrite );
              },
-             [&target, instances, scratch, tlas, count]( RDG::PassContext& context ) -> Common::BoolResultStr
+             [&target, instances, scratch, tlas, count,
+              updates]( RDG::PassContext& context ) -> Common::BoolResultStr
              {
                  const auto instanceBinding = context.GetBuffer( instances, RDG::Access::AccelStructBuildInput );
                  if ( !instanceBinding )
@@ -224,8 +285,8 @@ namespace Desert::Graphic::RayTracing
                  if ( const auto storage = context.GetBuffer( tlas, RDG::Access::AccelStructBuildWrite );
                       !storage )
                      return Common::MakeError( storage.GetError() );
-                 return target.RecordBuild( context, instanceBinding.GetValue(), scratchBinding.GetValue(),
-                                            count );
+                 return target.RecordBuild( context, instanceBinding.GetValue(), scratchBinding.GetValue(), count,
+                                            updates );
              } );
         frame.Built = true;
         return Common::MakeSuccess( frame );
@@ -316,6 +377,78 @@ namespace Desert::Graphic::RayTracing
                                                        float                               drawDistanceScale,
                                                        const RayTracingExternalPrimitives& external = {} );
 
+        // THE SCENE'S ROWS WITHOUT A TLAS: on a frame whose AddPasses built none, gathers this frame's primitives and
+        // segment records with no BLAS resolved (GatherRayTracingPrimitives with no variants) from the queues and
+        // view AddPasses was given, so GetPrimitives / GetSegmentRecords answer for a reader of the scene's meshes
+        // (the emissive light list under the software GI tracer, EmissiveLights.hpp). A frame with a TLAS keeps
+        // its gather (the same rows). Cached across frames and kept current by THE GPUSCENE CHANGE STREAM
+        // (GpuScene::ChangesSince, GI-ALL-LIGHTS step 6; UE FScene primitive updates): a still scene reads no
+        // change, a moved primitive's change sets World on the kept primitives of its row (O(changes), no record
+        // walked, no key built). Gathered in full only on a structure change of a meshed primitive (added,
+        // removed, updated, Content) or a Discarded frame, when the stream no longer reaches the cursor, when
+        // MakeRayTracingSceneUnsyncedKey (the grass producers; the view while an ISM culls by distance) differs,
+        // or after a TLAS gather replaced it. Error: called before this frame's AddPasses or GPU-scene sync.
+        [[nodiscard]] Common::BoolResultStr GatherScene();
+        // How many full scene gathers GatherScene ran since the view was made (a still scene, or one whose
+        // primitives only move: one).
+        [[nodiscard]] uint64_t GetSceneGatherCount() const
+        {
+            return m_SceneGathers;
+        }
+        // How many GatherScene calls moved kept primitives in place instead (the stream carried only Moved
+        // changes, at least one of them of a primitive of the gather).
+        [[nodiscard]] uint64_t GetSceneGatherMoveCount() const
+        {
+            return m_SceneGatherMoves;
+        }
+        // The primitives (GetPrimitives indices) whose World this frame's gather (GatherScene, or AddPasses'
+        // kept TLAS gather) moved in place; empty on a frame that gathered in full or moved nothing.
+        [[nodiscard]] std::span<const uint32_t> GetSceneMovedPrimitives() const
+        {
+            return m_SceneMoved;
+        }
+
+        // THE TLAS FOLLOWS THE CHANGE STREAM (GI-ALL-LIGHTS step 8): a TLAS frame keeps the last TLAS gather while
+        // the GpuScene stream carries only moves since its cursor (the same test as GatherScene), the variants it
+        // resolved still answer the same BLAS and the skinned queue is the same; the moved primitives' rows are
+        // then patched in place (PatchRayTracingSceneRow) and the TLAS UPDATED from its last build. The instance
+        // list is rebuilt on a full gather, on a change of the external primitives (landscape tiles: their
+        // shape, records, opacity) and when a patched row would trace another BLAS (or a dynamic primitive gains
+        // or loses its BLAS); the TLAS is BUILT then, when the GPU-written rows trace other BLASes, and after
+        // @p updates in-place updates in a row (BVH quality: an update refits, never re-sorts;
+        // Scalability GlobalIllumination.TlasUpdatesBeforeRebuild; 0 = build every frame).
+        void SetTlasUpdatesBeforeRebuild( const uint32_t updates )
+        {
+            m_TlasUpdatesBeforeRebuild = updates;
+        }
+        // Since the view was made: frames whose TLAS was built, frames whose TLAS was updated in place, and rows
+        // an update frame patched with other bytes (a moving primitive: one per frame it moves).
+        [[nodiscard]] uint64_t GetTlasFullBuildCount() const
+        {
+            return m_TlasFullBuilds;
+        }
+        [[nodiscard]] uint64_t GetTlasUpdateCount() const
+        {
+            return m_TlasUpdates;
+        }
+        [[nodiscard]] uint64_t GetTlasMovedRowCount() const
+        {
+            return m_TlasMovedRows;
+        }
+        // Moves exactly when GetPrimitives / GetSegmentRecords / GetInstances were laid out anew (a full gather,
+        // scene or TLAS, or an instance-list rebuild): a reader keyed on their indices (the emissive light list)
+        // rebuilds then, and otherwise follows GetSceneMovedPrimitives.
+        [[nodiscard]] uint64_t GetLayoutSerial() const
+        {
+            return m_LayoutSerial;
+        }
+        // This frame's TLAS traces a skinned primitive's skin-cache stream (RayTracingPrimitive::DeformedPositions):
+        // a reader holding that graph ref must take this frame's.
+        [[nodiscard]] bool HasDeformedPositions() const
+        {
+            return m_FrameDeformed;
+        }
+
         // This frame's TLAS refs (Built = false when the frame traces no ray or the build could not be declared).
         [[nodiscard]] const RayTracingSceneFrame& GetFrame() const
         {
@@ -358,6 +491,70 @@ namespace Desert::Graphic::RayTracing
         std::unique_ptr<RayTracingSceneTarget>      m_Target;
         std::unique_ptr<RayTracingGpuInstanceRows>  m_GpuInstanceRows; // made on the first frame with a source
         RayTracingGatherResult                      m_Gather;        // CPU scratch, capacity kept
+        // AddPasses' inputs of this frame, what GatherScene reads.
+        const System::MeshRenderer* m_SceneMeshes      = nullptr;
+        glm::vec3                   m_SceneViewOrigin{ 0.0f };
+        float                       m_SceneLensScale   = 1.0f;
+        uint64_t                    m_SceneGatherFrame = ~0ull;
+        // The scene gather's cache (GatherScene), while m_GatherIsScene: the GpuScene stream m_Gather follows
+        // (GpuScene::GetStreamId) and the serial it has read up to, its unsynced key (and this frame's scratch,
+        // capacity kept), and whether an ISM of it culls by view.
+        uint64_t                 m_SceneStream = 0;
+        uint64_t                 m_SceneCursor = 0;
+        std::vector<uint64_t>    m_SceneUnsyncedKey;
+        std::vector<uint64_t>    m_SceneUnsyncedScratch;
+        bool                     m_SceneViewCulls = false;
+        bool                     m_GatherIsScene = false;
+        uint64_t                 m_SceneGathers  = 0;
+        uint64_t                 m_SceneGatherMoves = 0;
+        // The kept scene gather's primitives by GPU-scene row (kinds with a CPU world), and this frame's moved ones.
+        std::unordered_multimap<uint32_t, uint32_t> m_ScenePrimitivesOfRow;
+        std::vector<uint32_t>                       m_SceneMoved;
+        // GatherScene: each Moved change of @p changes onto the kept primitives of its row (the GpuScene row's first
+        // instance, RayTracingPrimitive::GpuSceneRow); returns whether any primitive of the gather moved.
+        bool MoveScenePrimitives( const GpuDriven::GpuScene& scene, std::span<const GpuDriven::PrimitiveChange> changes );
+        // The changes since the kept gather's cursor when they keep it (only moves of meshed primitives, the same
+        // stream, the same unsynced key), nullopt when it must be gathered anew. @p inputs: this frame's.
+        [[nodiscard]] std::optional<std::span<const GpuDriven::PrimitiveChange>>
+        KeptGatherChanges( const GpuDriven::GpuScene& scene, const RayTracingGatherInputs& inputs );
+        // After a full gather of @p inputs: the rows map, the stream cursor and the unsynced key it follows from.
+        void FollowGather( const GpuDriven::GpuScene& scene, const RayTracingGatherInputs& inputs );
+        // AddPasses: whether the kept TLAS gather still answers this frame (KeptGatherChanges + the skinned queue
+        // + every variant it resolved); fills @p changes when it does.
+        [[nodiscard]] bool KeepTlasGather( const System::MeshRenderer& meshes, RayTracingSceneCache& cache,
+                                           const RayTracingGatherInputs&                         inputs,
+                                           std::optional<std::span<const GpuDriven::PrimitiveChange>>& changes );
+        // AddPasses: whether @p external is the shape the instance list was built with (World aside: patched).
+        [[nodiscard]] bool SameExternal( const RayTracingExternalPrimitives& external ) const;
+
+        // The TLAS gather (AddPasses): m_Gather resolved BLASes (variants, skin cache, procedural) and carries the
+        // external tail after m_GatherSceneCount primitives / m_GatherSceneRecords records; the scene's part is
+        // what the stream follows. m_DynamicPrimitives: its skinned and procedural primitives, refilled each frame.
+        bool                  m_GatherHasBlas      = false;
+        std::size_t           m_GatherSceneCount   = 0;
+        std::size_t           m_GatherSceneRecords = 0;
+        std::vector<uint32_t> m_DynamicPrimitives;
+        // The external primitives the instance list was built with (SameExternal).
+        std::vector<RayTracingPrimitive>                     m_LastExternalPrimitives;
+        std::vector<RayTracingSegmentRecord>                 m_LastExternalRecords;
+        std::vector<std::optional<RayTracingMaterialRecord>> m_LastLandscapeOpacity;
+        uint64_t                                             m_LastGpuRowsKey = 0;
+        // The instance list's own counts as built (BuildRayTracingInstances + the gather's skips), before the
+        // GPU-written rows' Prepare adds theirs: a patch frame starts from them again.
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingSkip::Count )>          m_ListSkipped{};
+        std::array<uint32_t, static_cast<std::size_t>( RayTracingPrimitiveKind::Count )> m_ListInstancesByKind{};
+        bool                                                                             m_ListValid = false;
+        RayTracingSceneRows                 m_SceneRows;        // the CPU rows of the last build, patched since
+        std::optional<RayTracingMetadataBuild> m_Metadata;      // the kept metadata (rebuilt with the list)
+        uint32_t                            m_TlasUpdatesBeforeRebuild = 0;
+        uint32_t                            m_UpdatesSinceBuild        = 0;
+        uint64_t                            m_TlasFullBuilds           = 0;
+        uint64_t                            m_TlasUpdates              = 0;
+        uint64_t                            m_TlasMovedRows            = 0;
+        uint64_t                            m_LayoutSerial             = 0;
+        bool                                m_FrameDeformed            = false;
+        // An instance-list rebuild was declared and no build has followed it yet: the next frame builds too.
+        bool                                m_BuildPending             = false;
         std::vector<RDG::BufferRef>                 m_DynamicBlas;   // CPU scratch: this frame's built BLASes
         std::vector<RayTracingDynamicGeometryBuild> m_DynamicBuilds; // CPU scratch: this frame's BLAS builds
         RayTracingSceneStats                        m_Stats;

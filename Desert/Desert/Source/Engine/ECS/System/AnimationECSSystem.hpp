@@ -105,9 +105,9 @@ namespace Desert::ECS
                 // Editor-built runtime rig (Convert to Skinned) has no MeshHandle — prefer it (mirrors the
                 // render/pick paths) so a converted mesh can still animate.
                 Desert::Mesh* meshBase =
-                     skinnedMesh.RuntimeMesh
-                          ? static_cast<Desert::Mesh*>( skinnedMesh.RuntimeMesh.get() )
-                          : Runtime::ResourceRegistry::GetMeshService()->Get( skinnedMesh.MeshHandle );
+                     skinnedMesh.GetRuntimeMesh()
+                          ? static_cast<Desert::Mesh*>( skinnedMesh.GetRuntimeMesh().get() )
+                          : Runtime::ResourceRegistry::GetMeshService()->Get( skinnedMesh.GetMeshHandle() );
 
                 if ( !meshBase || !meshBase->IsSkinned() )
                 {
@@ -418,12 +418,14 @@ namespace Desert::ECS
                 return;
             }
 
-            auto* transform = registry.try_get<ECS::TransformComponent>( entity );
+            const auto* transform = registry.try_get<ECS::TransformComponent>( entity );
             if ( transform == nullptr )
                 return;
-            const glm::quat rotation( transform->Rotation );
-            transform->Translation += rotation * ( transform->Scale * delta.Translation );
-            transform->Rotation = glm::eulerAngles( glm::normalize( rotation * delta.Rotation ) );
+            const glm::quat     rotation( transform->GetRotation() );
+            ECS::LocalTransform moved = transform->GetLocal();
+            moved.Translation += rotation * ( transform->GetScale() * delta.Translation );
+            moved.Rotation = glm::eulerAngles( glm::normalize( rotation * delta.Rotation ) );
+            ECS::SetLocalTransform( registry, entity, moved );
         }
 
         /**
@@ -1172,11 +1174,11 @@ namespace Desert::ECS
                 }
                 return identity;
             }
-            if ( component.RuntimeMesh || m_AnimationLibrary == nullptr )
+            if ( component.GetRuntimeMesh() || m_AnimationLibrary == nullptr )
                 return identity;
             // The pickers' own question (IdentifyMeshHandle): the mesh asset's skeleton, or the reference a
             // procedural mesh registered (the built-in humanoid) - one answer for editor and runtime.
-            return m_AnimationLibrary->IdentifyMeshHandle( component.MeshHandle );
+            return m_AnimationLibrary->IdentifyMeshHandle( component.GetMeshHandle() );
         }
 
         template <typename AssetType>

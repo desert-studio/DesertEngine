@@ -68,6 +68,8 @@ namespace Desert::Assets::Serialization
         std::optional<std::string> Displacement;
         /// MeshImportSettings::DisplacementBake.EdgeLengthCm; absent = the default (1 cm).
         std::optional<float> DisplacementEdgeLengthCm;
+        /// MeshImportSettings::VirtualGeometry; absent = off.
+        std::optional<bool> VirtualGeometry;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.

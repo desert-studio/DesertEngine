@@ -29,8 +29,7 @@ namespace Desert::Graphic::GpuDriven
     namespace
     {
         constexpr uint64_t                                kMinTableBytes = 4096u;
-        constexpr std::array<const char*, 4>              kPassTableNames{ "PrimitiveDraws", "DrawSlots", "Bins",
-                                                                         "UnculledVisible" };
+        constexpr std::array<const char*, 3>              kPassTableNames{ "PrimitiveDraws", "DrawSlots", "Bins" };
         constexpr std::array<const char*, kMeshPassCount> kPassNames{ "DepthPrepass", "GBuffer", "Forward",
                                                                       "ShadowCascade", "VirtualShadow" };
 
@@ -86,8 +85,31 @@ namespace Desert::Graphic::GpuDriven
         }
     } // namespace
 
-    DrawCommandCache::DrawCommandCache( PassPipelineResolver resolver )
-         : m_Resolver( std::move( resolver ) ), m_TransformTable( MakeTable( "SubmeshTransforms" ) )
+    const char* BinFallbackName( const BinFallback fallback )
+    {
+        switch ( fallback )
+        {
+            case BinFallback::None:
+                return "None";
+            case BinFallback::NoBinnedCell:
+                return "NoBinnedCell";
+            case BinFallback::PipelineUnavailable:
+                return "PipelineUnavailable";
+            case BinFallback::NoMaterialRow:
+                return "NoMaterialRow";
+            case BinFallback::BoundTextures:
+                return "BoundTextures";
+            case BinFallback::MovableCaster:
+                return "MovableCaster";
+            case BinFallback::Count:
+                break;
+        }
+        return "Unknown";
+    }
+
+    DrawCommandCache::DrawCommandCache( PassPipelineResolver resolver, GroupPipelineResolver vgResolver )
+         : m_Resolver( std::move( resolver ) ), m_VgResolver( std::move( vgResolver ) ),
+           m_TransformTable( MakeTable( "SubmeshTransforms" ) )
     {
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
             for ( size_t table = 0; table < kPassTableNames.size(); ++table )
@@ -103,7 +125,9 @@ namespace Desert::Graphic::GpuDriven
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
         {
             auto& pipelines = record.Pipelines[pass];
+            auto& fallbacks = record.Fallbacks[pass];
             pipelines.assign( submeshes, nullptr );
+            fallbacks.assign( submeshes, BinFallback::None );
             // UE bCastShadow: a primitive that does not cast is no shadow pass's draw at all.
             if ( IsShadowPass( static_cast<MeshPass>( pass ) ) &&
                  ( record.PrimitiveFlags & PrimitiveFlags::kCastsShadow ) == 0u )
@@ -112,8 +136,11 @@ namespace Desert::Graphic::GpuDriven
             {
                 if ( IsHidden( record.HiddenSubmeshMask, si ) )
                     continue;
-                pipelines[si] = m_Resolver( static_cast<MeshPass>( pass ), primitive, *record.Mesh,
-                                            static_cast<uint32_t>( si ), record.MaterialRows[si] );
+                const PassPipelineResolution resolved =
+                     m_Resolver( static_cast<MeshPass>( pass ), primitive, *record.Mesh,
+                                 static_cast<uint32_t>( si ), record.MaterialRows[si] );
+                pipelines[si] = resolved.Pipeline;
+                fallbacks[si] = resolved.Pipeline != nullptr ? BinFallback::None : resolved.Fallback;
             }
         }
     }
@@ -122,7 +149,9 @@ namespace Desert::Graphic::GpuDriven
     {
         for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
             if ( std::any_of( record.Pipelines[pass].begin(), record.Pipelines[pass].end(),
-                              []( const GraphicsPipeline* pipeline ) { return pipeline != nullptr; } ) )
+                              []( const GraphicsPipeline* pipeline ) { return pipeline != nullptr; } ) ||
+                 std::any_of( record.Fallbacks[pass].begin(), record.Fallbacks[pass].end(),
+                              []( const BinFallback fallback ) { return fallback != BinFallback::None; } ) )
                 m_Dirty[pass] = true;
     }
 
@@ -256,12 +285,20 @@ namespace Desert::Graphic::GpuDriven
             auto& record = m_Primitives[primitive];
             if ( !record )
                 continue;
-            const auto before = record->Pipelines;
+            const auto before          = record->Pipelines;
+            const auto fallbacksBefore = record->Fallbacks;
             ResolvePipelines( static_cast<PrimitiveIndex>( primitive ), *record );
             for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
-                if ( before[pass] != record->Pipelines[pass] )
+                if ( before[pass] != record->Pipelines[pass] || fallbacksBefore[pass] != record->Fallbacks[pass] )
                     m_Dirty[pass] = true;
         }
+        // The groups' VG twins are asked again too (a dirty pass re-asks them when it is rebuilt).
+        if ( m_VgResolver )
+            for ( uint32_t pass = 0; pass < kMeshPassCount; ++pass )
+                for ( IndirectGroup& group : m_Passes[pass].Groups )
+                    group.VirtualGeometryPipeline =
+                         group.Pipeline != nullptr ? m_VgResolver( static_cast<MeshPass>( pass ), *group.Pipeline )
+                                                   : nullptr;
     }
 
     bool DrawCommandCache::NeedsRebuild() const
@@ -311,8 +348,7 @@ namespace Desert::Graphic::GpuDriven
         };
         std::map<BinKey, uint32_t>                                         binOf;
         std::map<std::pair<const GraphicsPipeline*, BindingKey>, uint32_t> groupOf;
-        std::vector<BinDraft>                                               drafts;
-        std::vector<const PrimitiveRecord*>                                 slotRecord; // per DrawSlot
+        std::vector<BinDraft>                                              drafts;
 
         for ( size_t primitive = 0; primitive < m_Primitives.size(); ++primitive )
         {
@@ -320,6 +356,9 @@ namespace Desert::Graphic::GpuDriven
             if ( !record )
                 continue;
             const auto& pipelines = record->Pipelines[passIndex];
+            for ( const BinFallback fallback : record->Fallbacks[passIndex] )
+                if ( fallback != BinFallback::None )
+                    ++table.Fallbacks[static_cast<uint32_t>( fallback )];
             if ( std::none_of( pipelines.begin(), pipelines.end(),
                                []( const GraphicsPipeline* pipeline ) { return pipeline != nullptr; } ) )
                 continue;
@@ -367,7 +406,6 @@ namespace Desert::Graphic::GpuDriven
                         slot.Bin = it->second; // the draft's ordinal; remapped to the sorted row below
                     }
                     table.DrawSlots.push_back( slot );
-                    slotRecord.push_back( &*record );
                 }
             }
         }
@@ -392,8 +430,14 @@ namespace Desert::Graphic::GpuDriven
             rowOf[order[row]] = row;
             if ( table.Groups.empty() || table.Groups.back().Pipeline != draft.Pipeline ||
                  table.Groups.back().Binding != draft.Binding )
-                table.Groups.push_back( IndirectGroup{
-                     .Pipeline = draft.Pipeline, .Binding = draft.Binding, .FirstBin = row, .BinCount = 0 } );
+                table.Groups.push_back(
+                     IndirectGroup{ .Pipeline                = draft.Pipeline,
+                                    .Binding                 = draft.Binding,
+                                    .VirtualGeometryPipeline = m_VgResolver && draft.Pipeline != nullptr
+                                                                    ? m_VgResolver( pass, *draft.Pipeline )
+                                                                    : nullptr,
+                                    .FirstBin                = row,
+                                    .BinCount                = 0 } );
             ++table.Groups.back().BinCount;
             draft.Row.Group        = static_cast<uint32_t>( table.Groups.size() - 1u );
             draft.Row.FirstVisible = static_cast<uint32_t>( visible );
@@ -409,25 +453,6 @@ namespace Desert::Graphic::GpuDriven
         table.VisibleCapacity = static_cast<uint32_t>( std::min<uint64_t>( visible, UINT32_MAX ) );
         if ( table.VisibleCapacity == UINT32_MAX )
             return;
-
-        // The unculled list: each slot's instances in its bin, in slot (= primitive) order, so a bin's rows are
-        // filled exactly to its Capacity (the same InstanceCount sum that sized it above).
-        table.UnculledVisible.resize( table.VisibleCapacity );
-        table.SlotFirstVisible.assign( table.DrawSlots.size(), kInvalidIndex );
-        std::vector<uint32_t> filled( table.Bins.size(), 0u );
-        for ( size_t s = 0; s < table.DrawSlots.size(); ++s )
-        {
-            const GpuDrawSlot& slot = table.DrawSlots[s];
-            if ( slot.Bin == kInvalidIndex )
-                continue;
-            const PrimitiveRecord& record = *slotRecord[s];
-            const uint32_t         first  = table.Bins[slot.Bin].FirstVisible + filled[slot.Bin];
-            table.SlotFirstVisible[s]     = first;
-            for ( uint32_t i = 0; i < record.InstanceCount; ++i )
-                table.UnculledVisible[size_t{ first } + i] =
-                     GpuVisibleInstance{ .Instance = record.FirstInstance + i, .DrawSlot = static_cast<uint32_t>( s ) };
-            filled[slot.Bin] += record.InstanceCount;
-        }
     }
 
     const PassDrawTable& DrawCommandCache::Pass( const MeshPass pass ) const
@@ -435,19 +460,51 @@ namespace Desert::Graphic::GpuDriven
         return m_Passes[static_cast<uint32_t>( pass )];
     }
 
-    std::optional<uint32_t> DrawCommandCache::UnculledFirstVisible( const MeshPass pass, const PrimitiveIndex primitive,
-                                                                    const uint32_t lod, const uint32_t submesh ) const
+    bool DrawCommandCache::SubmeshesBinned( const MeshPass pass, const PrimitiveIndex primitive,
+                                            const uint64_t hiddenSubmeshMask ) const
     {
+        if ( primitive >= m_Primitives.size() || !m_Primitives[primitive] )
+            return false;
+        const PrimitiveRecord& record    = *m_Primitives[primitive];
+        const auto&            pipelines = record.Pipelines[static_cast<uint32_t>( pass )];
+        bool                   any       = false;
+        for ( size_t si = 0; si < pipelines.size(); ++si )
+        {
+            if ( IsHidden( hiddenSubmeshMask, si ) )
+                continue;
+            // A submesh the primitive hides has no bin: the CPU record must not leave it to one.
+            if ( pipelines[si] == nullptr || IsHidden( record.HiddenSubmeshMask, si ) )
+                return false;
+            any = true;
+        }
+        return any;
+    }
+
+    std::optional<uint32_t> DrawCommandCache::SubmeshGroup( const MeshPass pass, const PrimitiveIndex primitive,
+                                                            const uint32_t submesh ) const
+    {
+        // RasterBinning.shader GroupOf, on the host mirrors: lod-0 slot -> bin -> group.
         const PassDrawTable& table = m_Passes[static_cast<uint32_t>( pass )];
         if ( primitive >= table.PrimitiveDraws.size() )
             return std::nullopt;
         const GpuPrimitivePassDraws& draws = table.PrimitiveDraws[primitive];
-        if ( draws.SubmeshCount == 0u || lod >= draws.LodCount || submesh >= draws.SubmeshCount )
+        if ( submesh >= draws.SubmeshCount )
             return std::nullopt;
-        const size_t slot = size_t{ draws.FirstDrawSlot } + size_t{ lod } * draws.SubmeshCount + submesh;
-        if ( slot >= table.SlotFirstVisible.size() || table.SlotFirstVisible[slot] == kInvalidIndex )
+        const size_t slot = size_t{ draws.FirstDrawSlot } + submesh;
+        if ( slot >= table.DrawSlots.size() || table.DrawSlots[slot].Bin >= table.Bins.size() )
             return std::nullopt;
-        return table.SlotFirstVisible[slot];
+        const uint32_t group = table.Bins[table.DrawSlots[slot].Bin].Group;
+        if ( group >= table.Groups.size() )
+            return std::nullopt;
+        return group;
+    }
+
+    const GraphicsPipeline* DrawCommandCache::SubmeshVirtualGeometryPipeline( const MeshPass       pass,
+                                                                              const PrimitiveIndex primitive,
+                                                                              const uint32_t       submesh ) const
+    {
+        const std::optional<uint32_t> group = SubmeshGroup( pass, primitive, submesh );
+        return group ? m_Passes[static_cast<uint32_t>( pass )].Groups[*group].VirtualGeometryPipeline : nullptr;
     }
 
     Common::ResultStr<DrawCommandBuffers> DrawCommandCache::AddUploadPass( RDG::Builder& graph )
@@ -472,13 +529,8 @@ namespace Desert::Graphic::GpuDriven
             auto bins = UploadTable( graph, *gpu[2], BytesOf( table.Bins ), write );
             if ( !bins )
                 return Common::MakeError<DrawCommandBuffers>( bins.GetError() );
-            auto unculled = UploadTable( graph, *gpu[3], BytesOf( table.UnculledVisible ), write );
-            if ( !unculled )
-                return Common::MakeError<DrawCommandBuffers>( unculled.GetError() );
-            out.Passes[pass] = PassDrawBuffers{ .PrimitiveDraws  = draws.GetValue(),
-                                                .DrawSlots       = slots.GetValue(),
-                                                .Bins            = bins.GetValue(),
-                                                .UnculledVisible = unculled.GetValue() };
+            out.Passes[pass] = PassDrawBuffers{
+                 .PrimitiveDraws = draws.GetValue(), .DrawSlots = slots.GetValue(), .Bins = bins.GetValue() };
         }
         auto transforms =
              UploadTable( graph, *m_TransformTable, BytesOf( m_SubmeshTransforms ), m_TransformsUnuploaded );

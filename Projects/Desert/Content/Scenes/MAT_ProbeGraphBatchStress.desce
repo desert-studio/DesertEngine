@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 70,
+            "SCNE": 71,
             "UNIT": 1,
             "WPAR": 1
         },
@@ -28788,7 +28788,9 @@
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
             }
         },
@@ -28813,7 +28815,15 @@
                 "SecondFogHeightOffset": 0.0,
                 "DirectionalInscatteringExponent": 4.0,
                 "DirectionalInscatteringStartDistance": 10000.0,
-                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
+                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5],
+                "VolumetricFog": false,
+                "VolumetricFogScatteringDistribution": 0.20000000298023224,
+                "VolumetricFogAlbedo": [1.0, 1.0, 1.0],
+                "VolumetricFogEmissive": [0.0, 0.0, 0.0],
+                "VolumetricFogExtinctionScale": 1.0,
+                "VolumetricFogDistance": 6000.0,
+                "VolumetricFogStartDistance": 0.0,
+                "VolumetricFogNearFadeInDistance": 0.0
             }
         },
         {
@@ -28946,7 +28956,8 @@
                 "ContactShadowLength": 0.0,
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
             }
         }
     ],

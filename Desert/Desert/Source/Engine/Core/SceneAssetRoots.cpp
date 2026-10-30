@@ -48,22 +48,22 @@ namespace Desert::Core
         for ( const auto entity : registry.view<ECS::StaticMeshComponent>() )
         {
             const auto& mesh = registry.get<ECS::StaticMeshComponent>( entity );
-            roots.Mark( mesh.MeshHandle, "a StaticMeshComponent draws it" );
-            MarkSlots( roots, mesh.MaterialSlots, "a StaticMeshComponent draws with it" );
+            roots.Mark( mesh.GetMeshHandle(), "a StaticMeshComponent draws it" );
+            MarkSlots( roots, mesh.GetMaterialSlots(), "a StaticMeshComponent draws with it" );
         }
 
         for ( const auto entity : registry.view<ECS::SkinnedMeshComponent>() )
         {
             const auto& mesh = registry.get<ECS::SkinnedMeshComponent>( entity );
-            roots.Mark( mesh.MeshHandle, "a SkinnedMeshComponent draws it" );
-            MarkSlots( roots, mesh.MaterialSlots, "a SkinnedMeshComponent draws with it" );
+            roots.Mark( mesh.GetMeshHandle(), "a SkinnedMeshComponent draws it" );
+            MarkSlots( roots, mesh.GetMaterialSlots(), "a SkinnedMeshComponent draws with it" );
         }
 
         for ( const auto entity : registry.view<ECS::InstancedStaticMeshComponent>() )
         {
             const auto& mesh = registry.get<ECS::InstancedStaticMeshComponent>( entity );
-            roots.Mark( mesh.MeshHandle, "an InstancedStaticMeshComponent draws it" );
-            MarkSlots( roots, mesh.MaterialSlots, "an InstancedStaticMeshComponent draws with it" );
+            roots.Mark( mesh.GetMeshHandle(), "an InstancedStaticMeshComponent draws it" );
+            MarkSlots( roots, mesh.GetMaterialSlots(), "an InstancedStaticMeshComponent draws with it" );
         }
 
         // A cloud layer's material is read by VolumetricCloudRenderer every frame (ResolveOverrides); left out of
@@ -83,7 +83,7 @@ namespace Desert::Core
         // component, which is why this loop cannot be folded into the others.
         for ( const auto entity : registry.view<ECS::MaterialComponent>() )
         {
-            for ( const auto& texture : registry.get<ECS::MaterialComponent>( entity ).Textures )
+            for ( const auto& texture : registry.get<ECS::MaterialComponent>( entity ).GetTextures() )
                 roots.Mark( Assets::AssetHandle( texture.TextureHandle ),
                             "a MaterialComponent overrides a texture slot with it" );
         }

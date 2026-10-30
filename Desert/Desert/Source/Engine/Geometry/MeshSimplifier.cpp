@@ -65,14 +65,13 @@ namespace Desert::Geometry
             // chart border is a jump in UV, and the attribute quadric prices it (UE's QEM prices a seam the same
             // way, by its wedges' UV distance). Weighted at 0.04 the jump was nearly free and LOD 10% of the
             // mannequin showed triangles spanning two charts - foreign atlas texels at every joint; at 0.5 it
-            // reaches the same 12000 tris at error 0.0009 with the texture intact. Tagging chart borders
-            // Protect instead stalled at 17894 tris with the geometry faceted (error 0.056), and Protect +
-            // Prune pruned the whole mesh.
-            static constexpr float kWeights[kSimplifyAttributeCount] = { 0.08f, 0.08f, 0.08f, 0.5f, 0.5f };
-            count                                                    = meshopt_simplifyWithAttributes(
+            // reaches the same 12000 tris at error 0.0009 with the texture intact (kSimplifyAttributeWeights).
+            // Tagging chart borders Protect instead stalled at 17894 tris with the geometry faceted (error 0.056),
+            // and Protect + Prune pruned the whole mesh.
+            count = meshopt_simplifyWithAttributes(
                  lod.data(), indices.data(), indices.size(), positions, vertexCount, sizeof( float ) * 3,
-                 attributes, sizeof( float ) * kSimplifyAttributeCount, kWeights, kSimplifyAttributeCount, nullptr,
-                 targetIndexCount, targetError, kOptions, &error );
+                 attributes, sizeof( float ) * kSimplifyAttributeCount, kSimplifyAttributeWeights,
+                 kSimplifyAttributeCount, nullptr, targetIndexCount, targetError, kOptions, &error );
         }
         else
         {

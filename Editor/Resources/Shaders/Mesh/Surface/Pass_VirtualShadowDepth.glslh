@@ -9,6 +9,12 @@
 //
 // An opaque template's cell reads no varyings and evaluates no surface; a Masked one evaluates the surface for its
 // clip first, as Pass_ShadowDepth does.
+#ifdef DESERT_SURFACE_VIRTUAL_GEOMETRY
+// "VSM: Raster VirtualGeometry" rasters the clusters of every level in one pass: the level is the cluster's cut view,
+// handed down by the vertex stage (Mesh/Surface/Vertex_Static.glslh v_VsmLevel).
+layout( location = 15 ) flat in uint v_VsmLevel;
+#define VSM_RASTER_LEVEL v_VsmLevel
+#endif
 #include <Common/VirtualShadowRaster.glslh>
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -17,6 +23,11 @@ DESERT_SURFACE_VARYINGS( in )
 
 void main()
 {
+#ifdef DESERT_SURFACE_HAS_VARYINGS
+    // A binned cell (and its `.VirtualGeometry` twin) reads the material row its vertex stage resolved: without it
+    // `Material` is row 0, so a Masked caster clipped with another material's mask and cutoff.
+    DESERT_SURFACE_BEGIN_FRAGMENT();
+#endif
 #if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
     const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
                                                v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );

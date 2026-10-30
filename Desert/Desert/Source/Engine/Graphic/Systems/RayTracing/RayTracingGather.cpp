@@ -7,6 +7,8 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 
 #include <algorithm>
+#include <bit>
+#include <cstdint>
 #include <format>
 #include <unordered_map>
 
@@ -57,6 +59,17 @@ namespace Desert::Graphic::RayTracing
         SectionSource SourceOf( const uint64_t visible, const MeshRenderer::SectionShading& shading )
         {
             return { visible, shading.Instance, shading.Surface, shading.Masked, shading.Translucent };
+        }
+
+        // A generic record's section: its own program (a per-slot data-driven material, or a shader override with
+        // no slot material), opaque unless the record carries its own hit group with an alpha test.
+        SectionSource GenericSectionOf( const MeshRenderer::GenericMeshRenderData& data )
+        {
+            const bool program = !data.RayHit.Template.empty();
+            return { .Visible    = data.VisibleSubmeshMask,
+                     .Surface    = data.SlotMaterial,
+                     .Masked     = program && data.RayHit.Opacity.has_value(),
+                     .ProgramHit = program ? &data.RayHit : nullptr };
         }
 
         // The BLAS masks of @p mesh drawn by @p sections: a submesh no section draws is hidden; one a Masked
@@ -121,12 +134,16 @@ namespace Desert::Graphic::RayTracing
                  static_cast<uint32_t>( out.SegmentRecords.size() ) - primitive.FirstSegmentRecord;
         }
 
-        // Resolves @p mesh's BLAS for @p masks; false: the row is skipped (counted, the error kept).
-        bool ResolveGeometry( RayTracingGeometryVariants& variants, Mesh& mesh,
+        // Resolves @p mesh's BLAS for @p masks; false: the row is skipped (counted, the error kept). A SCENE gather
+        // (@p variants null: no TLAS is built from it) resolves nothing and keeps every row, Geometry null.
+        bool ResolveGeometry( RayTracingGeometryVariants* variants, Mesh& mesh,
                               const RayTracingSubmeshMasks& masks, RayTracingGatherResult& out,
                               const void*& geometry )
         {
-            const Common::ResultStr<const RayTracingGeometryResource*> resolved = variants.Resolve( mesh, masks );
+            geometry = nullptr;
+            if ( variants == nullptr )
+                return true;
+            const Common::ResultStr<const RayTracingGeometryResource*> resolved = variants->Resolve( mesh, masks );
             if ( !resolved )
             {
                 out.Errors.push_back( resolved.GetError() );
@@ -134,6 +151,8 @@ namespace Desert::Graphic::RayTracing
                 return false;
             }
             geometry = resolved.GetValue();
+            if ( masks != RayTracingSubmeshMasks{} )
+                out.VariantUses.push_back( { .MeshPtr = &mesh, .Masks = masks, .Geometry = geometry } );
             return true;
         }
         // A mesh without an uploader BLAS whose buffers are resident: the procedural cache builds its BLAS. A
@@ -144,7 +163,7 @@ namespace Desert::Graphic::RayTracing
         }
     } // namespace
 
-    void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants& variants,
+    void GatherRayTracingPrimitives( const RayTracingGatherInputs& inputs, RayTracingGeometryVariants* variants,
                                      RayTracingGatherResult& out )
     {
         out.Clear();
@@ -180,13 +199,8 @@ namespace Desert::Graphic::RayTracing
         for ( const MeshRenderer::GenericMeshRenderData& data : inputs.Generic )
             if ( data.VisibleInRayTracing )
             {
-                const bool program = !data.RayHit.Template.empty();
-                add( data.Mesh, data.Transform, data.GpuInstance,
-                     { .Visible    = data.VisibleSubmeshMask,
-                       .Surface    = data.SlotMaterial,
-                       .Masked     = program && data.RayHit.Opacity.has_value(),
-                       .ProgramHit = program ? &data.RayHit : nullptr },
-                     data.CastShadows, RayTracingPrimitiveKind::Generic );
+                add( data.Mesh, data.Transform, data.GpuInstance, GenericSectionOf( data ), data.CastShadows,
+                     RayTracingPrimitiveKind::Generic );
             }
 
         for ( const RowRecord& record : rows )
@@ -209,7 +223,7 @@ namespace Desert::Graphic::RayTracing
             primitive.Translucent          = AllTranslucent( record.Sections );
             primitive.Submeshes            = masks;
             primitive.Kind                 = record.Kind;
-            if ( geometry == nullptr && IsResident( *record.MeshPtr ) )
+            if ( variants != nullptr && geometry == nullptr && IsResident( *record.MeshPtr ) )
             {
                 primitive.ProceduralMesh = record.MeshPtr;
                 primitive.Kind           = RayTracingPrimitiveKind::Procedural;
@@ -271,7 +285,7 @@ namespace Desert::Graphic::RayTracing
                 primitive.Translucent          = AllTranslucent( field.Sections );
                 primitive.Submeshes            = masks;
                 primitive.Kind                 = RayTracingPrimitiveKind::Instanced;
-                if ( geometry == nullptr && IsResident( *data.Mesh ) )
+                if ( variants != nullptr && geometry == nullptr && IsResident( *data.Mesh ) )
                     primitive.ProceduralMesh = data.Mesh;
                 if ( !recordsAdded )
                 {
@@ -371,7 +385,7 @@ namespace Desert::Graphic::RayTracing
                 primitive.CastShadows          = castShadows;
                 primitive.Submeshes            = masks;
                 primitive.Kind                 = RayTracingPrimitiveKind::GpuInstanced;
-                if ( geometry == nullptr && IsResident( *data->Mesh ) )
+                if ( variants != nullptr && geometry == nullptr && IsResident( *data->Mesh ) )
                     primitive.ProceduralMesh = data->Mesh;
                 AppendSegmentRecords( *data->Mesh, sections, primitive, out );
                 out.GpuInstanced.push_back( { .Primitive = index,
@@ -401,6 +415,84 @@ namespace Desert::Graphic::RayTracing
             primitive.Submeshes   = MasksOf( *data.Mesh, skinnedSections );
             primitive.Translucent = AllTranslucent( skinnedSections );
             AppendSegmentRecords( *data.Mesh, skinnedSections, primitive, out );
+        }
+    }
+    bool RayTracingGatherCullsByView( const RayTracingGatherInputs& inputs )
+    {
+        for ( const MeshRenderer::InstancedMeshRenderData& data : inputs.Instanced )
+            if ( data.Mesh != nullptr && data.Transforms && data.CullDistance.Culls() )
+                return true;
+        return false;
+    }
+
+    namespace
+    {
+        // The words of MakeRayTracingSceneUnsyncedKey: each value the gather reads, bit-exact.
+        struct KeyWriter
+        {
+            std::vector<uint64_t>& Words;
+
+            void Value( const uint64_t value ) const
+            {
+                Words.push_back( value );
+            }
+            void Pointer( const void* pointer ) const
+            {
+                Words.push_back( static_cast<uint64_t>( reinterpret_cast<std::uintptr_t>( pointer ) ) );
+            }
+            void Float( const float value ) const
+            {
+                Words.push_back( std::bit_cast<uint32_t>( value ) );
+            }
+            void Section( const SectionSource& section ) const
+            {
+                Value( section.Visible );
+                Pointer( section.Instance );
+                Pointer( section.Surface );
+                Value( ( section.Masked ? 1u : 0u ) | ( section.Translucent ? 2u : 0u ) );
+                Pointer( section.ProgramHit );
+            }
+            // What the gather reads of a mesh: its submesh list (masks, segment runs) and its residency.
+            void MeshOf( const Mesh* mesh ) const
+            {
+                Pointer( mesh );
+                if ( mesh == nullptr )
+                    return;
+                Pointer( mesh->GetSubmeshes().data() );
+                Value( mesh->GetSubmeshes().size() );
+                Value( mesh->GetGeometry().IndexCount );
+                Value( mesh->GetGeometry().IsResident() ? 1u : 0u );
+            }
+        };
+    } // namespace
+
+    void MakeRayTracingSceneUnsyncedKey( const RayTracingGatherInputs& inputs, const bool viewCulls,
+                                         std::vector<uint64_t>& out )
+    {
+        out.clear();
+        const KeyWriter key{ out };
+        if ( viewCulls )
+        {
+            key.Float( inputs.ViewOrigin.x );
+            key.Float( inputs.ViewOrigin.y );
+            key.Float( inputs.ViewOrigin.z );
+            key.Float( inputs.DrawDistanceScale );
+        }
+        key.Value( inputs.GpuInstanced.size() );
+        for ( const MeshRenderer::GpuInstancedRenderData& data : inputs.GpuInstanced )
+        {
+            key.MeshOf( data.Mesh );
+            key.Pointer( data.Refs );
+            key.Value( static_cast<uint64_t>( data.Path ) );
+            key.Section( SourceOf( ~data.HiddenSubmeshes, MeshRenderer::ShadingOf( data ) ) );
+            key.Value( data.CastShadows ? 1u : 0u );
+            key.Value( data.Capacity );
+            key.Value( data.BladeGeometry.size() );
+            for ( const RayTracingGeometryResource* geometry : data.BladeGeometry )
+                key.Pointer( geometry );
+            key.Value( data.BucketCapacities.size() );
+            for ( const uint32_t capacity : data.BucketCapacities )
+                key.Value( capacity );
         }
     }
 } // namespace Desert::Graphic::RayTracing

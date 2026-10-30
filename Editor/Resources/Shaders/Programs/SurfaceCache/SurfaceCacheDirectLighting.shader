@@ -38,6 +38,20 @@
 // THE LIGHTS OF A TEXEL (UE LumenSceneDirectLightingCulling): the world light grid's list for the texel's cell
 // (Mesh/LightGrid.glslh LightGridWorldLightsAt - the radiance cache clipmap cells around the camera, built by
 // "LightGridWorld" from the same point/spot buffers), not every light of the view.
+//
+// THE EMISSIVE SURFACES AS LIGHTS (GI-EMISSIVE-LIGHTS; NVIDIA RTXDI's emissive triangles in one light list, the
+// path tracer's next event estimation): under either GI tracer a texel also receives the scene's emissive
+// triangles (Common/EmissiveLights.glslh, the ONE list RayTracing::EmissiveLightsFrame the path tracer samples):
+// kEmissiveSamplesPerTexel triangles picked by power, a point on each by area, the segment's radiance estimate
+// over the solid-angle density, shadowed by the tracer's visibility ray. A lamp's glowing shade lights the wall
+// beside it in the cache, so every GI ray that meets that wall carries the lamp's bounce - not only the rays that
+// happen to meet the small shade itself (UE Lumen's noise of small emitters: its cards take the emissive only as
+// the emitter's own radiance).
+// The radiosity (SurfaceCacheRadiosityTrace.shader) leaves the emission of the cards its rays meet out under the
+// same tracer (GI_HIT_EXCLUDES_EMISSION): the emitter -> texel path is counted here, once.
+// WHERE THIS DIFFERS FROM UE (for the owner): UE has no emissive light sampling in Lumen; MegaLights' emissive
+// support is the path tracer's. The software tracer has no list (it is built from the TLAS segment records) -
+// GI-EMISSIVE-LIGHTS-SW.
 Shader "SurfaceCacheDirectLighting"
 {
     Vertex
@@ -130,6 +144,27 @@ Shader "SurfaceCacheDirectLighting"
         };
         #include <Common/CloudShadowReceiver.glslh>
 
+        #ifdef DESERT_LOCAL_SHADOW_VSM
+        // Shadows.Method VirtualMaps: the point/spot lights' shadows from the view's virtual shadow map (the atlas is
+        // not drawn). A card texel no pass marked reads its light's coarse mip ("VSM: Mark Coarse").
+        #include <Common/VirtualShadowMap.glslh>
+        ReadBuffer(17) VsmFrameData
+        {
+            VsmFrame Frame;
+            VsmLevel Levels[];
+        };
+        ReadBuffer(18) VsmPageTable
+        {
+            VsmPageEntry Entries[];
+        };
+        layout(set = 0, binding = 10, r32ui) restrict readonly uniform uimage2D PhysicalPoolTexture; // 10..12 free
+        ReadBuffer(11) VsmLocalLightsUB
+        {
+            VsmLocalLight vsmLocalLights[];
+        };
+        #define DESERT_VSM_READ
+        #include <Common/VirtualShadowMap.glslh>
+        #else
         #include <Mesh/LocalLightShadowView.glslh>
         Uniform(17) texture2D LocalShadowAtlasTexture;
         #define LocalShadowAtlasTexture sampler2D(LocalShadowAtlasTexture, PointClampSampler)
@@ -137,6 +172,7 @@ Shader "SurfaceCacheDirectLighting"
         {
             LocalShadowView localShadowViews[];
         };
+        #endif
         #include <Mesh/LocalLightShadow.glslh>
 
         // The world light grid (SceneRenderer::AddFrameLightGridWorld): its parameters, then its cell lists.
@@ -172,8 +208,62 @@ Shader "SurfaceCacheDirectLighting"
             vec4  LightColor; // rgb = colour, a = intensity
             vec4  Light1Direction;  // atmosphere light 1 (the moon): xyz = the direction its light travels
             vec4  Light1Color;      // rgb = colour, a = intensity (after the atmosphere's transmittance); 0: none
-            uvec4 LightingFlags;      // x = 1: the indirect lighting runs this frame (the pages keep their IndirectLighting)
+            uvec4 LightingFlags;      // x = 1: the indirect lighting runs this frame (the pages keep their IndirectLighting); y = frame index (the emissive samples' seed)
+            uvec4 EmissiveCounts;        // the static part: x = triangles, y = power tree leaves, z = its levels, w = TLAS instances of the hit lookup (0 without a TLAS)
+            uvec4 EmissiveDynamicCounts; // the dynamic part: x = triangles, y = power tree leaves, z = its levels
         };
+
+        // The scene's emissive triangles (RayTracing::EmissiveLightsFrame), bindings 40..46 after the tracer's.
+        #include <Common/EmissiveLights.glslh>
+        layout(std430, binding = 40) readonly buffer EmissiveSegmentsUB
+        {
+            EmissiveSegment emissiveSegments[];
+        };
+        layout(std430, binding = 41) readonly buffer EmissiveLookupUB
+        {
+            uint emissiveLookup[];
+        };
+        layout(std430, binding = 42) readonly buffer EmissiveTrianglesUB
+        {
+            EmissiveTriangle emissiveTriangles[];
+        };
+        layout(std430, binding = 43) readonly buffer EmissivePowerUB
+        {
+            float emissivePower[];
+        };
+        layout(std430, binding = 44) readonly buffer EmissiveDynamicSegmentsUB
+        {
+            EmissiveSegment emissiveDynamicSegments[];
+        };
+        layout(std430, binding = 45) readonly buffer EmissiveDynamicTrianglesUB
+        {
+            EmissiveTriangle emissiveDynamicTriangles[];
+        };
+        layout(std430, binding = 46) readonly buffer EmissiveDynamicPowerUB
+        {
+            float emissiveDynamicPower[];
+        };
+        #include <Common/EmissiveLightsSampling.glslh>
+
+        // Emissive triangles sampled per texel and relight (the radiosity's temporal accumulation and the GI
+        // gathers that read many texels average them).
+        const uint kEmissiveSamplesPerTexel = 8u;
+
+        // A per-texel, per-frame random stream (PCG hash, as the radiosity's strata jitter).
+        uint EmissiveHash(uvec3 v)
+        {
+            v = v * 1664525u + 1013904223u;
+            v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+            v ^= v >> 16u;
+            v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+            return v.x ^ v.y ^ v.z;
+        }
+        float EmissiveRandom(inout uint state)
+        {
+            state = state * 747796405u + 2891336453u;
+            const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+            return float((word >> 22u) ^ word) * (1.0 / 4294967296.0);
+        }
 
         // The shadow of a light in direction @p L (unit, toward the light) at most @p maxT away, by a visibility ray
         // of the active tracer: 0 when the ray meets a surface, 1 otherwise. The ray leaves the texel by the
@@ -234,6 +324,59 @@ Shader "SurfaceCacheDirectLighting"
             const float dist    = length(toLight);
             return dist > 0.0 ? TracedShadow(worldPos, N, toLight / dist, LightSourceSphereAxisReach(dist, sourceRadius))
                               : 1.0;
+        }
+
+        // The emissive triangles' irradiance at the texel (front, +N, into @p irradiance; the far side, -N, into
+        // @p back on a subsurface texel): an unbiased estimate of kEmissiveSamplesPerTexel samples, each a triangle by
+        // power and a point on it by area (the path tracer's PathTracingSampleEmissive), radiance x |cos| / its
+        // solid-angle density, shadowed by the tracer's visibility ray. The ray stops short of the sampled point by
+        // a margin (the emitter's own surface is not its occluder); emission is two-sided (EmissiveLightsNormal).
+        void AddEmissiveLights(vec3 worldPos, vec3 N, bool through, uvec2 seed, inout vec3 irradiance, inout vec3 back)
+        {
+            if (EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts) == 0u ||
+                EmissiveLightsTotal(EmissiveCounts, EmissiveDynamicCounts) <= 0.0)
+                return;
+            uint        rng   = EmissiveHash(uvec3(seed, LightingFlags.y));
+            const float scale = 1.0 / float(kEmissiveSamplesPerTexel);
+            for (uint s = 0u; s < kEmissiveSamplesPerTexel; ++s)
+            {
+                const float pick     = EmissiveRandom(rng);
+                const vec2  u        = vec2(EmissiveRandom(rng), EmissiveRandom(rng));
+                const uint  triangle = EmissiveLightsPick(pick, EmissiveCounts, EmissiveDynamicCounts);
+                if (triangle >= EmissiveLightsTriangleCount(EmissiveCounts, EmissiveDynamicCounts))
+                    continue;
+                const EmissiveTriangle t       = EmissiveLightsTriangle(triangle, EmissiveCounts);
+                const vec3             toPoint = EmissiveLightsSamplePoint(t, u) - worldPos;
+                const float            dist    = length(toPoint);
+                if (dist <= 0.0)
+                    continue;
+                const vec3  L        = toPoint / dist;
+                const float NdotL    = dot(N, L);
+                const bool  front    = NdotL > 0.0;
+                if (!front && !(through && NdotL < 0.0))
+                    continue;
+                const float lightPdf = EmissiveLightsSolidAnglePdf(
+                    t, EmissiveLightsPickPdf(triangle, EmissiveCounts, EmissiveDynamicCounts), dist,
+                    dot(EmissiveLightsNormal(t), L));
+                if (!(lightPdf > 0.0))
+                    continue;
+                const uint            row     = floatBitsToUint(t.Edge2Segment.w);
+                const EmissiveSegment segment = triangle < EmissiveCounts.x ? emissiveSegments[row]
+                                                                            : emissiveDynamicSegments[row];
+                const vec3 radiance = segment.Radiance.rgb;
+                if (max(radiance.r, max(radiance.g, radiance.b)) <= 0.0)
+                    continue;
+                // Short of the sampled point by 1 % (the emitter's own triangles do not shadow it).
+                const vec3  side       = front ? N : -N;
+                const float visibility = TracedShadow(worldPos, side, L, dist * 0.99);
+                if (visibility <= 0.0)
+                    continue;
+                const vec3 contribution = radiance * abs(NdotL) * visibility * (scale / lightPdf);
+                if (front)
+                    irradiance += contribution;
+                else
+                    back += contribution;
+            }
         }
 
         layout(location = 0) in flat uint v_CardIndex;
@@ -333,6 +476,9 @@ Shader "SurfaceCacheDirectLighting"
                                      source.position, source.sourceRadius, worldPos, -N);
                 }
             }
+
+            // The emissive surfaces of the scene (THE EMISSIVE SURFACES AS LIGHTS above).
+            AddEmissiveLights(worldPos, N, through, uvec2(atlasTexel), irradiance, back);
 
             const vec3 albedo   = texelFetch(AtlasAlbedoTexture, atlasTexel, 0).rgb;
             const vec3 emissive = texelFetch(AtlasEmissiveTexture, atlasTexel, 0).rgb;

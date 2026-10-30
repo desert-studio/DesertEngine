@@ -719,12 +719,14 @@ namespace
         return { std::move( reconciled.Layout ), std::move( reconciled.Errors ) };
     }
 
+    // The mocks below are INTERNAL programs (no `Domain`): they hand-write both stages' push blocks to test the
+    // cross-stage reconciliation, and a `Domain Surface` generic program may not write a Vertex block (its vertex
+    // stage is the mesh vertex factory, Mesh/Surface/Vertex_Static.glslh). Reconciliation reads no domain.
     std::string MockTemplate( const std::string& extraProperties, const std::string& vertexPush,
                               const std::string& fragmentPush )
     {
         return R"(Shader "LayoutMock"
 {
-    Domain Surface
     Properties Binding(30) TextureBinding(31)
     {
         Color     Tint    ("Tint")    = (1, 1, 1, 1)
@@ -751,7 +753,6 @@ namespace
     {
         return R"(Shader "PushMock"
 {
-    Domain Surface
     Properties TextureBinding(31)
     {
         Texture2D MaskTexture ("Mask") = "white"

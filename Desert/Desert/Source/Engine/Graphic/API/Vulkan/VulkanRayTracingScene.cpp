@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <format>
 
 namespace Desert::Graphic::API::Vulkan
 {
@@ -36,7 +37,9 @@ namespace Desert::Graphic::API::Vulkan
             VkAccelerationStructureBuildGeometryInfoKHR build{
                  VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
             build.type          = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-            build.flags         = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+            // ALLOW_UPDATE on every build and size query alike: an update's source must have been built with it.
+            build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
+                          VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
             build.mode          = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
             build.geometryCount = 1;
             build.pGeometries   = &geometry;
@@ -61,7 +64,8 @@ namespace Desert::Graphic::API::Vulkan
         }
     } // namespace
 
-    Common::ResultStr<RayTracing::TlasBuildSizes> VulkanRayTracingScene::Prepare( uint32_t instanceCount )
+    Common::ResultStr<RayTracing::TlasBuildSizes> VulkanRayTracingScene::Prepare( uint32_t   instanceCount,
+                                                                                  const bool update )
     {
         using Sizes        = RayTracing::TlasBuildSizes;
         const auto logical = LogicalDevice();
@@ -123,14 +127,19 @@ namespace Desert::Graphic::API::Vulkan
                 return BOOLSUCCESS;
             };
         }
+        // Recreated storage resets m_BuiltInstances (Release): its first frame builds.
+        const bool updates = update && m_BuiltInstances == instanceCount;
         return Common::MakeSuccess(
-             Sizes{ frameSizes.buildScratchSize + kMaxAccelerationStructureScratchAlignment } );
+             Sizes{ .ScratchBytes = ( updates ? frameSizes.updateScratchSize : frameSizes.buildScratchSize ) +
+                                    kMaxAccelerationStructureScratchAlignment,
+                    .Update       = updates } );
     }
 
     Common::BoolResultStr VulkanRayTracingScene::RecordBuild( const RDG::PassContext&   context,
                                                               const RDG::BufferBinding& instances,
                                                               const RDG::BufferBinding& scratch,
-                                                              uint32_t                  instanceCount )
+                                                              const uint32_t            instanceCount,
+                                                              const bool                update )
     {
         const auto command = VulkanRdgBackend::CommandBufferOf( context );
         if ( !command )
@@ -144,6 +153,9 @@ namespace Desert::Graphic::API::Vulkan
         const auto logical = LogicalDevice();
         if ( !logical || m_Handle == VK_NULL_HANDLE )
             return Common::MakeError( "TLAS build recorded without a prepared acceleration structure" );
+        if ( update && m_BuiltInstances != instanceCount )
+            return Common::MakeError( std::format( "TLAS update of {} instances recorded over a build of {}",
+                                                       instanceCount, m_BuiltInstances ) );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
         const VkDevice                   device    = logical->GetVulkanLogicalDevice();
 
@@ -151,6 +163,11 @@ namespace Desert::Graphic::API::Vulkan
              TlasGeometry( ( functions.BufferAddress( device, instanceBuffer.GetValue()->GetBuffer() ) + instanceBuffer.GetValue()->GetOffset() ) );
         VkAccelerationStructureBuildGeometryInfoKHR build = TlasBuildInfo( geometry );
         build.dstAccelerationStructure                    = m_Handle;
+        if ( update )
+        {
+            build.mode                     = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+            build.srcAccelerationStructure = m_Handle; // in place
+        }
         build.scratchData.deviceAddress =
              AlignScratchAddress( ( functions.BufferAddress( device, scratchBuffer.GetValue()->GetBuffer() ) + scratchBuffer.GetValue()->GetOffset() ) );
 
@@ -158,6 +175,7 @@ namespace Desert::Graphic::API::Vulkan
         range.primitiveCount                                   = instanceCount;
         const VkAccelerationStructureBuildRangeInfoKHR* ranges = &range;
         functions.CmdBuildAccelerationStructures( command.GetValue(), 1, &build, &ranges );
+        m_BuiltInstances = instanceCount;
         return BOOLSUCCESS;
     }
 
@@ -177,6 +195,7 @@ namespace Desert::Graphic::API::Vulkan
         m_StorageBytes  = 0;
         m_Ledger        = ResourceOwnership{};
         m_Capacity      = 0;
+        m_BuiltInstances = kNoBuild;
         m_External      = RDG::ExternalBuffer{};
     }
 

@@ -232,7 +232,7 @@ namespace Desert::ECS::ProjectileMovement
                 if ( const Physics::BodyHandle body = BodyOf( registry, skip ); body != Physics::kInvalidBody )
                     flight.Ignore[flight.IgnoreCount++] = body;
 
-            auto&           transform   = projectiles.get<TransformComponent>( entity );
+            LocalTransform  transform   = projectiles.get<TransformComponent>( entity ).GetLocal();
             const glm::mat4 parentWorld = ParentWorld( registry, entity );
             glm::vec3       position    = glm::vec3( parentWorld * glm::vec4( transform.Translation, 1.0f ) );
             const glm::vec3 launched    = projectile.Data.Velocity;
@@ -242,6 +242,7 @@ namespace Desert::ECS::ProjectileMovement
             // UE: the rotation follows the velocity it flew this frame with.
             if ( projectile.Data.RotationFollowsVelocity && glm::length( launched ) > 1e-3f )
                 transform.Rotation = RotationAlong( launched, parentWorld );
+            SetLocalTransform( registry, entity, transform );
         }
         return result;
     }

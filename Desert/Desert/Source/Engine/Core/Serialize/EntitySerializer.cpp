@@ -52,9 +52,9 @@ namespace Desert::Core::Serialize
         if ( entity.HasComponent<ECS::TransformComponent>() )
         {
             const auto& tc  = entity.GetComponent<ECS::TransformComponent>();
-            data.Translation = tc.Translation;
-            data.Rotation    = tc.Rotation;
-            data.Scale       = tc.Scale;
+            data.Translation = tc.GetTranslation();
+            data.Rotation    = tc.GetRotation();
+            data.Scale       = tc.GetScale();
         }
 
         // ---- Components (generic, registry-driven), in the file's key order ----
@@ -81,10 +81,11 @@ namespace Desert::Core::Serialize
 
         if ( data.Translation || data.Rotation || data.Scale )
         {
-            auto& tc = entity.GetComponent<ECS::TransformComponent>();
-            if ( data.Translation ) tc.Translation = *data.Translation;
-            if ( data.Rotation )    tc.Rotation    = *data.Rotation;
-            if ( data.Scale )       tc.Scale       = *data.Scale;
+            ECS::LocalTransform local = entity.GetComponent<ECS::TransformComponent>().GetLocal();
+            if ( data.Translation ) local.Translation = *data.Translation;
+            if ( data.Rotation )    local.Rotation    = *data.Rotation;
+            if ( data.Scale )       local.Scale       = *data.Scale;
+            entity.SetLocalTransform( local );
         }
 
         // ---- Components (generic, registry-driven) ----

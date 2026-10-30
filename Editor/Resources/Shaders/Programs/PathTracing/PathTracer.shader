@@ -756,6 +756,78 @@ Shader "PathTracer"
                 radiance += contribution;
             }
 
+            // THE NEURAL RADIANCE CACHE'S SIDE OF THE TRACE (PATH_TRACING_NRC=1, the variant System::PathTracer runs
+            // under PathTracing.RadianceCache Nrc; Engine/Graphic/Neural/NeuralRadianceCache.hpp "WHERE THE PATH
+            // TRACER QUERIES IT" and "TRAINING PATHS" are the rules, Common/NeuralRadianceCache.glslh the records).
+            // Every path slot of the frame writes its query (Weight 0: the path did not end in the cache); training
+            // paths append their samples and self queries behind the counters.
+            #ifndef PATH_TRACING_NRC
+            #define PATH_TRACING_NRC 0
+            #endif
+            #if PATH_TRACING_NRC
+            #include <Common/NeuralRadianceCache.glslh>
+
+            layout(std430, binding = 30) writeonly buffer NrcQueriesUB
+            {
+                NrcQuery nrcQueries[];
+            };
+            layout(std430, binding = 31) writeonly buffer NrcTrainingSamplesUB
+            {
+                NrcTrainingSample nrcTrainingSamples[];
+            };
+            layout(std430, binding = 32) writeonly buffer NrcSelfQueriesUB
+            {
+                NrcVertex nrcSelfQueries[];
+            };
+            layout(std430, binding = 33) buffer NrcCountersUB
+            {
+                uint nrcCounters[];
+            };
+            // NeuralRadianceCache.hpp NrcTraceParams (a buffer: the push is full with the light grid's descriptor).
+            // NrcParams x = the query capacity of each path's segment (> 0: the cache), y = training tile side,
+            // z / w = this frame's pixel offset in the tile; NrcSpread x = spread threshold c, y = 1 training path in
+            // y never stops on the spread rule, z = the throughput below which a training vertex gives no sample.
+            layout(std430, binding = 34) readonly buffer NrcTraceParamsUB
+            {
+                uvec4 NrcParams;
+                vec4  NrcSpread;
+            };
+
+            // Where the last traced path ended in the cache (PathTracingTracePath -> main, which writes the query once
+            // the path's lobe sums are known): the vertex, the throughput reaching it (0: no query) and the first
+            // bounce's specular share (the composite splits the cached radiance between the denoiser's lobes by it).
+            // gNrcSlot: the query slot the path claimed in its segment (NRC_NO_SELF_QUERY: none).
+            NrcVertex gNrcVertex;
+            vec3      gNrcWeight;
+            vec3      gNrcShare;
+            uint      gNrcSlot;
+
+            // The image's path @p segment (its index in this frame's paths) asks to end in the cache: the demand is
+            // counted, and a slot of its segment is claimed - refused past the segment's capacity (NrcParams.x), and
+            // the path then goes on as without the cache (unbiased; the next frames' capacity follows the demand).
+            bool NrcClaimQuery(uint segment)
+            {
+                atomicAdd(nrcCounters[NRC_COUNTER_RENDER_QUERIES], 1u);
+                const uint slot = atomicAdd(nrcCounters[NRC_COUNTER_SEGMENTS + segment], 1u);
+                if (slot >= NrcParams.x)
+                    return false;
+                gNrcSlot = slot;
+                return true;
+            }
+
+            NrcVertex NrcVertexAt(vec3 P, vec3 V, vec3 N, PathTracingMaterial m)
+            {
+                return NrcPackVertex(P, V, N, m.Roughness, MegaLightsDiffuseReflectance(m.BaseColor, m.Metallic),
+                                     MegaLightsSpecularReflectance(m.BaseColor, m.Metallic, m.Roughness, N, V));
+            }
+
+            // Per channel a / b, 0 where b is 0 (a lobe without reflectance carries nothing to remodulate).
+            vec3 NrcSafeDivide(vec3 a, vec3 b)
+            {
+                return vec3(b.x > 0.0 ? a.x / b.x : 0.0, b.y > 0.0 ? a.y / b.y : 0.0, b.z > 0.0 ? a.z / b.z : 0.0);
+            }
+            #endif
+
             // One path of the pixel: the camera ray, then up to Counts.w bounces. @p sampleIndex is the path's index
             // in the pixel's accumulation (paths summed before it + its place in this frame), so every path of the
             // pixel since the restart draws its own random sequence.
@@ -817,6 +889,39 @@ Shader "PathTracer"
                 // The ray is still the camera's: no material vertex scattered it yet (glass interfaces are delta
                 // lobes and keep it), so what it meets is not clamped (PathTracingAccumulate).
                 bool cameraRay  = true;
+            #if PATH_TRACING_NRC
+                // The spread (NeuralRadianceCache.hpp): a0 of the camera segment, a summed from the second opaque
+                // surface on; a segment is the distance travelled since the last opaque vertex (glass crossings
+                // summed: an interface neither grows the spread nor ends the path) and its density the BSDF's at
+                // that vertex. The training path is the pixel's first of the frame in the tile's chosen pixel.
+                const bool nrcOn       = NrcParams.x != 0u;
+                const bool nrcTraining = nrcOn && sampleIndex == Counts.z && all(equal(uvec2(pixel) % NrcParams.y, NrcParams.zw));
+                const bool nrcUnbiased = nrcTraining &&
+                    PathTracingHash(uint(pixel.x) / NrcParams.y + PathTracingHash(uint(pixel.y) / NrcParams.y + PathTracingHash(SkyParams.z))) %
+                            max(uint(NrcSpread.y), 1u) == 0u;
+                uint  nrcSurfaces      = 0u;
+                float nrcA0            = 0.0;
+                float nrcSpread        = 0.0;
+                float nrcSegment       = 0.0;
+                float nrcPdf           = 0.0;
+                bool  nrcImageEnded    = false; // the image's path ended in the cache; a training path goes on
+                vec3  nrcImageRadiance = vec3(0.0);
+                // A training path's vertices: features, the throughput reaching them and the radiance summed when
+                // their emission was added; its end in the cache (the self query), if the suffix ended there.
+                NrcVertex nrcVertices[NRC_MAX_TRAINING_VERTICES];
+                vec3      nrcThroughputs[NRC_MAX_TRAINING_VERTICES];
+                vec3      nrcRadiances[NRC_MAX_TRAINING_VERTICES];
+                uint      nrcVertexCount   = 0u;
+                bool      nrcSelf          = false;
+                NrcVertex nrcEnd;
+                nrcEnd.A                   = uvec4(0u);
+                nrcEnd.B                   = uvec4(0u);
+                vec3      nrcEndThroughput = vec3(0.0);
+                gNrcWeight                 = vec3(0.0);
+                gNrcShare                  = vec3(0.0);
+                gNrcVertex                 = nrcEnd;
+                gNrcSlot                   = NRC_NO_SELF_QUERY;
+            #endif
                 for (uint bounce = 0u;; ++bounce)
                 {
                     PathTracingTraceMaterial(origin, dir, coneWidth);
@@ -836,6 +941,9 @@ Shader "PathTracer"
                         break;
                     }
                     throughput *= exp(-absorption * payload.HitT);
+            #if PATH_TRACING_NRC
+                    nrcSegment += payload.HitT;
+            #endif
                     const vec3 P = origin + dir * payload.HitT;
                     const vec3 N = payload.Normal;
                     const vec3 V = -dir;
@@ -895,6 +1003,55 @@ Shader "PathTracer"
                         // Its own emission (added above) and all before it is E; the rest the path adds is R.
                         unmodulated = radiance;
                     }
+            #if PATH_TRACING_NRC
+                    if (nrcOn)
+                    {
+                        // After the vertex's emission, before its light samples: the spread rule or the bounce limit
+                        // ends the image's path here (never at the first surface), and the suffix of a training path
+                        // by the same rule measured again from that vertex (the unbiased 1 in N only at the limit).
+                        ++nrcSurfaces;
+                        const float cosTheta = max(abs(dot(N, V)), 1.0e-4);
+                        if (nrcSurfaces == 1u)
+                            nrcA0 = nrcSegment * nrcSegment / (4.0 * PI * cosTheta);
+                        else
+                            nrcSpread += sqrt(nrcSegment * nrcSegment / max(nrcPdf * cosTheta, 1.0e-20));
+                        nrcSegment             = 0.0;
+                        const NrcVertex vertex = NrcVertexAt(P, V, N, m);
+                        const bool      limit  = bounce >= Counts.w;
+                        const bool      spread = nrcSpread * nrcSpread > NrcSpread.x * nrcA0;
+                        if (!nrcImageEnded && nrcSurfaces >= 2u && (spread || limit) && NrcClaimQuery(sampleIndex - Counts.z))
+                        {
+                            gNrcVertex       = vertex;
+                            gNrcWeight       = throughput;
+                            nrcImageEnded    = true;
+                            nrcImageRadiance = radiance;
+                            if (!nrcTraining)
+                                break;
+                            nrcSpread = 0.0;
+                            if (limit)
+                            {
+                                nrcSelf          = true;
+                                nrcEnd           = vertex;
+                                nrcEndThroughput = throughput;
+                                break;
+                            }
+                        }
+                        else if (nrcImageEnded && (limit || (spread && !nrcUnbiased)))
+                        {
+                            nrcSelf          = true;
+                            nrcEnd           = vertex;
+                            nrcEndThroughput = throughput;
+                            break;
+                        }
+                        if (nrcTraining && nrcVertexCount < NRC_MAX_TRAINING_VERTICES)
+                        {
+                            nrcVertices[nrcVertexCount]    = vertex;
+                            nrcThroughputs[nrcVertexCount] = throughput;
+                            nrcRadiances[nrcVertexCount]   = radiance;
+                            ++nrcVertexCount;
+                        }
+                    }
+            #endif
                     const vec3  next  = P + N * offset;
                     const PathTracingLightChoice choice = PathTracingChooseLights(m, P, N, V, rng);
                     // Each light sample is shared between the lobes by its own direction's f * cos (a sampler that
@@ -925,6 +1082,9 @@ Shader "PathTracer"
                     const vec3 L = PathTracingSampleBsdf(m, N, V, rng);
                     bsdfPdf      = PathTracingBsdfPdf(m, N, V, L);
                     pastGlass    = false;
+            #if PATH_TRACING_NRC
+                    nrcPdf = bsdfPdf;
+            #endif
                     if (bsdfPdf <= 0.0)
                         break;
                     throughput *= PathTracingBsdfCos(m, N, V, L) / bsdfPdf;
@@ -948,6 +1108,51 @@ Shader "PathTracer"
                     origin = next;
                     dir    = L;
                 }
+            #if PATH_TRACING_NRC
+                if (nrcTraining)
+                {
+                    // The training path's samples: vertex i learns L_i = (R_end - R_i) / T_i + (T_end / T_i) *
+                    // cache(x_end), the second term through its self query (none past the capacity: the sample
+                    // then learns the first term alone). A non-finite path gives none.
+                    atomicAdd(nrcCounters[NRC_COUNTER_TRAINING_PATHS], 1u);
+                    if (!any(isnan(radiance)) && !any(isinf(radiance)))
+                    {
+                        uint selfIndex = NRC_NO_SELF_QUERY;
+                        if (nrcSelf)
+                        {
+                            const uint q = atomicAdd(nrcCounters[NRC_COUNTER_SELF_QUERIES], 1u);
+                            if (q < NRC_MAX_TRAINING_PATHS)
+                            {
+                                nrcSelfQueries[q] = nrcEnd;
+                                selfIndex         = q;
+                            }
+                        }
+                        uint samples = 0u;
+                        for (uint i = 0u; i < nrcVertexCount; ++i)
+                            if (all(greaterThanEqual(nrcThroughputs[i], vec3(NrcSpread.z))))
+                                ++samples;
+                        uint slot = samples > 0u ? atomicAdd(nrcCounters[NRC_COUNTER_TRAINING_SAMPLES], samples) : 0u;
+                        for (uint i = 0u; i < nrcVertexCount && slot < NRC_TRAINING_SAMPLES; ++i)
+                        {
+                            const vec3 t = nrcThroughputs[i];
+                            if (!all(greaterThanEqual(t, vec3(NrcSpread.z))))
+                                continue;
+                            NrcTrainingSample trainingSample;
+                            trainingSample.Vertex     = nrcVertices[i];
+                            trainingSample.Radiance   = vec4((radiance - nrcRadiances[i]) / t, uintBitsToFloat(selfIndex));
+                            trainingSample.Throughput = vec4(selfIndex != NRC_NO_SELF_QUERY ? nrcEndThroughput / t : vec3(0.0), 0.0);
+                            nrcTrainingSamples[slot]  = trainingSample;
+                            ++slot;
+                        }
+                    }
+                }
+                // The image keeps what its path gathered up to the cache vertex; the composite adds the cache there.
+                if (nrcImageEnded)
+                    radiance = nrcImageRadiance;
+                if (any(isnan(gNrcWeight)) || any(isinf(gNrcWeight)))
+                    gNrcWeight = vec3(0.0);
+                gNrcShare = bounceShare;
+            #endif
                 // A NaN or infinite path would poison every later sample of the pixel: it is dropped (counted as
                 // black), as UE's accumulation does.
                 if (any(isnan(radiance)) || any(isinf(radiance)))
@@ -956,6 +1161,9 @@ Shader "PathTracer"
                     unmodulated    = vec3(0.0);
                     specularDirect = vec3(0.0);
                     bounced        = false;
+            #if PATH_TRACING_NRC
+                    gNrcWeight = vec3(0.0);
+            #endif
                 }
                 if (guided)
                 {
@@ -998,6 +1206,28 @@ Shader "PathTracer"
                     hitSum += guide.Hit;
                     diffuseSum += vec4(guide.Diffuse, d * d);
                     lobeSum += vec4(guide.SpecularLobe, l * l);
+            #if PATH_TRACING_NRC
+                    if (NrcParams.x != 0u)
+                    {
+                        // A claimed slot is always written: Throughput 0 (a path dropped as NaN after its claim)
+                        // tells the composite to add nothing. The lobe weights carry the first bounce's share over
+                        // that surface's reflectance and the path's lobe luminance before the cache (the composite
+                        // completes lum^2).
+                        if (gNrcSlot != NRC_NO_SELF_QUERY)
+                        {
+                            const bool   cached = any(greaterThan(gNrcWeight, vec3(0.0)));
+                            NrcQueryData data;
+                            data.Throughput     = cached ? gNrcWeight : vec3(0.0);
+                            data.DiffuseWeight  = vec4(cached ? NrcSafeDivide(gNrcWeight * (1.0 - gNrcShare), guide.Albedo.rgb) : vec3(0.0), d);
+                            data.SpecularWeight = vec4(cached ? NrcSafeDivide(gNrcWeight * gNrcShare, guide.Specular.rgb) : vec3(0.0), l);
+                            data.Pixel          = uint(pixel.y) * uint(size.x) + uint(pixel.x);
+                            NrcQuery query;
+                            query.Vertex = gNrcVertex;
+                            NrcPackQuery(data, query.Lobes, query.Weight);
+                            nrcQueries[s * NrcParams.x + gNrcSlot] = query;
+                        }
+                    }
+            #endif
                 }
                 const bool overwrite = Counts.z == 0u;
                 const vec4 previous  = overwrite ? vec4(0.0) : imageLoad(AccumulationTexture, pixel);

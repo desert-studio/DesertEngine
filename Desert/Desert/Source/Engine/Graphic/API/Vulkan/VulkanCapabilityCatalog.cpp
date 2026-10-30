@@ -111,6 +111,17 @@ namespace Desert::Graphic::API::Vulkan
         catalog.MaxRenderArea  = probe.MaxRenderArea;
         catalog.FragmentStores = probe.Caps.Has( Capability::FragmentStoresAndAtomics );
 
+        // GPU sharing (OIDN on the path tracer's buffers): the extensions enabled AND the driver exporting both a
+        // storage buffer and a timeline semaphore of that handle type. Win32 first (the Windows handle type).
+        if ( probe.Caps.Has( Capability::ExternalMemoryWin32 ) &&
+             probe.Caps.Has( Capability::ExternalSemaphoreWin32 ) && probe.ExternalBufferExportWin32 &&
+             probe.ExternalTimelineExportWin32 )
+            catalog.Sharing = Common::Scalability::GpuSharing::Win32;
+        else if ( probe.Caps.Has( Capability::ExternalMemoryFd ) &&
+                  probe.Caps.Has( Capability::ExternalSemaphoreFd ) && probe.ExternalBufferExportFd &&
+                  probe.ExternalTimelineExportFd )
+            catalog.Sharing = Common::Scalability::GpuSharing::Fd;
+
         // Ray tracing: the pipeline is never offered through portability (MoltenVK has no SBT path even when a
         // feature bit leaks through).
         catalog.RayTracingModes.push_back( RayTracingMode::None );

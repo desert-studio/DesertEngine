@@ -41,7 +41,9 @@ namespace Desert::Assets
     inline constexpr uint32_t kMeshAssetSubsystemTag     = Common::Content::FourCC( "MSAS" );
     // 2 (DISPLACE): IMPT states the mesh's displacement mode and bake settings; Tools/SceneMigrator raises a
     // version-1 asset (UpgradeMeshSourceAsset: mode None, default bake settings).
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 2;
+    // 3 (VIRT-GEOM): IMPT states MeshImportSettings::VirtualGeometry; a version-1 or -2 asset is raised with it
+    // off.
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 3;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -112,6 +114,10 @@ namespace Desert::Assets
         // the displacement buckets key on it themselves.
         MeshDisplacementMode         Displacement = MeshDisplacementMode::None;
         MeshDisplacementBakeSettings DisplacementBake;
+        // UE FMeshNaniteSettings::bEnabled: the cook builds the submeshes' cluster LOD DAG
+        // (Geometry/ClusterDag.hpp) into the "StaticMesh" record, and the discrete LOD chain is cut from that DAG.
+        // In the render-data key.
+        bool                         VirtualGeometry                               = false;
         bool                         operator==( const MeshImportSettings& ) const = default;
     };
 
@@ -229,9 +235,9 @@ namespace Desert::Assets
     Common::ResultStr<MeshSourceAsset>        ReadMeshSourceAssetFile( const std::filesystem::path& file );
     Common::BoolResultStr                     WriteMeshSourceAssetFile( const std::filesystem::path& file,
                                                                         const MeshSourceAsset&       asset );
-    // SceneMigrator's step for an MSAS 1 asset (IMPT without displacement): the same asset at the current version
-    // with Displacement = None and default bake settings. nullopt = already current; an error = not a mesh asset
-    // or unreadable at either version.
+    // SceneMigrator's step for an MSAS 1 or 2 asset (IMPT without displacement / without VirtualGeometry): the
+    // same asset at the current version with Displacement = None and default bake settings (from 1),
+    // VirtualGeometry off. nullopt = already current; an error = not a mesh asset or unreadable at either version.
     Common::ResultStr<std::optional<std::vector<std::byte>>> UpgradeMeshSourceAsset( std::span<const std::byte> file );
 
     std::string_view                    MeshSourceUpAxisName( MeshSourceUpAxis axis );

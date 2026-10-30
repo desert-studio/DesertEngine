@@ -11,6 +11,8 @@
 
 #include <array>
 #include <cstdint>
+#include <format>
+#include <iterator>
 #include <string>
 #include <string_view>
 
@@ -67,6 +69,24 @@ namespace Desert::Graphic::ShaderProtocols
                    "a scene protocol block is generated on a slot another protocol, a lit program's own resource "
                    "(material row / terrain layer arrays) or a reserved range already holds" );
 
+    /// The include path of the set-0/set-1 slot table (Core::kSceneBindingNames, ShaderGraphBindings.hpp): every
+    /// scene-read, fog, virtual shadow, virtual geometry and graph-window slot as `#define <C++ name> <number>`,
+    /// so a shader declares `layout( binding = kSceneFogVolumeBinding )` and never repeats the number.
+    inline constexpr std::string_view kSceneBindingsInclude = "Generated/SceneBindings.glslh";
+
+    [[nodiscard]] inline const std::string& SceneBindingsGlsl()
+    {
+        static const std::string glsl = []
+        {
+            std::string defines;
+            for ( const Core::SceneBindingName& row : Core::kSceneBindingNames )
+                std::format_to( std::back_inserter( defines ), "#define {} {}\n", row.Name, row.Value );
+            return GenerateGuardedGlsl( "DESERT_SCENE_BINDINGS_GLSLH",
+                                        "Engine/Core/ShaderCompiler/ShaderGraphBindings.hpp", defines );
+        }();
+        return glsl;
+    }
+
     /// THE INCLUDES WHOSE TEXT IS GENERATED FROM A C++ PROTOCOL (Std140Block.hpp uniform blocks, VertexInputs.hpp
     /// vertex inputs) rather than read from disk.
     /// @p requested is an angle include's shader-root-relative path, normalised with '/' separators. Asked by the
@@ -96,6 +116,8 @@ namespace Desert::Graphic::ShaderProtocols
             return &MeshVertexAccessIncludeGlsl();
         if ( requested == kUIVertexInputsInclude )
             return &UIVertexInputsGlsl();
+        if ( requested == kSceneBindingsInclude )
+            return &SceneBindingsGlsl();
         return nullptr;
     }
 } // namespace Desert::Graphic::ShaderProtocols

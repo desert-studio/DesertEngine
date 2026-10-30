@@ -6,10 +6,13 @@
 
 #include <cstdint>
 
+#include <span>
+
 namespace Desert::Graphic
 {
     class RendererAPI;
-}
+    class MaterialExecutor;
+} // namespace Desert::Graphic
 
 namespace Desert::Graphic::RDG
 {
@@ -62,12 +65,16 @@ namespace Desert::Graphic::GpuDriven
     // THE one decision point: multiDrawIndirect ? Multi : PerRecord.
     [[nodiscard]] IndirectSubmissionMode SelectIndirectSubmission( const IndirectDrawCapabilities& capabilities );
 
-    // Records one pass's groups from a phase's CulledDraws inside the pass's exec: per group, bind its pipeline
-    // and geometry buffers, then the draws as above. The pass declared IndirectDraws as Access::IndirectArgs and
-    // VisibleInstances + the GpuScene / pass tables as storage reads. Refused for an undeclared buffer or a group
-    // without pipeline or geometry.
-    [[nodiscard]] Common::BoolResultStr RecordIndirectGroups( RendererAPI& api, const RDG::PassBindings& bindings,
-                                                              const IndirectSubmissionMode& mode,
-                                                              const PassDrawTable&          pass,
-                                                              const CulledDraws&            draws );
+    // Records one pass's groups from one view's CulledDraws inside the pass's exec: per group, bind its pipeline,
+    // the block its shader was declared with (@p groupBindings[group]) and the view's carrier of the scene blocks
+    // (@p groupMaterials[group], may be null), the geometry buffers and the identity row stream up to
+    // draws.VisibleRowEnd, then the view's records [draws.FirstIndirectDraw + group.FirstBin, +BinCount) as above.
+    // The pass declared IndirectDraws as Access::IndirectArgs and VisibleInstances + the GpuScene / pass tables as
+    // storage reads. Refused for an undeclared buffer, a non-empty group without pipeline, geometry or block, or
+    // spans not sized to the pass's groups.
+    [[nodiscard]] Common::BoolResultStr
+    RecordIndirectGroups( RendererAPI& api, std::span<const RDG::PassBindings* const> groupBindings,
+                          std::span<const MaterialExecutor* const> groupMaterials,
+                          const IndirectSubmissionMode& mode, const PassDrawTable& pass,
+                          const CulledDraws& draws );
 } // namespace Desert::Graphic::GpuDriven

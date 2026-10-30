@@ -5,6 +5,7 @@
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Graphic/API/NeuralComputeCaps.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -44,6 +45,13 @@ namespace Desert::Engine
         uint32_t VendorId      = 0;
         uint32_t DeviceId      = 0;
         uint32_t DriverVersion = 0;
+        /// The physical device's identity across APIs (Vulkan VkPhysicalDeviceIDProperties::deviceUUID /
+        /// deviceLUID): the key another runtime on the same GPU is opened by. Reader: the OIDN denoiser
+        /// (Graphic/Denoise/OidnDenoiser.cpp, oidnNewDeviceByUUID), which must run on THIS GPU. All zero when the
+        /// driver did not report it; DeviceLuidValid is false off Windows.
+        std::array<uint8_t, 16> DeviceUuid{};
+        std::array<uint8_t, 8>  DeviceLuid{};
+        bool                    DeviceLuidValid = false;
 
         // --- Memory ---------------------------------------------------------------------------------
         /// Total device-local heap in bytes. 0 when it could not be determined. Used to decide whether the
@@ -98,6 +106,11 @@ namespace Desert::Engine
         /// Sampling + blending into 32-bit float colour targets. Every screen-space pass that accumulates
         /// (SSR trace/resolve, GI resolve, bloom) writes RGBA32F, so this gates them.
         bool SupportsFloatRenderTargets = false;
+
+        /// bufferDeviceAddress (core 1.2, its own DeviceCaps row, enabled whenever supported - independent of
+        /// ray tracing): mesh buffers are addressable and the GI emissive light list can be built for either
+        /// tracer. Readers: SurfaceCache (whether to build the list) and DesertCtl `state device`.
+        bool SupportsBufferDeviceAddress = false;
 
         // --- Ray tracing hidden by the machine (NO-RT) ------------------------------------------------
         /// machine.json "HideRayTracing": the backend probed this device as one without ray tracing (Catalog

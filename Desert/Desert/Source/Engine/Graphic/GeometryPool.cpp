@@ -278,15 +278,16 @@ namespace Desert::Graphic
     {
         m_Arenas[static_cast<std::size_t>( range.Arena )].Pages[range.VertexPage].Spans.Give(
              range.BaseVertex, RoundUp( range.VertexCount, VertexGranule( range.Arena ) ) );
-        if ( range.IndexCount != 0 )
-            m_IndexPages[range.IndexPage].Spans.Give( range.FirstIndex,
-                                                      RoundUp( range.IndexCount, Granule( kGeometryIndexStride ) ) );
+        if ( range.IndexSpanCount() != 0 )
+            m_IndexPages[range.IndexPage].Spans.Give(
+                 range.FirstIndex, RoundUp( range.IndexSpanCount(), Granule( kGeometryIndexStride ) ) );
     }
 
     Common::BoolResultStr GeometryPool::RT_Write( const GeometryPoolRange&           range,
                                                   std::span<const std::byte>         vertices,
                                                   std::span<const MeshVertexStreams> streams,
-                                                  std::span<const uint32_t>          indices )
+                                                  std::span<const uint32_t>          indices,
+                                                  std::span<const uint32_t>          clusterWords )
     {
         const VertexPage& page   = m_Arenas[static_cast<std::size_t>( range.Arena )].Pages[range.VertexPage];
         const uint64_t    stride = GeometryArenaVertexStride( range.Arena );
@@ -312,13 +313,21 @@ namespace Desert::Graphic
                                                               indices.data(), indices.size_bytes() );
                  !wrote.IsSuccess() )
                 return Common::MakeFormattedError<bool>( "GeometryPool: index upload: {}", wrote.GetError() );
+        if ( !clusterWords.empty() )
+            if ( const auto wrote = m_IndexPages[range.IndexPage].Indices->RT_WriteRange(
+                      ( uint64_t{ range.FirstIndex } + range.IndexCount ) * kGeometryIndexStride,
+                      clusterWords.data(), clusterWords.size_bytes() );
+                 !wrote.IsSuccess() )
+                return Common::MakeFormattedError<bool>( "GeometryPool: cluster word upload: {}",
+                                                         wrote.GetError() );
         return Common::MakeSuccess( true );
     }
 
     Common::ResultStr<GeometryPoolAllocation> GeometryPool::RT_Upload( const GeometryArena                arena,
                                                                        std::span<const std::byte>         vertices,
                                                                        std::span<const MeshVertexStreams> streams,
-                                                                       std::span<const uint32_t>          indices )
+                                                                       std::span<const uint32_t>          indices,
+                                                                       std::span<const uint32_t> clusterWords )
     {
         const uint64_t stride = GeometryArenaVertexStride( arena );
         if ( vertices.empty() || vertices.size() % stride != 0 )
@@ -330,6 +339,14 @@ namespace Desert::Graphic
             return Common::MakeFormattedError<GeometryPoolAllocation>(
                  "GeometryPool: {} streams for {} vertices (a stream per vertex, or none)", streams.size(),
                  vertexCount );
+        if ( !clusterWords.empty() && indices.empty() )
+            return Common::MakeFormattedError<GeometryPoolAllocation>(
+                 "GeometryPool: {} cluster words without indices (they live in the index span)",
+                 clusterWords.size() );
+        if ( indices.size() + clusterWords.size() > std::numeric_limits<uint32_t>::max() )
+            return Common::MakeFormattedError<GeometryPoolAllocation>(
+                 "GeometryPool: {} indices + {} cluster words pass 2^32 elements", indices.size(),
+                 clusterWords.size() );
 
         std::lock_guard lock( m_Mutex );
         Arena&          target     = m_Arenas[static_cast<std::size_t>( arena )];
@@ -345,7 +362,8 @@ namespace Desert::Graphic
         range.VertexCount = static_cast<uint32_t>( vertexCount );
         if ( !indices.empty() )
         {
-            const auto first = RT_TakeIndices( RoundUp( indices.size(), Granule( kGeometryIndexStride ) ) );
+            const auto first = RT_TakeIndices(
+                 RoundUp( indices.size() + clusterWords.size(), Granule( kGeometryIndexStride ) ) );
             if ( !first.IsSuccess() )
             {
                 target.Pages[range.VertexPage].Spans.Give( range.BaseVertex, vertexSpan );
@@ -353,9 +371,10 @@ namespace Desert::Graphic
             }
             range.IndexPage  = first.GetValue().Page;
             range.FirstIndex = static_cast<uint32_t>( first.GetValue().First );
-            range.IndexCount = static_cast<uint32_t>( indices.size() );
+            range.IndexCount       = static_cast<uint32_t>( indices.size() );
+            range.ClusterWordCount = static_cast<uint32_t>( clusterWords.size() );
         }
-        if ( const auto wrote = RT_Write( range, vertices, streams, indices ); !wrote.IsSuccess() )
+        if ( const auto wrote = RT_Write( range, vertices, streams, indices, clusterWords ); !wrote.IsSuccess() )
         {
             GiveBack( range );
             return Common::MakeError<GeometryPoolAllocation>( wrote.GetError() );
@@ -486,13 +505,14 @@ namespace Desert::Graphic
         const VertexPage&        page  = m_Arenas[static_cast<std::size_t>( range.Arena )].Pages[range.VertexPage];
         geometry.Vertices              = page.Vertices;
         geometry.Streams               = page.Streams;
-        geometry.Indices               = range.IndexCount != 0 ? m_IndexPages[range.IndexPage].Indices : nullptr;
+        geometry.Indices = range.IndexSpanCount() != 0 ? m_IndexPages[range.IndexPage].Indices : nullptr;
         geometry.VertexStride          = GeometryArenaVertexStride( range.Arena );
         geometry.VertexByteOffset      = uint64_t{ range.BaseVertex } * geometry.VertexStride;
         geometry.StreamByteOffset      = uint64_t{ range.BaseVertex } * kGeometryStreamStride;
         geometry.IndexByteOffset       = uint64_t{ range.FirstIndex } * kGeometryIndexStride;
         geometry.VertexCount           = range.VertexCount;
         geometry.IndexCount            = range.IndexCount;
+        geometry.ClusterWordCount      = range.ClusterWordCount;
         geometry.AuthoredStreams       = authoredStreams;
         geometry.Pooled                = range;
         return geometry;

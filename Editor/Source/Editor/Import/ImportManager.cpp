@@ -395,6 +395,43 @@ namespace Desert::Editor
             return Common::MakeFormattedError<bool>( "'{}' material adoption refused: {}", sourcePath.string(),
                                                      adopted.GetError() );
 
+        // THE MATERIALS ARE WRITTEN BEFORE THE MESHES: the import judges a mesh's Virtual Geometry flag by the
+        // .demat each submesh draws (VirtualGeometryGate.hpp), so that file must already be the one the project
+        // holds - written here, or adopted above.
+        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
+        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
+        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
+        // thumbnails.
+        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap), or, by
+        // default (FromImage), what its texels say (ResolveFbxSpecularMap); the template's rows then route it like
+        // any other key. Every map's meaning read from its image is logged with the material.
+        for ( const auto& material : resolved.Materials )
+        {
+            const auto meaning = ResolveFbxSpecularMap( material.Source, settings.SpecularMap );
+            if ( !meaning )
+            {
+                record( Common::MakeError<bool>( meaning.GetError() ) );
+                continue;
+            }
+            if ( settings.SpecularMap == Assets::FbxSpecularMap::FromImage &&
+                 material.Source.Has( kFbxSpecularMapKey ) )
+                LOG_INFO( "[Import] '{}' material '{}': FBX Specular map read from its texels as {}{}",
+                          sourcePath.filename().string(), material.Source.Name,
+                          Assets::FbxSpecularMapName( meaning.GetValue() ),
+                          meaning.GetValue() == Assets::FbxSpecularMap::RoughnessMetallic
+                               ? " (R is 0 on every texel, G/B carry data: roughness G, metalness B)"
+                               : " (R carries data: FBX's specular colour)" );
+            ImportedMaterial stated = material;
+            auto             routed = WithFbxSpecularMap( std::move( stated.Source ), meaning.GetValue() );
+            if ( !routed )
+            {
+                record( Common::MakeError<bool>( routed.GetError() ) );
+                continue;
+            }
+            stated.Source = routed.ExtractValue();
+            record( SerializeMaterialAsset( stated, sourcePath, pass ) );
+        }
+
         // IMPORT OPTIONS REACH EVERY MESH OF THE FILE (UE FBX Import Options): a static mesh carries them in its
         // source and the deriver applies them; a skinned mesh, its skeleton and its clips are written in render
         // form, so Uniform Scale / Up Axis are baked into all three here (SourceToEngine.hpp) and LOD Generate
@@ -559,40 +596,6 @@ namespace Desert::Editor
                           resolved.Lights.size() );
         }
 
-        // NO PREVIEW MESH FROM THE IMPORT (owner, THM1j): an imported material's thumbnail is the ball, as in UE,
-        // masked materials included (the mesh path's alpha discard cuts the ball). PreviewMesh stays the manual
-        // "Thumbnail Mesh" setting of the Material Editor; the pack's tufts are shown by the node meshes' own
-        // thumbnails.
-        // The FBX Specular map means what the user stated it means (SourceImportSettings::SpecularMap), or, by
-        // default (FromImage), what its texels say (ResolveFbxSpecularMap); the template's rows then route it like
-        // any other key. Every map's meaning read from its image is logged with the material.
-        for ( const auto& material : resolved.Materials )
-        {
-            const auto meaning = ResolveFbxSpecularMap( material.Source, settings.SpecularMap );
-            if ( !meaning )
-            {
-                record( Common::MakeError<bool>( meaning.GetError() ) );
-                continue;
-            }
-            if ( settings.SpecularMap == Assets::FbxSpecularMap::FromImage &&
-                 material.Source.Has( kFbxSpecularMapKey ) )
-                LOG_INFO( "[Import] '{}' material '{}': FBX Specular map read from its texels as {}{}",
-                          sourcePath.filename().string(), material.Source.Name,
-                          Assets::FbxSpecularMapName( meaning.GetValue() ),
-                          meaning.GetValue() == Assets::FbxSpecularMap::RoughnessMetallic
-                               ? " (R is 0 on every texel, G/B carry data: roughness G, metalness B)"
-                               : " (R carries data: FBX's specular colour)" );
-            ImportedMaterial stated = material;
-            auto             routed = WithFbxSpecularMap( std::move( stated.Source ), meaning.GetValue() );
-            if ( !routed )
-            {
-                record( Common::MakeError<bool>( routed.GetError() ) );
-                continue;
-            }
-            stated.Source = routed.ExtractValue();
-            record( SerializeMaterialAsset( stated, sourcePath, pass ) );
-        }
-
         if ( !firstFailure.empty() )
             return Common::MakeError<bool>( firstFailure );
         // THE IMPORT IS COMPLETE: its record states the bytes it read (SkinnedImportIsFresh reads them back). Only
@@ -700,6 +703,17 @@ namespace Desert::Editor
             const std::scoped_lock lock( s_TemplatesMutex );
             return s_Templates;
         }
+
+        // Every loaded shader's BlendMode by header GUID (VIRT-GEOM import gate): a material's blend is its
+        // shader's, whether or not that shader declares an Import block. Published beside the templates, from the
+        // same registry walk, and swapped under the same lock.
+        std::shared_ptr<const std::vector<ShaderBlendRow>> s_ShaderBlends;
+
+        std::shared_ptr<const std::vector<ShaderBlendRow>> ShaderBlends()
+        {
+            const std::scoped_lock lock( s_TemplatesMutex );
+            return s_ShaderBlends;
+        }
     } // namespace
 
     std::size_t ImportManager::PublishImportTemplates( const Assets::AssetManager& manager )
@@ -707,14 +721,23 @@ namespace Desert::Editor
         const std::filesystem::path resources =
              std::filesystem::path( Common::Constants::Path::SHADERDIR_PATH ).parent_path().parent_path();
         std::vector<ImportTemplate> templates;
+        std::vector<ShaderBlendRow> blends;
+        std::size_t                 unreadBlends = 0;
         for ( const auto& [handle, shader] : manager.FindAllByType<Assets::ShaderAsset>() )
         {
             if ( !shader->IsReadyForUse() )
                 continue;
             const std::filesystem::path& file = shader->GetMetadata().Filepath;
-            auto                         read = ReadImportTemplate(
-                 shader->GetShaderContent(),
-                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() ) );
+            const std::string            locator =
+                 std::format( "engine:{}", std::filesystem::relative( file, resources ).generic_string() );
+            // A shader the DSL parser does not read (an engine-internal pass without a Shader block) has no
+            // BlendMode: a material naming it is refused Virtual Geometry as "blend unknown", never guessed
+            // Opaque.
+            if ( auto blend = ReadShaderBlend( shader->GetShaderContent(), locator ) )
+                blends.push_back( blend.ExtractValue() );
+            else
+                ++unreadBlends;
+            auto read = ReadImportTemplate( shader->GetShaderContent(), locator );
             // A shader the readers refuse cannot take a material, and saying so is the refusal.
             if ( !read )
             {
@@ -723,7 +746,30 @@ namespace Desert::Editor
             else if ( read.GetValue().Manifest.DeclaresImport )
                 templates.push_back( read.ExtractValue() );
         }
+        LOG_INFO( "[Import] shader blend modes published: {} read, {} without a DSL BlendMode", blends.size(),
+                  unreadBlends );
+        PublishShaderBlends( std::move( blends ) );
         return PublishImportTemplates( std::move( templates ) );
+    }
+
+    void ImportManager::PublishShaderBlends( std::vector<ShaderBlendRow> blends )
+    {
+        auto published = std::make_shared<const std::vector<ShaderBlendRow>>( std::move( blends ) );
+        const std::scoped_lock lock( s_TemplatesMutex );
+        s_ShaderBlends = std::move( published );
+    }
+
+    std::optional<::Desert::Core::Formats::SurfaceBlendMode>
+    ImportManager::PublishedShaderBlend( const Common::Content::AssetGuid& shader )
+    {
+        const auto published = ShaderBlends();
+        if ( !published || shader.IsNull() )
+            return std::nullopt;
+        for ( const ShaderBlendRow& candidate : *published )
+            if ( const auto guid = Common::Content::AssetGuidFromText( candidate.Guid );
+                 guid && guid.GetValue() == shader )
+                return candidate.Blend;
+        return std::nullopt;
     }
 
     std::size_t ImportManager::PublishImportTemplates( std::vector<ImportTemplate> templates )

@@ -71,7 +71,11 @@ namespace Desert::Graphic::API::Vulkan
              // MoltenVK (argument buffers) carries it, and there is no non-bindless second path.
              { C::DescriptorIndexing, "descriptorIndexing", N::Required, V12,
                VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME },
-             { C::BufferDeviceAddress, "bufferDeviceAddress", N::Available, V12,
+             // Optional, its own row, independent of ray tracing: mesh buffers carry SHADER_DEVICE_ADDRESS under
+             // it (MeshBufferUsage.hpp) and the GI emissive light list names emitter triangles by address for both
+             // tracers; without it the list cannot name an emitter and the surface cache reports that error
+             // (REMAINDER GI-ALL-LIGHTS-3: no desktop 1.2 device lacks it, the branch is not built yet).
+             { C::BufferDeviceAddress, "bufferDeviceAddress", N::Optional, V12,
                VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME },
              // Below 1.2 the extension needs depth_stencil_resolve and create_renderpass2 as extensions.
              { C::DynamicRendering, "dynamicRendering", N::Available, V13, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
@@ -124,6 +128,15 @@ namespace Desert::Graphic::API::Vulkan
              // path reads it (SelectNeuralKernelPath).
              { C::VulkanMemoryModel, "vulkanMemoryModel", N::Optional, V12,
                VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME },
+             // Memory and timeline semaphores exported to another API on the same GPU (OIDN on CUDA / HIP shares
+             // the path tracer's buffers instead of a host copy). VK_KHR_external_memory / _semaphore are core in
+             // 1.1; the handle-type extensions are not core anywhere. Optional: only PathTracing.Denoiser OIDN
+             // reads them (CapabilityCatalog::GpuSharing), and it is refused by name without them.
+             { C::ExternalMemoryWin32, "external_memory_win32", N::Optional, 0, "VK_KHR_external_memory_win32" },
+             { C::ExternalSemaphoreWin32, "external_semaphore_win32", N::Optional, 0,
+               "VK_KHR_external_semaphore_win32" },
+             { C::ExternalMemoryFd, "external_memory_fd", N::Optional, 0, "VK_KHR_external_memory_fd" },
+             { C::ExternalSemaphoreFd, "external_semaphore_fd", N::Optional, 0, "VK_KHR_external_semaphore_fd" },
         } };
 
         // Row i describes enum value i, so SpecOf() and DeviceCaps::Rows index the same thing; and every

@@ -1,0 +1,303 @@
+#ifndef MEGALIGHTS_VOLUME_WRITE_GLSLH
+#define MEGALIGHTS_VOLUME_WRITE_GLSLH
+// "MegaLights: Volume", the one body of its five programs, one per set of visibility sources the frame's lights
+// resolved to (Common::Scalability::StochasticSources, MegaLightsVolume.hpp ProgramOf - the surface trace's set,
+// MegaLights.hpp TraceProgramOf): Programs/Shadows/MegaLightsVolume.shader (ray query),
+// MegaLightsVolumeRayQueryScreen.shader (ray query, screen trace), MegaLightsVolumeVirtual.shader (screen trace, the
+// local lights' virtual shadow map pages), MegaLightsVolumeRayQueryVirtual.shader (all three) and
+// MegaLightsVolumeScreen.shader (screen trace). Each froxel sample tests its light's own source as the surface
+// samples do (Common/MegaLights.glslh MegaLightsVisibility): the screen trace is the surface's
+// (Common/MegaLightsScreenTrace.glslh), started at the froxel point - inside the frustum, on the screen, it marches
+// the closest HZB toward the light (UE MegaLights leaves its volume unshadowed by screen traces); off the screen it
+// holds nothing and the froxel is unshadowed by it. The includer defines each MEGALIGHTS_VOLUME_VISIBILITY_* source
+// it holds (RAY_QUERY: Common/RayQueryVisibility.glslh included first; VSM, always beside SCREEN: the VSM reader's
+// tables, DESERT_VSM_READ and VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; } declared first; SCREEN: nothing,
+// this file declares the HZB), then includes this file. The read side is Common/MegaLightsVolume.glslh.
+#if !defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VOLUME_VISIBILITY_SCREEN)
+#error "MegaLightsVolumeWrite.glslh: define a MEGALIGHTS_VOLUME_VISIBILITY_* source"
+#endif
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM) && !defined(MEGALIGHTS_VOLUME_VISIBILITY_SCREEN)
+#error "MegaLightsVolumeWrite.glslh: the vsm+screen source marches the screen first: define MEGALIGHTS_VOLUME_VISIBILITY_SCREEN"
+#endif
+
+#include <Common/ReconstructPosition.glslh>
+#include <Common/RisReservoir.glslh>
+#include <Mesh/LightSources.glslh>
+#include <Mesh/PointLight.glslh> // binding 6
+#include <Mesh/Spotlight.glslh>  // binding 16
+
+// MegaLightsVolumeUniforms (MegaLightsVolume.hpp), std140.
+Uniform(0) MegaLightsVolumeViewUB
+{
+	mat4  InverseViewProjection;  // unjittered, this frame
+	mat4  View;               // world -> view, this frame
+	mat4  PreviousView;           // the view's previous frame
+	mat4  PreviousViewProjection; // unjittered, the view's previous frame
+	vec4  ZParams;            // near (cm), slices / log(far / near), far (cm), froxel edge (render px)
+	vec4  PreviousZParams;        // the same, of the frame the history was written in
+	uvec4 RenderSize;               // xyz = froxels, w = frame index
+	uvec4 Counts;             // x = point lights, y = spot lights, z = samples per froxel, w = history readable
+	vec4  Params;             // x = history weight (0 = none), y = shadow-ray bias (cm), zw = render extent (px)
+	mat4  JitteredWorldToClip;           // the G-buffer's (the HZB's) world -> clip: the screen trace
+	mat4  InverseJitteredViewProjection; // its inverse
+	vec4  CameraPosition;                // xyz = the eye (cm)
+};
+
+// The view's light grid (Programs/Deferred/LightGridBuild.shader), as the composite reads it.
+#include <Mesh/LightGrid.glslh>
+ReadBuffer(22) LightGridParamsUB
+{
+	LightGridParams lightGrid;
+};
+ReadBuffer(23) LightGridCellsUB
+{
+	uint lightGridCells[];
+};
+
+Uniform sampler LinearClampSampler;
+Uniform(10) texture3D HistoryRTexture;
+#define HistoryRTexture sampler3D(HistoryRTexture, LinearClampSampler)
+Uniform(11) texture3D HistoryGTexture;
+#define HistoryGTexture sampler3D(HistoryGTexture, LinearClampSampler)
+Uniform(12) texture3D HistoryBTexture;
+#define HistoryBTexture sampler3D(HistoryBTexture, LinearClampSampler)
+layout(binding = 13, rgba16f) writeonly uniform image3D OutRTexture; // L0, L1 x y z of red
+layout(binding = 14, rgba16f) writeonly uniform image3D OutGTexture;
+layout(binding = 15, rgba16f) writeonly uniform image3D OutBTexture;
+
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_SCREEN)
+Uniform(17) texture2D HzbTexture; // the closest-depth HZB of the opaque scene depth (HZBRenderer), every mip
+#define HzbTexture sampler2D(HzbTexture, LinearClampSampler) // texelFetch only: the filter is never used
+#include <Common/HZBTrace.glslh>
+#define MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP JitteredWorldToClip
+#define MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD InverseJitteredViewProjection
+#define MEGALIGHTS_SCREEN_TRACE_EYE           CameraPosition.xyz
+#include <Common/MegaLightsScreenTrace.glslh>
+#endif
+
+#define MEGALIGHTS_VOLUME_MAX_SAMPLES 4
+#define MEGALIGHTS_SH_L0 0.282094792
+#define MEGALIGHTS_SH_L1 0.488602512
+
+// ---- Random (PCG hash, Jarzynski & Olano 2020), one stream per froxel and frame ----------------------
+uint VolumePcg(uint v)
+{
+	const uint state = v * 747796405u + 2891336453u;
+	const uint word  = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+	return (word >> 22u) ^ word;
+}
+
+float VolumeRandom(inout uint state)
+{
+	state = VolumePcg(state);
+	return float(state >> 8u) * (1.0 / 16777216.0);
+}
+
+// The view depth (cm) at slice coordinate @p slice (texel k's centre is k + 0.5): the reader's inverse
+// (Common/MegaLightsVolume.glslh MegaLightsVolumeUVW).
+float VolumeFroxelDepth(vec4 zParams, float slice)
+{
+	return zParams.x * exp(slice / zParams.y);
+}
+
+// The world point at render pixel @p pixel (continuous) and view depth @p depth: two points of the pixel's
+// ray, the one at that depth between them (perspective and orthographic alike).
+vec3 VolumeWorldPosition(vec2 pixel, float depth)
+{
+	const vec2  uv     = pixel / Params.zw;
+	const vec3  a      = ReconstructWorldPosition(uv, 1.0, InverseViewProjection);
+	const vec3  b      = ReconstructWorldPosition(uv, 0.5, InverseViewProjection);
+	const float depthA = -(View * vec4(a, 1.0)).z;
+	const float depthB = -(View * vec4(b, 1.0)).z;
+	return a + (b - a) * ((depth - depthA) / (depthB - depthA));
+}
+
+// ---- The light index space (Mesh/LightGrid.glslh: points first, then spots) ---------------------------
+DesertLight VolumeLightAt(int light, vec3 p)
+{
+	const int points = int(Counts.x);
+	return light < points ? DesertPointLightAt(pointLights[light], p)
+	                      : DesertSpotLightAt(spotLights[light - points], p);
+}
+
+float VolumeTarget(int light, vec3 p)
+{
+	return dot(VolumeLightAt(light, p).Radiance, vec3(0.2126, 0.7152, 0.0722));
+}
+
+// The segment from the point @p p to @p light's source sphere: x y z = toward the centre (cm), w = the sphere's
+// radius (cm).
+vec4 VolumeLightReach(int light, vec3 p)
+{
+	const int points = int(Counts.x);
+	return light < points ? vec4(pointLights[light].position - p, pointLights[light].sourceRadius)
+	                      : vec4(spotLights[light - points].position - p, spotLights[light - points].sourceRadius);
+}
+
+// The shadow ray of a froxel sample: toward a point of @p light's source sphere, uniform in the solid angle the
+// sphere subtends (UE UniformSampleCone), from @p p (a froxel point has no surface to leave: its first bias
+// skipped) to the sphere, stopped short of it by the bias. False when @p p is on or inside the emitter (lit).
+bool VolumeLightRay(int light, vec3 p, inout uint random, out vec3 origin, out vec3 dir, out float reachOut)
+{
+	const vec4  reachTo  = VolumeLightReach(light, p);
+	const float distance = length(reachTo.xyz);
+	const float radius   = reachTo.w;
+	const float bias     = Params.y;
+	origin               = p;
+	dir                  = vec3(0.0, 0.0, 1.0);
+	reachOut             = 0.0;
+	if (distance <= max(2.0 * bias, radius))
+		return false;
+	const vec3 axis  = reachTo.xyz / distance;
+	float      reach = distance;
+	dir              = axis;
+	if (radius > 0.0)
+	{
+		const float sinMax2 = (radius * radius) / (distance * distance);
+		const float cosMax  = sqrt(max(1.0 - sinMax2, 0.0));
+		const float cosT    = 1.0 - VolumeRandom(random) * (1.0 - cosMax);
+		const float sinT    = sqrt(max(1.0 - cosT * cosT, 0.0));
+		const float phi     = 6.28318530718 * VolumeRandom(random);
+		const vec3  up      = abs(axis.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+		const vec3  t       = normalize(cross(up, axis));
+		const vec3  b       = cross(axis, t);
+		dir                 = normalize(t * (cos(phi) * sinT) + b * (sin(phi) * sinT) + axis * cosT);
+		reach = distance * cosT - sqrt(max(radius * radius - distance * distance * sinT * sinT, 0.0));
+	}
+	origin   = p + dir * bias;
+	reachOut = max(reach - 2.0 * bias, 0.0);
+	return true;
+}
+
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
+float VolumeVsmVisibility(int light, vec3 p)
+{
+	const int points = int(Counts.x);
+	// The light's virtual shadow map (VSM-LOCAL), the same pages MegaLights' surface trace reads: slot = the light's
+	// index in the frame's VsmLocalLights (AssignLocalShadowMaskSlots). A froxel point has no surface: its "normal"
+	// faces the light, so the receiver offset moves it toward the light by half a texel of its mip. A froxel no
+	// G-buffer pixel marked reads the light's coarse mip ("VSM: Mark Coarse", VsmLocalOccluderDistance).
+	const int   slot     = light < points ? pointLights[light].shadowMaskSlot : spotLights[light - points].shadowMaskSlot;
+	if (slot < 0)
+		return 1.0; // no page for the light this frame (outside the view)
+	return VsmLocalVisibility(vsmLocalLights[slot], p, normalize(VolumeLightReach(light, p).xyz));
+}
+#endif
+
+// How much of @p light reaches the point @p p. Each light tests its own source, the payload's ShadowVisibility
+// (Common::Scalability::StochasticVisibility: 0 RayQuery, 1 vsm+screen, 2 Screen), as the surface samples do
+// (Common/MegaLights.glslh MegaLightsVisibility): the ray query; or the screen trace from the point, then (vsm+screen)
+// the light's virtual shadow map. A source this program does not hold is not in the frame's set
+// (SceneRenderer::StochasticTraceSources). A light whose shadowCaster is 0 (CastShadows off) is not tested.
+float VolumeVisibility(int light, vec3 p, inout uint random)
+{
+	const int  points = int(Counts.x);
+	const bool casts  = (light < points ? pointLights[light].shadowCaster
+	                                    : spotLights[light - points].shadowCaster) != 0;
+	if (!casts)
+		return 1.0;
+	vec3  origin;
+	vec3  dir;
+	float reach;
+	if (!VolumeLightRay(light, p, random, origin, dir, reach))
+		return 1.0; // on or inside the emitter
+	const int source = light < points ? pointLights[light].shadowVisibility : spotLights[light - points].shadowVisibility;
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_RAY_QUERY)
+	if (source == 0)
+		return RayQueryVisibility(origin, dir, reach, RAY_TRACING_MASK_SHADOW_CASTER);
+#endif
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_SCREEN)
+	if (MegaLightsScreenTraceOccluded(origin, dir, reach))
+		return 0.0;
+#endif
+#if defined(MEGALIGHTS_VOLUME_VISIBILITY_VSM)
+	if (source == 1)
+		return VolumeVsmVisibility(light, p);
+#endif
+	return 1.0;
+}
+
+LocalSize(4, 4, 4);
+
+void main()
+{
+	const ivec3 froxel = ivec3(gl_GlobalInvocationID);
+	if (any(greaterThanEqual(froxel, ivec3(RenderSize.xyz))))
+		return;
+	uint random = VolumePcg(uint(froxel.x) + VolumePcg(uint(froxel.y) + VolumePcg(uint(froxel.z) +
+	                                                                               VolumePcg(RenderSize.w))));
+
+	// The point: jittered inside the froxel, so the frames' average covers it whole.
+	const vec3  jitter = vec3(VolumeRandom(random), VolumeRandom(random), VolumeRandom(random));
+	const vec2  pixel  = (vec2(froxel.xy) + jitter.xy) * ZParams.w;
+	const float depth  = VolumeFroxelDepth(ZParams, float(froxel.z) + jitter.z);
+	const vec3  p      = VolumeWorldPosition(pixel, depth);
+
+	// 1) Resampled importance sampling over the point's light-grid cell, one draw per sample.
+	const uint samples = clamp(Counts.z, 1u, uint(MEGALIGHTS_VOLUME_MAX_SAMPLES));
+	RisMerge streams[MEGALIGHTS_VOLUME_MAX_SAMPLES];
+	for (uint k = 0u; k < uint(MEGALIGHTS_VOLUME_MAX_SAMPLES); ++k)
+		streams[k] = RisBeginMerge();
+	const uint cell       = LightGridCellAt(lightGrid, min(pixel, Params.zw - 0.5), p);
+	const uint count      = lightGridCells[cell];
+	const bool overflowed = LightGridCellOverflowed(lightGrid, count);
+	const uint candidates = overflowed ? Counts.x + Counts.y : count;
+	const uint list       = LightGridListOffset(lightGrid, cell);
+	for (uint j = 0u; j < candidates; ++j)
+	{
+		const int   light  = overflowed ? int(j) : int(lightGridCells[list + j]);
+		const float target = VolumeTarget(light, p);
+		if (target <= 0.0)
+			continue;
+		// Every light of the cell is a candidate (M = 1, source density 1), one stream per sample.
+		for (uint k = 0u; k < samples; ++k)
+			RisStreamCandidate(streams[k], light, target, 1.0, VolumeRandom(random));
+	}
+
+	// 2) + 3) Each drawn light traced once; its shadowed radiance, weighted by W / samples, projected on L1.
+	vec4 shR = vec4(0.0);
+	vec4 shG = vec4(0.0);
+	vec4 shB = vec4(0.0);
+	for (uint k = 0u; k < samples; ++k)
+	{
+		const RisReservoir r = RisEndStream(streams[k], 1.0);
+		if (r.Light < 0)
+			continue;
+		const float visibility = VolumeVisibility(r.Light, p, random);
+		if (visibility <= 0.0)
+			continue;
+		const DesertLight light    = VolumeLightAt(r.Light, p);
+		const vec3        radiance = light.Radiance * (visibility * r.W / float(samples));
+		const vec4        basis    = vec4(MEGALIGHTS_SH_L0, MEGALIGHTS_SH_L1 * light.L);
+		shR += radiance.r * basis;
+		shG += radiance.g * basis;
+		shB += radiance.b * basis;
+	}
+
+	// 4) The history at the point's place in the previous frame's volume.
+	const float weight = Params.x;
+	if (Counts.w != 0u && weight > 0.0)
+	{
+		const vec4  clip      = PreviousViewProjection * vec4(p, 1.0);
+		const float prevDepth = -(PreviousView * vec4(p, 1.0)).z;
+		if (clip.w > 0.0 && prevDepth > 0.0)
+		{
+			const vec2  ndc   = clip.xy / clip.w;
+			const vec2  uv    = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5); // ScreenUVToNdc's inverse
+			const vec3  size  = vec3(RenderSize.xyz);
+			const float slice = prevDepth <= PreviousZParams.x ? 0.0 : log(prevDepth / PreviousZParams.x) * PreviousZParams.y;
+			const vec3  uvw   = vec3(uv * Params.zw / (PreviousZParams.w * size.xy), slice / size.z);
+			if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0))))
+			{
+				shR = mix(texture(HistoryRTexture, uvw), shR, weight);
+				shG = mix(texture(HistoryGTexture, uvw), shG, weight);
+				shB = mix(texture(HistoryBTexture, uvw), shB, weight);
+			}
+		}
+	}
+	imageStore(OutRTexture, froxel, shR);
+	imageStore(OutGTexture, froxel, shG);
+	imageStore(OutBTexture, froxel, shB);
+}
+
+#endif // MEGALIGHTS_VOLUME_WRITE_GLSLH

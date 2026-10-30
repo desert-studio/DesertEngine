@@ -103,6 +103,7 @@ namespace Desert::Core
         constexpr uint32_t kSpvOpTypeArray        = 28;
         constexpr uint32_t kSpvOpTypeRuntimeArray = 29;
         constexpr uint32_t kSpvOpTypePointer      = 32;
+        constexpr uint32_t kSpvOpFunctionCall     = 57;
         constexpr uint32_t kSpvOpVariable         = 59;
         constexpr uint32_t kSpvOpLoad             = 61;
         constexpr uint32_t kSpvOpDecorate         = 71;
@@ -169,6 +170,13 @@ namespace Desert::Core
                     variables.emplace_back( words[at + 2], words[at + 1] );
                 else if ( opcode == kSpvOpLoad && count >= 4 )
                     loaded.insert( words[at + 3] );
+                else if ( opcode == kSpvOpFunctionCall && count >= 4 )
+                {
+                    // An image or sampler handed to a function (`Fn( SomeTexture, SomeSampler )`): Vulkan GLSL
+                    // passes it by pointer and the callee loads its parameter, so the call is the global's use.
+                    for ( uint32_t arg = 4u; arg < count; ++arg )
+                        loaded.insert( words[at + arg] );
+                }
                 else if ( opcode == kSpvOpDecorate && count >= 4 )
                 {
                     if ( words[at + 2] == kSpvDecorationBinding )

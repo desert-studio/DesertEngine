@@ -35,15 +35,12 @@ namespace Desert::Editor::Tools
             return &ref->get().GetComponent<ECS::StaticMeshComponent>();
         }
 
-        // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-        void PutSlots( ECS::StaticMeshComponent& component, const std::vector<Common::AssetHandle>& slots )
+        // States the edited value through the one writer (no write when equal); a slot change drops the
+        // runtime instances there, so the mesh system rebuilds them. Callers found the entity through MeshOf.
+        void PutMesh( ::Desert::Core::Scene& scene, const Common::UUID& id, const ECS::StaticMeshDesc& desc )
         {
-            if ( component.MaterialSlots == slots )
-                return;
-            component.MaterialSlots = slots;
-            component.RuntimeMaterialInstances.clear();
-            component.RuntimeSlots.reset();
-            component.SeenMaterialsVersion = 0;
+            const ECS::Entity entity = scene.FindEntityByID( id )->get();
+            ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
         }
 
         std::string SlotLabel( const Common::AssetHandle& handle )
@@ -153,8 +150,8 @@ namespace Desert::Editor::Tools
             ms.EditMaterialsStatus = target.GetError();
             return;
         }
-        Session session{ *selected, target.GetValue().Committed, component->MaterialSlots, target.GetValue().Mesh,
-                         component->MaterialSlots, {} };
+        Session session{ *selected, target.GetValue().Committed, component->GetMaterialSlots(), target.GetValue().Mesh,
+                         component->GetMaterialSlots(), {} };
         // Every material id the mesh uses names a slot (ECS::CoverMaterialIds' rule), so Assign can address it.
         int maxId = 0;
         if ( session.Preview->HasAttributes() && session.Preview->Attributes()->HasMaterialID() )
@@ -181,10 +178,12 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
-        if ( component->EditableMesh != m_Session->Preview )
-            if ( auto set = ECS::SetEditableMesh( *component, m_Session->Preview ); !set.IsSuccess() )
+        ECS::StaticMeshDesc desc = component->GetDesc();
+        if ( desc.EditableMesh != m_Session->Preview )
+            if ( auto set = ECS::SetEditableMesh( desc, m_Session->Preview ); !set.IsSuccess() )
                 LOG_ERROR( "[Modeling] Edit Materials: the preview could not be shown: {0}", set.GetError() );
-        PutSlots( *component, m_Session->Slots );
+        desc.MaterialSlots = m_Session->Slots;
+        PutMesh( scene, m_Session->Entity, desc );
     }
 
     void EditMaterialsTool::Restore( ::Desert::Core::Scene& scene )
@@ -192,19 +191,21 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = MeshOf( scene, m_Session->Entity );
         if ( component == nullptr )
             return;
-        switch ( PlanMeshRestore( component->EditableMesh, m_Session->Committed ) )
+        ECS::StaticMeshDesc desc = component->GetDesc();
+        switch ( PlanMeshRestore( desc.EditableMesh, m_Session->Committed ) )
         {
             case MeshRestore::Unchanged:
                 break;
             case MeshRestore::Clear:
-                ECS::ClearEditableMesh( *component );
+                ECS::ClearEditableMesh( desc );
                 break;
             case MeshRestore::Set:
-                if ( auto set = ECS::SetEditableMesh( *component, m_Session->Committed ); !set.IsSuccess() )
+                if ( auto set = ECS::SetEditableMesh( desc, m_Session->Committed ); !set.IsSuccess() )
                     LOG_ERROR( "[Modeling] Edit Materials: the mesh could not be put back: {0}", set.GetError() );
                 break;
         }
-        PutSlots( *component, m_Session->CommittedSlots );
+        desc.MaterialSlots = m_Session->CommittedSlots;
+        PutMesh( scene, m_Session->Entity, desc );
     }
 
     // UE UEditMeshMaterialsTool::ApplyMaterialAction / AssignMaterial: the active slot into every selected
@@ -314,8 +315,8 @@ namespace Desert::Editor::Tools
         // The component goes back to the "before" first, so the one recorded step holds before and after.
         Restore( scene );
         const auto&                     tc = ref->get().GetComponent<ECS::TransformComponent>();
-        const Commands::XformEntityState after{ m_Session->Entity, m_Session->Preview, tc.Translation,
-                                                tc.Rotation,       tc.Scale,           m_Session->Slots,
+        const Commands::XformEntityState after{ m_Session->Entity, m_Session->Preview, tc.GetTranslation(),
+                                                tc.GetRotation(),       tc.GetScale(),           m_Session->Slots,
                                                 std::nullopt };
         if ( auto done = Commands::ApplyXformEdit( "Modeling: Edit Materials", { after }, {}, {} ); !done.IsSuccess() )
         {

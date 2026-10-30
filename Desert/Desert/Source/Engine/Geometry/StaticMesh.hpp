@@ -2,13 +2,30 @@
 
 #include "Mesh.hpp"
 
+#include <Engine/Geometry/ClusterDag.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
+
+#include <memory>
+#include <string>
+
 namespace Desert
 {
+    // A virtual-geometry mesh's cooked cluster DAGs (StaticMeshAsset::GetClusterDags, one per submesh in submesh
+    // order) and the name the VirtualMeshTable logs it by. Empty Dags = not a virtual-geometry mesh.
+    struct VirtualGeometrySource
+    {
+        std::vector<Geometry::ClusterDag> Dags;
+        std::string                       Name;
+    };
+
     class StaticMesh : public Mesh
     {
     public:
+        // @p virtualGeometry: the DAG words are staged after the indices in the mesh's index span; Invalidate
+        // registers the DAGs with the VirtualMeshTable once the span is uploaded and drops the CPU copy.
         StaticMesh( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
-                    const std::vector<Submesh>& submeshes, const std::vector<MeshVertexStreams>& streams );
+                    const std::vector<Submesh>& submeshes, const std::vector<MeshVertexStreams>& streams,
+                    VirtualGeometrySource virtualGeometry = {} );
 
         [[nodiscard]] MeshType GetType() const override
         {
@@ -38,10 +55,22 @@ namespace Desert
         // data and kept while the data is the same; null until it lands or when the mesh is not Baked.
         [[nodiscard]] std::shared_ptr<StaticMesh> GetBakedDisplaced();
 
+        // The mesh's rows in the VirtualMeshTable: null (or an empty registration) when it is not a
+        // virtual-geometry mesh or its DAGs were refused.
+        [[nodiscard]] const Graphic::VirtualGeometry::VirtualMeshRegistration* GetVirtualMesh() const
+        {
+            return m_VirtualMesh.get();
+        }
+
     private:
         StaticMesh() = default;
         std::shared_ptr<const Assets::DisplacedMeshData> m_BakedSource;
         std::shared_ptr<StaticMesh>                      m_Baked;
+        // Held from the upload until Invalidate registers them, then dropped (the rows hold what the GPU needs).
+        VirtualGeometrySource m_VirtualGeometrySource;
+        // The mesh's rows in the VirtualMeshTable (shared by a copy of the mesh, as its pool allocation is);
+        // released on the frame rule with the last holder.
+        std::shared_ptr<Graphic::VirtualGeometry::VirtualMeshRegistration> m_VirtualMesh;
     };
 
 } // namespace Desert

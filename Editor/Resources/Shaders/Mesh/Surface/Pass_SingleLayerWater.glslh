@@ -47,9 +47,14 @@ layout( binding = 19 ) uniform texture2D SceneColorTexture;
 #define SceneColorTexture sampler2D(SceneColorTexture, LinearClampSampler)
 // The opaque scene's device depth (reversed-Z): the water's bottom (SceneViewInputs::SceneDepth, Core::kSceneDepthBinding).
 #ifndef DESERT_SURFACE_DEPTH_FADE
-layout( binding = 27 ) uniform texture2D SceneDepthTexture;
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
+layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture;
 #endif
 #define WaterSceneDepth sampler2D(SceneDepthTexture, PointClampSampler)
+
+// The view's fog at the surface's own depth: the water is drawn after the opaque fog composite, so the copy it
+// refracts is already fogged and the surface's own light is fogged here (as Pass_Forward_Translucent.glslh).
+#include <Mesh/Surface/SceneFog.glslh>
 
 #include <Mesh/BRDF.glslh>
 #include <Mesh/AmbientIBL.glslh>
@@ -160,7 +165,6 @@ void main()
     const vec3  skyIrr = DesertAmbientIrradiance( vec3( 0.0, 1.0, 0.0 ) );
     const float phase  = WaterHenyeyGreenstein( dot( -V, L ), w.PhaseG );
     const vec3  inscat = ( sun * max( L.y, 0.0 ) * phase + skyIrr / ( 4.0 * kWaterPi ) ) * albedo * ( 1.0 - trans );
-    const vec3  volume = behind * w.ColorScaleBehindWater * trans + inscat * exposure;
 
     // --- The interface, through the shading model: the sun's specular and the environment's reflection (the
     // reflection of a surface seen from above is of the upper hemisphere).
@@ -190,10 +194,17 @@ void main()
     const vec3 F0      = DesertSpecularF0( S );
     const vec3 through = vec3( 1.0 ) - ( F0 * A.SpecularBRDF.x + A.SpecularBRDF.y );
 
-    const vec3 water = volume * through + ( direct + reflected ) * exposure;
+    // The fog in front of the surface (pre-exposed inscattering, transmittance): the refracted scene behind is the
+    // fogged copy, so only the light the water itself sends (its inscattering, the interface) is attenuated, and the
+    // fog's own inscattering fills what the fogged scene behind no longer covers.
+    const vec4 fog        = DesertSceneFog( i.WorldPosition );
+    const vec3 seenBehind = w.ColorScaleBehindWater * trans * through;
+    const vec3 ownLight   = inscat * exposure * through + ( direct + reflected ) * exposure;
+    const vec3 water      = behind * seenBehind + ownLight * fog.a + fog.rgb * ( vec3( 1.0 ) - trans * through );
 
     // --- The foam: where the waves make it (physics, above), how it looks (the material). A thin sheet shows only
-    // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky.
+    // the texture's densest cells, a thick one covers; it is a rough diffuse layer on top, lit by the sun and sky. It
+    // is opaque, so the fog in front of it is the full fog (its light attenuated, the fog's inscattering added).
     const float jitter    = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) +
                                    fract( i.Time * 7.31 ) );
     // The particle's still (X, Z) - the point the vertex path damped its waves at - for both the depth and the damping.
@@ -210,7 +221,7 @@ void main()
     const float shore = w.ShoreFadeCm > 0.0 ? smoothstep( 0.0, w.ShoreFadeCm, baseLen ) : 1.0;
     const vec3  plain = texture( SceneColorTexture, uv ).rgb;
 
-    oColor = vec4( mix( plain, mix( water, foamLit * exposure, foam ), shore ), 1.0 );
+    oColor = vec4( mix( plain, mix( water, foamLit * exposure * fog.a + fog.rgb, foam ), shore ), 1.0 );
     if ( w.DebugFoamMask > 0.5 )
         oColor = vec4( vec3( amount ) * exposure * 4.0, 1.0 ); // the physics mask alone: white = foam, black = water
     oVelocity             = DesertVelocity( v_Surface.Clip, v_Surface.PrevClip, v_Surface.ObjectMoved );

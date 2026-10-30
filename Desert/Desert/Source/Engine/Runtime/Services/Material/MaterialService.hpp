@@ -186,6 +186,14 @@ namespace Desert::Runtime
                                                      Graphic::MeshPass pass, uint32_t view,
                                                      const void* owner = nullptr ) const;
 
+        // GetViewVariant in a PERMUTATION of the cell's program (GetVariant's third axis, one per view): a view's
+        // GPU-instanced forward section under Shadows.Method VirtualMaps reads the virtual shadow map
+        // (DESERT_LOCAL_SHADOW_VSM) through its own copy. A default permutation IS GetViewVariant.
+        Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                     Graphic::MeshPass pass, uint32_t view,
+                                                     const Core::ShaderVariant& permutation,
+                                                     const void*                owner ) const;
+
         // Destroys, NOW, every view copy GetViewVariant built for `owner` (never nullptr): the owner's teardown.
         // Not through the graveyard, because the owner is a view member and the view's ledger check runs as
         // the view closes — the caller guarantees the device is idle (a SceneRenderer is destroyed after
