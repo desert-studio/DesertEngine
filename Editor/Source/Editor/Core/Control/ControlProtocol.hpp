@@ -76,6 +76,7 @@ namespace Desert::Editor::Control
                 ///< Level As")
         AddComponent, ///< add a component to an entity through Details' Add Component (one undo step)
         Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
+        Select,       ///< select one entity of the open (or played) scene, as an outliner click does
         NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every
                  ///< path)
         Frames,  ///< answered once the asked number of frames has been presented (UE automation's
@@ -141,6 +142,7 @@ namespace Desert::Editor::Control
          { "nn-check", Op::NnCheck, RequiresReady::Yes },
          { "frames", Op::Frames, RequiresReady::Yes },
          { "profile-dump", Op::ProfileDump, RequiresReady::Yes },
+         { "select", Op::Select, RequiresReady::Yes },
     };
 
     /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
@@ -630,6 +632,13 @@ namespace Desert::Editor::Control
                          "'save-as' needs the scene's new 'name'. A Save As with no name would be File -> Save "
                          "under another word." );
                 }
+                break;
+            }
+            case Op::Select:
+            {
+                request.Entity = ReadString( fields, "entity" );
+                if ( request.Entity.empty() )
+                    return Common::MakeError<Request>( "'select' needs 'entity' (the entity's UUID, decimal)." );
                 break;
             }
             case Op::AddComponent:

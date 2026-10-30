@@ -1,44 +1,50 @@
-# GAMEPLAY-PROOF: Play-mode cards, one editor session in Projects/Desert.
-# Cards: GP2 (walk / jump / crouch through IA_Move / IA_Jump / IA_Crouch, the camera on its boom), GP1 (one Input
-# Action driven by its second mapped key), GP3 (death -> respawn), GP4 (button opens a door), GAME-2B (menu hover / focus).
-# Keys from IMC_Default.deinputcontext: W/A/S/D move, Space jump, C and LeftControl crouch.
-# GP3 / GP4: no scene in Projects/Desert carries a kill volume / respawn or ButtonOpensDoor.lua (Scripts/Examples has
-# the script, no scene uses it) - their lines stay here as the spec and are reported blocked in REMAINDER-SHOTS-SCN.
-# GP1's remap (a runtime rebind, UE EnhancedInputUserSettings) has no editor or script entry yet; the frame below
-# proves the mapping context's second key for the same action - the rebind half is reported blocked.
-Проект Projects/Desert/Desert.deproj --scene Content/Scenes/PlayerController_Demo.desce
+# GAMEPLAY-PROOF (GP1): one Play of GameplayProof.desce proves input remapping, walk/jump/crouch with the Spring Arm camera, death and restart, a trigger button opening a door, and the gameplay debugger opened by its key.
+# The level: DefaultPawn = Prefabs/Pawn_Player.deprefab (Character Controller + Enhanced Input IMC_Default + PlayerController.lua, Spring Arm 450 cm with the player camera), PlayerStart (0, 92, 650), RespawnDelay 1 s;
+# Button = a Trigger pad z [-170, 130] running ButtonOpensDoor.lua (Door at x = 260 rises 250 cm); KillZone = a Trigger pad x [-450, -150], z [100, 600] running KillZone.lua (gameMode.kill);
+# GameplayProof.lua maps IA_Jump Space -> J once the pawn's context is active, gives Space back the first time the jump starts, and labels the pawn / binding / death / door over the picture.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/GameplayProof.desce
 Дано run View "View mode: Lit"
 Когда run Action "Play"
-Когда advance 1
-Тогда-вид gp2_idle GP2: the player stands on the ground, the camera behind and above it on the boom (SpringArm), Idle pose
-Когда input keydown - - W
-Когда advance 1
-Тогда-вид gp2_walk GP2: W held 1 s - the player moved forward (the floor slid under the camera), Walk/Run pose, the camera followed at the boom length
-Когда input keyup - - W
-Когда input keydown - - Space
-Когда advance 0.3
-Тогда-вид gp2_jump GP2: Space - the player in the air (feet above the floor), Jump pose
-Когда input keyup - - Space
+Когда advance 0.5
+# [1_input_remap] J is IA_Jump's key now.
+Когда input keydown - - j
+Когда advance 0.1
+Когда input keyup - - j
+Когда advance 0.2
+Тогда-вид 1_input_remap green line "IA_Jump started by J (new key J down, default Space up)"; the white line reads "IN THE AIR"; the view is the Spring Arm camera behind and above the capsule
 Когда advance 1.5
-Когда input keydown - - C
+# [2_move_jump] walk forward 0.5 s, stop, jump with Space (the default key is back), shot on the way up.
+Когда input keydown - - w
 Когда advance 0.5
-Тогда-вид gp2_crouch GP2: C held - the player crouched (capsule and camera lower than gp2_idle)
-Когда input keyup - - C
-Когда advance 0.5
-Когда input keydown - - LeftControl
-Когда advance 0.5
-Тогда-вид gp1_second_key GP1: LeftControl (IA_Crouch's second mapped key) crouches exactly as C did in gp2_crouch
-Когда input keyup - - LeftControl
-Когда run Action "Stop"
-Когда run Scene "Open Scene MainMenu.desce"
-Когда run Action "Play"
-Когда advance 0.5
-Тогда-вид game2b_menu GAME-2B: the main menu drawn in the Play view, no button highlighted
-Когда input key - - Down
+Когда input keyup - - w
+Когда advance 0.4
+Когда input keydown - - space
+Когда advance 0.1
+Когда input keyup - - space
+Когда advance 0.25
+Тогда-вид 2_move_jump the pawn line reads z well below the start's 650 and "IN THE AIR"; the camera kept its place behind the capsule (Spring Arm), the button pad ahead and the door to the right
+Когда advance 1.5
+Когда input keydown - - c
+Когда advance 0.3
+Тогда-вид 2b_crouch the pawn line ends ", CROUCHED"; the camera sits lower than in 2_move_jump
+Когда input keyup - - c
+Когда advance 0.3
+# [3_respawn] strafe left into the kill zone: death, then RestartPlayer after 1 s at the PlayerStart.
+Когда input keydown - - a
+Когда advance 0.8
+Когда input keyup - - a
+Тогда-вид 3a_died the amber line "died at (x < -100, ...), deaths 1"; the view stays on the dead capsule
+Когда advance 1.5
+Тогда-вид 3_respawn the amber line "restarted at PlayerStart (0, 92, 650), deaths 1, restarts 1"; the pawn line reads about (0, 92, 650) "on ground"
+# [4_door] walk forward onto the button pad: the door rises.
+Когда input keydown - - w
+Когда advance 1.0
+Когда input keyup - - w
+Когда advance 1.5
+Тогда-вид 4_door the amber label over the door reads "door OPEN (+250 cm)"; the door slab stands 250 cm higher than its closed place on the right; the pawn stands on the pad
+# [5_gdt] the gameplay debugger's key (`) opens its panel; the Cube is selected as its target.
+Когда input key - - grave
 Когда advance 0.2
-Тогда-вид game2b_focus GAME-2B: keyboard focus - one button carries the focus style (outline / highlight), moved by Down
-Когда input move - 640,400
-Когда advance 0.2
-Тогда-вид game2b_hover GAME-2B: the pointer over a button - that button in its hover style
-Когда run Action "Stop"
-Тогда gp_stop Play stopped; editor.log 0 script errors
+Когда select 6018453462564557835
+Когда advance 0.5
+Тогда-вид 5_gdt the gameplay debugger panel at the top-left names Cube with its categories "1 Basic [on] 2 Physics [on] 3 Script [on] 4 Rendering [on]"; 0 VUID in editor.log

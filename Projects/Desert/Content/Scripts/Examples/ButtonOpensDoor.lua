@@ -17,8 +17,7 @@ local inside = 0
 function OnStart()
     door = World.find(Properties.Door)
     if door ~= nil and door:valid() then
-        local _, y, _ = door:getPosition()
-        closedY = y
+        closedY = door:getPosition().y
     end
 end
 
@@ -34,7 +33,8 @@ function OnUpdate(dt)
     if door == nil or not door:valid() then
         return
     end
-    local x, y, z = door:getPosition()
+    local p = door:getPosition()
+    local y = p.y
     local target = closedY
     if inside > 0 then
         target = closedY + Properties.OpenHeight
@@ -47,5 +47,5 @@ function OnUpdate(dt)
     else
         y = y - step
     end
-    door:setPosition(x, y, z)
+    door:setPosition(vector.create(p.x, y, p.z))
 end

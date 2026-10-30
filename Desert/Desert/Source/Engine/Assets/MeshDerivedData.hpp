@@ -35,7 +35,9 @@ namespace Desert::Assets
     // build steps (tangents, transform, LOD simplification, section names) produce different bytes for the same
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
-         14; // 14: canopy leaf cards (MeshImportSettings::Canopy: crown normal + depth in COLOR_0.a);
+         15; // 15: canopy top surface = the highest leaf per cell, not dilated (a tall round crown's leaves read
+             // ~1 m under a dilated top, all sheltered - FIELD-WINTER p12);
+             // 14: canopy leaf cards (MeshImportSettings::Canopy: crown normal + depth in COLOR_0.a);
              // 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG);
              // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
              // tangent frames together; 10: UV weighs 0.5 in the reduction
