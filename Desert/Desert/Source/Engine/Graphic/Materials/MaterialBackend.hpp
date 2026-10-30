@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Common/Core/ResultStr.hpp>
 #include <Engine/Graphic/Shader.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 
@@ -23,6 +24,12 @@ namespace Desert::Graphic
         virtual void ApplyTextureCube( MaterialProperty* prop )   = 0;
 
         virtual void FlushUpdates() = 0;
+
+        // RENDER-THREADS M1 (MaterialExecutor::PrepareForRecording). Makes the ACTIVE view's per-frame objects
+        // of this material - its descriptor sets and the copies of its uniform / storage blocks - before the
+        // graph records, so the Apply of a pass's exec only looks them up (UE: a pass's uniform buffers and
+        // descriptor sets exist before the graph records).
+        [[nodiscard]] virtual Common::BoolResultStr PrepareViewResources( const MaterialExecutor& executor ) = 0;
 
         // ApplyPushConstants was declared here and its only implementation had an EMPTY BODY — the
         // second of two routes for the same bytes, and the one nobody took. The renderer pushes them

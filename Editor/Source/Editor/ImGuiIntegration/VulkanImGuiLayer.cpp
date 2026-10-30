@@ -425,6 +425,8 @@ namespace Desert::Graphic::API::Vulkan
              [&]( Graphic::RDG::PassBuilder& pass )
              {
                  pass.ColorTarget( 0, target, Graphic::RDG::LoadOp::DontCare() );
+                 // RENDER-THREADS M1: the encode executor's view sets exist before the graph records.
+                 pass.Prepares( *m_EncodeExecutor );
                  pass.Bindings( m_EncodeLayout.Get( m_EncodePipeline->GetSpecification().Shader ),
                                 m_EncodeExecutor->GetRouteFill() )
                       .Texture( DisplayEncodeShaderParameters::FinalColorTexture, composite,

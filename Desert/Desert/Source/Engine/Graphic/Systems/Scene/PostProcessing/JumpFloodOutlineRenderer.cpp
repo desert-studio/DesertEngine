@@ -189,6 +189,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_FinalPipeline || !m_MaterialFinal )
             return; // RecordFinal refuses by name
+        pass.Prepares( *m_MaterialFinal->GetMaterialExecutor() );
         pass.Bindings( m_FinalLayout.Get( m_FinalPipeline->GetSpecification().Shader ),
                        m_MaterialFinal->GetMaterialExecutor()->GetRouteFill() )
              .Texture( JumpFloodOutlineFinalShaderParameters::JumpFloodTexture, seed, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

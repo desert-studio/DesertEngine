@@ -90,6 +90,10 @@ namespace
         void ApplyUniformBuffer( MaterialProperty* ) override
         {
         }
+        Common::BoolResultStr PrepareViewResources( const MaterialExecutor& ) override
+        {
+            return Common::MakeSuccess( true );
+        }
         void ApplyStorageBuffer( MaterialProperty* ) override
         {
         }

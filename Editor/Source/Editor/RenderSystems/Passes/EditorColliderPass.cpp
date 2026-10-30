@@ -93,28 +93,41 @@ namespace Desert::Editor::Render
         Graphic::ExtensionPass pass;
         pass.Name                  = "EditorColliders";
         pass.Point                 = Graphic::RDG::ExtensionPoint::Overlay;
-        pass.Execute               = [this]( const Graphic::ExtensionPassContext& ctx,
+        // The lines Declare uploaded for this view; the exec only draws them.
+        pass.Execute = [this]( const Graphic::ExtensionPassContext&,
                                Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
+            if ( m_LineVertices == 0 )
+                return BOOLSUCCESS;
+            Graphic::Renderer::GetInstance().SubmitPulled( m_Pipeline.get(), m_LineVertices, 1.0f,
+                                                           m_Material->GetMaterialExecutor() );
+            return BOOLSUCCESS;
+        };
+        // RENDER-THREADS M1 (UE: a pass's buffers are filled before the graph records): the lines are built and
+        // written into the material in the node's setup - the write may grow its storage buffer, which drops the
+        // view copies - and the material is prepared, so the exec creates nothing. A view's setup and exec run
+        // back to back (the pass runs inside its view's OnUpdate), so one pass object still serves every view.
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
+        {
+            m_LineVertices = 0;
             // Asked of the RENDERER, not the scene — see EditorGridPass for why. This flag in particular:
             // it defaulted to `true` in SceneSettings and 55 of 80 committed scenes carried it on, so the
             // green wireframes travelled through git into everybody's viewport.
             const auto scene = m_Scene.lock();
             if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
-                return BOOLSUCCESS;
+                return;
             // The lines are drawn over the scene view: its frame's camera block (the pass runs inside OnUpdate).
             const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
             if ( view == nullptr )
-                return BOOLSUCCESS;
+                return;
             std::vector<LineVertex> lines;
             BuildLines( lines, ctx.Renderer->GetDebugView().ShowColliders );
             if ( lines.empty() )
-                return BOOLSUCCESS;
+                return;
 
             m_Material->Update( *view, lines );
-            Graphic::Renderer::GetInstance().SubmitPulled( m_Pipeline.get(), static_cast<uint32_t>( lines.size() ),
-                                                           1.0f, m_Material->GetMaterialExecutor() );
-            return BOOLSUCCESS;
+            declared.Prepares( *m_Material->GetMaterialExecutor() );
+            m_LineVertices = static_cast<uint32_t>( lines.size() );
         };
 
         scene->RegisterExtensionPass( std::move( pass ) );

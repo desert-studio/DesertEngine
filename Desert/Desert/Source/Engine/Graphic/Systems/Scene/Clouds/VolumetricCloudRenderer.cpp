@@ -2584,6 +2584,7 @@ namespace Desert::Graphic::System
             // The composite's one block: the shader's layout, the material route, the image and its sampler
             // state (linear, REPEAT; the fetch never filters). Each entry is the read's declaration.
             const MaterialExecutor& executor = *m_CompositeMaterial->GetMaterialExecutor();
+            declared.Prepares( executor );
             declared
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )

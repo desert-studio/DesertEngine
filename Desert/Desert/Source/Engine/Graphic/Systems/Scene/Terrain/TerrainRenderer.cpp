@@ -1048,6 +1048,17 @@ namespace Desert::Graphic::System
             }
             return static_cast<uint32_t>( executors.size() );
         }
+
+        // RENDER-THREADS M1: a node whose exec draws ONLY the terrain (RecordDraws applies exactly @p executors)
+        // declares them, so their view sets and block copies exist before the graph records and the exec runs
+        // sealed. A node shared with the meshes (a shadow view) does not: their materials are applied per draw
+        // (M2) and are not declared yet.
+        template <typename Declaration>
+        void PrepareGroupExecutors( Declaration& declaration, const std::vector<const MaterialExecutor*>& executors )
+        {
+            for ( const MaterialExecutor* executor : executors )
+                declaration.Prepares( *executor );
+        }
     } // namespace
 
     std::vector<const MaterialExecutor*>
@@ -1139,10 +1150,12 @@ namespace Desert::Graphic::System
             {
                 return;
             }
-            const SceneViewInputs view = SceneViewInputsOf( refs );
+            const SceneViewInputs                      view      = SceneViewInputsOf( refs );
+            const std::vector<const MaterialExecutor*> executors = GroupExecutors( ForwardProgram() );
+            PrepareGroupExecutors( declared, executors );
             (void)DeclareGroupBlocks( declared, ForwardPipeline().get(),
-                                      m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout,
-                                      GroupExecutors( ForwardProgram() ), &view, m_DicePool );
+                                      m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout, executors, &view,
+                                      m_DicePool );
         };
         return pass;
     }
@@ -1169,8 +1182,9 @@ namespace Desert::Graphic::System
         {
             return;
         }
-        (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout,
-                                  GroupExecutors( &ProgramMaterials::GBuffer ), nullptr, m_DicePool );
+        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::GBuffer );
+        PrepareGroupExecutors( pass, executors );
+        (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout, executors, nullptr, m_DicePool );
     }
 
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
@@ -1184,8 +1198,9 @@ namespace Desert::Graphic::System
         {
             return;
         }
-        (void)DeclareGroupBlocks( pass, m_DepthPipeline.get(), m_DepthLayout, GroupExecutors( &ProgramMaterials::Depth ),
-                                  nullptr, m_DicePool );
+        const std::vector<const MaterialExecutor*> executors = GroupExecutors( &ProgramMaterials::Depth );
+        PrepareGroupExecutors( pass, executors );
+        (void)DeclareGroupBlocks( pass, m_DepthPipeline.get(), m_DepthLayout, executors, nullptr, m_DicePool );
     }
 
     Common::BoolResultStr TerrainRenderer::RenderDepthManual( const RDG::PassContext& context )

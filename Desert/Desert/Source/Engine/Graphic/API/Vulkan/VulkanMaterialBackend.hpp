@@ -29,6 +29,7 @@ namespace Desert::Graphic::API::Vulkan
         virtual void ApplyTextureCube( MaterialProperty* prop ) override;
 
         virtual void FlushUpdates() override;
+        [[nodiscard]] Common::BoolResultStr PrepareViewResources( const MaterialExecutor& executor ) override;
 
         // The ACTIVE view's set, made (fallbacks, then image seeds) the first time that view asks for it;
         // VK_NULL_HANDLE when it could not be made (named once in the log).

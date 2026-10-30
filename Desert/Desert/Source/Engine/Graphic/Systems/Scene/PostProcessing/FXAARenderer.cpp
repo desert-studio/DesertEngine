@@ -54,6 +54,7 @@ namespace Desert::Graphic::System
     {
         if ( !m_Pipeline || !m_MaterialFXAA )
             return;
+        pass.Prepares( *m_MaterialFXAA->GetMaterialExecutor() );
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        m_MaterialFXAA->GetMaterialExecutor()->GetRouteFill() )
              .Texture( FXAAShaderParameters::LdrSceneColorTexture, input, RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

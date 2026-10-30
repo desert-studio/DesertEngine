@@ -280,6 +280,7 @@ namespace Desert::Graphic::System
         //    material as the other route, and the accumulation as OverdrawTexture with the sampler the material route
         //    sampled it with (the image's own: linear, REPEAT).
         const MaterialExecutor& executor = *m_OverdrawResolveMaterial->GetMaterialExecutor();
+        pass.Prepares( executor );
         pass.Bindings( m_OverdrawResolveLayout.Get( m_OverdrawResolvePipeline->GetSpecification().Shader ),
                        executor.GetRouteFill() )
              .Texture( MeshDebugOverdrawResolveShaderParameters::OverdrawTexture, overdraw,
@@ -305,94 +306,105 @@ namespace Desert::Graphic::System
             return {};
 
         // Overlay debug lines (AABB wireframes) over the lit scene; runs after Geometry, depth-tested.
+        // RENDER-THREADS M1 (UE: a pass's buffers are filled before the graph records): the lines are built and
+        // written into the line material in the node's setup - the write may grow its storage buffer, which drops
+        // the view copies - and the material is prepared, so the exec only draws.
         SystemRasterPass pass{
              .Name        = "DebugLinesPass",
              .ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
-                 if ( !m_ShowBoundingBoxes && !m_ShowCardPlacement )
+                 if ( m_DebugLineVertices == 0 )
                      return BOOLSUCCESS;
-                 auto* const      camera = m_SceneRenderer->GetMainCamera();
-                 const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
-                 if ( camera == nullptr || view == nullptr )
-                     return BOOLSUCCESS;
-
-                 // 12 box edges as index pairs into the 8 AABB corners (index bits = x|y<<1|z<<2).
-                 static const int kEdges[12][2] = { { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 },
-                                                    { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
-                 const glm::vec4  color( m_BoundingBoxColor, 1.0f );
-
-                 std::vector<MaterialDebugLine::LineVertex> lines;
-                 const auto addBox = [&lines]( const glm::vec3& mn, const glm::vec3& mx, const glm::mat4& world,
-                                               const glm::vec4& boxColor )
-                 {
-                     glm::vec3 c[8] = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
-                                        { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
-                                        { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
-                     for ( auto& corner : c )
-                         corner = glm::vec3( world * glm::vec4( corner, 1.0f ) );
-                     for ( const auto& e : kEdges )
-                     {
-                         lines.push_back( { glm::vec4( c[e[0]], 1.0f ), boxColor } );
-                         lines.push_back( { glm::vec4( c[e[1]], 1.0f ), boxColor } );
-                     }
-                 };
-                 // CARD PLACEMENT: each card's box in its mesh's space (the card build applied every submesh's
-                 // transform, as the distance field does), coloured by the axis it faces - X red, Y green, Z
-                 // blue, the negative direction darker.
-                 const auto addCards = [&addBox]( const Mesh& mesh, const glm::mat4& world )
-                 {
-                     const auto cards = mesh.GetCards();
-                     if ( !cards )
-                         return;
-                     for ( const Assets::CardBuildData& card : cards->Cards )
-                     {
-                         const uint32_t direction = static_cast<uint32_t>( card.Direction );
-                         glm::vec4      cardColor( 0.0f, 0.0f, 0.0f, 1.0f );
-                         cardColor[direction / 2] = ( direction & 1u ) != 0u ? 1.0f : 0.45f;
-                         addBox( card.Center - card.Extent, card.Center + card.Extent, world, cardColor );
-                     }
-                 };
-                 if ( m_ShowCardPlacement )
-                 {
-                     for ( const auto& rd : m_StaticQueue )
-                         if ( rd.Mesh != nullptr )
-                             addCards( *rd.Mesh, rd.Transform );
-                     for ( const auto& ism : m_InstancedQueue )
-                         if ( ism.Mesh != nullptr && ism.Transforms )
-                             for ( const glm::mat4& world : *ism.Transforms )
-                                 addCards( *ism.Mesh, world );
-                 }
-                 for ( const auto& rd : m_StaticQueue )
-                 {
-                     if ( rd.Mesh == nullptr || !m_ShowBoundingBoxes )
-                         continue;
-                     for ( const auto& sm : rd.Mesh->GetSubmeshes() )
-                     {
-                         const glm::vec3 mn   = sm.BoundingBox.Min;
-                         const glm::vec3 mx   = sm.BoundingBox.Max;
-                         glm::vec3       c[8] = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
-                                                  { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
-                                                  { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
-                         const glm::mat4 world = rd.Transform * sm.Transform;
-                         for ( auto& corner : c )
-                             corner = glm::vec3( world * glm::vec4( corner, 1.0f ) );
-                         for ( const auto& e : kEdges )
-                         {
-                             lines.push_back( { glm::vec4( c[e[0]], 1.0f ), color } );
-                             lines.push_back( { glm::vec4( c[e[1]], 1.0f ), color } );
-                         }
-                     }
-                 }
-                 if ( lines.empty() )
-                     return BOOLSUCCESS;
-
-                 m_DebugLineMaterial->Update( *view, lines );
-                 Renderer::GetInstance().SubmitPulled(
-                      m_DebugLinePipeline.get(), static_cast<uint32_t>( lines.size() ), m_BoundingBoxLineWidth,
-                      m_DebugLineMaterial->GetMaterialExecutor() );
+                 Renderer::GetInstance().SubmitPulled( m_DebugLinePipeline.get(), m_DebugLineVertices,
+                                                       m_BoundingBoxLineWidth,
+                                                       m_DebugLineMaterial->GetMaterialExecutor() );
                  return BOOLSUCCESS;
              },
              .TargetFramebuffer = targetFb };
+        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+        {
+            m_DebugLineVertices = 0;
+            if ( !m_ShowBoundingBoxes && !m_ShowCardPlacement )
+                return;
+            auto* const      camera = m_SceneRenderer->GetMainCamera();
+            const ViewFrame* view   = m_SceneRenderer->GetViewFrame();
+            if ( camera == nullptr || view == nullptr )
+                return;
+
+            // 12 box edges as index pairs into the 8 AABB corners (index bits = x|y<<1|z<<2).
+            static const int kEdges[12][2] = { { 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 }, { 4, 5 }, { 5, 7 },
+                                               { 7, 6 }, { 6, 4 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+            const glm::vec4  color( m_BoundingBoxColor, 1.0f );
+
+            std::vector<MaterialDebugLine::LineVertex> lines;
+            const auto addBox = [&lines]( const glm::vec3& mn, const glm::vec3& mx, const glm::mat4& world,
+                                          const glm::vec4& boxColor )
+            {
+                glm::vec3 c[8] = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
+                                   { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
+                                   { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
+                for ( auto& corner : c )
+                    corner = glm::vec3( world * glm::vec4( corner, 1.0f ) );
+                for ( const auto& e : kEdges )
+                {
+                    lines.push_back( { glm::vec4( c[e[0]], 1.0f ), boxColor } );
+                    lines.push_back( { glm::vec4( c[e[1]], 1.0f ), boxColor } );
+                }
+            };
+            // CARD PLACEMENT: each card's box in its mesh's space (the card build applied every submesh's
+            // transform, as the distance field does), coloured by the axis it faces - X red, Y green, Z
+            // blue, the negative direction darker.
+            const auto addCards = [&addBox]( const Mesh& mesh, const glm::mat4& world )
+            {
+                const auto cards = mesh.GetCards();
+                if ( !cards )
+                    return;
+                for ( const Assets::CardBuildData& card : cards->Cards )
+                {
+                    const uint32_t direction = static_cast<uint32_t>( card.Direction );
+                    glm::vec4      cardColor( 0.0f, 0.0f, 0.0f, 1.0f );
+                    cardColor[direction / 2] = ( direction & 1u ) != 0u ? 1.0f : 0.45f;
+                    addBox( card.Center - card.Extent, card.Center + card.Extent, world, cardColor );
+                }
+            };
+            if ( m_ShowCardPlacement )
+            {
+                for ( const auto& rd : m_StaticQueue )
+                    if ( rd.Mesh != nullptr )
+                        addCards( *rd.Mesh, rd.Transform );
+                for ( const auto& ism : m_InstancedQueue )
+                    if ( ism.Mesh != nullptr && ism.Transforms )
+                        for ( const glm::mat4& world : *ism.Transforms )
+                            addCards( *ism.Mesh, world );
+            }
+            for ( const auto& rd : m_StaticQueue )
+            {
+                if ( rd.Mesh == nullptr || !m_ShowBoundingBoxes )
+                    continue;
+                for ( const auto& sm : rd.Mesh->GetSubmeshes() )
+                {
+                    const glm::vec3 mn   = sm.BoundingBox.Min;
+                    const glm::vec3 mx   = sm.BoundingBox.Max;
+                    glm::vec3       c[8] = { { mn.x, mn.y, mn.z }, { mx.x, mn.y, mn.z }, { mn.x, mx.y, mn.z },
+                                             { mx.x, mx.y, mn.z }, { mn.x, mn.y, mx.z }, { mx.x, mn.y, mx.z },
+                                             { mn.x, mx.y, mx.z }, { mx.x, mx.y, mx.z } };
+                    const glm::mat4 world = rd.Transform * sm.Transform;
+                    for ( auto& corner : c )
+                        corner = glm::vec3( world * glm::vec4( corner, 1.0f ) );
+                    for ( const auto& e : kEdges )
+                    {
+                        lines.push_back( { glm::vec4( c[e[0]], 1.0f ), color } );
+                        lines.push_back( { glm::vec4( c[e[1]], 1.0f ), color } );
+                    }
+                }
+            }
+            if ( lines.empty() )
+                return;
+
+            m_DebugLineMaterial->Update( *view, lines );
+            declared.Prepares( *m_DebugLineMaterial->GetMaterialExecutor() );
+            m_DebugLineVertices = static_cast<uint32_t>( lines.size() );
+        };
         return pass;
     }
 

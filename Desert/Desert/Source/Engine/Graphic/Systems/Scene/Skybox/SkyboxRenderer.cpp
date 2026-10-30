@@ -1123,6 +1123,7 @@ namespace Desert::Graphic::System
             m_ProceduralMaterial->Update( view, m_SkyParams );
             const MaterialExecutor* executor = m_ProceduralMaterial->GetMaterialExecutor();
             const RDG::TextureRef   white    = refs.System.White;
+            declared.Prepares( *executor );
             declared
                  .Bindings( m_ProceduralLayout.Get( m_ProceduralPipeline->GetSpecification().Shader ),
                             executor->GetRouteFill() )
@@ -1155,6 +1156,7 @@ namespace Desert::Graphic::System
             if ( m_ActiveCamera != nullptr )
                 material->BindInputs( { view, m_SkyboxLook } );
             const MaterialExecutor* executor = material->GetMaterialExecutor();
+            declared.Prepares( *executor );
             declared.Bindings( m_SkyLayout.Get( m_Pipeline->GetSpecification().Shader ),
                                executor->GetRouteFill() );
             m_SkyDraw = { .Pipeline = behind ? m_BehindPipeline.get() : m_Pipeline.get(), .Executor = executor };

@@ -289,6 +289,18 @@ namespace Desert::Graphic
             return { *this, static_cast<uint32_t>( m_Blocks.size() - 1 ) };
         }
 
+        // RENDER-THREADS M1 (RDG::PassBuilder::Prepares): a material (or another prerequisite) the node's exec
+        // applies, made ready before the graph records; the exec of a node that declares any records sealed and
+        // creates no per-view object. The object outlives the graph's Execute.
+        void Prepares( const RDG::IRecordPrerequisite& prerequisite )
+        {
+            m_Prerequisites.push_back( &prerequisite );
+        }
+        [[nodiscard]] const std::vector<const RDG::IRecordPrerequisite*>& Prerequisites() const
+        {
+            return m_Prerequisites;
+        }
+
         [[nodiscard]] const std::vector<BlockUse>& Blocks() const
         {
             return m_Blocks;
@@ -312,6 +324,7 @@ namespace Desert::Graphic
         std::vector<TextureUse> m_Textures;
         std::vector<BufferUse>  m_Buffers;
         std::vector<BlockUse>   m_Blocks;
+        std::vector<const RDG::IRecordPrerequisite*> m_Prerequisites;
     };
 
     // The body of a frame-graph node, whatever registered it: it records into the node's command buffer with
@@ -386,6 +399,8 @@ namespace Desert::Graphic
                                std::span<const RDG::TextureRef> blockImages = {} )
     {
         size_t nextImage = 0;
+        for ( const RDG::IRecordPrerequisite* prerequisite : declared.Prerequisites() )
+            pass.Prepares( *prerequisite );
         for ( const RenderPassDeclaration::TextureUse& use : declared.Textures() )
         {
             if ( use.Writes )

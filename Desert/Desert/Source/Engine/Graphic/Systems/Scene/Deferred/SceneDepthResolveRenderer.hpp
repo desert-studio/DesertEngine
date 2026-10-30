@@ -114,6 +114,7 @@ namespace Desert::Graphic::System
         {
             if ( !IsReady() || !sceneDepth.IsValid() )
                 return;
+            pass.Prepares( *m_Material->GetMaterialExecutor() );
             pass.Bindings( m_BindingLayout.Get( m_Shader ), m_Material->GetMaterialExecutor()->GetRouteFill() )
                  .Texture( SceneDepthResolveBindingShaderParameters::SourceDepthTexture, sceneDepth,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() )

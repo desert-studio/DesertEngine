@@ -394,6 +394,9 @@ namespace Desert::Graphic::System
             return;
         // The view's camera, sun, sky cubes and sky look, by block name - as every surface cell gets them.
         frame.ApplyTo( m_Frame->Material.get() );
+        // RENDER-THREADS M1: the one material RenderManual applies - its view sets and block copies exist before the
+        // graph records (after the frame binding above, which writes its blocks).
+        pass.Prepares( *m_Frame->Material->GetMaterialExecutor() );
         const auto layout = m_Layout.Get( m_Frame->Pipeline->GetSpecification().Shader );
         auto       block  = pass.Bindings( layout, m_Frame->Material->GetMaterialExecutor()->GetRouteFill() );
         BindSceneViewInputs( block, view, *layout );

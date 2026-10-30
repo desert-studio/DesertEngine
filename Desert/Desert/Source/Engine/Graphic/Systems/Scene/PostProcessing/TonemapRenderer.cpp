@@ -88,6 +88,7 @@ namespace Desert::Graphic::System
         // image's own (linear, REPEAT), the three effect images with LinearClamp at mip 0. Any of the three may
         // be the same System.Black ref: three read entries of one ref in one state are one read of the pass
         // (RenderGraphCompile TwoBlockEntriesReadingOneImageInOneState...).
+        pass.Prepares( *material->GetMaterialExecutor() );
         pass.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                        material->GetMaterialExecutor()->GetRouteFill() )
              .Texture( TonemapShaderParameters::GeometryTexture, inputs.Source, RDG::Access::SampledGraphics,

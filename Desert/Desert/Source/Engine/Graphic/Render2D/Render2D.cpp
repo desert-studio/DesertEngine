@@ -415,6 +415,14 @@ namespace Desert::Graphic::Render2D
         {
             const ResolvedCommand&    resolved = draw.Value;
             ShaderBindingLayoutCache& layout   = *resolved.Layout;
+            // RENDER-THREADS M1: the executor Flush applies to this draw (a retained composite's retainer, a
+            // material's or a batch's own; the glass applies none) has its view sets and block copies made before
+            // the graph records.
+            const MaterialExecutor* applied = resolved.Kind == CommandKind::Retained ? resolved.Plain
+                                              : resolved.Kind == CommandKind::Glass  ? nullptr
+                                                                                     : resolved.Executor;
+            if ( applied != nullptr )
+                declared.Prepares( *applied );
             if ( resolved.Kind == CommandKind::Retained )
             {
                 // The composite samples the layer (and its mask) the retained pass drew: graph textures, read by
