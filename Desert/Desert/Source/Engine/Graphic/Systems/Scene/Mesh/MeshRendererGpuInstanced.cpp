@@ -176,14 +176,12 @@ namespace Desert::Graphic::System
                             .IndirectArgs       = gpu.Refs->Args,
                             .IndirectInstances  = gpu.Refs->Instances,
                             .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
-                            .BindState          = [cell, inst = instance.get(), row,
-                                          wind = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset )]
-                            {
-                                cell->SetMaterialIndex( row );
-                                cell->SetInstancedWind( wind );
-                                cell->SetPrimitiveFlags( 0u );
-                                cell->Bind( inst );
-                            } } );
+                            .Push               = DrawPushFields{}
+                                       .MaterialIndex( row )
+                                       .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
+                                       .PrimitiveFlags( 0u ),
+                            .BindTarget         = cell,
+                            .Instance           = instance.get() } );
         }
     }
 
@@ -243,13 +241,12 @@ namespace Desert::Graphic::System
                             .IndirectArgs       = gpu.Refs->Args,
                             .IndirectInstances  = gpu.Refs->Instances,
                             .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
-                            .BindState = [caster, inst = gpu.Material.get(), row, wind = PackInstanceWind( gpu.Wind )]
-                            {
-                                caster->SetPushMatrix( glm::mat4( 1.0f ) );
-                                caster->SetMaterialIndex( row );
-                                caster->SetInstancedWind( wind );
-                                caster->Bind( inst );
-                            } } );
+                            .Push = DrawPushFields{}
+                                         .Transform( glm::mat4( 1.0f ) )
+                                         .MaterialIndex( row )
+                                         .Wind( PackInstanceWind( gpu.Wind ) ),
+                            .BindTarget = caster,
+                            .Instance   = gpu.Material.get() } );
         }
     }
 } // namespace Desert::Graphic::System

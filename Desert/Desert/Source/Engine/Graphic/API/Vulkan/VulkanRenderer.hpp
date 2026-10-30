@@ -94,14 +94,14 @@ namespace Desert::Graphic::API::Vulkan
         [[nodiscard]] RDG::OtherRouteFill GetPipelineRouteFill( const ComputePipeline& pipeline ) const override;
         Common::BoolResultStr RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
-                                          const MaterialExecutor& material, uint32_t instanceCount,
-                                          uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
-                                          uint32_t lodLevel ) override;
+                                          const MaterialExecutor& material, std::span<const std::byte> push,
+                                          uint32_t instanceCount, uint32_t firstInstance,
+                                          SubmeshMask hiddenSubmeshMask, uint32_t lodLevel ) override;
         Common::BoolResultStr RenderMeshIndirect( const RDG::PassBindings& bindings,
                                                   const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                   const glm::mat4& transform, const MaterialExecutor& material,
-                                                  RDG::BufferRef args, uint64_t offset,
-                                                  SubmeshMask            hiddenSubmeshMask,
+                                                  std::span<const std::byte> push, RDG::BufferRef args,
+                                                  uint64_t offset, SubmeshMask hiddenSubmeshMask,
                                                   MeshDrawArgumentsOrder order ) override;
         Common::BoolResultStr RenderMeshIndirectGroup( const RDG::PassBindings&     bindings,
                                                        const GraphicsPipeline&      pipeline,
@@ -193,11 +193,12 @@ namespace Desert::Graphic::API::Vulkan
         using SubmeshDraw = std::function<Common::BoolResultStr(
              uint32_t drawn, size_t index, const Submesh& submesh, uint32_t indexCount )>;
         // RenderMesh's walk, shared by the direct and the indirect mesh draw: the pass state, the mesh's vertex,
-        // stream and index buffers, then for every submesh the hidden mask leaves its push block (the material's,
-        // transform * submesh.Transform over the first mat4) before @p draw records it.
+        // stream and index buffers, then for every submesh the hidden mask leaves its push block (the draw's
+        // @p push, transform * submesh.Transform over the first mat4) before @p draw records it.
         Common::BoolResultStr WalkMeshSubmeshes( const RDG::PassBindings& bindings,
                                                  const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                  const glm::mat4& transform, const MaterialExecutor& material,
+                                                 std::span<const std::byte> push,
                                                  SubmeshMask hiddenSubmeshMask, VkBuffer visibleRows,
                                                  const SubmeshDraw& draw );
         void DrawIndexedCounted( uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex,

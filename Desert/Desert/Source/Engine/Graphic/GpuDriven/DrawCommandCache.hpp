@@ -42,7 +42,7 @@ namespace Desert::Graphic::RDG
 //    (Systems/Scene/Mesh/MeshRenderer.hpp:71-104, Record MeshRenderer.cpp:381-427, pass loops
 //    MeshRendererDeferred.cpp:8-56, MeshRendererForward.cpp:103, MeshRendererShadow.cpp:670,
 //    MeshRendererVirtualShadow.cpp:360-441).
-//  - The per-draw std::function BindState (MeshRenderer.hpp:89-92: transform push, material row, bone offset,
+//  - The per-draw state of a CPU draw (MeshDrawCommand::Push / BindTarget: transform push, material row, bone offset,
 //    wind, instance descriptor bind) becomes DATA: GpuDrawSlot (material row) + GpuScenePrimitive/Instance
 //    (transforms, bones, skin cache) read by instance id. A draw keeps no closure.
 //  - A submesh's node transform (Submesh::Transform, relative to the primitive) is DATA too: one row per submesh

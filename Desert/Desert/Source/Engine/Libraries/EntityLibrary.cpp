@@ -29,7 +29,7 @@ namespace Desert::Libraries
         }
 
         // The world of the running script; nullptr (logged) outside a script call.
-        const Core::WorldContext* World( const char* function )
+        const Core::WorldContext* EntityWorld( const char* function )
         {
             const Core::WorldContext* context = Core::WorldContext::Current();
             if ( context == nullptr || context->World == nullptr )
@@ -370,7 +370,7 @@ namespace Desert::Libraries
 
     ECS::Entity WorldLibrary::Find( const std::string& name )
     {
-        const Core::WorldContext* context = World( "find" );
+        const Core::WorldContext* context = EntityWorld( "find" );
         if ( context == nullptr )
             return {};
         entt::registry& registry = context->World->GetRegistry();
@@ -383,7 +383,7 @@ namespace Desert::Libraries
 
     ECS::Entity WorldLibrary::Spawn( const std::string& prefabPath, const glm::vec3& position )
     {
-        const Core::WorldContext* context = World( "spawn" );
+        const Core::WorldContext* context = EntityWorld( "spawn" );
         if ( context == nullptr )
             return {};
         if ( context->Assets == nullptr )
@@ -410,7 +410,7 @@ namespace Desert::Libraries
 
     ECS::Entity WorldLibrary::SpawnMarker( const glm::vec3& position, float scale, const glm::vec3& color )
     {
-        const Core::WorldContext* context = World( "spawnMarker" );
+        const Core::WorldContext* context = EntityWorld( "spawnMarker" );
         if ( context == nullptr )
             return {};
         ECS::Entity         e = context->World->CreateNewEntity( "Marker" );
@@ -451,7 +451,7 @@ namespace Desert::Libraries
             return result;
         }
         const glm::vec3           unit    = direction / length;
-        const Core::WorldContext* context = World( "raycast" );
+        const Core::WorldContext* context = EntityWorld( "raycast" );
         if ( context == nullptr )
             return result;
 
@@ -470,7 +470,7 @@ namespace Desert::Libraries
     WorldRay WorldLibrary::CameraRay()
     {
         WorldRay                  ray;
-        const Core::WorldContext* context = World( "cameraRay" );
+        const Core::WorldContext* context = EntityWorld( "cameraRay" );
         if ( context == nullptr )
             return ray;
         if ( auto camera = context->World->GetActiveCamera() )

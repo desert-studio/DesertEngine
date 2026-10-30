@@ -926,8 +926,9 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr
     VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
                                           const Mesh& mesh, const glm::mat4& transform,
-                                          const MaterialExecutor& material, const SubmeshMask hiddenSubmeshMask,
-                                          const VkBuffer visibleRows, const SubmeshDraw& draw )
+                                          const MaterialExecutor& material, const std::span<const std::byte> drawPush,
+                                          const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows,
+                                          const SubmeshDraw& draw )
     {
         const std::string_view pass = bindings.GetContext().GetPassName();
         // The push block is the per-submesh transform the material carries (written below for each submesh).
@@ -953,9 +954,9 @@ namespace Desert::Graphic::API::Vulkan
             return buffers;
         const uint32_t indexCount = geometry.Indices != nullptr ? geometry.IndexCount : 0u;
 
-        // The push block of every submesh: the material's (the pipeline layout's full range, so the per-object
-        // values the caller wrote past the transform go too; zero past what the material holds) with the submesh's
-        // transform over the first mat4. Stages and size are the LAYOUT's (VulkanPipeline::GetPushConstantRange),
+        // The push block of every submesh: the draw's (@p drawPush - the material's block with the draw's own
+        // values over it, MeshDrawList::Record; the pipeline layout's full range, zero past what it holds) with
+        // the submesh's transform over the first mat4. Stages and size are the LAYOUT's (VulkanPipeline::GetPushConstantRange),
         // never the shader's current reflection, which a recompile can move past the layout this pipeline holds.
         const auto& pushConstant = graphics->GetPushConstantRange();
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
@@ -967,9 +968,8 @@ namespace Desert::Graphic::API::Vulkan
                      "{}: shader '{}' push block of {} bytes cannot hold the transform", pass, shader->GetName(),
                      pushConstant->size );
             push.assign( pushConstant->size, std::byte{ 0 } );
-            const auto& materialPush = material.GetPushConstantBuffer();
-            if ( materialPush.Data != nullptr )
-                std::memcpy( push.data(), materialPush.Data, std::min<size_t>( push.size(), materialPush.Size ) );
+            if ( !drawPush.empty() )
+                std::memcpy( push.data(), drawPush.data(), std::min<size_t>( push.size(), drawPush.size() ) );
         }
 
         // The hidden-submesh mask and the per-submesh push block; @p draw records the submesh.
@@ -997,16 +997,17 @@ namespace Desert::Graphic::API::Vulkan
     Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
                                                          const GraphicsPipeline& pipeline, const Mesh& mesh,
                                                          const glm::mat4&        transform,
-                                                         const MaterialExecutor& material, uint32_t instanceCount,
-                                                         uint32_t firstInstance, SubmeshMask hiddenSubmeshMask,
-                                                         uint32_t lodLevel )
+                                                         const MaterialExecutor&          material,
+                                                         const std::span<const std::byte> push,
+                                                         uint32_t instanceCount, uint32_t firstInstance,
+                                                         SubmeshMask hiddenSubmeshMask, uint32_t lodLevel )
     {
         DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
         if ( instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a mesh draw of zero instances", pass );
         return WalkMeshSubmeshes(
-             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask, VK_NULL_HANDLE,
+             bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
              [&]( uint32_t, const size_t si, const Submesh& submesh,
                   const uint32_t indexCount ) -> Common::BoolResultStr
              {
@@ -1028,8 +1029,9 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanRendererAPI::RenderMeshIndirect(
          const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
-         const glm::mat4& transform, const MaterialExecutor& material, const RDG::BufferRef args,
-         const uint64_t offset, const SubmeshMask hiddenSubmeshMask, const MeshDrawArgumentsOrder order )
+         const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> push,
+         const RDG::BufferRef args, const uint64_t offset, const SubmeshMask hiddenSubmeshMask,
+         const MeshDrawArgumentsOrder order )
     {
         DESERT_PROFILE_FUNC();
         const RDG::PassContext& context = bindings.GetContext();
@@ -1049,7 +1051,7 @@ namespace Desert::Graphic::API::Vulkan
         // Not counted by DrawCounter: the instance counts are the GPU's (DrawProceduralIndirect likewise).
         // The VSM caster draw instances through its remap (firstInstance = RemapBase), never a binned id stream.
         return WalkMeshSubmeshes(
-             bindings, pipeline, mesh, transform, material, hiddenSubmeshMask, VK_NULL_HANDLE,
+             bindings, pipeline, mesh, transform, material, push, hiddenSubmeshMask, VK_NULL_HANDLE,
              [&]( const uint32_t drawn, const size_t si, const Submesh&,
                   const uint32_t indexCount ) -> Common::BoolResultStr
              {

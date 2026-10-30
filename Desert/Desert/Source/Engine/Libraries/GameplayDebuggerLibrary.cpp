@@ -11,7 +11,7 @@ namespace Desert::Libraries
     namespace
     {
         // The world of the running script; nullptr (logged) outside a script call.
-        Core::Scene* World( const char* function )
+        Core::Scene* DebuggerWorld( const char* function )
         {
             const Core::WorldContext* context = Core::WorldContext::Current();
             if ( context == nullptr || context->World == nullptr )
@@ -25,19 +25,19 @@ namespace Desert::Libraries
 
     void GameplayDebuggerLibrary::SetActive( const bool active )
     {
-        if ( Core::Scene* scene = World( "setActive" ) )
+        if ( Core::Scene* scene = DebuggerWorld( "setActive" ) )
             scene->GetGameplayDebugger().SetActive( active );
     }
 
     bool GameplayDebuggerLibrary::IsActive()
     {
-        const Core::Scene* scene = World( "isActive" );
+        const Core::Scene* scene = DebuggerWorld( "isActive" );
         return scene != nullptr && scene->GetGameplayDebugger().IsActive();
     }
 
     bool GameplayDebuggerLibrary::SetCategory( const std::string& name, const bool enabled )
     {
-        Core::Scene* scene = World( "setCategory" );
+        Core::Scene* scene = DebuggerWorld( "setCategory" );
         if ( scene == nullptr )
             return false;
         if ( scene->GetGameplayDebugger().SetCategoryEnabled( name, enabled ) )

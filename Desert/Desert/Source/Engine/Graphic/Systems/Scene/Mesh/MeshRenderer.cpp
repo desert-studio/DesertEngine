@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <Engine/Graphic/GpuDriven/GpuSceneRegistry.hpp>
 
@@ -458,6 +459,11 @@ namespace Desert::Graphic::System
         {
             for ( const Block& declared : m_Blocks )
             {
+                // RENDER-THREADS M2: every executor the list records with (its CPU draws' and its binned groups'
+                // carriers, one block each) has its view sets and block copies made before the graph records
+                // (RDG "Prepare recording"), so Record runs sealed and only binds them (UE: a mesh draw command's
+                // shader bindings are built with the command, the record binds them).
+                declaration.Prepares( *declared.Material );
                 const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
                      m_Layouts.Get( declared.Pipeline->GetSpecification().Shader );
                 auto block = declaration.Bindings( layout, declared.Material->GetRouteFill() );
@@ -543,20 +549,32 @@ namespace Desert::Graphic::System
             for ( uint32_t index = 0; index < m_Blocks.size(); ++index )
                 blocks.push_back(
                      std::make_unique<RDG::PassBindings>( context, context.GetBindingBlock( index ) ) );
+            std::vector<std::byte> push;
             for ( size_t i = 0; i < m_Commands.size(); ++i )
             {
                 const MeshDrawCommand& draw = m_Commands[i];
-                if ( draw.BindState )
-                {
-                    draw.BindState();
-                }
+                if ( draw.Viewport )
+                    Renderer::GetInstance().SetViewportRegion( draw.Viewport->X, draw.Viewport->Y,
+                                                               draw.Viewport->Width, draw.Viewport->Height );
+                if ( draw.BindTarget != nullptr )
+                    draw.BindTarget->Bind( draw.Instance );
+                // The draw's push block: the material's, with the draw's own values over it (by value - the
+                // material's block is read, never written, so another pass recording it reads the same bytes).
+                const Common::Memory::Buffer& materialPush = draw.Material->GetPushConstantBuffer();
+                push.assign( materialPush.Size, std::byte{ 0 } );
+                if ( materialPush.Data != nullptr && materialPush.Size != 0u )
+                    std::memcpy( push.data(), materialPush.Data, materialPush.Size );
+                if ( auto written = draw.Push.WriteInto( push, draw.Material->GetShader()->GetMaterialLayout() );
+                     !written )
+                    return Common::MakeFormattedError( "{}: draw {} ('{}'): {}", context.GetPassName(), i,
+                                                       draw.Material->GetDubugName(), written.GetError() );
                 // A GPU-instanced draw (GpuInstances.hpp): its own argument records, one per submesh of the mesh
                 // after the header, the instance counts its generator wrote.
                 if ( draw.IndirectArgs.IsValid() )
                 {
                     static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
                               draw.IndirectArgs, draw.IndirectArgsOffset, draw.HiddenSubmeshMask,
                               MeshDrawArgumentsOrder::Submesh );
                          !drawn.IsSuccess() )
@@ -566,7 +584,7 @@ namespace Desert::Graphic::System
                 if ( m_IndirectArguments.IsValid() )
                 {
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
                               m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
                               draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Drawn );
                          !drawn.IsSuccess() )
@@ -575,7 +593,7 @@ namespace Desert::Graphic::System
                 }
                 if ( auto drawn = Renderer::RenderMesh(
                           *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
+                          push, draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
                      !drawn.IsSuccess() )
                     return drawn;
             }

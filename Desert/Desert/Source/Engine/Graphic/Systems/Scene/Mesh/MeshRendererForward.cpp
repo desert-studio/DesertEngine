@@ -613,11 +613,7 @@ namespace Desert::Graphic::System
                         .Material          = d.Material->GetMaterialExecutor(),
                         .HiddenSubmeshMask = ~g.VisibleSubmeshMask,
                         .LodLevel          = ComputeLOD( g.Transform, g.Mesh, /*forced*/ -1 ),
-                        .BindState         = [material = &*d.Material, row = d.Row, motionRow = g.GpuPrimitive]
-                        {
-                            material->SetPrimitiveIndex( motionRow );
-                            material->SetMaterialIndex( row );
-                        } } );
+                        .Push = DrawPushFields{}.PrimitiveIndex( g.GpuPrimitive ).MaterialIndex( d.Row ) } );
         }
     }
 
@@ -1240,13 +1236,12 @@ namespace Desert::Graphic::System
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                 .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .BindState = [material, instance, motionRow = obj->GpuPrimitive, row = draw.Row]
-                                {
-                                    material->SetPushMatrix( glm::mat4( 1.0f ) );
-                                    material->SetPrimitiveIndex( motionRow );
-                                    material->SetMaterialIndex( row );
-                                    material->Bind( instance );
-                                } } );
+                                .Push      = DrawPushFields{}
+                                             .Transform( glm::mat4( 1.0f ) )
+                                             .PrimitiveIndex( obj->GpuPrimitive )
+                                             .MaterialIndex( draw.Row ),
+                                .BindTarget = material,
+                                .Instance   = instance } );
         }
 
         // A cell's block also carries the scene snapshot the cells sample for refraction (SceneColorTexture), this
@@ -1345,13 +1340,12 @@ namespace Desert::Graphic::System
                                      .Material          = material->GetMaterialExecutor(),
                                      .HiddenSubmeshMask = obj->HiddenSubmeshes,
                                      .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                     .BindState = [material, instance, motionRow = obj->GpuPrimitive, row = draw.Row]
-                                     {
-                                         material->SetPushMatrix( glm::mat4( 1.0f ) );
-                                         material->SetPrimitiveIndex( motionRow );
-                                         material->SetMaterialIndex( row );
-                                         material->Bind( instance );
-                                     } } );
+                                     .Push      = DrawPushFields{}
+                                                  .Transform( glm::mat4( 1.0f ) )
+                                                  .PrimitiveIndex( obj->GpuPrimitive )
+                                                  .MaterialIndex( draw.Row ),
+                                     .BindTarget = material,
+                                     .Instance   = instance } );
         }
         return true;
     }
@@ -1967,16 +1961,13 @@ namespace Desert::Graphic::System
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = hiddenOf( obj ),
                             .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .BindState = [drawMat, inst, motionRow = obj->GpuPrimitive, materialRow,
-                                          flags = PrimitiveFlagsOf( obj->CastContactShadow )]
-                            {
-                                DESERT_PROFILE_SCOPE( "Mesh: PerObject Setup" );
-                                drawMat->SetPushMatrix( glm::mat4( 1.0f ) );
-                                drawMat->SetPrimitiveIndex( motionRow );
-                                drawMat->SetMaterialIndex( materialRow );
-                                drawMat->SetPrimitiveFlags( flags );
-                                drawMat->Bind( inst );
-                            } } );
+                            .Push      = DrawPushFields{}
+                                         .Transform( glm::mat4( 1.0f ) )
+                                         .PrimitiveIndex( obj->GpuPrimitive )
+                                         .MaterialIndex( materialRow )
+                                         .PrimitiveFlags( PrimitiveFlagsOf( obj->CastContactShadow ) ),
+                            .BindTarget = drawMat,
+                            .Instance   = inst } );
             }
         }
 
@@ -2143,14 +2134,12 @@ namespace Desert::Graphic::System
                                 .FirstInstance     = d.FirstInstance,
                                 .HiddenSubmeshMask = d.HiddenSubmeshMask,
                                 .LodLevel          = d.LodLevel,
-                                .BindState         = [mat = &*set.Mat, inst = &*set.Inst, index = d.MaterialIndex,
-                                              wind = d.Wind, flags = d.PrimitiveFlags]
-                                {
-                                    mat->SetMaterialIndex( index );
-                                    mat->SetInstancedWind( wind );
-                                    mat->SetPrimitiveFlags( flags );
-                                    mat->Bind( inst );
-                                } } );
+                                .Push              = DrawPushFields{}
+                                                .MaterialIndex( d.MaterialIndex )
+                                                .Wind( d.Wind )
+                                                .PrimitiveFlags( d.PrimitiveFlags ),
+                                .BindTarget        = &*set.Mat,
+                                .Instance          = &*set.Inst } );
                 }
             }
         }
@@ -2415,14 +2404,12 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material          = mat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj.Section->HiddenSubmeshes,
-                            .BindState = [mat = &*mat, inst = instOf( obj ), motionRow = obj.Obj->GpuPrimitive,
-                                          row = *materialRow]
-                            {
-                                mat->SetPushMatrix( glm::mat4( 1.0f ) );
-                                mat->SetPrimitiveIndex( motionRow );
-                                mat->SetMaterialIndex( row );
-                                mat->Bind( inst );
-                            } } );
+                            .Push      = DrawPushFields{}
+                                         .Transform( glm::mat4( 1.0f ) )
+                                         .PrimitiveIndex( obj.Obj->GpuPrimitive )
+                                         .MaterialIndex( *materialRow ),
+                            .BindTarget = &*mat,
+                            .Instance   = instOf( obj ) } );
             }
         }
     }
