@@ -24,13 +24,10 @@ bool DesertCasterWindLayer( const vec3 instanceOrigin, inout vec4 windA )
     const uint split = floatBitsToUint( m_PushConstants.WindB.w );
     if ( ( split & DESERT_CASTER_WIND_RULE ) == 0u )
         return true;
-    // The rule reads the view's flags and LodOrigin and the primitive's Wind only.
-    GpuCullView view;
-    view.Flags     = DESERT_GPU_CULL_VIEW_SHADOW_CASTER;
-    view.LodOrigin = cameraUB.CasterWindOrigin;
-    GpuScenePrimitive primitive;
-    primitive.Wind  = windA;
-    const bool rest = GpuCull_CastsRestPose( view, primitive, instanceOrigin );
+    // GpuCull_CastsRestPose's rule (Common/ShadowWind.glslh) on a blade: it sways only with Wind.z > 0, and its
+    // origin is its instance point (a blade's bounds centre is its origin at this scale).
+    const bool rest = windA.z > 0.0 && ShadowWindCastsRestPose( instanceOrigin, cameraUB.CasterWindOrigin.xyz,
+                                                                cameraUB.CasterWindOrigin.w );
     if ( rest ? ( split & DESERT_CASTER_WIND_DROP_FAR ) != 0u
               : windA.z > 0.0 && ( split & DESERT_CASTER_WIND_DROP_NEAR ) != 0u )
         return false;
