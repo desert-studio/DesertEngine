@@ -1511,6 +1511,14 @@ namespace Desert::Graphic
         // rain occlusion's view drew through a null caster material and the editor aborted).
         RebudgetShadowsFor( m_Quality, SunShadowIsScreenMask() );
 
+        // This frame's shadow casters, gathered once from the mesh queues for every shadow view (each caster's
+        // box, and its level on first use); the cascades, the rain occlusion view, the local lights' and the VSM
+        // levels' keys and draws below read them (MeshRenderer::GatherShadowCasters).
+        {
+            DESERT_PROFILE_PASS( "Shadow: GatherCasters" );
+            UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] )->GatherShadowCasters();
+        }
+
         // Recompute CSM cascade matrices once per frame BEFORE the render graph records (a cascade pass computes
         // nothing: its Declare and record only read the matrices).
         {

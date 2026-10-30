@@ -29,6 +29,13 @@ namespace Desert::Graphic
         }
         return frustum.Intersects( Geometry::TransformBounds( transform, localBounds ) );
     }
+    // The same rule for a box already in world space (a shadow caster's gathered box,
+    // MeshRenderer::GatherShadowCasters): empty = no known extent = drawn.
+    [[nodiscard]] inline bool IsVisibleInView( const Core::Frustum&      frustum,
+                                               const Common::Math::AABB& worldBounds )
+    {
+        return Geometry::IsEmpty( worldBounds ) || frustum.Intersects( worldBounds );
+    }
 
     // HOW FAR A VIEW'S LENS STRETCHES EVERY DRAW AND CULL DISTANCE. Distances are authored for a 90-degree
     // HORIZONTAL lens; through a lens of horizontal focal scale k an object at distance d is as wide on screen as

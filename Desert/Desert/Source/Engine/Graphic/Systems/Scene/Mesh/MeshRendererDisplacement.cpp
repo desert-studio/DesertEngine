@@ -306,5 +306,8 @@ namespace Desert::Graphic::System
         for ( InstancedMeshRenderData& twin : m_DisplacedTwinRecords )
             m_InstancedQueue.push_back( std::move( twin ) );
         m_DisplacedTwinRecords.clear();
+        // The twins replaced queued entries and the ISM records were split: the shadow views drawn from here on
+        // read this frame's casters as they now stand.
+        GatherShadowCasters();
     }
 } // namespace Desert::Graphic::System

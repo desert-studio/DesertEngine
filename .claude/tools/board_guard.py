@@ -44,7 +44,7 @@ CREATED_RE = re.compile(r'"id"\s*:\s*"([0-9a-f-]{32,36})"(?:(?!"id"\s*:).)*?"К�
 
 def load():
     try:
-        with open(STATE) as f:
+        with open(STATE, encoding="utf-8") as f:
             s = json.load(f)
     except (OSError, ValueError):
         s = {}
@@ -57,7 +57,7 @@ def load():
 
 def save(s):
     tmp = "%s.%d.tmp" % (STATE, os.getpid())  # per-process: two hooks sharing one tmp interleaved their writes
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(s, f)  # ASCII: open() uses the locale code page, which has no «→» / «≤» from board rows
     os.replace(tmp, STATE)
 
@@ -186,7 +186,7 @@ def unblock_reason(codes):
 # ---- Tails (rule 5) --------------------------------------------------------------------------------------------------
 BOARD = "collection://386f5e0e-e749-479b-83a7-59e03ef9b8b2"
 TAIL_STATUSES = ("В работе", "Готово к старту", "На проверке", "Заблокировано")
-TAILS_SQL = ("SELECT \"Код\",\"Статус\",\"Зона\",\"Приоритет\",substr(\"Кто ведёт\",1,60) AS who,substr(\"Обновлено\",1,10) AS upd "
+TAILS_SQL = ("SELECT url,\"Код\",\"Статус\",\"Зона\",\"Приоритет\",substr(\"Кто ведёт\",1,60) AS who,substr(\"Обновлено\",1,10) AS upd "
              f"FROM \"{BOARD}\" WHERE \"Статус\" IN ('В работе','Готово к старту','На проверке','Заблокировано') -- TAILS")
 FOREIGN = "Mac" if sys.platform == "win32" else "Windows"
 
@@ -222,6 +222,8 @@ def ingest_rows(s, resp, full, paged=False):
             if not code or not status:
                 continue
             seen.add(code)
+            if row.get("url"):  # a later update-page by page id mirrors onto this code (VFX-12 went unmirrored, 10-30)
+                s["pages"][norm(row["url"])] = code
             cur = s["board"].setdefault(code, {})
             cur["status"] = status
             for src, dst in (("Зона", "zone"), ("Приоритет", "prio"), ("who", "who"), ("Кто ведёт", "who"), ("upd", "upd")):

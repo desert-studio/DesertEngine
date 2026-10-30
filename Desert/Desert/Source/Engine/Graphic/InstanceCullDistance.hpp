@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -93,6 +94,30 @@ namespace Desert::Graphic
      * its own that the fade could be measured from without leaving shadows of absent trees — and stretched by
      * that view's lens (DrawDistanceScale).
      */
+    /**
+     * @brief Where one ISM instance can cast or be seen from, before any frustum is asked: nullopt when the
+     * cull distance measured from @p cullOrigin drops it, otherwise the box its geometry can reach.
+     *
+     * The box the WIND can reach, not the authored one: a swaying tip leaves the mesh's box by up to Strength,
+     * and a test on the authored box would drop the instance - and its shadow - while its tip is still on
+     * screen (UE widens the bounds for a WPO the same way). An empty box when the mesh has no extent: it is
+     * in every view (IsVisibleInView's rule), never in none.
+     *
+     * ONE step for the geometry pass (CollectIsmInstances) and the shadow casters' gather
+     * (MeshRenderer::ShadowIsmInstances), so an instance the camera does not keep is not a caster either.
+     */
+    [[nodiscard]] inline std::optional<Common::Math::AABB>
+    IsmInstanceReach( const InstanceCullDistance& lensCull, const uint32_t index,
+                      const glm::mat4& instanceTransform, const Common::Math::AABB& localBounds,
+                      const InstanceWind& wind, const glm::vec3& cullOrigin )
+    {
+        if ( !KeepsInstanceAtDistance( lensCull, index, glm::vec3( instanceTransform[3] ), cullOrigin ) )
+            return std::nullopt;
+        if ( Geometry::IsEmpty( localBounds ) )
+            return localBounds;
+        return WindExpandedBounds( Geometry::TransformBounds( instanceTransform, localBounds ), wind );
+    }
+
     inline void CollectIsmInstances( const std::vector<glm::mat4>& transforms,
                                      const Common::Math::AABB& localBounds, const Core::Frustum& frustum,
                                      const InstanceCullDistance& cull, const InstanceWind& wind,
@@ -105,16 +130,10 @@ namespace Desert::Graphic
         const InstanceCullDistance lensCull = ScaledByLens( cull, DrawDistanceScale( cullView ) );
         for ( std::size_t i = 0; i < transforms.size(); ++i )
         {
-            const glm::mat4& instanceTransform = transforms[i];
-            if ( !KeepsInstanceAtDistance( lensCull, static_cast<uint32_t>( i ), glm::vec3( instanceTransform[3] ),
-                                           cullView.Origin ) )
-                continue;
-            // Tested on the box the WIND can reach, not the authored one: a swaying tip leaves the mesh's box
-            // by up to Strength, and a test on the authored box would drop the instance - and its shadow -
-            // while its tip is still on screen (UE widens the bounds for a WPO the same way).
-            if ( !Geometry::IsEmpty( localBounds ) &&
-                 !frustum.Intersects(
-                      WindExpandedBounds( Geometry::TransformBounds( instanceTransform, localBounds ), wind ) ) )
+            const glm::mat4&                        instanceTransform = transforms[i];
+            const std::optional<Common::Math::AABB> reach             = IsmInstanceReach(
+                 lensCull, static_cast<uint32_t>( i ), instanceTransform, localBounds, wind, cullView.Origin );
+            if ( !reach || ( !Geometry::IsEmpty( *reach ) && !frustum.Intersects( *reach ) ) )
                 continue;
             visible.push_back( instanceTransform );
             levels.push_back(
