@@ -173,6 +173,31 @@ namespace Desert::UI
         // "<message>|<text>"), which DispatchFrame turns back into this call. @p n must carry UIInputFieldData.
         void OnTextCommitted( NodeId n, Delegate<void( const std::string& )> onCommitted );
 
+        // --- Drag and drop (Slate's OnDragDetected / OnDragOver / OnDrop; UIDragDrop.hpp) ---------------
+        // @p n is a drag source: on the press that may start a drag, @p onDragDetected makes the operation it
+        // carries — type, owned data, decorator — from the model AS IT IS THEN, so a drag that outlives a
+        // rebuild still carries what was picked up. Runs during EndUIFrame: it may read anything, and must
+        // not create or destroy nodes.
+        void OnDragDetected( NodeId n, Delegate<UIDragPayload()> onDragDetected );
+
+        // One type of payload a drop target takes.
+        struct DropHandler
+        {
+            std::string Type; // UIDragPayload::Type this handler is for
+            // Narrows by the data: unbound = every payload of Type. Asked during the walk (no node edits).
+            Delegate<bool( const UIDragPayload& )> Accepts;
+            // After every frame a payload this handler accepts hovers the node (Slate's OnDragOver).
+            Delegate<void( const UIDragPayload& )> OnDragOver;
+            // The release over the node: the payload, handed over (Slate's OnDrop).
+            Delegate<void( const UIDragPayload& )> OnDrop;
+        };
+
+        // @p n becomes a drop target for @p handler's type (call again for another type). A target answers
+        // Accept to a payload one of its handlers takes and REJECT to every other — it shows the rejected
+        // outline under the cursor and a release over it keeps nothing. OnDragOver / OnDrop run from
+        // DispatchFrame, so they may build or destroy nodes.
+        void OnDrop( NodeId n, DropHandler handler );
+
         // SLATE'S SetKeyboardFocus, asked by a widget of this tree (a spin box entering text mode hands focus to
         // its text field). The tree cannot move focus itself — focus is the host's (the NodeId it passes to the
         // walk) — so the request waits here and the host applies it after DispatchFrame, together with the
@@ -206,6 +231,8 @@ namespace Desert::UI
         [[nodiscard]] std::optional<glm::vec3>     WorldOrigin( NodeId n ) const override;
         [[nodiscard]] std::optional<UICursorShape> CursorOf( NodeId n ) const override;
         [[nodiscard]] bool                         CapturesPointer( NodeId n ) const override;
+        [[nodiscard]] std::optional<UIDragPayload> DragSourceOf( NodeId n ) const override;
+        [[nodiscard]] UIDropAnswer DropAnswerOf( NodeId n, const UIDragPayload& payload ) const override;
         void                                       Paint( NodeId n, const UIPaintArgs& args ) override;
 
     private:
@@ -265,6 +292,8 @@ namespace Desert::UI
             Delegate<void()>                                DoubleClicked;
             Delegate<void( const std::string& )>            Committed;
             Delegate<void( const UIPaintArgs& )>            Painter;
+            Delegate<UIDragPayload()>                       DragSource;
+            std::vector<DropHandler>                        Drops;
         };
 
         static constexpr std::uint32_t kIndexBits  = 20;
@@ -294,6 +323,8 @@ namespace Desert::UI
         [[nodiscard]] Node&       NodeAt( NodeId n );
         [[nodiscard]] const Node& NodeAt( NodeId n ) const;
         [[nodiscard]] void*       ArgPtr( NodeId n, ArgKind kind ) const;
+        // The handler of @p n that takes @p payload, or nullptr (also for an invalid @p n).
+        [[nodiscard]] const DropHandler* HandlerFor( NodeId n, const UIDragPayload& payload ) const;
 
         void Release( NodeId n ); // frees @p n's slot and its sub-tree's, without touching its parent
 

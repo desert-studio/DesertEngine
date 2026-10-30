@@ -2,6 +2,7 @@
 
 #include <UI/Args/ArgKind.hpp>
 #include <UI/UICursor.hpp>
+#include <UI/UIDragDrop.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -96,6 +97,26 @@ namespace Desert::UI
         {
             (void)n;
             return false;
+        }
+
+        // SLATE'S OnDragDetected: the operation a drag started on @p n carries (UIDragDrop.hpp), or nullopt
+        // when @p n is no drag source. Asked once, on the press, for the nearest node at or above the element
+        // the press landed on; an authored UIDraggableData answers for itself before this is asked. Not pure:
+        // a store whose sources are all authored states none.
+        [[nodiscard]] virtual std::optional<UIDragPayload> DragSourceOf( NodeId n ) const
+        {
+            (void)n;
+            return std::nullopt;
+        }
+
+        // SLATE'S OnDragOver: @p n's answer to @p payload — None when @p n is not a drop target at all, so the
+        // question goes on to its parent. Asked every frame of a drag for the nodes the walk draws and the
+        // chain under the cursor. An authored UIDropTargetData answers for itself before this is asked.
+        [[nodiscard]] virtual UIDropAnswer DropAnswerOf( NodeId n, const UIDragPayload& payload ) const
+        {
+            (void)n;
+            (void)payload;
+            return UIDropAnswer::None;
         }
 
         // Draw @p n's own content (UIPaint.hpp, Slate's OnPaint) into the frame's draw list. Called by the walk

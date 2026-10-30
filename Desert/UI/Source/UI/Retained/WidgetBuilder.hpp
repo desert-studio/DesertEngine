@@ -92,6 +92,8 @@ namespace Desert::UI
         WidgetDecl& OnToggled( Delegate<void( const bool& )> onToggled );       // a toggle's flip
         WidgetDecl& OnTextChanged( Delegate<void( const std::string& )> onChanged ); // an input field's edit
         WidgetDecl& OnTextCommitted( Delegate<void( const std::string& )> onCommitted ); // Enter / focus left
+        WidgetDecl& OnDragDetected( Delegate<UIDragPayload()> onDragDetected ); // a drag source (WidgetTree)
+        WidgetDecl& OnDrop( WidgetTree::DropHandler handler );                  // a drop target, per type
 
         // Run @p fn on the built node, after the steps declared before it (a widget that needs its tree or its
         // id at run time — a spin box asking the tree to focus its text field).

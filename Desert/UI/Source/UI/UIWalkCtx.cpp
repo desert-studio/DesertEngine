@@ -440,10 +440,38 @@ namespace Desert::UI::Walk
         return p.x >= r.X && p.x <= r.X + r.W && p.y >= r.Y && p.y <= r.Y + r.H;
     }
 
-    // Does this target accept the payload in flight? An empty filter takes anything.
-    bool Accepts( const UIDropTargetData& t, const std::string& payload )
+    // @p n's answer to the payload in flight. An AUTHORED target (UIDropTargetData) answers for itself: it
+    // takes authored payloads (kAuthoredDragType) whose text starts with its filter — an empty filter takes
+    // every authored one — and refuses everything else, a code-made payload included, because an authored
+    // prefix states nothing about a type it cannot name. A node without one asks its tree (IUITree::
+    // DropAnswerOf). The dragged element's own answer is never asked: a drag cannot drop on itself.
+    UIDropAnswer DropAnswerAt( const IUITree& tree, NodeId n, const UIDragPayload& payload )
     {
-        return t.Accepts.empty() || payload.starts_with( t.Accepts );
+        if ( const UIDropTargetData* dt = tree.Get<UIDropTargetData>( n ) )
+        {
+            const std::string* text = payload.Is( kAuthoredDragType ) ? payload.As<std::string>() : nullptr;
+            return text != nullptr && ( dt->Accepts.empty() || text->starts_with( dt->Accepts ) )
+                        ? UIDropAnswer::Accept
+                        : UIDropAnswer::Reject;
+        }
+        return tree.DropAnswerOf( n, payload );
+    }
+
+    // The operation a drag started on @p n carries, or nullopt when @p n is no drag source. An AUTHORED
+    // source (UIDraggableData) answers for itself with an authored payload (its text, its ghost opacity); a
+    // node without one asks its tree (IUITree::DragSourceOf). A decorator that states no size gets the
+    // source's own footprint @p sourceSize, so the cursor carries something the size of what it picked up.
+    std::optional<UIDragPayload> DragSourceAt( const IUITree& tree, NodeId n, glm::vec2 sourceSize )
+    {
+        std::optional<UIDragPayload> made;
+        if ( const UIDraggableData* d = tree.Get<UIDraggableData>( n ) )
+            made = UIDragPayload::Make( std::string( kAuthoredDragType ), d->Payload,
+                                        UIDragDecorator{ .Label = {}, .Size = {}, .Opacity = d->GhostOpacity } );
+        else
+            made = tree.DragSourceOf( n );
+        if ( made.has_value() && made->Decorator().Size == glm::vec2( 0.0f ) )
+            made->Decorator().Size = sourceSize;
+        return made;
     }
 
     // Split a ';'-separated option string into its items (empty items skipped).

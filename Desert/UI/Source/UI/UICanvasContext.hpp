@@ -5,6 +5,7 @@
 #include <UI/Args/UIArgs.hpp>
 #include <UI/UITree.hpp>
 #include <UI/UICursor.hpp>
+#include <UI/UIDragDrop.hpp>
 #include <UI/UICanvasResources.hpp>
 #include <UI/UIAnimationSource.hpp>
 #include <UI/UIDataStore.hpp>
@@ -64,15 +65,30 @@ namespace Desert::UI
     // An in-flight drag. Cross-frame AND cross-canvas: a drag survives from the press that starts it to the
     // release that drops it, and the drop may land on another canvas of the same view (that is what makes a
     // drag from a HUD slot onto an inventory overlay expressible). It therefore belongs to the VIEW.
+    //
+    // It carries a TYPED operation (UIDragDrop.hpp): the payload the source made on the press, owned here
+    // until the drop hands it over or a cancel destroys it. `Over` / `OverAnswer` are the target under the
+    // cursor and its answer, resolved once per frame in EndUIFrame and read by the next walk (the hovered
+    // target's outline) and by the decorator.
     struct UIDragState
     {
-        bool        Active  = false; // past the threshold: the ghost is up and a drop can land
-        bool        Pending = false; // pressed on a draggable, still deciding drag vs click
-        NodeId      Source  = NodeId::Null;
-        std::string Payload;
-        glm::vec2   Size{ 0.0f };
-        glm::vec2   PressPos{ 0.0f };
-        float       Ghost = 0.55f;
+        bool          Active  = false; // past the threshold: the decorator is up and a drop can land
+        bool          Pending = false; // pressed on a drag source, still deciding drag vs click
+        NodeId        Source  = NodeId::Null;
+        UIDragPayload Payload;
+        glm::vec2     PressPos{ 0.0f };
+        NodeId        Over       = NodeId::Null;
+        UIDropAnswer  OverAnswer = UIDropAnswer::None;
+    };
+
+    // THE LAST DROP OF A VIEW — the release that landed a payload on a target that accepted it. Written once
+    // in EndUIFrame; `Frame` is the UIViewContext::FrameIndex of the drop, so a tree's DispatchFrame delivers
+    // it exactly once (`Frame == view.FrameIndex`), as it does the double click of UIPressRecord.
+    struct UIDropRecord
+    {
+        NodeId        Target = NodeId::Null;
+        UIDragPayload Payload;
+        uint64_t      Frame = 0;
     };
 
     // Which pointer button a press was made with.
@@ -400,6 +416,7 @@ namespace Desert::UI
         NodeId      WheelTarget   = NodeId::Null;
         bool        PrevDown      = false; // for the press edge (UIInput only carries held + release)
         UIDragState Drag;
+        UIDropRecord LastDrop; // the drop this view made last (UIDropRecord)
 
         // THE CONTROL HOLDING THE POINTER (Slate's FReply::CaptureMouse). A press on a control that captures
         // (Walk::CapturesPointer: a slider, a text field's selection drag) makes it the PointerTarget for as
@@ -601,6 +618,7 @@ namespace Desert::UI
             WheelTarget   = NodeId::Null;
             PrevDown      = false;
             Drag          = UIDragState{};
+            LastDrop      = UIDropRecord{};
             Capture        = NodeId::Null;
             LastPress      = UIPressRecord{};
             PrevMiddleDown = false;

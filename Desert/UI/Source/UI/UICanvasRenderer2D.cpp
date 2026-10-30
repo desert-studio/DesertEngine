@@ -409,15 +409,31 @@ namespace Desert::UI
                 // only to the pointer it took itself.
                 frame.Hot = interactive && e == ctx.View.PointerTarget;
 
-                // A drop target outlines itself while a drag it would accept is in flight.
-                if ( ctx.View.Drag.Active && tree.Has<UIDropTargetData>( e ) )
+                // While a drag is in flight every target that ACCEPTS it outlines itself, so the valid
+                // destinations are obvious — and brightest under the cursor; the target under the cursor that
+                // REFUSES it shows the rejected outline (Slate's "cannot drop here"). The answer for the one
+                // under the cursor is the one EndUIFrame resolved (UIDragState::OverAnswer), so the outline
+                // and the release can never disagree about it.
+                if ( ctx.View.Drag.Active && e != ctx.View.Drag.Source )
                 {
-                    const auto& dt = *tree.Get<UIDropTargetData>( e );
-                    if ( Accepts( dt, ctx.View.Drag.Payload ) )
+                    const bool              over           = e == ctx.View.Drag.Over;
+                    const UIDropAnswer      answer         = over ? ctx.View.Drag.OverAnswer
+                                                                  : DropAnswerAt( tree, e, ctx.View.Drag.Payload );
+                    const UIDropTargetData* authoredTarget = tree.Get<UIDropTargetData>( e );
+                    glm::vec3               acceptLocal( 0.35f, 0.75f, 1.0f );
+                    if ( authoredTarget != nullptr )
+                        acceptLocal = authoredTarget->HighlightColor;
+                    if ( answer == UIDropAnswer::Accept )
                         dl.AddRect( mn, mx,
-                                    glm::vec4( st.Color( StyleSlot::DropTargetHighlight, dt.HighlightColor ),
-                                               hot ? 1.0f : 0.6f ),
-                                    hot ? 3.0f : 2.0f );
+                                    glm::vec4( st.Color( StyleSlot::DropTargetHighlight, acceptLocal ),
+                                               over ? 1.0f : 0.6f ),
+                                    over ? 3.0f : 2.0f );
+                    else if ( answer == UIDropAnswer::Reject && over )
+                        dl.AddRect( mn, mx,
+                                    glm::vec4( st.Color( StyleSlot::DropTargetRejected,
+                                                         glm::vec3( 0.95f, 0.33f, 0.28f ) ),
+                                               1.0f ),
+                                    3.0f );
                 }
 
                 // Panels and buttons render their sprite (single or 9-slice) tinted by the colour, or a flat
@@ -1026,18 +1042,24 @@ namespace Desert::UI
                 if ( input->Keyboard != nullptr && view.HotNext != NodeId::Null )
                     input->Keyboard->Owner = &view;
 
-                // Start a drag from a draggable element. The ghost is the source's own footprint, so the
-                // cursor carries something the size of what it picked up.
-                if ( view.HotNext != NodeId::Null && tree.Valid( view.HotNext ) &&
-                     tree.Has<UIDraggableData>( view.HotNext ) )
+                // Start a drag from the nearest drag source at or above the element pressed (Slate's
+                // OnDragDetected bubbles the same way: a row's label is what you grab, the row is what moves).
+                // The source makes its payload NOW, from the model as it is at the press.
+                std::optional<UIDragPayload> payload;
+                const NodeId                 source = NearestAtOrAbove(
+                     tree, view.HotNext,
+                     [&]( NodeId t )
+                     {
+                         payload = DragSourceAt( tree, t, glm::vec2( view.HotNextRect.W, view.HotNextRect.H ) );
+                         return payload.has_value();
+                     } );
+                if ( source != NodeId::Null )
                 {
                     // Only PENDING for now — a press that never moves is a click, not a drag.
-                    const auto& d      = *tree.Get<UIDraggableData>( view.HotNext );
+                    view.Drag          = UIDragState{};
                     view.Drag.Pending  = true;
-                    view.Drag.Source   = view.HotNext;
-                    view.Drag.Payload  = d.Payload;
-                    view.Drag.Ghost    = d.GhostOpacity;
-                    view.Drag.Size     = { view.HotNextRect.W, view.HotNextRect.H };
+                    view.Drag.Source   = source;
+                    view.Drag.Payload  = std::move( *payload );
                     view.Drag.PressPos = input->MousePx;
                 }
             }
@@ -1049,30 +1071,66 @@ namespace Desert::UI
                     view.Drag.Active = true;
             }
 
+            // THE TARGET UNDER THE CURSOR, once per frame of a drag: the nearest node at or above the element
+            // pointed at that ACCEPTS the payload — a target is usually a panel whose children are what you
+            // actually point at, and an inner target that refuses lets an outer one that accepts take it
+            // (Slate's unhandled OnDragOver bubbling) — else the nearest that refuses, which is what the
+            // rejected outline and the red decorator show. Never the source itself.
+            if ( view.Drag.Active )
+            {
+                view.Drag.Over       = NodeId::Null;
+                view.Drag.OverAnswer = UIDropAnswer::None;
+                std::size_t guard    = 0;
+                for ( NodeId t = view.HotNext; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound();
+                      t        = tree.Parent( t ) )
+                {
+                    if ( t == view.Drag.Source )
+                        continue;
+                    const UIDropAnswer answer = DropAnswerAt( tree, t, view.Drag.Payload );
+                    if ( answer == UIDropAnswer::Accept )
+                    {
+                        view.Drag.Over       = t;
+                        view.Drag.OverAnswer = answer;
+                        break;
+                    }
+                    if ( answer == UIDropAnswer::Reject && view.Drag.OverAnswer == UIDropAnswer::None )
+                    {
+                        view.Drag.Over       = t;
+                        view.Drag.OverAnswer = answer;
+                    }
+                }
+            }
+
+            // ESCAPE CANCELS A DRAG, before anything else may take the key: the overlay machine below would
+            // otherwise close a menu (or go back a screen) under a drag the user meant to abandon. The payload
+            // is destroyed and nobody hears the release that follows.
+            if ( ( view.Drag.Active || view.Drag.Pending ) && input->Pressed( Common::KeyCode::Escape ) &&
+                 !view.KeyConsumed( Common::KeyCode::Escape ) )
+            {
+                view.Drag = UIDragState{};
+                view.ConsumeKey( Common::KeyCode::Escape );
+            }
+
             if ( input->MouseReleased )
             {
                 route( view.HotNext, &UIPointerEventsData::OnUpMessage );
 
-                if ( view.Drag.Active )
+                // THE DROP: only onto the target that accepts (resolved above, this frame). A release over a
+                // refusing target or over no target at all is a cancel — the payload dies with the state.
+                if ( view.Drag.Active && view.Drag.OverAnswer == UIDropAnswer::Accept &&
+                     tree.Valid( view.Drag.Over ) )
                 {
-                    // Drop on the element under the cursor, or on the nearest ancestor that accepts — a
-                    // target is usually a panel whose children are what you actually point at.
-                    for ( NodeId t = view.HotNext; t != NodeId::Null && tree.Valid( t ); )
-                    {
-                        if ( tree.Has<UIDropTargetData>( t ) )
-                        {
-                            const auto& dt = *tree.Get<UIDropTargetData>( t );
-                            if ( Accepts( dt, view.Drag.Payload ) && t != view.Drag.Source )
-                            {
-                                emit( dt.OnDropMessage.empty() ? view.Drag.Payload
-                                                               : dt.OnDropMessage + "|" + view.Drag.Payload );
-                                break;
-                            }
-                        }
-                        t = tree.Parent( t );
-                    }
+                    // An authored target answers with its message, as it always has: "OnDropMessage|payload".
+                    // It accepts only authored payloads (DropAnswerAt), so the text is there.
+                    const UIDropTargetData* dt   = tree.Get<UIDropTargetData>( view.Drag.Over );
+                    const std::string*      text = view.Drag.Payload.As<std::string>();
+                    if ( dt != nullptr && text != nullptr )
+                        emit( dt->OnDropMessage.empty() ? *text : dt->OnDropMessage + "|" + *text );
+                    view.LastDrop = UIDropRecord{ .Target  = view.Drag.Over,
+                                                  .Payload = std::move( view.Drag.Payload ),
+                                                  .Frame   = view.FrameIndex };
                 }
-                view.Drag = UIDragState{}; // a plain click on a draggable ends here too
+                view.Drag = UIDragState{}; // a plain click on a drag source ends here too
             }
             // THE OVERLAY MACHINE RUNS ON THIS FRAME'S ELECTION AND ON THIS FRAME'S PRESS EDGE — so it has
             // to be here, BEFORE PrevDown is overwritten with the current state. Running it after cost an
@@ -1104,10 +1162,13 @@ namespace Desert::UI
             if ( !input->MouseDown || !tree.Valid( view.Capture ) )
                 view.Capture = NodeId::Null;
 
-            // The ghost rides on top of everything, drawn after the tree so nothing overlaps it.
+            // THE DECORATOR rides on top of everything, drawn after the tree so nothing overlaps it: a ghost
+            // of the source's footprint, its border saying what a release here would do (accept / refuse /
+            // nothing), and the payload's label (Slate's FDecoratedDragDropOp).
             if ( view.Drag.Active )
             {
-                const glm::vec2 half = view.Drag.Size * 0.5f;
+                const UIDragDecorator& deco = view.Drag.Payload.Decorator();
+                const glm::vec2        half = deco.Size * 0.5f;
                 const glm::vec2 mn   = input->MousePx - half;
                 const glm::vec2 mx   = input->MousePx + half;
                 // The ghost is drawn AFTER the walk, so there is no WalkCtx in scope to resolve through.
@@ -1131,13 +1192,25 @@ namespace Desert::UI
                 dl.AddRectFilled(
                      mn, mx,
                      glm::vec4( ghostStyle.Color( StyleSlot::DragGhost, glm::vec3( 0.35f, 0.55f, 0.85f ) ),
-                                view.Drag.Ghost * 0.6f ),
+                                deco.Opacity * 0.6f ),
                      6.0f );
-                dl.AddRect(
-                     mn, mx,
-                     glm::vec4( ghostStyle.Color( StyleSlot::DragGhostBorder, glm::vec3( 0.75f, 0.87f, 1.0f ) ),
-                                view.Drag.Ghost ),
-                     2.0f );
+                glm::vec3 border = ghostStyle.Color( StyleSlot::DragGhostBorder, glm::vec3( 0.75f, 0.87f, 1.0f ) );
+                if ( view.Drag.OverAnswer == UIDropAnswer::Accept )
+                    border = ghostStyle.Color( StyleSlot::DropTargetHighlight, glm::vec3( 0.35f, 0.75f, 1.0f ) );
+                else if ( view.Drag.OverAnswer == UIDropAnswer::Reject )
+                    border = ghostStyle.Color( StyleSlot::DropTargetRejected, glm::vec3( 0.95f, 0.33f, 0.28f ) );
+                dl.AddRect( mn, mx, glm::vec4( border, deco.Opacity ), 2.0f );
+                if ( !deco.Label.empty() )
+                {
+                    UITextData label;
+                    label.Text     = deco.Label;
+                    label.FontSize = 14.0f;
+                    label.Color    = ghostStyle.Color( StyleSlot::TextColor, glm::vec3( 1.0f ) );
+                    label.Font     = ghostStyle.Font( StyleSlot::TextFont, Common::AssetHandle{} );
+                    label.Align    = UITextAlign::Left;
+                    const Rect labelRect{ mn.x + 8.0f, mn.y, std::max( mx.x - mn.x - 16.0f, 0.0f ), mx.y - mn.y };
+                    DrawText2D( view.Resources(), dl, label, labelRect, 1.0f, view.Tint, view.Time );
+                }
             }
         }
 

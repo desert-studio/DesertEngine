@@ -181,6 +181,28 @@ namespace Desert::UI
         NodeAt( n ).Committed     = std::move( onCommitted );
     }
 
+    void WidgetTree::OnDragDetected( NodeId n, Delegate<UIDragPayload()> onDragDetected )
+    {
+        if ( Valid( n ) )
+            NodeAt( n ).DragSource = std::move( onDragDetected );
+    }
+
+    void WidgetTree::OnDrop( NodeId n, DropHandler handler )
+    {
+        if ( Valid( n ) && !handler.Type.empty() )
+            NodeAt( n ).Drops.push_back( std::move( handler ) );
+    }
+
+    const WidgetTree::DropHandler* WidgetTree::HandlerFor( NodeId n, const UIDragPayload& payload ) const
+    {
+        if ( !Valid( n ) )
+            return nullptr;
+        for ( const DropHandler& h : NodeAt( n ).Drops )
+            if ( payload.Is( h.Type ) && ( !h.Accepts.IsBound() || h.Accepts.Execute( payload ) ) )
+                return &h;
+        return nullptr;
+    }
+
     void WidgetTree::RequestKeyboardFocus( NodeId n )
     {
         m_FocusRequest = Valid( n ) ? n : NodeId::Null;
@@ -244,6 +266,21 @@ namespace Desert::UI
                     fire.push_back( [d = NodeAt( t ).DoubleClicked] { d.Execute(); } );
                     break;
                 }
+        }
+
+        // The drop this frame made on this tree, and the target a drag hovers now — each to the handler of
+        // that target that takes the payload. The payload is copied into the call: the view's copy dies with
+        // the drag state, the handler's lives as long as the handler wants it.
+        if ( view.Scene == Storage() )
+        {
+            if ( view.LastDrop.Frame == view.FrameIndex )
+                if ( const DropHandler* h = HandlerFor( view.LastDrop.Target, view.LastDrop.Payload );
+                     h != nullptr && h->OnDrop.IsBound() )
+                    fire.push_back( [d = h->OnDrop, p = view.LastDrop.Payload] { d.Execute( p ); } );
+            if ( view.Drag.Active && view.Drag.OverAnswer == UIDropAnswer::Accept )
+                if ( const DropHandler* h = HandlerFor( view.Drag.Over, view.Drag.Payload );
+                     h != nullptr && h->OnDragOver.IsBound() )
+                    fire.push_back( [d = h->OnDragOver, p = view.Drag.Payload] { d.Execute( p ); } );
         }
 
         for ( const auto& f : fire )
@@ -338,6 +375,23 @@ namespace Desert::UI
     bool WidgetTree::CapturesPointer( NodeId n ) const
     {
         return Valid( n ) && NodeAt( n ).Captures;
+    }
+
+    std::optional<UIDragPayload> WidgetTree::DragSourceOf( NodeId n ) const
+    {
+        if ( !Valid( n ) || !NodeAt( n ).DragSource.IsBound() )
+            return std::nullopt;
+        UIDragPayload made = NodeAt( n ).DragSource.Execute();
+        if ( made.Empty() ) // a source that has nothing to carry right now (an empty list's row)
+            return std::nullopt;
+        return made;
+    }
+
+    UIDropAnswer WidgetTree::DropAnswerOf( NodeId n, const UIDragPayload& payload ) const
+    {
+        if ( !Valid( n ) || NodeAt( n ).Drops.empty() )
+            return UIDropAnswer::None;
+        return HandlerFor( n, payload ) != nullptr ? UIDropAnswer::Accept : UIDropAnswer::Reject;
     }
 
     void WidgetTree::Paint( NodeId n, const UIPaintArgs& args )

@@ -101,6 +101,7 @@ namespace Desert::UI
 
         // --- Drop target ---------------------------------------------------------------------------
         DropTargetHighlight,
+        DropTargetRejected, // the outline of the target under the cursor that refuses the drag
 
         // --- Auto-layout group ---------------------------------------------------------------------
         // Padding is ONE metric applied to all four edges. A per-edge padding stays an authored vec4 on
@@ -195,6 +196,7 @@ namespace Desert::UI
          StyleSlotInfo{ "Dropdown.Font", StyleSlotKind::Font },
 
          StyleSlotInfo{ "DropTarget.Highlight", StyleSlotKind::Color },
+         StyleSlotInfo{ "DropTarget.Rejected", StyleSlotKind::Color },
 
          StyleSlotInfo{ "LayoutGroup.Padding", StyleSlotKind::Metric },
          StyleSlotInfo{ "LayoutGroup.Spacing", StyleSlotKind::Metric },

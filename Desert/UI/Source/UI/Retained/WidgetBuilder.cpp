@@ -48,6 +48,20 @@ namespace Desert::UI
         return *this;
     }
 
+    WidgetDecl& WidgetDecl::OnDragDetected( Delegate<UIDragPayload()> onDragDetected )
+    {
+        m_Steps.push_back( [onDragDetected = std::move( onDragDetected )]( WidgetTree& tree, NodeId n )
+                           { tree.OnDragDetected( n, onDragDetected ); } );
+        return *this;
+    }
+
+    WidgetDecl& WidgetDecl::OnDrop( WidgetTree::DropHandler handler )
+    {
+        m_Steps.push_back( [handler = std::move( handler )]( WidgetTree& tree, NodeId n )
+                           { tree.OnDrop( n, handler ); } );
+        return *this;
+    }
+
     WidgetDecl& WidgetDecl::OnBuild( std::function<void( WidgetTree&, NodeId )> fn )
     {
         m_Steps.push_back( std::move( fn ) );
