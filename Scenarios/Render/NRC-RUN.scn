@@ -1,0 +1,16 @@
+# NRC-RUN: executable form of NRC.scn [nrc_night] - PT 1 spp with the neural radiance cache vs without vs a 64 spp reference.
+# Frame checks (numeric): RMSE(nrc, ref) < RMSE(off, ref); mean luminance of nrc within 5 % of ref; state nrc active, trainingSamples > 0, trainLoss < firstTrainLoss; 0 VUID.
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/dnx_Night_pt.desce
+Дано run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 1"
+Когда run Quality "Quality: PathTracing.RadianceCache Nrc"
+Когда frames 120
+Когда state nrc
+Тогда-вид nrc PT 1 spp ending paths in the neural cache: less noise than off, not black
+Когда state nrc
+Когда run Quality "Quality: PathTracing.RadianceCache Off"
+Тогда-вид off plain PT 1 spp
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 64"
+Тогда-вид ref 64 spp reference

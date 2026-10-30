@@ -415,7 +415,7 @@ namespace Desert::Graphic::System
                                           }(),
                                           // Its own rectangle of the capture atlas only (the pass cleared the
                                           // whole atlas: every capture of the frame is new).
-                                          .Viewport = MeshDrawCommand::ViewportRegion{
+                                          .Viewport = MeshRendererDetail::MeshDrawCommand::ViewportRegion{
                                                .X      = static_cast<int32_t>( rect.X ),
                                                .Y      = static_cast<int32_t>( rect.Y ),
                                                .Width  = rect.Width,

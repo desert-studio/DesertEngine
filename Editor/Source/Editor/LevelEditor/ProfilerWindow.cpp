@@ -159,10 +159,14 @@ namespace Desert::Editor
             ++segments;
         }
         if ( segments == 0 )
+        {
             LOG_INFO( "[Profiler] async compute queue: no segment (every pass ran on the graphics queue)" );
+        }
         else
+        {
             LOG_INFO( "[Profiler] async compute queue: {} segment(s), {:.3f} ms overlapping the graphics queue:{}",
                       segments, asyncMs, asyncLine );
+        }
 
         // THE DRAW-CALL DETECTOR, READ WITHOUT A WINDOW. The counter itself landed with step 2 of
         // `Docs/World/PROGRAMME.md`, and its only reader was the viewport's perf HUD — which is ImGui,
