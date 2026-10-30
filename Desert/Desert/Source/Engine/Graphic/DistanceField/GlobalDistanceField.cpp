@@ -573,9 +573,10 @@ namespace Desert::Graphic::DistanceField
             return Common::MakeError<FrameField>( r.GetError() );
         if ( auto r = GdfUpload( *m_BrickObjectBuffer, brickObjects, "brick object lists" ); !r )
             return Common::MakeError<FrameField>( r.GetError() );
-        // ASYNC COMPUTE (UE distance-field scene update on the async pipe): the composite reads the brick atlas (a
-        // graph import) and buffers the host wrote before the graph ran, and writes only the clipmaps and the object grid;
-        // it overlaps the shadow and base passes until the first graphics reader of the field joins it.
+        // ASYNC COMPUTE (UE distance-field scene update on the async pipe): the composite reads the brick
+        // atlas (a graph import) and buffers the host wrote before the graph ran, and writes only the clipmaps
+        // and the object grid; it overlaps the shadow and base passes until the first graphics reader of the
+        // field joins it.
         const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         for ( int level = 0; level < kGlobalDistanceFieldClipmaps; ++level )
         {
