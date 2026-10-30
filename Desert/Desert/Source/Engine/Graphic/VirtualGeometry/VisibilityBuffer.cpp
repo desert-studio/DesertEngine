@@ -76,19 +76,19 @@ namespace Desert::Graphic::VirtualGeometry
                                                                          const uint32_t height )
     {
         if ( !IsInitialized() )
-            return Common::MakeError( "VisibilityBuffer: not initialised" );
+            return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: not initialised" );
         if ( width == 0u || height == 0u )
-            return Common::MakeError( "VisibilityBuffer: the view has no extent" );
+            return Common::MakeError<VisibilityBufferFrame>( "VisibilityBuffer: the view has no extent" );
         const uint64_t bytes = 16u + 8ull * width * height;
         if ( bytes > UINT32_MAX )
-            return Common::MakeError( std::format(
+            return Common::MakeError<VisibilityBufferFrame>( std::format(
                  "VisibilityBuffer: {}x{} needs {} bytes, past one storage buffer", width, height, bytes ) );
         if ( !m_Words || m_Width != width || m_Height != height )
         {
             m_Words = ShaderResources::StorageBuffer::Create( "VisibilityBuffer", static_cast<uint32_t>( bytes ),
                                                               62, true );
             if ( !m_Words )
-                return Common::MakeError(
+                return Common::MakeError<VisibilityBufferFrame>(
                      std::format( "VisibilityBuffer: {}x{} was not created", width, height ) );
             m_Width  = width;
             m_Height = height;
@@ -97,7 +97,7 @@ namespace Desert::Graphic::VirtualGeometry
         if ( imported )
             imported = Renderer::ImportBuffer( m_ResolveArgs, m_ResolveArgsImport );
         if ( !imported )
-            return Common::MakeError(
+            return Common::MakeError<VisibilityBufferFrame>(
                  std::format( "VisibilityBuffer: not in the frame graph: {}", imported.GetError() ) );
 
         VisibilityBufferFrame frame;
@@ -126,6 +126,6 @@ namespace Desert::Graphic::VirtualGeometry
                  bindings.PushConstants( &extent, sizeof( extent ) );
                  return Renderer::DispatchCompute( bindings, *m_Clear, groupsX, groupsY, 1 );
              } );
-        return frame;
+        return Common::MakeSuccess( frame );
     }
 } // namespace Desert::Graphic::VirtualGeometry
