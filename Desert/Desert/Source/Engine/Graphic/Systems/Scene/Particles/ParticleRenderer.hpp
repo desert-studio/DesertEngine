@@ -208,7 +208,7 @@ namespace Desert::Graphic::System
             // Drawn by this frame's pass (set by its declare): the cell's per-frame blocks are written. Not
             // !Rows.empty() - a template with no parameters (DefaultSurface, the broken-material checker) has
             // empty rows and is still drawn.
-            bool Drawn = false;
+            bool                                Drawn = false;
             std::string                         Cell; // the cell shader's name ("<Template>/<Path>.<Pass>")
             MeshPass Pass = MeshPass::Forward;        // Forward: DrawPass, GBuffer: GBufferPass
         };

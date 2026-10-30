@@ -1005,7 +1005,8 @@ namespace Desert::Graphic::System
 
         // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and the
         // view's camera block (as MeshRenderer writes its G-buffer cells' camera at declare), so the route fill is
-        // what the draws read. Only this pass's cells: a cell is drawn by one of the two passes (SpriteDraw::Pass).
+        // what the draws read. Only this pass's cells: a cell is drawn by one of the two passes
+        // (SpriteDraw::Pass).
         for ( auto& [cell, sprite] : m_Sprites )
             if ( sprite && ( sprite->Pass == MeshPass::GBuffer ) == gbuffer )
             {
