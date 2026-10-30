@@ -304,6 +304,8 @@ namespace Desert::ECS
             draw.FirstSampleX  = tileComp.TileX * static_cast<int32_t>( root.QuadsPerTile );
             draw.FirstSampleZ  = tileComp.TileZ * static_cast<int32_t>( root.QuadsPerTile );
             draw.QuadsPerTile  = root.QuadsPerTile;
+            draw.MinY = root.Origin.y + Landscape::LandscapeHeightCm( heights.LowestSample(), root.ZScale );
+            draw.MaxY = root.Origin.y + Landscape::LandscapeHeightCm( heights.HighestSample(), root.ZScale );
             draw.NeighbourMask = mask;
             draw.Entity            = static_cast<uint32_t>( d.Entity );
             draw.HeightRevision    = gpu.HeightRevision;
