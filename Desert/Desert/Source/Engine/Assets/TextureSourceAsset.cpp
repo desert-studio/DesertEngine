@@ -555,14 +555,14 @@ namespace Desert::Assets
 
     namespace
     {
-        std::mutex                 s_BuilderMutex;
-        TexturePlatformDataBuilder s_Builder;
+        std::mutex                 s_TexturePlatformDataBuilderMutex;
+        TexturePlatformDataBuilder s_TexturePlatformDataBuilder;
     } // namespace
 
     void SetTexturePlatformDataBuilder( TexturePlatformDataBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        const std::lock_guard<std::mutex> lock( s_TexturePlatformDataBuilderMutex );
+        s_TexturePlatformDataBuilder = std::move( builder );
     }
 
     Common::ResultStr<std::string> LoadTexturePlatformData( const std::filesystem::path& asset )
@@ -575,8 +575,8 @@ namespace Desert::Assets
 
         TexturePlatformDataBuilder builder;
         {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            builder = s_Builder;
+            const std::lock_guard<std::mutex> lock( s_TexturePlatformDataBuilderMutex );
+            builder = s_TexturePlatformDataBuilder;
         }
         if ( !builder )
             return Common::MakeFormattedError<std::string>(

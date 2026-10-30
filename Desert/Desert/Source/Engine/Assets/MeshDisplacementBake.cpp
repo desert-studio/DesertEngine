@@ -21,8 +21,8 @@ namespace Desert::Assets
 {
     namespace
     {
-        std::mutex           s_BuilderMutex;
-        DisplacedMeshBuilder s_Builder;
+        std::mutex           s_DisplacedMeshBuilderMutex;
+        DisplacedMeshBuilder s_DisplacedMeshBuilder;
 
     } // namespace
 
@@ -152,8 +152,8 @@ namespace Desert::Assets
 
         DisplacedMeshBuilder CurrentBuilder()
         {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            return s_Builder;
+            const std::lock_guard<std::mutex> lock( s_DisplacedMeshBuilderMutex );
+            return s_DisplacedMeshBuilder;
         }
     } // namespace
 
@@ -244,8 +244,8 @@ namespace Desert::Assets
 
     void SetDisplacedMeshBuilder( DisplacedMeshBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        const std::lock_guard<std::mutex> lock( s_DisplacedMeshBuilderMutex );
+        s_DisplacedMeshBuilder = std::move( builder );
     }
 
     Common::ResultStr<std::shared_ptr<const DisplacedMeshData>>

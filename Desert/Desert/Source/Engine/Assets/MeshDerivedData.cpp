@@ -28,8 +28,8 @@ namespace Desert::Assets
                 out.push_back( static_cast<std::byte>( ( v >> ( 8 * i ) ) & 0xFFu ) );
         }
 
-        std::mutex              s_BuilderMutex;
-        MeshPlatformDataBuilder s_Builder;
+        std::mutex              s_MeshPlatformDataBuilderMutex;
+        MeshPlatformDataBuilder s_MeshPlatformDataBuilder;
         MeshSourceBuilder       s_SourceBuilder;
 
     } // namespace
@@ -79,13 +79,13 @@ namespace Desert::Assets
 
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        const std::lock_guard<std::mutex> lock( s_MeshPlatformDataBuilderMutex );
+        s_MeshPlatformDataBuilder = std::move( builder );
     }
 
     void SetMeshSourceBuilder( MeshSourceBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+        const std::lock_guard<std::mutex> lock( s_MeshPlatformDataBuilderMutex );
         s_SourceBuilder = std::move( builder );
     }
 
@@ -106,8 +106,8 @@ namespace Desert::Assets
 
         MeshPlatformDataBuilder builder;
         {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            builder = s_Builder;
+            const std::lock_guard<std::mutex> lock( s_MeshPlatformDataBuilderMutex );
+            builder = s_MeshPlatformDataBuilder;
         }
         if ( !builder )
         {
@@ -185,7 +185,7 @@ namespace Desert::Assets
         {
             MeshSourceBuilder builder;
             {
-                const std::lock_guard<std::mutex> lock( s_BuilderMutex );
+                const std::lock_guard<std::mutex> lock( s_MeshPlatformDataBuilderMutex );
                 builder = s_SourceBuilder;
             }
             if ( !builder )
