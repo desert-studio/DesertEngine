@@ -80,6 +80,8 @@ namespace Desert::Editor::Control
                  ///< path)
         Frames,  ///< answered once the asked number of frames has been presented (UE automation's
                  ///< FWaitForFrames latent command; in or out of Play, no input sent, no client sleep)
+        ProfileDump, ///< write the profiler's per-pass table (CPU/GPU ms per scope) to editor.log, the same
+                     ///< ProfilerWindow::DumpProfilerToLog a headless --shot ends with (UE ProfileGPU)
     };
 
     /**
@@ -138,6 +140,7 @@ namespace Desert::Editor::Control
          { "advance", Op::Advance, RequiresReady::Yes },
          { "nn-check", Op::NnCheck, RequiresReady::Yes },
          { "frames", Op::Frames, RequiresReady::Yes },
+         { "profile-dump", Op::ProfileDump, RequiresReady::Yes },
     };
 
     /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
@@ -752,6 +755,7 @@ namespace Desert::Editor::Control
             case Op::Commands:
             case Op::Properties:
             case Op::NnCheck:
+            case Op::ProfileDump:
                 break;
         }
 

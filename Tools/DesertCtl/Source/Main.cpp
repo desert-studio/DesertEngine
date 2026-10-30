@@ -88,6 +88,8 @@ namespace
              "                                moved on that far (0 < seconds <= 2)\n"
              "  frames <N>                    answered once N more frames have been presented, in or\n"
              "                                out of Play, nothing sent to the editor (1 <= N <= 3600)\n"
+             "  profile-dump                  write the profiler's per-pass table (cpu/gpu ms per scope,\n"
+             "                                averaged over the last 0.5 s) to editor.log\n"
              "  quit [code]                   end the session with that exit status\n"
              "  nn-check                      run the NN layer's fused MLP on the GPU against its CPU\n"
              "                                reference: machine.json's forced kernel path, or every\n"
@@ -569,6 +571,15 @@ static int RunTool( int argc, char** argv )
         if ( !NumberArray( rest[1], count ) )
             return kNoEditor;
         request = R"({"id":1,"op":"frames","value":)" + count + "}";
+    }
+    else if ( operation == "profile-dump" )
+    {
+        if ( rest.size() != 1 )
+        {
+            std::fprintf( stderr, "desertctl: profile-dump takes no arguments.\n" );
+            return kNoEditor;
+        }
+        request = R"({"id":1,"op":"profile-dump"})";
     }
     else if ( operation == "quit" )
     {
