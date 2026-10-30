@@ -55,6 +55,46 @@ struct LandscapeMaterial
     vec4 LayerParams[8]; // input k's (LayerKTileSize cm, LayerKBlend, LayerKNormalStrength, 0)
 };
 
+// INPUT @p k's ROW of a per-input array, by a chain of selects over constant indices: k is a value the tile row
+// carries (LayerInput), and an array indexed by it would be copied into per-thread memory (on Apple GPUs a spill to
+// the stack, for every pixel of the ground); eight selects are eight register moves.
+vec4 TerrainInputSlicesOf( TerrainInstance t, int k )
+{
+    vec4 r = t.InputSlices[0];
+    r      = k == 1 ? t.InputSlices[1] : r;
+    r      = k == 2 ? t.InputSlices[2] : r;
+    r      = k == 3 ? t.InputSlices[3] : r;
+    r      = k == 4 ? t.InputSlices[4] : r;
+    r      = k == 5 ? t.InputSlices[5] : r;
+    r      = k == 6 ? t.InputSlices[6] : r;
+    r      = k == 7 ? t.InputSlices[7] : r;
+    return r;
+}
+vec4 LandscapeInputParams( LandscapeMaterial m, int k )
+{
+    vec4 r = m.LayerParams[0];
+    r      = k == 1 ? m.LayerParams[1] : r;
+    r      = k == 2 ? m.LayerParams[2] : r;
+    r      = k == 3 ? m.LayerParams[3] : r;
+    r      = k == 4 ? m.LayerParams[4] : r;
+    r      = k == 5 ? m.LayerParams[5] : r;
+    r      = k == 6 ? m.LayerParams[6] : r;
+    r      = k == 7 ? m.LayerParams[7] : r;
+    return r;
+}
+vec4 LandscapeInputTint( LandscapeMaterial m, int k )
+{
+    vec4 r = m.LayerTint[0];
+    r      = k == 1 ? m.LayerTint[1] : r;
+    r      = k == 2 ? m.LayerTint[2] : r;
+    r      = k == 3 ? m.LayerTint[3] : r;
+    r      = k == 4 ? m.LayerTint[4] : r;
+    r      = k == 5 ? m.LayerTint[5] : r;
+    r      = k == 6 ? m.LayerTint[6] : r;
+    r      = k == 7 ? m.LayerTint[7] : r;
+    return r;
+}
+
 // THE CALLER'S LAYER MAP FETCH: map @p kind (0 albedo, 1 normal, 2 ARM, 3 height; TerrainInstance.InputSlices'
 // x/y/z/w) of material input @p k, which is slice @p slice of that kind's array, at @p uv. @p uvPerCm is how many uv
 // units one centimetre of ground spans (the fetch's footprint for a caller with no screen derivatives). Defined by
@@ -119,7 +159,7 @@ TerrainLayer TerrainMixLayer( TerrainLayer a, TerrainLayer b, float t )
 // Input @p k's blend type (the material's LayerKBlend).
 int TerrainInputBlend( LandscapeMaterial m, int k )
 {
-    return int( floor( m.LayerParams[clamp( k, 0, 7 )].y + 0.5 ) );
+    return int( floor( LandscapeInputParams( m, k ).y + 0.5 ) );
 }
 
 // World-aligned (top-down) UVs, the landscape's own (UE LandscapeLayerCoords), at input @p k's tile size, and the
@@ -137,8 +177,9 @@ TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, 
                                  float detailMix )
 {
     const int   i       = clamp( k, 0, 7 );
-    const vec4  slices  = t.InputSlices[i];
-    const float uvPerCm = 1.0 / max( m.LayerParams[i].x, 1.0 );
+    const vec4  slices  = TerrainInputSlicesOf( t, i );
+    const vec4  params  = LandscapeInputParams( m, i );
+    const float uvPerCm = 1.0 / max( params.x, 1.0 );
     const vec2  uv      = worldPosition.xz * uvPerCm;
     TerrainLayer l;
     if ( farMix <= 0.0 )
@@ -149,7 +190,7 @@ TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, 
         TerrainLayer distant = TerrainFetchLayer( i, slices, uv / farScale + vec2( 0.37, 0.61 ), uvPerCm / farScale );
         l = farMix >= 1.0 ? distant : TerrainMixLayer( TerrainFetchLayer( i, slices, uv, uvPerCm ), distant, farMix );
     }
-    const float normalStrength = max( m.LayerParams[i].z, 0.0 );
+    const float normalStrength = max( params.z, 0.0 );
     l.Normal                   = vec3( l.Normal.xy * normalStrength, l.Normal.z );
     const float detail         = m.Detail.y * detailMix * normalStrength;
     if ( slices.y >= 0.0 && detail > 0.0 )
@@ -159,7 +200,7 @@ TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, 
              LandscapeLayerMapSample( i, 1, slices.y, uv / detailScale + vec2( 0.71, 0.13 ), uvPerCm / detailScale ).rg );
         l.Normal = vec3( l.Normal.xy + dn.xy * detail, l.Normal.z * dn.z );
     }
-    l.Albedo *= m.LayerTint[i].rgb;
+    l.Albedo *= LandscapeInputTint( m, i ).rgb;
     return l;
 }
 
@@ -168,7 +209,7 @@ TerrainLayer TerrainSampleInput( TerrainInstance t, LandscapeMaterial m, int k, 
 TerrainLayer TerrainLayerOf( TerrainInstance t, LandscapeMaterial m, int k, vec3 colour, vec3 worldPosition,
                              float farMix, float detailMix )
 {
-    if ( k < 0 || t.InputSlices[clamp( k, 0, 7 )].x < 0.0 )
+    if ( k < 0 || TerrainInputSlicesOf( t, k ).x < 0.0 )
         return TerrainFlatLayer( colour );
     return TerrainSampleInput( t, m, k, worldPosition, farMix, detailMix );
 }
@@ -185,6 +226,73 @@ float TerrainValueNoise( vec2 p )
     vec2 u = f * f * ( 3.0 - 2.0 * f );
     return mix( mix( TerrainHash( i ), TerrainHash( i + vec2( 1.0, 0.0 ) ), u.x ),
                 mix( TerrainHash( i + vec2( 0.0, 1.0 ) ), TerrainHash( i + vec2( 1.0, 1.0 ) ), u.x ), u.y );
+}
+
+// The material input weight channel @p i draws (the tile's LayerInput), -1 when no input names its layer.
+int TerrainChannelInput( TerrainInstance t, int i )
+{
+    return int( floor( t.LayerInput[i / 4][i % 4] + 0.5 ) );
+}
+
+// Input @p k's HEIGHT alone at @p worldPosition - TerrainSampleInput's Height without its other maps (the height
+// blend's first pass): near, far or both by @p farMix, 0.5 (UE's ConstHeightInput) when the input has no height map.
+float TerrainInputHeight( TerrainInstance t, LandscapeMaterial m, int k, vec3 worldPosition, float farMix )
+{
+    if ( k < 0 )
+        return 0.5;
+    const int  i      = clamp( k, 0, 7 );
+    const vec4 slices = TerrainInputSlicesOf( t, i );
+    if ( slices.x < 0.0 || slices.w < 0.0 )
+        return 0.5;
+    const float uvPerCm = 1.0 / max( LandscapeInputParams( m, i ).x, 1.0 );
+    const vec2  uv      = worldPosition.xz * uvPerCm;
+    if ( farMix <= 0.0 )
+        return LandscapeLayerMapSample( i, 3, slices.w, uv, uvPerCm ).r;
+    const float farScale = max( m.Tiling.y, 1.0 );
+    float       distant  = LandscapeLayerMapSample( i, 3, slices.w, uv / farScale + vec2( 0.37, 0.61 ), uvPerCm / farScale ).r;
+    return farMix >= 1.0 ? distant : mix( LandscapeLayerMapSample( i, 3, slices.w, uv, uvPerCm ).r, distant, farMix );
+}
+
+// Adds @p w of layer @p l to the running blend @p acc (every attribute but the height, which the blend has spent).
+void TerrainAccumulate( inout TerrainLayer acc, TerrainLayer l, float w )
+{
+    acc.Albedo += l.Albedo * w;
+    acc.Normal += l.Normal * w;
+    acc.Roughness += l.Roughness * w;
+    acc.AO += l.AO * w;
+}
+
+// One step of the 8-bit weightmap: a layer whose share of a pixel is no more than this is not fetched there.
+const float kTerrainSkipWeight = 1.0 / 255.0;
+
+// 1 when weight channel @p i (a literal at every call: the tile row's arrays are then read at constant indices) is
+// of blend type @p type.
+float TerrainChannelIs( TerrainInstance t, LandscapeMaterial m, int i, int type )
+{
+    int k = TerrainChannelInput( t, i );
+    int b = k >= 0 ? TerrainInputBlend( m, k )
+                   : ( t.LayerAlphaBlend[i / 4][i % 4] > 0.5 ? kTerrainAlphaBlend : kTerrainWeightBlend );
+    return b == type ? 1.0 : 0.0;
+}
+
+// Channel @p i's height for the height blend where its height-blended weight @p w is painted, 0.5 elsewhere.
+float TerrainChannelHeight( TerrainInstance t, LandscapeMaterial m, int i, float w, vec3 worldPosition, float farMix )
+{
+    return w > 0.0 && t.LayerColors[i].a > 0.5
+               ? TerrainInputHeight( t, m, TerrainChannelInput( t, i ), worldPosition, farMix )
+               : 0.5;
+}
+
+// Adds channel @p i's layer at coefficient @p c to the blend, when @p c reaches a weightmap step.
+void TerrainAddChannel( inout TerrainLayer acc, inout float kept, TerrainInstance t, LandscapeMaterial m, int i, float c,
+                        vec3 worldPosition, float farMix, float detailMix )
+{
+    if ( c <= kTerrainSkipWeight )
+        return;
+    TerrainAccumulate( acc, TerrainLayerOf( t, m, TerrainChannelInput( t, i ), t.LayerColors[i].rgb, worldPosition, farMix,
+                                            detailMix ),
+                       c );
+    kept += c;
 }
 
 struct TerrainSurface
@@ -217,72 +325,87 @@ TerrainSurface EvaluateLandscapeSurface( TerrainInstance t, LandscapeMaterial m,
 
         // Each channel's blend type: its input's (UE's per-layer ELandscapeLayerBlendType); a layer no input names
         // keeps its layer info's painting rule (NoWeightBlend = laid over, as UE's alpha).
-        vec4 a0 = vec4( 0.0 ), a1 = vec4( 0.0 ), hb0 = vec4( 0.0 ), hb1 = vec4( 0.0 );
-        int  inputOf[8];
-        for ( int i = 0; i < 8; ++i )
-        {
-            int   k     = int( floor( t.LayerInput[i / 4][i % 4] + 0.5 ) );
-            int   type  = k >= 0 ? TerrainInputBlend( m, k )
-                                 : ( t.LayerAlphaBlend[i / 4][i % 4] > 0.5 ? kTerrainAlphaBlend : kTerrainWeightBlend );
-            float alpha = type == kTerrainAlphaBlend ? 1.0 : 0.0;
-            float hb    = type == kTerrainHeightBlend ? 1.0 : 0.0;
-            if ( i < 4 )
-            {
-                a0[i]  = alpha;
-                hb0[i] = hb;
-            }
-            else
-            {
-                a1[i - 4]  = alpha;
-                hb1[i - 4] = hb;
-            }
-            inputOf[i] = k;
-        }
+        vec4 a0  = vec4( TerrainChannelIs( t, m, 0, kTerrainAlphaBlend ), TerrainChannelIs( t, m, 1, kTerrainAlphaBlend ),
+                         TerrainChannelIs( t, m, 2, kTerrainAlphaBlend ), TerrainChannelIs( t, m, 3, kTerrainAlphaBlend ) );
+        vec4 a1  = vec4( TerrainChannelIs( t, m, 4, kTerrainAlphaBlend ), TerrainChannelIs( t, m, 5, kTerrainAlphaBlend ),
+                         TerrainChannelIs( t, m, 6, kTerrainAlphaBlend ), TerrainChannelIs( t, m, 7, kTerrainAlphaBlend ) );
+        vec4 hb0 = vec4( TerrainChannelIs( t, m, 0, kTerrainHeightBlend ), TerrainChannelIs( t, m, 1, kTerrainHeightBlend ),
+                         TerrainChannelIs( t, m, 2, kTerrainHeightBlend ), TerrainChannelIs( t, m, 3, kTerrainHeightBlend ) );
+        vec4 hb1 = vec4( TerrainChannelIs( t, m, 4, kTerrainHeightBlend ), TerrainChannelIs( t, m, 5, kTerrainHeightBlend ),
+                         TerrainChannelIs( t, m, 6, kTerrainHeightBlend ), TerrainChannelIs( t, m, 7, kTerrainHeightBlend ) );
         float groundHB =
              hasGround && groundInput >= 0 && TerrainInputBlend( m, groundInput ) == kTerrainHeightBlend ? 1.0 : 0.0;
 
-        // Only what reaches the point is fetched: a channel with no weight here, and the ground where the
-        // weight-blended layers claim all of it, cost nothing.
-        TerrainLayer l[8];
-        for ( int i = 0; i < 8; ++i )
-        {
-            float w = i < 4 ? w0[i] : w1[i - 4];
-            l[i]    = w > 0.0 && t.LayerColors[i].a > 0.5
-                          ? TerrainLayerOf( t, m, inputOf[i], t.LayerColors[i].rgb, worldPosition, farMix, detailMix )
-                          : TerrainFlatLayer( t.LayerColors[i].rgb );
-        }
-        float claimed = dot( w0, drawn0 * ( vec4( 1.0 ) - a0 ) ) + dot( w1, drawn1 * ( vec4( 1.0 ) - a1 ) );
-        TerrainLayer ground = hasGround && claimed < 1.0
-                                   ? TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix, detailMix )
-                                   : TerrainFlatLayer( hasGround ? t.GroundColor.rgb : vec3( 1.0 ) );
-
+        // PASS 1 - THE WEIGHTS (UE's LandscapeLayerBlend: the height blend decides the weights before any layer value
+        // is read). Only the HEIGHT of a height-blended layer painted here is fetched; an unpainted one keeps UE's
+        // ConstHeightInput 0.5.
         if ( dot( hb0, drawn0 ) + dot( hb1, drawn1 ) + groundHB > 0.0 )
         {
-            LandscapeBlendWeights hb = LandscapeHeightBlend(
-                 w0, w1, drawn0, drawn1, a0, a1, hb0, hb1, vec4( l[0].Height, l[1].Height, l[2].Height, l[3].Height ),
-                 vec4( l[4].Height, l[5].Height, l[6].Height, l[7].Height ), ground.Height, groundHB );
-            w0 = hb.W0;
-            w1 = hb.W1;
+            vec4  h0 = vec4( TerrainChannelHeight( t, m, 0, w0.x * hb0.x, worldPosition, farMix ),
+                             TerrainChannelHeight( t, m, 1, w0.y * hb0.y, worldPosition, farMix ),
+                             TerrainChannelHeight( t, m, 2, w0.z * hb0.z, worldPosition, farMix ),
+                             TerrainChannelHeight( t, m, 3, w0.w * hb0.w, worldPosition, farMix ) );
+            vec4  h1 = vec4( TerrainChannelHeight( t, m, 4, w1.x * hb1.x, worldPosition, farMix ),
+                             TerrainChannelHeight( t, m, 5, w1.y * hb1.y, worldPosition, farMix ),
+                             TerrainChannelHeight( t, m, 6, w1.z * hb1.z, worldPosition, farMix ),
+                             TerrainChannelHeight( t, m, 7, w1.w * hb1.w, worldPosition, farMix ) );
+            float claimed = dot( w0, drawn0 * ( vec4( 1.0 ) - a0 ) ) + dot( w1, drawn1 * ( vec4( 1.0 ) - a1 ) );
+            float gh      = groundHB > 0.5 && claimed < 1.0 ? TerrainInputHeight( t, m, groundInput, worldPosition, farMix )
+                                                            : 0.5;
+            LandscapeBlendWeights hbw = LandscapeHeightBlend( w0, w1, drawn0, drawn1, a0, a1, hb0, hb1, h0, h1, gh, groundHB );
+            w0 = hbw.W0;
+            w1 = hbw.W1;
         }
 
-        // One blend, run per attribute (it is linear in the layer values): albedo, tangent normal, and roughness /
-        // occlusion together.
-        blended.Albedo = LandscapeWeightBlend(
-             w0, w1, vec4( l[0].Albedo, drawn0.x ), vec4( l[1].Albedo, drawn0.y ), vec4( l[2].Albedo, drawn0.z ),
-             vec4( l[3].Albedo, drawn0.w ), vec4( l[4].Albedo, drawn1.x ), vec4( l[5].Albedo, drawn1.y ),
-             vec4( l[6].Albedo, drawn1.z ), vec4( l[7].Albedo, drawn1.w ), a0, a1, ground.Albedo );
-        blended.Normal = LandscapeWeightBlend(
-             w0, w1, vec4( l[0].Normal, drawn0.x ), vec4( l[1].Normal, drawn0.y ), vec4( l[2].Normal, drawn0.z ),
-             vec4( l[3].Normal, drawn0.w ), vec4( l[4].Normal, drawn1.x ), vec4( l[5].Normal, drawn1.y ),
-             vec4( l[6].Normal, drawn1.z ), vec4( l[7].Normal, drawn1.w ), a0, a1, ground.Normal );
-        vec3 ra = LandscapeWeightBlend(
-             w0, w1, vec4( l[0].Roughness, l[0].AO, 0.0, drawn0.x ), vec4( l[1].Roughness, l[1].AO, 0.0, drawn0.y ),
-             vec4( l[2].Roughness, l[2].AO, 0.0, drawn0.z ), vec4( l[3].Roughness, l[3].AO, 0.0, drawn0.w ),
-             vec4( l[4].Roughness, l[4].AO, 0.0, drawn1.x ), vec4( l[5].Roughness, l[5].AO, 0.0, drawn1.y ),
-             vec4( l[6].Roughness, l[6].AO, 0.0, drawn1.z ), vec4( l[7].Roughness, l[7].AO, 0.0, drawn1.w ), a0, a1,
-             vec3( ground.Roughness, ground.AO, 0.0 ) );
-        blended.Roughness = ra.x;
-        blended.AO        = ra.y;
+        // PASS 2 - THE VALUES. LandscapeWeightBlend's statement is linear in the layer values, so it is one
+        // coefficient per layer, all known from the weights alone: a weight-blended layer (and the ground, with what
+        // they leave unclaimed) is its weight times what the alpha-blended layers leave visible over it, an
+        // alpha-blended one its weight times what the ones laid after it leave. Each layer's maps are then fetched
+        // ONCE, and only where its coefficient reaches one step of the 8-bit weightmap (> 1/255; UE draws a layer
+        // only on the components it is painted on); the share the skipped layers held is handed to the kept ones,
+        // so the coefficients still sum as before.
+        vec4  wb0      = w0 * drawn0 * ( vec4( 1.0 ) - a0 );
+        vec4  wb1      = w1 * drawn1 * ( vec4( 1.0 ) - a1 );
+        vec4  laid0    = w0 * drawn0 * a0;
+        vec4  laid1    = w1 * drawn1 * a1;
+        float claimed  = dot( wb0, vec4( 1.0 ) ) + dot( wb1, vec4( 1.0 ) );
+        float unclaimed = claimed < 1.0 ? 1.0 - claimed : 0.0;
+        // What the alpha-blended layers after layer i leave visible (suffix products of 1 - laid, in layer order).
+        vec4  left1 = vec4( ( 1.0 - laid1.y ) * ( 1.0 - laid1.z ) * ( 1.0 - laid1.w ), ( 1.0 - laid1.z ) * ( 1.0 - laid1.w ),
+                            1.0 - laid1.w, 1.0 );
+        float over1 = left1.x * ( 1.0 - laid1.x );
+        vec4  left0 = over1 * vec4( ( 1.0 - laid0.y ) * ( 1.0 - laid0.z ) * ( 1.0 - laid0.w ),
+                                    ( 1.0 - laid0.z ) * ( 1.0 - laid0.w ), 1.0 - laid0.w, 1.0 );
+        float over0 = left0.x * ( 1.0 - laid0.x );
+        vec4  c0    = wb0 * over0 + laid0 * left0;
+        vec4  c1    = wb1 * over0 + laid1 * left1;
+        float cg    = unclaimed * over0;
+
+        TerrainLayer acc  = TerrainLayer( vec3( 0.0 ), vec3( 0.0 ), 0.0, 0.0, 0.0 );
+        float        kept = 0.0;
+        TerrainAddChannel( acc, kept, t, m, 0, c0.x, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 1, c0.y, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 2, c0.z, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 3, c0.w, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 4, c1.x, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 5, c1.y, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 6, c1.z, worldPosition, farMix, detailMix );
+        TerrainAddChannel( acc, kept, t, m, 7, c1.w, worldPosition, farMix, detailMix );
+        if ( cg > kTerrainSkipWeight || kept <= 0.0 )
+        {
+            TerrainAccumulate( acc,
+                               hasGround ? TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix,
+                                                           detailMix )
+                                         : TerrainFlatLayer( vec3( 1.0 ) ),
+                               cg );
+            kept += cg;
+        }
+        float all         = dot( c0, vec4( 1.0 ) ) + dot( c1, vec4( 1.0 ) ) + cg;
+        float renorm      = kept > 0.0 ? all / kept : 0.0;
+        blended.Albedo    = acc.Albedo * renorm;
+        blended.Normal    = acc.Normal * renorm;
+        blended.Roughness = acc.Roughness * renorm;
+        blended.AO        = acc.AO * renorm;
     }
     else if ( hasGround )
         blended = TerrainLayerOf( t, m, groundInput, t.GroundColor.rgb, worldPosition, farMix, detailMix );
