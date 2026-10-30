@@ -14,6 +14,8 @@
 
 #include <glm/glm.hpp>
 
+#include <limits>
+
 namespace Desert::Graphic
 {
     class Material;
@@ -76,20 +78,25 @@ namespace Desert::Graphic
         std::shared_ptr<Texture2DProperty>     GetTexture2DProperty( const std::string& name ) const;
         std::shared_ptr<TextureCubeProperty>   GetTextureCubeProperty( const std::string& name ) const;
 
-        // UPLOAD AT USE (UE: a uniform buffer is created from its parameters when the draw that reads it is set
-        // up, not by a separate step the caller may forget). Before the descriptors are written this uploads what
-        // is still pending: the owning Material's dirty registered properties (MPROPERTY -> their uniform-buffer
-        // fields) and every FIELD-filled uniform buffer whose active (view x frame) copy is behind its fields. A
-        // draw that submits the executor directly (DrawFullscreen / DrawPrimitive / a mesh path) therefore reads
-        // the values set on the material, Bind or no Bind -- CLOUD-PREEXP-BLACK: SetExposure wrote
-        // CloudCompositeUB's property, the composite never called Bind, the UB stayed zero and the clouds were
-        // black. Unclaimed and whole-filled buffers are not touched (their contents are the filler's).
-        void                    Apply() const;
-        // RENDER-THREADS M1: the active view's descriptor sets and block copies of this material, made before
-        // the graph records (MaterialBackend::PrepareViewResources).
+        // RENDER-THREADS M1 + M3 (UE: a pass's uniform buffers and descriptor sets are created from its parameters
+        // in its setup, the lambda only binds them). Called by the graph once per declaring pass's graph, after
+        // every setup and before the first pass records: makes the active view's descriptor sets and block copies
+        // (MaterialBackend::PrepareViewResources), then uploads what is still pending - the owning Material's
+        // dirty registered properties (MPROPERTY -> their uniform-buffer fields) and every FIELD-filled uniform
+        // buffer whose active (view x frame) copy is behind its fields - and writes the descriptors. A draw that
+        // submits the executor (DrawFullscreen / DrawPrimitive / a mesh path) therefore reads the values set on
+        // the material in setup, Bind or no Bind (CLOUD-PREEXP-BLACK: SetExposure wrote CloudCompositeUB's
+        // property, the composite never called Bind, the UB stayed zero and the clouds were black). Unclaimed and
+        // whole-filled buffers are not touched (their contents are the filler's).
         [[nodiscard]] Common::BoolResultStr PrepareForRecording() const override;
+        // The recording side (VulkanRendererAPI::BindGraphicsPassState / SubmitPulled): the material may be bound
+        // only as its prepare left it. Refused, naming the material, when it was not prepared this frame (its
+        // pass did not declare it: PassBuilder::Prepares) or when a property or registered value was written
+        // after the prepare - a recording pass may not write a shared material; the write belongs in the pass's
+        // setup, or travels by value with the draw (DrawPushFields).
+        [[nodiscard]] Common::BoolResultStr CheckRecordable() const;
         // The Material this executor is the GPU half of (set once by Material's constructor; null for an
-        // executor created on its own). Its pending properties are what Apply uploads first.
+        // executor created on its own). Its pending properties are what PrepareForRecording uploads first.
         void SetOwner( Material* owner )
         {
             m_Owner = owner;
@@ -137,7 +144,18 @@ namespace Desert::Graphic
         Common::Memory::Buffer m_PushConstantBuffer;
         Material*              m_Owner                = nullptr;
         bool                   m_ReportedPushOverflow = false;
+        // What the last PrepareForRecording applied: the absolute frame and the newest property write it saw
+        // (PropertyVersion). CheckRecordable compares the material against them.
+        mutable uint64_t m_PreparedFrame   = std::numeric_limits<uint64_t>::max();
+        mutable uint64_t m_PreparedVersion = 0;
 
+    private:
+        // The upload and descriptor writes of the prepare (above).
+        void ApplyForRecording() const;
+        // The newest write of any property this executor owns.
+        [[nodiscard]] uint64_t NewestPropertyWrite() const;
+
+    protected:
         // Compact storage
         PropertyStorage<UniformBufferProperty> m_UniformBufferPropertiesStorage;
         PropertyStorage<StorageBufferProperty> m_StorageBufferPropertiesStorage;

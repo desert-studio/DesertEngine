@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <Engine/Graphic/Materials/MaterialExecutor.hpp>
 #include <Engine/Graphic/Materials/Material.hpp>
+#include <Engine/Core/FrameManager.hpp>
 #include <Engine/Graphic/RendererAPI.hpp>
 #include <Engine/Core/Formats/MaterialLayout.hpp>
 
@@ -179,14 +180,9 @@ namespace Desert::Graphic
         return fill;
     }
 
-    void MaterialExecutor::Apply() const
+    void MaterialExecutor::ApplyForRecording() const
     {
-        auto backend = m_MaterialBackend.get();
-        if ( !backend )
-        {
-            LOG_ERROR( "MaterialExecutor::Apply: MaterialBackend is null for: {}", m_DebugName );
-            return;
-        }
+        MaterialBackend* backend = m_MaterialBackend.get();
 
         // 1. The owner's dirty MPROPERTY values into their fields (a no-op after a Bind, which cleaned them).
         if ( m_Owner )
@@ -196,33 +192,37 @@ namespace Desert::Graphic
         //    are the constructor's zeros (FieldProperty starts every field dirty), and flushing them would claim
         //    the route for a buffer someone else fills whole. Idempotent per copy (UpdateFields writes only
         //    fields newer than the copy's applied version), so a Bind just before costs nothing more here.
-        for ( auto& prop : m_UniformBufferPropertiesStorage )
+        for ( const auto& prop : m_UniformBufferPropertiesStorage )
         {
             if ( prop->GetFillKind() == ShaderResources::FillKind::Fields && prop->HasDirtyFields() )
                 prop->UpdateFields();
         }
 
-        for ( auto& prop : m_UniformBufferPropertiesStorage )
-        {
+        // 3. The active view's descriptors.
+        for ( const auto& prop : m_UniformBufferPropertiesStorage )
             prop->Apply( backend );
-        }
-
-        for ( auto& prop : m_Texture2DPropertiesStorage )
-        {
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
             prop->Apply( backend );
-        }
-
-        for ( auto& prop : m_TextureCubePropertiesStorage )
-        {
+        for ( const auto& prop : m_TextureCubePropertiesStorage )
             prop->Apply( backend );
-        }
-
-        for ( auto& prop : m_StorageBufferPropertiesStorage )
-        {
+        for ( const auto& prop : m_StorageBufferPropertiesStorage )
             prop->Apply( backend );
-        }
 
         backend->FlushUpdates();
+    }
+
+    uint64_t MaterialExecutor::NewestPropertyWrite() const
+    {
+        uint64_t newest = 0;
+        for ( const auto& prop : m_UniformBufferPropertiesStorage )
+            newest = std::max( newest, prop->GetVersion() );
+        for ( const auto& prop : m_Texture2DPropertiesStorage )
+            newest = std::max( newest, prop->GetVersion() );
+        for ( const auto& prop : m_TextureCubePropertiesStorage )
+            newest = std::max( newest, prop->GetVersion() );
+        for ( const auto& prop : m_StorageBufferPropertiesStorage )
+            newest = std::max( newest, prop->GetVersion() );
+        return newest;
     }
 
     Common::BoolResultStr MaterialExecutor::PrepareForRecording() const
@@ -232,7 +232,34 @@ namespace Desert::Graphic
         const Common::BoolResultStr prepared = m_MaterialBackend->PrepareViewResources( *this );
         if ( !prepared )
             return Common::MakeFormattedError( "material '{}': {}", m_DebugName, prepared.GetError() );
+        // RENDER-THREADS M3: the upload and the descriptor writes happen here, once per graph, on the graph's
+        // thread - the recording pass only binds the sets (CheckRecordable).
+        ApplyForRecording();
+        m_PreparedFrame   = Engine::FrameManager::GetInstance().GetAbsoluteFrameCount();
+        m_PreparedVersion = NewestPropertyWrite();
         return prepared;
+    }
+
+    Common::BoolResultStr MaterialExecutor::CheckRecordable() const
+    {
+        if ( m_PreparedFrame != Engine::FrameManager::GetInstance().GetAbsoluteFrameCount() )
+            return Common::MakeFormattedError( "material '{}' was not prepared this frame: the pass that draws it "
+                                               "declares it in its setup (PassBuilder::Prepares)",
+                                               m_DebugName );
+        const bool fieldsPending =
+             std::any_of( m_UniformBufferPropertiesStorage.begin(), m_UniformBufferPropertiesStorage.end(),
+                          []( const auto& prop )
+                          {
+                              return prop->GetFillKind() == ShaderResources::FillKind::Fields &&
+                                     prop->HasDirtyFields();
+                          } );
+        if ( NewestPropertyWrite() > m_PreparedVersion || fieldsPending ||
+             ( m_Owner != nullptr && m_Owner->HasPendingRegisteredProperties() ) )
+            return Common::MakeFormattedError( "material '{}' was written after its prepare and a recording pass "
+                                               "may not write it: the write belongs in the pass's setup, or "
+                                               "travels by value with the draw (DrawPushFields)",
+                                               m_DebugName );
+        return Common::MakeSuccess( true );
     }
 
     std::unique_ptr<MaterialExecutor>

@@ -6,6 +6,7 @@
 #include "ParticleSortGraph.hpp"
 
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
+#include <Engine/Graphic/Materials/DrawPushFields.hpp>
 #include <Engine/Graphic/Materials/SceneLightingBinding.hpp>
 #include <Engine/Graphic/Materials/SurfaceBlendPipeline.hpp>
 #include <Engine/Graphic/Materials/Properties/StorageBufferProperty.hpp>
@@ -32,6 +33,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <cstdint>
 #include <format>
 #include <tuple>
@@ -1090,6 +1092,7 @@ namespace Desert::Graphic::System
             return nullptr;
         }
         auto draw      = std::make_unique<SpriteDraw>();
+        draw->Owner    = this;
         draw->Material = std::make_shared<DataDrivenMaterial>( cellShader );
         draw->Instance = draw->Material->CreateInstance();
         if ( !draw->Instance )
@@ -1195,6 +1198,21 @@ namespace Desert::Graphic::System
         return SpriteDrawFor( engine );
     }
 
+    Common::BoolResultStr ParticleRenderer::SpriteDraw::PrepareForRecording() const
+    {
+        // The view's camera block, written right before the material is applied in the view the cell's passes
+        // record in (written in the declare, the G-buffer twins' vertex stage read a ZERO CameraUB: VFX-12 p36
+        // A/B, when the apply still ran in the record).
+        const ViewFrame* view = Owner != nullptr && Owner->m_SceneRenderer != nullptr
+                                     ? Owner->m_SceneRenderer->GetViewFrame()
+                                     : nullptr;
+        if ( view == nullptr )
+            return Common::MakeFormattedError( "sprite cell '{}': the view has no frame to draw", Cell );
+        SceneCameraBind( Material.get(), *view );
+        Material->Bind( Instance.get() );
+        return Material->GetMaterialExecutor()->PrepareForRecording();
+    }
+
     Common::BoolResultStr ParticleRenderer::RecordSpriteDraws( RDG::PassContext& context, const bool gbuffer )
     {
         if ( m_ViewEmitters.empty() )
@@ -1202,7 +1220,8 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
             return BOOLSUCCESS;
 
-        uint32_t block = 0;
+        uint32_t               block = 0;
+        std::vector<std::byte> push;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
             if ( !IsDrawn( ve ) )
@@ -1222,15 +1241,25 @@ namespace Desert::Graphic::System
                 if ( sprite.Pipeline->GetReadiness() == PipelineReadiness::Compiling )
                     continue;
                 const RDG::PassBindings bindings( context, context.GetBindingBlock( drawBlock ) );
-                sprite.Material->SetMaterialIndex( draw.Row );
-                sprite.Material->Bind( sprite.Instance.get() );
+                // The row travels by value: a copy of the cell's push block with MaterialIndex over it
+                // (DrawPushFields, placed through the cell's layout as Material::SetMaterialIndex placed it). The
+                // camera block and the cell's defaults were written by the cell's prepare (SpriteDraw).
+                const MaterialExecutor*       executor = sprite.Material->GetMaterialExecutor();
+                const Common::Memory::Buffer& pushed   = executor->GetPushConstantBuffer();
+                push.assign( pushed.Size, std::byte{ 0 } );
+                if ( pushed.Data != nullptr && pushed.Size != 0u )
+                    std::memcpy( push.data(), pushed.Data, pushed.Size );
+                if ( auto written = DrawPushFields{}.MaterialIndex( draw.Row ).WriteInto(
+                          push, sprite.Material->GetMaterialLayout() );
+                     !written )
+                    return Common::MakeFormattedError( "{}: sprite cell '{}': {}", context.GetPassName(),
+                                                       sprite.Cell, written.GetError() );
                 // Six vertices per alive particle of the drawn half (DrawnHalf: the last compact's slot
                 // StepCount & 1, or a PostOpaque emitter's previous half for a G-buffer row), the slot's
                 // FirstVertex.
                 const uint64_t slot = uint64_t{ DrawnHalf( ve, draw.GBuffer ) } * kParticleDrawSlotStride;
-                if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline,
-                                                                    sprite.Material->GetMaterialExecutor(),
-                                                                    ve.CountersRef, slot );
+                if ( auto drawn = Renderer::DrawProceduralIndirect( bindings, *sprite.Pipeline, executor,
+                                                                    ve.CountersRef, slot, push );
                      !drawn.IsSuccess() )
                     return drawn;
             }
@@ -1245,10 +1274,10 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
             return; // the exec draws nothing either
 
-        // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and the
-        // view's camera block (as MeshRenderer writes its G-buffer cells' camera at declare), so the route fill is
-        // what the draws read. Only this pass's cells: a cell is drawn by one of the two passes
-        // (SpriteDraw::Pass).
+        // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws, so the
+        // route fill is what the draws read. The camera block and the cell's defaults are written by the cell's
+        // prepare (SpriteDraw::PrepareForRecording), which the draws below declare.
+        // Only this pass's cells: a cell is drawn by one of the two passes (SpriteDraw::Pass).
         for ( auto& [cell, sprite] : m_Sprites )
             if ( sprite && ( sprite->Pass == MeshPass::GBuffer ) == gbuffer )
             {
@@ -1279,8 +1308,8 @@ namespace Desert::Graphic::System
         for ( auto& [cell, sprite] : m_Sprites )
         {
             // Drawn, not !Rows.empty(): a template with no parameters (DefaultSurface, the broken-material
-            // checker) appends no row and is still drawn - gating its camera on rows left the G-buffer twins'
-            // CameraUB unwritten (VFX-12 p36-p38: a zero camera, nothing drawn, no depth).
+            // checker) appends no row and is still drawn. Its camera block is written by its prepare
+            // (SpriteDraw::PrepareForRecording, declared per drawn draw below), not here (VFX-12 p36-p38).
             if ( !sprite || !sprite->Drawn || ( sprite->Pass == MeshPass::GBuffer ) != gbuffer )
                 continue;
             // Find: a sprite surface template with no parameters (or every row field dead) declares no row
@@ -1290,7 +1319,6 @@ namespace Desert::Graphic::System
                           sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
                     sb->SetRawData( sprite->Rows.data(),
                                     static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
-            SceneCameraBind( sprite->Material.get(), *view );
         }
 
         // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,
@@ -1314,9 +1342,9 @@ namespace Desert::Graphic::System
                     continue;
                 drawn                    = true;
                 const SpriteDraw& sprite = *draw.Sprite;
-                // The cell RecordSpriteDraws applies: its view sets and block copies exist before the graph
-                // records.
-                declared.Prepares( *sprite.Material->GetMaterialExecutor() );
+                // The cell RecordSpriteDraws binds: its camera block, defaults, view sets and block copies are
+                // written before the graph records (SpriteDraw::PrepareForRecording).
+                declared.Prepares( sprite );
                 const auto&       layout = sprite.Layout.Get( sprite.Pipeline->GetSpecification().Shader );
                 // A translucent / additive emitter reads its alive half back to front from this view's
                 // SortedAlive (AddSortPasses), at the same offset; an opaque / masked one reads AliveList

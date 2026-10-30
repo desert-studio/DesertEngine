@@ -27,8 +27,8 @@ namespace Desert::Graphic
 
         // RENDER-THREADS M1 (MaterialExecutor::PrepareForRecording). Makes the ACTIVE view's per-frame objects
         // of this material - its descriptor sets and the copies of its uniform / storage blocks - before the
-        // graph records, so the Apply of a pass's exec only looks them up (UE: a pass's uniform buffers and
-        // descriptor sets exist before the graph records).
+        // graph records; MaterialExecutor::PrepareForRecording then writes them, and a pass's exec only binds
+        // them (UE: a pass's uniform buffers and descriptor sets exist before the graph records).
         [[nodiscard]] virtual Common::BoolResultStr PrepareViewResources( const MaterialExecutor& executor ) = 0;
 
         // ApplyPushConstants was declared here and its only implementation had an EMPTY BODY — the

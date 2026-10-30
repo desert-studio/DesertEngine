@@ -438,7 +438,12 @@ namespace Desert::Graphic::API::Vulkan
 
         if ( materialExecutor )
         {
-            materialExecutor->Apply();
+            // RENDER-THREADS M3: the material was applied by its prepare; the record only binds it.
+            if ( auto recordable = materialExecutor->CheckRecordable(); !recordable )
+            {
+                LOG_ERROR( "VulkanRendererAPI::SubmitPulled: {}", recordable.GetError() );
+                return;
+            }
             auto vkBackend = static_cast<VulkanMaterialBackend*>( materialExecutor->GetMaterialBackend().get() );
             if ( !vkBackend->HasDescriptorSets() )
             {
@@ -1222,7 +1227,10 @@ namespace Desert::Graphic::API::Vulkan
         std::span<const std::byte>          materialPush;
         if ( material != nullptr )
         {
-            material->Apply();
+            // RENDER-THREADS M3 (UE: the lambda binds what the setup built): the material's upload and descriptor
+            // writes ran in its prepare, before the graph recorded; here it is only read.
+            if ( auto recordable = material->CheckRecordable(); !recordable )
+                return Common::MakeFormattedError( "{}: {}", pass, recordable.GetError() );
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes material
             // backends
             auto* backend = static_cast<VulkanMaterialBackend*>( material->GetMaterialBackend().get() );

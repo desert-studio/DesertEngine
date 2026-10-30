@@ -7,6 +7,8 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <algorithm>
+
 namespace Desert::Graphic
 {
     void Material::ReportMissingProperty( const std::string& name ) const
@@ -209,6 +211,12 @@ namespace Desert::Graphic
                 return { ubProp.get(), field };
         }
         return { nullptr, nullptr };
+    }
+
+    bool Material::HasPendingRegisteredProperties() const
+    {
+        return std::any_of( m_RegisteredProperties.begin(), m_RegisteredProperties.end(),
+                            []( const IProperty* prop ) { return prop->IsDirty(); } );
     }
 
     void Material::UploadRegisteredProperties()

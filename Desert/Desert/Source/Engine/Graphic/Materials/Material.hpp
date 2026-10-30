@@ -236,11 +236,13 @@ namespace Desert::Graphic
         void ClaimOwnership( ResourceOwner owner, Common::AssetHandle asset = Common::AssetHandle{} );
 
     protected:
-        // MaterialExecutor::Apply uploads the pending properties at use (UploadRegisteredProperties).
+        // MaterialExecutor::PrepareForRecording uploads the pending properties before the graph records
+        // (UploadRegisteredProperties); CheckRecordable refuses a bind while any is still pending.
         friend class MaterialExecutor;
 
         // Uploads all dirty TProperty members to the matching FieldProperty/Texture slot. Called by Bind and by
-        // MaterialExecutor::Apply (upload at use), so a material drawn without Bind needs no manual flush.
+        // MaterialExecutor::PrepareForRecording (upload before recording), so a material drawn without Bind needs no
+        // manual flush.
         //
         // It used to hand back the set of uniform buffers it had touched, and all four callers threw
         // that set away -- an out-parameter nobody read, which is a dead parameter by any reading of
@@ -249,6 +251,8 @@ namespace Desert::Graphic
         // would stop being reported and its other frame copies would go stale -- that was the outline
         // flicker), so the set had no possible consumer.
         void UploadRegisteredProperties();
+        // True while a registered property was written and not uploaded yet.
+        [[nodiscard]] bool HasPendingRegisteredProperties() const;
 
         // Push every FIELD-FILLED uniform buffer that still owes a copy into that copy. The one
         // implementation of a loop that existed in four copies (here, tonemap, JFA composite, deferred
