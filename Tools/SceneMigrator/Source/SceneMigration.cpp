@@ -3727,7 +3727,7 @@ namespace Desert::Migration
         // 0.35, the default type's: the fill every v7 type baked with (the bake's former constant), so a
         // raised library draws the sky it drew; a sheet type states its own after the raise.
         std::string patched = text;
-        patched.insert( end, ", \"FillDensity\": " + std::format( "{}", Graphic::CloudTypeShape{}.FillDensity ) );
+        patched.insert( end, ",\n        \"FillDensity\": " + std::format( "{}", Graphic::CloudTypeShape{}.FillDensity ) );
 
         const auto v7 = Common::Json::Read<Assets::CloudTypeData>( patched );
         if ( !v7 )
@@ -3743,11 +3743,18 @@ namespace Desert::Migration
                  stated == data.Header->Versions.end() ? std::string( "nothing" )
                                                        : std::to_string( stated->second ) );
 
-        std::string written = Assets::WriteCloudType( data );
-        if ( auto reread = Assets::ParseCloudType( written ); !reread )
+        // THE TEXT IS KEPT, only the key and the header's number change: WriteCloudType prints every float at
+        // double precision (2.2 -> 2.200000047683716), which would rewrite every authored number of the library
+        // for one added key. The raised text is then read back as CLTY 8 so a bad patch cannot land.
+        const std::string stamp = "\"CLTY\": 7";
+        const size_t      clty  = patched.find( stamp );
+        if ( clty == std::string::npos )
+            return Common::MakeFormattedError<std::string>( "the header does not spell its CLTY as '{}'", stamp );
+        patched.replace( clty, stamp.size(), "\"CLTY\": 8" );
+        if ( auto reread = Assets::ParseCloudType( patched ); !reread )
             return Common::MakeFormattedError<std::string>( "the raised file does not read as CLTY 8: {}",
                                                             reread.GetError() );
-        return Common::MakeSuccess( std::move( written ) );
+        return Common::MakeSuccess( std::move( patched ) );
     }
 
     Assets::Serialization::VFXEffectTypeData DefaultVFXEffectTypeForV3()
