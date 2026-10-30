@@ -307,7 +307,24 @@ namespace Desert::Graphic
             return m_Buffers;
         }
 
+        // THE NODE'S RENDER AREA in pixels: the extent of the attachments the graph binds for this raster node -
+        // its target framebuffer's, or, after the temporal resolve, the OUTPUT-extent overlay set the graph puts
+        // in place of the scene target (SceneRenderer::AddPassNode sets it before it calls Declare). A pass that
+        // lays out in pixels (the UI canvas, the debug strings) lays out at THIS extent, never at its
+        // framebuffer's: the scene target is the RENDER extent, smaller than the image below 100 % screen
+        // percentage (UE: Slate and the debug canvas draw at the view's output size, after the upscale). (0, 0):
+        // not a raster node.
+        void SetTargetExtent( const glm::uvec2 extent )
+        {
+            m_TargetExtent = extent;
+        }
+        [[nodiscard]] glm::uvec2 TargetExtent() const
+        {
+            return m_TargetExtent;
+        }
+
     private:
+        glm::uvec2              m_TargetExtent{ 0u, 0u };
         std::vector<ImageUse>   m_Images;
         std::vector<TextureUse> m_Textures;
         std::vector<BufferUse>  m_Buffers;

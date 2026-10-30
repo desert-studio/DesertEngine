@@ -306,8 +306,13 @@ namespace Desert::Graphic
              .Declare =
                   [this, target]( RenderPassDeclaration& declared, const FrameGraphRefs& )
              {
-                 if ( const auto recorded = RecordStrings( static_cast<float>( target->GetFramebufferWidth() ),
-                                                           static_cast<float>( target->GetFramebufferHeight() ) );
+                 // Laid out at the node's render area (RenderPassDeclaration::TargetExtent), not at `target`'s:
+                 // after the temporal resolve the strings draw into the OUTPUT-extent overlay set, and the scene
+                 // target is the smaller render extent - laid out there, a label past it was cut (UE's debug
+                 // canvas draws at the view's output size).
+                 const glm::uvec2 extent = declared.TargetExtent();
+                 if ( const auto recorded =
+                           RecordStrings( static_cast<float>( extent.x ), static_cast<float>( extent.y ) );
                       !recorded )
                  {
                      LOG_ERROR( "[DebugDraw] {}", recorded.GetError() );

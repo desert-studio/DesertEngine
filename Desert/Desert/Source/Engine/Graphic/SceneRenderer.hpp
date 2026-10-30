@@ -1130,6 +1130,7 @@ namespace Desert::Graphic
             RDG::TextureRef    ResponsiveAA; // never read; cleared by its first overlay writer (OwnClears)
             RDG::TextureRef    ThinGeometryCoverage; // never read; cleared by its first overlay writer (OwnClears)
             RDG::TextureRef    Depth;
+            glm::uvec2         Extent{ 0u, 0u }; // the set's OUTPUT extent (ViewFrame::Split.Output), in pixels
             [[nodiscard]] bool IsValid() const
             {
                 return Color.IsValid();
