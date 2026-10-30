@@ -1237,7 +1237,8 @@ namespace Desert::Editor
                     return Control::Response::Failure( request.Id, "no scene is open" );
                 if ( const auto entity = ControlEntity( *scene, request.Entity ); !entity )
                     return Control::Response::Failure( request.Id, entity.GetError() );
-                Core::SelectionManager::SetSelected( ControlEntityId( request.Entity ).GetValue() );
+                const auto entityWord = ControlEntityId( request.Entity );
+                Core::SelectionManager::SetSelected( entityWord.GetValue() );
                 return Control::Response::Success( request.Id );
             }
 
