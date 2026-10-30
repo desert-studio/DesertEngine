@@ -1150,7 +1150,7 @@ namespace Desert::Graphic::System
         frameState.ApplyTo( static_cast<Material*>( carrier.Material.get() ) );
         if ( viewKey != kBinnedMainView )
             WriteLightCamera( *carrier.Material, glm::mat4( 1.0f ), m_CascadeCasterVP[viewKey], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[viewKey], m_ParallaxQuality );
+                              m_CascadeCasterBias[viewKey], m_ParallaxQuality, CasterWindOrigin() );
         if ( !LendMaterialTable( *carrier.Material ) )
         {
             error = std::format( "binned carrier '{}' has no material table", shader->GetName() );

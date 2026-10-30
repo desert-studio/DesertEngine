@@ -471,6 +471,19 @@ namespace Desert::Graphic::System
             // whose frustum it meets (Core::Frustum::Intersects). nullopt: the producer knows no box (the grass
             // follows the camera), drawn into every view and cascade.
             std::optional<Common::Math::AABB> WorldBounds{};
+            // A producer whose instances stand still but for the wind (the grass): what a cached cascade's static
+            // layer is keyed by and splits on (CascadeStaticSignature, BuildGpuInstancedShadowDraws; UE: grass
+            // HISM in the cached shadow, its WPO off past WPO Disable Distance). nullopt: the instances move by
+            // themselves (particle Mesh rows), every cascade they reach is movable every frame.
+            struct StillInstances
+            {
+                // Equal = Instances holds the same instances (the producer's generation of them).
+                uint64_t Generation = 0;
+                // The farthest any instance's geometry reaches from its origin, world cm, scale and wind included:
+                // how far past the shadow wind distance a mover's caster can reach a cascade.
+                float Reach = 0.0f;
+            };
+            std::optional<StillInstances> Still{};
         };
 
         // A static mesh drawn with a generic data-driven material. Two producers:
@@ -821,6 +834,9 @@ namespace Desert::Graphic::System
         {
             return m_ShadowWindDistance;
         }
+        // The rule's measure as a light camera carries it (ViewFrame::CasterWindOrigin): xyz the main camera's
+        // origin - the point ShadowIsmInstances measures from - w the shadow wind distance.
+        [[nodiscard]] glm::vec4 CasterWindOrigin() const;
         // Scalability Effects.SkinCache (SceneRenderer::BeginScene); the scene's skin cache follows it each frame.
         void SetSkinCacheEnabled( const bool enabled )
         {
@@ -2599,9 +2615,12 @@ namespace Desert::Graphic::System
         [[nodiscard]] bool GrassVisibilityReady( const GpuInstancedRenderData& gpu );
         // `cascade` keys the caster cell (one per section x cascade); `shadowView` is the view drawn (the cascade
         // itself, or its movable layer kCascadeMovableViewBase + cascade over the cache) and names its light
-        // camera.
-        void BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
-                                           MeshRendererDetail::MeshDrawList& list );
+        // camera. @p layer is the cascade cache's layer drawn (All: an uncached cascade). True when a still
+        // section (GpuInstancedRenderData::Still) the layer draws was left out for a pending reason (its textures,
+        // its caster pipeline compiling): a static layer drawn without it must not be kept.
+        [[nodiscard]] bool BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
+                                                         ShadowCasterLayer                 layer,
+                                                         MeshRendererDetail::MeshDrawList& list );
 
     private:
         // m_StaticMaterialFallback and m_SkinnedMaterialFallback stood here. The first was constructed

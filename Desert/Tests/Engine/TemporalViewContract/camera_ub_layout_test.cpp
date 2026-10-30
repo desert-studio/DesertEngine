@@ -140,6 +140,7 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
          { "PreExposure", offsetof( Camera, PreExposure ) },
          { "PrevPreExposure", offsetof( Camera, PrevPreExposure ) },
          { "FrameIndexMod8", offsetof( Camera, FrameIndexMod8 ) },
+         { "CasterWindOrigin", offsetof( Camera, CasterWindOrigin ) },
     };
 
     ASSERT_EQ( block.Members.size(), cpp.size() )
@@ -150,7 +151,7 @@ TEST( CameraUBLayout, CppStructHasTheStd140OffsetsOfTheGlslBlock )
         EXPECT_EQ( block.Members[i].Offset, cpp[i].Offset ) << cpp[i].Name;
     }
     EXPECT_EQ( block.Size, sizeof( Camera ) );
-    EXPECT_EQ( sizeof( Camera ), 480u );
+    EXPECT_EQ( sizeof( Camera ), 496u );
 }
 
 TEST( CameraUBLayout, MakeCameraUBCopiesTheViewFrame )

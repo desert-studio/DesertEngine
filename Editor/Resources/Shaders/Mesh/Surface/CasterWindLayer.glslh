@@ -1,0 +1,42 @@
+// WHO SWAYS IN THE SHADOWS, per instance in the vertex stage (GRASS-VIS-8): a GPU-instanced still section's caster
+// draw (MeshRenderer::BuildGpuInstancedShadowDraws, the grass: its instances are generated on the GPU, so neither the
+// CPU walk's ShadowIsmInstances nor InstanceCull's GpuCull_CastsRestPose ever sees one) asks the same rule of each
+// instance it draws: the caster view is the light camera's (CameraUB CasterWindOrigin = the caster cull view's
+// LodOrigin: the main camera, Shadows.WindAnimationDistance), the primitive is the section's wind. An instance past
+// the distance casts its rest pose and belongs to the cascade's static layer; a nearer one sways over the cache.
+// UE: WPO Disable Distance on grass HISM in the cached shadow maps. The split is the push's WindB.w in a light view
+// (Graphic::CasterWindLayer, 0 = every instance with the pushed wind: every caster draw but this one).
+// Included after CameraUB, MaterialTransport and, in a binned cell, GpuScene with its buffers.
+#ifndef DESERT_CASTER_WIND_LAYER_GLSLH
+#define DESERT_CASTER_WIND_LAYER_GLSLH
+
+#include <Common/GpuScene.glslh>
+
+// C++ twin: Graphic::CasterWindLayer (Engine/Graphic/InstanceWind.hpp).
+#define DESERT_CASTER_WIND_RULE      1u
+#define DESERT_CASTER_WIND_DROP_NEAR 2u
+#define DESERT_CASTER_WIND_DROP_FAR  4u
+
+// Whether this layer draws the instance at @p instanceOrigin (world cm); @p windA becomes the rest pose's (Strength 0,
+// FoliageWindOffset's "no offset") when the instance casts its rest pose.
+bool DesertCasterWindLayer( const vec3 instanceOrigin, inout vec4 windA )
+{
+    const uint split = floatBitsToUint( m_PushConstants.WindB.w );
+    if ( ( split & DESERT_CASTER_WIND_RULE ) == 0u )
+        return true;
+    // The rule reads the view's flags and LodOrigin and the primitive's Wind only.
+    GpuCullView view;
+    view.Flags     = DESERT_GPU_CULL_VIEW_SHADOW_CASTER;
+    view.LodOrigin = cameraUB.CasterWindOrigin;
+    GpuScenePrimitive primitive;
+    primitive.Wind  = windA;
+    const bool rest = GpuCull_CastsRestPose( view, primitive, instanceOrigin );
+    if ( rest ? ( split & DESERT_CASTER_WIND_DROP_FAR ) != 0u
+              : windA.z > 0.0 && ( split & DESERT_CASTER_WIND_DROP_NEAR ) != 0u )
+        return false;
+    if ( rest )
+        windA = vec4( 0.0 );
+    return true;
+}
+
+#endif

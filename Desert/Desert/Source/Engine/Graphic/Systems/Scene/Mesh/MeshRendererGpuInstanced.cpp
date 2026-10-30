@@ -301,12 +301,13 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    void MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
-                                                     MeshDrawList& list )
+    bool MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
+                                                     const ShadowCasterLayer layer, MeshDrawList& list )
     {
         auto* materials = Runtime::ResourceRegistry::GetMaterialService();
         if ( materials == nullptr )
-            return;
+            return false;
+        bool pending = false;
         // The cascade's caster box (as BuildShadowCascadeDraws culls the static casters): a section with a box casts
         // only into the cascades it meets.
         const Core::Frustum cascadeFrustum( m_CascadeCasterVP[shadowView], glm::mat4( 1.0f ) );
@@ -316,10 +317,42 @@ namespace Desert::Graphic::System
                 continue;
             if ( gpu.WorldBounds && !cascadeFrustum.Intersects( *gpu.WorldBounds ) )
                 continue;
+            // WHO SWAYS IN THE SHADOWS, for a still section (GpuInstancedRenderData::Still, the grass), per instance
+            // in its vertex stage (CasterWindLayer::*, Mesh/Surface/CasterWindLayer.glslh; the GPU cull's
+            // GpuCull_CastsRestPose, the CPU walk's ShadowIsmInstances): a swaying one casts its instances past the
+            // shadow wind distance in their rest pose, into the static layer, and its nearer ones swaying, over the
+            // cache; one that does not sway is all static. A section whose instances move by themselves is drawn
+            // whole over the cache, as before the cache knew them.
+            const bool still = gpu.Still.has_value();
+            const bool sways = gpu.Wind.Sways();
+            uint32_t   split = 0;
+            if ( layer == ShadowCasterLayer::Static )
+            {
+                if ( !still )
+                    continue;
+                split = sways ? CasterWindLayer::kRule | CasterWindLayer::kDropNear : 0u;
+            }
+            else if ( layer == ShadowCasterLayer::Movable )
+            {
+                if ( still && !sways )
+                    continue;
+                split = still ? CasterWindLayer::kRule | CasterWindLayer::kDropFar : 0u;
+            }
+            else
+                split = still && sways ? CasterWindLayer::kRule : 0u;
+            // Only a static layer keeps what it drew: a still section it leaves out for now stales it.
+            const bool keeps = layer == ShadowCasterLayer::Static;
+
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
+            {
+                pending = pending || keeps;
                 continue; // casts from the frame it draws: a masked caster would cut the default alpha
-            const uint32_t            view   = kGpuInstancedViewBase + 0x08000000u + gpu.Key * kCascadeViews + c;
+            }
+            // One caster cell per (section x cascade x layer): the static layer and the movers over it are drawn in
+            // the same frame from light cameras of their own (the cascade's and its movable view's).
+            const uint32_t layerBase = layer == ShadowCasterLayer::Movable ? 0x08000000u : 0x0A000000u;
+            const uint32_t view      = kGpuInstancedViewBase + layerBase + gpu.Key * kCascadeViews + c;
             // Its own (Instanced x ShadowDepth) cell, masked or not: the shared instanced caster's transforms are
             // the CPU-batched ISMs'.
             DataDrivenMaterial* caster =
@@ -336,11 +369,13 @@ namespace Desert::Graphic::System
                 continue;
             }
             GraphicsPipeline* pipeline = MaskedCasterPipeline( *caster, gpu.Path, MeshPass::ShadowDepth );
+            if ( pipeline != nullptr && pipeline->GetReadiness() == PipelineReadiness::Compiling )
+                pending = pending || keeps;
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue;
 
             WriteLightCamera( *caster, glm::mat4( 1.0f ), m_CascadeCasterVP[shadowView], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[shadowView], m_ParallaxQuality );
+                              m_CascadeCasterBias[shadowView], m_ParallaxQuality, CasterWindOrigin() );
             // The full list (GRASS-VIS): the light sees what the camera's depth hides.
             BindGpuInstancedBuffers( *caster, gpu, gpu.Instances );
             // The section's row is the scene material table's (SyncGpuScene), read by its masked caster cell.
@@ -349,6 +384,9 @@ namespace Desert::Graphic::System
                 continue;
             const uint32_t row = *materialRow;
 
+            // A light view's B.w is the split (InstanceWindPush; no previous instance in a light view).
+            InstanceWindPush wind = PackInstanceWind( gpu.Wind );
+            wind.B.w              = std::bit_cast<float>( split );
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
                 list.Add( { .Pipeline           = pipeline,
                             .Mesh               = gpu.Mesh,
@@ -361,7 +399,8 @@ namespace Desert::Graphic::System
                             .Push               = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .MaterialIndex( row )
-                                         .Wind( PackInstanceWind( gpu.Wind ) ) } );
+                                         .Wind( wind ) } );
         }
+        return pending;
     }
 } // namespace Desert::Graphic::System

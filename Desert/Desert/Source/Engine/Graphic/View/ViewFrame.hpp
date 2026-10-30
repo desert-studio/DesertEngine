@@ -244,6 +244,11 @@ namespace Desert::Graphic
         // stage adds to its clip depth (Common/ShadowCasterBias.glslh). 0 for every other view.
         float ShadowSlopeBias  = 0.0f;
         float ShadowSlopeClamp = 0.0f;
+        // LIGHT VIEWS ONLY (Graphic::WriteLightCamera): the measure of WHO SWAYS IN THE SHADOWS
+        // (GpuDriven::CastsRestPose, UE WPO Disable Distance) for the casters whose instances the vertex stage
+        // splits itself (Mesh/Surface/CasterWindLayer.glslh): xyz the main camera's origin (world cm), w
+        // Shadows.WindAnimationDistance (cm) - the caster cull view's LodOrigin. 0 for every other view.
+        glm::vec4 CasterWindOrigin{ 0.0f };
 
         // The machine's parallax steps (ViewInputs::Parallax). A light view carries its scene view's
         // (Graphic::WriteLightCamera): the casters march the same relief the view does, or the shadow of a brick

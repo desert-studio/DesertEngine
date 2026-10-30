@@ -268,6 +268,12 @@ namespace Desert::Graphic::System
             std::vector<uint32_t> FrameKey;
             std::vector<uint32_t> GenerateKey;
             uint32_t              StableGenerations = 0;
+            // Counts the GenerateKey changes: the identity of what Instances holds, which a cached cascade's static
+            // layer is keyed by (MeshRenderer::GpuInstancedRenderData::Still).
+            uint64_t Generation = 0;
+            // The farthest an instance's geometry reaches from its origin, world cm: its bounding sphere's centre
+            // height plus radius at the placement's largest scale, and the wind's sway (StillInstances::Reach).
+            float Reach = 0.0f;
             // GRASS-VIS: this frame's first raster-stream row (GrassBladeShapeGpu::Visibility.x), Blade only.
             uint32_t VisibilityRow = 0;
         };

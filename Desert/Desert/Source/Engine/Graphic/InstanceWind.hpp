@@ -143,6 +143,17 @@ namespace Desert::Graphic
                  glm::vec4( wind.Speed, wind.Seconds, 0.0f, 0.0f ) };
     }
 
+    /// A light view's B.w (a light view has no previous instance): which instances of a GPU-instanced still
+    /// section (MeshRenderer::GpuInstancedRenderData::Still, the grass) a caster draw keeps - WHO SWAYS IN THE
+    /// SHADOWS asked per instance by its vertex stage (Mesh/Surface/CasterWindLayer.glslh, DESERT_CASTER_WIND_*),
+    /// measured from the light camera's CasterWindOrigin. 0: every instance, with the pushed wind.
+    namespace CasterWindLayer
+    {
+        inline constexpr uint32_t kRule     = 1u; // an instance past the shadow wind distance casts its rest pose
+        inline constexpr uint32_t kDropNear = 2u; // the static layer: a mover is not drawn
+        inline constexpr uint32_t kDropFar  = 4u; // the movable layer: a rest-pose instance is not drawn
+    } // namespace CasterWindLayer
+
     /// A view pass's push: PackInstanceWind plus B.z = the wind clock at the previous gameplay step and B.w = the
     /// previous-instance offset's bits (0 = instances that do not move).
     [[nodiscard]] inline InstanceWindPush PackViewInstanceWind( const InstanceWind& wind,

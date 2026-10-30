@@ -52,7 +52,10 @@
     FIELD( float, PreExposure, PreExposure, { 1.0f } )         /* offset 468, ViewFrame::PreExposure */           \
     FIELD( float, PrevPreExposure, PrevPreExposure, { 1.0f } ) /* offset 472, ViewFrame::PrevPreExposure */       \
     /* UE View.StateFrameIndexMod8: the view's frame count mod 8, the temporal step of a dithered opacity mask */ \
-    FIELD( float, FrameIndexMod8, FrameIndexMod8, { 0.0f } ) /* offset 476; block size 480 */
+    FIELD( float, FrameIndexMod8, FrameIndexMod8, { 0.0f } ) /* offset 476 */                                     \
+    /* light views only: the shadow wind rule's measure (ViewFrame::CasterWindOrigin) */                          \
+    FIELD( glm::vec4, CasterWindOrigin, CasterWindOrigin, { 0.0f } ) /* offset 480 */                             \
+    /* block size 496 */
 
 namespace Desert::Graphic::ShaderProtocols
 {
@@ -62,7 +65,7 @@ namespace Desert::Graphic::ShaderProtocols
     static_assert( Std140LayoutMatches( kCameraFields, sizeof( Camera ) ),
                    "ShaderProtocols::Camera is not laid out as std140 places the generated CameraUB block: "
                    "reorder or pad DESERT_CAMERA_UB_FIELDS" );
-    static_assert( sizeof( Camera ) == 480 );
+    static_assert( sizeof( Camera ) == 496 );
 
     /// The include path the shader includer answers with the generated block (angle include, shader-root relative).
     inline constexpr std::string_view kCameraUBInclude = "Common/CameraUB.glslh";
@@ -106,6 +109,7 @@ namespace Desert::Graphic::ShaderProtocols
         ub.PreExposure               = frame.PreExposure;
         ub.PrevPreExposure           = frame.PrevPreExposure;
         ub.FrameIndexMod8            = static_cast<float>( frame.FrameIndex % 8u );
+        ub.CasterWindOrigin          = frame.CasterWindOrigin;
         return ub;
     }
 } // namespace Desert::Graphic::ShaderProtocols

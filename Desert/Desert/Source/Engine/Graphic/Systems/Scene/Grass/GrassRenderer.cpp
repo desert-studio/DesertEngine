@@ -375,6 +375,13 @@ namespace Desert::Graphic::System
         // instance (one more cell for counting lattice points rather than area).
         const double margin = static_cast<double>( boundsRadius ) + 2.5 * cell + moved;
         VarietyGpu&  gpu    = m_Varieties[variety.Key];
+        {
+            const GrassPlacement& placement = variety.Placement;
+            const float maxScale = std::max( { placement.ScaleX.y, placement.ScaleY.y, placement.ScaleZ.y, 1.0e-3f } );
+            // A blade's sphere already holds the sway; a mesh's is its bounds.
+            gpu.Reach = ( std::abs( boundsHeight ) + boundsRadius ) * maxScale +
+                        ( variety.Blade ? 0.0f : WindBoundsPad( variety.Wind ) );
+        }
         // What the GPU counted for each bucket FramesInFlight frames ago (GrassFinalize), when this frame's copy
         // has been written since the feedback buffer was made for this bucket count.
         std::vector<uint32_t> counted( buckets + kFeedbackTailWords, 0u );
@@ -795,6 +802,7 @@ namespace Desert::Graphic::System
                 if ( gpu->FrameKey != gpu->GenerateKey )
                 {
                     gpu->GenerateKey       = gpu->FrameKey;
+                    ++gpu->Generation;
                     gpu->StableGenerations = 0;
                 }
                 // Instances culled by last frame's depth are this frame's only: a tested frame always generates.
@@ -825,7 +833,10 @@ namespace Desert::Graphic::System
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
                            .Levels           = variety.Blade ? 1u : gpu->Buckets,
-                           .Key              = gpu->Index * 64u + s } );
+                           .Key              = gpu->Index * 64u + s,
+                           // The grass stands still but for the wind: a cached cascade keeps its rest pose.
+                           .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
+                                .Generation = gpu->Generation, .Reach = gpu->Reach } } );
                 // A Blade variety's levels in the view's TLAS: one shared BLAS per level, built from the shape
                 // (GrassBladeRayTracing.hpp). A level a Masked section draws runs the alpha test, as MasksOf rules
                 // for a mesh (RayTracingGather.cpp).

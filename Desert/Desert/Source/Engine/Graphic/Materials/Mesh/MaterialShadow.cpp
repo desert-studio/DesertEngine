@@ -51,7 +51,7 @@ namespace Desert::Graphic
 
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
                            const double timeSeconds, const CascadeCasterBias& bias,
-                           const ParallaxQuality& parallax )
+                           const ParallaxQuality& parallax, const glm::vec4& casterWindOrigin )
     {
         // A light camera is not a view: no jitter, no previous frame (MakeStillViewFrame); the camera block still
         // has its one writer. Its position is the light camera's eye, its clock the frame's. The constant bias
@@ -61,14 +61,15 @@ namespace Desert::Graphic
         frame.ShadowSlopeBias  = bias.SlopeBias;
         frame.ShadowSlopeClamp = bias.SlopeClamp;
         frame.Parallax         = parallax;
+        frame.CasterWindOrigin = casterWindOrigin;
         SceneCameraBind( &material, frame );
     }
 
     void MaterialShadow::SetLightMatrix( const glm::mat4& view, const glm::mat4& projection,
                                          const double timeSeconds, const CascadeCasterBias& bias,
-                                         const ParallaxQuality& parallax )
+                                         const ParallaxQuality& parallax, const glm::vec4& casterWindOrigin )
     {
-        WriteLightCamera( *this, view, projection, timeSeconds, bias, parallax );
+        WriteLightCamera( *this, view, projection, timeSeconds, bias, parallax, casterWindOrigin );
     }
 
     void MaterialShadowSkinned::UploadBones( const std::vector<glm::mat4>& packedBoneMatrices )

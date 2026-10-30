@@ -524,6 +524,14 @@ namespace Desert::Graphic::System
         return row.LodLevel;
     }
 
+    glm::vec4 MeshRenderer::CasterWindOrigin() const
+    {
+        // The origin ShadowIsmInstances measures its Sways from (its LODView: the main camera, none = the
+        // world's).
+        const auto* camera = m_SceneRenderer->GetMainCamera();
+        return glm::vec4( camera != nullptr ? camera->GetPosition() : glm::vec3( 0.0f ), m_ShadowWindDistance );
+    }
+
     const MeshRenderer::ShadowIsmField& MeshRenderer::ShadowIsmInstances( const uint32_t field )
     {
         ShadowCasterSetup& setup  = m_ShadowCasterSetup;
@@ -661,9 +669,38 @@ namespace Desert::Graphic::System
                  reaches( m_ShadowCasterSetup.Skinned[i] ) )
                 movable = true;
         }
+        // A GPU-instanced section (BuildGpuInstancedShadowDraws): one whose instances move by themselves makes
+        // every cascade it reaches movable. A still one (the grass, GpuInstancedRenderData::Still) is keyed by its
+        // generation, and split as a swaying ISM field is (WHO SWAYS IN THE SHADOWS, here on the GPU: the vertex
+        // stage's CasterWindLayer.glslh): its instances past the shadow wind distance cast their rest pose into
+        // the static layer, so a swaying section also keys the rule's measure (an instance crossing the distance
+        // moves between the layers), and its movers make the cascade movable only when the box they can reach -
+        // the distance around the camera, grown by an instance's reach - meets the cascade.
+        const glm::vec4 windOrigin = CasterWindOrigin();
         for ( const auto& gpu : m_GpuInstancedQueue )
-            if ( gpu.CastShadows && ( !gpu.WorldBounds || frustum.Intersects( *gpu.WorldBounds ) ) )
-                movable = true; // regenerated around the camera every frame
+        {
+            if ( !gpu.CastShadows || ( gpu.WorldBounds && !frustum.Intersects( *gpu.WorldBounds ) ) )
+                continue;
+            if ( !gpu.Still )
+            {
+                movable = true;
+                continue;
+            }
+            hash.Add( gpu.Key );
+            hash.Add( gpu.Instances.get() );
+            hash.Add( gpu.Still->Generation );
+            hash.Add( gpu.Material.get() );
+            hash.Add( gpu.HiddenSubmeshes );
+            const bool sways = gpu.Wind.Sways();
+            hash.Add( sways );
+            if ( !sways )
+                continue;
+            hash.Add( windOrigin );
+            const glm::vec3 moverReach( windOrigin.w + gpu.Still->Reach );
+            const glm::vec3 origin( windOrigin );
+            if ( frustum.Intersects( Common::Math::AABB{ origin - moverReach, origin + moverReach } ) )
+                movable = true;
+        }
         if ( m_GpuInstancedCastersExpected )
             movable = true; // submitted later this frame (ExpectGpuInstancedCasters)
         return hash.Value;
@@ -1025,7 +1062,7 @@ namespace Desert::Graphic::System
         // Shadow vert computes Projection*View*Transform; feed the combined cascade matrix as
         // Projection and identity as View, matching LightViewProjection[c] on the lit side.
         m_ShadowMaterial[c]->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                             m_CascadeCasterBias[c], m_ParallaxQuality );
+                                             m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
         const MaterialExecutor* casterExecutor = m_ShadowMaterial[c]->GetMaterialExecutor();
         // The pipelines of the view's caster cells: the cascades' and local views' depth attachment, or the
         // virtual shadow map's attachment-less pool raster (IsVirtualShadowView).
@@ -1417,7 +1454,7 @@ namespace Desert::Graphic::System
         {
             auto* skinMat = m_ShadowSkinnedMaterial[c].get();
             skinMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c], m_ParallaxQuality );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
 
             auto& skinBones = m_ScratchBones;
             skinBones.clear();
@@ -1517,7 +1554,7 @@ namespace Desert::Graphic::System
         {
             auto* instMat = m_ShadowInstancedMaterial[c].get();
             instMat->SetLightMatrix( glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                                     m_CascadeCasterBias[c], m_ParallaxQuality );
+                                     m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
             if ( auto* sb = instMat->Get<StorageBufferProperty>( kInstanceTransformsBlock ) )
                 sb->SetRawData( instTransforms.data(),
                                 static_cast<uint32_t>( instTransforms.size() * sizeof( glm::mat4 ) ) );
@@ -1545,7 +1582,7 @@ namespace Desert::Graphic::System
         {
             auto& set = *m_ScratchMaskedSets[i];
             WriteLightCamera( *set.Caster, glm::mat4( 1.0f ), m_CascadeCasterVP[c], m_WorldTimeSeconds,
-                              m_CascadeCasterBias[c], m_ParallaxQuality );
+                              m_CascadeCasterBias[c], m_ParallaxQuality, CasterWindOrigin() );
             // The draws' rows are the scene material table's (SyncGpuScene); a refusal was said by name.
             if ( !LendMaterialTable( *set.Caster ) )
             {
@@ -1624,6 +1661,18 @@ namespace Desert::Graphic::System
                    .BoundsPad   = draw.BoundsPad,
                    .WorldBounds = draw.WorldBounds } );
         }
+        // The GPU-generated sections (BuildGpuInstancedShadowDraws). Cascades only: their caster cells and light
+        // cameras are the cascades' (a virtual shadow map level draws none of them). A still section (the grass)
+        // casts into the static layer too - its instances past the shadow wind distance, in their rest pose, or
+        // every instance of one that does not sway - and its movers over the cache from the cascade's movable
+        // view (kCascadeMovableViewBase + cascade view); a section whose instances move by themselves only over the
+        // cache. The uncached cascade draws all of them from its own view. A still section not drawn into the
+        // static layer for a pending reason (textures, pipeline) stales the cache as a compiling caster does.
+        if ( c < kCascadeViews )
+            maskedPending = BuildGpuInstancedShadowDraws( c, c, layer, list ) || maskedPending;
+        else if ( drawMovable && c >= kCascadeMovableViewBase && c < kCascadeMovableViewBase + kCascadeViews )
+            BuildGpuInstancedShadowDraws( c - kCascadeMovableViewBase, c, ShadowCasterLayer::Movable, list );
+
         // The cache drawn now lacks the casters still compiling: the next frame's plan sees no key and redraws it.
         if ( maskedPending && layer == ShadowCasterLayer::Static && c < kCascadeViews )
             m_CascadeCache[c].StaticKey.reset();
@@ -1631,15 +1680,6 @@ namespace Desert::Graphic::System
         // (CollectVirtualShadowInvalidation).
         if ( maskedPending && IsVirtualShadowView( c ) )
             m_VsmCastersPending = true;
-
-        // The GPU-generated sections move with the camera (and sway): every frame, over the cache. Cascades only:
-        // their caster cells and light cameras are the cascades' (a virtual shadow map level draws none of them).
-        // A cached cascade draws its movers from its movable view (kCascadeMovableViewBase + cascade view), the
-        // uncached one from the cascade's own: both name the same cascade view.
-        if ( drawMovable && c < kCascadeViews )
-            BuildGpuInstancedShadowDraws( c, c, list );
-        else if ( drawMovable && c >= kCascadeMovableViewBase && c < kCascadeMovableViewBase + kCascadeViews )
-            BuildGpuInstancedShadowDraws( c - kCascadeMovableViewBase, c, list );
     }
     RDG::TextureRef MeshRenderer::AcquireCascadeMaps( RDG::Builder& graph )
     {

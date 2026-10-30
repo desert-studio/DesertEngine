@@ -17,9 +17,11 @@ namespace Desert::Graphic
     // (MaterialService::GetViewVariant). The clock is the frame's (UE's shadow view shares View.GameTime): a
     // Masked surface whose mask reads SurfaceInput.Time clips its shadow at the same instant it clips itself.
     // @p parallax is the scene view's (ViewFrame::Parallax): a parallax caster marches the relief with the steps
-    // the view marches it with.
+    // the view marches it with. @p casterWindOrigin is the shadow wind rule's measure (ViewFrame::CasterWindOrigin:
+    // the main camera, Shadows.WindAnimationDistance), the one the caster cull views carry as LodOrigin.
     void WriteLightCamera( Material& material, const glm::mat4& view, const glm::mat4& projection,
-                           double timeSeconds, const CascadeCasterBias& bias, const ParallaxQuality& parallax );
+                           double timeSeconds, const CascadeCasterBias& bias, const ParallaxQuality& parallax,
+                           const glm::vec4& casterWindOrigin );
 
     // Depth-only material for the directional shadow pass. Feeds the LIGHT's view/projection into the
     // shared CameraUB (the per-mesh transform is pushed by Renderer::RenderMesh).
@@ -32,7 +34,8 @@ namespace Desert::Graphic
         explicit MaterialShadow( MeshPass pass );
 
         void SetLightMatrix( const glm::mat4& view, const glm::mat4& projection, double timeSeconds,
-                             const CascadeCasterBias& bias, const ParallaxQuality& parallax );
+                             const CascadeCasterBias& bias, const ParallaxQuality& parallax,
+                             const glm::vec4& casterWindOrigin );
 
     protected:
         // Lets a path variant bind a different shader while reusing SetLightMatrix. The debug name is a

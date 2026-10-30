@@ -41,6 +41,10 @@ layout( std430, binding = 13 ) readonly buffer GrassBladeShape
 };
 
 #include <Common/MaterialTransport.glslh>
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+// A cached cascade's layers split the blades by the shadow wind distance (CasterWindLayer.glslh).
+#include <Mesh/Surface/CasterWindLayer.glslh>
+#endif
 
 #ifdef DESERT_SURFACE_PASS_VisibilityResolve
 // THE VISIBILITY RESOLVE (GRASS-VIS, Mesh/Surface/Pass_VisibilityResolve.glslh): no blade is placed here - the draw
@@ -68,7 +72,15 @@ void main()
     const mat4       model  = transforms[gl_InstanceIndex];
     const float      side   = a_Position.x;
     const float      t      = a_Position.y;
-    const BladePoint blade  = BladeAt( Blade, model, side, t, m_PushConstants.WindA, m_PushConstants.WindB );
+    vec4             windA  = m_PushConstants.WindA;
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    if ( !DesertCasterWindLayer( model[3].xyz, windA ) )
+    {
+        gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 ); // the other layer's blade: a degenerate, clipped
+        return;
+    }
+#endif
+    const BladePoint blade  = BladeAt( Blade, model, side, t, windA, m_PushConstants.WindB );
     const vec3       along  = normalize( blade.Along );
     const vec3       normal = BladeNormal( blade, side );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
@@ -87,7 +99,7 @@ void main()
 #ifdef DESERT_SURFACE_VIEW_PASS
     // The blade is world-static but for the wind, evaluated again at the wind clock's previous step (WindB.z,
     // Graphic::InstanceWindPush), as Vertex_Instanced.glslh.
-    const BladePoint previous = BladeAt( Blade, model, side, t, m_PushConstants.WindA,
+    const BladePoint previous = BladeAt( Blade, model, side, t, windA,
                                          vec4( m_PushConstants.WindB.x, m_PushConstants.WindB.z, 0.0, 0.0 ) );
     v_Surface.Clip     = cameraUB.ViewProjection * vec4( blade.Position, 1.0 );
     v_Surface.PrevClip = cameraUB.PrevViewProjection * vec4( previous.Position, 1.0 );
