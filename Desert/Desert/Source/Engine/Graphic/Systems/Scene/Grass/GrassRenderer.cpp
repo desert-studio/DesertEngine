@@ -10,6 +10,7 @@
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
+#include <Engine/Graphic/DrawCounters.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -44,6 +45,9 @@ namespace Desert::Graphic::System
         // GRASS-VIS: CameraArgs' words per bucket after its bucket table (GrassGenerate.shader CameraArgs):
         // candidates appended, candidates frozen, phase 1's drawn, phase 2's appended.
         constexpr uint32_t kPhaseWords = 4u;
+        // GRASS-VIS-7: Feedback's words per variety past its bucket counts (GrassFinalize.shader Feedback): the
+        // written mark, the full list's drawn count, the camera's phase-1 drawn count, phase 2's appended count.
+        constexpr uint32_t kFeedbackTailWords = 4u;
         // A camera candidate's two uvec4 (GrassGenerate.shader Candidates): its sphere and its row of Instances.
         constexpr uint32_t kCandidateBytes = 32u;
         // GrassGenerate's phase 2 runs one thread per slot (64 a group); its groups wrap at this many along x.
@@ -373,11 +377,12 @@ namespace Desert::Graphic::System
         VarietyGpu&  gpu    = m_Varieties[variety.Key];
         // What the GPU counted for each bucket FramesInFlight frames ago (GrassFinalize), when this frame's copy
         // has been written since the feedback buffer was made for this bucket count.
-        std::vector<uint32_t> counted( buckets + 1u, 0u );
+        std::vector<uint32_t> counted( buckets + kFeedbackTailWords, 0u );
         bool                  fedBack = false;
+        gpu.Drawn                     = std::nullopt;
         if ( gpu.Feedback && gpu.Buckets == buckets )
         {
-            if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + 1u ) * 4u );
+            if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + kFeedbackTailWords ) * 4u );
                  !read.IsSuccess() )
             {
                 LOG_ERROR( "[Grass] the generated counts were not read back: {}", read.GetError() );
@@ -385,6 +390,8 @@ namespace Desert::Graphic::System
             else
             {
                 fedBack = counted[buckets] != 0u;
+                if ( fedBack )
+                    gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
             }
         }
         if ( gpu.LowFrames.size() != buckets )
@@ -560,8 +567,9 @@ namespace Desert::Graphic::System
                 gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
             }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
-            if ( !gpu.Feedback || gpu.Feedback->GetSize() != ( buckets + 1u ) * 4u )
-                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", ( buckets + 1u ) * 4u, 1 );
+            if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
+                 !gpu.Feedback || gpu.Feedback->GetSize() != feedbackBytes )
+                gpu.Feedback = ShaderResources::StorageBuffer::Create( "GrassFeedback", feedbackBytes, 1 );
             gpu.Shape.reset();
             if ( variety.Blade )
                 gpu.Shape =
@@ -778,6 +786,8 @@ namespace Desert::Graphic::System
                 gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
+                if ( gpu->Drawn )
+                    DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z );
                 const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
@@ -1009,7 +1019,7 @@ namespace Desert::Graphic::System
                      pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Finalize ) )
                           .Storage( GrassFinalizeShaderParameters::Args, gpu->Refs.Args, RDG::Access::StorageRead )
                           .Storage( GrassFinalizeShaderParameters::Feedback, gpu->FeedbackRef,
-                                    RDG::Access::StorageRead )
+                                    RDG::Access::StorageWrite )
                           .Storage( GrassFinalizeShaderParameters::CameraArgs, gpu->CameraRefs.Args,
                                     RDG::Access::StorageRead )
                           .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,

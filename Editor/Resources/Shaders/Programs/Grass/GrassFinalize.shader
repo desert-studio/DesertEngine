@@ -8,6 +8,9 @@
 // phase words (GrassGenerate.shader CameraArgs) freeze this frame's candidates and phase 1's drawn count for phase 2
 // and restart the counters. The post mode (Mode.x = 1, after phase 2) writes PostArgs' records: phase 2's appended
 // instances, right after phase 1's drawn ones in the camera's list.
+// Drawn counts (GRASS-VIS-7, GrassRenderer::GetDrawnCounts): after the written mark, Feedback holds the full list's
+// drawn count, the camera's phase-1 drawn count (the full list's when the camera has no list of its own) and phase
+// 2's appended count (0 until the post mode writes it), read back with the bucket counts FramesInFlight frames later.
 Shader "GrassFinalize"
 {
     Compute
@@ -21,7 +24,8 @@ Shader "GrassFinalize"
 
         Buffer(1) Feedback
         {
-            uint FeedbackData[]; // per bucket the count the generator wanted, then 1 (this copy was written)
+            uint FeedbackData[]; // per bucket the count the generator wanted, then 1 (this copy was written), then
+                                 // the drawn counts: full list, camera phase 1, phase 2
         };
 
         Buffer(2) CameraArgs
@@ -94,7 +98,8 @@ Shader "GrassFinalize"
             uint drawn = 0u;
             for ( uint b = 0u; b < buckets; ++b )
                 drawn += PostCount( table + b * 4u, phases + b * 4u );
-            PostArguments[3] = drawn;
+            PostArguments[3]            = drawn;
+            FeedbackData[buckets + 3u] = drawn;
         }
 
         void main()
@@ -125,8 +130,11 @@ Shader "GrassFinalize"
                 FeedbackData[b]          = Arguments[table + b * 4u];
                 Arguments[table + b * 4u] = 0u;
             }
-            FeedbackData[buckets] = 1u;
-            Arguments[3] = drawn; // the last frame's drawn count, for the stats readout
+            FeedbackData[buckets]      = 1u;
+            FeedbackData[buckets + 1u] = drawn;
+            FeedbackData[buckets + 2u] = Mode.y != 0u ? CameraArguments[3] : drawn;
+            FeedbackData[buckets + 3u] = 0u;
+            Arguments[3] = drawn; // this frame's drawn count (the stats read Feedback's copy of it)
         }
     }
 }

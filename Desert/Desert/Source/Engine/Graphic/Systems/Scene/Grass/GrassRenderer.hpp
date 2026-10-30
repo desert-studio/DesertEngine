@@ -236,6 +236,9 @@ namespace Desert::Graphic::System
             // known to hold every instance kept (InstancesSettling); Truncated: that overflow has been logged.
             uint32_t                                        SettleReads = 0;
             bool                                            Truncated   = false;
+            // GRASS-VIS-7: the drawn counts this frame's Feedback copy held (GrassFinalize, FramesInFlight frames
+            // ago): the full list's, the camera's phase 1's, phase 2's appended; none before its first write.
+            std::optional<glm::uvec3>                       Drawn;
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
