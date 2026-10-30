@@ -377,8 +377,12 @@ namespace Desert::Graphic::System
                                        const ViewLightBuffers& lights ) const
         {
             const CompositeProgram& program = m_Programs[m_Active];
+            // RENDER-THREADS M1: the program is chosen ONCE, here; the exec draws this one (the one whose material
+            // the graph prepared), whatever m_Active says by then.
+            m_DeclaredProgram = nullptr;
             if ( !program.Pipeline || !program.Material )
                 return;
+            m_DeclaredProgram = &program;
             constexpr RDG::Access           kRead  = RDG::Access::SampledGraphics;
             constexpr RDG::SubresourceRange kWhole = RDG::SubresourceRange::All();
             const auto&                     layout = program.Layout.Get( program.Shader );
@@ -438,10 +442,10 @@ namespace Desert::Graphic::System
         // from block 0 that DeclareCompositeBindings declared.
         [[nodiscard]] Common::BoolResultStr Record( const RDG::PassContext& context )
         {
-            const CompositeProgram& program = m_Programs[m_Active];
-            if ( !program.Pipeline || !program.Material )
+            if ( m_DeclaredProgram == nullptr )
                 return Common::MakeError(
                      "Deferred: Composite: the deferred-lighting pipeline is not initialised" );
+            const CompositeProgram& program = *m_DeclaredProgram;
             const RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::GetInstance().DrawFullscreen( bindings, *program.Pipeline,
                                                            program.Material->GetMaterialExecutor() );
@@ -606,6 +610,8 @@ namespace Desert::Graphic::System
         std::array<CompositeProgram, 6> m_Programs;
         ProgramRefusals                 m_Refusals;
         std::size_t                     m_Active = kCascadeProgram; // FillMaterial's arm, this frame
+        // The program DeclareCompositeBindings chose this frame (null: none could draw); Record draws it.
+        mutable const CompositeProgram* m_DeclaredProgram = nullptr;
 
         // "LightGrid": the froxel light lists the composite reads.
         mutable ShaderBindingLayoutCache m_GridLayout;

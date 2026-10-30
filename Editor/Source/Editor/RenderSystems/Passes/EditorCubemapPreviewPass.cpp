@@ -72,6 +72,9 @@ namespace Desert::Editor::Render
         // every view of the scene.
         pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& )
         {
+            // RENDER-THREADS M1: the material's view sets and block copies exist before the graph records; the
+            // exec's Update writes into them and creates nothing.
+            declared.Prepares( *m_Material->GetMaterialExecutor() );
             declared.Bindings( m_BindingLayout.Get( m_Pipeline->GetSpecification().Shader ),
                                m_Material->GetMaterialExecutor()->GetRouteFill() );
         };

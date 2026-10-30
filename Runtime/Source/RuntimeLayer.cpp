@@ -1285,6 +1285,8 @@ namespace Desert::Player
                  // Block 0: the scene blit, with the sampler it sampled the final image with before.
                  if ( sceneRef.IsValid() )
                  {
+                     // RENDER-THREADS M1: the blit executor's view sets exist before the graph records.
+                     pass.Prepares( *m_BlitExecutor );
                      pass.Bindings( m_BlitLayout.Get( m_BlitPipeline->GetSpecification().Shader ),
                                     m_BlitExecutor->GetRouteFill() )
                           .Texture( RuntimeLayerBlitShaderParameters::FinalColorTexture, sceneRef,

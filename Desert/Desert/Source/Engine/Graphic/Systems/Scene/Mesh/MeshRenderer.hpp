@@ -2110,6 +2110,8 @@ namespace Desert::Graphic::System
         std::shared_ptr<GraphicsPipeline>  m_DebugLinePipeline;
         std::shared_ptr<Shader>            m_DebugLineShader;
         std::unique_ptr<MaterialDebugLine> m_DebugLineMaterial;
+        // The vertices DebugLinesPass's Declare uploaded this frame (0 = the pass draws nothing).
+        uint32_t m_DebugLineVertices = 0;
 
         // Overdraw view: geometry accumulation (additive, no depth) into m_OverdrawFB, then a fullscreen
         // resolve that heat-maps the count over the scene colour. Static/generic meshes only (skinned skipped).

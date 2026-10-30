@@ -3,6 +3,8 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
+#include <cstdint>
+
 namespace Desert::Editor::Render
 {
     // TRUE-3D physics-collider wireframes (Box / Sphere / Capsule) drawn through the Editor Pass API:
@@ -28,5 +30,7 @@ namespace Desert::Editor::Render
         std::weak_ptr<::Desert::Core::Scene>        m_Scene;
         std::shared_ptr<Graphic::GraphicsPipeline>  m_Pipeline;
         std::unique_ptr<Graphic::MaterialDebugLine> m_Material;
+        // The vertices this view's Declare uploaded (0 = nothing to draw).
+        uint32_t m_LineVertices = 0;
     };
 } // namespace Desert::Editor::Render

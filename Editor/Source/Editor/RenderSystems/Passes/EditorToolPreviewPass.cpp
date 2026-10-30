@@ -164,35 +164,57 @@ namespace Desert::Editor::Render
         Graphic::ExtensionPass pass;
         pass.Name    = kPassName;
         pass.Point   = Graphic::RDG::ExtensionPoint::Overlay;
-        pass.Execute = [this]( const Graphic::ExtensionPassContext& ctx,
+        // The faces and edges Declare uploaded for this view; the exec only draws them.
+        pass.Execute = [this]( const Graphic::ExtensionPassContext&,
                                Graphic::RDG::PassContext& ) -> Common::BoolResultStr
         {
+            if ( m_FaceVertices != 0 )
+                Graphic::Renderer::SubmitPulled( m_FacePipeline.get(), m_FaceVertices, 1.0f,
+                                                 m_FaceMaterial->GetMaterialExecutor() );
+            if ( !m_EdgeFault.empty() )
+                return Common::MakeError( m_EdgeFault );
+            if ( m_EdgeVertices != 0 )
+                Graphic::Renderer::SubmitPulled( m_EdgePipeline.get(), m_EdgeVertices, 1.0f,
+                                                 m_EdgeMaterial->GetMaterialExecutor() );
+            return BOOLSUCCESS;
+        };
+        // RENDER-THREADS M1 (UE: a pass's buffers are filled before the graph records): the faces and the lifted
+        // edges are written into their materials in the node's setup - the write may grow a storage buffer, which
+        // drops its view copies - and each material that draws is prepared, so the exec creates nothing. A view's
+        // setup and exec run back to back (the pass runs inside its view's OnUpdate).
+        pass.Declare = [this]( Graphic::RenderPassDeclaration& declared, const Graphic::ExtensionPassContext& ctx )
+        {
+            m_FaceVertices = 0;
+            m_EdgeVertices = 0;
+            m_EdgeFault.clear();
             const auto scene = m_Scene.lock();
             if ( !scene || ctx.ScenePlaying || !ctx.Camera || !ctx.Renderer )
-                return BOOLSUCCESS;
+                return;
             const Graphic::ViewFrame* view = ctx.Renderer->GetViewFrame();
             if ( view == nullptr )
-                return BOOLSUCCESS;
+                return;
             const ToolPreviewMesh* mesh = ToolPreview::Current( *scene );
             if ( mesh == nullptr )
-                return BOOLSUCCESS;
+                return;
 
             if ( !mesh->Triangles.empty() )
             {
                 m_FaceMaterial->Update( *view, mesh->Triangles );
-                Graphic::Renderer::SubmitPulled( m_FacePipeline.get(),
-                                                 static_cast<uint32_t>( mesh->Triangles.size() ), 1.0f,
-                                                 m_FaceMaterial->GetMaterialExecutor() );
+                declared.Prepares( *m_FaceMaterial->GetMaterialExecutor() );
+                m_FaceVertices = static_cast<uint32_t>( mesh->Triangles.size() );
             }
             if ( !mesh->Edges.empty() )
             {
+                // A refused lift is the node's error, raised by the exec after the faces drew (as before).
                 if ( auto lifted = LiftEdges( *view, *mesh, m_LiftedEdges ); !lifted.IsSuccess() )
-                    return lifted;
+                {
+                    m_EdgeFault = lifted.GetError();
+                    return;
+                }
                 m_EdgeMaterial->Update( *view, m_LiftedEdges );
-                Graphic::Renderer::SubmitPulled( m_EdgePipeline.get(), static_cast<uint32_t>( mesh->Edges.size() ),
-                                                 1.0f, m_EdgeMaterial->GetMaterialExecutor() );
+                declared.Prepares( *m_EdgeMaterial->GetMaterialExecutor() );
+                m_EdgeVertices = static_cast<uint32_t>( mesh->Edges.size() );
             }
-            return BOOLSUCCESS;
         };
 
         scene->RegisterExtensionPass( std::move( pass ) );

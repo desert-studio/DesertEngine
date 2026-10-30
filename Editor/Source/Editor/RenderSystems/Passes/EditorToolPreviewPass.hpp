@@ -3,6 +3,8 @@
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Materials/Debug/MaterialDebugLine.hpp>
 
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace Desert::Editor::Render
@@ -55,5 +57,10 @@ namespace Desert::Editor::Render
         std::unique_ptr<Graphic::MaterialDebugLine> m_EdgeMaterial;
         // This frame's edges, lifted off their surfaces for this view (LiftEdges).
         std::vector<Graphic::MaterialDebugLine::LineVertex> m_LiftedEdges;
+        // What this view's Declare uploaded (0 = that draw does not draw), and why the edges were refused
+        // (LiftEdges; empty = they were not).
+        uint32_t    m_FaceVertices = 0;
+        uint32_t    m_EdgeVertices = 0;
+        std::string m_EdgeFault;
     };
 } // namespace Desert::Editor::Render

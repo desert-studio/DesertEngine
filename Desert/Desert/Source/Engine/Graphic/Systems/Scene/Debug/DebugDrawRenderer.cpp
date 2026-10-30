@@ -178,11 +178,30 @@ namespace Desert::Graphic
             return {};
         return SystemRasterPass{
              .Name        = "DebugDrawLines",
+             // The batches were uploaded in Declare; the exec only draws them.
              .ExecuteFunc = [this]( RDG::PassContext&, const FrameGraphRefs& ) -> Common::BoolResultStr
              {
+                 for ( size_t batch = 0; batch < kBatchCount; ++batch )
+                 {
+                     if ( m_BatchVertices[batch] == 0 )
+                         continue;
+                     Renderer::GetInstance().SubmitPulled( m_Pipelines[batch].get(), m_BatchVertices[batch], 1.0f,
+                                                           m_Materials[batch]->GetMaterialExecutor() );
+                 }
+                 return BOOLSUCCESS;
+             },
+             .TargetFramebuffer = target,
+             // RENDER-THREADS M1 (UE: a pass's buffers are filled before the graph records): the line batches are
+             // built and written into each batch material here, in the node's setup - the write may grow the
+             // material's storage buffer, which drops its view copies - and each material that draws is prepared,
+             // so the exec creates nothing.
+             .Declare =
+                  [this]( RenderPassDeclaration& declared, const FrameGraphRefs& )
+             {
+                 m_BatchVertices = {};
                  const ViewFrame* view = m_Owner.GetViewFrame();
                  if ( view == nullptr || m_World == nullptr )
-                     return BOOLSUCCESS;
+                     return;
                  std::array<std::vector<MaterialDebugLine::LineVertex>, kBatchCount> batches;
                  for ( const Core::DebugDrawLine& line : m_World->GetLines() )
                  {
@@ -200,13 +219,10 @@ namespace Desert::Graphic
                      if ( batches[batch].empty() )
                          continue;
                      m_Materials[batch]->Update( *view, batches[batch] );
-                     Renderer::GetInstance().SubmitPulled( m_Pipelines[batch].get(),
-                                                           static_cast<uint32_t>( batches[batch].size() ), 1.0f,
-                                                           m_Materials[batch]->GetMaterialExecutor() );
+                     declared.Prepares( *m_Materials[batch]->GetMaterialExecutor() );
+                     m_BatchVertices[batch] = static_cast<uint32_t>( batches[batch].size() );
                  }
-                 return BOOLSUCCESS;
-             },
-             .TargetFramebuffer = target };
+             } };
     }
 
     Common::BoolResultStr DebugDrawRenderer::EnsureText( const std::shared_ptr<Framebuffer>& target )

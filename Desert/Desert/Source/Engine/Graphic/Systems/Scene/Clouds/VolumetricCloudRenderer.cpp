@@ -2237,6 +2237,7 @@ namespace Desert::Graphic::System
             // (the shader indexes them with one set of coordinates) with the sampler the material route sampled
             // them with (the image's own: linear, REPEAT). Each entry is the read's declaration.
             const MaterialExecutor& executor = *m_CompositeMaterial->GetMaterialExecutor();
+            declared.Prepares( executor );
             declared
                  .Bindings( m_CompositeLayout.Get( m_CompositePipeline->GetSpecification().Shader ),
                             executor.GetRouteFill() )
