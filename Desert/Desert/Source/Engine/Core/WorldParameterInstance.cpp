@@ -22,7 +22,8 @@ namespace Desert::Core
     void
     WorldParameterInstance::Adopt( const Common::AssetHandle&                                      source,
                                    const Assets::Serialization::WorldParametersData*               data,
-                                   const std::function<Common::AssetHandle( const std::string& )>& resolveTexture )
+                                   const std::function<Common::AssetHandle( const std::string& )>& resolveTexture,
+                                   const std::function<SurfaceLayerSource( const std::string& )>&  resolveLayer )
     {
         if ( data == nullptr )
         {

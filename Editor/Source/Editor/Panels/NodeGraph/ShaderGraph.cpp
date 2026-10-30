@@ -1314,27 +1314,17 @@ namespace Desert::Editor::ShaderGraph
         }
 
         std::ostringstream out;
-        out << std::format( "// Surface layer '{}' (id {:#08x})
-                            ", doc.Name,
+        out << std::format( "// Surface layer '{}' (id {:#08x})\n", doc.Name,
                             ::Desert::Assets::Serialization::ShaderGraph::SurfaceLayerId( doc.Name ) );
-        out << "DesertSurfaceLayerOutput DesertSurfaceLayer_" << doc.Name << "( const DesertSurfaceLayerInput li )
-        {
-            bool resident = true;
-            ";
-                 out
-                 << compiler.body.str();
-        out << "            DesertSurfaceLayerOutput o;
-";
+        out << "DesertSurfaceLayerOutput DesertSurfaceLayer_" << doc.Name
+            << "( const DesertSurfaceLayerInput li )\n{\n            bool resident = true;\n";
+        out << compiler.body.str();
+        out << "            DesertSurfaceLayerOutput o;\n";
         for ( size_t i = 0; i < std::size( kOutputs ); ++i )
-            out << std::format( "            o.{} = {};
-", kOutputs[i].Member, expressions[i] );
-        out << "            o.Weight = resident ? clamp( o.Weight, 0.0, 1.0 ) : 0.0;
-";
-        out << "            return o;
-        }
-
-        ";
-             return Common::MakeSuccess( out.str() );
+            out << std::format( "            o.{} = {};\n", kOutputs[i].Member, expressions[i] );
+        out << "            o.Weight = resident ? clamp( o.Weight, 0.0, 1.0 ) : 0.0;\n";
+        out << "            return o;\n}\n\n";
+        return Common::MakeSuccess( out.str() );
     }
 
     Common::ResultStr<std::string> CompileSurfaceLayers( std::vector<Document> layers )
