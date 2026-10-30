@@ -179,7 +179,7 @@ namespace Desert::Graphic::System
     struct ParticleEmitterGpu
     {
         std::shared_ptr<ShaderResources::StorageBuffer> Steps;         // this tick's step table
-        std::shared_ptr<ShaderResources::StorageBuffer> Counters;      // two draw slots, uploaded per tick
+        std::shared_ptr<ShaderResources::StorageBuffer> Counters;      // two draw slots, persistent, GPU-opened
         std::shared_ptr<ShaderResources::StorageBuffer> DispatchArgs;  // Spawn+Update's and the next compact's
         std::shared_ptr<ShaderResources::StorageBuffer> ChannelSpawns; // this tick's Spawn from Channel particles
 
@@ -219,6 +219,13 @@ namespace Desert::Graphic::System
         uint32_t          ChannelCapacity = 0;    // particles ChannelSpawns holds
         uint64_t          Generation      = 0;    // the VFXWorld instance generation this state belongs to
         bool              NeedsReset      = true; // compact 0 kills the range (fresh, moved, restarted, pool grew)
+        // When its simulation runs (VFX::VFXTickStage, from what its stack reads): PreOpaque or PostOpaque.
+        VFX::VFXTickStage TickStage = VFX::VFXTickStage::PreOpaque;
+        // The alive half / draw slot the last scheduled tick's last compact fills (its StepCount & 1), and whether
+        // there was such a tick: what a PostOpaque emitter's draws recorded before this frame's simulation read
+        // (ParticleFrameEmitter::PreviousHalf).
+        uint32_t LastHalf    = 0;
+        bool     HasLastHalf = false;
 
         // VFX-16: the debugger's per-frame-in-flight readback (made on the first debugged tick, dropped when the
         // emitter is rebuilt) and what its rows mean.
@@ -262,6 +269,11 @@ namespace Desert::Graphic::System
         // VFX-LIGHT: the emitter's first enabled Light row (null = it casts no light); the system's data holds it.
         const Assets::Serialization::VFXLightRendererData* Light = nullptr;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
+        // The half the previous tick's last compact filled, read by the draws recorded BEFORE this emitter's
+        // simulation (a PostOpaque emitter's G-buffer rows and Mesh instances); HasPrevious false = no previous tick
+        // since the last reset, and those draws are skipped.
+        uint32_t PreviousHalf = 0;
+        bool     HasPrevious  = false;
         // VFX-PORT-2: the emitter's fixed Bounds through this tick's placement transform (VFXBoundsAt), cm: what every view and
         // shadow view culls the emitter's draws by (ParticleRenderer).
         Common::Math::AABB WorldBounds;

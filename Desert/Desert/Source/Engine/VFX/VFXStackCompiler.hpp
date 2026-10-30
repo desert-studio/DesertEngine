@@ -19,6 +19,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -174,8 +175,29 @@ namespace Desert::VFX
     };
 
     /// One emitter's compiled stack.
+    /**
+     * WHEN IN THE FRAME AN EMITTER'S GPU SIMULATION RUNS (UE ENiagaraGpuComputeTickStage: PreInitViews /
+     * PostOpaqueRender, chosen per emitter from what its stack reads - FNiagaraSystemInstance::CalculateTickStage
+     * over the data interfaces' RequiresDepthBuffer()). Derived, never stated in the file: a stack cannot ask for a
+     * stage its modules do not need, and one that reads the scene cannot forget it. PreOpaque: before the opaque
+     * passes, so its opaque rows draw this frame's particles. PostOpaque: after the opaque passes and the scene depth
+     * resolve, so a host function that reads the scene (kVFXSceneReadHostFunctions) sees THIS frame's depth; its
+     * draws recorded before it (G-buffer rows, Mesh instances, shadow casts) draw the previous tick's particles (UE:
+     * the same one-frame lag of a PostOpaque emitter's opaque renderers).
+     */
+    enum class VFXTickStage : uint8_t
+    {
+        PreOpaque,
+        PostOpaque,
+    };
+
+    /// The contract host functions (Common/VFXParticleContract.glslh) that read this frame's scene (UE: the data
+    /// interface functions whose RequiresDepthBuffer() is true). A stack whose GLSL calls one ticks PostOpaque.
+    inline constexpr std::array<std::string_view, 1> kVFXSceneReadHostFunctions = { "VFX_SceneDepthCollide" };
+
     struct VFXCompiledEmitter
     {
+        VFXTickStage              TickStage = VFXTickStage::PreOpaque; ///< from the host functions its GLSL calls
         uint64_t                  Key = 0;    ///< FNV-64 of the stack STRUCTURE + the layout; no input value
         std::string               ShaderName; ///< "VFX/Emitter/<Key as 16 hex digits>"
         std::string               ShaderText; ///< a whole `.shader`: `Domain Particle` + one Particle block

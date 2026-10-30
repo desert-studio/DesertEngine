@@ -4,6 +4,10 @@
 // step's spawn budget it writes the group counts of Spawn+Update s (max(alive, spawned) threads, args 0) and of
 // compact s + 1 (alive + spawned threads - the particles the step touched, args 1), and opens compact s + 1's
 // slot: no alive entry yet, the free list's untouched bottom (free - spawned) kept, Touched = alive + spawned.
+// OPEN MODE (Step.w = 1; "Particles <stage>: Open", before compact 0 of the emitter's chain): writes both draw slots
+// empty with their FirstVertex (6 x the start of alive half h, 2 x base + h x count); compact 0 then fills slot 0.
+// The Counters buffer is persistent and the host never writes it, so until this node the slots are the previous
+// tick's - what a PostOpaque emitter's draws recorded before its simulation read (PORT-VFX-MODULES).
 Shader "ParticleDispatchArgs"
 {
     Compute
@@ -38,11 +42,18 @@ Shader "ParticleDispatchArgs"
 
         PushConstant PushConstants
         {
-            uvec4 Step; // x = the step
+            uvec4 Step; // x = the step; open mode (w = 1): x = the range's pool base, y = its particle count
         };
 
         void main()
         {
+            if ( Step.w == 1u )
+            {
+                Slots[0] = ParticleDrawSlot( 0u, 1u, 2u * Step.x * 6u, 0u, 0u, 0u, 0u, 0u );
+                Slots[1] = ParticleDrawSlot( 0u, 1u, ( 2u * Step.x + Step.y ) * 6u, 0u, 0u, 0u, 0u, 0u );
+                return;
+            }
+
             uint step      = Step.x;
             uint slot      = step & 1u;
             uint alive     = Slots[slot].VertexCount / 6u;

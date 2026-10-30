@@ -13,6 +13,9 @@
 //                                     FNiagaraDataSetCompiledData::BuildLayout, SoA by component class)
 //   VFX_CurveLUT( index )             float `index` of the SYSTEM's curve atlas (VFX-05, Engine/VFX/VFXCurveLUT;
 //                                     UE's StaticInputFloat): every Curve input's baked table at its offset
+//   VFX_SceneDepthCollide( ... )      the particle sphere against THIS frame's scene depth (PORT-VFX-MODULES, UE
+//                                     GPU collision in Scene Depth mode): engine:Collision's one query. A stack
+//                                     that calls it ticks PostOpaque (VFX::kVFXSceneReadHostFunctions)
 
 #ifndef VFX_PARTICLE_CONTRACT_GLSLH
 #define VFX_PARTICLE_CONTRACT_GLSLH
@@ -28,6 +31,8 @@
 // read a spawn module makes): the Initialize modules take a bound colour, base-size scale and lifetime from them,
 // AddVelocityInCone a bound direction as its axis. A particle not from a channel, or a field the emitter's
 // engine:SpawnFromChannel does not bind, reads Direction = 0, Color = 1 and Scalars = (0, 1, 0, 0).
+// Collided / CollisionNormal are set by engine:Collision when the particle moved INTO the scene this step (the normal
+// in the stack's frame, facing the camera); the host starts them false / zero.
 struct VFXSim
 {
     float DeltaTime;
@@ -41,6 +46,8 @@ struct VFXSim
     vec4  ChannelColor;     // linear rgba, bound when ChannelScalars.z = 1
     vec4  ChannelScalars;   // x = lifetime s (bound when w = 1), y = base-size scale (1 unbound), z / w = colour /
                             // lifetime bound
+    bool  Collided;
+    vec3  CollisionNormal;
 };
 
 vec4  VFX_Param( uint slot );
@@ -53,6 +60,14 @@ float VFX_CurveLUT( uint index );
 // emitter's point-set buffer), picked in proportion to the points' weights by the uniform number @p u in [0, 1);
 // the point is relative to the placement, turned by its rotation and scale (cm). An empty set gives 0.
 vec3  VFX_PointSet( vec4 row, float u );
+// Whether the sphere of @p radius cm at @p position (the stack's frame: the placement frame for a Local particle and
+// a newborn, world otherwise) touches the scene depth of this frame: it is on screen, in front of the camera, and
+// its centre is less than @p radius in front of the visible surface along its view ray or at most @p thickness cm
+// behind it (deeper is behind an occluder, not inside it). On true, @p contact is the surface point on that ray and
+// @p normal the surface's normal facing the camera, both in the same frame as @p position. False when the frame has
+// no scene depth, off screen, behind the camera or on the sky.
+bool  VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 contact,
+                             out vec3 normal );
 
 // Four uniform numbers in [0, 1) for the input whose first parameter slot is @p slot.
 vec4 VFX_Random( in VFXSim sim, uint slot )

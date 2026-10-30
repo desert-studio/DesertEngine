@@ -20,6 +20,10 @@ Shader "ParticleSimulate"
         // stack in VFXSim (the Initialize / velocity modules read them, UE's Data Channel read); only the bound
         // position is the host's, as the shape modules place a newborn around zero. Positions are centimetres: a World-space emitter's newborn is moved to the emitter, a
         // Local one is drawn at emitter + Position every step.
+        // PORT-VFX-MODULES: a stack that calls VFX_SceneDepthCollide ticks PostOpaque (VFX::VFXTickStage; SceneRenderer
+        // AddFrameParticlesPostOpaque, after the opaque passes and the scene depth resolve), so the depth it reads is
+        // THIS frame's, drawn with the matrices CollisionView carries (UE: the PostOpaqueRender GPU tick, Scene Depth
+        // collision). Every other stack ticks PreOpaque and the compiler drops the two collision slots from it.
         LocalSize(64, 1, 1);
 
         #include <Common/ParticleState.glslh>
@@ -106,6 +110,20 @@ Shader "ParticleSimulate"
             vec4 PointSetsData[];
         };
 
+        // The simulating view's camera, the one its scene depth was drawn with (ParticleRenderer CollisionView):
+        // jittered view-projection and its inverse, camera position (cm), w = 1 when SceneDepth is the frame's scene
+        // depth (0: the frame has none, nothing collides).
+        ReadBuffer(11) CollisionView
+        {
+            mat4 CollisionViewProjection;
+            mat4 CollisionInvViewProjection;
+            vec4 CollisionCamera;
+        };
+
+        // The single-sample scene depth of this frame (SceneRenderer::AddFrameSceneDepthResolve), reversed Z. Read
+        // with texelFetch, never filtered: a filtered depth across a silhouette is a distance where nothing is.
+        Uniform(12) sampler2D SceneDepth;
+
         PushConstant PushConstants
         {
             // The entity's full transform (cm; UE Engine.Owner.SystemLocalToWorld): a World emitter's newborns are
@@ -162,6 +180,89 @@ Shader "ParticleSimulate"
             return PointSetsData[first + lo].xyz;
         }
 
+        // The world point the scene depth holds at pixel @p px (reversed Z: 0 is the far plane / sky).
+        vec3 SceneDepthPoint( ivec2 px, ivec2 size, out float deviceDepth )
+        {
+            px             = clamp( px, ivec2( 0 ), size - 1 );
+            deviceDepth    = texelFetch( SceneDepth, px, 0 ).r;
+            const vec2 uv  = ( vec2( px ) + 0.5 ) / vec2( size );
+            const vec2 ndc = vec2( uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0 );
+            const vec4 h   = CollisionInvViewProjection * vec4( ndc, deviceDepth, 1.0 );
+            return h.xyz / h.w;
+        }
+
+        // The surface's tangent along one screen axis at @p centre: the neighbour on the side whose point is nearer
+        // the centre's, so a silhouette edge does not bend the normal toward the background.
+        vec3 SceneDepthTangent( ivec2 px, ivec2 axis, ivec2 size, vec3 centre )
+        {
+            float      dPlus;
+            float      dMinus;
+            const vec3 plus        = SceneDepthPoint( px + axis, size, dPlus );
+            const vec3 minus       = SceneDepthPoint( px - axis, size, dMinus );
+            const bool plusUsable  = dPlus > 0.0;
+            const bool minusUsable = dMinus > 0.0;
+            if ( plusUsable && ( !minusUsable || distance( plus, centre ) <= distance( minus, centre ) ) )
+                return plus - centre;
+            return minusUsable ? centre - minus : vec3( 0.0 );
+        }
+
+        bool VFX_SceneDepthCollide( in VFXSim sim, vec3 position, float radius, float thickness, out vec3 contact,
+                                    out vec3 normal )
+        {
+            contact = position;
+            normal  = vec3( 0.0, 1.0, 0.0 );
+            if ( CollisionCamera.w < 0.5 )
+                return false;
+            // The stack's frame (VFX_SceneDepthCollide in the contract): a Local particle and every newborn are in
+            // the placement frame, the host moves a World newborn to the world after the stack (Run).
+            const bool  placed = Counts.w == 1u || sim.Spawned;
+            const vec3  world  = placed ? ( LocalToWorld * vec4( position, 1.0 ) ).xyz : position;
+            const vec4  clip   = CollisionViewProjection * vec4( world, 1.0 );
+            if ( clip.w <= 0.0 )
+                return false; // behind the camera
+            const vec2 ndc = clip.xy / clip.w;
+            if ( abs( ndc.x ) > 1.0 || abs( ndc.y ) > 1.0 )
+                return false; // off screen: the depth holds nothing there
+            const ivec2 size = textureSize( SceneDepth, 0 );
+            const vec2  uv   = vec2( ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5 );
+            const ivec2 px   = clamp( ivec2( uv * vec2( size ) ), ivec2( 0 ), size - 1 );
+            float       deviceDepth;
+            const vec3  surface = SceneDepthPoint( px, size, deviceDepth );
+            if ( deviceDepth <= 0.0 )
+                return false; // the sky
+
+            const vec3  toParticle       = world - CollisionCamera.xyz;
+            const float particleDistance = length( toParticle );
+            const float surfaceDistance  = distance( surface, CollisionCamera.xyz );
+            const float behind           = particleDistance - surfaceDistance;
+            if ( behind <= -radius || behind > thickness || particleDistance <= 1e-4 )
+                return false;
+
+            const vec3  dx  = SceneDepthTangent( px, ivec2( 1, 0 ), size, surface );
+            const vec3  dy  = SceneDepthTangent( px, ivec2( 0, 1 ), size, surface );
+            const vec3  n   = cross( dx, dy );
+            const vec3  ray = toParticle / particleDistance;
+            const float nl  = length( n );
+            vec3 worldNormal = nl > 1e-6 ? n / nl : -ray;
+            if ( dot( worldNormal, ray ) > 0.0 )
+                worldNormal = -worldNormal; // facing the camera
+            // The surface point on the particle's own view ray, back in the stack's frame (a normal through the
+            // inverse transpose, so a scaled placement keeps it perpendicular to the surface).
+            const vec3 worldContact = CollisionCamera.xyz + ray * surfaceDistance;
+            if ( placed )
+            {
+                const mat4 worldToLocal = inverse( LocalToWorld );
+                contact                 = ( worldToLocal * vec4( worldContact, 1.0 ) ).xyz;
+                normal = normalize( transpose( mat3( LocalToWorld ) ) * worldNormal );
+            }
+            else
+            {
+                contact = worldContact;
+                normal  = worldNormal;
+            }
+            return true;
+        }
+
         vec3 ReadVec3( uint n, uint c )
         {
             return vec3( VFX_ReadFloat( n, c ), VFX_ReadFloat( n, c + 1u ), VFX_ReadFloat( n, c + 2u ) );
@@ -190,6 +291,8 @@ Shader "ParticleSimulate"
             sim.ChannelDirection = channel.Direction;
             sim.ChannelColor     = channel.Color;
             sim.ChannelScalars   = channel.Scalars;
+            sim.Collided         = false;
+            sim.CollisionNormal  = vec3( 0.0 );
             VFX_SimulateParticle( n, sim );
 
             vec3 position = vec3( 0.0 );

@@ -147,8 +147,11 @@ namespace Desert::Graphic::System
     bool ParticleWorldGpu::EnsureTickBuffers( ParticleEmitterGpu& e, const uint32_t stepCapacity )
     {
         if ( !e.Counters )
-            e.Counters = ShaderResources::StorageBuffer::Create( "ParticleCounters",
-                                                                 kParticleDrawSlots * kParticleDrawSlotStride, 1 );
+            // PERSISTENT, never written by the host: each chain's "Open" node writes both slots on the GPU
+            // (ParticleRenderer::OpenDrawSlots), so the slot the previous tick's last compact filled survives into
+            // this frame until that node - what a PostOpaque emitter's draws recorded before its simulation read.
+            e.Counters = ShaderResources::StorageBuffer::Create(
+                 "ParticleCounters", kParticleDrawSlots * kParticleDrawSlotStride, 1, /*persistent=*/true );
         if ( !e.DispatchArgs )
             e.DispatchArgs = ShaderResources::StorageBuffer::Create(
                  "ParticleDispatchArgs", kParticleDispatchArgsCount * kParticleDispatchArgsStride, 1 );
@@ -232,7 +235,8 @@ namespace Desert::Graphic::System
         if ( !source.IsSuccess() )
             return refuse( source.GetError() );
 
-        gpu.Pipeline = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
+        gpu.Pipeline  = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
+        gpu.TickStage = compiled.GetValue().TickStage;
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
         gpu.ParamRows    = std::move( params.GetValue() );
@@ -695,19 +699,10 @@ namespace Desert::Graphic::System
         if ( !gpu.ChannelSpawns )
             return false;
 
-        // Both draw slots start empty: compact 0 fills slot 0 from the pool, so the counters need no
-        // history (ParticleCompact). Slot h draws alive half h: six vertices per entry from 6 x its
-        // start.
-        ParticleDrawSlotGpu slots[kParticleDrawSlots];
-        for ( uint32_t h = 0; h < kParticleDrawSlots; ++h )
-            slots[h].FirstVertex = ( 2u * range.Base + h * range.Count ) * 6u;
-        const auto counted = gpu.Counters->SetData( slots, static_cast<uint32_t>( sizeof( slots ) ) );
-        if ( !counted.IsSuccess() )
-        {
-            LOG_ERROR( "[Particles] emitter {} sits out this tick, its counters did not upload: {}", entityId,
-                       counted.GetError() );
-            return false;
-        }
+        // The draw slots are opened on the GPU, not here: the emitter's chain starts with "Particles <stage>: Open"
+        // (ParticleRenderer::OpenDrawSlots, ParticleDispatchArgs in its open mode), which writes slot h empty with
+        // FirstVertex = 6 x (2 Base + h Count) for compact 0 to fill. Until that node runs the Counters still hold
+        // the previous tick's slots (a PostOpaque emitter's draws before its simulation read them).
 
         // Where this tick's draw finds the particles: the compiled columns, the range they are strided by, and the
         // placement transform a Local emitter's particles are drawn through (the one the simulation placed them by).
@@ -757,6 +752,12 @@ namespace Desert::Graphic::System
         fe.Gpu             = &gpu;
         fe.Pipeline        = gpu.Pipeline.get();
         fe.StepCount       = stepCount;
+        // The half the previous tick's last compact filled (PostOpaque emitters' draws before their simulation);
+        // none after a reset - the range starts dead.
+        fe.PreviousHalf    = gpu.LastHalf;
+        fe.HasPrevious     = gpu.HasLastHalf && !gpu.NeedsReset;
+        gpu.LastHalf       = stepCount & 1u;
+        gpu.HasLastHalf    = true;
         fe.Push.LocalToWorld = localToWorld;
         fe.Push.Step         = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
         fe.WorldBounds       = Assets::Serialization::VFXBoundsAt( data.Bounds, localToWorld );
