@@ -14,6 +14,7 @@
 // pins the same literals with static_asserts, so a renamed parameter fails the C++ build, not a frame.
 // Needs the bindless table (injected into every material-row cell by DShaderParser).
 #include <Common/WorldParameters.glslh>
+#include <Common/TangentNormal.glslh>
 
 const uint kDesertSnowCoverKey    = 0x0b8bf081u; // "SnowCover": 0 = none, 1 = everything that faces up is white
 const uint kDesertSnowAlbedoKey   = 0xc0678c8bu; // "SnowAlbedo" (Texture)
@@ -70,7 +71,9 @@ DesertSnowLayer DesertEvaluateSnow( const vec3 worldPos, const vec3 normalWS, co
     // All three maps are fetched here, in the control flow every pixel of the quad shares: an implicit-LOD fetch
     // behind the per-pixel coverage branch below has undefined derivatives where the quad straddles the edge.
     const vec3  arm    = SampleBindless( armMap, uv ).rgb;
-    const vec3  n      = SampleBindless( normalMap, uv ).xyz * 2.0 - 1.0;
+    // The normal map is cooked BC5 (Intent NormalMap: R and G only, blue reads 0), so its Z is reconstructed
+    // (Common/TangentNormal.glslh); `.xyz * 2 - 1` gave every texel Z = -1, a snow lit from behind itself (black).
+    const vec3  n      = DecodeTangentNormal( SampleBindless( normalMap, uv ).rg );
     const vec3  albedo = SampleBindless( albedoMap, uv ).rgb;
 
     const float up        = normalWS.y;
