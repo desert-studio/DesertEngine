@@ -207,13 +207,13 @@ namespace Desert::Graphic::System
             {
                 const float target = static_cast<float>( dicingRate ) * static_cast<float>( 1 << level );
                 // subCellPixels falls with d; the across-edge reach (sin a = 1) bounds the root from above.
-                float near = 0.0f, far = pixelsAtCm / target;
+                float nearCm = 0.0f, farCm = pixelsAtCm / target;
                 for ( int step = 0; step < 32; ++step )
                 {
-                    const float mid                                 = 0.5f * ( near + far );
-                    ( subCellPixels( mid ) >= target ? near : far ) = mid;
+                    const float mid                                     = 0.5f * ( nearCm + farCm );
+                    ( subCellPixels( mid ) >= target ? nearCm : farCm ) = mid;
                 }
-                const float reach = near;
+                const float reach = nearCm;
                 const float half  = std::min( std::floor( reach / l.SpacingCm ), outer );
                 if ( half < 0.0f || reach < 0.5f * l.SpacingCm )
                     break;

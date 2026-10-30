@@ -409,14 +409,14 @@ namespace Desert::Graphic::System
     {
         const glm::dmat4          inverse = glm::inverse( glm::dmat4( viewProjection ) );
         const glm::dvec3          apex( eye );
-        std::array<glm::dvec3, 4> far{};
+        std::array<glm::dvec3, 4> farCorners{};
         for ( int i = 0; i < 4; ++i )
         {
             // A point on the corner's ray at NDC depth 0.5 (finite for a standard, reversed or infinite far
             // plane): only the ray's direction is used.
             const glm::dvec4 p = inverse * glm::dvec4( ( i & 1 ) ? 1.0 : -1.0, ( i & 2 ) ? 1.0 : -1.0, 0.5, 1.0 );
             const glm::dvec3 d = glm::dvec3( p ) / p.w - apex;
-            far[static_cast<size_t>( i )] = apex + glm::normalize( d ) * static_cast<double>( reach );
+            farCorners[static_cast<size_t>( i )] = apex + glm::normalize( d ) * static_cast<double>( reach );
         }
         glm::dvec4 box( std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
                         std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest() );
@@ -440,14 +440,14 @@ namespace Desert::Graphic::System
         point( apex );
         for ( int i = 0; i < 4; ++i )
         {
-            point( far[static_cast<size_t>( i )] );
-            edge( apex, far[static_cast<size_t>( i )] );
+            point( farCorners[static_cast<size_t>( i )] );
+            edge( apex, farCorners[static_cast<size_t>( i )] );
         }
         // The far face's four edges, corners in ring order (-,-) (+,-) (+,+) (-,+).
         constexpr std::array<int, 4> ring{ 0, 1, 3, 2 };
         for ( int i = 0; i < 4; ++i )
-            edge( far[static_cast<size_t>( ring[static_cast<size_t>( i )] )],
-                  far[static_cast<size_t>( ring[static_cast<size_t>( ( i + 1 ) % 4 )] )] );
+            edge( farCorners[static_cast<size_t>( ring[static_cast<size_t>( i )] )],
+                  farCorners[static_cast<size_t>( ring[static_cast<size_t>( ( i + 1 ) % 4 )] )] );
         return box.x > box.z ? glm::vec4( 1.0f, 1.0f, 0.0f, 0.0f ) : glm::vec4( box );
     }
 
