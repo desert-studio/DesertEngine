@@ -138,6 +138,13 @@ namespace Desert::Assets::Serialization
                 return Common::MakeFormattedError<bool>(
                      "grass variety {}: AllowedDensityRange [{}, {}] is not an interval of 0..1", i,
                      v.AllowedDensityRange.Min, v.AllowedDensityRange.Max );
+            const GrassPatches& patches = v.Patches;
+            if ( !std::isfinite( patches.Coverage ) || !std::isfinite( patches.Size ) ||
+                 !std::isfinite( patches.Softness ) || !( patches.Coverage > 0.0f ) || patches.Coverage > 1.0f ||
+                 !( patches.Size > 0.0f ) || patches.Softness < 0.0f || patches.Softness > 1.0f )
+                return Common::MakeFormattedError<bool>( "grass variety {}: Patches Coverage {} must be in (0, "
+                                                         "1], Size {} > 0 and Softness {} in 0..1",
+                                                         i, patches.Coverage, patches.Size, patches.Softness );
             for ( const FoliageFloatInterval& s : { v.ScaleX, v.ScaleY, v.ScaleZ } )
                 if ( !( s.Min > 0.0f ) || s.Max < s.Min )
                     return Common::MakeFormattedError<bool>(

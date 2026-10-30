@@ -701,6 +701,10 @@ namespace Desert::ECS
                     p.StartCullDistance         = v.StartCullDistance;
                     p.EndCullDistance           = v.EndCullDistance;
                     p.AllowedDensityRange       = { v.AllowedDensityRange.Min, v.AllowedDensityRange.Max };
+                    p.PatchCoverage             = v.Patches.Coverage;
+                    p.PatchSize                 = v.Patches.Size;
+                    p.PatchSoftness             = v.Patches.Softness;
+                    p.PatchGroup                = v.Patches.Group;
                     p.Scaling                   = static_cast<uint32_t>( v.Scaling );
                     p.ScaleX                    = { v.ScaleX.Min, v.ScaleX.Max };
                     p.ScaleY                    = { v.ScaleY.Min, v.ScaleY.Max };
@@ -737,6 +741,8 @@ namespace Desert::ECS
                             area = ( bounds.Max.x - bounds.Min.x ) * ( bounds.Max.z - bounds.Min.z ) *
                                    ( p.Scaling == 1u ? meanX * meanY : meanX * meanX );
                         }
+                        // Only the share of the ground its patches hold grows it.
+                        area *= v.Patches.Coverage;
                         const float lai = std::max( v.Density, 0.0f ) * std::max( area, 0.0f ) * 1.0e-6f;
                         CoverSum&   sum = coverSums[k];
                         sum.Lai += lai;

@@ -6,7 +6,9 @@
             "LLYI": 4
         },
         "Dependencies": [
-            "e33b5f1214a2456a9e9ec34d0e0f2846"
+            "e33b5f1214a2456a9e9ec34d0e0f2846",
+            "b2bf3ba8f0304c569da7ef512454f473",
+            "cddb6b688bf744a9b25a162b10637fec"
         ]
     },
     "LayerName": "FieldGrass",
@@ -21,6 +23,14 @@
         {
             "Guid": "e33b5f1214a2456a9e9ec34d0e0f2846",
             "Path": "Landscape/Grass/FieldBarn/Meadow.degrasstype"
+        },
+        {
+            "Guid": "b2bf3ba8f0304c569da7ef512454f473",
+            "Path": "Landscape/Grass/FieldBarn/Tussocks.degrasstype"
+        },
+        {
+            "Guid": "cddb6b688bf744a9b25a162b10637fec",
+            "Path": "Landscape/Grass/FieldBarn/Wildflowers.degrasstype"
         }
     ]
 }
