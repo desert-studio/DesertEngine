@@ -5,6 +5,8 @@
 #include <Common/Core/AssetHandle.hpp>
 #include <Common/Core/UUID.hpp>
 
+#include <atomic>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -722,6 +724,14 @@ namespace Desert::ECS
         {
             return InstanceTransforms;
         }
+        // Moves exactly when InstanceTransforms change (bitwise), through the one writer below; never 0 once
+        // the component holds a value. Process-unique, so a component copied to another entity carries a
+        // revision no other contents ever had. The render path keys its snapshot off it (UE: the ISM proxy
+        // is updated from the component's instance change, never by comparing every instance per frame).
+        [[nodiscard]] uint64_t GetInstanceRevision() const
+        {
+            return m_InstanceRevision;
+        }
         [[nodiscard]] const bool& GetCastShadows() const
         {
             return CastShadows;
@@ -780,14 +790,25 @@ namespace Desert::ECS
         {
             return m_RuntimeInstanceSnapshot;
         }
+        // The GetInstanceRevision() the snapshot above was taken at (0 = none taken).
+        [[nodiscard]] uint64_t& RuntimeInstanceSnapshotRevision()
+        {
+            return m_RuntimeInstanceSnapshotRevision;
+        }
 
     private:
         void Assign( const InstancedStaticMeshDesc& desc );
         [[nodiscard]] bool Matches( const InstancedStaticMeshDesc& desc ) const;
+        [[nodiscard]] static uint64_t NextInstanceRevision()
+        {
+            static std::atomic<uint64_t> s_Revision{ 0 };
+            return s_Revision.fetch_add( 1, std::memory_order_relaxed ) + 1;
+        }
 
         Assets::AssetHandle              MeshHandle;
         std::vector<Assets::AssetHandle> MaterialSlots;
         std::vector<glm::mat4>           InstanceTransforms; // per-instance world matrices
+        uint64_t                         m_InstanceRevision = 0; // see GetInstanceRevision
 
         // false = skipped by the shadow (depth) passes, exactly like the static and skinned twins.
         // Until this existed an ISM was the ONE mesh kind whose shadow could not be turned off: the
@@ -828,10 +849,14 @@ namespace Desert::ECS
         // pool changes, and Lua running between the record and the read can destroy this entity outright.
         // See Graphic::MaterialSlotBinding for the full account (A8-3).
         //
-        // REBUILT BY COMPARING, NOT BY A FLAG — see the note above on the flag that used to sit beside
-        // it. Comparing the snapshot with the authored vector cannot drift: an edit that changes the
-        // contents rebuilds it, an unchanged frame costs one comparison and no allocation.
+        // REBUILT BY REVISION, NOT BY A FLAG — see the note above on the flag that used to sit beside it.
+        // The revision cannot drift the way that flag could: InstanceTransforms is private, its only
+        // writer is Assign (reached only through ECS::SetInstancedStaticMesh and the constructor), and
+        // Assign moves m_InstanceRevision whenever the bytes change. So no mutation site has anything to
+        // remember, and an unchanged frame costs one integer compare instead of a memcmp of every instance.
+        // A copied component carries both the revision and the snapshot taken at it, so the pair stays true.
         std::shared_ptr<const std::vector<glm::mat4>> m_RuntimeInstanceSnapshot;
+        uint64_t                                      m_RuntimeInstanceSnapshotRevision = 0;
 
         friend bool SetInstancedStaticMesh( entt::registry& registry, entt::entity entity, const InstancedStaticMeshDesc& desc );
     };
@@ -864,7 +889,16 @@ namespace Desert::ECS
     {
         MeshHandle = desc.MeshHandle;
         MaterialSlots = desc.MaterialSlots;
-        InstanceTransforms = desc.InstanceTransforms;
+        // Bitwise, as the GPU rows see it: a changed bit is a changed transform. The first value always
+        // takes a revision, so a revision of 0 never names contents.
+        if ( m_InstanceRevision == 0 || InstanceTransforms.size() != desc.InstanceTransforms.size() ||
+             ( !InstanceTransforms.empty() &&
+               std::memcmp( InstanceTransforms.data(), desc.InstanceTransforms.data(),
+                          InstanceTransforms.size() * sizeof( glm::mat4 ) ) != 0 ) )
+        {
+            InstanceTransforms = desc.InstanceTransforms;
+            m_InstanceRevision = NextInstanceRevision();
+        }
         CastShadows = desc.CastShadows;
         CastContactShadow = desc.CastContactShadow;
         MaxDrawDistance = desc.MaxDrawDistance;

@@ -6,6 +6,7 @@
 #include <Engine/Graphic/Systems/Scene/Mesh/DisplacementCache.hpp>
 
 #include <Common/Core/Logger.hpp>
+#include <Common/Core/Profiler.hpp>
 
 #include <algorithm>
 #include <bit>
@@ -20,6 +21,8 @@ namespace Desert::Graphic::System
                                           const float viewHeightPixels, const uint64_t frame,
                                           const bool requestLevels )
     {
+        DESERT_PROFILE_SCOPE( "MeshRenderer::ApplyDisplacement" );
+
         // BAKED displacement (§1g): the cooked dense mesh IS the geometry - no levels, no cache entry - drawn with
         // the displaced slots like a twin (no double relief). Captures substitute too: every view draws one surface.
         for ( StaticMeshRenderData& data : m_StaticQueue )

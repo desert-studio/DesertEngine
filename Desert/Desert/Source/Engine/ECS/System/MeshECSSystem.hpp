@@ -25,7 +25,6 @@
 
 #include <Engine/Runtime/SelectionContext.hpp>
 
-#include <cstring>
 
 namespace Desert::ECS
 {
@@ -453,17 +452,17 @@ namespace Desert::ECS
 
                          // InstanceTransforms are WORLD-space (the entity is a container). The command
                          // carries a CO-OWNED snapshot, not the component's address: see the member's own
-                         // note and Graphic::MaterialSlotBinding (A8-3). The comparison is what makes the
-                         // snapshot impossible to leave stale.
-                         // Bitwise, one memcmp (was vector<mat4>::operator!=, sixteen float compares per
-                         // instance every frame): a changed bit is a changed transform for the GPU rows too.
-                         const std::vector<glm::mat4>& authored = ism.GetInstanceTransforms();
-                         const auto&                   snapshot = ism.RuntimeInstanceSnapshot();
-                         if ( !snapshot || snapshot->size() != authored.size() ||
-                              std::memcmp( snapshot->data(), authored.data(),
-                                           authored.size() * sizeof( glm::mat4 ) ) != 0 )
+                         // note and Graphic::MaterialSlotBinding (A8-3). The component's instance revision
+                         // is what makes the snapshot impossible to leave stale: it moves on every byte
+                         // change at the one writer, so a steady frame is one integer compare, not a memcmp
+                         // of every instance (UE: the ISM proxy follows the component's instance change).
+                         if ( !ism.RuntimeInstanceSnapshot() ||
+                              ism.RuntimeInstanceSnapshotRevision() != ism.GetInstanceRevision() )
+                         {
                              ism.RuntimeInstanceSnapshot() =
                                   std::make_shared<const std::vector<glm::mat4>>( ism.GetInstanceTransforms() );
+                             ism.RuntimeInstanceSnapshotRevision() = ism.GetInstanceRevision();
+                         }
 
                          // A foliage field fades by its type's CullDistance, read from the `.defoliage` itself
                          // (one source: the paint panel's edit re-reads into the same asset). A type still being
