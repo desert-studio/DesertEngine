@@ -2055,6 +2055,13 @@ namespace Desert::Graphic
                      ->PrepareLocalShadowViews( localShadowMeshes->GetLocalShadowCasterLights(),
                                                 cascadeWorldPerTexel );
                 // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+                // The sun cascades' cache plan, from THIS frame's casters: the grass sections were submitted above
+                // (GrassRenderer::AddFrame) and the terrain's cascade rows just now, so its key
+                // (IShadowCaster::CascadeShadowSignature) is this frame's and the landscape is drawn into the
+                // cached static layer (UE: a static landscape in the cached CSM). Nothing between UpdateCascades
+                // and here reads the plan; DropDirectionalShadow / InvalidateCascadeCaches below and the passes
+                // after.
+                localShadowMeshes->PlanCascadeCache();
                 AssignLocalShadowMaskSlots( Core::Frustum( frame.Projection, frame.View ) );
                 // The forward terrain's lights now carry their ShadowView / ShadowMaskSlot: the scene's
                 // lit-material state goes onto its forward program here (the meshes' forward snapshot).
