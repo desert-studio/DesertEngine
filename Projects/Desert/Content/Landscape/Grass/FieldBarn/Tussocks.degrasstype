@@ -21,7 +21,7 @@
                 "Guid": "c45759f297672ad71c9b371fdb6b5d14",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_large_a.stmesh"
             },
-            "Density": 87.5,
+            "Density": 218.8,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
             "EndCullDistance": 8000.0,
@@ -32,7 +32,7 @@
             "Patches": {
                 "Coverage": 0.35,
                 "Size": 1100.0,
-                "Softness": 0.2,
+                "Softness": 0.3,
                 "Group": 3
             },
             "Scaling": "Uniform",
@@ -65,7 +65,7 @@
                 "Guid": "c4575af297672c8a1c9b3a1fdb6b622d",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_large_b.stmesh"
             },
-            "Density": 87.5,
+            "Density": 218.8,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
             "EndCullDistance": 8000.0,
@@ -76,7 +76,7 @@
             "Patches": {
                 "Coverage": 0.35,
                 "Size": 1100.0,
-                "Softness": 0.2,
+                "Softness": 0.3,
                 "Group": 3
             },
             "Scaling": "Uniform",
@@ -109,7 +109,7 @@
                 "Guid": "8eead75937e641d63666fc6678500859",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_mid_a.stmesh"
             },
-            "Density": 125.0,
+            "Density": 312.5,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2400.0,
             "EndCullDistance": 8000.0,
@@ -120,7 +120,7 @@
             "Patches": {
                 "Coverage": 0.35,
                 "Size": 1100.0,
-                "Softness": 0.2,
+                "Softness": 0.3,
                 "Group": 3
             },
             "Scaling": "Uniform",
@@ -153,7 +153,7 @@
                 "Guid": "9cf601bde61059a737e2cbfe2972b75a",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_a.stmesh"
             },
-            "Density": 75.0,
+            "Density": 187.5,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
             "EndCullDistance": 8000.0,
@@ -164,7 +164,7 @@
             "Patches": {
                 "Coverage": 0.35,
                 "Size": 1100.0,
-                "Softness": 0.2,
+                "Softness": 0.3,
                 "Group": 3
             },
             "Scaling": "LockXY",
@@ -197,7 +197,7 @@
                 "Guid": "9cf602bde6105b5a37e2cafe2972b5a7",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_b.stmesh"
             },
-            "Density": 75.0,
+            "Density": 187.5,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
             "EndCullDistance": 8000.0,
@@ -208,7 +208,7 @@
             "Patches": {
                 "Coverage": 0.35,
                 "Size": 1100.0,
-                "Softness": 0.2,
+                "Softness": 0.3,
                 "Group": 3
             },
             "Scaling": "LockXY",
@@ -241,7 +241,7 @@
                 "Guid": "9cf603bde6105d0d37e2c9fe2972b3f4",
                 "Path": "Environments/FieldBarn/Meshes/grass_medium_01/grass_medium_01_grass_medium_01_tall_c.stmesh"
             },
-            "Density": 75.0,
+            "Density": 187.5,
             "PlacementJitter": 1.0,
             "StartCullDistance": 2100.0,
             "EndCullDistance": 8000.0,
@@ -252,7 +252,7 @@
             "Patches": {
                 "Coverage": 0.35,
                 "Size": 1100.0,
-                "Softness": 0.2,
+                "Softness": 0.3,
                 "Group": 3
             },
             "Scaling": "LockXY",

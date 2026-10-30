@@ -240,8 +240,8 @@ Shader "GrassGenerate"
             if ( p.Patches.x < 1.0 )
             {
                 float rim = 1.0 - p.Patches.x;
-                float half = 0.5 * p.Patches.z;
-                patchy *= smoothstep( rim - half, rim + half + 1.0e-4,
+                float rimBand = 0.5 * p.Patches.z;
+                patchy *= smoothstep( rim - rimBand, rim + rimBand + 1.0e-4,
                                       PatchNoise( world, p.Patches.y, floatBitsToUint( p.Patches.w ) ) );
             }
             if ( !( weight > p.Range.x && weight <= p.Range.y && patchy >= keep ) )

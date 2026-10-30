@@ -150,7 +150,7 @@ namespace Desert::Assets
             return Common::MakeFormattedError<uint64_t>( "'{}' cannot be read: {}", file.string(),
                                                          bytes.GetError() );
         const uint64_t own = Common::Utils::PakContentHash( bytes.GetValue().data(), bytes.GetValue().size() );
-        auto           ext = file.extension().string();
+        auto ext = file.extension().string();
         std::transform( ext.begin(), ext.end(), ext.begin(), []( unsigned char c ) { return std::tolower( c ); } );
         if ( ext != ".gltf" )
             return Common::MakeSuccess( own );
@@ -184,8 +184,7 @@ namespace Desert::Assets
                      const auto bytes = Common::Utils::FileSystem::ReadFileContent( path );
                      if ( !bytes.IsSuccess() )
                      {
-                         failure =
-                              std::format( "buffer '{}' cannot be read: {}", path.string(), bytes.GetError() );
+                         failure = std::format( "buffer '{}' cannot be read: {}", path.string(), bytes.GetError() );
                          return;
                      }
                      parts.push_back(
@@ -195,8 +194,7 @@ namespace Desert::Assets
             return Common::MakeFormattedError<uint64_t>( "'{}': {}", file.string(), failure );
         if ( parts.size() == 1 )
             return Common::MakeSuccess( own );
-        return Common::MakeSuccess(
-             Common::Utils::PakContentHash( parts.data(), parts.size() * sizeof( uint64_t ) ) );
+        return Common::MakeSuccess( Common::Utils::PakContentHash( parts.data(), parts.size() * sizeof( uint64_t ) ) );
     }
 
     uint64_t MeshSourceDerivedDataKey( const uint64_t sourceFileHash )
