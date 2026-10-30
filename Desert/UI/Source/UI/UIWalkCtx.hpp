@@ -151,7 +151,8 @@ namespace Desert::UI::Walk
     std::string   ResolveLabel( IUITextSource& text, const std::string& authored, const BindingSample& binding );
     glm::vec4     Tinted( const WalkCtx& ctx, const glm::vec4& c );
     bool          PointIn( const Rect& r, const glm::vec2& p );
-    bool          Accepts( const UIDropTargetData& t, const std::string& payload );
+    UIDropAnswer  DropAnswerAt( const IUITree& tree, NodeId n, const UIDragPayload& payload );
+    std::optional<UIDragPayload> DragSourceAt( const IUITree& tree, NodeId n, glm::vec2 sourceSize );
     std::vector<std::string> SplitOptions( IUITextSource& text, const std::string& s );
     std::vector<std::string> DropdownOptions( IUITextSource& text, const UIDropdownData& d );
     bool                     IsFocusable( IUITree& tree, NodeId e );

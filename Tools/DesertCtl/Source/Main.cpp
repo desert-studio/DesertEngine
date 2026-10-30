@@ -78,7 +78,9 @@ namespace
              "                                --shift / --ctrl / --alt after it hold that key for\n"
              "                                the whole drag (Shift-click adds to a selection)\n"
              "  input <kind> <panel|-> <x,y|-> [key | path...]\n"
-             "                                kind: move|click|press|release|scroll|key|keydown|keyup|drop;\n"
+             "                                kind: move|click|press|release|scroll|key|keydown|keyup|type|drop;\n"
+             "                                type: [key] = the TEXT typed (character events, one\n"
+             "                                frame; quote it when it has spaces) -- key only presses\n"
              "                                scroll: [key] = signed wheel notches (-3 scrolls the\n"
              "                                hovered panel's content down, as a wheel would);\n"
              "                                x,y in POINTS inside the named panel (else the editor\n"
@@ -529,13 +531,13 @@ static int RunTool( int argc, char** argv )
         std::string point = "[0,0]";
         if ( rest.size() < 4 || ( rest[3] != "-" && !NumberArray( rest[3], point ) ) )
         {
-            std::fprintf( stderr,
-                          "desertctl: input <move|click|press|release|scroll|key|keydown|keyup|drop> <panel|-> <x,y|-> "
-                          "[key | path...]\n" );
+            std::fprintf( stderr, "desertctl: input <move|click|press|release|scroll|key|keydown|keyup|type|drop> "
+                                  "<panel|-> <x,y|-> "
+                                  "[key | path...]\n" );
             return kNoEditor;
         }
         const std::string panel = rest[2] == "-" ? std::string() : rest[2];
-        const bool        isKey = rest[1] == "key" || rest[1] == "keydown" || rest[1] == "keyup";
+        const bool isKey = rest[1] == "key" || rest[1] == "keydown" || rest[1] == "keyup" || rest[1] == "type";
         const bool        isScroll = rest[1] == "scroll";
         const std::string key      = ( isKey || isScroll ) && rest.size() > 4 ? rest.back() : std::string();
         const std::string paths    = isKey || isScroll ? std::string() : QuotedList( rest, 4 );

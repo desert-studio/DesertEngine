@@ -1150,6 +1150,8 @@ namespace Desert::Player
                     // UIViewContext::PrevRightDown, exactly as it does for the left one, so the press a context
                     // menu opens on is computed in one place.
                     input.MouseRightDown = Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Right );
+                    input.MouseMiddleDown =
+                         Input::Mouse::Get().IsMouseButtonPressed( Common::MouseButton::Middle );
                     input.ScrollDelta    = m_ScrollAccum;
                     input.TypedText      = m_TypedText;
                     input.Keys           = m_UIKeys;

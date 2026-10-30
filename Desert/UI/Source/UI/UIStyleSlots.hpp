@@ -92,6 +92,18 @@ namespace Desert::UI
         InputCornerRadius,
         InputFont,
 
+        // --- Code editor (Widgets::CodeEditor): the field, its gutter, and one colour per token kind ----
+        CodeBackground,
+        CodeGutter,
+        CodeLineNumber,
+        CodeSelection,
+        CodeText,
+        CodeKeyword,
+        CodeString,
+        CodeNumber,
+        CodeComment,
+        CodeFont,
+
         // --- Dropdown ------------------------------------------------------------------------------
         DropdownBackground,
         DropdownText,
@@ -101,6 +113,7 @@ namespace Desert::UI
 
         // --- Drop target ---------------------------------------------------------------------------
         DropTargetHighlight,
+        DropTargetRejected, // the outline of the target under the cursor that refuses the drag
 
         // --- Auto-layout group ---------------------------------------------------------------------
         // Padding is ONE metric applied to all four edges. A per-edge padding stays an authored vec4 on
@@ -188,6 +201,17 @@ namespace Desert::UI
          StyleSlotInfo{ "Input.CornerRadius", StyleSlotKind::Metric },
          StyleSlotInfo{ "Input.Font", StyleSlotKind::Font },
 
+         StyleSlotInfo{ "Code.Background", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Gutter", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.LineNumber", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Selection", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Text", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Keyword", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.String", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Number", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Comment", StyleSlotKind::Color },
+         StyleSlotInfo{ "Code.Font", StyleSlotKind::Font },
+
          StyleSlotInfo{ "Dropdown.Background", StyleSlotKind::Color },
          StyleSlotInfo{ "Dropdown.Text", StyleSlotKind::Color },
          StyleSlotInfo{ "Dropdown.Highlight", StyleSlotKind::Color },
@@ -195,6 +219,7 @@ namespace Desert::UI
          StyleSlotInfo{ "Dropdown.Font", StyleSlotKind::Font },
 
          StyleSlotInfo{ "DropTarget.Highlight", StyleSlotKind::Color },
+         StyleSlotInfo{ "DropTarget.Rejected", StyleSlotKind::Color },
 
          StyleSlotInfo{ "LayoutGroup.Padding", StyleSlotKind::Metric },
          StyleSlotInfo{ "LayoutGroup.Spacing", StyleSlotKind::Metric },

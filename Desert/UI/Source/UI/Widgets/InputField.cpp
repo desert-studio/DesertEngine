@@ -30,15 +30,6 @@ namespace Desert::UI::Walk
 {
     namespace
     {
-        // The default face's line box at @p fontPx — the same (Ascent - Descent) * s DrawText2D steps lines by.
-        float LineHeightPx( IUICanvasResources& res, float fontPx )
-        {
-            const FontFace font = res.Font( res.DefaultFontHandle(), Text::kDefaultBakePixelHeight );
-            if ( font.Baked == nullptr || !font.Baked->Valid() || font.Baked->PixelHeight <= 0.0f )
-                return fontPx;
-            return ( font.Baked->Ascent - font.Baked->Descent ) * ( fontPx / font.Baked->PixelHeight );
-        }
-
         // Pixel width of text[from, to) as DRAWN (bullets for a password).
         float SpanPx( IUICanvasResources& res, const std::string& text, std::size_t from, std::size_t to,
                       bool password, float fontPx )

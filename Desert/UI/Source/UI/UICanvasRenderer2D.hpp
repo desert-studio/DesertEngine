@@ -51,6 +51,57 @@ namespace Desert::UI
         bool            Repeat = false;
     };
 
+    // ONE KEYBOARD PER USER (Slate's FSlateUser: one focus path per user, and keys go only down it). A host
+    // that draws several views for one person — the editor's level canvases and the widget gallery over
+    // them — hands every view the SAME UIKeyboardUser through UIInput::Keyboard, and only the view named
+    // Owner sees the frame's keys and typed text; every other view sees none and drops its focus, so one
+    // keystroke can never land in two fields. A press that lands on an element of a view, or a capture it
+    // takes, makes that view the owner (EndUIFrame) — the click that moves focus in Slate. Tab and the
+    // arrows then move focus inside the owner only. Which view owns the keyboard before anything has been
+    // clicked is the host's to say (it sets Owner).
+    //
+    // THE SURFACE BEHIND THE VIEWS IS A KEYBOARD OWNER TOO (Slate's SViewport is a focusable widget: a click
+    // on the viewport where no widget answers focuses the viewport, and the field that had focus loses it).
+    // Owner null names that surface — the editor's viewport, whose camera keys and shortcuts read the
+    // keyboard only while it holds it. A press that every view saw land on none of its elements gives the
+    // keyboard to the surface: each view's EndUIFrame reports its press (Pressed), and the host settles the
+    // frame once, after the last view (SettlePress), because one view alone cannot know that the view drawn
+    // over it found nothing either.
+    struct UIKeyboardUser
+    {
+        // What this frame's press landed on, across every view drawn so far.
+        enum class Press : uint8_t
+        {
+            None,      // no press this frame
+            OnNothing, // a press, and no view has found an element under it
+            OnElement, // a press that a view's element took (that view is Owner now)
+        };
+
+        const UIViewContext* Owner     = nullptr; // null = the surface behind every view
+        Press                ThisFrame = Press::None;
+
+        // EndUIFrame of @p view saw the press edge; @p onElement = its election under the press is not empty.
+        void Pressed( const UIViewContext& view, bool onElement )
+        {
+            if ( onElement )
+            {
+                Owner     = &view;
+                ThisFrame = Press::OnElement;
+            }
+            else if ( ThisFrame == Press::None )
+                ThisFrame = Press::OnNothing;
+        }
+
+        // Once per frame, after the last view's EndUIFrame: a press that landed on no element of any view
+        // gives the keyboard to the surface. Returns to Press::None for the next frame.
+        void SettlePress()
+        {
+            if ( ThisFrame == Press::OnNothing )
+                Owner = nullptr;
+            ThisFrame = Press::None;
+        }
+    };
+
     // Pointer/mouse state for button interaction, in the SAME pixel space as the canvas viewport (top-left
     // origin). The host (runtime input, editor viewport) supplies it; MouseReleased is the down->up edge so a
     // click fires on release over a button. Pass nullptr to RenderCanvas2D for a non-interactive draw (buttons
@@ -60,12 +111,28 @@ namespace Desert::UI
         glm::vec2 MousePx       = { 0.0f, 0.0f };
         bool      MouseDown     = false;
         bool      MouseReleased = false;
+        // The pointer is over THIS view. False when a view drawn above it covers the pointer (the editor's
+        // widget gallery over the level's canvases — Slate's hit-test grid, where the topmost window wins):
+        // nothing here is elected, so nothing hovers, and a press or a wheel notch lands on nothing. A control
+        // that already holds the pointer (UIViewContext::Capture) keeps following it, and a release still
+        // closes an open popup, as a click on another window closes a menu.
+        bool PointerOver = true;
         // The RIGHT button, held. Only its press edge is used — context menus open on press, as every
         // desktop toolkit does — and that edge is derived inside the frame from UIViewContext::PrevRightDown
         // exactly as the left one is, because a host that reported the edge itself would be a second place
         // computing the same fact.
-        bool  MouseRightDown = false;
-        float ScrollDelta    = 0.0f; // mouse-wheel notches this frame (+ = up); drives ScrollView
+        bool MouseRightDown = false;
+        // The MIDDLE button, held — the pan button of every graph, curve and node editor. Like the right one
+        // it is reported held and its press edge is derived inside the frame (UIViewContext::PrevMiddleDown);
+        // the press lands in UIViewContext::LastPress with Button = Middle.
+        bool  MouseMiddleDown = false;
+        float ScrollDelta     = 0.0f; // mouse-wheel notches this frame (+ = up); drives ScrollView
+        // THE HOST'S DOUBLE-CLICK INTERVAL, in seconds — the OS setting (Windows GetDoubleClickTime, macOS
+        // NSEvent.doubleClickInterval), which is the user's and not the UI's to choose. Whether a press IS a
+        // double click is decided inside the frame, in one place (UIViewContext::LastPress), from this and the
+        // view's own clock, as the press edges are: a host that reported "double-clicked" itself would be a
+        // second place counting the same clicks. 0.5 s is the default of both systems.
+        float DoubleClickSeconds = 0.5f;
         // The modifiers HELD this frame, for the pointer: a Shift-click extends a list's selection and a
         // Ctrl/Cmd-click toggles a row (UE FPointerEvent::GetModifierKeys). Keys carry their own.
         UIKeyMods Mods = UIKeyMods::None;
@@ -79,6 +146,15 @@ namespace Desert::UI
         // The system clipboard, for the focused InputField's copy/cut/paste. The host owns it (it wraps its
         // window); null = no clipboard, and those three keys do nothing.
         IUIClipboard* Clipboard = nullptr;
+        // The user this frame's keys belong to, shared by every view the host draws for that user
+        // (UIKeyboardUser). Null: this host draws one view, and it holds the keyboard.
+        UIKeyboardUser* Keyboard = nullptr;
+
+        // Does @p view hold this user's keyboard (UIKeyboardUser)?
+        NO_DISCARD bool HoldsKeyboard( const UIViewContext& view ) const
+        {
+            return Keyboard == nullptr || Keyboard->Owner == &view;
+        }
 
         // Was @p key pressed (or auto-repeated) at least once this frame?
         NO_DISCARD bool Pressed( Common::KeyCode key ) const

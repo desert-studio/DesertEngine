@@ -93,23 +93,6 @@ namespace Desert::UI
             return f( nullptr );
         }
 
-        // The kinds a control writes its value back into — and no others (see IUITree::FindState).
-        constexpr bool IsStateKind( ArgKind kind )
-        {
-            switch ( kind )
-            {
-                case ArgKind::Toggle:
-                case ArgKind::Slider:
-                case ArgKind::InputField:
-                case ArgKind::Dropdown:
-                case ArgKind::ScrollView:
-                case ArgKind::ListView:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
         // The entity's INDEX, with entt's version bits stripped off — the order the registry handed the
         // ids out, which for a level being loaded is the order the file lists them. The version bits have
         // to come off: a recycled id carries a bumped version in the high bits, so a raw comparison would

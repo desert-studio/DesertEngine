@@ -1,6 +1,8 @@
 #include "UICanvasRenderer2D.hpp"
 
 #include <UI/UIOverlay.hpp>
+#include <UI/UIFocus.hpp>
+#include <UI/UIPaint.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Render2DCore/Text/BakedFont.hpp>
@@ -64,7 +66,7 @@ namespace Desert::UI
                                              return tree.Has<UIButtonData>( t ) || tree.Has<UIToggleData>( t ) ||
                                                     tree.Has<UISliderData>( t ) ||
                                                     tree.Has<UIInputFieldData>( t ) ||
-                                                    tree.Has<UIDropdownData>( t );
+                                                    tree.Has<UIDropdownData>( t ) || tree.CapturesPointer( t );
                                          } );
             }
 
@@ -79,6 +81,34 @@ namespace Desert::UI
                 return NearestAtOrAbove(
                      tree, hot, [&tree]( NodeId t )
                      { return tree.Has<UIScrollViewData>( t ) || tree.Has<UIListViewData>( t ); } );
+            }
+
+            // Does a press on control @p n hold the pointer until the button is up (UIViewContext::Capture)?
+            // A slider does: its value follows the pointer along the track, and a drag that leaves the track
+            // must keep moving the handle (to the clamp) rather than drop it where the edge was crossed —
+            // SSlider captures on press for exactly this. A button does NOT: a press dragged off a button and
+            // released elsewhere is a cancelled click, which needs the button to stop hearing the pointer. A node
+            // the tree itself declares a captor (IUITree::CapturesPointer — a splitter's handle) does too.
+            bool CapturesPointer( IUITree& tree, NodeId n )
+            {
+                return n != NodeId::Null && tree.Valid( n ) &&
+                       ( tree.Has<UISliderData>( n ) || tree.CapturesPointer( n ) );
+            }
+
+            // The pointer shape over @p hot (or for the captor @p capture, which wins while it holds): what the
+            // nearest node at or above it states (IUITree::CursorOf), else the control kind's own — a text
+            // field's I-beam — else the default arrow.
+            UICursorShape CursorFor( IUITree& tree, NodeId hot, NodeId capture )
+            {
+                const NodeId from = capture != NodeId::Null ? capture : hot;
+                if ( const NodeId stating = NearestAtOrAbove( tree, from, [&tree]( NodeId t )
+                                                              { return tree.CursorOf( t ).has_value(); } );
+                     stating != NodeId::Null )
+                    return *tree.CursorOf( stating );
+                const NodeId control = capture != NodeId::Null ? capture : PointerTargetOf( tree, hot );
+                if ( control != NodeId::Null && tree.Valid( control ) && tree.Has<UIInputFieldData>( control ) )
+                    return UICursorShape::TextBeam;
+                return UICursorShape::Default;
             }
         } // namespace
 
@@ -362,7 +392,7 @@ namespace Desert::UI
                 // transform acts on, the clip is a region of the SCREEN — the scissor box the hardware cut,
                 // intersected with the oblique edges the draw list cut the geometry with. Both halves, so a
                 // pixel the clipper removed cannot still take the pointer.
-                if ( input && electsSelf && PointIn( rect, pointerPx ) &&
+                if ( input && input->PointerOver && electsSelf && PointIn( rect, pointerPx ) &&
                      Graphic::Render2D::ClipRegionContains( clipRegion, input->MousePx ) )
                 {
                     ctx.View.HotNext = e;
@@ -379,15 +409,31 @@ namespace Desert::UI
                 // only to the pointer it took itself.
                 frame.Hot = interactive && e == ctx.View.PointerTarget;
 
-                // A drop target outlines itself while a drag it would accept is in flight.
-                if ( ctx.View.Drag.Active && tree.Has<UIDropTargetData>( e ) )
+                // While a drag is in flight every target that ACCEPTS it outlines itself, so the valid
+                // destinations are obvious — and brightest under the cursor; the target under the cursor that
+                // REFUSES it shows the rejected outline (Slate's "cannot drop here"). The answer for the one
+                // under the cursor is the one EndUIFrame resolved (UIDragState::OverAnswer), so the outline
+                // and the release can never disagree about it.
+                if ( ctx.View.Drag.Active && e != ctx.View.Drag.Source )
                 {
-                    const auto& dt = *tree.Get<UIDropTargetData>( e );
-                    if ( Accepts( dt, ctx.View.Drag.Payload ) )
+                    const bool         over = e == ctx.View.Drag.Over;
+                    const UIDropAnswer answer =
+                         over ? ctx.View.Drag.OverAnswer : DropAnswerAt( tree, e, ctx.View.Drag.Payload );
+                    const UIDropTargetData* authoredTarget = tree.Get<UIDropTargetData>( e );
+                    glm::vec3               acceptLocal( 0.35f, 0.75f, 1.0f );
+                    if ( authoredTarget != nullptr )
+                        acceptLocal = authoredTarget->HighlightColor;
+                    if ( answer == UIDropAnswer::Accept )
                         dl.AddRect( mn, mx,
-                                    glm::vec4( st.Color( StyleSlot::DropTargetHighlight, dt.HighlightColor ),
-                                               hot ? 1.0f : 0.6f ),
-                                    hot ? 3.0f : 2.0f );
+                                    glm::vec4( st.Color( StyleSlot::DropTargetHighlight, acceptLocal ),
+                                               over ? 1.0f : 0.6f ),
+                                    over ? 3.0f : 2.0f );
+                    else if ( answer == UIDropAnswer::Reject && over )
+                        dl.AddRect( mn, mx,
+                                    glm::vec4( st.Color( StyleSlot::DropTargetRejected,
+                                                         glm::vec3( 0.95f, 0.33f, 0.28f ) ),
+                                               1.0f ),
+                                    3.0f );
                 }
 
                 // Panels and buttons render their sprite (single or 9-slice) tinted by the colour, or a flat
@@ -422,6 +468,34 @@ namespace Desert::UI
                 if ( tree.Has<UIRenderTextureData>( e ) )
                     DrawRenderTextureWidget( frame );
 
+                // The node's own drawing, when its tree gives it one (IUITree::Paint, a paint leaf): into the
+                // same list, in the same space, over its widgets and under its children — a node kind with
+                // code of its own, not a widget the walk has to know.
+                {
+                    const bool overNode = interactive && ( e == ctx.View.Hot || e == ctx.View.PointerTarget );
+                    // A text-input node is focused by the press that lands on it, BEFORE it paints, so the same
+                    // press places its caret (Slate focuses on mouse down) — the InputField's own rule.
+                    const bool textInput = interactive && focused != nullptr && tree.TakesTextInput( e );
+                    if ( textInput && overNode && input != nullptr && input->MouseDown && !ctx.View.PrevDown )
+                        *focused = e;
+                    const UIPaintArgs paint{ .Dl          = dl,
+                                             .Box         = rect,
+                                             .Scale       = scale,
+                                             .Pointer     = pointerPx,
+                                             .HasPointer  = input != nullptr,
+                                             .Interactive = interactive,
+                                             .Hot         = overNode,
+                                             .Pressed     = overNode && input != nullptr && input->MouseDown,
+                                             .Captured    = e == ctx.View.Capture,
+                                             .Input       = input,
+                                             .Resources   = &ctx.View.Resources(),
+                                             .Style       = &st,
+                                             .Time        = ctx.View.Time,
+                                             .Focused     = textInput && *focused == e,
+                                             .HandledKeys = input != nullptr ? &ctx.View.ConsumedKeys : nullptr };
+                    tree.Paint( e, paint );
+                }
+
                 // Keyboard focus: record this control for Tab-cycling, and draw a focus ring when it holds
                 // focus (InputField draws its own coloured border, so skip the generic ring there).
                 //
@@ -441,7 +515,7 @@ namespace Desert::UI
                     // The ring answers WHY focus is here (ShowsFocusRing): a row the pointer moved onto or a
                     // screen's initial focus shows its hovered plate only; a keyboard / gamepad step shows
                     // the ring too.
-                    if ( focused != nullptr && *focused == e && !tree.Has<UIInputFieldData>( e ) &&
+                    if ( focused != nullptr && *focused == e && !IsTextEntry( tree, e ) &&
                          ShowsFocusRing( FocusCauseOf( ctx.View.FocusCause, e ) ) )
                         dl.AddRect(
                              mn, mx,
@@ -458,6 +532,23 @@ namespace Desert::UI
     } // namespace Walk
 
     using namespace Walk;
+
+    namespace
+    {
+        // The input @p view sees this frame: the pointer always, the keys and the typed text only while it
+        // holds its user's keyboard (UIKeyboardUser). Every control reads keys from the input it is handed,
+        // so scoping the input once here is what keeps a second view's focused field from also typing.
+        const UIInput* KeyboardScoped( const UIViewContext& view, const UIInput* input, UIInput& keyless )
+        {
+            if ( input == nullptr || input->HoldsKeyboard( view ) )
+                return input;
+            keyless = *input;
+            keyless.Keys.clear();
+            keyless.TypedText.clear();
+            keyless.Clipboard = nullptr;
+            return &keyless;
+        }
+    } // namespace
 
     void BeginUIFrame( UIViewContext& view, IUITree& tree, const Rect& viewportPx, float frameDtSeconds )
     {
@@ -497,6 +588,8 @@ namespace Desert::UI
             view.PointerTarget = NodeId::Null;
         if ( view.WheelTarget != NodeId::Null && !tree.Valid( view.WheelTarget ) )
             view.WheelTarget = NodeId::Null;
+        if ( view.Capture != NodeId::Null && !tree.Valid( view.Capture ) )
+            view.Capture = NodeId::Null;
 
         // The election is over the whole frame: every canvas of this view writes into it in draw order and
         // the topmost writer wins, which is what lets an overlay canvas take the pointer from the HUD.
@@ -563,6 +656,9 @@ namespace Desert::UI
             return Common::MakeFormattedError(
                  "[UI] RenderCanvas2D was given a tree the open frame does not belong to (canvas {})",
                  static_cast<std::uint32_t>( canvasEntity ) );
+
+        UIInput keyless;
+        input = KeyboardScoped( view, input, keyless );
 
         // THE PAIR, BOUND HERE AND NOWHERE ELSE: this view's own cell for this canvas.
         WalkCtx ctx{ view, view.CanvasState( canvasEntity ), CanvasStyle{} };
@@ -660,7 +756,7 @@ namespace Desert::UI
                     dl.AddRectFilled( { viewportPx.X, viewportPx.Y },
                                       { viewportPx.X + viewportPx.W, viewportPx.Y + viewportPx.H },
                                       Tinted( ctx, scrim ) );
-                if ( input && PointIn( viewportPx, input->MousePx ) )
+                if ( input && input->PointerOver && PointIn( viewportPx, input->MousePx ) )
                 {
                     ctx.View.HotNext     = canvasEntity;
                     ctx.View.HotNextRect = viewportPx;
@@ -751,8 +847,9 @@ namespace Desert::UI
             for ( std::size_t i = 0; i < options.size(); ++i )
             {
                 const Rect row{ popup.X, popup.Y + static_cast<float>( i ) * rowH, popup.W, rowH };
-                const bool hover = input && input->MousePx.x >= row.X && input->MousePx.x <= row.X + row.W &&
-                                   input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
+                const bool hover = input && input->PointerOver && input->MousePx.x >= row.X &&
+                                   input->MousePx.x <= row.X + row.W && input->MousePx.y >= row.Y &&
+                                   input->MousePx.y <= row.Y + row.H;
                 const auto keyHl = ctx.View.DropdownHighlight.find( pi.Entity );
                 const bool keyed =
                      keyHl != ctx.View.DropdownHighlight.end() && keyHl->second == static_cast<int>( i );
@@ -800,6 +897,8 @@ namespace Desert::UI
                        "must sit between BeginUIFrame and EndUIFrame" );
             return;
         }
+        UIInput keyless;
+        input = KeyboardScoped( view, input, keyless );
 
         // --- Pointer events, drag & drop -------------------------------------------------------------
         // Everything here runs on the freshly elected hot element, AFTER the tree is laid out: enter/exit
@@ -918,23 +1017,60 @@ namespace Desert::UI
                         emit( ev->OnEnterMessage );
             }
 
+            // One press of @p button on this frame's election: the next click of the series the last press
+            // started, or the first of a new one (UIPressRecord).
+            auto recordPress = [&]( UIPointerButton button )
+            {
+                const UIPressRecord& last = view.LastPress;
+                const bool series = last.Clicks > 0 && last.Button == button && last.Target == view.HotNext &&
+                                    view.Time - last.Time <= static_cast<double>( input->DoubleClickSeconds ) &&
+                                    glm::length( input->MousePx - last.Pos ) <= UIPressRecord::kDoubleClickSlopPx;
+                view.LastPress = UIPressRecord{ .Button = button,
+                                                .Target = view.HotNext,
+                                                .Pos    = input->MousePx,
+                                                .Time   = view.Time,
+                                                .Frame  = view.FrameIndex,
+                                                .Clicks = series ? last.Clicks + 1 : 1 };
+            };
+
             const bool pressed = input->MouseDown && !view.PrevDown; // UIInput carries held + release only
             if ( pressed )
             {
                 route( view.HotNext, &UIPointerEventsData::OnDownMessage );
+                recordPress( UIPointerButton::Left );
 
-                // Start a drag from a draggable element. The ghost is the source's own footprint, so the
-                // cursor carries something the size of what it picked up.
-                if ( view.HotNext != NodeId::Null && tree.Valid( view.HotNext ) &&
-                     tree.Has<UIDraggableData>( view.HotNext ) )
+                // The press takes the capture when the control it lands on holds the pointer (CapturesPointer).
+                // The control is resolved from THIS frame's election, the element the press was made on.
+                if ( const NodeId control = Walk::PointerTargetOf( tree, view.HotNext );
+                     Walk::CapturesPointer( tree, control ) )
+                    view.Capture = control;
+
+                // THE CLICK MOVES THE KEYBOARD (UIKeyboardUser): a press that landed on an element of this
+                // view — the pointer is over it, so the election is not empty — makes it the owner, and the
+                // view that owned it drops its focus on its next frame. A press on none of its elements is
+                // reported too: when no view found one, the host's SettlePress hands the keyboard to the
+                // surface behind them (the editor's viewport), as a click on an empty SViewport focuses it.
+                if ( input->Keyboard != nullptr )
+                    input->Keyboard->Pressed( view, view.HotNext != NodeId::Null );
+
+                // Start a drag from the nearest drag source at or above the element pressed (Slate's
+                // OnDragDetected bubbles the same way: a row's label is what you grab, the row is what moves).
+                // The source makes its payload NOW, from the model as it is at the press.
+                std::optional<UIDragPayload> payload;
+                const NodeId                 source = NearestAtOrAbove(
+                     tree, view.HotNext,
+                     [&]( NodeId t )
+                     {
+                         payload = DragSourceAt( tree, t, glm::vec2( view.HotNextRect.W, view.HotNextRect.H ) );
+                         return payload.has_value();
+                     } );
+                if ( source != NodeId::Null )
                 {
                     // Only PENDING for now — a press that never moves is a click, not a drag.
-                    const auto& d      = *tree.Get<UIDraggableData>( view.HotNext );
+                    view.Drag          = UIDragState{};
                     view.Drag.Pending  = true;
-                    view.Drag.Source   = view.HotNext;
-                    view.Drag.Payload  = d.Payload;
-                    view.Drag.Ghost    = d.GhostOpacity;
-                    view.Drag.Size     = { view.HotNextRect.W, view.HotNextRect.H };
+                    view.Drag.Source   = source;
+                    view.Drag.Payload  = std::move( *payload );
                     view.Drag.PressPos = input->MousePx;
                 }
             }
@@ -946,30 +1082,66 @@ namespace Desert::UI
                     view.Drag.Active = true;
             }
 
+            // THE TARGET UNDER THE CURSOR, once per frame of a drag: the nearest node at or above the element
+            // pointed at that ACCEPTS the payload — a target is usually a panel whose children are what you
+            // actually point at, and an inner target that refuses lets an outer one that accepts take it
+            // (Slate's unhandled OnDragOver bubbling) — else the nearest that refuses, which is what the
+            // rejected outline and the red decorator show. Never the source itself.
+            if ( view.Drag.Active )
+            {
+                view.Drag.Over       = NodeId::Null;
+                view.Drag.OverAnswer = UIDropAnswer::None;
+                std::size_t guard    = 0;
+                for ( NodeId t = view.HotNext; t != NodeId::Null && tree.Valid( t ) && guard++ <= tree.NodeBound();
+                      t        = tree.Parent( t ) )
+                {
+                    if ( t == view.Drag.Source )
+                        continue;
+                    const UIDropAnswer answer = DropAnswerAt( tree, t, view.Drag.Payload );
+                    if ( answer == UIDropAnswer::Accept )
+                    {
+                        view.Drag.Over       = t;
+                        view.Drag.OverAnswer = answer;
+                        break;
+                    }
+                    if ( answer == UIDropAnswer::Reject && view.Drag.OverAnswer == UIDropAnswer::None )
+                    {
+                        view.Drag.Over       = t;
+                        view.Drag.OverAnswer = answer;
+                    }
+                }
+            }
+
+            // ESCAPE CANCELS A DRAG, before anything else may take the key: the overlay machine below would
+            // otherwise close a menu (or go back a screen) under a drag the user meant to abandon. The payload
+            // is destroyed and nobody hears the release that follows.
+            if ( ( view.Drag.Active || view.Drag.Pending ) && input->Pressed( Common::KeyCode::Escape ) &&
+                 !view.KeyConsumed( Common::KeyCode::Escape ) )
+            {
+                view.Drag = UIDragState{};
+                view.ConsumeKey( Common::KeyCode::Escape );
+            }
+
             if ( input->MouseReleased )
             {
                 route( view.HotNext, &UIPointerEventsData::OnUpMessage );
 
-                if ( view.Drag.Active )
+                // THE DROP: only onto the target that accepts (resolved above, this frame). A release over a
+                // refusing target or over no target at all is a cancel — the payload dies with the state.
+                if ( view.Drag.Active && view.Drag.OverAnswer == UIDropAnswer::Accept &&
+                     tree.Valid( view.Drag.Over ) )
                 {
-                    // Drop on the element under the cursor, or on the nearest ancestor that accepts — a
-                    // target is usually a panel whose children are what you actually point at.
-                    for ( NodeId t = view.HotNext; t != NodeId::Null && tree.Valid( t ); )
-                    {
-                        if ( tree.Has<UIDropTargetData>( t ) )
-                        {
-                            const auto& dt = *tree.Get<UIDropTargetData>( t );
-                            if ( Accepts( dt, view.Drag.Payload ) && t != view.Drag.Source )
-                            {
-                                emit( dt.OnDropMessage.empty() ? view.Drag.Payload
-                                                               : dt.OnDropMessage + "|" + view.Drag.Payload );
-                                break;
-                            }
-                        }
-                        t = tree.Parent( t );
-                    }
+                    // An authored target answers with its message, as it always has: "OnDropMessage|payload".
+                    // It accepts only authored payloads (DropAnswerAt), so the text is there.
+                    const UIDropTargetData* dt   = tree.Get<UIDropTargetData>( view.Drag.Over );
+                    const std::string*      text = view.Drag.Payload.As<std::string>();
+                    if ( dt != nullptr && text != nullptr )
+                        emit( dt->OnDropMessage.empty() ? *text : dt->OnDropMessage + "|" + *text );
+                    view.LastDrop = UIDropRecord{ .Target  = view.Drag.Over,
+                                                  .Payload = std::move( view.Drag.Payload ),
+                                                  .Frame   = view.FrameIndex };
                 }
-                view.Drag = UIDragState{}; // a plain click on a draggable ends here too
+                view.Drag = UIDragState{}; // a plain click on a drag source ends here too
             }
             // THE OVERLAY MACHINE RUNS ON THIS FRAME'S ELECTION AND ON THIS FRAME'S PRESS EDGE — so it has
             // to be here, BEFORE PrevDown is overwritten with the current state. Running it after cost an
@@ -993,10 +1165,25 @@ namespace Desert::UI
 
             view.PrevDown = input->MouseDown;
 
-            // The ghost rides on top of everything, drawn after the tree so nothing overlaps it.
+            if ( input->MouseMiddleDown && !view.PrevMiddleDown )
+            {
+                recordPress( UIPointerButton::Middle );
+                if ( input->Keyboard != nullptr ) // a middle press moves the keyboard too (UIKeyboardUser)
+                    input->Keyboard->Pressed( view, view.HotNext != NodeId::Null );
+            }
+            view.PrevMiddleDown = input->MouseMiddleDown;
+
+            // The capture lasts while the button that took it is held — and not past its captor.
+            if ( !input->MouseDown || !tree.Valid( view.Capture ) )
+                view.Capture = NodeId::Null;
+
+            // THE DECORATOR rides on top of everything, drawn after the tree so nothing overlaps it: a ghost
+            // of the source's footprint, its border saying what a release here would do (accept / refuse /
+            // nothing), and the payload's label (Slate's FDecoratedDragDropOp).
             if ( view.Drag.Active )
             {
-                const glm::vec2 half = view.Drag.Size * 0.5f;
+                const UIDragDecorator& deco = view.Drag.Payload.Decorator();
+                const glm::vec2        half = deco.Size * 0.5f;
                 const glm::vec2 mn   = input->MousePx - half;
                 const glm::vec2 mx   = input->MousePx + half;
                 // The ghost is drawn AFTER the walk, so there is no WalkCtx in scope to resolve through.
@@ -1020,13 +1207,25 @@ namespace Desert::UI
                 dl.AddRectFilled(
                      mn, mx,
                      glm::vec4( ghostStyle.Color( StyleSlot::DragGhost, glm::vec3( 0.35f, 0.55f, 0.85f ) ),
-                                view.Drag.Ghost * 0.6f ),
+                                deco.Opacity * 0.6f ),
                      6.0f );
-                dl.AddRect(
-                     mn, mx,
-                     glm::vec4( ghostStyle.Color( StyleSlot::DragGhostBorder, glm::vec3( 0.75f, 0.87f, 1.0f ) ),
-                                view.Drag.Ghost ),
-                     2.0f );
+                glm::vec3 border = ghostStyle.Color( StyleSlot::DragGhostBorder, glm::vec3( 0.75f, 0.87f, 1.0f ) );
+                if ( view.Drag.OverAnswer == UIDropAnswer::Accept )
+                    border = ghostStyle.Color( StyleSlot::DropTargetHighlight, glm::vec3( 0.35f, 0.75f, 1.0f ) );
+                else if ( view.Drag.OverAnswer == UIDropAnswer::Reject )
+                    border = ghostStyle.Color( StyleSlot::DropTargetRejected, glm::vec3( 0.95f, 0.33f, 0.28f ) );
+                dl.AddRect( mn, mx, glm::vec4( border, deco.Opacity ), 2.0f );
+                if ( !deco.Label.empty() )
+                {
+                    UITextData label;
+                    label.Text     = deco.Label;
+                    label.FontSize = 14.0f;
+                    label.Color    = ghostStyle.Color( StyleSlot::TextColor, glm::vec3( 1.0f ) );
+                    label.Font     = ghostStyle.Font( StyleSlot::TextFont, Common::AssetHandle{} );
+                    label.Align    = UITextAlign::Left;
+                    const Rect labelRect{ mn.x + 8.0f, mn.y, std::max( mx.x - mn.x - 16.0f, 0.0f ), mx.y - mn.y };
+                    DrawText2D( view.Resources(), dl, label, labelRect, 1.0f, view.Tint, view.Time );
+                }
             }
         }
 
@@ -1036,8 +1235,13 @@ namespace Desert::UI
         // than here, so it stays readable between the two.
         const NodeId prevPointerTarget = view.PointerTarget;
         view.Hot                       = view.HotNext;
-        view.PointerTarget             = Walk::PointerTargetOf( tree, view.Hot );
-        view.WheelTarget               = Walk::WheelTargetOf( tree, view.Hot );
+        // A captor keeps the pointer wherever it went (UIViewContext::Capture); a frame with no pointer at all
+        // holds no capture.
+        if ( input == nullptr )
+            view.Capture = NodeId::Null;
+        view.PointerTarget = view.Capture != NodeId::Null ? view.Capture : Walk::PointerTargetOf( tree, view.Hot );
+        view.WheelTarget   = Walk::WheelTargetOf( tree, view.Hot );
+        view.Cursor = input != nullptr ? Walk::CursorFor( tree, view.Hot, view.Capture ) : UICursorShape::Default;
 
         // Keyboard / gamepad navigation (UIFocus.hpp): Tab / Shift+Tab walk the draw-order list across every
         // canvas of the frame (wrapping), arrows move spatially to the nearest control in that direction.
@@ -1049,7 +1253,12 @@ namespace Desert::UI
         // Before navigation, the pointer: a button it ENTERED takes focus (PointerFocusTarget), so a key
         // pressed in the same frame still wins, and a pointer resting still never pulls focus back.
         // Each move records its cause (UIFocusCause) with the control, for the focus ring.
-        if ( focused != nullptr )
+        // A view without its user's keyboard holds no focus: the focus path is one per user, and the view
+        // the click went to has it (UIKeyboardUser). Leaving the old focus in place would draw a second
+        // focus ring and hand the field its keys back the moment ownership returned without a click.
+        if ( focused != nullptr && input != nullptr && !input->HoldsKeyboard( view ) )
+            *focused = NodeId::Null;
+        else if ( focused != nullptr )
         {
             const NodeId before = *focused;
             UIFocusCause cause  = FocusCauseOf( view.FocusCause, *focused );
@@ -1062,8 +1271,7 @@ namespace Desert::UI
                     *focused = hovered;
                     cause    = UIFocusCause::Pointer;
                 }
-                const bool textEntry =
-                     *focused != NodeId::Null && tree.Valid( *focused ) && tree.Has<UIInputFieldData>( *focused );
+                const bool   textEntry = IsTextEntry( tree, *focused );
                 const NodeId next =
                      ResolveNavigation( tree, view.Focusables, view.NavigationBoxes, *focused,
                                         NavigationOf( *input, textEntry, view.ConsumedKeys ), view.ViewportPx );

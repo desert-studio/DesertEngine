@@ -1,6 +1,8 @@
 #pragma once
 
 #include <UI/Args/ArgKind.hpp>
+#include <UI/UICursor.hpp>
+#include <UI/UIDragDrop.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +24,8 @@
 // tree every frame, exactly as the ECS walk did, so a frame drawn through it is the frame drawn before.
 namespace Desert::UI
 {
+    struct UIPaintArgs;
+
     // A node of the tree. Bit-for-bit an `entt::entity` in the ECS adapter (null mapped explicitly), so the
     // id a debugger prints for an element is the same id either side of the seam.
     enum class NodeId : std::uint32_t
@@ -72,6 +76,68 @@ namespace Desert::UI
         // WidgetComponent is a scene component; the widget tree itself has no world). nullopt when the host
         // gives the node no placement.
         [[nodiscard]] virtual std::optional<glm::vec3> WorldOrigin( NodeId n ) const = 0;
+
+        // The pointer shape @p n asks for while the pointer is over it or it holds the capture — a splitter's
+        // resize arrows, a link's hand. nullopt = the node states none, and the framework's own answer for
+        // its control kind stands (a text field's I-beam). Not pure: a store whose authored data carries no
+        // cursor (the ECS scene today) truthfully states none for every node.
+        [[nodiscard]] virtual std::optional<UICursorShape> CursorOf( NodeId n ) const
+        {
+            (void)n;
+            return std::nullopt;
+        }
+
+        // Is @p n a pointer control by the tree's own declaration — one that a press on it (or on anything
+        // inside it) belongs to, and that then HOLDS the pointer until the button is up (UIViewContext::
+        // Capture)? A splitter's drag handle is: it must keep resizing when the pointer outruns it. The
+        // authored control kinds answer for themselves (a slider captures, a button does not); this is for a
+        // node whose behaviour is code rather than an authored kind. Not pure: false for every node of a
+        // store that has none.
+        [[nodiscard]] virtual bool CapturesPointer( NodeId n ) const
+        {
+            (void)n;
+            return false;
+        }
+
+        // Is @p n a TEXT-INPUT node by the tree's own declaration — one whose code (its Paint) edits text, as
+        // an authored InputField does? It is focusable, a press on it focuses it, its view's focus ring is
+        // its own to draw, and while it holds focus the keys that would navigate are its text (W/S, the
+        // pointer entering a button does not take focus away). Not pure: false for a store that has none.
+        [[nodiscard]] virtual bool TakesTextInput( NodeId n ) const
+        {
+            (void)n;
+            return false;
+        }
+
+        // SLATE'S OnDragDetected: the operation a drag started on @p n carries (UIDragDrop.hpp), or nullopt
+        // when @p n is no drag source. Asked once, on the press, for the nearest node at or above the element
+        // the press landed on; an authored UIDraggableData answers for itself before this is asked. Not pure:
+        // a store whose sources are all authored states none.
+        [[nodiscard]] virtual std::optional<UIDragPayload> DragSourceOf( NodeId n ) const
+        {
+            (void)n;
+            return std::nullopt;
+        }
+
+        // SLATE'S OnDragOver: @p n's answer to @p payload — None when @p n is not a drop target at all, so the
+        // question goes on to its parent. Asked every frame of a drag for the nodes the walk draws and the
+        // chain under the cursor. An authored UIDropTargetData answers for itself before this is asked.
+        [[nodiscard]] virtual UIDropAnswer DropAnswerOf( NodeId n, const UIDragPayload& payload ) const
+        {
+            (void)n;
+            (void)payload;
+            return UIDropAnswer::None;
+        }
+
+        // Draw @p n's own content (UIPaint.hpp, Slate's OnPaint) into the frame's draw list. Called by the walk
+        // for every node with a rect, after its widgets and before its children. Default: nothing — a node's
+        // look is its authored arguments, and only a tree whose nodes carry code (the retained tree) has more.
+        // May edit the tree's arguments and its owner's state; must not create or destroy nodes.
+        virtual void Paint( NodeId n, const UIPaintArgs& args )
+        {
+            (void)n;
+            (void)args;
+        }
 
         template <class T>
         [[nodiscard]] const T* Get( NodeId n ) const

@@ -30,4 +30,7 @@ namespace Desert::UI::Walk
                       const Rect& rect, float scale, const glm::vec4& tint, double viewSeconds,
                       RichTextLinks* links = nullptr );
     float MeasureTextPx( IUICanvasResources& res, const std::string& text, float fontSizePx );
+    // The default face's line box at @p fontPx — the (Ascent - Descent) * s DrawText2D steps lines by; a text
+    // editor steps its lines, carets and hit-tests by the same value so they sit where the glyphs do.
+    float LineHeightPx( IUICanvasResources& res, float fontPx );
 } // namespace Desert::UI::Walk

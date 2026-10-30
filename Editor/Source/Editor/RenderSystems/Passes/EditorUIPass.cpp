@@ -13,9 +13,12 @@
 #include <Engine/Core/EngineContext.hpp>
 
 #include <Editor/Core/Selection/UIPreview.hpp>
+#include <UI/Retained/WidgetGallery.hpp>
 #include <Editor/Core/UIProbeRegistry.hpp>
 
 #include <Common/Core/Logger.hpp>
+
+#include <optional>
 
 namespace Desert::Editor::Render
 {
@@ -114,7 +117,9 @@ namespace Desert::Editor::Render
                 if ( shot.PlayActive() && scene->IsPlaying() )
                     ++m_CliPlayWalks;
                 const bool live      = !shot.PlayActive() || m_CliPlayWalks >= 2;
-                const bool ready     = live && m_UIView.Hot != UI::NodeId::Null;
+                // Either view's election counts: over the gallery the level elects nothing (UIInput::PointerOver).
+                const bool ready     = live && ( m_UIView.Hot != UI::NodeId::Null ||
+                                             ( pv.WidgetGallery && m_GalleryView.Hot != UI::NodeId::Null ) );
                 input.MouseDown      = ready && shot.UIPress == ShotOptions::UIButtonHeld::Left;
                 input.MouseRightDown = ready && shot.UIPress == ShotOptions::UIButtonHeld::Right;
             }
@@ -124,13 +129,35 @@ namespace Desert::Editor::Render
                                         pv.MousePx.y * ( h / pv.DisplaySize.y ) };
                 input.MouseDown      = pv.Down;
                 input.MouseReleased  = pv.Released;
-                input.MouseRightDown = pv.RightDown;
+                input.MouseRightDown     = pv.RightDown;
+                input.MouseMiddleDown    = pv.MiddleDown;
+                input.DoubleClickSeconds = pv.DoubleClickSeconds;
                 input.ScrollDelta   = pv.Scroll;
                 input.Keys           = pv.Keys;
                 input.Mods           = pv.Mods;
                 input.TypedText     = pv.TypedText;
                 input.Clipboard      = &clipboard;
             }
+
+            // ONE KEYBOARD FOR BOTH VIEWS (UIKeyboardUser): keys reach only the view that owns it, so a field
+            // focused in the gallery and a field focused in the level never both take the same keystroke. A
+            // hidden gallery cannot hold it.
+            //
+            // WHO HOLDS IT UNTIL SOMETHING IS CLICKED follows the world, as in UE: an authored level is the
+            // editor's, so its viewport holds the keyboard (camera keys, shortcuts — Owner null); Play hands it
+            // to the game's canvases the moment it starts (PIE focuses the game viewport's widgets), so a menu
+            // walks with the arrows without a click, and Stop gives it back to the viewport.
+            const bool playing = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+
+            const UI::UIViewContext* const unclicked = playing ? &m_UIView : nullptr;
+            if ( playing != m_KeyboardPlaying )
+            {
+                m_KeyboardPlaying = playing;
+                m_Keyboard.Owner  = unclicked;
+            }
+            if ( !pv.WidgetGallery && m_Keyboard.Owner == &m_GalleryView )
+                m_Keyboard.Owner = unclicked;
+            input.Keyboard = &m_Keyboard;
 
             std::vector<std::string> uiMessages;
             // EVERY CANVAS OF THE LEVEL, in authored order. This pass used to ask UI::SoleCanvas and REFUSE
@@ -163,7 +190,20 @@ namespace Desert::Editor::Render
             // it); Play / Paused is the game, where AutoPlay clips start — at t = 0, because entering Play
             // dropped their players (Core::BeginPlay). Auto-playing in Edit ran a three-second clip out while
             // the level was being looked at, and Play then inherited the finished playhead: a black viewport.
-            m_UIView.GameWorld = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
+            m_UIView.GameWorld = playing;
+
+            // THE TOPMOST VIEW OWNS THE POINTER (Slate's hit-test grid: the window on top wins). The gallery is
+            // drawn over the level, so while it holds the pointer — something of it is under the pointer, or a
+            // press on it is being held — the level's canvases see the pointer as not over them
+            // (UIInput::PointerOver) and a click on the gallery never also lands on the level behind it. A drag
+            // the LEVEL started keeps the pointer the other way round, so a level slider dragged across the
+            // gallery is not handed over mid-drag. Both views read the other's election of the last frame — the
+            // same one-frame-old Hot every control already reacts to.
+            const bool levelHolds = m_UIView.Capture != UI::NodeId::Null;
+            const bool galleryHolds =
+                 pv.WidgetGallery && !levelHolds &&
+                 ( m_GalleryView.Hot != UI::NodeId::Null || m_GalleryView.Capture != UI::NodeId::Null );
+            input.PointerOver = !galleryHolds;
 
             const std::vector<entt::entity> canvases = UI::CanvasesInDrawOrder( scene->GetRegistry() );
             UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
@@ -176,6 +216,60 @@ namespace Desert::Editor::Render
             UI::EndUIFrame( m_UIView, scene->GetRegistry(), m_Render2D.GetDrawList(), feed ? &input : nullptr,
                             feed ? &pv.Focused : nullptr, feed ? &clicked : nullptr,
                             feed ? &uiMessages : nullptr );
+
+            // THE RETAINED WIDGET GALLERY, a tree of its own drawn in a view of its own over the level's
+            // canvases (a view is bound to one store: UIViewContext::Scene). Built on first show; its clicks
+            // and messages are its own and go to its delegates, never to the level's dispatch below.
+            UI::UICursorShape cursor = m_UIView.Cursor;
+            if ( pv.WidgetGallery )
+            {
+                if ( !m_Gallery.Valid( m_GalleryCanvas ) )
+                    m_GalleryCanvas = UI::BuildWidgetGallery( m_Gallery, m_GalleryModel );
+                m_GalleryView.Materials            = &m_Render2D.Materials();
+                m_GalleryView.RenderTextures       = &m_RenderTextures;
+                m_GalleryView.AuthoringPreview     = !feed;
+                m_GalleryView.DrivesSceneAnimation = false;
+
+                input.PointerOver = !levelHolds;
+
+                std::string              galleryClicked;
+                std::vector<std::string> galleryMessages;
+                m_Gallery.RefreshAttributes();
+                UI::BeginUIFrame( m_GalleryView, m_Gallery, UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
+                if ( const auto drawn =
+                          UI::RenderCanvas2D( m_GalleryView, m_Gallery, m_GalleryCanvas, m_Render2D.GetDrawList(),
+                                              nullptr, feed ? &input : nullptr, feed ? &galleryClicked : nullptr,
+                                              feed ? &m_GalleryFocused : nullptr );
+                     !drawn )
+                    LOG_ERROR( "[UI Preview] widget gallery: {}", drawn.GetError() );
+                UI::EndUIFrame( m_GalleryView, m_Gallery, m_Render2D.GetDrawList(), feed ? &input : nullptr,
+                                feed ? &m_GalleryFocused : nullptr, feed ? &galleryClicked : nullptr,
+                                feed ? &galleryMessages : nullptr );
+                m_Gallery.DispatchFrame( m_GalleryView, galleryClicked, galleryMessages );
+                // A widget that asked for the keyboard (a spin box entering text mode) gets it: the gallery's
+                // focus moves to the node it named and the gallery's view becomes the keyboard's owner, so
+                // the next frame's keys reach that field and nothing in the level (UIKeyboardUser).
+                if ( const std::optional<UI::NodeId> request = m_Gallery.TakeKeyboardFocusRequest() )
+                {
+                    m_GalleryFocused = *request;
+                    if ( *request != UI::NodeId::Null )
+                        m_Keyboard.Owner = &m_GalleryView;
+                }
+                if ( m_GalleryView.Cursor != UI::UICursorShape::Default )
+                    cursor = m_GalleryView.Cursor;
+            }
+            pv.Cursor = feed ? cursor : UI::UICursorShape::Default;
+
+            // A PRESS NO VIEW TOOK GOES TO THE VIEWPORT (UIKeyboardUser::SettlePress, Slate SViewport): after
+            // the last view, so a press the level found nothing under but the gallery did stays the gallery's.
+            // Published for the panel (camera keys, viewport shortcuts) and the control channel.
+            m_Keyboard.SettlePress();
+            Core::UIKeyboardHolder holder = Core::UIKeyboardHolder::Viewport;
+            if ( feed && m_Keyboard.Owner == &m_UIView )
+                holder = Core::UIKeyboardHolder::Level;
+            else if ( feed && m_Keyboard.Owner == &m_GalleryView )
+                holder = Core::UIKeyboardHolder::Gallery;
+            pv.Keyboard = holder;
 
             // BEFORE Flush and AFTER the frame: this is the one moment the frame's draw list is complete
             // and still readable, and it is the same object Flush is about to turn into draw calls — so the

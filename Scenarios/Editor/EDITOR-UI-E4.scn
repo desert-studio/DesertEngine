@@ -1,0 +1,36 @@
+# EDITOR-UI-E4: the typed drag-and-drop payload (UIDragDrop.hpp) on the retained gallery's drag row - list A | list B |
+# a well that takes colours only. An item is dragged from A onto B (accepted), then from B onto the well (rejected:
+# red outline, nothing kept), then a drag from A is cancelled by Escape.
+# Gallery layout, reference px (1280x720, panel 680x656: x 300..980, y 60..716, column spacing 10, computed from
+# WidgetGallery.cpp, NOT measured - check 1_gallery first): the drag row is y 626..698 under the list (496..616):
+# list A x 300..520, list B 530..750, well 760..940; chips 64x32 at y 646..678 (centre 662) - A x 308/378/448,
+# B x 538/608/678 (centres A 340,410,480; B 570,640,710). Points = the viewport panel's points (E2: centre 640,360).
+Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 1_gallery галерея: внизу ряд «список A: Rock Tree Bush | пустой список B | плашка "Colours only"»; ни одной рамки приёма
+Когда input press Viewport 340,662
+Когда input move Viewport 360,662
+Когда input move Viewport 640,662
+Когда 2 frames render
+Тогда-вид 2_over_b под курсором призрак 64x32 с подписью «Rock» и рамкой цвета приёма; список B обведён ярко (3 px), список A тускло (2 px); плашка Colours only без рамки; Rock в A ещё на месте
+Когда input release Viewport 640,662
+Когда 2 frames render
+Тогда [log] state: Gallery.DragA = Tree, Bush; Gallery.DragB = Rock
+Тогда-вид 3_dropped список A «Tree Bush», список B «Rock»; призрака и рамок нет
+Когда input press Viewport 570,662
+Когда input move Viewport 600,662
+Когда input move Viewport 850,662
+Когда 2 frames render
+Тогда-вид 4_over_well плашка Colours only обведена красным (3 px), рамка призрака «Rock» красная; списки A и B обведены тускло (оба принимают)
+Когда input release Viewport 850,662
+Когда 2 frames render
+Тогда [log] state: Gallery.DragB = Rock (отказ ничего не взял), Tint галереи не изменился
+Тогда-вид 5_rejected список B по-прежнему «Rock», плашка Colours only пустая и без рамки; призрака нет
+Когда input press Viewport 340,662
+Когда input move Viewport 640,662
+Когда 2 frames render
+Когда input key Viewport - Escape
+Когда input release Viewport 640,662
+Когда 2 frames render
+Тогда-вид 6_cancelled Escape отменил перетаскивание: A «Tree Bush», B «Rock» без изменений; галерея открыта (Escape не закрыл её и не ушёл в MainMenu)
+Тогда [log] нет assert и VUID

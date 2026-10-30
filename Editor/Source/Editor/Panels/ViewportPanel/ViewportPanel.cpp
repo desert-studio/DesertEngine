@@ -191,6 +191,13 @@ namespace Desert::Editor
                     return ImGuiMouseCursor_Arrow;
             }
         }
+
+        // Does the viewport itself hold the keyboard, rather than a field of the UI drawn in it
+        // (UIPreview::Keyboard, published by the EditorUIPass from its UIKeyboardUser)?
+        bool ViewportHoldsKeyboard()
+        {
+            return Core::UIPreview::Get().Keyboard == Core::UIKeyboardHolder::Viewport;
+        }
     } // namespace
 
     std::vector<ViewportPanel*> ViewportPanel::s_Live;
@@ -1861,10 +1868,13 @@ namespace Desert::Editor
             m_OnActivate();
 
         // Feed the fly-camera its input gate: WASD/QE/arrows work while the viewport is hovered
-        // and no text field owns the keyboard (otherwise typing "wasd" in a search box flies away).
+        // and no text field owns the keyboard (otherwise typing "wasd" in a search box flies away) — neither an
+        // ImGui one nor a field of the UI drawn in this viewport: the camera reads keys only while the viewport
+        // itself holds the keyboard (UIPreview::Keyboard; a click on empty viewport space takes it back).
         if ( auto* editorCam = dynamic_cast<::Desert::Core::EditorCamera*>( mainCamera.get() ) )
         {
-            editorCam->SetInputEnabled( m_ViewportData.IsHovered && !ImGui::GetIO().WantTextInput );
+            editorCam->SetInputEnabled( m_ViewportData.IsHovered && !ImGui::GetIO().WantTextInput &&
+                                        ViewportHoldsKeyboard() );
             // A modeling tool binds the bare Q/E (Push/Pull) and WASD, so hand it the keyboard: the camera
             // only flies while RMB is held, as in UE's Modeling Mode.
             editorCam->SetKeyboardRequiresLook( Core::ViewportMode::Get() == Core::EditorMode::Modeling &&
@@ -1899,7 +1909,7 @@ namespace Desert::Editor
             // FOCUS, as Slate's does (FSlateUser keyboard focus), not the hover the pointer needs: a menu
             // keeps answering ↑/↓ while the cursor rests on another panel.
             const bool playing = m_Scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
-            if ( m_UIPreview || playing )
+            if ( m_UIPreview || playing || pv.WidgetGallery )
             {
                 const bool down = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Left );
                 pv.Enabled      = true;
@@ -1909,6 +1919,36 @@ namespace Desert::Editor
                 pv.Released     = pv.Down && !down; // down->up edge
                 pv.Down         = down;
                 pv.RightDown    = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Right );
+                pv.MiddleDown         = m_ViewportData.IsHovered && ImGui::IsMouseDown( ImGuiMouseButton_Middle );
+                pv.DoubleClickSeconds = ImGui::GetIO().MouseDoubleClickTime;
+                // The shape the UI asked for last frame (the pass writes it after its EndUIFrame).
+                if ( m_ViewportData.IsHovered )
+                {
+                    using ::Desert::UI::UICursorShape;
+                    switch ( pv.Cursor )
+                    {
+                        case UICursorShape::Default:
+                            break; // the panel's own cursor stands
+                        case UICursorShape::TextBeam:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_TextInput );
+                            break;
+                        case UICursorShape::Hand:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_Hand );
+                            break;
+                        case UICursorShape::ResizeLeftRight:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeEW );
+                            break;
+                        case UICursorShape::ResizeUpDown:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeNS );
+                            break;
+                        case UICursorShape::ResizeAll:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_ResizeAll );
+                            break;
+                        case UICursorShape::NotAllowed:
+                            ImGui::SetMouseCursor( ImGuiMouseCursor_NotAllowed );
+                            break;
+                    }
+                }
                 pv.Scroll       = m_ViewportData.IsHovered ? ImGui::GetIO().MouseWheel : 0.0f;
                 // The keys the UI listens to, as events (UIInput::Keys). Fresh presses only — the same edge
                 // ImGui::IsKeyPressed( key, false ) gave the old per-meaning flags. Down/S come after Up/W, so
@@ -3043,6 +3083,10 @@ namespace Desert::Editor
             m_PlayerHoldsKeys = true;
             return false;
         }
+        // The viewport's shortcuts are the viewport's keys: while a UI field drawn in it holds the keyboard
+        // (the gallery's code field, a level InputField in Preview) the key is that field's text, not a command.
+        if ( !ViewportHoldsKeyboard() )
+            return false;
         if ( const std::optional<ViewportCommand> command = ViewportCommandForKey( e.GetKeyCode() ) )
         {
             if ( *command == ViewportCommand::SelectNone &&

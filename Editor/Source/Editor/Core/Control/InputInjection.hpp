@@ -22,6 +22,7 @@ namespace Desert::Editor::Control
         KeyUp,
         Drop,
         Scroll,
+        Char, // one typed character (Code = its codepoint), as glfwSetCharCallback delivers it
     };
 
     struct InputStep
@@ -240,8 +241,56 @@ namespace Desert::Editor::Control
                 return Common::MakeSuccess( Frames{ std::move( up ) } );
             return Common::MakeSuccess( Frames{ std::move( down ), std::move( up ) } );
         }
+        // type = the TEXT a keyboard types: the character events GLFW sends beside the key events
+        // (glfwSetCharCallback), which is the only thing a text field reads as typing - a key event alone
+        // types nothing. All of @p key's codepoints go in one frame, so a field takes them as one typed run
+        // (one undo step), as a paste-speed typist would.
+        if ( kind == "type" )
+        {
+            InputFrame typed;
+            for ( std::size_t i = 0; i < key.size(); )
+            {
+                const auto  lead  = static_cast<unsigned char>( key[i] );
+                std::size_t count = 0;
+                char32_t    code  = 0;
+                if ( lead < 0x80u )
+                    code = lead;
+                else if ( ( lead & 0xE0u ) == 0xC0u )
+                {
+                    count = 1;
+                    code  = lead & 0x1Fu;
+                }
+                else if ( ( lead & 0xF0u ) == 0xE0u )
+                {
+                    count = 2;
+                    code  = lead & 0x0Fu;
+                }
+                else if ( ( lead & 0xF8u ) == 0xF0u )
+                {
+                    count = 3;
+                    code  = lead & 0x07u;
+                }
+                else
+                    return Common::MakeFormattedError<Frames>( "'type' text '{}' is not UTF-8.", key );
+                if ( i + count >= key.size() )
+                    return Common::MakeFormattedError<Frames>( "'type' text '{}' ends inside a character.", key );
+                for ( std::size_t b = 1; b <= count; ++b )
+                {
+                    const auto next = static_cast<unsigned char>( key[i + b] );
+                    if ( ( next & 0xC0u ) != 0x80u )
+                        return Common::MakeFormattedError<Frames>( "'type' text '{}' is not UTF-8.", key );
+                    code = ( code << 6u ) | ( next & 0x3Fu );
+                }
+                typed.push_back( MakeInputStep( InputAction::Char, x, y, static_cast<int32_t>( code ) ) );
+                i += count + 1;
+            }
+            if ( typed.empty() )
+                return Common::MakeError<Frames>( "'type' needs the text to type." );
+            return Common::MakeSuccess( Frames{ std::move( typed ) } );
+        }
         return Common::MakeFormattedError<Frames>(
-             "'{}' is not an input kind: move, click, press, release, scroll, key, keydown, keyup, drop.", kind );
+             "'{}' is not an input kind: move, click, press, release, scroll, key, keydown, keyup, type, drop.",
+             kind );
     }
 
     class InputInjection

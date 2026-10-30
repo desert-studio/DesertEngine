@@ -1,0 +1,21 @@
+# EDITOR-UI-E6: a click on empty viewport space takes the keyboard (Slate SViewport). The viewport is the surface
+# behind the UI views and a keyboard owner of its own (UIKeyboardUser::Owner null): a press that no view's element
+# took gives it the keyboard (SettlePress, EditorUIPass), the gallery's code field loses focus, and the camera keys
+# and viewport shortcuts read the keyboard only while it holds it (UIPreview::Keyboard, ViewportPanel).
+# The owner is on the wire: `state` section "ui", field keyboardOwner = viewport | level | gallery.
+# Scene without canvases (Desert_Sandbox: no UICanvas), so the level elects nothing and the empty point is empty.
+# Layout, reference px (1280x720, computed from WidgetGallery.cpp, NOT measured - check 0_gallery first): gallery
+# column x 300..980 y 60..716; code field x 1000..1260 y 100..270 (E5). Empty point 150,400: left of the column.
+# Points = the viewport panel's points (E2: centre 640,360).
+Проект Desert.deproj --scene Content/Scenes/Desert_Sandbox.desce
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 0_gallery галерея по центру, справа панель «Lua» с пустым полем кода
+Когда input click Viewport 1130,150
+Когда input type Viewport - "local a = 1"
+Тогда [log] state ui: keyboardOwner = gallery (клавиатура у галереи после клика в поле кода)
+Когда input click Viewport 150,400
+Когда input type Viewport - "zz"
+Когда input key Viewport - T
+Тогда [log] state ui: keyboardOwner = viewport (клик в пустое место вида отдал клавиатуру виду)
+Тогда-вид 1_view_focus поле кода: одна строка «local a = 1» без «zz»; у поля нет синей рамки фокуса и нет каретки; остальная галерея без изменений
+Тогда [log] нет assert, VUID и ошибок UI в editor.log

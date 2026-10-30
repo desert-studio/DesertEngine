@@ -1,0 +1,31 @@
+# EDITOR-UI-E3: one keyboard owner across views (UIKeyboardUser) and the drag/typed number field (Widgets::NumberField,
+# ColorField) on the retained gallery.
+# Gallery layout, reference px (1280x720, panel 680x600 centred: x 300..980, y 60..660, column spacing 10, computed
+# from WidgetGallery.cpp, NOT measured - check 1_gallery first): Title y 60..96, buttons 106..154, Volume 164..188,
+# value row 198..230 (Toggle x 300..332, Speed 342..502, Tint swatch 512..544, R 550..650, G 656..756, B 762..862),
+# Name field 240..280. Points = the viewport panel's points (E2: centre 640,360).
+# Typing goes as key events (DesertCtl input key); whether a key event also carries TypedText is what step 2 shows.
+Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 1_gallery галерея: под слайдером ряд «тумблер | поле Speed 1.000 | свотч + R 0.800 G 0.500 B 0.200», ниже поле имени «Desert»
+Когда input click Viewport 620,260
+Когда input key Viewport - X
+Тогда [log] state: в поле Gallery.Name набран X, в канвах MainMenu ни одно поле/кнопка не получили клавишу (фокус уровня пуст)
+Тогда-вид 2_typed поле имени «DesertX» с синей рамкой фокуса; Speed 1.000, цвет не изменился; MainMenu под галереей без изменений
+Когда input press Viewport 400,214
+Когда input move Viewport 450,214
+Когда input release Viewport 450,214
+Тогда [log] state: Speed вырос на ~0.5 (50 px * 0.01), поле имени осталось «DesertX»
+Тогда-вид 3_dragged поле Speed показывает ~1.500 с заливкой на ~15% ширины; остальные поля не изменились
+Когда input click Viewport 400,214
+Когда input click Viewport 400,214
+Тогда-вид 4_text_mode поле Speed стало полем ввода с текстом «1.500» и синей рамкой фокуса; поле имени без фокуса
+Когда input key Viewport - Backspace
+Когда input key Viewport - Backspace
+Когда input key Viewport - Backspace
+Когда input key Viewport - Backspace
+Когда input key Viewport - Backspace
+Когда input key Viewport - 3
+Когда input key Viewport - Enter
+Тогда [log] state: Speed = 3.000; поле имени «DesertX» (Backspace не ушли в него)
+Тогда-вид 5_committed поле Speed снова перетаскиваемое и показывает 3.000 с заливкой 30%; ни одно другое поле не изменилось

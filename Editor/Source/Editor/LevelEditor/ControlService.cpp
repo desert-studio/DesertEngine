@@ -18,6 +18,7 @@
 #include "Editor/Panels/Foliage/FoliageToolProperties.hpp"
 #include "Editor/Core/Selection/ViewportMode.hpp"
 #include "Editor/Core/Selection/SelectionManager.hpp"
+#include "Editor/Core/Selection/UIPreview.hpp"
 #include "Editor/Core/SubjectEditorRegistry.hpp"
 #include "Editor/Core/SubjectOpenRequest.hpp"
 #include "Editor/Core/ViewportCameraProperties.hpp"
@@ -1943,6 +1944,7 @@ namespace Desert::Editor
             snapshot.Authoring.PreviewsBindPose = authoring.PreviewsBindPose();
         }
 
+        snapshot.UIKeyboard = Core::UIKeyboardHolderName( Core::UIPreview::Get().Keyboard );
         snapshot.Quiescence = m_FrameQuiescence;
         return snapshot;
     }

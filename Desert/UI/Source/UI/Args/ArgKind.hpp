@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace Desert::UI
@@ -43,4 +44,26 @@ namespace Desert::UI
         TreeView,
         Count
     };
+
+    // The number of argument kinds — the size of any table indexed by one.
+    inline constexpr std::size_t kArgKindCount = static_cast<std::size_t>( ArgKind::Count );
+
+    // The kinds a control writes its value back into, and no others (IUITree::FindState). One statement of
+    // the set for every tree: the ECS adapter and the retained widget tree both answer FindState from it,
+    // so a kind cannot be writable through one store and read-only through the other.
+    [[nodiscard]] constexpr bool IsStateKind( ArgKind kind )
+    {
+        switch ( kind )
+        {
+            case ArgKind::Toggle:
+            case ArgKind::Slider:
+            case ArgKind::InputField:
+            case ArgKind::Dropdown:
+            case ArgKind::ScrollView:
+            case ArgKind::ListView:
+                return true;
+            default:
+                return false;
+        }
+    }
 } // namespace Desert::UI

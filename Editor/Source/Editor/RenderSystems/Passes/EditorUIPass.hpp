@@ -1,10 +1,14 @@
 #pragma once
 
+#include <UI/Retained/RetainedCanvasResources.hpp>
+#include <UI/Retained/WidgetGallery.hpp>
+#include <UI/Retained/WidgetTree.hpp>
 #include <Engine/UI/Ecs/RegistryUICanvasResources.hpp>
 #include <Engine/Desert.hpp>
 #include <Engine/Graphic/Render2D/Render2D.hpp>
 #include <Engine/Graphic/Render2D/UIRenderTextureCache.hpp>
 #include <UI/UICanvasContext.hpp>
+#include <UI/UICanvasRenderer2D.hpp>
 
 namespace Desert::Editor::Render
 {
@@ -59,6 +63,23 @@ namespace Desert::Editor::Render
         // The engine resources this view draws with; declared first, so it outlives the view built on it.
         ::Desert::UI::RegistryUICanvasResources m_UIResources;
         ::Desert::UI::UIViewContext             m_UIView{ m_UIResources };
+
+        // The retained widget gallery (UIPreview::WidgetGallery): its own view over its own tree, drawing
+        // with this pass's resources minus the scene's clips (RetainedCanvasResources). The model is declared
+        // before the tree so it outlives the delegates that write it.
+        ::Desert::UI::RetainedCanvasResources m_GalleryResources{ m_UIResources };
+        ::Desert::UI::UIViewContext           m_GalleryView{ m_GalleryResources };
+        ::Desert::UI::WidgetGalleryModel      m_GalleryModel;
+        ::Desert::UI::WidgetTree              m_Gallery;
+        ::Desert::UI::NodeId                  m_GalleryCanvas  = ::Desert::UI::NodeId::Null;
+        ::Desert::UI::NodeId                  m_GalleryFocused = ::Desert::UI::NodeId::Null;
+        // The one keyboard both views and the viewport share (UIKeyboardUser): a press on an element of a view
+        // gives it to that view, a press on no element of either view gives it to the viewport (Owner null).
+        // Unclicked, the viewport holds it in Edit and the level's canvases in Play (Declare); a hidden
+        // gallery gives it back the same way.
+        ::Desert::UI::UIKeyboardUser m_Keyboard{ .Owner = nullptr };
+        // The world state m_Keyboard's unclicked owner was last set for (Play or not).
+        bool m_KeyboardPlaying = false;
         // `--ui-press` under `--play`: walks seen with the scene in Play. The press waits for the second, whose
         // `Hot` was elected over the rows gameplay filled on the first (see the press gate in Declare).
         int m_CliPlayWalks = 0;
