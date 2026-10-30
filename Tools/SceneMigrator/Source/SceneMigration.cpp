@@ -5390,6 +5390,40 @@ namespace Desert::Migration
             return BOOLSUCCESS;
         }
 
+        // VFXS 5 -> 6 on the untyped body: every emitter states its EventHandlers, empty (a VFXS 5 emitter spawned
+        // from no other emitter's events), after its Renderers (the key order of VFXEmitterData). An emitter that
+        // already states EventHandlers is an error.
+        Common::BoolResultStr AddVFXEmitterEventHandlersTo6( rfl::Generic::Object& system )
+        {
+            const auto emitters = system.get( "Emitters" ).value_or( rfl::Generic() ).to_array();
+            if ( !emitters )
+                return Common::MakeFormattedError<bool>( "Emitters is not an array" );
+            rfl::Generic::Array outEmitters;
+            for ( const rfl::Generic& e : emitters.value() )
+            {
+                const auto emitter = e.to_object();
+                if ( !emitter )
+                    return Common::MakeFormattedError<bool>( "an emitter is not an object" );
+                rfl::Generic::Object out;
+                for ( const auto& [key, field] : emitter.value() )
+                {
+                    if ( key == "EventHandlers" )
+                        return Common::MakeFormattedError<bool>(
+                             "emitter '{}' already states EventHandlers, a VFXS 6 key",
+                             emitter.value()
+                                  .get( "Name" )
+                                  .value_or( rfl::Generic() )
+                                  .to_string()
+                                  .value_or( "?" ) );
+                    out[key] = field;
+                }
+                out["EventHandlers"] = rfl::Generic::Array{};
+                outEmitters.push_back( out );
+            }
+            system["Emitters"] = outEmitters;
+            return BOOLSUCCESS;
+        }
+
         // VFXS 1 -> 2 (VFX-09) on the untyped body: a Ribbon row gets the default ribbon settings (one ribbon per
         // emitter, 10 cm wide, U stretched), no row a Material (v1 drew the engine's particle material). A v1 row
         // stating a VFXS 2 key, or a v1 Mesh row (it names no mesh, and VFXS 2 needs one), is an error naming the
@@ -5542,7 +5576,7 @@ namespace Desert::Migration
         const auto stated   = versions ? versions.value().get( "VFXS" ).value_or( rfl::Generic() ).to_int()
                                        : rfl::Result<int>( rfl::Error( "no versions" ) );
         constexpr int kCurrent = static_cast<int>( Assets::kVFXSystemSchemaVersion );
-        static_assert( kCurrent == 5, "a new VFXS needs its step in this chain" );
+        static_assert( kCurrent == 6, "a new VFXS needs its step in this chain" );
         if ( !stated || stated.value() < 1 || stated.value() >= kCurrent )
             return Common::MakeFormattedError<Result>(
                  "the header states VFXS {}, and this chain raises VFXS 1 .. {} only",
@@ -5550,8 +5584,9 @@ namespace Desert::Migration
 
         // One step per generation, each on the untyped body (no step reads a typed struct of a later layout).
         using Step = Common::BoolResultStr ( * )( rfl::Generic::Object& );
-        constexpr std::array<Step, 4> kSteps{ RaiseVFXSystemRenderersTo2, RaiseVFXSystemEffectTypeTo3,
-                                              RaiseVFXSystemModulesTo4, MoveVFXSystemBoundsIntoEmitters };
+        constexpr std::array<Step, 5> kSteps{ RaiseVFXSystemRenderersTo2, RaiseVFXSystemEffectTypeTo3,
+                                              RaiseVFXSystemModulesTo4, MoveVFXSystemBoundsIntoEmitters,
+                                              AddVFXEmitterEventHandlersTo6 };
         for ( int from = stated.value(); from < kCurrent; ++from )
             if ( auto raised = kSteps[static_cast<std::size_t>( from - 1 )]( system ); !raised )
                 return Common::MakeFormattedError<Result>( "VFXS {} -> {}: {}", from, from + 1, raised.GetError() );

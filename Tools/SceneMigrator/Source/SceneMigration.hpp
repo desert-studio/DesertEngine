@@ -961,7 +961,7 @@ namespace Desert::Migration
     // ANGR 2, or whose body does not read, is an error naming why. PURE - no filesystem access.
     Common::ResultStr<std::string> MigrateAnimGraphV2ToV3( const std::string& text );
 
-    // The current VFXS text of a VFXS 1 .. 4 `.dfx`: one step per generation, each on the UNTYPED body (no step
+    // The current VFXS text of a VFXS 1 .. 5 `.dfx`: one step per generation, each on the UNTYPED body (no step
     // reads a typed struct of a later layout), then the engine's reader, validator and writer (current header,
     // GUID kept, Dependencies stamped from the stacks).
     //   1 -> 2 (VFX-09): a Ribbon row gets the default ribbon settings, no row a Material; a v1 Mesh row (no mesh)
@@ -973,6 +973,8 @@ namespace Desert::Migration
     //          error - a local module becomes a project .dfxmod by hand).
     //   4 -> 5 (VFX-PORT-2): the system's fixed Bounds move into every emitter (VFXEmitterData::Bounds, UE
     //          UNiagaraEmitter::FixedBounds); a system without Bounds or an emitter already stating them is an error.
+    //   5 -> 6 (PORT-VFX-MODULES): every emitter states EventHandlers, empty (VFXEmitterData::EventHandlers, UE
+    //          emitter Event Handlers); an emitter already stating them is an error.
     // A file that states no VFXS, or the current one or later, is an error naming what it states. PURE - no
     // filesystem access.
     Common::ResultStr<std::string> MigrateVFXSystem( const std::string& text );
