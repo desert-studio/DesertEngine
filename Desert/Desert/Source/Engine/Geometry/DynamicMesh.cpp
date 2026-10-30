@@ -27,7 +27,8 @@ namespace Desert
         {
             if ( m_GenerateLODs )
             {
-                const std::vector<Index> gpu = Geometry::BuildLODIndexBuffer( m_Vertices, m_Indices, m_Submeshes );
+                const std::vector<Index> gpu = Geometry::BuildLODIndexBuffer( m_Vertices, m_Indices, m_Submeshes,
+                                                                              Geometry::UnbakedLODChain() );
                 ResolveLODScreenSizes();
                 indices = FlattenIndices( gpu );
             }

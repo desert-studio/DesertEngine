@@ -16,7 +16,8 @@ namespace Desert
         // Build the GPU index buffer with a per-submesh LOD chain (base indices + appended LODs). The
         // CPU base indices stay untouched; only the GPU buffer + per-submesh LOD ranges carry the LODs.
         std::vector<Submesh> subs       = submeshes;
-        std::vector<Index>   gpuIndices = Geometry::BuildLODIndexBuffer( vertices, indices, subs );
+        std::vector<Index>   gpuIndices =
+             Geometry::BuildLODIndexBuffer( vertices, indices, subs, Geometry::UnbakedLODChain() );
         // The baked LOD triangle sets are now in gpuIndices (their LODRange chain in subs): transient input, not
         // kept with the drawn mesh's submeshes.
         for ( auto& sub : subs )

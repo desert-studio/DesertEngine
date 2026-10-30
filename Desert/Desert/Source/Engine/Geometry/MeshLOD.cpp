@@ -60,7 +60,8 @@ namespace Desert::Geometry
 
     std::vector<Index> BuildLODIndexBuffer( const std::vector<Vertex>& vertices,
                                             const std::vector<Index>&  baseIndices,
-                                            std::vector<Submesh>&      submeshes )
+                                            std::vector<Submesh>&      submeshes,
+                                            const LODChainSettings&    chain )
     {
         std::vector<Index> gpuIndices = baseIndices;
 
@@ -100,8 +101,7 @@ namespace Desert::Geometry
                     pos.push_back( vertex.Position.z );
                     AppendSimplifyAttributes( vertex.Normal, vertex.TexCoord, attrs );
                 }
-                levels =
-                     SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, LODChainSettings{}, attrs.data() );
+                levels = SimplifyLODLevels( pos.data(), sm.VertexCount, localTris, chain, attrs.data() );
             }
 
             for ( const auto& lvl : levels )

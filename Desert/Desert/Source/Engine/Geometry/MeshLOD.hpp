@@ -9,16 +9,26 @@
 
 namespace Desert::Geometry
 {
+    // THE CHAIN A SUBMESH WITHOUT BAKED LODS IS GENERATED AT, AT LOAD: a mesh no import states a chain for (a
+    // primitive, a procedural mesh). An imported mesh's chain is its import's (MeshImportSettings::LodChain),
+    // baked into Submesh::BakedLODs at cook, so the build and the pool reservation count those levels as cooked.
+    [[nodiscard]] inline const LODChainSettings& UnbakedLODChain()
+    {
+        static const LODChainSettings chain{};
+        return chain;
+    }
+
     // The indices BuildLODIndexBuffer appends for a submesh of @p baseIndexCount indices with no baked LODs,
-    // at the default chain's targets (LODChainTargets; a level stopping short of its target adds more, a level
-    // that cannot improve adds none). Sizes the geometry pool before the chain is generated.
-    [[nodiscard]] inline uint64_t AutoLODIndexTarget( const uint64_t baseIndexCount )
+    // at @p chain's targets (LODChainTargets; a level stopping short of its target adds more, a level that
+    // cannot improve adds none). Sizes the geometry pool before the chain is generated: @p chain is the one
+    // the build is handed (UnbakedLODChain at load).
+    [[nodiscard]] inline uint64_t AutoLODIndexTarget( const uint64_t          baseIndexCount,
+                                                      const LODChainSettings& chain )
     {
         if ( baseIndexCount / 3 < 8 )
             return 0; // BuildLODIndexBuffer generates no chain below eight triangles
         uint64_t total = 0;
-        for ( const uint32_t target :
-              LODChainTargets( static_cast<uint32_t>( baseIndexCount / 3 ), LODChainSettings{} ) )
+        for ( const uint32_t target : LODChainTargets( static_cast<uint32_t>( baseIndexCount / 3 ), chain ) )
             total += static_cast<uint64_t>( target ) * 3;
         return total;
     }
@@ -43,10 +53,11 @@ namespace Desert::Geometry
 
     // Builds the GPU index buffer for a mesh WITH a LOD chain. For each submesh: if Submesh::BakedLODs is
     // populated (cooked at import), those levels are appended as-is; otherwise they are GENERATED via
-    // SimplifyLODLevels at the default chain (LODChainSettings{}: a mesh no import states a chain for - a
-    // primitive, a procedural mesh). Records the per-submesh ranges in Submesh::LODs
-    // (LODs[0] = the original range). The CPU-side base indices are NOT modified.
+    // SimplifyLODLevels at @p chain (UnbakedLODChain at load; AutoLODIndexTarget sizes the pool by the same
+    // chain). Records the per-submesh ranges in Submesh::LODs (LODs[0] = the original range). The CPU-side base
+    // indices are NOT modified.
     std::vector<Index> BuildLODIndexBuffer( const std::vector<Vertex>& vertices,
                                             const std::vector<Index>&  baseIndices,
-                                            std::vector<Submesh>&      submeshes );
+                                            std::vector<Submesh>&      submeshes,
+                                            const LODChainSettings&    chain );
 } // namespace Desert::Geometry
