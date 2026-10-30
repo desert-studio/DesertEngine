@@ -1819,6 +1819,10 @@ namespace Desert::Graphic
         // Graphic/DebugViewState.hpp for why it stopped being scene data.
         DebugViewState          m_DebugView;
         bool                    m_EnableSSAO    = true; // deferred SSAO pass on/off (refreshed from SceneSettings)
+        // Grass through the 64-bit visibility buffer this frame: PostProcessSettings::GrassVisibilityBuffer AND the
+        // device's SupportsVisibilityBuffer64 (refreshed in BeginScene). The refusal is logged once per renderer.
+        bool                    m_GrassVisibilityBuffer  = false;
+        bool                    m_GrassVisibilityRefusal = false;
         // What this view renders for GI / reflections / shadows: Graphic::ResolveRenderMethods of the view's
         // request, the machine's ceiling and the device, refreshed in BeginScene. The passes read `.Effective`.
         RenderMethods           m_RenderMethods;

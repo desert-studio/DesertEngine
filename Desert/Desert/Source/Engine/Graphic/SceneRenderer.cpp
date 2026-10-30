@@ -1047,6 +1047,20 @@ namespace Desert::Graphic
              quality.As<int>( Common::Scalability::Parameter::TemporalAAQuality ) );
         ApplySceneSampleCount( static_cast<uint32_t>( aa.Samples ) );
         m_EnableSSAO = post.EnableSSAO;
+        // The grass visibility buffer is what the view asks for; it runs only on a device with 64-bit storage-buffer
+        // atomics in the fragment stage. Asked for without them it is refused by name once and the grass keeps
+        // the G-buffer path (masked depth prepass + GBuffer) - never a silent fallback.
+        {
+            const bool supported =
+                 EngineContext::GetInstance().GetCapabilities().SupportsVisibilityBuffer64;
+            m_GrassVisibilityBuffer = post.GrassVisibilityBuffer && supported;
+            if ( post.GrassVisibilityBuffer && !supported && !m_GrassVisibilityRefusal )
+            {
+                m_GrassVisibilityRefusal = true;
+                LOG_ERROR( "[SceneRenderer] GrassVisibilityBuffer refused: the device has no shaderInt64 + "
+                           "shaderBufferInt64Atomics + fragmentStoresAndAtomics; grass draws through the G-buffer." );
+            }
+        }
         // The cloud layer's cost ceiling, refreshed here with every other cost-versus-quality choice
         // rather than read from a global at the point of use: several SceneRenderers are live at once
         // (Docs/RENDERER_FRAME_STATE.md) and a preview pane may be given a cheaper tier than the viewport.

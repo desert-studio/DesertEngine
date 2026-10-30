@@ -22,7 +22,9 @@ Shader "VisibilityClear"
 
         void main()
         {
-            const uint pixel  = gl_GlobalInvocationID.x;
+            // Groups laid out 2D (a 4K view is past the 65535 groups one dimension guarantees): row y of groups
+            // continues where row y - 1 ended (VisibilityBuffer.cpp kClearGroupsRow).
+            const uint pixel  = gl_GlobalInvocationID.y * ( gl_NumWorkGroups.x * 64u ) + gl_GlobalInvocationID.x;
             const uint pixels = Extent.x * Extent.y;
             if ( pixel == 0u )
             {
