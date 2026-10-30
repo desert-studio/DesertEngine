@@ -606,7 +606,7 @@ namespace Desert::Editor
                 return mesh;
             };
         if ( auto probe = WC::BuildWorldHLODs(
-                  scene.GetValue().Scene, planned, registries, builders.Mesh, collect,
+                  scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(), builders.Mesh, collect,
                   // The probe only gathers the landscape tiles to bake: its files are dropped.
                   []( WC::CookedFile ) -> Common::BoolResultStr { return BOOLSUCCESS; } );
              !probe )
@@ -689,7 +689,8 @@ namespace Desert::Editor
         const WC::BuiltHLODSink     writer = WC::BuiltHLODWriter( path );
         std::size_t                 bytes  = 0;
         std::size_t                 files  = 0;
-        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, builders.Mesh, landscape,
+        auto built = WC::BuildWorldHLODs( scene.GetValue().Scene, planned, registries, WC::PrefabFileReader(),
+                                          builders.Mesh, landscape,
                                           [&]( WC::CookedFile file ) -> Common::BoolResultStr
                                           {
                                               bytes += file.Bytes.size();
@@ -714,7 +715,12 @@ namespace Desert::Editor
                 return Common::MakeError( "Build HLODs: read back: " + cellRecords.GetError() );
             records += cellRecords.GetValue().size();
         }
-        auto stale = WC::StaleHLODCells( stored.GetValue().Index, scene.GetValue().Scene, planned, registries );
+        // Against the world the build cut: prefab instances expanded as the cook expands them (WP21).
+        auto cut = WC::ExpandWorldForCook( scene.GetValue().Scene, planned, WC::PrefabFileReader() );
+        if ( !cut )
+            return Common::MakeError( "Build HLODs: read back: " + cut.GetError() );
+        auto stale = WC::StaleHLODCells( stored.GetValue().Index, cut.GetValue().World.Scene,
+                                         cut.GetValue().Descriptors, registries );
         if ( !stale )
             return Common::MakeError( "Build HLODs: read back: " + stale.GetError() );
         for ( const std::string& unit : stale.GetValue() )
