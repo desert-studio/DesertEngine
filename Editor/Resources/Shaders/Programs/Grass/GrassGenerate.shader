@@ -44,6 +44,7 @@ Shader "GrassGenerate"
         LocalSize(8, 8, 1);
 
         #include <Common/GpuCullTests.glslh>
+        #include <Common/GrassFieldShare.glslh>
 
         // Mirrors Graphic::System::GrassParamsGpu (GrassRenderer.hpp), std430.
         struct GrassParams
@@ -346,17 +347,15 @@ Shader "GrassGenerate"
             float distance = length( position - p.Camera.xyz );
             if ( distance > p.Cull.y )
                 return;
-            // The share of the field kept at this distance (GRASS-DENSITY): beyond StartCullDistance S it falls
-            // with the square of the distance, (S / d)^2 - a blade's screen area falls so, and so does what it costs
-            // to draw it, so the instances a band of ground spends stay those it spent at S (UE's grass HISM keeps
-            // the full density out to its cull distance and spends it on sub-pixel instances) - and on top of that
-            // UE's fade, down to nothing at EndCullDistance. S = 0 states no full-density zone to scale from: the
-            // variety fades as UE's does, linearly. Nested: an instance kept at d is kept nearer, so walking does
-            // not reshuffle the field, only thins it; before S every instance is kept, as before.
-            float fade   = Fraction( state );
-            float faded  = clamp( ( distance - p.Cull.x ) / max( p.Cull.y - p.Cull.x, 1.0 ), 0.0, 1.0 );
-            float screen = p.Cull.x > 0.0 ? min( 1.0, ( p.Cull.x * p.Cull.x ) / max( distance * distance, 1.0 ) ) : 1.0;
-            float kept   = screen * ( 1.0 - faded );
+            // The share of the field kept at this distance (GRASS-DENSITY, Common/GrassFieldShare.glslh - the one
+            // law the ground's far cover reads too): beyond StartCullDistance S it falls with the square of the
+            // distance, (S / d)^2, so the instances a band of ground spends stay those it spent at S (UE's grass
+            // HISM keeps the full density out to its cull distance and spends it on sub-pixel instances) - and on
+            // top of that UE's fade, down to nothing at EndCullDistance. Nested: an instance kept at d is kept
+            // nearer, so walking does not reshuffle the field, only thins it; before S every instance is kept.
+            float                 fade  = Fraction( state );
+            const GrassFieldShare field = GrassFieldShareAt( distance, p.Cull.x, p.Cull.y );
+            float                 kept  = field.Kept;
             // The screen-width floor (GRASS-WIDTH; GoT / UE landscape grass LOD): past D the mean blade would stand
             // narrower than MinScreenWidth pixels, so the field keeps (D / d)^2 of its blades - the law the thinning
             // above widens by (a survivor widened 1/sqrt(share): d / D here) - and each kept blade's own card is
@@ -381,14 +380,12 @@ Shader "GrassGenerate"
             else
                 scale = vec3( mix( p.ScaleX.x, p.ScaleX.y, rx ), mix( p.ScaleZ.x, p.ScaleZ.y, rz ),
                               mix( p.ScaleX.x, p.ScaleX.y, rx ) );
-            // Coverage kept through the thinning (GoT / UE-style distance thinning): a survivor stands for the
-            // 1/share blades dropped around it, so its footprint grows by 1/sqrt(share) and the field's covered
-            // area stays the same; the height drops only over the last 20 % of the range, so the far edge melts
-            // into the ground instead of the whole band shrinking.
-            float share = max( kept, 0.05 );
-            float widen = inversesqrt( share );
-            scale.x *= widen;
-            scale.z *= widen;
+            // Coverage kept through the thinning (GoT / UE-style distance thinning; GrassFieldShare): a survivor
+            // stands for the 1/share blades dropped around it, so its width grows by 1/sqrt(share) - at its own
+            // height the field keeps sqrt(share) of its covered area, and the ground's far cover takes on the rest
+            // (LandscapeGrassCover, GrassFieldCoverage); the height drops only over the last 20 % of the range.
+            scale.x *= field.Widen;
+            scale.z *= field.Widen;
             // The floor's width scale for this instance's card (below, once the card is drawn) is bounded by its
             // narrowest card's: the sphere tests take the widest the instance can become.
             float floorBound = 0.0;
@@ -399,7 +396,7 @@ Shader "GrassGenerate"
                     narrowest = min( narrowest, p.CardWidths[i / 4u][i % 4u] );
                 floorBound = p.Lean.w * distance / max( narrowest, 1.0e-3 );
             }
-            scale.y *= 1.0 - clamp( ( faded - 0.8 ) / 0.2, 0.0, 1.0 );
+            scale.y *= field.Height;
 
             // Inside the full list's volume (the camera's side planes swept along the lights), by the instance's
             // bounding sphere; the camera's own list also inside the camera's.
