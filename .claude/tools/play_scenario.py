@@ -117,7 +117,7 @@ def main():
                 return False, [f"editor exited (rc {proc.returncode}) - see editor.log" if proc.poll() is not None
                                else "DesertCtl timed out"]
             time.sleep(1)
-        return c.returncode == 0, c.stdout.read().strip().splitlines()[-1:] or [""]
+        return c.returncode == 0, c.stdout.read().strip().splitlines() or [""]
 
     # run_capped may queue the editor for the GPU slot longer than DesertCtl's --wait: wait for the socket itself
     while not os.path.exists(sock) and proc.poll() is None:
@@ -147,13 +147,17 @@ def main():
                 args = ["frames", args[0]]
             ok, msg = desertctl(*args)
             if not ok:
-                fail = f"line {n} ({kw} {rest}): {msg[0]}"
+                fail = f"line {n} ({kw} {rest}): {msg[-1]}"
                 continue
+            # a reply the Тогда lines read (state, profile-dump) is kept in the run folder: line_NNN_<op>.txt
+            if len(msg) > 1 or args[0] in ("state", "profile-dump"):
+                with open(os.path.join(out, f"line_{n:03d}_{args[0].lstrip('-')}.txt"), "w", encoding="utf-8") as f:
+                    f.write("\n".join(msg) + "\n")
         elif key in THEN:
             name, _, text = rest.strip().partition(" ")
             ok, msg = desertctl(THEN[key], os.path.join(out, name + ".png"))
             if not ok:
-                fail = f"line {n} (shot {name}): {msg[0]}"
+                fail = f"line {n} (shot {name}): {msg[-1]}"
                 continue
             index.append(f"{name}.png\t{text.strip()}")
             frames += 1

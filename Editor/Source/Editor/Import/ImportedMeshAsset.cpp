@@ -52,6 +52,41 @@ namespace Desert::Editor
         return { name.substr( 0, pos ), std::stoi( digits ) };
     }
 
+    std::string ImportedSlotName( const Ser::SubmeshData&                   submesh,
+                                  std::span<const Assets::MeshMaterialSlot> named )
+    {
+        const auto known = std::ranges::find_if( named, [&]( const auto& slot )
+                                                 { return slot.Material == submesh.MaterialGuid; } );
+        return known != named.end() ? known->Name : ParseSourceModelLOD( submesh.Name ).first;
+    }
+
+    Common::BoolResultStr ValidateCanopyLeafSlots( const Ser::MeshAssetData&                 imported,
+                                                   std::span<const Assets::MeshMaterialSlot> named,
+                                                   const Assets::MeshImportSettings&         settings,
+                                                   const std::string&                        name )
+    {
+        const auto& leafSlots = settings.Canopy.LeafSlots;
+        if ( leafSlots.empty() )
+            return Common::MakeSuccess( true );
+        std::vector<std::string> slots;
+        for ( const Ser::SubmeshData& submesh : imported.Submeshes )
+            if ( std::string slot = ImportedSlotName( submesh, named );
+                 std::ranges::find( slots, slot ) == slots.end() )
+                slots.push_back( std::move( slot ) );
+        for ( const std::string& leaf : leafSlots )
+            if ( std::ranges::find( slots, leaf ) == slots.end() )
+            {
+                std::string known;
+                for ( const std::string& slot : slots )
+                    known += std::format( "{}'{}'", known.empty() ? "" : ", ", slot );
+                return Common::MakeFormattedError<bool>( "'{}': the canopy leaf slot '{}' (Import Settings > "
+                                                         "CanopyLeafSlots) names no material slot of "
+                                                         "the source; its slots are {}",
+                                                         name, leaf, known );
+            }
+        return Common::MakeSuccess( true );
+    }
+
     Common::ResultStr<ImportedMeshSource> MeshSourceFromImport( const Ser::MeshAssetData&                 imported,
                                                                 std::span<const Assets::MeshMaterialSlot> named,
                                                                 const std::string&                        name )
@@ -83,10 +118,7 @@ namespace Desert::Editor
             for ( size_t i = 0; i < slots.size(); ++i )
                 if ( slots[i].Material == sub.MaterialGuid )
                     return static_cast<int>( i );
-            const auto known = std::ranges::find_if( named, [&]( const auto& slot )
-                                                     { return slot.Material == sub.MaterialGuid; } );
-            slots.push_back( { known != named.end() ? known->Name : ParseSourceModelLOD( sub.Name ).first,
-                               sub.MaterialGuid } );
+            slots.push_back( { ImportedSlotName( sub, named ), sub.MaterialGuid } );
             return static_cast<int>( slots.size() - 1 );
         };
 

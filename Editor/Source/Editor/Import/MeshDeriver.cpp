@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <limits>
@@ -190,6 +191,171 @@ namespace Desert::Editor
 
     namespace
     {
+        // THE CROWN AS ONE VOLUME (MeshImportSettings::Canopy; UE / SpeedTree foliage: leaf-card normals
+        // transferred from a proxy volume around the crown, derived at build like FStaticMeshBuilder's tangents).
+        // The leaf sections' vertices, in the engine frame (cm, +Y up, the node's transform already baked in, so
+        // one mesh is one plant), are measured as one crown:
+        //   - its TOP SURFACE, a height field over (x, z): the highest leaf per kCanopyCellCm cell, dilated over
+        //     kCanopyDilateCells cells (the precipitation map's footprint is wider than a card) and box-smoothed,
+        //     so neighbouring cards share one surface and one slope instead of each its own peak;
+        //   - its ELLIPSOID (the leaves' bounding box), whose outward normal is the crown's side and underside.
+        // Per leaf vertex: DEPTH = how far it hangs under the top surface; NORMAL = the top surface's normal for a
+        // vertex in the top shell facing up on the ellipsoid, the ellipsoid's on the sides, below and inside
+        // (blended by depth and by how much the ellipsoid faces up), so the crown's top reads as one sloped layer.
+        // The depth goes to COLOR_0.a = kCanopyAlphaMax * (1 - depth / kCanopyDepthRangeCm): alpha <= 0.5 marks a
+        // canopy vertex (SurfaceTypes.glslh DesertIsCanopyVertex, which must agree with both constants).
+        constexpr float kCanopyCellCm       = 25.0f;
+        constexpr int   kCanopyDilateCells  = 2;
+        constexpr float kCanopyShellCm      = 40.0f;
+        constexpr float kCanopyDepthRangeCm = 1024.0f;
+        constexpr float kCanopyAlphaMax     = 0.5f;
+
+        Common::BoolResultStr BakeCanopy( const Assets::MeshSourceAsset& asset, const size_t lod,
+                                          Ser::MeshAssetData& data, const std::vector<int>& materialIds )
+        {
+            const auto& leafSlots = asset.Import.Settings.Canopy.LeafSlots;
+            if ( leafSlots.empty() )
+                return Common::MakeSuccess( true );
+            // A split file's meshes each draw the leaf slots they have (a trunk-only node draws none).
+            std::vector<size_t> leaves;
+            for ( size_t j = 0; j < data.Submeshes.size() && j < materialIds.size(); ++j )
+                if ( std::ranges::find( leafSlots,
+                                        asset.Source.MaterialSlots[static_cast<size_t>( materialIds[j] )].Name ) !=
+                     leafSlots.end() )
+                    leaves.push_back( j );
+            if ( leaves.empty() )
+                return Common::MakeSuccess( true );
+            if ( data.IsSkinned )
+                return Common::MakeFormattedError<bool>(
+                     "'{}' LOD{}: a canopy is a static mesh's; this one is skinned", asset.Name, lod );
+
+            auto&     vertices = data.StaticVertices;
+            glm::vec3 lo( std::numeric_limits<float>::max() ), hi( -std::numeric_limits<float>::max() );
+            using Cell        = std::pair<int, int>;
+            const auto cellOf = []( const glm::vec3& p ) -> Cell
+            {
+                return { static_cast<int>( std::floor( p.x / kCanopyCellCm ) ),
+                         static_cast<int>( std::floor( p.z / kCanopyCellCm ) ) };
+            };
+            std::map<Cell, float> highest;
+            for ( const size_t j : leaves )
+            {
+                const Ser::SubmeshData& sm = data.Submeshes[j];
+                for ( uint32_t v = sm.VertexOffset; v < sm.VertexOffset + sm.VertexCount; ++v )
+                {
+                    const glm::vec3& p     = vertices[v].Position;
+                    lo                     = glm::min( lo, p );
+                    hi                     = glm::max( hi, p );
+                    const auto [it, added] = highest.try_emplace( cellOf( p ), p.y );
+                    if ( !added )
+                        it->second = std::max( it->second, p.y );
+                }
+            }
+            const glm::vec3 centre = ( lo + hi ) * 0.5f;
+            const glm::vec3 half   = glm::max( ( hi - lo ) * 0.5f, glm::vec3( 1e-3f ) );
+            const glm::vec3 invR2  = 1.0f / ( half * half );
+
+            // Dilate (max over the footprint), then smooth (mean of the dilated cells around): the top surface.
+            std::map<Cell, float> dilated;
+            for ( const auto& [c, y] : highest )
+            {
+                float top = y;
+                for ( int dx = -kCanopyDilateCells; dx <= kCanopyDilateCells; ++dx )
+                    for ( int dz = -kCanopyDilateCells; dz <= kCanopyDilateCells; ++dz )
+                        if ( const auto it = highest.find( { c.first + dx, c.second + dz } ); it != highest.end() )
+                            top = std::max( top, it->second );
+                dilated[c] = top;
+            }
+            std::map<Cell, float> surface;
+            for ( const auto& [c, y] : dilated )
+            {
+                float sum = 0.0f;
+                int   n   = 0;
+                for ( int dx = -1; dx <= 1; ++dx )
+                    for ( int dz = -1; dz <= 1; ++dz )
+                        if ( const auto it = dilated.find( { c.first + dx, c.second + dz } ); it != dilated.end() )
+                        {
+                            sum += it->second;
+                            ++n;
+                        }
+                surface[c] = sum / static_cast<float>( n );
+            }
+            const auto heightAt = [&]( const Cell& c, const float fallback )
+            {
+                const auto it = surface.find( c );
+                return it != surface.end() ? it->second : fallback;
+            };
+
+            if ( data.Colors.empty() )
+                data.Colors.assign( vertices.size(), { 255, 255, 255, 255 } );
+            if ( data.Colors.size() != vertices.size() )
+                return Common::MakeFormattedError<bool>( "'{}' LOD{}: {} vertex colours for {} vertices",
+                                                         asset.Name, lod, data.Colors.size(), vertices.size() );
+            float deepest = 0.0f;
+            for ( const size_t j : leaves )
+            {
+                const Ser::SubmeshData& sm = data.Submeshes[j];
+                for ( uint32_t v = sm.VertexOffset; v < sm.VertexOffset + sm.VertexCount; ++v )
+                {
+                    Ser::StaticVertexData& vertex = vertices[v];
+                    if ( data.Colors[v][3] != 255 )
+                        return Common::MakeFormattedError<bool>( "'{}' LOD{}: section '{}' has authored vertex "
+                                                                 "alpha; the canopy depth would overwrite it",
+                                                                 asset.Name, lod, sm.Name );
+                    const glm::vec3 p     = vertex.Position;
+                    const Cell      c     = cellOf( p );
+                    const float     h     = heightAt( c, p.y );
+                    const float     depth = std::max( h - p.y, 0.0f );
+                    deepest               = std::max( deepest, depth );
+
+                    // The top surface's normal: central differences (one-sided at the crown's rim).
+                    const float hx0   = heightAt( { c.first - 1, c.second }, h ),
+                                hx1   = heightAt( { c.first + 1, c.second }, h );
+                    const float hz0   = heightAt( { c.first, c.second - 1 }, h ),
+                                hz1   = heightAt( { c.first, c.second + 1 }, h );
+                    const float spanX = ( surface.contains( { c.first - 1, c.second } ) ? 1.0f : 0.0f ) +
+                                        ( surface.contains( { c.first + 1, c.second } ) ? 1.0f : 0.0f );
+                    const float spanZ = ( surface.contains( { c.first, c.second - 1 } ) ? 1.0f : 0.0f ) +
+                                        ( surface.contains( { c.first, c.second + 1 } ) ? 1.0f : 0.0f );
+                    const float     dhdx      = spanX > 0.0f ? ( hx1 - hx0 ) / ( spanX * kCanopyCellCm ) : 0.0f;
+                    const float     dhdz      = spanZ > 0.0f ? ( hz1 - hz0 ) / ( spanZ * kCanopyCellCm ) : 0.0f;
+                    const glm::vec3 topNormal = glm::normalize( glm::vec3( -dhdx, 1.0f, -dhdz ) );
+
+                    glm::vec3 ellipsoid = ( p - centre ) * invR2;
+                    ellipsoid =
+                         glm::length( ellipsoid ) > 1e-6f ? glm::normalize( ellipsoid ) : glm::vec3( 0, 1, 0 );
+
+                    const float inShell = 1.0f - glm::smoothstep( kCanopyShellCm, 2.0f * kCanopyShellCm, depth );
+                    const float facesUp = glm::clamp( 2.0f * ellipsoid.y, 0.0f, 1.0f );
+                    glm::vec3   normal  = glm::mix( ellipsoid, topNormal, inShell * facesUp );
+                    normal              = glm::length( normal ) > 1e-6f ? glm::normalize( normal ) : ellipsoid;
+
+                    // The tangent frame follows the new normal (Gram-Schmidt), its handedness kept.
+                    const float handed =
+                         glm::dot( glm::cross( vertex.Normal, vertex.Tangent ), vertex.Bitangent ) < 0.0f ? -1.0f
+                                                                                                          : 1.0f;
+                    glm::vec3 tangent = vertex.Tangent - normal * glm::dot( normal, vertex.Tangent );
+                    if ( glm::length( tangent ) < 1e-6f )
+                        tangent = glm::cross(
+                             std::abs( normal.y ) < 0.99f ? glm::vec3( 0, 1, 0 ) : glm::vec3( 1, 0, 0 ), normal );
+                    tangent          = glm::normalize( tangent );
+                    vertex.Normal    = normal;
+                    vertex.Tangent   = tangent;
+                    vertex.Bitangent = handed * glm::cross( normal, tangent );
+
+                    const float alpha = kCanopyAlphaMax * ( 1.0f - std::min( depth / kCanopyDepthRangeCm, 1.0f ) );
+                    data.Colors[v][3] =
+                         static_cast<uint8_t>( std::floor( alpha * 255.0f ) ); // <= 127: a canopy vertex
+                }
+            }
+            LOG_INFO(
+                 "[Canopy] '{}' LOD{}: {} leaf sections, crown centre ({:.0f}, {:.0f}, {:.0f}) cm, half extent "
+                 "({:.0f}, {:.0f}, {:.0f}) cm, {} top cells, deepest leaf {:.0f} cm under the top",
+                 asset.Name, lod, leaves.size(), centre.x, centre.y, centre.z, half.x, half.y, half.z,
+                 surface.size(), deepest );
+            return Common::MakeSuccess( true );
+        }
+
         // One source model built to render form: its MeshAssetData (submesh j draws material slot MaterialIds[j];
         // ToRenderMesh emits one submesh per distinct material ID, ascending) and the IDs themselves.
         struct BuiltModel
@@ -247,6 +413,8 @@ namespace Desert::Editor
                 if ( !slotName.empty() )
                     built.Data.Submeshes[j].Name = slotName;
             }
+            if ( const auto canopy = BakeCanopy( asset, lod, built.Data, built.MaterialIds ); !canopy.IsSuccess() )
+                return Common::MakeError<BuiltModel>( canopy.GetError() );
             return Common::MakeSuccess( std::move( built ) );
         }
 

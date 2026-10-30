@@ -39,7 +39,10 @@ namespace Desert::Assets::Serialization
              settings.Mesh.DisplacementBake == Assets::MeshDisplacementBakeSettings{}
                   ? std::nullopt
                   : std::optional<float>( settings.Mesh.DisplacementBake.EdgeLengthCm ),
-             settings.Mesh.VirtualGeometry ? std::optional<bool>( true ) : std::nullopt };
+             settings.Mesh.VirtualGeometry ? std::optional<bool>( true ) : std::nullopt,
+             settings.Mesh.Canopy.LeafSlots.empty()
+                  ? std::nullopt
+                  : std::optional<std::vector<std::string>>( settings.Mesh.Canopy.LeafSlots ) };
     }
 
     Common::ResultStr<Assets::SourceImportSettings> ImportSettingsFromText( const SourceImportSettingsText& text )
@@ -101,6 +104,14 @@ namespace Desert::Assets::Serialization
             out.Mesh.DisplacementBake.EdgeLengthCm = *text.DisplacementEdgeLengthCm;
         }
         out.Mesh.VirtualGeometry = text.VirtualGeometry.value_or( false );
+        if ( text.CanopyLeafSlots )
+        {
+            for ( const std::string& slot : *text.CanopyLeafSlots )
+                if ( slot.empty() || std::ranges::count( *text.CanopyLeafSlots, slot ) != 1 )
+                    return Common::MakeFormattedError<Result>(
+                         "import settings name canopy leaf slot '{}': a slot is named once and not empty", slot );
+            out.Mesh.Canopy.LeafSlots = *text.CanopyLeafSlots;
+        }
         out.CombineMeshes     = text.CombineMeshes;
         out.Mesh.UniformScale = text.UniformScale;
         out.Mesh.UpAxis       = *axis;

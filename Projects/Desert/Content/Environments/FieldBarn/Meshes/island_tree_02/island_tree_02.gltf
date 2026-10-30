@@ -138,17 +138,11 @@
         {
           "attributes": {
             "POSITION": 4,
-            "NORMAL": 12,
+            "NORMAL": 5,
             "TEXCOORD_0": 6
           },
-          "indices": 13,
-          "material": 1,
-          "extras": {
-            "CanopyOriginal": {
-              "NORMAL": 5,
-              "indices": 7
-            }
-          }
+          "indices": 7,
+          "material": 1
         },
         {
           "attributes": {
@@ -349,18 +343,6 @@
       "componentType": 5125,
       "count": 990513,
       "type": "SCALAR"
-    },
-    {
-      "componentType": 5126,
-      "count": 625401,
-      "type": "VEC3",
-      "bufferView": 12
-    },
-    {
-      "componentType": 5125,
-      "count": 2144232,
-      "type": "SCALAR",
-      "bufferView": 13
     }
   ],
   "bufferViews": [
@@ -435,18 +417,6 @@
       "byteLength": 3962052,
       "byteOffset": 36724524,
       "target": 34963
-    },
-    {
-      "byteOffset": 0,
-      "byteLength": 7504812,
-      "target": 34962,
-      "buffer": 1
-    },
-    {
-      "byteOffset": 7504812,
-      "byteLength": 8576928,
-      "target": 34963,
-      "buffer": 1
     }
   ],
   "samplers": [
@@ -459,27 +429,6 @@
     {
       "byteLength": 40686576,
       "uri": "island_tree_02.bin"
-    },
-    {
-      "uri": "island_tree_02_canopy.bin",
-      "byteLength": 16081740
     }
-  ],
-  "extras": {
-    "CanopyNormals": {
-      "Tool": "scripts/Content/foliage_canopy_normals.py",
-      "MaterialSuffix": "_leaves",
-      "Weight": 1.0,
-      "Centre": [
-        0.07796955108642578,
-        2.318417489528656,
-        0.9211944937705994
-      ],
-      "HalfExtent": [
-        1.9340338706970215,
-        1.0711765885353088,
-        2.0353487133979797
-      ]
-    }
-  }
+  ]
 }

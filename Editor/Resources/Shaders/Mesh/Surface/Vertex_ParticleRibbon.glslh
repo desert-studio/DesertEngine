@@ -114,6 +114,7 @@ void main()
     v_Surface.UV0           = vec2( RibbonU( atE ), 0.5 - c.y * 0.5 );
     v_Surface.UV1           = v_Surface.UV0;
     v_Surface.VertexColor   = colour;
+    v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( tangent, -side, facing );
     v_Surface.Clip          = cameraUB.ViewProjection * vec4( worldPos, 1.0 );
     v_Surface.PrevClip      = cameraUB.PrevViewProjection * vec4( worldPos, 1.0 );

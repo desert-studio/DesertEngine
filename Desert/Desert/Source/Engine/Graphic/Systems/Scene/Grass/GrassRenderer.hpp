@@ -53,7 +53,10 @@ namespace Desert::Graphic::System
         float     StartCullDistance = 0.0f;
         float     EndCullDistance   = 10000.0f;
         glm::vec2 AllowedDensityRange{ 0.0f, 1.0f };
-        uint32_t  Scaling = 0; // 0 uniform, 1 free, 2 lock XY
+        // The variety's world patches (Assets::Serialization::GrassPatches): Coverage 1 = everywhere.
+        float     PatchCoverage = 1.0f, PatchSize = 1500.0f, PatchSoftness = 0.15f;
+        uint32_t  PatchGroup = 0;
+        uint32_t  Scaling    = 0; // 0 uniform, 1 free, 2 lock XY
         glm::vec2 ScaleX{ 1.0f }, ScaleY{ 1.0f }, ScaleZ{ 1.0f };
         bool      WeightAttenuatesMaxScale  = false;
         float     MaxScaleWeightAttenuation = 0.5f;

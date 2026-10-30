@@ -11,5 +11,12 @@
     "Bounds": {
         "Min": [-130.89935302734375, -2.4103846549987793, -138.26268005371094],
         "Max": [160.77066040039062, 453.2637023925781, 290.98504638671875]
+    },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "CanopyLeafSlots": ["tree_small_02_leaves"]
     }
 }

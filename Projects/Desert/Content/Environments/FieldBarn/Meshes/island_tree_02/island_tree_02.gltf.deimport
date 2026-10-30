@@ -11,5 +11,12 @@
     "Bounds": {
         "Min": [-205.23379516601562, -1.701171875, -111.41542053222656],
         "Max": [215.54074096679688, 338.95941162109375, 295.6543273925781]
+    },
+    "Settings": {
+        "CombineMeshes": false,
+        "UniformScale": 1.0,
+        "UpAxis": "FromFile",
+        "LodPolicy": "Generate",
+        "CanopyLeafSlots": ["island_tree_02_leaves"]
     }
 }

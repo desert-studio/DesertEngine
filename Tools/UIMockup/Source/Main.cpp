@@ -18,6 +18,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <charconv>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>

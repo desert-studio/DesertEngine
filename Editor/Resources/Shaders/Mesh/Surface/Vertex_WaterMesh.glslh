@@ -93,6 +93,7 @@ void main()
     v_Surface.UV1           = restPos.xz;
     // r = the particle's height above the still level (cm), g = that level (cm).
     v_Surface.VertexColor   = vec4( offset.y, restPos.y, 0.0, 1.0 );
+    v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN           = mat3( T, B, N );
     // Velocity's two clip positions, both UNJITTERED (Common/Velocity.glslh): the particle's place last frame is the
     // same sum one frame earlier (UE's water writes velocity from the previous frame's waves).
