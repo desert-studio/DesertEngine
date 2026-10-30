@@ -130,6 +130,8 @@ namespace Desert::Graphic::System
             // One entry per section material: which submeshes it casts, and through which slot's route.
             hash.Add( rd.HiddenSubmeshes );
             hash.Add( rd.SectionSlot );
+            // The level every view draws it at follows the main camera (ShadowStaticLod): a new one redraws.
+            hash.Add( ShadowStaticLod( static_cast<uint32_t>( i ) ) );
         }
         for ( std::size_t i = 0; i < m_GenericQueue.size(); ++i )
         {
@@ -139,6 +141,7 @@ namespace Desert::Graphic::System
                 continue;
             hash.Add( g.Mesh->GetRenderRevision() );
             hash.Add( g.Transform );
+            hash.Add( ShadowGenericLod( static_cast<uint32_t>( i ) ) );
         }
         // A posed mesh changes shape every frame without moving: a view it reaches is drawn every frame.
         for ( std::size_t i = 0; i < m_SkinnedQueue.size(); ++i )
@@ -165,6 +168,8 @@ namespace Desert::Graphic::System
                 if ( ism.Wind.Sways() )
                     return std::nullopt;
                 hash.Add( ( *ism.Transforms )[m_ShadowCasterSetup.InstanceIndex[k]] );
+                // The level the views draw it at follows the main camera (the gather's): a new one redraws.
+                hash.Add( m_ShadowCasterSetup.Instances[k].LodLevel );
                 any = true;
             }
             if ( any )

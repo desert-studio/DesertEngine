@@ -1546,8 +1546,10 @@ namespace Desert::Graphic::System
         // layer is redrawn, whether it holds a movable caster, whether its map is rebuilt.
         void PlanCascadeCache();
         // A hash of the static casters cascade @p cascade's caster box reaches (what they draw and where), and
-        // whether a movable caster reaches it: the cache key of the cascade's static layer.
-        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, bool& movable ) const;
+        // whether a movable caster reaches it: the cache key of the cascade's static layer. A still ISM field's
+        // part is its snapshot and the instances the gather keeps in the box with their levels
+        // (ShadowIsmInstances, gathered here when no view walked the field yet): what the layer draws.
+        [[nodiscard]] uint64_t CascadeStaticSignature( uint32_t cascade, bool& movable );
         // The caster materials of shadow view @p view, made on its first use. False when the caster
         // pipeline does not exist (a renderer with no shadow budget).
         bool EnsureShadowViewMaterials( uint32_t view );
