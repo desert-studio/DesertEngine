@@ -131,12 +131,23 @@
         {
           "attributes": {
             "POSITION": 5,
-            "NORMAL": 6,
+            "NORMAL": 15,
             "TEXCOORD_0": 7,
-            "TEXCOORD_1": 8
+            "TEXCOORD_1": 8,
+            "COLOR_0": 17
           },
-          "indices": 9,
-          "material": 1
+          "indices": 16,
+          "material": 1,
+          "extras": {
+            "CanopyOriginal": {
+              "NORMAL": 6,
+              "indices": 9
+            },
+            "CanopyBaked": [
+              "NORMAL",
+              "COLOR_0"
+            ]
+          }
         },
         {
           "attributes": {
@@ -356,6 +367,24 @@
       "componentType": 5123,
       "count": 84879,
       "type": "SCALAR"
+    },
+    {
+      "componentType": 5126,
+      "count": 1698569,
+      "type": "VEC3",
+      "bufferView": 15
+    },
+    {
+      "componentType": 5125,
+      "count": 5818140,
+      "type": "SCALAR",
+      "bufferView": 16
+    },
+    {
+      "componentType": 5126,
+      "count": 1698569,
+      "type": "VEC4",
+      "bufferView": 17
     }
   ],
   "bufferViews": [
@@ -448,6 +477,24 @@
       "byteLength": 169758,
       "byteOffset": 94932564,
       "target": 34963
+    },
+    {
+      "byteOffset": 0,
+      "byteLength": 20382828,
+      "target": 34962,
+      "buffer": 1
+    },
+    {
+      "byteOffset": 20382828,
+      "byteLength": 23272560,
+      "target": 34963,
+      "buffer": 1
+    },
+    {
+      "byteOffset": 43655388,
+      "byteLength": 27177104,
+      "target": 34962,
+      "buffer": 1
     }
   ],
   "samplers": [
@@ -460,6 +507,36 @@
     {
       "byteLength": 95102324,
       "uri": "tree_small_02.bin"
+    },
+    {
+      "uri": "tree_small_02_canopy.bin",
+      "byteLength": 70832492
     }
-  ]
+  ],
+  "extras": {
+    "CanopyNormals": {
+      "Tool": "scripts/Content/foliage_canopy_normals.py",
+      "MaterialSuffix": "_leaves",
+      "Weight": 1.0,
+      "CellCm": 25.0,
+      "UnitCm": 100.0,
+      "DepthRangeCm": 1024.0,
+      "Crowns": [
+        {
+          "Node": "tree_small_02_LOD0",
+          "Centre": [
+            0.14935654401779175,
+            2.995491862297058,
+            0.7636117935180664
+          ],
+          "HalfExtent": [
+            1.4583500027656555,
+            1.5371452569961548,
+            2.1462385654449463
+          ],
+          "DeepestCm": 300.67148208618164
+        }
+      ]
+    }
+  }
 }

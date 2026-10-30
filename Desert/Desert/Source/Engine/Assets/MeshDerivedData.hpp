@@ -103,7 +103,9 @@ namespace Desert::Assets
 
     // Reads and hashes @p file whole (Utils::PakContentHash over its bytes) - the one place both the
     // importer (keying its Put) and the loader (keying its Get) compute this, so they can never drift into
-    // hashing two different things for "the same" file.
+    // hashing two different things for "the same" file. A .gltf also hashes every external buffer its
+    // "buffers" name (the .bin files hold the geometry; a buffer edited alone is a new source, as UE's DDC
+    // keys cover every file the source reads); a buffer that cannot be read is an error.
     Common::ResultStr<uint64_t> HashMeshSourceFile( const std::filesystem::path& file );
 
     // Source file bytes -> DDC key. No settings image beyond the builder version: unlike the render bucket,

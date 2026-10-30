@@ -23,13 +23,29 @@
 #include <Common/RainOcclusion.glslh>
 #include <Common/WeatherSnow.glslh>
 
+// A CANOPY VERTEX IS LOOKED UP AT ITS CROWN'S SURFACE (FIELD-WINTER p8). A tree's crown is one volume to the sky
+// (UE / SpeedTree foliage: the leaf cards carry the crown's normal), but the map is a top-down depth of the casters,
+// and the crown is its own caster: every card under the crown's top read the crown above it as its roof, so only
+// the topmost specks took snow. The asset carries, per leaf vertex, how far below its crown's top surface it hangs
+// (scripts/Content/foliage_canopy_normals.py: COLOR_0.a = 1 - depth / kDesertCanopyDepthRangeCm), and the lookup
+// is lifted by that depth: the card reads the occlusion at the crown's surface above it - what OTHER casters hold
+// over the crown - and the canopy normal decides how much of the volume faces the sky (the crown's underside
+// faces down and stays bare). A mesh without vertex colours reads white (alpha 1) = no lift.
+const float kDesertCanopyDepthRangeCm = 1024.0;
+
+float DesertCanopyLift( SurfaceInput i )
+{
+    return ( 1.0 - clamp( i.VertexColor.a, 0.0, 1.0 ) ) * kDesertCanopyDepthRangeCm;
+}
+
 float DesertRainOcclusion( SurfaceInput i )
 {
     const float texel = DesertRainOcclusionTexel();
     const vec3  n     = normalize( i.Normal );
     const float tanSlope =
          n.y > 0.0 ? min( sqrt( max( 1.0 - n.y * n.y, 0.0 ) ) / max( n.y, 1e-3 ), 4.0 ) : 0.0;
-    return DesertRainOcclusionAt( i.WorldPosition + n * ( 1.5 * texel ) + vec3( 0.0, 1.5 * texel * tanSlope, 0.0 ) );
+    return DesertRainOcclusionAt( i.WorldPosition + n * ( 1.5 * texel ) +
+                                  vec3( 0.0, 1.5 * texel * tanSlope + DesertCanopyLift( i ), 0.0 ) );
 }
 
 // HOW WET THE WORLD IS AT THIS SURFACE, in [0, 1]. THE ONE ACCESSOR: today the scene's world parameter (one value
