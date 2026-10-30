@@ -1,0 +1,14 @@
+# FIELD-WINTER: FIELD_Barn_Winter = FIELD_Barn under the world's snow layer (Common/WeatherSnow.glslh): the scene's
+# collection WP_Winter names the CC0 ambientCG Snow010A albedo / normal / ARM as Texture world parameters and
+# SnowCover 0.9; the look is the scan, the code only places it by the up-facing normal (owner 10-29).
+Дано run Scene "Open Scene FIELD_Barn_Winter.desce"
+Дано run View "View mode: Lit"
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 25
+Дано --subject selection set SunAzimuth 110
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.25,-1
+Тогда-вид 1_winter_eye ground, barn roof and branches carry the scanned snow (grain, sparkle-free white, soft relief) on up-facing faces; walls and trunks stay bare; blades poke out of the snow; the ground under the grass is not black; editor.log errors 0
+Когда --subject viewport set Camera.Position 0,900,2500
+Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
+Тогда-вид 2_winter_high the whole field white under snow, no tiling grid visible at 9 m, roof white, wall faces dark and bare, no black patches

@@ -674,10 +674,14 @@ namespace Desert::Graphic::System
         // blocks. Called after the lights got their ShadowView / ShadowMaskSlot (LOCAL-SHADOW-COVER: applied in
         // PrepareFrame, the point/spot blocks went up with ShadowView -1 and the forward terrain received no
         // local shadow at all), at the same point of the frame the meshes' forward materials take them.
-        if ( m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred )
-            return;
+        // Deferred: the G-buffer program takes the groups ITS layout declares from the same applier -- the world's
+        // parameters (the snow layer, Common/WeatherSnow.glslh, is a surface property written into the G-buffer).
+        const bool deferred = m_SceneRenderer->GetRenderPath() == Core::RenderPath::Deferred;
         for ( const auto& group : m_FrameGroups )
-            scene.ApplyTo( ( m_Materials.at( group.Key ).*ForwardProgram() ).get() );
+        {
+            const ProgramMaterials& materials = m_Materials.at( group.Key );
+            scene.ApplyTo( deferred ? materials.GBuffer.get() : ( materials.*ForwardProgram() ).get() );
+        }
     }
 
     void TerrainRenderer::PrepareLocalShadowViews( const std::vector<LocalShadowCasterLight>& localLights,

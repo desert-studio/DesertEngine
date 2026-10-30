@@ -461,7 +461,7 @@
             "Rotation": [-0.14800000190734863, -0.14800000190734863, 0.0],
             "Scale": [1.0, 1.0, 1.0],
             "Camera": {
-                "AutoActivateForPlayer": true,
+                "AutoActivateForPlayer": false,
                 "FOV": 70.0,
                 "Near": 10.0,
                 "Far": 5000000.0
@@ -1781,6 +1781,91 @@
             },
             "ProceduralFoliageField": {
                 "Owner": 8180000000000014
+            }
+        },
+        {
+            "id": 8180000000004000,
+            "siblingIndex": 42,
+            "Tag": "Walker",
+            "Translation": [0.0, 400.0, 2000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "CharacterController": {
+                "Radius": 34.0,
+                "Height": 176.0,
+                "MaxSlopeDeg": 50.0,
+                "MaxWalkSpeed": 250.0,
+                "MaxAcceleration": 2048.0,
+                "BrakingDecelerationWalking": 2048.0,
+                "GroundFriction": 8.0,
+                "BrakingFrictionFactor": 2.0,
+                "JumpZVelocity": 700.0,
+                "AirControl": 0.35,
+                "GravityScale": 1.0,
+                "MaxWalkSpeedCrouched": 300.0,
+                "CrouchedHeight": 120.0,
+                "MaxSwimSpeed": 300.0,
+                "CollisionProfile": "Pawn"
+            },
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/WalkRoute.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
+            "id": 8180000000004001,
+            "parent": 8180000000004000,
+            "siblingIndex": 43,
+            "Tag": "Body",
+            "Translation": [0.0, -88.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Animation": {
+                "CurrentClip": "",
+                "Playing": true,
+                "Loop": true,
+                "PlaybackSpeed": 1.0,
+                "Graph": "engine:Engine/Meshes/Skinned/Humanoid_Locomotion.danimgraph"
+            },
+            "SkinnedMesh": {
+                "MeshPath": "engine:Engine/Meshes/Skinned/Humanoid.skmesh",
+                "MeshGuid": "6d3a1f0e2b8c4e579a41c7d25e0b3f18"
+            }
+        },
+        {
+            "id": 8180000000004002,
+            "parent": 8180000000004000,
+            "siblingIndex": 44,
+            "Tag": "CameraArm",
+            "Translation": [0.0, 60.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "SpringArm": {
+                "TargetArmLength": 450.0,
+                "SocketOffset": [0.0, 120.0, 0.0],
+                "DoCollisionTest": true,
+                "ProbeSize": 12.0,
+                "EnableCameraLag": false,
+                "CameraLagSpeed": 10.0
+            }
+        },
+        {
+            "id": 8180000000004003,
+            "parent": 8180000000004002,
+            "siblingIndex": 45,
+            "Tag": "WalkerCamera",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 60.0,
+                "Near": 10.0,
+                "Far": 5000000.0
             }
         }
     ],

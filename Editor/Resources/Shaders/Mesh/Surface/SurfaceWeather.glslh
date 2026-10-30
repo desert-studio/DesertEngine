@@ -17,6 +17,7 @@
 // the precipitation). A surface is looked up a texel and a half out along its geometric normal, so a wall facing the
 // open sky reads the ground beside it rather than its own top.
 #include <Common/RainOcclusion.glslh>
+#include <Common/WeatherSnow.glslh>
 
 float DesertRainOcclusion( SurfaceInput i )
 {
@@ -49,12 +50,34 @@ SurfaceOutput ApplyWetness( SurfaceOutput s, const float wetness, const float po
     return s;
 }
 
+// Lays the world's snow (Common/WeatherSnow.glslh) over @p s where the face looks up at the open sky: the snow's
+// scanned albedo, roughness and occlusion replace the surface's by the layer's weight, metal is buried, and the
+// snow's normal (world space) is brought into the surface's tangent frame and blended with its own.
+SurfaceOutput ApplySnow( SurfaceInput i, SurfaceOutput s, const float response )
+{
+    // The geometric world normal (the TBN's third column): the mask is how the FACE meets the sky, and the snow
+    // buries the surface's own normal-map relief rather than following it.
+    const vec3            normalWS = normalize( i.TBN[2] );
+    const DesertSnowLayer snow     = DesertEvaluateSnow( i.WorldPosition, normalWS, 1.0 - DesertRainOcclusion( i ) );
+    const float           w        = snow.Weight * response;
+    if ( w <= 0.0 )
+        return s;
+    const vec3 snowTS  = normalize( transpose( i.TBN ) * snow.NormalWS );
+    s.BaseColor        = mix( s.BaseColor, snow.Albedo, w );
+    s.Roughness        = mix( s.Roughness, snow.Roughness, w );
+    s.AmbientOcclusion = mix( s.AmbientOcclusion, snow.AO, w );
+    s.Metallic         = mix( s.Metallic, 0.0, w );
+    s.Normal           = normalize( mix( s.Normal, snowTS, w ) );
+    return s;
+}
+
 // The pass headers' one call: the material's response (RespondsToWeather, a weight in [0, 1]) times the world's
 // wetness here, at the material's porosity.
 SurfaceOutput DesertApplySurfaceWeather( SurfaceInput i, SurfaceOutput s )
 {
     const float response = clamp( Material.RespondsToWeather, 0.0, 1.0 );
-    return ApplyWetness( s, response * DesertSurfaceWetness( i ), Material.Porosity );
+    s = ApplyWetness( s, response * DesertSurfaceWetness( i ), Material.Porosity );
+    return ApplySnow( i, s, response );
 }
 
 #endif

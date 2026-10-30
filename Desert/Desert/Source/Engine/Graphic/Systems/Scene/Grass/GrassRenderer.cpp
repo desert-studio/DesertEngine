@@ -12,6 +12,7 @@
 #include <Engine/Geometry/StaticMesh.hpp>
 #include <Engine/Graphic/Renderer.hpp>
 #include <Engine/Graphic/RDG/RDGPassBindings.hpp>
+#include <Engine/Graphic/SceneRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Graphic/TextureStreamingDemand.hpp>
 #include <Engine/Graphic/VisibilityCulling.hpp>
@@ -50,7 +51,7 @@ namespace Desert::Graphic::System
             glm::uvec4 Buckets; // x = bucket count, y = the bucket table's first word in Args
             glm::vec4  Blade;   // x = LodDistance (0: one bucket), y = ClumpSize, z = Clumping, w = ClumpPull
             glm::vec4  Spread;  // x = Scatter (cells), y = Patchiness, z = PatchSize
-            glm::vec4  Lean;    // x = Tilt (radians), y = FacingJitter (radians)
+            glm::vec4  Lean;    // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
             // A mesh's per-instance level by screen size (Geometry::BoundsScreenRadiusSquared): x = the lens's
             // screen multiple x the mesh's local half-diagonal, y = |Projection[2][3]| (0: orthographic).
             glm::vec4 Lod;
@@ -503,6 +504,9 @@ namespace Desert::Graphic::System
         params.Lean   = variety.Blade ? glm::vec4( glm::radians( variety.Blade->Tilt ),
                                                    glm::radians( variety.Blade->FacingJitter ), 0.0f, 0.0f )
                                       : glm::vec4( 0.0f );
+        // The world's snow buries every instance's root by its depth (Common/WeatherSnow.glslh): a blade shows only
+        // what stands above the snow, and one shorter than it is gone, in every pass that draws or shades it.
+        params.Lean.z = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
         if ( !variety.Blade )
         {
             const Common::Math::AABB bounds   = Geometry::LocalBounds( submeshes );
