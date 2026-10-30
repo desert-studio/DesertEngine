@@ -185,7 +185,7 @@ TEST( SkinnedImportTransform, LodGenerateSimplifiesSkinnedSections )
     sub.Transform   = glm::mat4( 1.0f );
     mesh.Submeshes.push_back( sub );
 
-    Editor::BakeMeshLODs( mesh );
+    Editor::BakeMeshLODs( mesh, Geometry::LODChainSettings{} );
     ASSERT_GT( mesh.Submeshes[0].LODs.size(), 1u );
     EXPECT_LT( mesh.Submeshes[0].LODs.back().size(), mesh.Indices.size() );
 }

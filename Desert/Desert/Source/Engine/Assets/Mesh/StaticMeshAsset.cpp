@@ -404,7 +404,7 @@ namespace Desert::Assets
             plan.Mode  = mode;
             plan.Input = std::make_shared<DisplacedMeshBuildInput>(
                  DisplacedMeshBuildInput{ vertices, streams, indices, submeshes, nullptr, heights,
-                                          settings.DisplacementBake.EdgeLengthCm, true } );
+                                          settings.DisplacementBake.EdgeLengthCm, true, settings.LodChain } );
             plan.DisplacedKey =
                  DisplacedMeshDerivedDataKey( renderDataKey, plan.Input->EdgeLengthCm, true, heights );
             plan.SurfaceKey = mode == MeshDisplacementMode::Baked

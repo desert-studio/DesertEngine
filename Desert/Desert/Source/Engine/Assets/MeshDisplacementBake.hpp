@@ -5,6 +5,7 @@
 #include <Common/Core/ResultStr.hpp>
 #include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Geometry/DisplacementTessellation.hpp>
+#include <Engine/Geometry/LODChainSettings.hpp>
 #include <Engine/Geometry/MeshTypes.hpp>
 
 #include <glm/glm.hpp>
@@ -86,6 +87,9 @@ namespace Desert::Assets
         // cluster at its MaxLevel (the Runtime SDF/cards surface).
         std::optional<float> EdgeLengthCm;
         bool                 BakeLODs = false; // the drawn Baked mesh carries a LOD chain; collision reads LOD0
+        // The chain BakeLODs generates: the mesh's MeshImportSettings::LodChain (in the render-data key the
+        // displaced key builds on).
+        Geometry::LODChainSettings LodChain;
     };
 
     // Render-data key + topology and builder versions + level + LOD flag + every section's height -> the key.

@@ -559,6 +559,66 @@ namespace Desert::Editor::ImportOptions
         }
         UI::EndPropertyRow();
 
+        // LOD-IMPORT: the generated chain is the mesh's own (MeshImportSettings::LodChain, UE's per-LOD Reduction
+        // Settings). An edit is taken only when the chain stays one the reduction can walk
+        // (Geometry::LODChainSettingsDefect); otherwise the defect is the tooltip.
+        if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
+        {
+            Geometry::LODChainSettings& chain = settings.Mesh.LodChain;
+            const auto                  take  = [&]( const Geometry::LODChainSettings& edited )
+            {
+                if ( const std::string defect = Geometry::LODChainSettingsDefect( edited ); !defect.empty() )
+                {
+                    ImGui::SetTooltip( "%s", defect.c_str() );
+                    return;
+                }
+                chain   = edited;
+                changed = true;
+            };
+            for ( std::size_t level = 0; level < chain.TriangleRatios.size(); ++level )
+            {
+                const std::string row = std::format( "LOD {} Triangles", level + 1 );
+                UI::BeginPropertyRow( row.c_str(), "This level's share of LOD 0's triangles, below the level "
+                                                   "before it; never reduced under the floor." );
+                ImGui::PushID( static_cast<int>( level ) );
+                float percent = chain.TriangleRatios[level] * 100.0f;
+                if ( ImGui::DragFloat( "##LodRatio", &percent, 0.05f, 0.01f, 99.9f, "%.2f %%" ) )
+                {
+                    Geometry::LODChainSettings edited = chain;
+                    edited.TriangleRatios[level]      = percent / 100.0f;
+                    take( edited );
+                }
+                ImGui::PopID();
+                UI::EndPropertyRow();
+            }
+            UI::BeginPropertyRow( "LOD Levels", "Add a level a quarter of the last one's triangles, or remove the "
+                                                "last level." );
+            if ( ImGui::Button( "Add Level" ) )
+            {
+                Geometry::LODChainSettings edited = chain;
+                edited.TriangleRatios.push_back( chain.TriangleRatios.back() * 0.25f );
+                take( edited );
+            }
+            ImGui::SameLine();
+            if ( ImGui::Button( "Remove Level" ) && chain.TriangleRatios.size() > 1 )
+            {
+                Geometry::LODChainSettings edited = chain;
+                edited.TriangleRatios.pop_back();
+                take( edited );
+            }
+            UI::EndPropertyRow();
+            UI::BeginPropertyRow( "LOD Floor", "No level is reduced below this many triangles; the chain ends at "
+                                               "the first level that reaches it." );
+            int floorTriangles = static_cast<int>( chain.MinTriangles );
+            if ( ImGui::DragInt( "##LodFloor", &floorTriangles, 1.0f, 1, 100000 ) && floorTriangles > 0 )
+            {
+                Geometry::LODChainSettings edited = chain;
+                edited.MinTriangles               = static_cast<uint32_t>( floorTriangles );
+                take( edited );
+            }
+            UI::EndPropertyRow();
+        }
+
         // VIRT-GEOM (contract §1, §6): a static mesh only. The import refuses it, naming the reason in the log,
         // for a mesh that draws a Masked / Translucent / Additive material (VirtualGeometryGate.hpp).
         if ( kind == ImportContentKind::StaticMesh )

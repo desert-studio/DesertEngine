@@ -529,7 +529,7 @@ namespace Desert::Editor
             else
             {
                 if ( settings.Mesh.LodPolicy == Assets::MeshLodPolicy::Generate )
-                    BakeMeshLODs( resolved.Mesh.value() );
+                    BakeMeshLODs( resolved.Mesh.value(), settings.Mesh.LodChain );
                 // The skinned mesh's displacement mode lives in its own file (MeshBinary v6): the import
                 // record's setting is copied there; Baked has no meaning for a surface that deforms each frame.
                 resolved.Mesh->Displacement = settings.Mesh.Displacement;
