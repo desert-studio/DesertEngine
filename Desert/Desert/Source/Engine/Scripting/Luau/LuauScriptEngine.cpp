@@ -386,6 +386,26 @@ namespace Desert::Scripting
         }
     }
 
+    std::vector<ScriptEngine::LiveProperty> ScriptEngine::ReadLiveProperties( uint32_t entity, uint32_t slot ) const
+    {
+        std::vector<LiveProperty> live;
+        const LuauSlot            source = m_Impl->SlotOf( entity, slot );
+        if ( source == 0 )
+            return live;
+        const std::vector<ScriptPropertyDecl>* declared = m_Impl->Runtime->Declarations( source );
+        if ( declared == nullptr )
+            return live;
+        live.reserve( declared->size() );
+        for ( const ScriptPropertyDecl& decl : *declared )
+        {
+            LiveProperty property{ .Name = decl.Name, .Type = decl.Default.Type };
+            if ( ScriptValue read; m_Impl->Runtime->ReadProperty( source, decl.Name, decl.Default.Type, read ) )
+                property.Value = std::move( read );
+            live.push_back( std::move( property ) );
+        }
+        return live;
+    }
+
     void ScriptEngine::ApplySaveGameProperties()
     {
         if ( m_Impl->Scene == nullptr )

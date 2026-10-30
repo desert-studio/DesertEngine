@@ -60,10 +60,10 @@ namespace Desert::Core
         void VisitFields( Self& m, Fn&& fn )
         {
             auto& [params, state, domain, passNames, rayTracingPassNames, defaultPassName, mediumSource,
-                   particleSource, layoutBindings, blend, opacityMask, height] = m;
+                   particleSource, layoutBindings, blend, opacityMask, height, shadingModel] = m;
             fn( params ), fn( state ), fn( domain ), fn( passNames ), fn( rayTracingPassNames ),
                  fn( defaultPassName ), fn( mediumSource ), fn( particleSource ), fn( layoutBindings ),
-                 fn( blend ), fn( opacityMask ), fn( height );
+                 fn( blend ), fn( opacityMask ), fn( height ), fn( shadingModel );
         }
 
         template <class Self, class Fn>
@@ -129,6 +129,8 @@ namespace Desert::Core
                 else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> ||
                                     std::is_same_v<T, int32_t> )
                     Raw<T>( v );
+                else if constexpr ( std::is_same_v<T, Common::UUID> )
+                    Raw<uint64_t>( static_cast<uint64_t>( v ) );
                 else if constexpr ( std::is_same_v<T, std::string> )
                 {
                     Raw<uint32_t>( static_cast<uint32_t>( v.size() ) );
@@ -210,6 +212,12 @@ namespace Desert::Core
                 else if constexpr ( std::is_same_v<T, float> || std::is_same_v<T, uint32_t> ||
                                     std::is_same_v<T, int32_t> )
                     Raw( v );
+                else if constexpr ( std::is_same_v<T, Common::UUID> )
+                {
+                    uint64_t raw = 0;
+                    Raw( raw );
+                    v = Common::UUID( raw );
+                }
                 else if constexpr ( std::is_same_v<T, std::string> )
                 {
                     uint32_t n = 0;

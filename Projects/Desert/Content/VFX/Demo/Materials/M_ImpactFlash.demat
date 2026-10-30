@@ -5,10 +5,7 @@
         "Versions": {
             "MATL": 7
         },
-        "Dependencies": [
-            "692a1274228f4c0aba0ad586acc699ff",
-            "0e628c572d5baca53ace0add4470336f"
-        ]
+        "Dependencies": ["692a1274228f4c0aba0ad586acc699ff", "0e628c572d5baca53ace0add4470336f"]
     },
     "Shader": {
         "Guid": "692a1274228f4c0aba0ad586acc699ff",
@@ -17,48 +14,23 @@
     "Params": [
         {
             "Name": "Tint",
-            "Value": [
-                1.0,
-                1.0,
-                1.0,
-                1.0
-            ]
+            "Value": [1.0, 1.0, 1.0, 1.0]
         },
         {
             "Name": "Intensity",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "SubUVColumns",
-            "Value": [
-                2.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [2.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "SubUVRows",
-            "Value": [
-                2.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [2.0, 0.0, 0.0, 0.0]
         },
         {
             "Name": "BlendFrames",
-            "Value": [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ]
+            "Value": [1.0, 0.0, 0.0, 0.0]
         }
     ],
     "Textures": [

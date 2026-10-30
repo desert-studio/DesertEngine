@@ -7,8 +7,8 @@
 #include <Engine/Graphic/Materials/DataDrivenMaterial.hpp>
 #include <Engine/Graphic/Materials/SceneFrameBinding.hpp>
 #include <Engine/Water/WaterQuadTree.hpp>
+#include <Engine/Water/WaterBodyQuery.hpp>
 #include <Engine/Assets/Common.hpp>
-#include <Engine/Graphic/FrameGraphRefs.hpp>
 
 #include <glm/glm.hpp>
 
@@ -29,6 +29,15 @@ namespace Desert::Graphic::System
         std::vector<Water::WaterQuadTreeBody> Bodies;
         // Each body's water material (ECS::WaterBodyData::WaterMaterial), in Bodies' order.
         std::vector<Assets::AssetHandle> BodyMaterials;
+        // Each body's wave set (ECS::WaterBodyData::WaterWaves; Null = a flat body) and its WaveOrigin (the
+        // entity's X, Z), in Bodies' order.
+        std::vector<Assets::AssetHandle> BodyWaves;
+        std::vector<glm::vec2>           BodyWaveOrigins;
+        // Each body's TargetWaveMaskDepth (cm, UE): the depth below which the GPU waves damp, read against the
+        // WaterInfo ground exactly as Water::QueryWaterBody damps the CPU's.
+        std::vector<float> BodyWaveMaskDepths;
+        // The zone's bottom seen from above (UE WaterInfo ground depth); null over no landscape.
+        std::shared_ptr<const Water::WaterInfoGround> Ground;
     };
 
     // THE WATER SURFACE RENDERER (WATER-W6; UE FWaterMeshSceneProxy + its water vertex factory). Each frame it
@@ -58,11 +67,19 @@ namespace Desert::Graphic::System
             return !m_FrameDraws.empty();
         }
 
+        // The WaterInfo ground (UE WaterInfo texture) PrepareFrame keeps: a persistent image the frame graph
+        // imports and the water pass samples as WaterInfoTexture - a pass input, not a material property.
+        [[nodiscard]] const std::shared_ptr<Image2D>& GetWaterInfo() const
+        {
+            return m_WaterInfo;
+        }
+
         // SETUP of the water node: its one binding block - the material route (frame block, tile rows, material
         // values and ripple maps), the opaque scene's copy @p sceneCopy the surface refracts, and the scene/view
-        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes).
-        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, const SceneViewInputs& view,
-                           const SceneFrameBinding& frame );
+        // inputs of @p view its program has slots for (the opaque depth = the water's bottom, the sky cubes, the
+        // view's fog), and the imported WaterInfo ground @p waterInfo (GetWaterInfo) the surf reads its depth from.
+        void DeclareDraws( RDG::PassBuilder& pass, RDG::TextureRef sceneCopy, RDG::TextureRef waterInfo,
+                           const SceneViewInputs& view, const SceneFrameBinding& frame );
         [[nodiscard]] Common::BoolResultStr RenderManual( const RDG::PassContext& context );
 
         void Submit( WaterZoneDraw zone )
@@ -104,6 +121,10 @@ namespace Desert::Graphic::System
         WaterProgram*                                 m_Frame = nullptr; // this frame's program
         ShaderBindingLayoutCache                      m_Layout;
         std::unordered_set<uint64_t>                  m_Warned;
+
+        // The WaterInfo ground uploaded last (WaterZoneDraw::Ground) and its texture.
+        std::shared_ptr<const Water::WaterInfoGround> m_GroundBaked;
+        std::shared_ptr<Image2D>                      m_WaterInfo;
 
         std::vector<WaterZoneDraw> m_Queue;
         std::vector<FrameDraw>     m_FrameDraws;

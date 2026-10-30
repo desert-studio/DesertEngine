@@ -1,0 +1,162 @@
+{
+    "Header": {
+        "Kind": "Material",
+        "Guid": "cb0d2736cea24ae68aefa2e7f5604385",
+        "Versions": {
+            "MATL": 7
+        },
+        "Dependencies": [
+            "bcefeba392c545f6b95dcb1c2554b7a8",
+            "8fc480b103b1d6b8a324ca01e7863f9c",
+            "2086ff8d8f71cd90d6fa58c8f13334ff",
+            "2b88bbd9ee3371ae823710fcaf671563",
+            "3ca7e80d282f3c1e7229a3632c9dcd90"
+        ]
+    },
+    "Shader": {
+        "Guid": "bcefeba392c545f6b95dcb1c2554b7a8",
+        "Path": "engine:Shaders/Programs/Water/WaterSurface.shader"
+    },
+    "Params": [
+        {
+            "Name": "ScatteringCoefficients",
+            "Value": [
+                0.015,
+                0.05,
+                0.045,
+                1.0
+            ]
+        },
+        {
+            "Name": "AbsorptionCoefficients",
+            "Value": [
+                0.45,
+                0.07,
+                0.04,
+                1.0
+            ]
+        },
+        {
+            "Name": "PhaseG",
+            "Value": [
+                0.3,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "ColorScaleBehindWater",
+            "Value": [
+                1.0,
+                1.0,
+                1.0,
+                1.0
+            ]
+        },
+        {
+            "Name": "Roughness",
+            "Value": [
+                0.05,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "RefractionStrength",
+            "Value": [
+                40.0,
+                0.0,
+                0.0,
+                0.0
+            ]
+        },
+        {
+            "Name": "FoamTint",
+            "Value": [
+                0.92,
+                0.95,
+                0.95,
+                1.0
+            ]
+        },
+        {
+            "Name": "FoamTileSize",
+            "Value": [
+                350.0,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "FoamJacobianThreshold",
+            "Value": [
+                0.6,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "FoamJacobianSoftness",
+            "Value": [
+                0.2,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "FoamDecaySeconds",
+            "Value": [
+                3.0,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "FoamBreakerIndex",
+            "Value": [
+                0.78,
+                0,
+                0,
+                0
+            ]
+        },
+        {
+            "Name": "DebugFoamMask",
+            "Value": [
+                1.0,
+                0,
+                0,
+                0
+            ]
+        }
+    ],
+    "Textures": [
+        {
+            "Name": "RippleNormalA",
+            "Guid": "8fc480b103b1d6b8a324ca01e7863f9c",
+            "Path": "assets:Water/Textures/T_WaterRipple_A_N.detex"
+        },
+        {
+            "Name": "RippleNormalB",
+            "Guid": "2086ff8d8f71cd90d6fa58c8f13334ff",
+            "Path": "assets:Water/Textures/T_WaterRipple_B_N.detex"
+        },
+        {
+            "Name": "FoamTexture",
+            "Guid": "2b88bbd9ee3371ae823710fcaf671563",
+            "Path": "assets:Water/Textures/T_WaterFoam_C.detex"
+        },
+        {
+            "Name": "FoamStructure",
+            "Guid": "3ca7e80d282f3c1e7229a3632c9dcd90",
+            "Path": "assets:Water/Textures/T_WaterFoam_S.detex"
+        }
+    ],
+    "CloudAssets": []
+}

@@ -16,7 +16,13 @@
 // The includer, before this file: `Uniform sampler PointClampSampler;`. Defines:
 //   MEGALIGHTS_SHADING - the pass evaluates a light at its pixel (the target function, the shading): GBufferA and
 //                        the shading word are declared and the registry's shading models included.
-//   MEGALIGHTS_TRACE   - the pass traces visibility: Common/RayQueryVisibility.glslh included before this file
+//   MEGALIGHTS_TRACE   - the pass tests visibility, from ONE source (Common::Scalability::StochasticVisibility):
+//     MEGALIGHTS_VISIBILITY_RAY_QUERY - Common/RayQueryVisibility.glslh included before this file;
+//     MEGALIGHTS_VISIBILITY_SCREEN    - the screen trace over the closest-depth HZB (the includer declares
+//                                       HzbTexture, Common/HZBTrace.glslh), alone;
+//     MEGALIGHTS_VISIBILITY_VSM       - beside MEGALIGHTS_VISIBILITY_SCREEN: then the light's virtual shadow map
+//                                       pages (the includer declares the VSM reader's tables, DESERT_VSM_READ,
+//                                       and VsmLocalLightsUB { VsmLocalLight vsmLocalLights[]; })
 //                        (MEGALIGHTS_SHADING too: the contact shadow reads the shading word and the subsurface
 //                        opacity of the receiver).
 // Bindings: 0 the view block, 1 depth, 2 GBufferB, 3 GBufferA, 4 the shading word, 6 / 16 the point / spot rows
@@ -29,6 +35,7 @@
 #include <Mesh/Spotlight.glslh>  // binding 16
 #include <Mesh/MegaLightsDemodulation.glslh>
 #include <Common/LightSourceSampling.glslh>
+#include <Common/RisReservoir.glslh>
 
 // The most reservoirs a pixel keeps (MegaLights.hpp kMegaLightsMaxSamplesPerPixel; Scalability
 // Shadows.MegaLightsSamplesPerPixel 1..4). The reservoir textures stack the layers vertically: layer k of sample
@@ -46,7 +53,7 @@ Uniform(0) MegaLightsViewUB
 	uvec4 Counts;                    // x = point lights, y = spot lights, z = samples per pixel, w = spatial samples
 	vec4  Params;                    // x = temporal history cap (frames), y = history readable (> 0.5),
 	                                   // z = shadow-ray normal bias (cm), w = spatial reuse radius (sample pixels)
-	uvec4 Frame;                     // x = frame index, y = render width, z = render height, w = downsample factor
+	uvec4 MegaLightsFrame;           // x = frame index, y = render width, z = render height, w = downsample factor
 	vec4  ContactShadowView;         // SceneResources ContactShadowView: x = steps (0 = off), y = tan(fov / 2),
 	                                   // z = dither frame (Common/ContactShadow.glslh)
 };
@@ -66,12 +73,12 @@ layout(set = 0, binding = 4) uniform utexture2D GBufferShadingWordTexture;
 // The render resolution: the G-buffer's, the shading's and the denoiser's.
 ivec2 MegaLightsViewSize()
 {
-	return ivec2(Frame.yz);
+	return ivec2(MegaLightsFrame.yz);
 }
 
 int MegaLightsDownsampleFactor()
 {
-	return max(int(Frame.w), 1);
+	return max(int(MegaLightsFrame.w), 1);
 }
 
 // The sample pixels: one per factor x factor block of render pixels (the last block of a row may be partial).
@@ -114,7 +121,7 @@ uint MegaLightsPcg(uint v)
 // One stream per pixel, frame and pass (@p pass tells the passes' streams apart).
 uint MegaLightsSeed(ivec2 pixel, uint pass)
 {
-	return MegaLightsPcg(uint(pixel.x) + MegaLightsPcg(uint(pixel.y) + MegaLightsPcg(Frame.x * 8u + pass)));
+	return MegaLightsPcg(uint(pixel.x) + MegaLightsPcg(uint(pixel.y) + MegaLightsPcg(MegaLightsFrame.x * 8u + pass)));
 }
 
 float MegaLightsRandom(inout uint state)
@@ -133,7 +140,7 @@ ivec2 MegaLightsScreenPixel(ivec2 samplePixel)
 	const int   cells  = factor * factor;
 	const ivec2 size   = MegaLightsViewSize();
 	const ivec2 corner = samplePixel * factor;
-	const int   start  = int(MegaLightsPcg(Frame.x + MegaLightsPcg(uint(samplePixel.x) +
+	const int   start  = int(MegaLightsPcg(MegaLightsFrame.x + MegaLightsPcg(uint(samplePixel.x) +
 	                                                                  MegaLightsPcg(uint(samplePixel.y)))) %
 	                         uint(cells));
 	for (int i = 0; i < cells; ++i)
@@ -253,68 +260,8 @@ float MegaLightsTargetPdf(MegaLightsPixel p, int light)
 }
 #endif
 
-// ---- The reservoir (RTXDI's RIS reservoir) -----------------------------------------------------------------------
-// Stored RGBA32F: x = the light (-1 = none; an index of the light grid's space, kept as a float - exact below 2^24),
-// y = W (the unbiased contribution weight: wSum / (M * p^(light))), z = M (the confidence: frames and neighbours it
-// summarises), w = p^ of the light at the pixel that holds it.
-struct MegaLightsReservoir
-{
-	int   Light;
-	float W;
-	float M;
-	float TargetPdf;
-};
-
-MegaLightsReservoir MegaLightsEmptyReservoir()
-{
-	return MegaLightsReservoir(-1, 0.0, 0.0, 0.0);
-}
-
-vec4 MegaLightsPackReservoir(MegaLightsReservoir r)
-{
-	return vec4(float(r.Light), r.W, r.M, r.TargetPdf);
-}
-
-MegaLightsReservoir MegaLightsUnpackReservoir(vec4 v)
-{
-	return MegaLightsReservoir(int(floor(v.x + 0.5)), v.y, v.z, v.w);
-}
-
-// The combination in progress: the reservoir being built and its running weight sum.
-struct MegaLightsMerge
-{
-	MegaLightsReservoir Result;
-	float               WeightSum;
-};
-
-MegaLightsMerge MegaLightsBeginMerge()
-{
-	return MegaLightsMerge(MegaLightsEmptyReservoir(), 0.0);
-}
-
-// Streams reservoir @p s into @p merge (ReSTIR's combine): its weight is p^ AT THE RECEIVING PIXEL (@p targetHere)
-// times its W times its confidence @p m; the light is taken with the probability of that weight among the stream.
-void MegaLightsMergeReservoir(inout MegaLightsMerge merge, MegaLightsReservoir s, float targetHere, float m,
-                              float random)
-{
-	const float w = targetHere * s.W * m;
-	merge.WeightSum += w;
-	merge.Result.M += m;
-	if (w > 0.0 && random * merge.WeightSum < w)
-	{
-		merge.Result.Light     = s.Light;
-		merge.Result.TargetPdf = targetHere;
-	}
-}
-
-MegaLightsReservoir MegaLightsEndMerge(MegaLightsMerge merge)
-{
-	MegaLightsReservoir r = merge.Result;
-	r.W = (r.Light >= 0 && r.TargetPdf > 1e-12 && r.M > 0.0) ? merge.WeightSum / (r.M * r.TargetPdf) : 0.0;
-	if (r.W <= 0.0)
-		r.Light = -1;
-	return r;
-}
+// ---- The reservoir: Common/RisReservoir.glslh (RisReservoir, RisMerge), shared with the path tracer's light
+// grid; MegaLights stores it RGBA32F (RisPackReservoir), one layer per sample (MegaLightsReservoirTexel).
 
 // ---- Visibility --------------------------------------------------------------------------------------------------
 #ifdef MEGALIGHTS_TRACE
@@ -328,6 +275,22 @@ MegaLightsReservoir MegaLightsEndMerge(MegaLightsMerge merge)
 vec2 g_MegaLightsTracedPixel = vec2(0.0);
 #define CONTACT_SHADOW_PIXEL g_MegaLightsTracedPixel
 #include <Common/ContactShadow.glslh>
+
+#if defined(MEGALIGHTS_VISIBILITY_SCREEN)
+// The light's slot in the frame's virtual shadow map (-1: not shadowed from it this frame).
+int MegaLightsLightShadowMaskSlot(int light)
+{
+	const int points = int(Counts.x);
+	return light < points ? pointLights[light].shadowMaskSlot : spotLights[light - points].shadowMaskSlot;
+}
+
+// THE SCREEN TRACE over the closest HZB, shared with the volume's froxel samples (Common/MegaLightsScreenTrace.glslh),
+// through the matrices the G-buffer (and so the HZB) was rasterised with.
+#define MEGALIGHTS_SCREEN_TRACE_WORLD_TO_CLIP JitteredWorldToClip
+#define MEGALIGHTS_SCREEN_TRACE_CLIP_TO_WORLD InverseJitteredViewProjection
+#define MEGALIGHTS_SCREEN_TRACE_EYE           CameraPosition.xyz
+#include <Common/MegaLightsScreenTrace.glslh>
+#endif
 
 // THE ONE VISIBILITY TEST of a sample (UE MegaLights traces each sample once): 0..1, how much of @p light reaches
 // the surface point @p p. The ray aims at a point of the light's source sphere, uniform in the solid angle it
@@ -360,7 +323,35 @@ float MegaLightsVisibility(MegaLightsPixel p, int light, inout uint random)
 	if (contact <= 0.0)
 		return 0.0;
 	const vec3 origin = p.Position + p.N * (dot(p.N, dir) >= 0.0 ? bias : -bias);
+#if !defined(MEGALIGHTS_VISIBILITY_RAY_QUERY) && !defined(MEGALIGHTS_VISIBILITY_SCREEN)
+#error "MegaLights.glslh: MEGALIGHTS_TRACE needs a MEGALIGHTS_VISIBILITY_* source"
+#endif
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY) && defined(MEGALIGHTS_VISIBILITY_SCREEN)
+	// A mixed program (a ray-query frame with Screen / VirtualMaps lamps): each light tests its own source, the
+	// payload's ShadowVisibility (Common::Scalability::StochasticVisibility: 0 = RayQuery), resolved per light by
+	// Graphic::ResolveLightVisibility - the source the state reports for it.
+	const int points = int(Counts.x);
+	const int source = light < points ? pointLights[light].shadowVisibility : spotLights[light - points].shadowVisibility;
+	if (source == 0)
+#endif
+#if defined(MEGALIGHTS_VISIBILITY_RAY_QUERY)
 	return contact * RayQueryVisibility(origin, dir, max(reach - 2.0 * bias, 0.0), RAY_TRACING_MASK_SHADOW_CASTER);
+#endif
+#if defined(MEGALIGHTS_VISIBILITY_SCREEN)
+	if (MegaLightsScreenTraceOccluded(origin, dir, max(reach - 2.0 * bias, 0.0)))
+		return 0.0;
+#if defined(MEGALIGHTS_VISIBILITY_VSM)
+	// The occluders the screen does not hold: the light's virtual shadow map, its pages marked from this G-buffer
+	// ("VSM: Mark Local") - slot = the light's index in the frame's VsmLocalLights (AssignLocalShadowMaskSlots).
+	// The same sampled direction marched through the map (VsmLocalVisibilityRay, UE SMRT for a local light), so
+	// SourceRadius softens the shadow with the occluder's distance, as the traced ray does.
+	const int slot = MegaLightsLightShadowMaskSlot(light);
+	if (slot >= 0)
+		return contact * VsmLocalVisibilityRay(vsmLocalLights[slot], p.Position, p.N, dir,
+		                                       max(reach - 2.0 * bias, 0.0), MegaLightsRandom(random));
+#endif
+	return contact;
+#endif
 }
 #endif
 

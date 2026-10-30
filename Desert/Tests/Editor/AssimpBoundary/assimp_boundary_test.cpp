@@ -158,7 +158,8 @@ TEST( AssimpBoundary, NeitherTheEngineNorTheRuntimeReachesForAssimp )
     // The other half of the same statement: the build files for those two projects must not name the
     // library either. An `#include` is how it arrives by accident; a `links` entry is how it arrives on
     // purpose, and this suite has to refuse both.
-    for ( const char* project : { "Desert/Desert/CMakeLists.txt", "cmake/DesertModuleTable.cmake", "Runtime/CMakeLists.txt" } )
+    for ( const char* project :
+          { "Desert/Desert/CMakeLists.txt", "cmake/DesertModuleTable.cmake", "Runtime/CMakeLists.txt" } )
     {
         const std::string text = ReadFile( root / project );
         if ( text.empty() )

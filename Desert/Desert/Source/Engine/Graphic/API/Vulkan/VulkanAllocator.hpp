@@ -237,6 +237,10 @@ namespace Desert::Graphic::API::Vulkan
         /// The device this allocator was created for. See Init() for why it is held rather than looked up.
         VkDevice m_Device = VK_NULL_HANDLE;
         DeviceCaps m_DeviceCaps;
+        /// The queue-family sharing every buffer and image made here is created with (copied at Init from
+        /// VulkanPhysicalDevice::GetResourceSharing; VulkanResourceSharing.hpp has the rule and why). Create infos
+        /// point into this copy, which lives as long as the allocator.
+        VulkanResourceSharing m_Sharing;
 
         std::vector<BufferDeletionEntry>      m_BufferDeletionQueue;
         std::vector<ImageDeletionEntry>       m_ImageDeletionQueue;

@@ -55,6 +55,13 @@ namespace Desert::Graphic::System
             return BOOLSUCCESS;
         }
 
+        // AddPasses can build a hierarchy (the pipeline exists): a two-phase cull tests last frame's HZB only when
+        // this frame's can be built for its phase 2.
+        [[nodiscard]] bool CanBuild() const
+        {
+            return static_cast<bool>( m_Pipeline );
+        }
+
         // GRAPH BUILD: the @p kind hierarchy of @p depth (the scene depth, @p width x @p height) as a new transient
         // of @p graph, and the passes that fill it ("HZB: Mip n" / "HZB Furthest: Mip n"). An invalid ref when the
         // pipeline is missing.

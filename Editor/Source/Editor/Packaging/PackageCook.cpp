@@ -12,6 +12,8 @@
 #include <Engine/Graphic/GlobalIllumination/WorldRadianceCache.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/DeferredLightingRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Deferred/SSRRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Fog/VolumetricFogRenderer.hpp>
+#include <Engine/Graphic/Systems/Scene/Terrain/TerrainRenderer.hpp>
 #include <Engine/Graphic/Systems/Scene/Mesh/MeshRenderer.hpp>
 #include <Engine/Assets/Prefab/PrefabData.hpp>
 #include <Engine/Assets/Prefab/PrefabFormat.hpp>
@@ -209,7 +211,8 @@ namespace Desert::Editor
         // ShippedByCook refuses the miss by name):
         //   the tracing consumers   under every tracer permutation (GlobalIllumination::kTracerPermutations):
         //                           WorldRadianceCache, SurfaceCacheRenderer, SSRRenderer ProgramVariants;
-        //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution ProgramVariants
+        //   the untraced systems    DeferredLightingRenderer, TemporalAA, TemporalSuperResolution,
+        //                           TerrainRenderer, VolumetricFogRenderer ProgramVariants
         //                           (and SSR's untraced front layer in SSRRenderer's);
         //   the mesh materials      every registered `.demat` (ContentRegistry) under its forward cell's
         //                           permutations (MeshRenderer::MaterialProgramVariants);
@@ -235,6 +238,8 @@ namespace Desert::Editor
             append( Graphic::SurfaceCache::SurfaceCacheRenderer::ProgramVariants() );
             append( Graphic::System::SSRRenderer::ProgramVariants() );
             append( Graphic::System::DeferredLightingRenderer::ProgramVariants() );
+            append( Graphic::System::TerrainRenderer::ProgramVariants() );
+            append( Graphic::System::VolumetricFogRenderer::ProgramVariants() );
             append( Graphic::TemporalAA::ProgramVariants() );
             append( Graphic::TemporalSuperResolution::ProgramVariants() );
 
@@ -530,7 +535,15 @@ namespace Desert::Editor
             std::sort( sources.begin(), sources.end() );
             sources.erase( std::unique( sources.begin(), sources.end() ), sources.end() );
 
-            TextureImporter importer;
+            // The effort is the project's (Config/Engine.json, Texture Encoding), from the one read TextureCook
+            // and the editor use: a package and a TextureCook run of the same project key the same DDC entries, so
+            // the package fetches what TextureCook already baked instead of encoding it again.
+            TextureImporter::UseProjectTextureEncoding();
+            const Assets::TextureEncodePlan plan = Assets::PlanTextureEncode( Assets::TextureEncodeRole::Cook );
+            LOG_INFO(
+                 "[PackageCook] textures: {} asset(s), encode effort {} (project Texture Encoding, cook role)",
+                 sources.size(), plan.BuildEffort );
+            TextureImporter importer{ Assets::TextureEncodeRole::Cook }; // the package ships the final encode
             for ( const fs::path& source : sources )
             {
                 switch ( importer.Cook( source ).Outcome )

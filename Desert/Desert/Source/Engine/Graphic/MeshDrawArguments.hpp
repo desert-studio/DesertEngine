@@ -4,7 +4,9 @@
 #include <Engine/Geometry/Mesh.hpp>
 
 #include <cstdint>
+#include <cstddef>
 #include <format>
+#include <span>
 #include <vector>
 
 // THE INDIRECT ARGUMENTS OF A MESH DRAW (RendererAPI::RenderMeshIndirect): one record per submesh the draw draws,
@@ -24,6 +26,36 @@ namespace Desert::Graphic
     {
         Drawn,
         Submesh,
+    };
+
+    // The submeshes a mesh draw hides, for a mesh of ANY submesh count: bit i of Low = submesh i (i < 64), bit
+    // (i - 64) % 64 of High[(i - 64) / 64] = submesh i past it; a word past High hides nothing. High is a view of
+    // words its producer keeps alive until the draw is recorded (a cascade's or VSM level's clustered submeshes,
+    // MeshRenderer::ClusterWalkHidden: interned per frame, so equal masks share one view). Built implicitly from a
+    // 64-bit mask, which every producer of a mesh with at most 64 submeshes still is.
+    struct SubmeshMask
+    {
+        uint64_t                  Low = 0;
+        std::span<const uint64_t> High{};
+
+        constexpr SubmeshMask() = default;
+        constexpr SubmeshMask( const uint64_t low, const std::span<const uint64_t> high = {} ) // NOLINT: implicit
+             : Low( low ), High( high )
+        {
+        }
+
+        [[nodiscard]] constexpr bool Hides( const std::size_t submesh ) const
+        {
+            if ( submesh < 64u )
+                return ( ( Low >> submesh ) & 1ull ) != 0u;
+            const std::size_t word = ( submesh - 64u ) / 64u;
+            return word < High.size() && ( ( High[word] >> ( ( submesh - 64u ) % 64u ) ) & 1ull ) != 0u;
+        }
+        // Equal masks of one producer share their High view (interned), so the view's address names its words.
+        [[nodiscard]] constexpr bool operator==( const SubmeshMask& other ) const
+        {
+            return Low == other.Low && High.data() == other.High.data() && High.size() == other.High.size();
+        }
     };
 
     struct SubmeshIndexRange
@@ -47,7 +79,7 @@ namespace Desert::Graphic
     // @p firstInstance, each with an instance count of 0; returns how many records. Refused when a submesh reads
     // past the index buffer (RenderMesh's check, made here because the GPU never reports it).
     [[nodiscard]] inline Common::ResultStr<uint32_t>
-    AppendMeshDrawArguments( const Mesh& mesh, const uint64_t hiddenSubmeshMask, const uint32_t lodLevel,
+    AppendMeshDrawArguments( const Mesh& mesh, const SubmeshMask hiddenSubmeshMask, const uint32_t lodLevel,
                              const uint32_t firstInstance, std::vector<uint32_t>& words )
     {
         // Mesh-relative records: the per-mesh bind puts the geometry at the mesh's own offsets.
@@ -57,7 +89,7 @@ namespace Desert::Graphic
         uint32_t    records     = 0;
         for ( size_t si = 0; si < submeshes.size(); ++si )
         {
-            if ( si < 64 && ( ( hiddenSubmeshMask >> si ) & 1ull ) != 0 )
+            if ( hiddenSubmeshMask.Hides( si ) )
                 continue;
             const Submesh& submesh = submeshes[si];
             if ( indexCount == 0u )

@@ -17,8 +17,8 @@
 #include <Engine/ECS/EditableMesh.hpp>
 #include <Engine/Geometry/DynamicMesh.hpp>
 #include <Engine/Geometry/DynamicMeshRenderConversion.hpp>
+#include <Engine/Geometry/DynamicMeshSelection.hpp>
 #include <Engine/Geometry/MeshBooleanOperation.hpp>
-#include <Engine/Geometry/MeshCore/DynamicMesh/DynamicMeshAttributeSet.hpp>
 #include <Engine/Geometry/VoxelBlockout.hpp>
 
 #include <Common/Core/Math/AABB.hpp>
@@ -314,7 +314,7 @@ namespace Desert::Editor::Tools
         // slot holding it, or a slot added for it. Slots never shrink (CoverMaterialIds' rule), so an Undo
         // leaves the added slot unused rather than renumbering the mesh's IDs.
         const Common::AssetHandle        want  = ms.QuickMaterial;
-        std::vector<Common::AssetHandle> slots = smc.MaterialSlots;
+        std::vector<Common::AssetHandle> slots = smc.GetMaterialSlots();
         if ( slots.empty() )
             slots.emplace_back();
         auto slotIt = std::find( slots.begin(), slots.end(), want );
@@ -335,16 +335,13 @@ namespace Desert::Editor::Tools
                                                 *input.GetValue().Mesh, piece );
         if ( !result.IsSuccess() )
             return refuse( result.GetError() );
-        if ( slots != smc.MaterialSlots )
-        {
-            smc.MaterialSlots = std::move( slots );
-            // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-            smc.RuntimeMaterialInstances.clear();
-            smc.RuntimeSlots.reset();
-            smc.SeenMaterialsVersion = 0;
-        }
-        if ( auto set = ECS::SetEditableMesh( smc, result.GetValue().Mesh ); !set.IsSuccess() )
+        // Slots and mesh are one write: a refused mesh leaves the slots as they were too. The writer drops
+        // the runtime instances when the slots change, so the mesh system rebuilds them.
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots       = std::move( slots );
+        if ( auto set = ECS::SetEditableMesh( desc, result.GetValue().Mesh ); !set.IsSuccess() )
             return refuse( set.GetError() );
+        ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), desc );
         // The selection follows the edit - up onto the bump, down into the pit - so the next Push/Pull continues
         // it (the voxel path's plane moves with the edit the same way), and comes back with the mesh on Undo.
         SessionState before = CaptureState();
@@ -424,13 +421,12 @@ namespace Desert::Editor::Tools
         slots.reserve( submeshMaterialIds.size() );
         for ( const int id : submeshMaterialIds )
             slots.push_back( m_Materials.at( static_cast<size_t>( id ) ) );
-        if ( slots == smc.MaterialSlots )
+        if ( slots == smc.GetMaterialSlots() )
             return;
-        smc.MaterialSlots = std::move( slots );
-        // The runtime instances follow the slots; dropping them makes the mesh system rebuild them.
-        smc.RuntimeMaterialInstances.clear();
-        smc.RuntimeSlots.reset();
-        smc.SeenMaterialsVersion = 0;
+        // The writer drops the runtime instances on the slot change, so the mesh system rebuilds them.
+        ECS::StaticMeshDesc desc = smc.GetDesc();
+        desc.MaterialSlots       = std::move( slots );
+        ECS::SetStaticMesh( *ref->get().GetRegistry(), ref->get().GetHandle(), desc );
     }
 
     void CubeGridTool::ResetSession()
@@ -517,7 +513,7 @@ namespace Desert::Editor::Tools
         m_EntityFrame = opened.GetValue().EntityFrame;
         m_Volume      = std::move( opened.ExtractValue().Volume );
         // Accept stored the material IDs as the entity's slot indices (StoreVoxels), so the slots ARE the set.
-        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().MaterialSlots;
+        const auto& slots = e.GetComponent<ECS::StaticMeshComponent>().GetMaterialSlots();
         if ( !slots.empty() )
             m_Materials = slots;
 
@@ -1610,9 +1606,9 @@ namespace Desert::Editor::Tools
             return;
         }
         ECS::Entity entity = ref->get();
-        auto&       smc    = entity.HasComponent<ECS::StaticMeshComponent>()
-                                  ? entity.GetComponent<ECS::StaticMeshComponent>()
-                                  : entity.AddComponent<ECS::StaticMeshComponent>();
+        ECS::StaticMeshDesc desc = entity.HasComponent<ECS::StaticMeshComponent>()
+                                        ? entity.GetComponent<ECS::StaticMeshComponent>().GetDesc()
+                                        : ECS::StaticMeshDesc{};
         // The quads become a DynamicMesh3 - the entity's source of truth, the thing the scene saves - and the
         // render mesh is derived from it (EditableMesh.hpp). The weld joins each quad's corners with its
         // neighbours' into shared topology; the normal, tangent and UV each become a seam exactly where two
@@ -1625,13 +1621,14 @@ namespace Desert::Editor::Tools
             LOG_ERROR( "[CubeGrid] the blockout could not become an editable mesh: {0}", imported.GetError() );
             return;
         }
-        if ( auto set = ECS::SetEditableMesh( smc, std::make_shared<const Geometry::DynamicMesh3>(
-                                                        std::move( imported.ExtractValue().Mesh ) ) );
+        if ( auto set = ECS::SetEditableMesh( desc, std::make_shared<const Geometry::DynamicMesh3>(
+                                                         std::move( imported.ExtractValue().Mesh ) ) );
              !set.IsSuccess() )
         {
             LOG_ERROR( "[CubeGrid] the blockout mesh was not built: {0}", set.GetError() );
             return;
         }
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), desc );
         ApplyMaterialSlots( scene, quads.SubmeshMaterialIds );
     }
 

@@ -22,11 +22,13 @@
 //
 // ── QUALITY IS MEASURED IN THIS REPOSITORY, NOT QUOTED FROM A REFERENCE ENCODER ──────────────────
 //
-// These are OUR encoders and they are simpler than the reference ones. BC7 here writes MODE 6 only
-// (one subset, RGBA endpoints, 4-bit indices) out of the eight modes the format has, and BC6H writes
-// MODE 11 only (one subset, 10-bit absolute endpoints) out of fourteen. A partitioned mode helps a
-// block that straddles an edge between two materially different colours, and neither of these will
-// find that. What they DO is chosen for what this project stores: smooth colour and smooth radiance.
+// BC7 IS THE FULL FORMAT: the encode is AMD Compressonator's CMP_Core kernel (ThirdParty/compressonator,
+// MIT), which searches all eight modes including the two- and three-subset partitions, and the decode is
+// bcdec's (ThirdParty/bcdec, MIT), which reads every mode. A partitioned mode is what keeps a block that
+// straddles two materially different colours (a petal over a blade); the mode-6-only encoder this file
+// used to carry could not, and that is what failed six of FieldBarn's masked albedos (GRASS-ASSET p7).
+// BC6H is still OURS and writes MODE 11 only (one subset, 10-bit absolute endpoints) out of fourteen —
+// chosen for smooth radiance, and it will not find an edge between two colours.
 //
 // BC4 IS THE EXCEPTION AND IS IMPLEMENTED WHOLE: the format has no modes, both of its palette shapes
 // are here, and BC5 is literally two of its blocks. That is not this file being more careful about one
@@ -110,9 +112,18 @@ namespace Desert::Core::Formats
     /// chain looks like. The texels that fall outside the image are filled by CLAMPING to the edge
     /// rather than left as zero: a black quarter-block at the edge of a 6x6 level would be encoded as
     /// part of the same endpoint fit and would drag the real texels' colours with it.
+    /// How hard the encoder searches. Only BC7 has a choice (the kernel's quality); the other formats have one
+    /// encode. The texture cook passes the project's fast or final effort (Project::TextureEncodingSettings);
+    /// a caller with no project (an environment bake, a splash) takes the full search.
+    struct BlockEncodeSettings
+    {
+        float Bc7Effort = 1.0f;
+    };
+
     [[nodiscard]] Common::ResultStr<std::vector<unsigned char>>
     BlockCompressImage( uint32_t width, uint32_t height, ImageFormat sourceFormat, ImageFormat blockFormat,
-                        const unsigned char* source, std::size_t sourceBytes );
+                        const unsigned char* source, std::size_t sourceBytes,
+                        const BlockEncodeSettings& settings = {} );
 
     /// Decode blocks back to @p destFormat — the inverse of the above, and the thing that MEASURES it.
     /// Implements the specification's own reconstruction (the integer interpolation, the unquantize and

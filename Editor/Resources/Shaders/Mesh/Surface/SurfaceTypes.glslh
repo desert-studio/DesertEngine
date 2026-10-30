@@ -1,5 +1,6 @@
 #ifndef DESERT_SURFACE_TYPES_GLSLH
 #define DESERT_SURFACE_TYPES_GLSLH
+#include <Generated/SceneBindings.glslh> // the set-0 slot table (Core::kSceneBindingNames)
 
 // The contract between a surface template and the engine (Core/ShaderCompiler/DShader/DShaderParser.hpp):
 // the author writes `SurfaceOutput EvaluateSurface( SurfaceInput )`, the engine's vertex header for the
@@ -7,7 +8,7 @@
 // the pass's targets. Every cell of every template compiles this file, so it is hashed into their keys.
 //
 // The parser defines, in BOTH stages of a cell: DESERT_SURFACE_PASS_<Pass> (Forward | GBuffer | ShadowDepth |
-// VirtualShadowDepth),
+// VirtualShadowDepth | Depth - the view's depth prepass, a VIEW pass),
 // DESERT_SHADING_MODEL_INDEX (the template's model, a SHADING_MODEL_INDEX_<NAME> of the generated
 // Generated/ShadingModels.glslh), for `BlendMode Masked`, DESERT_SURFACE_MASKED and, in the `.Parallax` cells of
 // a template that declares `Height <Texture2D> ... Scale(<Float>)`, DESERT_SURFACE_PARALLAX (SurfaceParallax.glslh). The headers shape their declarations on these so each
@@ -120,7 +121,7 @@ SurfaceSubUV DesertParticleSubUV( SurfaceParticleInput p, vec2 uv, float columns
      ( ( defined( DESERT_SURFACE_PARTICLE_SPRITE ) && defined( DESERT_SURFACE_DEPTH_FADE ) ) ||                      \
        ( defined( DESERT_SURFACE_PASS_Forward ) && !defined( DESERT_SURFACE_PARTICLE_SPRITE ) ) )
 Uniform sampler PointClampSampler;
-layout( binding = 27 ) uniform texture2D SceneDepthTexture; // 27 = Core::kSceneDepthBinding, the scene-read range's third slot (ShaderGraphBindings.hpp)
+layout( binding = kSceneDepthBinding ) uniform texture2D SceneDepthTexture; // the scene-read range's third slot (ShaderGraphBindings.hpp)
 #define SceneDepthTexture sampler2D(SceneDepthTexture, PointClampSampler)
 #endif
 // THE SCENE SHADING WORD beside it, for the Forward cells only: the contact-shadow ray's hit texel's NO_CONTACT_SHADOW
@@ -128,7 +129,7 @@ layout( binding = 27 ) uniform texture2D SceneDepthTexture; // 27 = Core::kScene
 // with texelFetch through the same point-clamped state.
 #if defined( DESERT_SURFACE_SAMPLES_MATERIAL ) && defined( DESERT_SURFACE_PASS_Forward ) &&                          \
      !defined( DESERT_SURFACE_PARTICLE_SPRITE )
-layout( binding = 28 ) uniform utexture2D SceneShadingWordTexture; // 28 = Core::kSceneShadingWordBinding, the range's fourth slot
+layout( binding = kSceneShadingWordBinding ) uniform utexture2D SceneShadingWordTexture; // the range's fourth slot
 #define SceneShadingWordTexture usampler2D(SceneShadingWordTexture, PointClampSampler)
 #endif
 
@@ -197,6 +198,18 @@ struct SingleLayerWaterOutput
     float PhaseG;                 // Henyey-Greenstein anisotropy of the in-scatter
     vec3  ColorScaleBehindWater;  // tints the scene seen through the water before the absorption
     float RefractionOffset;       // cm the scene behind shifts per unit of the normal's horizontal tilt
+    // THE FOAM (UE's water material Foam inputs): where it forms is physics (Pass_SingleLayerWater.glslh: the waves'
+    // Jacobian at the crests, the breaker depth at the shore); what it looks like and its thresholds are the
+    // material's.
+    vec3  FoamAlbedo;             // the foam's diffuse colour (its texture times its tint)
+    float FoamCoverage;           // 0..1 the foam texture's structure at this point: where a forming sheet shows
+    float FoamJacobianThreshold;  // whitecaps form where the surface's Jacobian falls below this (1 = still)
+    float FoamJacobianSoftness;   // the Jacobian range over which the whitecap fades in
+    float FoamDecaySeconds;       // e-folding time of foam left behind on the water particle that broke
+    float FoamBreakerIndex;       // gamma = H / d at which a wave breaks on the shallows (McCowan 0.78)
+    float ShoreFadeCm;            // the water column (cm) over which the surface fades in from where it meets
+                                  // the ground (UE's water material depth fade): no hard intersection line
+    float DebugFoamMask;          // 1 = draw only the foam mask (white foam, black water) - a debug material
 };
 
 // What an author starts from, so a surface that sets only BaseColor still returns a defined value.
@@ -252,6 +265,20 @@ SurfaceOutput DefaultSurfaceOutput()
 #include <Common/CameraUB.glslh>
 #endif
 
+// THE BINNED CELL (DESERT_SURFACE_BINNED, the generator's `.Binned` permutation, DShaderParser kSurfaceBinnedCellSuffix):
+// the draw is a row of a GPU-driven bin (GpuDriven::DrawCommandCache) and pushes nothing. The vertex stage resolves
+// World / PrevWorld / material row / primitive flags from its instance id (Common/GpuScene.glslh DesertResolveMeshDraw)
+// and hands the fragment stage the two per-draw words the push block carried (MaterialTransport.glslh MaterialIndex
+// and PrimitiveFlags; the flags here in GpuDriven::PrimitiveFlags' layout, DESERT_GPU_PRIMITIVE_*). UE: the primitive
+// id the base pass vertex factory forwards to the pixel shader.
+#ifdef DESERT_SURFACE_BINNED
+#define DESERT_SURFACE_BINNED_VARYINGS \
+    flat uint MaterialRow;             \
+    flat uint PrimitiveFlags;
+#else
+#define DESERT_SURFACE_BINNED_VARYINGS
+#endif
+
 // The one interface between a cell's two stages; `q` is `out` in the vertex header, `in` in the pass header.
 // What only the vertex can know; what the view knows (camera position, time) the fragment reads from the view block.
 #define DESERT_SURFACE_VARYINGS( q ) \
@@ -266,7 +293,19 @@ SurfaceOutput DefaultSurfaceOutput()
         vec4 Clip; \
         vec4 PrevClip; \
         flat float ObjectMoved; \
+        DESERT_SURFACE_BINNED_VARYINGS \
     } v_Surface;
+
+// The material row the generated `Material` reads (DShaderParser: `MaterialRows[DESERT_SURFACE_MATERIAL_ROW]`): the
+// push block's MaterialIndex, or in a binned cell the row its vertex stage resolved. A global in a binned cell, set
+// by DESERT_SURFACE_BEGIN_FRAGMENT() first thing in every pass header's main(): the surface function that reads
+// `Material` is compiled before the pass header that declares v_Surface.
+#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_SAMPLES_MATERIAL )
+uint g_SurfaceMaterialRow = 0u;
+#define DESERT_SURFACE_BEGIN_FRAGMENT() g_SurfaceMaterialRow = v_Surface.MaterialRow
+#else
+#define DESERT_SURFACE_BEGIN_FRAGMENT()
+#endif
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,

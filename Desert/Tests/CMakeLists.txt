@@ -44,7 +44,7 @@ function(_desert_runner_settings target)
         $<$<CONFIG:Debug>:DESERT_CONFIG_DEBUG> $<$<CONFIG:Release>:DESERT_CONFIG_RELEASE>)
     desert_link_engine(${target})
     target_link_libraries(${target} PRIVATE
-        GLFW Optick MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro)
+        GLFW Optick MeshOptimizer OpenSubdiv Embree ImGui Assimp OpenEXRCore Dav1d Opus Voro Compressonator)
     if(DESERT_IS_MACOS)
         target_link_libraries(${target} PRIVATE
             Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp

@@ -162,6 +162,27 @@ namespace Desert::Graphic::System
             return Common::MakeError( "ParticleRenderer: the ParticleRibbonDefault template has no registered "
                                       "ParticleRibbon.Forward cell" );
         m_DefaultRibbonCell = *ribbon;
+        // The stand-in for a named material that cannot draw (UE WorldGridMaterial): the particle cells of the
+        // STAND-IN surface template (`Role StandInSurface`), found by that role and never by a name written here.
+        // A project whose stand-in declares no particle usage keeps the renderer: such a row is then not drawn,
+        // said here once.
+        for ( const auto& [path, into] : { std::pair{ MeshVertexPath::ParticleSprite, &m_BrokenCell },
+                                           std::pair{ MeshVertexPath::ParticleRibbon, &m_BrokenRibbonCell } } )
+        {
+            auto broken =
+                 Runtime::ResourceRegistry::GetMaterialService()->StandInSurfaceShader( path, MeshPass::Forward );
+            if ( broken &&
+                 Runtime::ResourceRegistry::GetShaderService()->GetByName( broken.GetValue() ) == nullptr )
+                broken = Common::MakeError<std::string>(
+                     std::format( "its cell '{}' is not registered", broken.GetValue() ) );
+            if ( broken )
+                *into = broken.GetValue();
+            else
+                LOG_ERROR( "[Particles] the stand-in surface has no {}.Forward cell ({}): a row whose material "
+                           "cannot draw will not be drawn at all - declare `Usage {}` in the stand-in surface",
+                           MeshVertexPathName( path ), broken.GetError(),
+                           path == MeshVertexPath::ParticleRibbon ? "ParticleRibbons" : "ParticleSprites" );
+        }
         return BOOLSUCCESS;
     }
 
@@ -748,7 +769,8 @@ namespace Desert::Graphic::System
                      glm::uvec4( static_cast<uint32_t>( stage.Kind ), stage.K, stage.J, range.Ribbon ? 1u : 0u ),
                      origin, forward };
                 graph.AddPass(
-                     ParticleSortPassName( range.Emitter, s, range.Ribbon ), RDG::PassFlags::Compute,
+                     ParticleSortPassName( range.Emitter, s, range.Ribbon ),
+                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
                      [this, buffers, stage]( RDG::PassBuilder& pass )
                      {
                          DeclareParticleSortStage(
@@ -828,6 +850,7 @@ namespace Desert::Graphic::System
         const bool           ribbon = row.Kind == Assets::Serialization::VFXRendererKind::Ribbon;
         const MeshVertexPath path   = ribbon ? MeshVertexPath::ParticleRibbon : MeshVertexPath::ParticleSprite;
         const std::string&   engine = ribbon ? m_DefaultRibbonCell : m_DefaultCell;
+        const std::string&   broken = ribbon ? m_BrokenRibbonCell : m_BrokenCell;
         // A named material draws through its own cell of the row's path (UE: the renderer's material).
         if ( handle != Common::AssetHandle::Null() )
         {
@@ -845,9 +868,15 @@ namespace Desert::Graphic::System
                 }
                 return sprite;
             }
-            // Still being read: the default cell draws this frame, and the next frame asks again.
-            const bool pending = cell == nullptr && service->IsPending( handle );
-            if ( !pending && ( !material.HasRefused || material.Refused != handle ) )
+            // Still being read: the row sits this frame out (as a Mesh row does), and the next frame asks again.
+            if ( cell == nullptr && service->IsPending( handle ) )
+            {
+                material.Handle   = Common::AssetHandle::Null();
+                material.Instance = nullptr;
+                material.Cell     = nullptr;
+                return nullptr;
+            }
+            if ( !material.HasRefused || material.Refused != handle )
             {
                 // Named by the ASSET (its file's stem), what a person looks for in the Content Browser; a
                 // broken file was already refused aloud with its path and field by the material service.
@@ -859,15 +888,19 @@ namespace Desert::Graphic::System
                                              "file and the field)" )
                               : std::format( "is missing or its template has no `Usage {}` cell",
                                              ribbon ? "ParticleRibbons" : "ParticleSprites" ) );
-                LOG_ERROR( "[Particles] emitter {}.{} renderer row {} draws with the engine default {}: its "
-                           "material '{}' ({}) {}",
-                           fe.EntityId, fe.Emitter, row.Row,
-                           ribbon ? "ParticleRibbonDefault" : "ParticleSpriteDefault",
-                           name.empty() ? std::string( "<no material asset>" ) : name,
-                           static_cast<uint64_t>( handle ), reason );
+                LOG_ERROR(
+                     "[Particles] emitter {}.{} renderer row {} draws the stand-in checker (DefaultSurface): its "
+                     "material '{}' ({}) {}",
+                     fe.EntityId, fe.Emitter, row.Row, name.empty() ? std::string( "<no material asset>" ) : name,
+                     static_cast<uint64_t>( handle ), reason );
                 material.Refused    = handle;
                 material.HasRefused = true;
             }
+            // UE WorldGridMaterial: a named material that cannot draw is shown as the engine's checker stand-in.
+            material.Handle   = Common::AssetHandle::Null();
+            material.Instance = nullptr; // DefaultSurface has no parameters
+            material.Cell     = nullptr;
+            return broken.empty() ? nullptr : SpriteDrawFor( broken );
         }
         material.Handle   = Common::AssetHandle::Null();
         material.Instance = nullptr; // the default cell's own defaults
@@ -1239,7 +1272,8 @@ namespace Desert::Graphic::System
                 const RDG::BufferRef floats = ve.FloatsRef, layout = ve.DrawLayoutRef, counters = ve.CountersRef;
                 const GpuInstanceRefs refs  = state.Refs;
                 graph.AddPass(
-                     std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     std::format( "Particles: Mesh Instances {}.{}", i, vm.Row ),
+                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
                      [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
                      {
                          // PoolSlots: the slot's Id tells a respawned particle from the one the history row holds.
@@ -1274,7 +1308,8 @@ namespace Desert::Graphic::System
                 // into every record, so the GBuffer and the cascades draw it, and re-arms the reduction.
                 push.Lod.z = 1u;
                 graph.AddPass(
-                     std::format( "Particles: Mesh LOD {}.{}", i, vm.Row ), RDG::PassFlags::Compute,
+                     std::format( "Particles: Mesh LOD {}.{}", i, vm.Row ),
+                     RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute, // the simulation's async run
                      [this, floats, layout, counters, refs, history]( RDG::PassBuilder& pass )
                      {
                          pass.Bindings( m_MeshLayout.Get( m_MeshPipeline->GetSpecification().Shader ),

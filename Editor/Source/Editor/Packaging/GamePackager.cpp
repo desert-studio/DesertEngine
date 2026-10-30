@@ -279,8 +279,9 @@ namespace Desert::Editor
                 // content: staged with the rest of the tree, rowed in the registry gathered above, and listed
                 // in each HLOD unit's asset closure through the records' references.
                 auto hlods  = ::Desert::Core::WorldCells::ReadBuiltHLODs( source );
-                auto cooked = ::Desert::Core::WorldCells::CookWorld( scene.GetValue().Scene, registries,
-                                                                     hlods ? &hlods.GetValue() : nullptr );
+                auto cooked = ::Desert::Core::WorldCells::CookWorld(
+                     scene.GetValue().Scene, registries, ::Desert::Core::WorldCells::PrefabFileReader(),
+                     hlods ? &hlods.GetValue() : nullptr );
                 if ( !cooked )
                 {
                     error = "cooking the world '" + key + "': " + cooked.GetError() +
@@ -975,12 +976,12 @@ namespace Desert::Editor
 
             // THE VENDOR UPSCALER RUNTIMES (UE: a plugin's RuntimeDependencies, staged beside the game). DLSS
             // loads NVIDIA Streamline from the executable's directory at run time (Graphic/API/Vulkan/Streamline/
-            // StreamlineRuntime), so without these files the packaged game has no DLSS. The manifest's Files are the
-            // list — the build copies the same list beside every executable (cmake/DesertDependencies.cmake:
-            // DesertCopyStreamlineRuntime) — and it carries NVIDIA's redistribution licence, which must ship with
-            // nvngx_dlss.dll. The files are downloaded, not committed: one that was never fetched refuses the package
-            // by name, because a shipped game without them would only say so on the player's machine. FSR needs
-            // nothing here: the FidelityFX SDK is a static library with its shaders compiled in.
+            // StreamlineRuntime), so without these files the packaged game has no DLSS. The manifest's Files are
+            // the list: the build copies the same list beside every executable (cmake/DesertDependencies.cmake:
+            // desert_copy_streamline_runtime); it carries NVIDIA's redistribution licence, which must ship with
+            // nvngx_dlss.dll. The files are downloaded, not committed: one that was never fetched refuses the
+            // package by name, because a shipped game without them would only say so on the player's machine. FSR
+            // needs nothing here: the FidelityFX SDK is a static library with its shaders compiled in.
             const fs::path streamlineManifest =
                  Common::Constants::Path::EngineDir().parent_path() / "ThirdParty" / "Streamline" / "manifest.json";
             auto manifest = Common::Json::ReadFile<VendorRuntimeManifest>( streamlineManifest );

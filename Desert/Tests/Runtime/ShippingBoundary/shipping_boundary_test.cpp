@@ -900,17 +900,19 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
             const std::string code = line.substr( 0, line.find( '#' ) );
             const bool        selectsLibraries =
                  code.find( "$<CONFIG:" ) != std::string::npos &&
-                 ( code.find( ".lib" ) != std::string::npos ||
-                   code.find( "LIBRARIES" ) != std::string::npos || code.find( "target_link_libraries" ) != std::string::npos );
+                 ( code.find( ".lib" ) != std::string::npos || code.find( "LIBRARIES" ) != std::string::npos ||
+                   code.find( "target_link_libraries" ) != std::string::npos );
             if ( !selectsLibraries )
                 continue;
             ++scanned;
-            if ( code.find( "$<CONFIG:Release>" ) != std::string::npos && code.find( "Shipping" ) == std::string::npos )
+            if ( code.find( "$<CONFIG:Release>" ) != std::string::npos &&
+                 code.find( "Shipping" ) == std::string::npos )
                 offenders.push_back( std::format( "{}:{}  {}", rel, lineNo, code ) );
         }
     }
 
-    ASSERT_GT( scanned, 0u ) << "this census found no per-configuration library line to read — it is checking nothing";
+    ASSERT_GT( scanned, 0u )
+         << "this census found no per-configuration library line to read — it is checking nothing";
 
     std::string report;
     for ( const std::string& o : offenders )
@@ -924,8 +926,9 @@ TEST( ShippingBoundary, EveryShippedProjectSelectsItsLibrariesInTheShippingConfi
 
 // ── BOTH BUILD WRAPPERS ACCEPT EVERY CONFIGURATION THE WORKSPACE DECLARES ───────────────────────────
 //
-// DERIVED FROM cmake/DesertWorkspace.cmake (DESERT_CONFIGURATIONS), NOT LISTED HERE. A fourth configuration added tomorrow is covered the day
-// it exists, which is the shape PackagedContentTrees established and the reason this file prefers it.
+// DERIVED FROM cmake/DesertWorkspace.cmake (DESERT_CONFIGURATIONS), NOT LISTED HERE. A fourth configuration added
+// tomorrow is covered the day it exists, which is the shape PackagedContentTrees established and the reason this
+// file prefers it.
 //
 // WHAT IT CAUGHT THE DAY IT WAS WRITTEN. `Shipping` landed with scripts/MacOS/BuildMacOS.sh taught the
 // word and scripts/Windows/BuildWindows.bat not, so on the platform the game actually ships for the
@@ -952,7 +955,7 @@ TEST( ShippingBoundary, BothPlatformWrappersAcceptEveryDeclaredConfiguration )
     ASSERT_NE( close, std::string::npos );
 
     std::vector<std::string> declared;
-    std::istringstream       words( workspace.substr( at + kDeclaration.size(), close - at - kDeclaration.size() ) );
+    std::istringstream words( workspace.substr( at + kDeclaration.size(), close - at - kDeclaration.size() ) );
     for ( std::string word; words >> word; )
         declared.push_back( word );
     ASSERT_GE( declared.size(), 3u ) << "expected at least Debug, Release and Shipping";

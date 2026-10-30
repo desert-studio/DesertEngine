@@ -2,10 +2,11 @@
 //
 // cmake/DesertModuleTable.cmake is the one module table: configure validates it and builds one library per
 // module from it, DesertHeaderTool groups the reflected types by it, and this suite reads it through the same
-// reader (Tools/DesertHeaderTool/Source/ModuleTable.cpp, the <build>/DesertModules.json configure writes). The suite walks every #include of the engine and Common,
-// resolves it the way the engine's include paths do, and REPORTS each line whose target module is outside the
-// includer's declared dependency closure - the crossings the plan's cuts C1..C12 remove. It does not fail on
-// their number: the moves (P1..P14) delete them, and P14 turns this report into the gate.
+// reader (Tools/DesertHeaderTool/Source/ModuleTable.cpp, the <build>/DesertModules.json configure writes). The
+// suite walks every #include of the engine and Common, resolves it the way the engine's include paths do, and
+// REPORTS each line whose target module is outside the includer's declared dependency closure - the crossings the
+// plan's cuts C1..C12 remove. It does not fail on their number: the moves (P1..P14) delete them, and P14 turns
+// this report into the gate.
 //
 // What it DOES hold, so the report cannot go blind: the table loads and is layered; every engine file has a
 // module and every placement row places at least one file; named file -> module rows; named crossings the
@@ -304,8 +305,8 @@ TEST( ModuleBoundary, BuildAndHeaderToolPlaceEveryLegacyFileTheSame )
     }
     const std::set<std::string> walked( paths.begin(), paths.end() );
     for ( const auto& [path, module] : built )
-        EXPECT_TRUE( walked.contains( path ) ) << path << ": the build places it into " << module
-                                               << ", the suite's walk does not see it";
+        EXPECT_TRUE( walked.contains( path ) )
+             << path << ": the build places it into " << module << ", the suite's walk does not see it";
 }
 
 // Red when a module with legacy files has no table library, or one that is not named Desert<Module>.

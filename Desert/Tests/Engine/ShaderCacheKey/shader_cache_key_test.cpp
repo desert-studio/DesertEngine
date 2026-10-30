@@ -1517,19 +1517,7 @@ TEST_F( ShaderCacheKeyShaderRoot, TwoSmallParametersInARowStillLandOnTheirOwnSlo
         Color  Third  ("Third")  = (0.1, 0.2, 0.3, 1.0)
     }
 
-    State { Cull Back ZTest LEqual ZWrite On }
-
-    Vertex
-    {
-        #include <Mesh/MeshVertexInputs.glslh>
-        #include <Common/CameraUB.glslh>
-        #include <Common/MaterialTransport.glslh>
-        void main()
-        {
-            gl_Position = cameraUB.Projection * cameraUB.View * m_PushConstants.Transform
-                        * vec4( a_Position, 1.0 );
-        }
-    }
+    State { Cull Back ZTest LEqual Blend On }
 
     Fragment
     {

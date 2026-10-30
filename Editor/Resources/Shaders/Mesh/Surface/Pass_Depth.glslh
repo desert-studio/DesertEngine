@@ -1,0 +1,31 @@
+// Surface cell pass: the VIEW's depth prepass, DEPTH ONLY (UE DepthOnlyPixelShader.usf, the DepthPass mesh pass):
+// the camera's own frame into the scene depth before the base pass, which then tests its depth for equality and
+// writes none. The vertex stage is the path's view header - the same GpuScene row and jittered camera matrix as the
+// base pass's cell, `invariant gl_Position` - so both rasterise the same depth.
+//
+// An opaque template's cell evaluates no surface and declares none of its bindings (DShaderParser
+// IsSurfaceDepthOnlyPass): the rasterised depth is all it writes, and early depth testing stays on. A Masked one
+// evaluates only its generated opacity mask (UE's masked depth-only pixel shader), so the base pass's equal test
+// keeps exactly the texels it kept. A template's `.Parallax` cell writes the relief's depth (Pixel Depth Offset,
+// Mesh/Surface/SurfaceParallax.glslh), the depth its base-pass cell then computes and tests equal.
+// No velocity: the base pass writes the view's motion where its depth test passes (UE: the base pass's velocity
+// output for a mover; the depth pass writes depth alone).
+#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+DESERT_SURFACE_VARYINGS( in )
+#endif
+#ifdef DESERT_SURFACE_PARALLAX
+// The Pixel Depth Offset only moves the fragment away from the eye: in this reverse-Z view a smaller depth.
+layout( depth_less ) out float gl_FragDepth;
+#endif
+
+void main()
+{
+#if defined( DESERT_SURFACE_MASKED ) || defined( DESERT_SURFACE_PARALLAX )
+    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                               v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+    DESERT_SURFACE_CLIP( i );
+#endif
+#ifdef DESERT_SURFACE_PARALLAX
+    gl_FragDepth = DesertPixelDepthOffsetDepth( i, EvaluateSurface( i ) );
+#endif
+}

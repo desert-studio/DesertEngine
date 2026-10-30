@@ -17,8 +17,8 @@
 // HOW TO CONVERT A SUITE (what the messages below point at): delete its CMakeLists.txt and its `int main`
 // (what the main set up goes into a SuiteEnvironment, a self-launch mode into a ChildEntry);
 // move what the script added (include dir, library, tool source) into the runner's function,
-// `_desert_runner_<Layer>` in Desert/Tests/CMakeLists.txt; put file-local types into `namespace { }`; give its tests a test-suite name
-// no other suite of the layer uses. BuildScripts/BUILD1-CONTRACT.md, "Adding a suite".
+// `_desert_runner_<Layer>` in Desert/Tests/CMakeLists.txt; put file-local types into `namespace { }`; give its
+// tests a test-suite name no other suite of the layer uses. BuildScripts/BUILD1-CONTRACT.md, "Adding a suite".
 
 #include <gtest/gtest.h>
 
@@ -420,9 +420,8 @@ namespace
              << "Desert/Tests/CMakeLists.txt has no runner function '_desert_runner_" << layer << "'";
         if ( begin == std::string::npos )
             return {};
-        const size_t      end = cmake.find( "endfunction()", begin );
-        const std::string body =
-             cmake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
+        const size_t      end  = cmake.find( "endfunction()", begin );
+        const std::string body = cmake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
 
         // CMake comments out (`#` to the end of the line), so a comment naming a path is not a compiled file.
         std::string        code;

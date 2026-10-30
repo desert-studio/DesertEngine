@@ -16,7 +16,7 @@ desert_external_includes(GamePackager
 desert_config_platform_defines(GamePackager)
 desert_link_editor_libs(GamePackager)
 target_link_libraries(GamePackager PRIVATE
-    Assimp ImGui ImGuiNodeEditor GLFW Optick MeshOptimizer Voro OpenSubdiv Embree OpenEXRCore Dav1d Opus)
+    Assimp ImGui ImGuiNodeEditor GLFW Optick MeshOptimizer Voro Compressonator OpenSubdiv Embree OpenEXRCore Dav1d Opus)
 desert_link_engine(GamePackager)
 if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
     target_link_libraries(GamePackager PRIVATE Dlib)

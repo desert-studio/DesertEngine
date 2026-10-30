@@ -350,7 +350,8 @@ TEST( ImGuiBoundary, TheEngineAndRuntimeProjectsDoNotLinkTheToolkitAndTheEditorD
     // cmake/DesertModuleTable.cmake is read with the engine: it holds the libraries each module links.
     const std::string token = "ImGui";
 
-    for ( const char* script : { "Desert/Desert/CMakeLists.txt", "cmake/DesertModuleTable.cmake", "Runtime/CMakeLists.txt" } )
+    for ( const char* script :
+          { "Desert/Desert/CMakeLists.txt", "cmake/DesertModuleTable.cmake", "Runtime/CMakeLists.txt" } )
     {
         const std::string text = StripCMakeComments( ReadAll( root / script ) );
         ASSERT_FALSE( text.empty() ) << script << " could not be read";

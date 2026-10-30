@@ -56,6 +56,9 @@ namespace Desert::Graphic
         // Shadows HardwareTraced: the local lights with a ShadowMaskSlot read the ray-traced masks
         // (DeferredCompositeInputs::LocalShadowMasks) - the composite draws its RayTracedLocal program.
         bool RayTracedLocalLights = false;
+        // Shadows VirtualMaps: the same masks (from "VSM: Project Local"), and the virtual map itself for the
+        // subsurface transmission - the composite draws its VirtualLocal program (DESERT_LOCAL_SHADOW_VSM).
+        bool VirtualLocalLights = false;
         // The view's contact shadows, packed into the same block (SceneResources::PackContactShadow).
         SceneResources::ContactShadowSettings Contact{};
         // The sun's PCSS taps (SceneResources::PackShadowFilter); read by the cascade program only.

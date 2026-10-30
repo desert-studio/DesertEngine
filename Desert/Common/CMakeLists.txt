@@ -18,7 +18,7 @@ else()
 endif()
 
 target_include_directories(Common PRIVATE "Source/" "Source/Common")
-desert_external_includes(Common ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_COMMONSPECIFIC_INCLUDE_DIRS})
+desert_external_includes(Common ${DESERT_COMMON_INCLUDE_DIRS})
 target_link_libraries(Common PRIVATE Optick ${DESERT_COMMONSPECIFIC_LIBRARIES})
 target_compile_definitions(Common PRIVATE ${DESERT_COMMON_DEFINES})
 desert_config_platform_defines(Common)

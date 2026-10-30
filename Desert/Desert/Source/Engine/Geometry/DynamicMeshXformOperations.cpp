@@ -1,4 +1,5 @@
 #include "DynamicMeshXformOperations.hpp"
+#include "DynamicMeshSelection.hpp" // AllTriangleIds
 
 #include "MeshRegionOperation.hpp"
 
@@ -239,15 +240,6 @@ namespace Desert::Geometry
             return Common::MakeSuccess( true );
         }
 
-        std::vector<int> AllTriangles( const DynamicMesh3& mesh )
-        {
-            std::vector<int> out;
-            out.reserve( static_cast<size_t>( mesh.TriangleCount() ) );
-            for ( const int t : mesh.TriangleIndicesItr() )
-                out.push_back( t );
-            return out;
-        }
-
         int MaxPolyGroup( const DynamicMesh3& mesh )
         {
             int top = -1;
@@ -298,7 +290,7 @@ namespace Desert::Geometry
             return Common::MakeError<TransformedMesh>( linear.GetError() );
         TransformedMesh out;
         EnableLayers( out.Mesh, LayersOf( mesh ) );
-        if ( auto r = AppendPart( out.Mesh, mesh, transform, linear.GetValue(), AllTriangles( mesh ), 0, {},
+        if ( auto r = AppendPart( out.Mesh, mesh, transform, linear.GetValue(), AllTriangleIds( mesh ), 0, {},
                                   out.TangentsRebuilt );
              !r.IsSuccess() )
             return Common::MakeFormattedError<TransformedMesh>( "Transform: {}", r.GetError() );
@@ -438,7 +430,7 @@ namespace Desert::Geometry
                 return Common::MakeFormattedError<MergeOutcome>( "{} (part {})", linear.GetError(), i );
             if ( auto r =
                       AppendPart( out.Mesh, parts[i].Mesh, parts[i].ToResult, linear.GetValue(),
-                                  AllTriangles( parts[i].Mesh ), groupOffset, parts[i].MaterialRemap, rebuilt );
+                                  AllTriangleIds( parts[i].Mesh ), groupOffset, parts[i].MaterialRemap, rebuilt );
                  !r.IsSuccess() )
                 return Common::MakeFormattedError<MergeOutcome>( "Merge: part {}: {}", i, r.GetError() );
             groupOffset += MaxPolyGroup( parts[i].Mesh ) + 1;

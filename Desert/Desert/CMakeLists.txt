@@ -95,6 +95,9 @@ function(_desert_engine_module_library name)
         "${DESERT_ROOT}/ThirdParty/luau"
         "${DESERT_ROOT}/ThirdParty/luau/CodeGen/include"
         "${DESERT_ROOT}/ThirdParty/luau/Common/include"
+        # Intel Open Image Denoise 2.x, headers only: the library is LOADED at run time from beside the executable
+        # (Engine/Graphic/Denoise/OidnDenoiser.cpp), nothing links it (desert_copy_oidn_runtime).
+        "${DESERT_ROOT}/ThirdParty/OIDN/include"
         ${DESERT_COMMON_INCLUDE_DIRS}
         ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 
@@ -103,7 +106,7 @@ function(_desert_engine_module_library name)
     endforeach()
     target_link_libraries(${target} PRIVATE
         Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon
-        Optick MeshOptimizer Voro OpenSubdiv Embree Dav1d Opus)
+        Optick MeshOptimizer Voro Compressonator OpenSubdiv Embree Dav1d Opus)
 
     target_compile_definitions(${target} PRIVATE ${DESERT_COMMON_DEFINES})
     desert_config_platform_defines(${target})

@@ -87,6 +87,7 @@
 
 #include <Common/Core/ResultStr.hpp>
 #include <Common/Core/UUID.hpp>
+#include <Engine/Core/Formats/BlockCompression.hpp>
 #include <Engine/Core/Formats/ImageFormat.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
@@ -408,7 +409,8 @@ namespace Desert::Assets::Serialization
     BlockCompressChain( uint32_t width, uint32_t height, uint32_t levelCount, uint32_t layerCount,
                         Core::Formats::ImageFormat sourceFormat, Core::Formats::ImageFormat blockFormat,
                         const std::vector<TextureLevel>&  sourceLevels,
-                        const std::vector<unsigned char>& sourcePixels );
+                        const std::vector<unsigned char>& sourcePixels,
+                        const Core::Formats::BlockEncodeSettings& settings = {} );
 
     /// How many bytes `BuildLevelTable` demands in @p images for this shape: every level of every layer,
     /// tightly packed. Exposed because a caller that reads a GPU image back has to SIZE the readback

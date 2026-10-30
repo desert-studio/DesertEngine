@@ -171,7 +171,8 @@ namespace Desert::Graphic
         // Re-uploads tightly-packed pixel data into the EXISTING GPU image without recreating it — the
         // image (and any descriptor sets bound to its pointer) stays valid, so this is the safe, churn-free
         // way to stream changing content (video frames) every frame. `data` must match the image's format
-        // and dimensions. Default: unsupported.
+        // and dimensions. Submitted, not waited for: the pixels are in a staging copy when this returns, and
+        // every later submission on the queue reads them. Default: unsupported.
         NO_DISCARD virtual Common::BoolResultStr SetData( const Core::Formats::ImagePixelData& /*data*/ )
         {
             return Common::MakeError<bool>( "Image2D::SetData not supported by this backend" );
@@ -194,8 +195,10 @@ namespace Desert::Graphic
         // the array's size with at least the array's mip count from it down (a streamed source with more levels
         // on top is copied from that level), and there must be exactly ArrayLayers of them; anything else is
         // refused naming the source
-        // and the field (UE's UTexture2DArray build refuses the same mismatches). The copy is flushed before
-        // this returns, and every source is handed back in its own layout. Default: unsupported.
+        // and the field (UE's UTexture2DArray build refuses the same mismatches). The copy is submitted and NOT
+        // waited for (FPS-CPU-3): every later submission on the queue reads the filled array, every source is
+        // handed back in its own layout, and a source may be released at once (the deletion queue outlives the
+        // copy). Default: unsupported.
         NO_DISCARD virtual Common::BoolResultStr CopyLayersFrom( std::span<const Image2D* const> /*sources*/ )
         {
             return Common::MakeError<bool>( "Image2D::CopyLayersFrom not supported by this backend" );

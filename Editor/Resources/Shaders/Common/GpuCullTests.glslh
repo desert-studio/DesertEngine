@@ -1,0 +1,66 @@
+// THE GPU CULL'S BOX TESTS, spelled once for every pass that culls against a GpuCullView: the instance cull
+// (Programs/GpuDriven/InstanceCull.shader) and the virtual-geometry cluster cut
+// (Programs/VirtualGeometry/ClusterCut.shader) test their boxes with the same frustum and furthest-HZB rules, so an
+// instance and the clusters of it agree on what is in the view and what last frame's depth hides.
+#ifndef DESERT_GPU_CULL_TESTS_GLSLH
+#define DESERT_GPU_CULL_TESTS_GLSLH
+
+#include <Common/GpuScene.glslh>
+#include <Common/ScreenUV.glslh>
+
+// Core::Frustum::Intersects: the corner farthest along each plane's normal; a zero plane accepts.
+bool GpuCull_FrustumIntersects( GpuCullView view, vec3 boxMin, vec3 boxMax )
+{
+    for ( uint p = 0u; p < 6u; ++p )
+    {
+        const vec4 plane    = view.FrustumPlanes[p];
+        const vec3 positive = vec3( plane.x >= 0.0 ? boxMax.x : boxMin.x, plane.y >= 0.0 ? boxMax.y : boxMin.y,
+                                    plane.z >= 0.0 ? boxMax.z : boxMin.z );
+        if ( dot( positive, plane.xyz ) + plane.w < 0.0 )
+            return false;
+    }
+    return true;
+}
+
+// FURTHEST-HZB occlusion (UE HZBOcclusion.usf IsVisibleHZB): the box's screen rect through @p viewProjection,
+// the mip at which it spans at most 2 x 2 texels, the furthest depth of those texels of @p hzb (view.HzbExtent:
+// its mip-0 size and mip count) against the box's nearest depth. Reversed-Z (1 = near): occluded when the box's
+// nearest is below every texel's furthest. A box crossing the near plane, or leaving the screen, is not occluded.
+// The HZB comes as its image plus the sampler that reads it: Vulkan GLSL combines them only at the point of use.
+bool GpuCull_IsOccludedByHzb( texture2D hzb, sampler hzbSampler, GpuCullView view, mat4 viewProjection, vec3 boxMin, vec3 boxMax )
+{
+    vec2  rectMin = vec2( 1.0e30 );
+    vec2  rectMax = vec2( -1.0e30 );
+    float nearest = 0.0;
+    for ( uint c = 0u; c < 8u; ++c )
+    {
+        const vec3 corner =
+             mix( boxMin, boxMax, vec3( float( c & 1u ), float( ( c >> 1u ) & 1u ), float( ( c >> 2u ) & 1u ) ) );
+        const vec4 clip = viewProjection * vec4( corner, 1.0 );
+        if ( clip.w <= 0.0 )
+            return false;
+        const vec3 ndc = clip.xyz / clip.w;
+        // The engine's viewport has a negative height (NDC y = +1 is the top row), so the texel row is
+        // 0.5 - ndc.y * 0.5: the same mapping the depth the HZB is built from was rasterized with.
+        const vec2 uv = NdcToScreenUV( ndc.xy );
+        rectMin       = min( rectMin, uv );
+        rectMax       = max( rectMax, uv );
+        nearest       = max( nearest, ndc.z );
+    }
+    if ( nearest >= 1.0 || any( lessThan( rectMin, vec2( 0.0 ) ) ) || any( greaterThan( rectMax, vec2( 1.0 ) ) ) )
+        return false; // touches the near plane or leaves the HZB: last frame's depth does not cover it
+    const vec2  size     = ( rectMax - rectMin ) * vec2( view.HzbExtent.xy );
+    const uint  mips     = max( view.HzbExtent.z, 1u );
+    const float level    = ceil( log2( max( max( size.x, size.y ), 1.0 ) ) );
+    const int   mip      = int( clamp( level, 0.0, float( mips - 1u ) ) );
+    const ivec2 mipSize  = max( ivec2( view.HzbExtent.xy ) >> mip, ivec2( 1 ) );
+    const ivec2 t0       = clamp( ivec2( floor( rectMin * vec2( mipSize ) ) ), ivec2( 0 ), mipSize - 1 );
+    const ivec2 t1       = clamp( ivec2( floor( rectMax * vec2( mipSize ) ) ), ivec2( 0 ), mipSize - 1 );
+    float       furthest = 1.0;
+    for ( int y = t0.y; y <= t1.y; ++y )
+        for ( int x = t0.x; x <= t1.x; ++x )
+            furthest = min( furthest, texelFetch( sampler2D( hzb, hzbSampler ), ivec2( x, y ), mip ).r );
+    return nearest < furthest;
+}
+
+#endif

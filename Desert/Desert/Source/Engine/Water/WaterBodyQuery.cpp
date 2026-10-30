@@ -3,6 +3,7 @@
 #include <glm/common.hpp>
 #include <glm/geometric.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <utility>
 
@@ -26,6 +27,25 @@ namespace Desert::Water
                 return height;
         }
         return std::nullopt;
+    }
+
+    WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
+                                         const glm::vec2 centre, const float extentCm, const uint32_t size )
+    {
+        WaterInfoGround info;
+        info.Min      = centre - glm::vec2( 0.5f * extentCm );
+        info.ExtentCm = extentCm;
+        info.Size     = size;
+        info.HeightCm.assign( static_cast<std::size_t>( size ) * size, kWaterInfoNoGroundCm );
+        const float texel = extentCm / static_cast<float>( std::max( size, 1u ) );
+        for ( uint32_t z = 0; z < size; ++z )
+            for ( uint32_t x = 0; x < size; ++x )
+            {
+                const glm::vec2 at = info.Min + ( glm::vec2( x, z ) + 0.5f ) * texel;
+                if ( const std::optional<float> height = GroundHeightAt( ground, at.x, at.y ) )
+                    info.HeightCm[static_cast<std::size_t>( z ) * size + x] = *height;
+            }
+        return info;
     }
 
     WaterQueryResult QueryWaterBody( const WaterBodyState& body, const glm::vec3& point, float time,

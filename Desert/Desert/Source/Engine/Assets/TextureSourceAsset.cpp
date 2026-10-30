@@ -386,7 +386,72 @@ namespace Desert::Assets
             // that rule re-derives masked textures alone, the way EncoderVersion re-derives all of them.
             PutU32( out, kTextureMaskedGateVersion );
         }
+        if ( settings.Bc7Effort != 1.0f )
+        {
+            PutU32( out, Common::Content::FourCC( "ENCE" ) );
+            PutU32( out, std::bit_cast<uint32_t>( settings.Bc7Effort ) );
+        }
         return out;
+    }
+
+    namespace
+    {
+        std::mutex            s_EncodingMutex;
+        TextureEncodingSource s_EncodingSource;
+
+        Project::TextureEncodingSettings CurrentTextureEncoding()
+        {
+            TextureEncodingSource source;
+            {
+                const std::lock_guard<std::mutex> lock( s_EncodingMutex );
+                source = s_EncodingSource;
+            }
+            return source ? source() : Project::TextureEncodingSettings{};
+        }
+
+        // The keys of one plan for one editor asset's import record.
+        void KeyEditorAsset( TextureAssetKey& key, const TextureImportSettings& settings, const TextureEncodeRole role )
+        {
+            const TextureEncodePlan plan = PlanTextureEncode( role );
+            key.DerivedDataKey = TextureDerivedDataKey(
+                 key.SourceHash, TextureBuildSettings{ settings, kTextureBlockEncoderVersion, plan.BuildEffort } );
+            key.FetchFirstKey =
+                 plan.FetchFirstEffort && *plan.FetchFirstEffort != plan.BuildEffort
+                      ? TextureDerivedDataKey( key.SourceHash, TextureBuildSettings{ settings, kTextureBlockEncoderVersion,
+                                                                                     *plan.FetchFirstEffort } )
+                      : 0;
+        }
+    } // namespace
+
+    void SetTextureEncodingSource( TextureEncodingSource source )
+    {
+        const std::lock_guard<std::mutex> lock( s_EncodingMutex );
+        s_EncodingSource = std::move( source );
+    }
+
+    TextureEncodePlan PlanTextureEncode( const TextureEncodeRole role )
+    {
+        const Project::TextureEncodingSettings settings = CurrentTextureEncoding();
+        const Project::TextureEncodeSpeed      speed =
+             role == TextureEncodeRole::Cook ? settings.CookUses : settings.EditorUses;
+        switch ( speed )
+        {
+            case Project::TextureEncodeSpeed::Final:
+                return { settings.FinalEffort, std::nullopt };
+            case Project::TextureEncodeSpeed::FinalIfAvailable:
+                return { settings.FastEffort, settings.FinalEffort };
+            case Project::TextureEncodeSpeed::Fast:
+                break;
+        }
+        return { settings.FastEffort, std::nullopt };
+    }
+
+    std::optional<std::string> FetchTexturePlatformData( const TextureAssetKey& key )
+    {
+        if ( key.FetchFirstKey != 0 )
+            if ( auto hit = Common::DDC::Get( kTextureDeriver, key.FetchFirstKey ); hit.has_value() )
+                return hit;
+        return Common::DDC::Get( kTextureDeriver, key.DerivedDataKey );
     }
 
     uint64_t TextureDerivedDataKey( const uint64_t sourceHash, const TextureBuildSettings& settings,
@@ -396,7 +461,8 @@ namespace Desert::Assets
         return Common::DDC::MakeKey( deriver, sourceHash, image.data(), image.size() );
     }
 
-    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset )
+    Common::ResultStr<TextureAssetKey> ReadTextureAssetKey( const std::filesystem::path& asset,
+                                                            const TextureEncodeRole      role )
     {
         // THE PREFIX, NOT THE FILE: an editor `.detex` is mostly its SRCE section (megabytes of png), and the
         // key needs the header, the TOC and the ~100-byte IMPT that precedes the source (or, cooked, PAYL).
@@ -448,8 +514,7 @@ namespace Desert::Assets
                 return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), info.GetError() );
             key.SourceFile     = info.GetValue().SourceFile;
             key.SourceHash     = info.GetValue().SourceHash;
-            key.DerivedDataKey = TextureDerivedDataKey(
-                 key.SourceHash, TextureBuildSettings{ info.GetValue().Settings, kTextureBlockEncoderVersion } );
+            KeyEditorAsset( key, info.GetValue().Settings, role );
         }
         else if ( auto decoded = DecodeCookedKey( bytes, key ); !decoded.IsSuccess() )
         {
@@ -468,8 +533,12 @@ namespace Desert::Assets
         TextureAssetKey key;
         key.SourceFile     = asset.Import.SourceFile;
         key.SourceHash     = asset.Import.SourceHash;
-        key.DerivedDataKey = TextureDerivedDataKey(
-             asset.Import.SourceHash, TextureBuildSettings{ asset.Import.Settings, kTextureBlockEncoderVersion } );
+        // The package names ONE key: the cook role's final entry when the cook put one there (FinalIfAvailable),
+        // else the entry its plan builds -- the one the packager's TextureImporter (Cook role) just stored.
+        KeyEditorAsset( key, asset.Import.Settings, TextureEncodeRole::Cook );
+        if ( key.FetchFirstKey != 0 && Common::DDC::Get( kTextureDeriver, key.FetchFirstKey ).has_value() )
+            key.DerivedDataKey = key.FetchFirstKey;
+        key.FetchFirstKey = 0;
 
         CC::AssetEnvelope envelope;
         envelope.Asset.Kind       = asset.Kind;
@@ -501,7 +570,7 @@ namespace Desert::Assets
         const auto key = ReadTextureAssetKey( asset );
         if ( !key.IsSuccess() )
             return Common::MakeError<std::string>( key.GetError() );
-        if ( auto hit = Common::DDC::Get( kTextureDeriver, key.GetValue().DerivedDataKey ); hit.has_value() )
+        if ( auto hit = FetchTexturePlatformData( key.GetValue() ); hit.has_value() )
             return Common::MakeSuccess( std::move( *hit ) );
 
         TexturePlatformDataBuilder builder;

@@ -460,10 +460,11 @@ namespace
         std::memcpy( &header, bytes.data(), sizeof( header ) );
         if ( header.ByteOrder != Content::kMeshBinaryByteOrderTag )
             return Fail( "is a cooked mesh of the other byte order; re-cook it on this host" );
-        if ( header.Version != Content::kMeshBinaryVersion )
-            return Fail( std::format( "is mesh version {}; this tool reads only v{} (older cooked meshes are not "
+        if ( !Content::IsReadableMeshBinaryVersion( header.Version ) )
+            return Fail( std::format( "is mesh version {}; this tool reads v{}-v{} (older cooked meshes are not "
                                       "supported - re-cook it from its source)",
-                                      header.Version, Content::kMeshBinaryVersion ) );
+                                      header.Version, Content::kMeshBinaryOldestReadVersion,
+                                      Content::kMeshBinaryVersion ) );
         return Common::MakeSuccess( header.Version );
     }
 
@@ -808,7 +809,7 @@ namespace Desert::Migration
                 const auto asset = Desert::Assets::DecodeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) );
                 if ( !asset )
                 {
-                    // An MSAS 1 asset is raised by the DISPLACE pass below; only a file no version reads fails
+                    // An MSAS 1 or 2 asset is raised by the DISPLACE / VIRT-GEOM pass below; only a file no version reads fails
                     // here.
                     if ( Desert::Assets::UpgradeMeshSourceAsset( std::as_bytes( std::span( bytes ) ) ) )
                         continue;
@@ -1806,7 +1807,8 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
-        // THE MESH ASSETS (DISPLACE): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT. The step
+        // THE MESH ASSETS (DISPLACE, VIRT-GEOM): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT,
+        // 2 -> 3 the VirtualGeometry flag. The step
         // is the engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a
         // cooked MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
         for ( const auto& path : meshes )
@@ -1824,7 +1826,7 @@ namespace Desert::Migration
             }
             if ( !raised.GetValue() )
                 continue;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1 -> "
+            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1/2 -> "
                 << Desert::Assets::kMeshAssetSubsystemVersion << "\n";
             if ( check )
                 continue;

@@ -5,7 +5,7 @@ desert_add_executable(AssetRegistryTool FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/StartupLayout.cpp")
 target_include_directories(AssetRegistryTool PRIVATE "${DESERT_ROOT}/Tools/Shared")
 desert_engine_includes(AssetRegistryTool)
-desert_external_includes(AssetRegistryTool ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_COMMONSPECIFIC_INCLUDE_DIRS})
+desert_external_includes(AssetRegistryTool ${DESERT_COMMON_INCLUDE_DIRS})
 target_link_libraries(AssetRegistryTool PRIVATE Common ReflectCpp)
 if(DESERT_IS_WINDOWS)
     target_compile_definitions(AssetRegistryTool PRIVATE DESERT_PLATFORM_WINDOWS)

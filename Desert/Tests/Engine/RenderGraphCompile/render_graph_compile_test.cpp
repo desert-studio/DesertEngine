@@ -2194,15 +2194,17 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
     };
     const auto bodyOf = [&source]( std::string_view function ) -> std::string
     {
-        // A definition returns void, or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid),
-        // or the screen traces' shared inputs (AddFrameSSR's FrameSSR; AddFrameScreenTrace, whose nested return
-        // type clang-format puts on its own line). A definition this misses would extend the body before it over
-        // its own, and a call back into that one (AddFrameSSR / AddFrameScreenTrace call AddFrameHZB) would
-        // recurse without end.
+        // A definition returns void, or whether it added its node (AddFrameWater: the depth consumers after it
+        // need the resolve again), or the graph handle it made (AddFrameBackdropBlur hands the UI its pyramid), or
+        // the screen traces' shared inputs (AddFrameSSR's FrameSSR; AddFrameScreenTrace, whose nested return type
+        // clang-format puts on its own line). A definition this misses would extend the body before it over its
+        // own, and a call back into that one (AddFrameSSR / AddFrameScreenTrace call AddFrameHZB) would recurse
+        // without end.
         const auto definition = [&source]( std::string_view name, size_t from )
         {
             return std::min(
                  { source.find( std::format( "void SceneRenderer::{}", name ), from ),
+                   source.find( std::format( "bool SceneRenderer::{}", name ), from ),
                    source.find( std::format( "RDG::TextureRef SceneRenderer::{}", name ), from ),
                    source.find( std::format( "OverlayTargets SceneRenderer::{}", name ), from ),
                    source.find( std::format( "FrameSSR SceneRenderer::{}", name ), from ),
@@ -2443,19 +2445,34 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
          "Deferred: SSR",
          "Deferred: Composite",
          "Deferred: Generic",
+         // VOLFOG-2: the opaque scene is complete - its fog (UE: the fog volumes built before the translucency):
+         // the depth resolve, the sky's LUTs, the volumetric fog's froxels lit and integrated, the height fog's
+         // evaluation of the OPAQUE depth and its apply over the scene, all before the scene copy (the refraction
+         // reads the fogged scene) and before every translucent draw, which fogs itself at its own depth.
+         "Scene: DepthResolve",
+         "compute[sky->DeclareAtmosphereLutNodes()]",
+         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
+         "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
+         "system[fog->ApplyPass()]",
          "Deferred: SceneCopy",
          "Deferred: Water",
          "Deferred: Glass",
+         // The forward path's opaque fog (the same call; the deferred path took it above).
          "Scene: DepthResolve",
          "compute[sky->DeclareAtmosphereLutNodes()]",
-         "compute[fog->DeclareFrameNodes(graph,textures.Transients)]",
+         "compute[volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual())]",
+         "compute[fog->DeclareFrameNodes(graph,textures.Transients,volumeResult)]",
+         "system[fog->ApplyPass()]",
+         // The water wrote the scene depth: the clouds and the particles read it resolved again.
+         "Scene: DepthResolve",
          "compute[clouds->DeclareFrameNodes(graph,frame)]",
+         // A path-traced frame took no opaque fog: its sky LUTs here.
+         "compute[sky->DeclareAtmosphereLutNodes()]",
          // ARCH1b-2: passes from outside the engine join at named extension points, each invoked at its place.
          "extension[AfterOpaque]",
          // ARCH1b: the translucency in draw order by call order (AddFrameTranslucency), no numeric placement:
-         // the height fog apply lands on the opaque scene first, the far field (cloud composite) over it, then
-         // everything nearer the camera (particles, the editor's passes) over both.
-         "system[ApplyPass()]",
+         // the far field (cloud composite) over the fogged opaque scene, then everything nearer the camera
+         // (particles, the editor's passes) over both.
          "system[CompositePass()]",
          "system[particles->DrawPass()]",
          "extension[AfterTranslucency]",
@@ -2508,11 +2525,13 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
             EXPECT_NE( text.find( needle ), std::string::npos ) << function << " does not declare " << needle;
     };
     declares( "AddFrameClearMainFramebuffer", { "PassFlags::Raster", "ColorTarget(", "LoadOp::ClearDepth(" } );
-    // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings,
-    // DeferredLightingRenderer::DeclareCompositeBindings declare them Access::SampledGraphics); the node
-    // delegates.
+    // RDG-FAULT1: the sampled reads live in the system's binding block (SSAORenderer::DeclareBindings declares
+    // them Access::SampledCompute, the AO a storage write; DeferredLightingRenderer::DeclareCompositeBindings
+    // Access::SampledGraphics); the node delegates. FPS-CPU-7: GTAO is a compute pass on the async pipe (UE
+    // r.AmbientOcclusion.Compute), its block uploaded by the graph.
     declares( "AddFrameSSAO",
-              { "PassFlags::Raster", "ssao->DeclareBindings(pass,depth,normal)", "ColorTarget(0,ao," } );
+              { "PassFlags::Compute|RDG::PassFlags::AsyncCompute", "SSAORenderer::UploadUniforms(graph,",
+                "ssao->DeclareBindings(pass,depth,normal,ao,uniforms)" } );
     // TAA1-B: the temporal resolve reads the scene colour, the scene depth, the frame's velocity, the previous
     // adapted luminance and the registered history, and hands its output back as the post input.
     declares( "AddFrameTemporal",
@@ -2630,7 +2649,7 @@ TEST( RenderGraphCompile, SceneRendererAddsItsPassesInTheFrameOrder )
              std::string::npos );
         EXPECT_NE( declaration( "SSAORenderer.hpp" )
                         .find( ".Texture(SSAOBindingShaderParameters::GBufferDepthTexture,depth,RDG::Access::"
-                               "SampledGraphics" ),
+                               "SampledCompute" ),
                    std::string::npos );
         EXPECT_NE( declaration( "DeferredLightingRenderer.hpp" )
                         .find( ".Texture(DeferredLightingCompositeShaderParameters::SsaoTexture,inputs.SSAO,kRead,"
@@ -3920,7 +3939,8 @@ TEST( RenderGraphCompile, AtmospherePassesAreRealGraphNodesWithDeclaredAccess )
     for ( const char* needle :
           { "AddComputeNodes(graph,textures,clouds->DeclareShadowMapNodes())",
             "AddComputeNodes(graph,textures,sky->DeclareAtmosphereLutNodes())",
-            "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients))",
+            "AddComputeNodes(graph,textures,volume->DeclareFrameNodes(textures.GraphRefs(),frame,sun,LocalShadowsAreVirtual()))",
+            "AddComputeNodes(graph,textures,fog->DeclareFrameNodes(graph,textures.Transients,volumeResult))",
             "AddComputeNodes(graph,textures,clouds->DeclareFrameNodes(graph,frame))" } )
         EXPECT_NE( frame.find( needle ), std::string::npos ) << needle;
     EXPECT_NE( source( "SceneRendererFrame.hpp" ).find( "RDG::PassFlags::Compute|RDG::PassFlags::NeverCull" ),
@@ -5218,26 +5238,30 @@ namespace
     {
         DeclaredBindingBlock Block;
 
-        CollectedBlock& Texture( std::string_view name, TextureRef texture, Access access, SubresourceRange range )
+        CollectedBlock& Texture( Desert::Graphic::RDG::TextureParameter parameter, TextureRef texture,
+                                 Access access, SubresourceRange range )
         {
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::Texture, ResourceKind::Texture,
+            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::Texture, ResourceKind::Texture,
                                        texture.Index, access, range, std::nullopt } );
             return *this;
         }
-        CollectedBlock& Sampler( std::string_view name, SamplerDesc sampler )
+        CollectedBlock& Sampler( Desert::Graphic::RDG::SamplerParameter parameter, SamplerDesc sampler )
         {
+            const std::string name = parameter.SlotName();
             for ( const DeclaredBindingEntry& e : Block.Entries )
                 if ( e.Kind == ShaderResourceKind::Sampler && e.ShaderName == name && e.Sampler == sampler )
                     return *this;
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::Sampler, ResourceKind::Texture,
-                                       kInvalidResource, Access::None, SubresourceRange::All(), sampler } );
+            Block.Entries.push_back( { name, ShaderResourceKind::Sampler, ResourceKind::Texture, kInvalidResource,
+                                       Access::None, SubresourceRange::All(), sampler } );
             return *this;
         }
         // The reflection capture list (BindSceneViewInputs binds it as a storage buffer).
-        CollectedBlock& Storage( std::string_view name, BufferRef buffer, Access access )
+        CollectedBlock& Storage( Desert::Graphic::RDG::StorageBufferParameter parameter, BufferRef buffer,
+                                 Access access )
         {
-            Block.Entries.push_back( { std::string( name ), ShaderResourceKind::StorageBuffer, ResourceKind::Buffer,
-                                       buffer.Index, access, SubresourceRange::All(), SamplerDesc::LinearClamp() } );
+            Block.Entries.push_back( { parameter.SlotName(), ShaderResourceKind::StorageBuffer,
+                                       ResourceKind::Buffer, buffer.Index, access, SubresourceRange::All(),
+                                       SamplerDesc::LinearClamp() } );
             return *this;
         }
     };

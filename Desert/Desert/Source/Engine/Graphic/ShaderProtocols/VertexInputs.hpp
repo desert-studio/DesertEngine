@@ -215,7 +215,7 @@ namespace Desert::Graphic::ShaderProtocols
     /// paths (through the vertex inputs, which carry it) and the ray-traced readers that fetch the vertex from its
     /// buffer (Mesh/Surface/Pass_RayHit.glslh, Common/RayQueryVisibility.glslh, through kMeshVertexAccessInclude).
     /// A second spelling of it is how the hit group sampled an atlas mirrored (PT-PARITY-2). Not for geometry with
-    /// its own vertex convention (3D text, landscape tiles).
+    /// its own vertex convention (landscape tiles); 3D text stores this one (TextECSSystem).
     [[nodiscard]] inline std::string MeshVertexAccessGlsl()
     {
         return "#ifndef DESERT_MESH_VERTEX_ACCESS\n#define DESERT_MESH_VERTEX_ACCESS\n"

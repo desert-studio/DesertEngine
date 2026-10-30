@@ -9,7 +9,8 @@
 namespace Desert
 {
     StaticMesh::StaticMesh( const std::vector<Vertex>& vertices, const std::vector<Index>& indices,
-                            const std::vector<Submesh>& submeshes, const std::vector<MeshVertexStreams>& streams )
+                            const std::vector<Submesh>& submeshes, const std::vector<MeshVertexStreams>& streams,
+                            VirtualGeometrySource virtualGeometry )
     {
         // Build the GPU index buffer with a per-submesh LOD chain (base indices + appended LODs). The
         // CPU base indices stay untouched; only the GPU buffer + per-submesh LOD ranges carry the LODs.
@@ -22,9 +23,23 @@ namespace Desert
         m_Submeshes = std::move( subs );
         ResolveLODScreenSizes();
 
+        // A virtual-geometry mesh's cluster words follow its indices in the same span: every DAG's VertexRefs
+        // then its Triangles, in submesh order (the order VirtualMeshTable::RT_Register addresses them in).
+        std::vector<uint32_t> clusterWords;
+        std::size_t           wordCount = 0;
+        for ( const Geometry::ClusterDag& dag : virtualGeometry.Dags )
+            wordCount += dag.VertexRefs.size() + dag.Triangles.size();
+        clusterWords.reserve( wordCount );
+        for ( const Geometry::ClusterDag& dag : virtualGeometry.Dags )
+        {
+            clusterWords.insert( clusterWords.end(), dag.VertexRefs.begin(), dag.VertexRefs.end() );
+            clusterWords.insert( clusterWords.end(), dag.Triangles.begin(), dag.Triangles.end() );
+        }
+        m_VirtualGeometrySource = std::move( virtualGeometry );
+
         // Uploaded into the pool's static arena by Invalidate (the renderer thread), the host copy released then.
         StageGeometry( Graphic::GeometryArena::Static, VertexBytes( vertices ), streams,
-                       FlattenIndices( gpuIndices ) );
+                       FlattenIndices( gpuIndices ), std::move( clusterWords ) );
     }
 
     std::shared_ptr<StaticMesh> StaticMesh::MakeDisplacedTwin( const StaticMesh& base, std::shared_ptr<Graphic::VertexBuffer> vertices,
@@ -91,7 +106,21 @@ namespace Desert
 
     Common::BoolResultWithCodes<Desert::MeshError> StaticMesh::Invalidate()
     {
-        return UploadStagedGeometry();
+        auto uploaded = UploadStagedGeometry();
+        if ( !uploaded.IsSuccess() || m_VirtualGeometrySource.Dags.empty() )
+            return uploaded;
+        // The DAG rows point into the span just uploaded. A refusal leaves the mesh drawing its discrete LOD
+        // chain (cut from the same DAG at cook), named in the log; the CPU DAGs are dropped either way.
+        auto registered = Graphic::VirtualGeometry::VirtualMeshTable::Get().RT_Register(
+             *this, m_VirtualGeometrySource.Dags, m_VirtualGeometrySource.Name );
+        if ( registered.IsSuccess() )
+            m_VirtualMesh =
+                 std::make_shared<Graphic::VirtualGeometry::VirtualMeshRegistration>( registered.ExtractValue() );
+        else
+            LOG_ERROR( "StaticMesh '{}': not registered as virtual geometry ({}); its discrete LODs draw",
+                       m_VirtualGeometrySource.Name, registered.GetError() );
+        m_VirtualGeometrySource = {};
+        return uploaded;
     }
 
 } // namespace Desert

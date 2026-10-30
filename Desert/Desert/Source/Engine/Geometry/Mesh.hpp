@@ -269,13 +269,15 @@ namespace Desert
         }
 
         void StageGeometry( Graphic::GeometryArena arena, std::vector<std::byte> vertices,
-                            std::vector<MeshVertexStreams> streams, std::vector<uint32_t> indices )
+                            std::vector<MeshVertexStreams> streams, std::vector<uint32_t> indices,
+                            std::vector<uint32_t> clusterWords = {} )
         {
-            m_StagedArena    = arena;
-            m_StagedVertices = std::move( vertices );
-            m_StagedStreams  = std::move( streams );
-            m_StagedIndices  = std::move( indices );
-            m_Staged         = true;
+            m_StagedArena        = arena;
+            m_StagedVertices     = std::move( vertices );
+            m_StagedStreams      = std::move( streams );
+            m_StagedIndices      = std::move( indices );
+            m_StagedClusterWords = std::move( clusterWords );
+            m_Staged             = true;
         }
         // Uploads the staged data into a new pool allocation (the previous one released on the frame rule) and
         // drops the staged copy once it landed. Nothing staged: the geometry already on the GPU stands (a twin
@@ -291,8 +293,8 @@ namespace Desert
                      "mesh geometry uploaded again after its host copy was released" );
             }
             const bool authored = !m_StagedStreams.empty();
-            auto       uploaded = Graphic::GeometryPool::Get().RT_Upload( m_StagedArena, m_StagedVertices,
-                                                                          m_StagedStreams, m_StagedIndices );
+            auto       uploaded = Graphic::GeometryPool::Get().RT_Upload(
+                 m_StagedArena, m_StagedVertices, m_StagedStreams, m_StagedIndices, m_StagedClusterWords );
             if ( !uploaded.IsSuccess() )
                 return Common::MakeErrorWithCodes<bool, MeshError>( { MeshError::GpuUploadFailed },
                                                                     uploaded.GetError() );
@@ -301,6 +303,7 @@ namespace Desert
             std::vector<std::byte>().swap( m_StagedVertices );
             std::vector<MeshVertexStreams>().swap( m_StagedStreams );
             std::vector<uint32_t>().swap( m_StagedIndices );
+            std::vector<uint32_t>().swap( m_StagedClusterWords );
             return Common::MakeSuccessWithCodes<bool, MeshError>( true );
         }
         // The mesh now draws from @p allocation (shared by a copy of the mesh, as its buffers were).
@@ -323,6 +326,7 @@ namespace Desert
         std::vector<std::byte>                           m_StagedVertices;
         std::vector<MeshVertexStreams>                   m_StagedStreams;
         std::vector<uint32_t>                            m_StagedIndices;
+        std::vector<uint32_t>                            m_StagedClusterWords; // VG DAG words after the indices
         std::vector<std::vector<TriangleCache>> m_TriangleCache;
         std::vector<Submesh>                    m_Submeshes;
         std::shared_ptr<const Assets::MeshDistanceFieldSlot> m_DistanceField;

@@ -98,7 +98,7 @@ namespace
         if ( const auto* sun = FindTag( scene, "Sun" ) )
         {
             const entt::entity e                                  = reg.create();
-            reg.emplace<ECS::TransformComponent>( e ).Translation = sun->Translation.value_or( glm::vec3( 0.0f ) );
+            reg.emplace<ECS::TransformComponent>( e, ECS::LocalTransform{ .Translation = sun->Translation.value_or( glm::vec3( 0.0f ) ) } );
             reg.emplace<ECS::DirectionLightComponent>(
                  e, ECS::DirectionLightComponent{
                          Read<ECS::DirectionalLightData>( *sun, "DirectionLight", "DirectionalLightData" ) } );
@@ -109,7 +109,7 @@ namespace
     entt::entity AddVolume( entt::registry& reg, const glm::vec3& at, const ECS::PostProcessVolumeData& data )
     {
         const entt::entity e                                  = reg.create();
-        reg.emplace<ECS::TransformComponent>( e ).Translation = at;
+        reg.emplace<ECS::TransformComponent>( e, ECS::LocalTransform{ .Translation = at } );
         reg.emplace<ECS::PostProcessVolumeComponent>( e, ECS::PostProcessVolumeComponent{ data } );
         return e;
     }
@@ -170,8 +170,9 @@ TEST( SceneSettingsHomesMigration, GradeKeysLeaveForAnUnboundVolumeAndShadowKeys
     EXPECT_EQ( light.CascadeSplitLambda, 0.85f );
     EXPECT_EQ( light.Intensity, 2.0f ) << "the light's own keys survive the stamp";
 
-    EXPECT_TRUE( Core::SceneIsAtCurrentVersion( Core::SceneSerialized{
-         scene.Header, scene.SceneName, scene.Entities, std::nullopt, scene.WorldPartition } ) );
+    // The stamp is all SceneIsAtCurrentVersion reads; the migrator's WorldPartition block is its own type
+    // (Migration::WorldPartitionSerialized carries the read-only v50..v66 DefaultHLODLayer).
+    EXPECT_TRUE( Core::SceneIsAtCurrentVersion( Core::SceneSerialized{ .Header = scene.Header } ) );
 }
 
 TEST( SceneSettingsHomesMigration, ASecondRunMintsNoSecondVolumeAndTheIdIsStable )
@@ -363,12 +364,12 @@ TEST( PostProcessVolume, AHiddenVolumeAndAHiddenLightAreSkipped )
 {
     entt::registry     reg;
     const entt::entity v = AddVolume( reg, glm::vec3( 0.0f ), Volume( true, 0.0f, 1.0f, 9.0f, true ) );
-    reg.emplace<ECS::VisibilityComponent>( v ).Visible = false;
+    reg.emplace<ECS::VisibilityComponent>( v, false );
 
     const entt::entity hidden                                            = reg.create();
-    reg.emplace<ECS::TransformComponent>( hidden ).Translation           = glm::vec3( 0.0f, -1.0f, 0.0f );
+    reg.emplace<ECS::TransformComponent>( hidden, ECS::LocalTransform{ .Translation = glm::vec3( 0.0f, -1.0f, 0.0f ) } );
     reg.emplace<ECS::DirectionLightComponent>( hidden ).Data.CastShadows = false;
-    reg.emplace<ECS::VisibilityComponent>( hidden ).Visible              = false;
+    reg.emplace<ECS::VisibilityComponent>( hidden, false );
 
     const auto r = Graphic::ResolveViewSettings( reg, glm::vec3( 0.0f ) );
     EXPECT_EQ( r.Post.ManualExposureEV100, Core::PostProcessSettings{}.ManualExposureEV100 );

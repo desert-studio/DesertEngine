@@ -22,7 +22,7 @@ namespace Desert::Editor
 
     namespace
     {
-        constexpr std::array<const char*, 2> kTypes = { "Scalar", "Vector" };
+        constexpr std::array<const char*, 3> kTypes = { "Scalar", "Vector", "Texture" };
 
         // A name the list does not hold yet: "Parameter", "Parameter1", ...
         std::string FreshName( const S::WorldParametersData& data )
@@ -128,10 +128,22 @@ namespace Desert::Editor
                     p.Type = static_cast<S::WorldParameterType>( type );
                     if ( p.Type == S::WorldParameterType::Scalar )
                         p.Default = { p.Default[0], 0.0f, 0.0f, 0.0f };
+                    if ( p.Type == S::WorldParameterType::Texture )
+                        p.Default = { 0.0f, 0.0f, 0.0f, 0.0f };
+                    else
+                        p.Texture.clear();
                 }
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth( -1.0f );
-                if ( p.Type == S::WorldParameterType::Scalar )
+                if ( p.Type == S::WorldParameterType::Texture )
+                {
+                    // The .detex path under Content; the world resolves it when it adopts the collection.
+                    std::array<char, 512> path{};
+                    p.Texture.copy( path.data(), path.size() - 1 );
+                    if ( ImGui::InputText( "##Texture", path.data(), path.size() ) )
+                        p.Texture = path.data();
+                }
+                else if ( p.Type == S::WorldParameterType::Scalar )
                     ImGui::DragFloat( "##Default", p.Default.data(), 0.01f );
                 else
                     ImGui::DragFloat4( "##Default", p.Default.data(), 0.01f );

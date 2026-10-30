@@ -7,6 +7,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 #include <Common/Core/JobSystem.hpp>
+#include <Common/Core/Constants.hpp>
 #include <Common/Core/Logger.hpp>
 #include <Common/Settings/Scalability.hpp>
 
@@ -34,6 +35,25 @@ namespace Desert::Runtime
     void TextureService::BindAssetManager( const std::weak_ptr<Assets::AssetManager>& assets )
     {
         m_Assets = assets;
+    }
+
+    Common::ResultStr<Assets::AssetHandle> TextureService::HandleForPath( const std::filesystem::path& path )
+    {
+        const auto assets = m_Assets.lock();
+        if ( !assets )
+            return Common::MakeError<Assets::AssetHandle>( std::string( "no asset manager is bound" ) );
+        const std::filesystem::path full =
+             path.is_absolute() ? path : ( Common::Constants::Path::ASSETS_PATH / path ).lexically_normal();
+        std::error_code ec;
+        if ( !std::filesystem::exists( full, ec ) )
+            return Common::MakeFormattedError<Assets::AssetHandle>( "no texture at '{}'", full.string() );
+        auto asset = assets->FindByPath<Assets::TextureAsset>( full );
+        if ( !asset )
+            asset = assets->CreateAsset<Assets::TextureAsset>( full, /*loadAfterCreate=*/false );
+        if ( !asset )
+            return Common::MakeFormattedError<Assets::AssetHandle>( "'{}' cannot be registered as a texture",
+                                                                    full.string() );
+        return Common::MakeSuccess<Assets::AssetHandle>( Assets::AssetHandle( asset->GetMetadata().Handle ) );
     }
 
     void TextureService::Register( const std::shared_ptr<Assets::TextureAsset>& texture )

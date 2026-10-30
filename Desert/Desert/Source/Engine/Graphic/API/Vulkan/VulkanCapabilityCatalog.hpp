@@ -44,6 +44,14 @@ namespace Desert::Graphic::API::Vulkan
         bool     Portability = false; // VK_KHR_portability_subset present: MoltenVK (timestamps at encoder bounds)
         bool     SeparateComputeFamily = false; // a compute-capable family without graphics
 
+        // vkGetPhysicalDeviceExternalBufferProperties (usage STORAGE | TRANSFER_SRC | TRANSFER_DST) and
+        // vkGetPhysicalDeviceExternalSemaphoreProperties (a TIMELINE semaphore) report EXPORTABLE for the
+        // OPAQUE_WIN32 / OPAQUE_FD handle type: CapabilityCatalog::Sharing.
+        bool ExternalBufferExportWin32   = false;
+        bool ExternalBufferExportFd      = false;
+        bool ExternalTimelineExportWin32 = false;
+        bool ExternalTimelineExportFd    = false;
+
         // Third-party upscaler runtimes, each true only when its SDK is integrated AND its runtime loaded AND it
         // reported the device as supported (NGX "DLSS available", XeSS query, MetalFX
         // MTLFXTemporalScalerDescriptor.supportsDevice). FSR: FsrDeviceSupport below (the FidelityFX SDK is
@@ -81,6 +89,8 @@ namespace Desert::Graphic::API::Vulkan
     //   AsyncCompute      = SeparateComputeFamily and not Portability.
     //   Timing            = None without timestamp bits; EncoderBounds under Portability on Apple; else AnyStage.
     //   Class             = Discrete / Integrated from Type; AppleUnified for Apple vendor id.
+    //   Sharing           = Win32 iff ExternalMemoryWin32 + ExternalSemaphoreWin32 present and both Win32 export
+    //                       bits; else Fd iff the same for Fd; else None (Metal is not probed yet).
     //   RenderScale.Max   = min(200, 100 * MaxImageDimension2D / output dimension at the reference 3840)
     [[nodiscard]] Common::Scalability::CapabilityCatalog BuildCapabilityCatalog( const CatalogProbe& probe );
 

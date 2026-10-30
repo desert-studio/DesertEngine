@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Engine/Assets/TextureSourceAsset.hpp>
+
 #include <Engine/Core/Formats/TextureIntent.hpp>
 
 #include <array>
@@ -52,6 +54,13 @@ namespace Desert::Editor
     class TextureImporter
     {
     public:
+        // @p role picks the encode effort (Project::TextureEncodingSettings): the editor's DDC misses build fast
+        // and take a final entry when one exists; TextureCook and the packager build final (Assets::PlanTextureEncode).
+        explicit TextureImporter( ::Desert::Assets::TextureEncodeRole role = ::Desert::Assets::TextureEncodeRole::Editor )
+            : m_Role( role )
+        {
+        }
+
         Common::UUID Import( const std::filesystem::path& path );
 
         // `Import`, plus what the call did. Fresh == the DDC already holds the asset's key (source bytes +
@@ -71,6 +80,13 @@ namespace Desert::Editor
 
         // The texture asset a source image is imported into (`<stem>.detex` beside it); an asset path is its own.
         static std::filesystem::path AssetPathFor( const std::filesystem::path& source );
+
+        // THE ONE READ OF THE PROJECT'S TEXTURE ENCODING (Config/Engine.json, Texture Encoding; UE
+        // UTextureEncodingProjectSettings): registers Project::CurrentRendererSettings().TextureEncoding as the
+        // engine's encoding source (Assets::SetTextureEncodingSource), read at every plan so a Project Settings
+        // change applies to the next encode. The editor at startup, TextureCook and PackageGame call it; none
+        // registers its own copy.
+        static void UseProjectTextureEncoding();
 
         // The editor's platform-data builder (registered with Assets::SetTexturePlatformDataBuilder): cooks
         // the asset into the DDC and returns the entry. The runtime calls it on a DDC miss.
@@ -93,6 +109,7 @@ namespace Desert::Editor
                                                                                uint32_t maxEdge = 0 );
 
     private:
+        ::Desert::Assets::TextureEncodeRole           m_Role;
         std::unordered_map<std::string, Common::UUID> m_Cache;
     };
 } // namespace Desert::Editor

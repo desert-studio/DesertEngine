@@ -5,62 +5,82 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 70,
+            "SCNE": 71,
             "UNIT": 1,
             "WPAR": 1
         },
-        "Dependencies": [
-            "04f3bb576e64e248daad7640edbe91c5",
-            "239102b0b0735153c9b59f5e6558ca50",
-            "80a31d6cbbb94e2680f8d4fa2d3cc8a9",
-            "c2407e5571ff7898af741eafd1abdfeb"
-        ]
+        "Dependencies": ["04f3bb576e64e248daad7640edbe91c5", "239102b0b0735153c9b59f5e6558ca50", "80a31d6cbbb94e2680f8d4fa2d3cc8a9", "c2407e5571ff7898af741eafd1abdfeb"]
     },
     "SceneName": "LSC Terrain Lights Forward",
     "Entities": [
         {
+            "id": 5301000000000001,
+            "siblingIndex": 200,
+            "Tag": "LSC_HillPointLight",
+            "Translation": [12922.0, 555.0, 3176.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [100.0, 100.0, 100.0],
+            "PointLight": {
+                "Color": [1.0, 0.8500000238418579, 0.6000000238418579],
+                "Intensity": 60.0,
+                "IntensityUnits": 0,
+                "Radius": 6000.0,
+                "MinRadius": 0.0,
+                "SourceRadius": 0.0,
+                "Falloff": 1,
+                "ShowRadius": false,
+                "CastShadows": true,
+                "ShadowBias": 0.5,
+                "ShadowSlopeBias": 0.5,
+                "ShadowResolutionScale": 1.0,
+                "ShadowMethod": 0,
+                "ContactShadowLength": 0.0,
+                "ContactShadowLengthInWorldSpace": false,
+                "ContactShadowCastingIntensity": 1.0,
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
+            }
+        },
+        {
+            "id": 5301000000000002,
+            "siblingIndex": 201,
+            "Tag": "LSC_Pillar",
+            "Translation": [14961.0, 248.0, 1137.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.5, 5.0, 1.5],
+            "StaticMesh": {
+                "Primitive": "Cube",
+                "MeshHandle": {
+                    "Guid": "",
+                    "Path": ""
+                },
+                "MaterialSlots": [
+                    {
+                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
+                        "Path": "assets:Materials/CB_White.demat"
+                    }
+                ]
+            }
+        },
+        {
             "id": 7310021741400001,
             "siblingIndex": 0,
             "Tag": "Sun",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                -0.999458909034729,
-                0.39812880754470825,
-                -0.21939195692539215
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [-0.999458909034729, 0.39812880754470825, -0.21939195692539215],
+            "Scale": [1.0, 1.0, 1.0],
             "DirectionLight": {
-                "Color": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "Color": [1.0, 1.0, 1.0],
                 "Intensity": 0.0,
                 "AtmosphereSunLight": true,
                 "AtmosphereSunLightIndex": 0,
                 "AffectedByAtmosphereTransmittance": true,
-                "AtmosphereSunDiskColorScale": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "AtmosphereSunDiskColorScale": [1.0, 1.0, 1.0],
                 "LightShaftBloom": false,
                 "BloomScale": 0.20000000298023224,
                 "BloomThreshold": 0.0,
                 "BloomMaxBrightness": 100.0,
-                "BloomTint": [
-                    1.0,
-                    1.0,
-                    1.0
-                ],
+                "BloomTint": [1.0, 1.0, 1.0],
                 "CastShadows": true,
                 "SourceAngle": 0.5357000231742859,
                 "ShadowBias": 1.0,
@@ -70,28 +90,17 @@
                 "ContactShadowLength": 0.0,
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
             }
         },
         {
             "id": 7310021741400003,
             "siblingIndex": 2,
             "Tag": "TerrainChecker",
-            "Translation": [
-                -21000.0,
-                0.0,
-                -10000.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [-21000.0, 0.0, -10000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Landscape": {
                 "QuadsPerTile": 255,
                 "SpacingCm": 15.686274528503418,
@@ -124,21 +133,9 @@
             "id": 7310021741400004,
             "siblingIndex": 3,
             "Tag": "TerrainPlain",
-            "Translation": [
-                1000.0,
-                0.0,
-                -10000.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [1000.0, 0.0, -10000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "Landscape": {
                 "QuadsPerTile": 255,
                 "SpacingCm": 15.686274528503418,
@@ -171,21 +168,9 @@
             "id": 7310021741400005,
             "siblingIndex": 4,
             "Tag": "Scale Post (1.8 m)",
-            "Translation": [
-                0.0,
-                0.0,
-                -1500.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                0.15000000596046448,
-                1.7999999523162842,
-                0.15000000596046448
-            ],
+            "Translation": [0.0, 0.0, -1500.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [0.15000000596046448, 1.7999999523162842, 0.15000000596046448],
             "StaticMesh": {
                 "Primitive": "Cube",
                 "MeshHandle": {
@@ -540,28 +525,12 @@
             "id": 11292763665847376625,
             "siblingIndex": 55,
             "Tag": "PostProcessVolume",
-            "Translation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.0,
-                1.0,
-                1.0
-            ],
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
             "PostProcessVolume": {
                 "Unbound": true,
-                "Extent": [
-                    500.0,
-                    500.0,
-                    500.0
-                ],
+                "Extent": [500.0, 500.0, 500.0],
                 "BlendRadius": 100.0,
                 "Priority": 0.0,
                 "BlendWeight": 1.0,
@@ -607,32 +576,22 @@
                     "MotionBlurTargetFPS": 30.0,
                     "EnableLensFlare": false,
                     "LensFlareIntensity": 0.3499999940395355,
-                    "LensFlareTint": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
+                    "LensFlareTint": [1.0, 1.0, 1.0],
                     "LensFlareThreshold": 4.0,
                     "LensFlareGhostCount": 4,
                     "LensFlareGhostSpacing": 0.3499999940395355,
                     "LensFlareGhostSizeNear": 1.0,
                     "LensFlareGhostSizeFar": 3.0,
-                    "LensFlareGhostTintInner": [
-                        1.0,
-                        0.8600000143051147,
-                        0.6200000047683716
-                    ],
-                    "LensFlareGhostTintOuter": [
-                        0.44999998807907104,
-                        0.6800000071525574,
-                        1.0
-                    ],
+                    "LensFlareGhostTintInner": [1.0, 0.8600000143051147, 0.6200000047683716],
+                    "LensFlareGhostTintOuter": [0.44999998807907104, 0.6800000071525574, 1.0],
                     "LensFlareHaloIntensity": 0.25,
                     "LensFlareHaloRadius": 0.18000000715255737,
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
             }
         },
@@ -843,81 +802,6 @@
                 "TileX": 1,
                 "TileZ": 1,
                 "HeightFile": "assets:Scenes/G3_TwoTerrains_Landscape/17980529733751588335.dlht"
-            }
-        },
-        {
-            "id": 5301000000000001,
-            "siblingIndex": 200,
-            "Tag": "LSC_HillPointLight",
-            "Translation": [
-                12922.0,
-                555.0,
-                3176.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
-            "PointLight": {
-                "Color": [
-                    1.0,
-                    0.85,
-                    0.6
-                ],
-                "Intensity": 60.0,
-                "IntensityUnits": 0,
-                "Radius": 6000.0,
-                "MinRadius": 0.0,
-                "SourceRadius": 0.0,
-                "Falloff": 1,
-                "ShowRadius": false,
-                "CastShadows": true,
-                "ShadowBias": 0.5,
-                "ShadowSlopeBias": 0.5,
-                "ShadowResolutionScale": 1.0,
-                "ContactShadowLength": 0.0,
-                "ContactShadowLengthInWorldSpace": false,
-                "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
-            }
-        },
-        {
-            "id": 5301000000000002,
-            "siblingIndex": 201,
-            "Tag": "LSC_Pillar",
-            "Translation": [
-                14961.0,
-                248.0,
-                1137.0
-            ],
-            "Rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Scale": [
-                1.5,
-                5.0,
-                1.5
-            ],
-            "StaticMesh": {
-                "Primitive": "Cube",
-                "MeshHandle": {
-                    "Guid": "",
-                    "Path": ""
-                },
-                "MaterialSlots": [
-                    {
-                        "Guid": "04f3bb576e64e248daad7640edbe91c5",
-                        "Path": "assets:Materials/CB_White.demat"
-                    }
-                ]
             }
         }
     ],

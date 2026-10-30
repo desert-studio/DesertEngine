@@ -18,6 +18,7 @@
 #include <glm/vec3.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
@@ -86,6 +87,30 @@ namespace Desert::Water
         std::size_t      Body = 0;
         WaterQueryResult Result;
     };
+
+    /// Where WaterInfoGround has no landscape: a bottom far below any wave (no surf, no shore), not a NaN the
+    /// GPU's bilinear filter would spread.
+    inline constexpr float kWaterInfoNoGroundCm = -1.0e6f;
+
+    /**
+     * @brief THE WATER INFO GROUND (UE UWaterZone's WaterInfo texture, its ground-depth channel): the bottom of a
+     * water zone seen from straight above - the landscape's height at every texel centre of a square grid over
+     * the zone, row-major by Z. The water surface reads its depth here (the surf, the shore), never along the view
+     * ray, so a mesh standing in the water (a pier, a box) is no shallows and the depth of a pixel does not change
+     * with where the camera looks from. The ground is the landscape, as UE's WaterInfo renders it by default.
+     */
+    struct WaterInfoGround
+    {
+        glm::vec2          Min{ 0.0f }; // world (X, Z) of the grid's lower corner, cm
+        float              ExtentCm = 0.0f; // the grid's side, cm
+        uint32_t           Size     = 0u;   // texels per side
+        std::vector<float> HeightCm;        // Size * Size world Y, cm; kWaterInfoNoGroundCm off the landscape
+    };
+
+    /// @p ground sampled over the square of side @p extentCm around @p centre, @p size texels per side
+    /// (World::Landscape::SampleLandscapeHeight at each texel centre: the surface the landscape draws).
+    [[nodiscard]] WaterInfoGround BakeWaterInfoGround( std::span<const World::Landscape::LandscapeRayTile> ground,
+                                                       glm::vec2 centre, float extentCm, uint32_t size );
 
     /// The body the point is deepest in, of those that cover it; nullopt when it is in none.
     [[nodiscard]] std::optional<WaterQueryHit>

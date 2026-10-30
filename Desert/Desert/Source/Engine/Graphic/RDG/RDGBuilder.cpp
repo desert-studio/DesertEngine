@@ -302,8 +302,12 @@ namespace Desert::Graphic::RDG
                           ( HasFlag( flags, PassFlags::Compute ) ? 1 : 0 ) +
                           ( HasFlag( flags, PassFlags::Copy ) ? 1 : 0 );
         PassRecord record;
-        record.Name  = std::string( name );
-        record.Flags = flags;
+        record.Name = std::string( name );
+        // SetAsyncCompute( false ): the request is dropped here, before Compile sees it (the declaration check
+        // below still reads what the caller declared).
+        record.Flags = m_AsyncCompute ? flags
+                                      : static_cast<PassFlags>( static_cast<uint8_t>( flags ) &
+                                                                ~static_cast<uint8_t>( PassFlags::AsyncCompute ) );
         m_Passes.push_back( std::move( record ) );
         const auto pass = static_cast<uint32_t>( m_Passes.size() - 1 );
         // A malformed pass faults itself (RDG-FAULT1), the graph goes on without it.
@@ -473,6 +477,32 @@ namespace Desert::Graphic::RDG
         }
         pass.AreaWidth  = width;
         pass.AreaHeight = height;
+    }
+
+    void PassBuilder::ExternalQueue( const ExternalQueueSync& sync )
+    {
+        Builder::PassRecord& pass  = m_Builder.m_Passes[m_Pass];
+        const std::string&   graph = m_Builder.m_Name;
+        std::string          refusal;
+        if ( !HasFlag( pass.Flags, PassFlags::Copy ) || HasFlag( pass.Flags, PassFlags::AsyncCompute ) )
+            refusal = fmt::format( "in a {} pass; only a graphics-queue Copy pass hands work to another queue",
+                                   RdgPassKindName( pass.Flags ) );
+        else if ( sync.Signal.Semaphore == 0 || sync.Wait.Semaphore == 0 )
+            refusal = "names no semaphore";
+        else if ( sync.Signal.Semaphore != sync.Wait.Semaphore )
+            refusal = "signals one semaphore and waits another";
+        else if ( sync.Wait.Value <= sync.Signal.Value )
+            refusal = fmt::format( "waits value {} that is not after the signalled {}", sync.Wait.Value,
+                                   sync.Signal.Value );
+        else if ( pass.External.has_value() )
+            refusal = "is declared twice";
+        if ( !refusal.empty() )
+        {
+            m_Builder.RecordPassError(
+                 m_Pass, fmt::format( "graph '{}' pass '{}': ExternalQueue {}", graph, pass.Name, refusal ) );
+            return;
+        }
+        pass.External = sync;
     }
 
     void PassBuilder::DeclareTexture( TextureRef texture, Access access, SubresourceRange range, bool asWrite,

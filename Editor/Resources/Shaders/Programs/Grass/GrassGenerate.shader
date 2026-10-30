@@ -9,7 +9,8 @@
 // PerInstanceFadeAmount as its grass materials spend it (scale to nothing at EndCullDistance), so the field thins and
 // lowers into the ground instead of ending at a line. Kept instances are appended to their bucket of Instances (one
 // mat4 each, the InstanceTransforms of Mesh/Surface/Vertex_Instanced.glslh / Vertex_GrassBlade.glslh): a mesh has one
-// bucket, a blade one per level of its strip, chosen by distance (GRASS-BLADE). A blade also follows its clump - the
+// bucket per level of its LOD chain, chosen by the instance's screen size (UE grass HISM), a blade one per level of
+// its strip, chosen by distance (GRASS-BLADE). A blade also follows its clump - the
 // nearest of a jittered grid of clump points (GoT's Voronoi clumps) lends it its facing, height and tint, and pulls it
 // towards itself by ClumpPull, so blades gather into tufts with open ground between them instead of standing on the
 // jittered grid (white of the grid's own blue noise). Scatter moves a blade past its own cell and Patchiness thins
@@ -37,7 +38,8 @@ Shader "GrassGenerate"
             uvec4 Buckets;   // x = bucket count, y = the bucket table's first word in Args
             vec4  Blade;     // x = LodDistance through the lens (0: one bucket), y = ClumpSize cm, z = Clumping, w = ClumpPull
             vec4  Spread;    // x = Scatter (cells a blade may stray past its own), y = Patchiness, z = PatchSize cm
-            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians)
+            vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
+            vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
         };
 
         ReadBuffer(0) Field
@@ -57,7 +59,7 @@ Shader "GrassGenerate"
 
         Buffer(3) Args
         {
-            uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, 0
+            uint Arguments[]; // GpuInstances.hpp: header, the draw records, then per bucket count, first, capacity, half screen size (a mesh level)
         };
 
         PushConstant PushConstants
@@ -318,11 +320,31 @@ Shader "GrassGenerate"
             uint bucket = 0u;
             if ( p.Blade.x > 0.0 )
                 bucket = min( uint( distance / p.Blade.x ), p.Buckets.x - 1u );
+            else if ( p.Buckets.x > 1u )
+            {
+                // A mesh's level (UE ComputeStaticMeshLOD over the grass HISM's instances, Geometry::
+                // SelectLODFromBounds): the coarsest whose screen size the instance's bounding sphere is still below.
+                float r        = p.Lod.x * max( scale.x, max( scale.y, scale.z ) );
+                vec3  d        = centre - p.Camera.xyz;
+                float screenSq = r * r / max( 1.0, dot( d, d ) * p.Lod.y );
+                for ( uint level = p.Buckets.x - 1u; level > 0u; --level )
+                {
+                    float halfSize = uintBitsToFloat( Arguments[p.Buckets.y + level * 4u + 3u] );
+                    if ( halfSize * halfSize > screenSq )
+                    {
+                        bucket = level;
+                        break;
+                    }
+                }
+            }
             uint table = p.Buckets.y + bucket * 4u;
             uint index = atomicAdd( Arguments[table], 1u );
             if ( index >= Arguments[table + 2u] )
                 return;
             index += Arguments[table + 1u];
+            // The world's snow (Common/WeatherSnow.glslh) lies p.Lean.z deep over the ground: the root sinks by it,
+            // so the instance shows only what stands above the snow and one shorter than it is buried whole.
+            position.y -= p.Lean.z;
             // A blade's forward axis carries the height multiplier (its lean is a share of its height) and the
             // columns' w its three draws (Vertex_GrassBlade.glslh); a mesh's are its scaled axes.
             if ( blade )

@@ -703,9 +703,9 @@ TEST( ReservedIdentifiers, EveryPosixOnlyUseSitsInsideAPlatformConditional )
 }
 
 // UNITY BUILD: ONE TRANSLATION UNIT, MANY FILES. Windows CI compiles Common, the engine module libraries
-// and the editor libraries as CMake unity batches, 12 sources each (cmake/DesertWorkspace.cmake). Two sources that each define the same
-// internal-linkage name — an anonymous-namespace helper or a `static` constant — compile alone and
-// collide the day they land in one group, which depends on nothing but the order of the file list. On
+// and the editor libraries as CMake unity batches, 12 sources each (cmake/DesertWorkspace.cmake). Two sources that
+// each define the same internal-linkage name — an anonymous-namespace helper or a `static` constant — compile
+// alone and collide the day they land in one group, which depends on nothing but the order of the file list. On
 // 2026-09-26 one such pair (`SubjectTitle`) broke the Windows build while every macOS job was green.
 //
 // The census cannot know the grouping, so it asserts the relation that makes grouping irrelevant: a
@@ -885,7 +885,8 @@ namespace
         const std::size_t end  = cmake.find( "\n)", begin );
         const std::string list = cmake.substr( begin, end == std::string::npos ? std::string::npos : end - begin );
         const std::regex  quoted( R"re("([^"]+)")re" );
-        for ( auto it = std::sregex_iterator( list.begin(), list.end(), quoted ); it != std::sregex_iterator(); ++it )
+        for ( auto it = std::sregex_iterator( list.begin(), list.end(), quoted ); it != std::sregex_iterator();
+              ++it )
             out.push_back( ( *it )[1] );
         return out;
     }
@@ -894,7 +895,8 @@ namespace
 TEST( ReservedIdentifiers, NoInternalNameIsDefinedTwiceInOneUnityProject )
 {
     const std::vector<std::string> optOuts = UnityOptOuts();
-    ASSERT_GT( optOuts.size(), 3u ) << "cmake/DesertWorkspace.cmake's DESERT_UNITY_OPT_OUT was not found or not parsed";
+    ASSERT_GT( optOuts.size(), 3u )
+         << "cmake/DesertWorkspace.cmake's DESERT_UNITY_OPT_OUT was not found or not parsed";
 
     // Unity scope -> the tree its .cpp files come from. "Desert" is every engine module library and "Editor"
     // every editor library: one scope per tree is stricter than CMake's per-target batches, so a name that

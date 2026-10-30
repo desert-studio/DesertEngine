@@ -4,6 +4,7 @@
 // string keys over the MeshDescription id + FMeshBuildSettings per LOD + platform; the build step is a
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Geometry/ClusterDag.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ImportRecord.hpp>
@@ -39,6 +40,15 @@ namespace Desert::Assets
         PutU32( out, std::bit_cast<uint32_t>( settings.Import.UniformScale ) );
         PutU32( out, static_cast<uint32_t>( settings.Import.UpAxis ) );
         PutU32( out, static_cast<uint32_t>( settings.Import.LodPolicy ) );
+        PutU32( out, settings.Import.VirtualGeometry ? 1u : 0u );
+        if ( settings.Import.VirtualGeometry )
+        {
+            // The DAG's cook options (UE FMeshNaniteSettings in the Nanite DDC key). A mesh without the flag does
+            // not build a DAG, so its key does not move when these change.
+            const Geometry::ClusterDagSettings dag;
+            PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
+            PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
+        }
         PutU32( out, settings.BuilderVersion );
         return out;
     }
@@ -132,8 +142,11 @@ namespace Desert::Assets
 
     uint64_t MeshSourceDerivedDataKey( const uint64_t sourceFileHash )
     {
-        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, &kMeshSourceBuilderVersion,
-                                     sizeof( kMeshSourceBuilderVersion ) );
+        // The entry's format is part of its key, as UE's DDC keys carry the deriver's version GUID: an entry
+        // written at an older MSAS layout (or by an older importer) is unreachable, so a lookup is a MISS and
+        // the source is re-imported - a stale entry is out of date, never "corrupt".
+        const uint32_t format[] = { kMeshSourceBuilderVersion, kMeshAssetSubsystemVersion };
+        return Common::DDC::MakeKey( kMeshSourceDeriver, sourceFileHash, format, sizeof( format ) );
     }
 
     bool IsEditedImportedMesh( const std::filesystem::path& assetPath )

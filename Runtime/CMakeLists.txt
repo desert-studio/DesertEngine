@@ -27,10 +27,12 @@ desert_external_includes(Runtime
     "${DESERT_ROOT}/ThirdParty/")
 desert_editorspecific_includes(Runtime)
 target_compile_definitions(Runtime PRIVATE USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0)
-target_link_libraries(Runtime PRIVATE GLFW Optick MeshOptimizer Voro Embree Dav1d Opus)
+target_link_libraries(Runtime PRIVATE GLFW Optick MeshOptimizer Voro Compressonator Embree Dav1d Opus)
 desert_link_engine(Runtime)
 desert_config_platform_defines(Runtime)
 desert_copy_streamline_runtime(Runtime)
+# The OIDN runtime (PathTracing.Denoiser OIDN), cmake/DesertDependencies.cmake.
+desert_copy_oidn_runtime(Runtime)
 if(DESERT_IS_MACOS)
     target_link_libraries(Runtime PRIVATE
         Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp

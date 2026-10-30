@@ -5,6 +5,8 @@
 // rot unnoticed) while leaving nothing for the linker to pull in.
 #if DESERT_DEV_INSTRUMENTS
 
+#include <array>
+
 namespace Desert::Graphic
 {
     namespace
@@ -14,18 +16,56 @@ namespace Desert::Graphic
         // Recording is single-threaded by that invariant; making these atomic would suggest otherwise.
         DrawCounters g_Recording;
         DrawCounters g_Finished;
+        using PassCounters = std::array<MeshPassDrawCounters, kCountedMeshPasses>;
+        PassCounters g_PassRecording{};
+        PassCounters g_PassFinished{};
+        // The pass MeshPassScope opened; kCountedMeshPasses = none (a draw outside the mesh passes).
+        uint32_t g_ActivePass = kCountedMeshPasses;
     } // namespace
 
     void DrawCounter::Roll()
     {
-        g_Finished  = g_Recording;
-        g_Recording = DrawCounters{};
+        g_Finished      = g_Recording;
+        g_Recording     = DrawCounters{};
+        g_PassFinished  = g_PassRecording;
+        g_PassRecording = PassCounters{};
     }
 
     void DrawCounter::Record( uint32_t instanceCount )
     {
         ++g_Recording.Draws;
         g_Recording.Instances += instanceCount;
+        if ( g_ActivePass < kCountedMeshPasses )
+            ++g_PassRecording[g_ActivePass].CpuDraws;
+    }
+
+    void DrawCounter::BeginMeshPass( const uint32_t pass )
+    {
+        g_ActivePass = pass < kCountedMeshPasses ? pass : kCountedMeshPasses;
+    }
+
+    void DrawCounter::EndMeshPass()
+    {
+        g_ActivePass = kCountedMeshPasses;
+    }
+
+    void DrawCounter::RecordCpuIndirect()
+    {
+        if ( g_ActivePass < kCountedMeshPasses )
+            ++g_PassRecording[g_ActivePass].CpuDraws;
+    }
+
+    void DrawCounter::RecordBins( const uint32_t bins, const uint32_t calls )
+    {
+        if ( g_ActivePass >= kCountedMeshPasses )
+            return;
+        g_PassRecording[g_ActivePass].BinsIssued += bins;
+        g_PassRecording[g_ActivePass].IndirectCalls += calls;
+    }
+
+    MeshPassDrawCounters DrawCounter::LastFrameMeshPass( const uint32_t pass )
+    {
+        return pass < kCountedMeshPasses ? g_PassFinished[pass] : MeshPassDrawCounters{};
     }
 
     DrawCounters DrawCounter::LastFrame()

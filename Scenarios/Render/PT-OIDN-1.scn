@@ -1,0 +1,14 @@
+# PT-OIDN-1: PathTracing.Denoiser OIDN (4) - Intel Open Image Denoise on the path tracer's CONVERGED sum (UE's OpenImageDenoise plugin). While the sum grows the view is ReLAX's; once PathTracing.SamplesPerPixel paths are summed, "PathTracing: OIDN Pack" hands the mean radiance + albedo + normal guides to Graphic::Denoise::OidnDenoiser (read back, filtered once, uploaded into "PathTracing.OidnResult") and the resolve shows that image until the sum changes. A refusal is logged ("[PathTracing] OIDN did not denoise ...") and the view shows the raw accumulation.
+# `state device` serves device.oidn {created, device, reason, error, runs, lastPaths, lastWidth, lastHeight, lastFilterMs}. Frame checks (numeric, not by eye): mean abs diff of oidn_16 to oidn_ref_1024 < that of relax_16; oidn_16 mean within 30 % of the reference (not black); 0 VUID in editor.log; no "OIDN did not denoise" line.
+Проект F:/BistroFoliageProj/Desert.deproj --scene Content/Scenes/dnx_Night_pt.desce
+Дано run View "View mode: Lit"
+Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 16"
+Когда run Quality "Quality: PathTracing.Denoiser OIDN"
+Когда state device
+Тогда-вид oidn_16 16 paths per pixel denoised by OIDN: clean, not black; log "[PathTracing] OIDN denoised the WxH image of 16 paths per pixel on <device>"; state device.oidn.created true, device.oidn.device "CUDA: ..." on this RTX machine (else "CPU" with device.oidn.reason), runs >= 1, lastPaths 16, lastFilterMs > 0, error empty
+Когда run Quality "Quality: PathTracing.Denoiser ReLAX"
+Тогда-вид relax_16 the same 16 paths through ReLAX (the bar oidn_16 must beat)
+Когда run Quality "Quality: PathTracing.Denoiser Off"
+Когда run Quality "Quality: PathTracing.SamplesPerPixel 1024"
+Тогда-вид oidn_ref_1024 the raw 1024-path reference

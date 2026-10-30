@@ -4,6 +4,9 @@
 #include <Engine/Assets/SyncLoadLedger.hpp>
 #include <Common/Core/DestructorGuard.hpp>
 #include <Engine/Graphic/SceneRenderer.hpp>
+#include <Engine/Geometry/StaticMesh.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.hpp>
+#include <Engine/Graphic/VirtualGeometry/VirtualMeshTable.hpp>
 #include <Engine/Graphic/ViewSettings.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ResourceLedger.hpp>
@@ -79,7 +82,7 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddSystemRasters( RDG::Builder& graph, FrameTextures& textures,
                                           const std::span<const SystemRasterPass> passes, const bool clearFirst,
-                                          const OverlayTargets& overlay )
+                                          const OverlayTargets& overlay, const bool clearDepth )
     {
         // @p passes in the given order, each a raster node: its targets are its framebuffer WHOLE (TargetsOf:
         // every colour, the depth, and at MSAA the resolve images), its reads are what its Declare names. The
@@ -106,8 +109,9 @@ namespace Desert::Graphic
                  clears ? RDG::LoadOp::ClearColor( clearColor.r, clearColor.g, clearColor.b, clearColor.a )
                         : RDG::LoadOp::Load();
             const RDG::LoadOp depth =
-                 clears ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
-                        : RDG::LoadOp::Load();
+                 clears && clearDepth
+                      ? RDG::LoadOp::ClearDepth( pass.ClearDepth.value_or( defaults.ClearColor.DepthStencil.x ) )
+                      : RDG::LoadOp::Load();
             AddPassNode( graph, textures, pass, target, pass.Name, color, depth, overlay );
         }
     }
@@ -170,9 +174,9 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
     {
-        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour and depth),
-        // then the meshes, then the terrain, both LOADING and sharing the depth so they resolve against each
-        // other.
+        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour - and the depth
+        // on the deferred path; the forward path's depth is its depth prepass's, LOADED), then the meshes, then the
+        // terrain, both LOADING and sharing the depth (forward: CloserOrEqual against the prepass, no write).
         std::vector<SystemRasterPass> passes;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
@@ -183,7 +187,8 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
-        AddSystemRasters( graph, textures, passes, true );
+        const bool forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
+        AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
     }
 
     void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )
@@ -200,16 +205,11 @@ namespace Desert::Graphic
     void SceneRenderer::AddFrameTranslucency( RDG::Builder& graph, FrameTextures& textures )
     {
         // The translucency of the frame, in draw order - the order of these calls IS the order, there is no
-        // numeric placement. The height fog apply first: it modifies the OPAQUE scene itself (every pixel gains
-        // the fog between it and the camera), so everything composited after lands over the fogged world. Then
-        // the far field, the cloud composite: everything after it is nearer the camera and paints over it.
+        // numeric placement. The height fog's apply is NOT here: it fogs the OPAQUE scene and ran before the scene
+        // copy and the first translucent draw; what is drawn here fogs itself at its own depth.
+        // First the far field, the cloud composite: everything after it is nearer the camera and paints over it.
         // Then the particles, then the passes registered at the AfterTranslucency extension point (the editor
-        // grid). All on the scene target: the graph merges them into
-        // one render pass.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        AddSystemRaster(
-             graph, textures,
-             UNIQUE_GET_AS( System::HeightFogRenderer, m_RenderSystems["HeightFogSystem"] )->ApplyPass() );
+        // grid). All on the scene target: the graph merges them into one render pass.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         AddSystemRaster( graph, textures,
                          UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] )
@@ -330,6 +330,42 @@ namespace Desert::Graphic
                   RDG::PassContext& context ) -> Common::BoolResultStr { return execute( context, refs ); } );
     }
 
+    RDG::TextureRef SceneRenderer::AddFrameForwardDepthPrepass( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // THE FORWARD PATH'S DEPTH PREPASS (UE: the forward renderer's full DepthPass; FDepthPassMeshProcessor):
+        // into the scene target's depth ALONE - no colour attachment, no shading. The meshes' node CLEARS it and
+        // draws every opaque mesh the base pass shades (static, instanced, skinned, the opaque generics through
+        // their DepthNormal program - MeshRenderer::DeclareDepthPrepassDraws); the terrain's LOADS it. The base
+        // pass (AddFrameBasePass) then clears only colour, tests CloserOrEqual and writes no depth, and the
+        // virtual shadow map marks the local lights' pages from this depth.
+        const auto targets = TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Forward: Depth Prepass" );
+        if ( !targets || !targets->Depth.IsValid() )
+            return {};
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        // NOLINTBEGIN(cppcoreguidelines-pro-type-static-cast-downcast): the keys name these exact types
+        auto* const meshes  = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] );
+        auto* const terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+        // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
+        // The meshes' node CLEARS (it is the first writer of the frame's scene depth); without a mesh renderer the
+        // terrain's node does.
+        if ( meshes != nullptr )
+            AddRaster(
+                 graph, "Forward: Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+                 [meshes]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return meshes->RenderDepthPrepassManual( context ); },
+                 [meshes, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+                 { meshes->DeclareDepthPrepassDraws( pass, view ); } );
+        if ( terrain != nullptr )
+            AddRaster(
+                 graph, "Forward: Terrain Depth Prepass", depthOnly, {},
+                 meshes != nullptr ? RDG::LoadOp::Load() : RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+                 [terrain]( const RDG::PassContext& context ) -> Common::BoolResultStr
+                 { return terrain->RenderDepthManual( context ); },
+                 [terrain]( RDG::PassBuilder& pass ) { terrain->DeclareDepthDraws( pass ); } );
+        return depthOnly.Depth;
+    }
+
     void SceneRenderer::AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures,
                                          System::MeshRenderer* meshRenderer )
     {
@@ -342,14 +378,41 @@ namespace Desert::Graphic
         // the contract's clear value (Unlit, receives sun shadows).
         static_assert( Core::ShadingModels::kShadingWordClearValue == 0u,
                        "the G-buffer clear writes 0.0f bits into the uint shading word" );
+        // THE MASKED DEPTH PREPASS (UE: the depth pass with masked materials, r.EarlyZPass): the G-buffer's depth
+        // alone, cleared here; the masked GPU-instanced sections write their clipped depth, and the G-buffer below
+        // LOADs it and draws those sections without depth writes (MeshRenderer::DeclareMaskedDepthDraws).
+        RasterTargets depthOnly;
+        depthOnly.Depth = targets->Depth;
+        AddRaster(
+             graph, "Deferred: Masked Depth Prepass", depthOnly, {}, RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderMaskedDepthManual( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareMaskedDepthDraws( pass, view ); } );
         AddRaster(
              graph, "Deferred: GBuffer", *targets,
              textures.ColorLoads( *targets, RDG::LoadOp::ClearColor( 0.0f, 0.0f, 0.0f, 0.0f ) ),
-             RDG::LoadOp::ClearDepth( Core::kDepthClear ), {},
+             RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderGBufferManual( context ); },
              [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareGBufferDraws( pass, view ); } );
+    }
+
+    void SceneRenderer::AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
+                                                      System::MeshRenderer* meshRenderer )
+    {
+        // LOAD: "Deferred: GBuffer" and "TerrainGBuffer" wrote it; only the main view's phase-2 bins are drawn.
+        const auto targets = TargetsOf( textures, m_GBuffer, "GBuffer", "Deferred: GBuffer Post-Occlusion" );
+        if ( !targets || meshRenderer == nullptr )
+            return;
+        AddRaster(
+             graph, "Deferred: GBuffer Post-Occlusion", *targets,
+             textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
+             [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return meshRenderer->RenderGBufferPostOcclusionManual( context ); },
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() )]( RDG::PassBuilder& pass )
+             { meshRenderer->DeclareGBufferPostOcclusionDraws( pass, view ); } );
     }
 
     void SceneRenderer::AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures )
@@ -386,9 +449,12 @@ namespace Desert::Graphic
              textures.ColorLoads( *targets, RDG::LoadOp::Load() ), RDG::LoadOp::Load(), {},
              [meshRenderer]( const RDG::PassContext& context ) -> Common::BoolResultStr
              { return meshRenderer->RenderForwardDepthNormalManual( context ); },
-             [meshRenderer, rayTracedSun = SunShadowIsScreenMask(),
-              localShadowMasks = LocalShadowsAreRayTraced()]( RDG::PassBuilder& pass )
-             { meshRenderer->DeclareForwardDepthNormalDraws( pass, rayTracedSun, localShadowMasks ); } );
+             [meshRenderer, view = SceneViewInputsOf( textures.GraphRefs() ),
+              rayTracedSun = SunShadowIsScreenMask(), localShadowMasks = LocalShadowsAreScreenMask(),
+              virtualLocal = LocalShadowsAreVirtual()]( RDG::PassBuilder& pass ) {
+                 meshRenderer->DeclareForwardDepthNormalDraws( pass, view, rayTracedSun, localShadowMasks,
+                                                               virtualLocal );
+             } );
     }
 
     void SceneRenderer::AddFrameGeneric( RDG::Builder& graph, FrameTextures& textures,
@@ -406,10 +472,10 @@ namespace Desert::Graphic
         if ( SunShadowIsScreenMask() )
             view.SunShadowMask = sunShadowMask.IsValid() ? sunShadowMask : textures.GraphRefs().System.White;
         // Under ray-traced local shadows the opaque programs read the masks in place of the atlas (the prepass chose
-        // the same permutation by LocalShadowsAreRayTraced). The masks exist whenever the frame traced them
+        // the same permutation by LocalShadowsAreScreenMask). The masks exist whenever the frame traced them
         // (AddFrameRayTracedLocalShadows packs at least one layer); a pack that failed (logged there) leaves them
         // invalid and the draws on the atlas program - no stand-in array is read in place of a missing mask.
-        if ( LocalShadowsAreRayTraced() )
+        if ( LocalShadowsAreScreenMask() )
             view.LocalShadowMasks = localShadowMasks;
         AddRaster(
              graph, "Deferred: Generic", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
@@ -452,9 +518,11 @@ namespace Desert::Graphic
         if ( !targets )
             return;
         // LOAD colour and depth: the water is depth-tested against the composited opaque scene and writes its own
-        // depth, so the glass, the fog and the particles after it see the surface. It samples the opaque scene's
-        // copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different image
-        // from the scene target's depth it writes - UE's SceneDepthWithoutSingleLayerWater).
+        // depth, so the glass, the clouds and the particles after it see the surface. It samples the opaque
+        // scene's copy (refraction) and the G-buffer depth (SceneViewInputs::SceneDepth: the bottom, a different
+        // image from the scene target's depth it writes -
+        // UE's SceneDepthWithoutSingleLayerWater). It fogs itself at its own depth (the opaque fog ran before it;
+        // Mesh/Surface/SceneFog.glslh, bound by name through BindSceneViewInputs).
         const SceneViewInputs view = SceneViewInputsOf( textures.GraphRefs() );
         // The surface cell's scene blocks (camera, sun, sky cubes, sky look), as the mesh draws get them.
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
@@ -462,11 +530,17 @@ namespace Desert::Graphic
         if ( meshRenderer == nullptr )
             return;
         const SceneFrameBinding frame = meshRenderer->CaptureFrameState( GetViewFrame() );
+        // The persistent WaterInfo ground, imported into this graph and left shader-readable for the next frame.
+        const RDG::TextureRef waterInfo =
+             textures.Import( water->GetWaterInfo(), "WaterInfoGround", RDG::Access::SampledGraphics );
+        if ( !waterInfo.IsValid() )
+            return;
         AddRaster(
              graph, "Deferred: Water", *targets, textures.ColorLoads( *targets, RDG::LoadOp::Load() ),
              RDG::LoadOp::Load(), {}, [water]( const RDG::PassContext& context ) -> Common::BoolResultStr
-             { return water->RenderManual( context ); }, [water, sceneCopy, view, frame]( RDG::PassBuilder& pass )
-             { water->DeclareDraws( pass, sceneCopy, view, frame ); } );
+             { return water->RenderManual( context ); },
+             [water, sceneCopy, waterInfo, view, frame]( RDG::PassBuilder& pass )
+             { water->DeclareDraws( pass, sceneCopy, waterInfo, view, frame ); } );
     }
 
 #if DESERT_DEV_INSTRUMENTS
@@ -495,6 +569,43 @@ namespace Desert::Graphic
              { return meshRenderer->RecordOverdrawResolve( context ); },
              [meshRenderer, overdraw = accum->Colors[0]]( RDG::PassBuilder& pass )
              { meshRenderer->DeclareOverdrawResolve( pass, overdraw ); } );
+    }
+    void SceneRenderer::AddFrameVirtualGeometryClusters( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // This frame's cluster cut (AddFrameVirtualGeometry): nothing to draw without one.
+        const ViewFrame* view = GetViewFrame();
+        if ( view == nullptr || !m_FrameVirtualGeometry || !m_FrameDrawBins )
+            return;
+        if ( !m_VirtualGeometryClusterView )
+            m_VirtualGeometryClusterView = std::make_unique<VirtualGeometry::ClusterView>();
+        if ( !m_VirtualGeometryClusterView->Ensure() )
+            return;
+        const VirtualGeometry::VirtualMeshBuffers buffers =
+             VirtualGeometry::VirtualMeshTable::Get().Import( graph );
+        const auto scene =
+             TargetsOf( textures, m_TargetFramebuffer, "SceneColor", "Debug: Virtual Geometry Clusters" );
+        if ( !scene )
+            return;
+        const FrameDrawBins&                   bins = *m_FrameDrawBins;
+        const FrameVirtualGeometry&            cut  = *m_FrameVirtualGeometry;
+        const VirtualGeometry::ClusterViewDraw draw{ .Clusters       = buffers.Clusters,
+                                                     .Dags           = buffers.Dags,
+                                                     .Primitives     = bins.Scene.Primitives,
+                                                     .Instances      = bins.Scene.Instances,
+                                                     .PrimitiveDraws = bins.Upload.Passes[cut.Pass].PrimitiveDraws,
+                                                     .DrawSlots      = bins.Upload.Passes[cut.Pass].DrawSlots,
+                                                     .SubmeshTransforms = bins.Upload.SubmeshTransforms,
+                                                     .VisibleClusters   = cut.VisibleClusters,
+                                                     .RasterArgs        = cut.RasterArgs,
+                                                     .VisibleCapacity   = cut.VisibleCapacity,
+                                                     .ViewProjection    = view->JitteredViewProjection };
+        // LOAD colour and depth: the clusters are depth-tested against the composited scene and write no depth.
+        VirtualGeometry::ClusterView* const clusterView = m_VirtualGeometryClusterView.get();
+        AddRaster(
+             graph, "Debug: Virtual Geometry Clusters", *scene, textures.ColorLoads( *scene, RDG::LoadOp::Load() ),
+             RDG::LoadOp::Load(), {}, [clusterView]( const RDG::PassContext& context ) -> Common::BoolResultStr
+             { return clusterView->Record( context ); },
+             [clusterView, draw]( RDG::PassBuilder& pass ) { clusterView->Declare( pass, draw ); } );
     }
 #endif // DESERT_DEV_INSTRUMENTS
 } // namespace Desert::Graphic

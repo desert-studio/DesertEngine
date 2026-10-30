@@ -1,33 +1,19 @@
 #pragma once
 
-#include <Engine/Graphic/Materials/Material.hpp>
-#include <Engine/Graphic/Materials/Properties/UniformBufferProperty.hpp>
-
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
 #include <array>
 #include <cstdint>
 
-namespace Desert::Graphic
+namespace Desert::Graphic::System
 {
-    // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
-    struct MaterialSSAOShaderParameters
+    // The GTAO compute pass's parameter block (SSAO.shader's SSAOUB), built on the CPU once per frame and uploaded
+    // as a graph buffer (SSAORenderer::UploadUniforms). Header-only and free of the renderer so the std140 census
+    // (Desert/Tests/Engine/UniformBlockLayout) can include it alone.
+    struct SSAOUniforms
     {
-        DESERT_SHADER_PARAMETER( UniformBuffer, SSAOUB );
-    };
-
-    // Fullscreen SSAO material: reads the G-buffer depth + normal and writes the ground-truth ambient occlusion
-    // (GTAO, SSAO.shader). Header-only.
-    class MaterialSSAO final : public Material
-    {
-    public:
-        MaterialSSAO() : Material( "MaterialSSAO", "SSAO" )
-        {
-        }
-
-        // The SSAOUB (SSAO.shader) block, std140, member for member (census:
-        // Desert/Tests/Engine/UniformBlockLayout).
+        // The SSAOUB block, std140, member for member.
         struct SSAOUBData
         {
             glm::mat4 InvJitteredViewProjection; // world position from the G-buffer depth
@@ -52,12 +38,10 @@ namespace Desert::Graphic
             int        Angles           = 0; // UE r.GTAO.NumAngles
         };
 
-        // The SSAOUB values only: GBufferDepthTexture / GBufferNormalTexture are graph resources, bound by name through
-        // RDG::PassBindings (SSAORenderer::Record). Ported from UE 5.8
-        // Renderer/Private/CompositionLighting/PostProcessAmbientOcclusion.cpp GetGTAOShaderParameters (440-481):
-        // the six-step slice rotation, the step offset that advances once per six frames, the thickness remap 1 -
-        // t^2 clamped to [0, 0.99].
-        void BindInputs( const Inputs& in )
+        // Ported from UE 5.8 Renderer/Private/CompositionLighting/PostProcessAmbientOcclusion.cpp
+        // GetGTAOShaderParameters (440-481): the six-step slice rotation, the step offset that advances once per
+        // six frames, the thickness remap 1 - t^2 clamped to [0, 0.99].
+        [[nodiscard]] static SSAOUBData Make( const Inputs& in )
         {
             constexpr std::array<float, 6> kRotationsDegrees = { 60.0f, 300.0f, 180.0f, 240.0f, 120.0f, 0.0f };
             constexpr std::array<float, 4> kOffsets          = { 0.1f, 0.6f, 0.35f, 0.85f };
@@ -79,9 +63,7 @@ namespace Desert::Graphic
                  glm::vec4( glm::cos( rotation ), glm::sin( rotation ),
                             kOffsets[( in.FrameIndex / kRotationsDegrees.size() ) % kOffsets.size()] * 0.25f,
                             static_cast<float>( glm::max( in.Angles, 1 ) ) );
-
-            if ( auto* ub = Get<UniformBufferProperty>( MaterialSSAOShaderParameters::SSAOUB ) )
-                ub->SetRawData( reinterpret_cast<const std::byte*>( &data ), sizeof( data ) );
+            return data;
         }
     };
-} // namespace Desert::Graphic
+} // namespace Desert::Graphic::System

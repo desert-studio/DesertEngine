@@ -6,6 +6,6 @@ target_precompile_headers(DesertUI PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/p
 target_include_directories(DesertUI PRIVATE "Source/")
 desert_closure_includes(DesertUI DesertUI)
 target_link_libraries(DesertUI PRIVATE Render2DCore Common)
-desert_external_includes(DesertUI ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_COMMONSPECIFIC_INCLUDE_DIRS})
+desert_external_includes(DesertUI ${DESERT_COMMON_INCLUDE_DIRS})
 target_compile_definitions(DesertUI PRIVATE ${DESERT_COMMON_DEFINES})
 desert_config_platform_defines(DesertUI)

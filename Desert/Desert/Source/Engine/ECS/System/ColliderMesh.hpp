@@ -28,11 +28,11 @@ namespace Desert::ECS
     // the StaticMesh — the edited mesh over the primitive over the asset.
     inline ColliderMeshSource PickColliderMeshSource( const StaticMeshComponent& mesh )
     {
-        if ( mesh.RuntimeMesh )
+        if ( mesh.GetRuntimeMesh() )
             return ColliderMeshSource::RuntimeMesh;
-        if ( mesh.Primitive.has_value() )
+        if ( mesh.GetPrimitive().has_value() )
             return ColliderMeshSource::Primitive;
-        if ( !mesh.MeshHandle.IsNull() )
+        if ( !mesh.GetMeshHandle().IsNull() )
             return ColliderMeshSource::Asset;
         return ColliderMeshSource::None;
     }

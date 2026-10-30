@@ -72,7 +72,7 @@ set_target_properties(Editor PROPERTIES
 _desert_editor_compile_settings(Editor)
 desert_link_editor_libs(Editor WHOLE_ARCHIVE)
 target_link_libraries(Editor PRIVATE
-    GLFW Optick MeshOptimizer Voro OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore Dav1d Opus)
+    GLFW Optick MeshOptimizer Voro Compressonator OpenSubdiv Embree ImGui ImGuiNodeEditor Assimp OpenEXRCore Dav1d Opus)
 desert_link_engine(Editor)
 if(IS_DIRECTORY "${DESERT_ROOT}/ThirdParty/dlib")
     target_link_libraries(Editor PRIVATE Dlib)
@@ -84,6 +84,8 @@ if(DESERT_IS_WINDOWS)
     target_link_libraries(Editor PRIVATE ws2_32 advapi32 comdlg32 shell32 ole32)
 endif()
 desert_copy_streamline_runtime(Editor)
+# The OIDN runtime (PathTracing.Denoiser OIDN), cmake/DesertDependencies.cmake.
+desert_copy_oidn_runtime(Editor)
 if(DESERT_IS_MACOS)
     target_link_libraries(Editor PRIVATE
         Common Jolt LuauCodeGen LuauCompiler LuauAst LuauBytecode LuauVM LuauCommon ReflectCpp

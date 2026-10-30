@@ -157,8 +157,9 @@ namespace
     // The whitespace-separated words between `open` and the next ')' of @p script.
     std::vector<std::string> WordsUntilParen( const std::string& script, std::size_t open )
     {
-        const std::size_t        close = script.find( ')', open );
-        std::istringstream       in( script.substr( open, close == std::string::npos ? std::string::npos : close - open ) );
+        const std::size_t  close = script.find( ')', open );
+        std::istringstream in(
+             script.substr( open, close == std::string::npos ? std::string::npos : close - open ) );
         std::vector<std::string> words;
         for ( std::string word; in >> word; )
             words.push_back( word );
@@ -190,11 +191,12 @@ namespace
         std::set<std::string> deps;
         if ( at == std::string::npos )
             return deps;
-        const std::vector<std::string> words = WordsUntilParen( table, at + call.size() );
+        const std::vector<std::string> words  = WordsUntilParen( table, at + call.size() );
         bool                           inDeps = false;
         for ( const std::string& word : words )
         {
-            const bool keyword = std::ranges::none_of( word, []( char c ) { return std::islower( static_cast<unsigned char>( c ) ) != 0; } );
+            const bool keyword = std::ranges::none_of(
+                 word, []( char c ) { return std::islower( static_cast<unsigned char>( c ) ) != 0; } );
             if ( keyword )
             {
                 inDeps = word == "DEPS";

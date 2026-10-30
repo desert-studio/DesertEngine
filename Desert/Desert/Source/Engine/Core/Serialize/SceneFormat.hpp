@@ -111,13 +111,17 @@ namespace Desert::Core
     // MigrateAssetKeysV68ToV69). v70 (WP17): a ROOT record of an external-entities scene states no siblingIndex -
     // a streamed world persists no root order, as UE's OFPA (Tools/SceneMigrator,
     // MigrateRootSiblingIndexV69ToV70).
+    // v71 (VOLFOG): ExponentialHeightFog states UE's Volumetric Fog group and every light its
+    // VolumetricScatteringIntensity. Additive: the step rewrites nothing, a v70 record loads with the declared
+    // defaults and the save states them; the number moves so an older build refuses a file whose fog it would
+    // silently drop (Tools/SceneMigrator, kSceneVersionVolumetricFog).
     //
     // A SUBSYSTEM THAT OWNS PART OF THE FORMAT COUNTS ITS OWN CHANGES (MIGRATE-SUBSYS, owner 2026-10-22; UE
     // FCustomVersion). This number is no longer raised for World Partition: its block and its streamed records are
     // versioned by kWorldPartitionVersion under Assets::kWorldPartitionSchemaTag, and Tools/SceneMigrator runs
     // that subsystem's steps by the number the file states under that tag. The World Partition steps already taken
     // (v50, v66, v68, v70) stay where they were written - a file below v70 still climbs them by this number.
-    inline constexpr int kSceneVersion = 70;
+    inline constexpr int kSceneVersion = 71;
 
     // World Partition's own format generation, stated under Assets::kWorldPartitionSchemaTag. v1 (MIGRATE-SUBSYS):
     // the counter exists - the block is exactly what scene schema v70 states; the step (Tools/SceneMigrator,

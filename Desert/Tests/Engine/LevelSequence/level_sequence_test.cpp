@@ -148,10 +148,10 @@ TEST( LevelSequencePlayback, MovesTheBoundEntityByItsKeys )
         const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( tick ) );
         EXPECT_TRUE( step.Report.Unresolved.empty() );
         EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
-        EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, x, 1e-4F )
+        EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, x, 1e-4F )
              << "tick " << tick;
     }
-    EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.other ).Translation.x, 0.0F );
+    EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.other ).GetTranslation().x, 0.0F );
 }
 
 TEST( LevelSequencePlayback, ABindingOverrideWinsOverTheLocator )
@@ -163,8 +163,8 @@ TEST( LevelSequencePlayback, ABindingOverrideWinsOverTheLocator )
     ECS::LevelSequencePlayback playback( sequence );
 
     (void)ECS::StepLevelSequence( world.registry, component, playback, Step( 50 ) );
-    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.other ).Translation.x, 50.0F, 1e-4F );
-    EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 0.0F );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.other ).GetTranslation().x, 50.0F, 1e-4F );
+    EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 0.0F );
 }
 
 // The Details "+" offers the Entity bindings not overridden yet, in the sequence's order; the Sequence
@@ -229,7 +229,7 @@ TEST( LevelSequencePlayback, AnUnknownUuidIsANamedErrorReportedOnce )
     const auto second = ECS::StepLevelSequence( world.registry, component, playback, Step( 60 ) );
     EXPECT_EQ( second.Report.Unresolved.size(), 1U );
     EXPECT_TRUE( ECS::TakeNewLevelSequenceErrors( state, second ).empty() );
-    EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 0.0F );
+    EXPECT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 0.0F );
 }
 
 TEST( LevelSequenceComponent, LoopModeIsStoredByName )
@@ -300,7 +300,7 @@ TEST( LevelSequenceDocument, SavesAndReadsWhatTheComponentPlays )
     const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( 50 ) );
     EXPECT_TRUE( step.Report.Unresolved.empty() );
     EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
-    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 50.0F, 1e-3F );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 50.0F, 1e-3F );
 }
 
 TEST( LevelSequenceDocument, TheActorBindingSurvivesTheSaveAndNamesTheEntityByUuid )
@@ -333,18 +333,18 @@ TEST( LevelSequenceDocument, PreviewPosesTheSceneAndClosingGivesItBack )
 {
     const T::Sequence sequence = AuthoredDoor();
     World             world;
-    world.registry.get<ECS::TransformComponent>( world.door ).Translation = { 7.0F, 1.0F, 2.0F };
+    ECS::SetLocalTranslation( world.registry, world.door, { 7.0F, 1.0F, 2.0F } );
 
     ECS::LevelSequencePreview preview;
     (void)preview.Scrub( world.registry, sequence, A::FrameNumber{ 50 } );
     EXPECT_TRUE( preview.Active() );
-    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 50.0F, 1e-3F );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 50.0F, 1e-3F );
     (void)preview.Scrub( world.registry, sequence, A::FrameNumber{ 100 } );
-    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 100.0F, 1e-3F );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 100.0F, 1e-3F );
 
     preview.Restore( world.registry );
     EXPECT_FALSE( preview.Active() );
-    const auto& restored = world.registry.get<ECS::TransformComponent>( world.door ).Translation;
+    const auto& restored = world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation();
     EXPECT_EQ( restored.x, 7.0F );
     EXPECT_EQ( restored.y, 1.0F );
     EXPECT_EQ( restored.z, 2.0F );
@@ -398,7 +398,7 @@ TEST( LevelSequenceDocument, AVisibilityTrackHidesTheActorFromItsKeyOn )
         const auto step = ECS::StepLevelSequence( world.registry, component, playback, Step( tick ) );
         EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
         ASSERT_TRUE( world.registry.has<ECS::VisibilityComponent>( world.door ) ) << "tick " << tick;
-        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).Visible, visible )
+        EXPECT_EQ( world.registry.get<ECS::VisibilityComponent>( world.door ).IsVisible(), visible )
              << "tick " << tick;
     }
     EXPECT_FALSE( world.registry.has<ECS::VisibilityComponent>( world.other ) );
@@ -691,7 +691,11 @@ TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedT
 
     // Press, drag (nothing written while held), release: one key at the playhead with the live pose.
     EXPECT_EQ( observe( true ), 0U );
-    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 777.0F;
+    {
+        ECS::LocalTransform moved = world.registry.get<ECS::TransformComponent>( world.door ).GetLocal();
+        moved.Translation.x       = 777.0F;
+        ECS::SetLocalTransform( world.registry, world.door, moved );
+    }
     EXPECT_EQ( observe( true ), 0U );
     EXPECT_EQ( ECS::EntityTransformKeyTicks( sequence, door ).size(), 2U ) << "nothing is keyed mid-gesture";
     EXPECT_EQ( observe( false ), 1U );
@@ -701,7 +705,11 @@ TEST( LevelSequenceKeys, AutoKeyWritesOnePoseKeyOnTheReleaseOfAGestureThatMovedT
 
     // Reset mid-gesture (REC switched off): the release keys nothing.
     EXPECT_EQ( observe( true ), 0U );
-    world.registry.get<ECS::TransformComponent>( world.door ).Translation.x = 5.0F;
+    {
+        ECS::LocalTransform moved = world.registry.get<ECS::TransformComponent>( world.door ).GetLocal();
+        moved.Translation.x       = 5.0F;
+        ECS::SetLocalTransform( world.registry, world.door, moved );
+    }
     autoKey.Reset();
     EXPECT_FALSE( autoKey.Releasing( false ) );
     EXPECT_EQ( observe( false ), 0U );
@@ -727,7 +735,7 @@ namespace
 
     float DoorX( const World& world )
     {
-        return world.registry.get<ECS::TransformComponent>( world.door ).Translation.x;
+        return world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x;
     }
 
     /// Seconds of game time that advance @p ticks of AuthoredDoor's tick rate at play rate 1.
@@ -741,8 +749,9 @@ TEST( LevelSequenceAsset, ATransformTrackKeepsEveryInterpolationAndTangentThroug
 {
     T::Sequence             authored = AuthoredDoor();
     auto                    door     = authored.Bindings.front().Guid;
-    ECS::TransformComponent middle;
-    middle.Translation.x = 30.0F;
+    ECS::LocalTransform     middleLocal;
+    middleLocal.Translation.x = 30.0F;
+    const ECS::TransformComponent middle( middleLocal );
     ASSERT_TRUE( ECS::SetEntityTransformKey( authored, door, A::FrameNumber{ 50 }, ECS::EntityPose( middle ) )
                       .IsSuccess() );
     T::FloatChannel* x = DoorTranslationX( authored );
@@ -1162,7 +1171,7 @@ TEST( LevelSequencePlayback, ASubsequenceMovesItsActorsAndFiresItsEventsAtTheMap
     const auto crossing = step( 30, 60 );
     EXPECT_TRUE( crossing.Refusals.empty() ) << crossing.Refusals.front();
     EXPECT_EQ( crossing.FiredEvents, std::vector<std::string>{ "Inner" } ) << "inner tick 10 = parent tick 40";
-    EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 20.0F )
+    EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 20.0F )
          << "parent tick 60 = inner tick 20";
     EXPECT_TRUE( step( 60, 100 ).FiredEvents.empty() ) << "crossed once";
 
@@ -1333,7 +1342,7 @@ TEST( LevelSequencePreview, ASubsequencePosesItsActorAtTheMappedTickAndIsRestore
     const auto source     = SourceOf( { { "Inner", &inner } }, { { "Inner", innerGuid } } );
 
     World       world;
-    const float startX = world.registry.get<ECS::TransformComponent>( world.door ).Translation.x;
+    const float startX = world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x;
 
     ECS::LevelSequencePreview blind;
     const auto                refused = blind.Scrub( world.registry, outer, A::FrameNumber{ 50 } );
@@ -1347,10 +1356,10 @@ TEST( LevelSequencePreview, ASubsequencePosesItsActorAtTheMappedTickAndIsRestore
     EXPECT_TRUE( step.Refusals.empty() ) << step.Refusals.front();
     // Parent tick 50 is 30 ticks (0.5 s) into the section: the inner's tick 15 at 30 ticks/s; X 0 -> 100 over
     // 0..100.
-    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, 15.0F, 1e-3F );
+    EXPECT_NEAR( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, 15.0F, 1e-3F );
 
     preview.Restore( world.registry );
-    EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).Translation.x, startX )
+    EXPECT_FLOAT_EQ( world.registry.get<ECS::TransformComponent>( world.door ).GetTranslation().x, startX )
          << "the subsequence's actor was recorded and given back";
 }
 

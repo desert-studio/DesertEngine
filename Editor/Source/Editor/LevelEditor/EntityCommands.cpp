@@ -347,12 +347,12 @@ namespace Desert::Editor
                                       return PaletteCommandOutcome( false,
                                                                     "the viewport centre looks at no surface" );
                                   auto& e       = MainScene()->CreateNewEntity( "Cube" );
-                                  auto& smc     = e.AddComponent<ECS::StaticMeshComponent>();
-                                  smc.Primitive = Geometry::PrimitiveType::Cube;
+                                  ECS::StaticMeshDesc cube;
+                                  cube.Primitive = Geometry::PrimitiveType::Cube;
+                                  ECS::SetStaticMesh( *e.GetRegistry(), e.GetHandle(), cube );
                                   // The primitive cube is one metre, centred on its pivot: lift it by half
                                   // along the surface normal so it stands on the surface, not in it.
-                                  e.GetComponent<ECS::TransformComponent>().Translation =
-                                       hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre );
+                                  e.SetLocalTranslation( hit.Point + hit.Normal * ( 0.5f * Common::Units::UnitsPerMetre ) );
                                   const auto uuid = e.GetComponent<ECS::UUIDComponent>().UUID;
                                   Core::SelectionManager::SetSelected( uuid );
                                   Commands::NotifyCreated( { uuid } );
@@ -389,6 +389,19 @@ namespace Desert::Editor
         //
         // It returns the planner's own refusal rather than PaletteCommandDone: a fold that would have
         // destroyed a collider must say so to whoever asked, on the channel and in the toast alike.
+        // Ctrl+D's twin (LevelEditorCommands): the duplicates become the selection. A key chord is a gesture no
+        // unattended run can make, and a scene with one prop per mesh (B16) needs copies before a collapse.
+        commands.push_back( { "Entity", "Duplicate selection", []
+                              {
+                                  if ( Core::SelectionManager::Count() == 0 )
+                                      return Common::MakeError<bool>( "nothing is selected to duplicate" );
+                                  auto dups =
+                                       Commands::DuplicateEntities( Core::SelectionManager::GetSelection() );
+                                  if ( dups.empty() )
+                                      return Common::MakeError<bool>( "the selection made no duplicates" );
+                                  Core::SelectionManager::SetSelection( std::move( dups ) );
+                                  return Common::MakeSuccess( true );
+                              } } );
         commands.push_back( { "Entity", "Collapse selection into Instanced Static Mesh", []
                               {
                                   const auto folded = Commands::CollapseIntoInstancedMesh(

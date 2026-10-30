@@ -39,8 +39,9 @@ namespace Desert::HeaderTool
         if ( !read )
             return Common::MakeError<ModuleTable>( std::format( "module table {}", read.GetError() ) );
         TableDocument document = read.ExtractValue();
-        const auto    refuse   = [&]( const std::string& why )
-        { return Common::MakeError<ModuleTable>( std::format( "module table {}: {}", tableFile.string(), why ) ); };
+        const auto    refuse   = [&]( const std::string& why ) {
+            return Common::MakeError<ModuleTable>( std::format( "module table {}: {}", tableFile.string(), why ) );
+        };
         if ( document.Modules.empty() || document.Placement.empty() || document.LegacyRoot.empty() ||
              document.RepoRoot.empty() )
             return refuse( "lacks Modules, Placement, LegacyRoot or RepoRoot" );
@@ -54,7 +55,8 @@ namespace Desert::HeaderTool
                 return refuse( std::format( "module '{}' is listed twice", row.Name ) );
             for ( const std::string& dep : row.Deps )
                 if ( table.Find( dep ) == nullptr )
-                    return refuse( std::format( "'{}' depends on '{}', which is not listed before it", row.Name, dep ) );
+                    return refuse(
+                         std::format( "'{}' depends on '{}', which is not listed before it", row.Name, dep ) );
             table.m_Modules.push_back( { std::move( row.Name ), std::move( row.Folder ), std::move( row.Deps ) } );
         }
         for ( PlacementRow& row : document.Placement )
@@ -64,11 +66,13 @@ namespace Desert::HeaderTool
             try
             {
                 std::regex regex( row.Pattern, std::regex::ECMAScript );
-                table.m_Placement.push_back( { std::move( row.Module ), std::move( row.Pattern ), std::move( regex ) } );
+                table.m_Placement.push_back(
+                     { std::move( row.Module ), std::move( row.Pattern ), std::move( regex ) } );
             }
             catch ( const std::regex_error& error )
             {
-                return refuse( std::format( "placement row of '{}': {} ({})", row.Module, error.what(), row.Pattern ) );
+                return refuse(
+                     std::format( "placement row of '{}': {} ({})", row.Module, error.what(), row.Pattern ) );
             }
         }
         table.m_BuildPlacement  = std::move( document.LegacyFiles );

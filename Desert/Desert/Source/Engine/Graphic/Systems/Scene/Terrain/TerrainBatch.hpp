@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <format>
 #include <optional>
 #include <string>
@@ -115,15 +116,29 @@ namespace Desert::Graphic::System
         // ...and the half-extents (cells) of the rings diced 2, 4, 8 and 16 sub-cells a side (x..w; -1 = no such
         // ring). Each lies inside the one before: a cell's dice is the finest ring holding it.
         glm::vec4 DiceRings{ -1.0f };
+        // THE DICE POOL (LandscapeDicePool.shader): x = the tile's first vertex in the frame's pool of displaced
+        // sub-vertices, evaluated once per frame in the camera's rings and read by every view's draw (-1 = the
+        // tile has none: it is not drawn diced); y = the finest dice level THIS row's view draws - 4 for the
+        // camera, coarser for a cascade (LandscapeCasterDicedRow), whose cells then read every k-th pool vertex.
+        glm::vec4 DicePool{ -1.0f, 4.0f, 0.0f, 0.0f };
+        // THE VIEW'S FOOTPRINT ON THE DICE (UE Nanite culls every cluster outside the view before it is diced):
+        // [x, y) .. [z, w) - the tile-local LOD-0 cells (the camera's GLOBAL cells minus the tile's first sample,
+        // not clamped to the tile, so two tiles of a border agree) that the main camera's frustum reaches between
+        // the landscape's lowest and highest displaced height, plus a margin. The rings diced 2..16 are clipped to
+        // it; a cell outside keeps the fade square's dice 1, displaced, so no crack opens at the clip and an
+        // off-screen bump still casts into the view (LandscapeDiceFootprint, LandscapeDisplacement.glslh
+        // LandscapeCellDiceOf). The casters draw the camera's rows, so they keep the same clip.
+        glm::vec4 DiceClip{ 0.0f };
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert( sizeof( TerrainInstance ) == 61 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay sixty-one 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
-                   "reads these offsets" );
+    static_assert(
+         sizeof( TerrainInstance ) == 63 * sizeof( glm::vec4 ),
+         "TerrainInstance must stay sixty-three 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+         "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
               offsetof( TerrainInstance, LandscapeFrame ) == 48 &&
@@ -139,7 +154,8 @@ namespace Desert::Graphic::System
               offsetof( TerrainInstance, DiceWindow ) == 864 &&
               offsetof( TerrainInstance, DisplacementTiling ) == 880 &&
               offsetof( TerrainInstance, InputTileSize ) == 896 &&
-              offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960,
+              offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960 &&
+              offsetof( TerrainInstance, DicePool ) == 976 && offsetof( TerrainInstance, DiceClip ) == 992,
          "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -191,6 +207,10 @@ namespace Desert::Graphic::System
         int32_t  FirstSampleX = 0;
         int32_t  FirstSampleZ = 0;
         uint32_t QuadsPerTile = 0u;
+        // The world heights (cm) of the tile's lowest and highest sample (LandscapeTileData::LowestSample /
+        // HighestSample), undisplaced: the vertical slab the view's footprint on the dice is cut from.
+        float MinY = 0.0f;
+        float MaxY = 0.0f;
         // World::Landscape::LandscapeNeighbourMask of the neighbours whose ring row the heightmap carries.
         uint32_t NeighbourMask = 0u;
         // The tile's entity (its GPU-scene motion row and ray-tracing state are keyed by it), and the revision
@@ -312,16 +332,25 @@ namespace Desert::Graphic::System
 
     // Dice ring @p level (dice 1 << level) of a row, clamped to the tile's @p cells x @p cells grid: [x0, x1) x
     // [z0, z1); empty when the ring is absent. LandscapeDisplacement.glslh LandscapeDiceRingRect is the same.
-    inline glm::ivec4 LandscapeDiceRingRect( const TerrainInstance& row, int level, int cells )
+    // @p pool: the ring as the CAMERA dices it (the dice pool's layout), not as the row's view draws it (a caster
+    // stops at DicePool.y).
+    inline glm::ivec4 LandscapeDiceRingRect( const TerrainInstance& row, int level, int cells, bool pool = false )
     {
         const float half = level == 0 ? row.DiceWindow.z : row.DiceRings[static_cast<glm::length_t>( level - 1 )];
-        if ( row.DisplacementView.w < 0.5f || half < 0.0f )
+        if ( row.DisplacementView.w < 0.5f || half < 0.0f ||
+             ( !pool && static_cast<float>( level ) > row.DicePool.y + 0.5f ) )
             return glm::ivec4( 0 );
         const int cx = static_cast<int>( std::floor( row.DiceWindow.x + 0.5f ) );
         const int cz = static_cast<int>( std::floor( row.DiceWindow.y + 0.5f ) );
         const int h  = static_cast<int>( half + 0.5f );
-        return glm::ivec4( std::clamp( cx - h, 0, cells ), std::clamp( cz - h, 0, cells ),
-                           std::clamp( cx + h + 1, 0, cells ), std::clamp( cz + h + 1, 0, cells ) );
+        // Past the fade's square the rings are clipped to the view's footprint (DiceClip).
+        const glm::ivec4 clip = level > 0
+                                     ? glm::ivec4( glm::floor( row.DiceClip + glm::vec4( 0.5f ) ) )
+                                     : glm::ivec4( INT32_MIN / 2, INT32_MIN / 2, INT32_MAX / 2, INT32_MAX / 2 );
+        return glm::ivec4( std::clamp( std::max( cx - h, clip.x ), 0, cells ),
+                           std::clamp( std::max( cz - h, clip.y ), 0, cells ),
+                           std::clamp( std::min( cx + h + 1, clip.z ), 0, cells ),
+                           std::clamp( std::min( cz + h + 1, clip.w ), 0, cells ) );
     }
 
     inline uint32_t LandscapeDiceRectArea( const glm::ivec4& r )
@@ -347,6 +376,100 @@ namespace Desert::Graphic::System
             inner = area;
         }
         return total + all - inner * 6u;
+    }
+
+    // The dice pool's vertices for the row (LandscapeDisplacement.glslh LandscapeDecodePoolVertex walks the same
+    // order): each ring's cells outside the finer ring, (dice + 1)^2 sub-vertices a cell; 0 when it is not diced.
+    inline uint32_t LandscapeDicePoolVertexCount( uint32_t quadsPerTile, uint32_t gridLod,
+                                                  const TerrainInstance& row )
+    {
+        if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
+            return 0u;
+        const int cells = static_cast<int>( quadsPerTile );
+        uint32_t  total = 0u, inner = 0u;
+        for ( int level = kLandscapeDiceLevels - 1; level >= 0; --level )
+        {
+            const uint32_t area = LandscapeDiceRectArea( LandscapeDiceRingRect( row, level, cells, true ) );
+            const uint32_t side = ( 1u << level ) + 1u;
+            total += ( area - std::min( inner, area ) ) * side * side;
+            if ( area > 0u )
+                inner = area;
+        }
+        return total;
+    }
+
+    // THE VIEW'S FOOTPRINT ON THE GROUND (TerrainInstance.DiceClip): the world XZ rectangle (x0, z0, x1, z1) that
+    // the perspective view @p viewProjection, whose eye is @p eye, reaches between the heights @p minY and @p maxY
+    // - the bounding rectangle of the view's pyramid (apex at the eye, the near plane inside it) cut by that
+    // slab: the pyramid's vertices inside the slab plus where its edges cross the slab's two planes (the vertices
+    // of a convex body cut by a slab). @p reach caps the pyramid (cm along each corner ray): nothing past it is
+    // diced. Empty (x0 > x1) when the view does not reach the slab.
+    inline glm::vec4 LandscapeViewFootprint( const glm::mat4& viewProjection, const glm::vec3& eye, float minY,
+                                             float maxY, float reach )
+    {
+        const glm::dmat4          inverse = glm::inverse( glm::dmat4( viewProjection ) );
+        const glm::dvec3          apex( eye );
+        std::array<glm::dvec3, 4> far{};
+        for ( int i = 0; i < 4; ++i )
+        {
+            // A point on the corner's ray at NDC depth 0.5 (finite for a standard, reversed or infinite far
+            // plane): only the ray's direction is used.
+            const glm::dvec4 p = inverse * glm::dvec4( ( i & 1 ) ? 1.0 : -1.0, ( i & 2 ) ? 1.0 : -1.0, 0.5, 1.0 );
+            const glm::dvec3 d = glm::dvec3( p ) / p.w - apex;
+            far[static_cast<size_t>( i )] = apex + glm::normalize( d ) * static_cast<double>( reach );
+        }
+        glm::dvec4 box( std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
+                        std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest() );
+        const auto add = [&]( const glm::dvec3& q )
+        {
+            box = glm::dvec4( std::min( box.x, q.x ), std::min( box.y, q.z ), std::max( box.z, q.x ),
+                              std::max( box.w, q.z ) );
+        };
+        const double lo = minY, hi = maxY;
+        const auto   point = [&]( const glm::dvec3& q )
+        {
+            if ( q.y >= lo && q.y <= hi )
+                add( q );
+        };
+        const auto edge = [&]( const glm::dvec3& a, const glm::dvec3& b )
+        {
+            for ( const double y : { lo, hi } )
+                if ( ( a.y - y ) * ( b.y - y ) < 0.0 )
+                    add( a + ( b - a ) * ( ( y - a.y ) / ( b.y - a.y ) ) );
+        };
+        point( apex );
+        for ( int i = 0; i < 4; ++i )
+        {
+            point( far[static_cast<size_t>( i )] );
+            edge( apex, far[static_cast<size_t>( i )] );
+        }
+        // The far face's four edges, corners in ring order (-,-) (+,-) (+,+) (-,+).
+        constexpr std::array<int, 4> ring{ 0, 1, 3, 2 };
+        for ( int i = 0; i < 4; ++i )
+            edge( far[static_cast<size_t>( ring[static_cast<size_t>( i )] )],
+                  far[static_cast<size_t>( ring[static_cast<size_t>( ( i + 1 ) % 4 )] )] );
+        return box.x > box.z ? glm::vec4( 1.0f, 1.0f, 0.0f, 0.0f ) : glm::vec4( box );
+    }
+
+    // THE CAMERA'S ROW DICED FOR AN ORTHOGRAPHIC SHADOW VIEW whose texel is @p worldPerTexel cm (UE: Nanite dices
+    // every view by r.Nanite.DicingRate pixels of THAT view - a shadow view by its own texels). The camera's
+    // rings stop at dice 2^L, the finest whose sub-cell edge still spans @p dicingRate texels; the finer rings
+    // are dropped (-1, as ApplyLandscapeDisplacement leaves a ring no camera distance reaches), so every vertex
+    // the cascade keeps is one of the camera's own, displaced by the same evaluate: the caster is the receivers'
+    // surface sampled at the cascade's resolution. A row the camera does not dice is returned as it is.
+    inline TerrainInstance LandscapeCasterDicedRow( const TerrainInstance& camera, float spacingCm,
+                                                    float worldPerTexel, int dicingRate )
+    {
+        TerrainInstance row = camera;
+        if ( camera.DisplacementView.w < 0.5f || worldPerTexel <= 0.0f || dicingRate <= 0 )
+            return row;
+        const float subCells = spacingCm / ( worldPerTexel * static_cast<float>( dicingRate ) );
+        const int   finest   = subCells < 2.0f ? 0
+                                               : std::min( kLandscapeDiceLevels - 1,
+                                                           static_cast<int>( std::floor( std::log2( subCells ) ) ) );
+        // The rings stay the camera's (the pool's layout); the row's view stops at `finest`.
+        row.DicePool.y = static_cast<float>( finest );
+        return row;
     }
 
     // The texture half of a terrain material's identity. Two terrains may share one material only if

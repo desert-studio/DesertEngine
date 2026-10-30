@@ -579,7 +579,9 @@ function(desert_finalize_targets)
             list(REMOVE_ITEM _ours ${_pch_src})
             _desert_split_objects(${target} Pch "" _holder ${_pch_src})
             set_property(TARGET ${_holder} PROPERTY PRECOMPILE_HEADERS ${_pch_abs})
-            set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS "")
+            # REMOVED, not set to "": an empty value still counts as set, and CMake refuses PRECOMPILE_HEADERS_REUSE_FROM
+            # on a target whose PRECOMPILE_HEADERS is set (run 40953089350, every split engine/editor library).
+            set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS)
             set_property(TARGET ${target} PROPERTY PRECOMPILE_HEADERS_REUSE_FROM ${_holder})
             _desert_target_flags(${_holder} ${_warnings} "${_speed}" OFF)
         endif()

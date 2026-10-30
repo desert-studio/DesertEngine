@@ -27,38 +27,16 @@ Shader "TextSDF"
         Blend SrcAlpha OneMinusSrcAlpha
     }
 
-    Vertex
-    {
-        // Generated from the C++ vertex format (Graphic/ShaderProtocols/VertexInputs.hpp).
-        #include <Mesh/MeshVertexInputs.glslh>
-
-        #include <Common/CameraUB.glslh>
-
-        // Transform + the material row index, in the one block both stages declare (see the header).
-        // Text is the producer that needed the row most: every 3D label in a scene draws through ONE
-        // shared TextSDF material, so a per-material colour block gave them all the first label's colour.
-        #include <Common/MaterialTransport.glslh>
-
-        Out(0) vec2 v_UV;
-
-        void main()
-        {
-            v_UV        = a_TextureCoord;
-            gl_Position = cameraUB.JitteredViewProjection * m_PushConstants.Transform * vec4( a_Position, 1.0 );
-        }
-    }
-
     Fragment
     {
-        In(0) vec2 v_UV;
         Out(0) vec4 o_Color;
 
         #include <Common/SdfText.glslh>
 
         void main()
         {
-            vec3  msd     = texture( SdfAtlasTexture, v_UV ).rgb;
-            float pxRange = SdfTextScreenPxRange( fwidth( v_UV ), vec2( textureSize( SdfAtlasTexture, 0 ) ) );
+            vec3  msd     = texture( SdfAtlasTexture, v_Surface.UV0 ).rgb;
+            float pxRange = SdfTextScreenPxRange( fwidth( v_Surface.UV0 ), vec2( textureSize( SdfAtlasTexture, 0 ) ) );
             float alpha   = SdfTextAlpha( msd, pxRange );
 
             if ( alpha <= 0.0 )

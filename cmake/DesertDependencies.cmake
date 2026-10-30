@@ -3,7 +3,7 @@
 #
 # The four dependency tables, as lists named after them, so a target script names the table it uses:
 #   deps.Common.IncludeDir / .Defines          DESERT_COMMON_INCLUDE_DIRS / DESERT_COMMON_DEFINES
-#   deps.CommonSpecific.IncludeDir / .Libraries DESERT_COMMONSPECIFIC_INCLUDE_DIRS / DESERT_COMMONSPECIFIC_LIBRARIES
+#   deps.CommonSpecific.Libraries              DESERT_COMMONSPECIFIC_LIBRARIES
 #   deps.DesertSpecific.IncludeDir             DESERT_DESERTSPECIFIC_INCLUDE_DIRS
 #   deps.DesertSpecific.Libraries.Debug/Release DESERT_VULKAN_LIBRARIES (one list, per-config generator expressions)
 #   deps.TestSpecific.*                        DESERT_TEST_INCLUDE_DIRS / DESERT_TEST_LIBRARIES / DESERT_TEST_DEFINES
@@ -80,15 +80,18 @@ endif()
 set(DESERT_DESERTSPECIFIC_LIBRARIES SPIRVCross ${DESERT_VULKAN_LIBRARIES})
 
 # ── THE TABLES ─────────────────────────────────────────────────────────────────────────────────────
-# deps.Common.IncludeDir, sorted by key: GLFW, glm, optick, spdlog.
+# deps.Common.IncludeDir, sorted by key: GLFW, glm, optick, reflect_cpp, spdlog. reflect-cpp is here, not in a second
+# table: Common's PUBLIC headers include <rflcpp/rfl/...> (Common/Json/Json.hpp, Project/ProjectFormat.hpp), so every
+# target that sees Common's headers needs it -- which is what this table is (every tool that reached Json.hpp without
+# naming a second table failed with C1083: run 40926375233).
 set(DESERT_COMMON_INCLUDE_DIRS
     "${_tp}/GLFW/include"
     "${_tp}/glm"
     "${_tp}/optick/src"
+    "${_tp}/reflect-cpp/include"
     "${_tp}/spdlog/include")
 set(DESERT_COMMON_DEFINES USE_OPTICK=1 OPTICK_ENABLE_GPU=0 OPTICK_ENABLE_TRACING=0)
 
-set(DESERT_COMMONSPECIFIC_INCLUDE_DIRS "${_tp}/reflect-cpp/include")
 set(DESERT_COMMONSPECIFIC_LIBRARIES ReflectCpp)
 
 # deps.DesertSpecific.IncludeDir, sorted by key (byte order: upper case before lower case).
@@ -102,7 +105,6 @@ set(DESERT_DESERTSPECIFIC_INCLUDE_DIRS
     "${_tp}/lua"                                                # lua
     "${_tp}/meshoptimizer/src"                                  # meshoptimizer
     "${_tp}/OpenSubdiv"                                         # opensubdiv
-    "${_tp}/reflect-cpp/include"                                # reflect_cpp
     "${DESERT_VULKAN_INCLUDE}/shaderc"                          # shaderc
     "${_tp}/SPIRV-Cross"                                        # spirv_cross (vendored, included flat: <spirv_glsl.hpp>)
     "${_tp}/stb/include"                                        # stb
@@ -121,8 +123,7 @@ else()
 endif()
 set(DESERT_TEST_INCLUDE_DIRS
     "${DESERT_ROOT}/Editor/Resources/Shaders"   # desert_shaders
-    "${_gtest_include}"                         # gtest
-    "${_tp}/reflect-cpp/include")               # reflect_cpp
+    "${_gtest_include}")                        # gtest
 set(DESERT_TEST_LIBRARIES ${_gtest_lib} ReflectCpp)
 set(DESERT_TEST_DEFINES
     GTEST
@@ -154,17 +155,19 @@ function(desert_editorspecific_includes target)
     desert_external_includes(${target} ${_dirs})
 endfunction()
 
-# ── STREAMLINE RUNTIME (DesertCopyStreamlineRuntime) ───────────────────────────────────────────────
+# ── STREAMLINE RUNTIME (desert_copy_streamline_runtime) ────────────────────────────────────────────
 # ThirdParty/Streamline/manifest.json pins the DLSS runtime; each listed archive is copied next to the
 # executable after the link, and a missing one is reported, not fatal (DLSS is then unavailable).
 set(DESERT_STREAMLINE_MANIFEST "${DESERT_ROOT}/ThirdParty/Streamline/manifest.json")
 set(DESERT_STREAMLINE_RUNTIME_DIR "${DESERT_ROOT}/ThirdParty/Streamline/bin/x64")
 
-function(desert_streamline_runtime_files out)
-    if(NOT EXISTS "${DESERT_STREAMLINE_MANIFEST}")
-        message(FATAL_ERROR "ThirdParty/Streamline/manifest.json is missing: it pins the DLSS runtime the build copies")
+# The file names a vendor manifest pins (its Files[].Archive entries, file name only), in manifest order.
+function(_desert_manifest_file_names manifest out)
+    if(NOT EXISTS "${manifest}")
+        cmake_path(RELATIVE_PATH manifest BASE_DIRECTORY "${DESERT_ROOT}" OUTPUT_VARIABLE _rel)
+        message(FATAL_ERROR "${_rel} is missing: it pins the runtime the build copies")
     endif()
-    file(READ "${DESERT_STREAMLINE_MANIFEST}" _json)
+    file(READ "${manifest}" _json)
     string(JSON _count LENGTH "${_json}" Files)
     set(_names "")
     if(_count GREATER 0)
@@ -182,13 +185,51 @@ function(desert_copy_streamline_runtime target)
     if(NOT DESERT_IS_WINDOWS)
         return()
     endif()
-    desert_streamline_runtime_files(_names)
+    _desert_manifest_file_names("${DESERT_STREAMLINE_MANIFEST}" _names)
     foreach(name IN LISTS _names)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}"
                 -D "SOURCE=${DESERT_STREAMLINE_RUNTIME_DIR}/${name}"
                 -D "DEST=$<TARGET_FILE_DIR:${target}>"
                 -D "MISSING=ThirdParty/Streamline/bin/x64/${name} is not fetched, DLSS will be unavailable: run python scripts/Windows/FetchVendorBinaries.py"
+                -P "${DESERT_ROOT}/cmake/CopyIfExists.cmake"
+            VERBATIM)
+    endforeach()
+endfunction()
+
+# ── OIDN RUNTIME (desert_copy_oidn_runtime) ────────────────────────────────────────────────────────
+# INTEL OPEN IMAGE DENOISE 2.x (the path tracer's PathTracing.Denoiser OIDN), Windows x64 and macOS arm64. The headers
+# and the Apache-2.0 licence are committed under ThirdParty/OIDN; the runtime libraries are DOWNLOADED from Intel's
+# release, never committed: ThirdParty/OIDN/manifest.<platform>.json pins the archive and every file's SHA-256 and
+# scripts/Windows/FetchVendorBinaries.py (Setup.bat, scripts/MacOS/Setup.sh) fetches them. The engine compiles against
+# the headers and LOADS the library at run time (Engine/Graphic/Denoise/OidnDenoiser.cpp): Windows
+# OpenImageDenoise.dll beside the executable, macOS lib/libOpenImageDenoise.2.dylib under it (the dylibs find each
+# other through their own @loader_path/../lib rpath, which is their own directory only when it is named lib). Like
+# UE's OpenImageDenoise plugin it is an editor / movie-render tool: copied beside the editor and the runtime, not
+# shipped by the game packager.
+if(DESERT_IS_WINDOWS)
+    set(DESERT_OIDN_MANIFEST "${DESERT_ROOT}/ThirdParty/OIDN/manifest.windows.json")
+    set(DESERT_OIDN_RUNTIME_REL "ThirdParty/OIDN/bin/x64")
+    set(DESERT_OIDN_DEST_SUBDIR "")
+else()
+    set(DESERT_OIDN_MANIFEST "${DESERT_ROOT}/ThirdParty/OIDN/manifest.macos.json")
+    set(DESERT_OIDN_RUNTIME_REL "ThirdParty/OIDN/bin/macos-arm64/lib")
+    set(DESERT_OIDN_DEST_SUBDIR "/lib")
+endif()
+
+# Called for an executable: copies the OIDN runtime beside its target after the link. A file not fetched yet is not
+# copied and the build names it: the executable runs and PathTracing.Denoiser OIDN reports the library missing by name.
+function(desert_copy_oidn_runtime target)
+    if(NOT DESERT_IS_WINDOWS AND NOT DESERT_IS_MACOS)
+        return()
+    endif()
+    _desert_manifest_file_names("${DESERT_OIDN_MANIFEST}" _names)
+    foreach(name IN LISTS _names)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                -D "SOURCE=${DESERT_ROOT}/${DESERT_OIDN_RUNTIME_REL}/${name}"
+                -D "DEST=$<TARGET_FILE_DIR:${target}>${DESERT_OIDN_DEST_SUBDIR}"
+                -D "MISSING=${DESERT_OIDN_RUNTIME_REL}/${name} is not fetched, PathTracing.Denoiser OIDN will be unavailable: run python scripts/Windows/FetchVendorBinaries.py"
                 -P "${DESERT_ROOT}/cmake/CopyIfExists.cmake"
             VERBATIM)
     endforeach()

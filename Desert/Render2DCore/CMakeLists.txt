@@ -6,6 +6,6 @@ target_precompile_headers(Render2DCore PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Sour
 target_include_directories(Render2DCore PRIVATE "Source/")
 desert_closure_includes(Render2DCore Render2DCore)
 target_link_libraries(Render2DCore PRIVATE Common)
-desert_external_includes(Render2DCore ${DESERT_COMMON_INCLUDE_DIRS} ${DESERT_COMMONSPECIFIC_INCLUDE_DIRS})
+desert_external_includes(Render2DCore ${DESERT_COMMON_INCLUDE_DIRS})
 target_compile_definitions(Render2DCore PRIVATE ${DESERT_COMMON_DEFINES})
 desert_config_platform_defines(Render2DCore)

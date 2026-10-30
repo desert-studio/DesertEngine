@@ -111,6 +111,11 @@ namespace Desert::Runtime
         /// shadow casters. Refused naming the pair when the table has a hole there.
         [[nodiscard]] Common::ResultStr<std::string> DefaultSurfaceShader( Graphic::MeshVertexPath path,
                                                                            Graphic::MeshPass       pass ) const;
+        /// The (path x pass) shader of the STAND-IN surface (`Role StandInSurface`, UE WorldGridMaterial): the
+        /// checker a draw shows when the material it names is broken, missing or has no cell for that pair.
+        /// Refused naming the role or the pair; a name returned may still be unregistered (the caller checks).
+        [[nodiscard]] Common::ResultStr<std::string> StandInSurfaceShader( Graphic::MeshVertexPath path,
+                                                                           Graphic::MeshPass       pass ) const;
 
         /// ONE ROW OF A CLOSURE (AL1-8b, plan §2.4(b)): start the worker read of the `.demat` @p handle names
         /// (discovered from its registry row if nobody registered it) and append the loader handle to wait on
@@ -180,6 +185,14 @@ namespace Desert::Runtime
         Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
                                                      Graphic::MeshPass pass, uint32_t view,
                                                      const void* owner = nullptr ) const;
+
+        // GetViewVariant in a PERMUTATION of the cell's program (GetVariant's third axis, one per view): a view's
+        // GPU-instanced forward section under Shadows.Method VirtualMaps reads the virtual shadow map
+        // (DESERT_LOCAL_SHADOW_VSM) through its own copy. A default permutation IS GetViewVariant.
+        Graphic::DataDrivenMaterial* GetViewVariant( const Graphic::Material* built, Graphic::MeshVertexPath path,
+                                                     Graphic::MeshPass pass, uint32_t view,
+                                                     const Core::ShaderVariant& permutation,
+                                                     const void*                owner ) const;
 
         // Destroys, NOW, every view copy GetViewVariant built for `owner` (never nullptr): the owner's teardown.
         // Not through the graveyard, because the owner is a view member and the view's ledger check runs as

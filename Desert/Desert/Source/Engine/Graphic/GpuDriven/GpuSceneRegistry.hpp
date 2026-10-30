@@ -9,6 +9,7 @@
 #include <functional>
 #include <span>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Desert
@@ -64,6 +65,11 @@ namespace Desert::Graphic
         // StaticMeshRenderData::ForcedLOD / LODBias (MeshRenderer::ComputeLOD's inputs); -1 / 0 for the rest.
         int32_t ForcedLod = -1;
         int32_t LodBias   = 0;
+        // What a reader of the record's sections reads besides its mesh, world and flags (its section materials,
+        // hidden submeshes, ray-tracing visibility, the mesh's residency), as one word the producer makes
+        // (MeshRenderer::SyncGpuScene). A primitive's records' words changing is a Content change of the GpuScene
+        // stream (GpuScene::MarkContent); the rows do not hold it.
+        uint64_t Content = 0;
     };
 
     // One queued instanced field (ISM / foliage): its instances' WORLD transforms. Records of one entity that
@@ -78,6 +84,10 @@ namespace Desert::Graphic
         uint32_t                   Flags             = 0;
         // WindBoundsPad( InstancedMeshRenderData::Wind ): how far the wind moves a vertex horizontally (cm).
         float BoundsPad = 0.0f;
+        uint64_t Content = 0; // MotionRecord::Content
+        // The wind itself, written to the row every frame it changes (GpuScene::SetWind): the binned instanced
+        // vertex stage reads it there.
+        GpuDriven::PrimitiveWind Wind{};
     };
 } // namespace Desert::Graphic
 
@@ -101,6 +111,7 @@ namespace Desert::Graphic::GpuDriven
         std::vector<PrimitiveIndex> SkinnedPrimitives;
         std::vector<InstanceIndex>  SkinnedInstances;
         std::vector<InstanceIndex>  FieldInstances;
+        std::vector<PrimitiveIndex> FieldPrimitives; // each field's primitive, beside FieldInstances
     };
 
     // A row's identity in the scene material table (GpuScene::AddMaterialRow): the template whose layout the row
@@ -206,9 +217,26 @@ namespace Desert::Graphic::GpuDriven
             uint32_t               PrevOffset = 0;
             std::vector<glm::mat4> Bones;
             std::vector<glm::mat4> PrevBones; // the palette before Bones (DiscardFrame swaps it back)
+            // The primitive's records' Content words as of the last Sync that queued it (an order-free sum of
+            // their mixes: a merged record of the primitive adds its own), and the one Sync gathers now.
+            uint64_t Content      = 0;
+            uint64_t FrameContent = 0;
+            uint64_t ContentSync  = 0; // the Sync (m_SyncSerial) FrameContent is being summed in
+        };
+        // The primitives an entity owns in this Sync's submission order (index == MotionKey::Slot).
+        struct Owned
+        {
+            PrimitiveIndex Primitive = kInvalidIndex;
+            Entry*         Held      = nullptr;
         };
 
         Entry& Touch( MotionKey key, const MotionRecord& record, bool& fresh );
+        // The first record of the primitive this Sync (it was fresh: no earlier view of the frame synced it)
+        // starts its FrameContent; every other record of it in the same Sync adds to it (AddContent). The end of
+        // Sync publishes a Content change for each primitive whose sum moved (not for one added now).
+        void BeginContent( Entry& entry, bool inserted, uint64_t content );
+        void AddContent( Entry& entry, uint64_t content ) const;
+        void PublishContent();
         void   Queued( Entry& entry ) const;
         void   DiscardFrame();
 
@@ -216,6 +244,8 @@ namespace Desert::Graphic::GpuDriven
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
         std::vector<glm::mat4>                              m_FramePalettes;
+        uint64_t                                            m_SyncSerial = 0;
+        std::vector<std::pair<Entry*, bool>>                m_ContentTouched; // entry, added this Sync
         uint64_t                                            m_Frame         = kNoFrame;
         uint64_t                                            m_PreviousFrame = kNoFrame;
         uint64_t                                            m_FrameBeforePrevious = kNoFrame;

@@ -6,8 +6,7 @@
 
 namespace Desert::ECS
 {
-    Common::BoolResultStr SetEditableMesh( StaticMeshComponent&                          component,
-                                           std::shared_ptr<const Geometry::DynamicMesh3> mesh )
+    Common::BoolResultStr SetEditableMesh( StaticMeshDesc& desc, std::shared_ptr<const Geometry::DynamicMesh3> mesh )
     {
         if ( !mesh )
             return Common::MakeError<bool>( "SetEditableMesh: no mesh - use ClearEditableMesh to drop one" );
@@ -26,40 +25,68 @@ namespace Desert::ECS
         auto runtime = std::make_shared<DynamicMesh>( data.Vertices, data.Indices, data.Submeshes );
 
         // Every material id the mesh uses gets a slot (CoverMaterialIds): here and not per tool, because every
-        // writer of an editable mesh ends in this function. The runtime instances follow the slots; dropping
-        // them makes the mesh system rebuild them (the rule SceneCommands' slot restore follows).
-        if ( CoverMaterialIds( component.MaterialSlots, data.SubmeshMaterialIds ) )
-        {
-            component.RuntimeMaterialInstances.clear();
-            component.RuntimeSlots.reset();
-            component.SeenMaterialsVersion = 0;
-        }
+        // writer of an editable mesh ends in this function. The runtime instances follow the slots: SetStaticMesh
+        // drops them when the slots it is handed differ, and the mesh system rebuilds them.
+        static_cast<void>( CoverMaterialIds( desc.MaterialSlots, data.SubmeshMaterialIds ) );
 
-        component.EditableMesh = std::move( mesh );
-        component.RuntimeMesh  = std::move( runtime );
+        desc.EditableMesh = std::move( mesh );
+        desc.RuntimeMesh  = std::move( runtime );
         return Common::MakeSuccess( true );
     }
 
-    void ClearEditableMesh( StaticMeshComponent& component )
+    Common::BoolResultStr SetEditableMesh( entt::registry& registry, entt::entity entity,
+                                           std::shared_ptr<const Geometry::DynamicMesh3> mesh )
     {
-        component.EditableMesh.reset();
-        component.RuntimeMesh.reset();
+        const auto* component = registry.try_get<StaticMeshComponent>( entity );
+        if ( component == nullptr )
+            return Common::MakeError<bool>( "SetEditableMesh: the entity has no StaticMeshComponent" );
+        StaticMeshDesc desc = component->GetDesc();
+        if ( auto set = SetEditableMesh( desc, std::move( mesh ) ); !set )
+            return set;
+        SetStaticMesh( registry, entity, desc );
+        return Common::MakeSuccess( true );
     }
 
-    void PostEditStaticMesh( const StaticMeshComponent& before, StaticMeshComponent& after )
+    void ClearEditableMesh( StaticMeshDesc& desc )
     {
-        const bool meshChanged      = before.MeshHandle != after.MeshHandle;
-        const bool materialsChanged = before.MaterialSlots != after.MaterialSlots;
-        if ( meshChanged && after.MeshHandle )
+        desc.EditableMesh.reset();
+        desc.RuntimeMesh.reset();
+    }
+
+    void ClearEditableMesh( entt::registry& registry, entt::entity entity )
+    {
+        const auto* component = registry.try_get<StaticMeshComponent>( entity );
+        if ( component == nullptr || ( !component->GetEditableMesh() && !component->GetRuntimeMesh() ) )
+            return;
+        StaticMeshDesc desc = component->GetDesc();
+        ClearEditableMesh( desc );
+        SetStaticMesh( registry, entity, desc );
+    }
+
+    bool ApplyStaticMeshEdit( entt::registry& registry, entt::entity entity, StaticMeshDesc edited )
+    {
+        const StaticMeshComponent& now              = registry.get<StaticMeshComponent>( entity );
+        const bool                 meshChanged      = edited.MeshHandle != now.GetMeshHandle();
+        const bool                 materialsChanged = edited.MaterialSlots != now.GetMaterialSlots();
+        if ( !meshChanged && !materialsChanged )
+            return false;
+        if ( meshChanged && edited.MeshHandle )
         {
-            after.Primitive.reset();
-            ClearEditableMesh( after );
+            edited.Primitive.reset();
+            ClearEditableMesh( edited );
         }
-        if ( meshChanged || materialsChanged )
-        {
-            // Rebuilt by MeshECSSystem from the slots on the next frame (AdoptMeshMaterialSlots fills a new
-            // mesh's extra sections from its own materials) together with the binding that carries them.
-            after.RuntimeMaterialInstances.clear();
-        }
+        // A changed MaterialSlots drops the runtime instances inside SetStaticMesh; MeshECSSystem rebuilds them
+        // from the slots on the next frame (AdoptMeshMaterialSlots fills a new mesh's extra sections from its
+        // own materials) together with the binding that carries them.
+        return SetStaticMesh( registry, entity, edited );
+    }
+
+    bool PostEditStaticMesh( entt::registry& registry, entt::entity entity, const StaticMeshDesc& before )
+    {
+        StaticMeshDesc edited = registry.get<StaticMeshComponent>( entity ).GetDesc();
+        if ( edited.MeshHandle == before.MeshHandle && edited.MaterialSlots == before.MaterialSlots )
+            return false;
+        SetStaticMesh( registry, entity, before );
+        return ApplyStaticMeshEdit( registry, entity, std::move( edited ) );
     }
 } // namespace Desert::ECS

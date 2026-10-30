@@ -113,6 +113,15 @@ namespace Common::Scalability
              { P::LightGridMaxLightsPerCell, G::Shadows, "Shadows.LightGridMaxLightsPerCell", 8, 256, CL::None,
                "SceneRenderer::BeginScene -> Graphic::MakeLightGridParams (\"Deferred: LightGrid\" lists)", 64,
                Vis::Advanced },
+             { P::VolumetricFog, G::Effects, "Effects.VolumetricFog", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> VolumetricFogRenderer (\"VolumetricFog\" passes run)", 1,
+               Vis::Basic },
+             { P::VolumetricFogGridPixelSize, G::Effects, "Effects.VolumetricFogGridPixelSize", 4, 32, CL::None,
+               "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel columns)", 8,
+               Vis::Advanced },
+             { P::VolumetricFogGridSizeZ, G::Effects, "Effects.VolumetricFogGridSizeZ", 32, 256, CL::None,
+               "SceneRenderer::BeginScene -> Graphic::MakeVolumetricFogGridSize (froxel slices)", 128,
+               Vis::Advanced },
              { P::ShadowRayTracedSamplesPerPixel, G::Shadows, "Shadows.RayTracedSamplesPerPixel", 1, 8, CL::None,
                "SceneRenderer::BeginScene -> System::MakeRayTracedSunShadowParams (\"Shadows: Ray Traced Sun\")",
                1, Vis::Advanced },
@@ -154,6 +163,11 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame Smrt.y: "
                "VirtualShadowMapProject.shader samples per ray)",
                4, Vis::Advanced },
+             { P::ShadowVirtualSMRTSamplesPerRayLocal, G::Shadows, "Shadows.VirtualSMRTSamplesPerRayLocal", 1, 16,
+               CL::None,
+               "SceneRenderer::BeginScene -> VirtualShadowMapRenderer::AddPagePasses (VsmFrame SmrtLocal.x: "
+               "VsmLocalVisibilityRay samples, MegaLights vsm visibility)",
+               8, Vis::Advanced },
              { P::ShadowMegaLightsSamplesPerPixel, G::Shadows, "Shadows.MegaLightsSamplesPerPixel", 1, 4, CL::None,
                "SceneRenderer::BeginScene -> MegaLightsRenderer::AddPasses (reservoirs per pixel)", 2,
                Vis::Advanced },
@@ -320,10 +334,10 @@ namespace Common::Scalability
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the clamp of one path's exposed "
                "contribution)",
                24, Vis::Advanced },
-             { P::PathTracingDenoiser, G::PathTracing, "PathTracing.Denoiser", 0, 3, CL::PathTracingDenoisers,
+             { P::PathTracingDenoiser, G::PathTracing, "PathTracing.Denoiser", 0, 4, CL::PathTracingDenoisers,
                "SceneRenderer::BeginScene -> System::PathTracer::KeepsDenoisingUpscaler / AddPasses (what "
-               "denoises "
-               "the path-traced view: none, the engine's ReLAX or DLSS Ray Reconstruction)",
+               "denoises the path-traced view: none, the engine's ReLAX, DLSS Ray Reconstruction, or ReLAX "
+               "until converged and then Intel Open Image Denoise once)",
                Of( PathTracingDenoiserMethod::Auto ), Vis::Basic },
              { P::PathTracingDenoiserAntiFirefly, G::PathTracing, "PathTracing.Denoiser.AntiFirefly", 0, 1,
                CL::None,
@@ -331,6 +345,10 @@ namespace Common::Scalability
                "before "
                "the a-trous)",
                1, Vis::Advanced },
+             { P::PathTracingRadianceCache, G::PathTracing, "PathTracing.RadianceCache", 0, 1, CL::None,
+               "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (paths cut early into the neural "
+               "radiance cache: Off or Nrc)",
+               Of( PathTracingRadianceCacheMethod::Off ), Vis::Advanced },
              { P::PathTracingLightSampling, G::PathTracing, "PathTracing.LightSampling", 0, 1, CL::None,
                "SceneRenderer::BeginScene -> System::PathTracer::AddPasses (the light choice at each vertex: "
                "every "
@@ -388,6 +406,22 @@ namespace Common::Scalability
              { P::EffectsMaxWorldParticles, G::Effects, "Effects.MaxWorldParticles", 0, 4194304, CL::None,
                "SceneRenderer::BeginScene -> VFXWorld::SubmitView -> EvaluateVFXScalability (world pool budget)",
                131072, Vis::Advanced },
+             { P::GlobalIlluminationTlasUpdatesBeforeRebuild, G::GlobalIllumination,
+               "GlobalIllumination.TlasUpdatesBeforeRebuild", 0, 240, CL::None,
+               "SceneRenderer::BeginScene -> RayTracingSceneRenderer::SetTlasUpdatesBeforeRebuild (the TLAS is "
+               "built after this many in-place updates in a row; 0 = every frame)",
+               60, Vis::Advanced },
+             { P::ViewDistanceVirtualGeometryMaxPixelsPerEdge, G::ViewDistance,
+               "ViewDistance.VirtualGeometryMaxPixelsPerEdge", 1, 1000, CL::None,
+               "SceneRenderer::AddFrameVirtualGeometry -> VirtualGeometryRenderer::AddClusterCull (cluster LOD "
+               "cut, "
+               "tenths of a pixel)",
+               10, Vis::Advanced },
+             { P::AsyncCompute, G::Effects, "RenderPipeline.AsyncCompute", 0, 1, CL::AsyncCompute,
+               "SceneRenderer::OnUpdate -> RDG::Builder::SetAsyncCompute (the view graph's AsyncCompute passes on "
+               "the "
+               "compute queue family)",
+               1, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).
@@ -414,6 +448,8 @@ namespace Common::Scalability
                 return kReflectionMethodNames;
             if ( parameter == Parameter::ShadowsMethod )
                 return kShadowMethodNames;
+            if ( parameter == Parameter::PathTracingRadianceCache )
+                return kPathTracingRadianceCacheNames;
             if ( parameter >= Parameter::DlssPresetNative && parameter <= Parameter::DlssPresetUltraPerformance )
                 return kDlssPresetNames;
             if ( parameter >= Parameter::DlssRRPresetNative &&
@@ -425,6 +461,7 @@ namespace Common::Scalability
                     return kAntiAliasingMethodNames;
                 case CatalogList::PathTracingDenoisers:
                     return kPathTracingDenoiserNames;
+                case CatalogList::AsyncCompute:
                 case CatalogList::None:
                 case CatalogList::MSAACounts:
                 case CatalogList::RenderScale:
@@ -908,6 +945,12 @@ namespace Common::Scalability
                     r.Set( spec.Id,
                            std::clamp( value, catalog.RenderScale.MinPercent, catalog.RenderScale.MaxPercent ),
                            kNotOffered );
+                    return;
+                case CatalogList::AsyncCompute:
+                    // A request for the compute queue on a device that has no separate compute family (or is a
+                    // portability device): every pass stays on the graphics queue.
+                    if ( value != 0 && !catalog.AsyncCompute )
+                        r.Set( spec.Id, 0, kNotOffered );
                     return;
                 case CatalogList::PathTracingDenoisers:
                 {

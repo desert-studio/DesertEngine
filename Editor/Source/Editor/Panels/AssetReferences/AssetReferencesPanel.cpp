@@ -163,19 +163,19 @@ namespace Desert::Editor
             };
 
             for ( auto e : registry.view<ECS::StaticMeshComponent>() )
-                if ( usesIt( registry.get<ECS::StaticMeshComponent>( e ).MaterialSlots ) )
+                if ( usesIt( registry.get<ECS::StaticMeshComponent>( e ).GetMaterialSlots() ) )
                 {
                     ImGui::BulletText( "%s", tagOf( e ) );
                     ++found;
                 }
             for ( auto e : registry.view<ECS::SkinnedMeshComponent>() )
-                if ( usesIt( registry.get<ECS::SkinnedMeshComponent>( e ).MaterialSlots ) )
+                if ( usesIt( registry.get<ECS::SkinnedMeshComponent>( e ).GetMaterialSlots() ) )
                 {
                     ImGui::BulletText( "%s  (skinned)", tagOf( e ) );
                     ++found;
                 }
             for ( auto e : registry.view<ECS::InstancedStaticMeshComponent>() )
-                if ( usesIt( registry.get<ECS::InstancedStaticMeshComponent>( e ).MaterialSlots ) )
+                if ( usesIt( registry.get<ECS::InstancedStaticMeshComponent>( e ).GetMaterialSlots() ) )
                 {
                     ImGui::BulletText( "%s  (instanced)", tagOf( e ) );
                     ++found;

@@ -196,7 +196,9 @@ int main( int argc, char** argv )
                  first += 4;
              }
 
-             Desert::Editor::TextureImporter importer;
+             // The cook builds what ships: the project's final effort (Config/Engine.json, Texture Encoding).
+             Desert::Editor::TextureImporter::UseProjectTextureEncoding();
+             Desert::Editor::TextureImporter importer{ Desert::Assets::TextureEncodeRole::Cook };
              int                             status = 0;
              for ( int i = first; i < count; ++i )
              {

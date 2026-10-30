@@ -432,6 +432,10 @@ namespace Desert::Core
         if ( Preprocess::DShaderParser::MayDeclareSurface( programSource ) )
             for ( const std::string& header : Preprocess::SurfaceTemplateIncludes() )
                 scanned.append( std::format( "\n#include <{}>\n", header ) );
+        // So does a generic program: every pass's vertex stage is the mesh vertex factory (DShaderParser.hpp).
+        else if ( Preprocess::DShaderParser::MayDeclareGenericProgram( programSource ) )
+            for ( const std::string& header : Preprocess::GenericProgramIncludes() )
+                scanned.append( std::format( "\n#include <{}>\n", header ) );
         for ( const auto& include : CollectShaderIncludes( scanned, programPath, variant ) )
         {
             FnvMix( key, ShaderKeyPath( include ) );

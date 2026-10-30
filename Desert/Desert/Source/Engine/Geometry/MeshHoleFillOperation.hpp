@@ -41,6 +41,10 @@ namespace Desert::Geometry
     // projected on the loop's plane (UE: Editor.SetTriangleNormals / SetTriangleUVsFromProjection), and the
     // tangent space is rebuilt. Refused when @p loops is empty, names a loop that does not exist, or a loop
     // cannot be filled (the reason names it).
+    // UE UHoleFillTool::Setup: the holes are the mesh's boundary loops (MeshBoundaryLoops), each as its vertex
+    // ids in loop order; the index of a loop here is the index HoleFill's @p loops names.
+    [[nodiscard]] std::vector<std::vector<int>> HoleBoundaryLoops( const DynamicMesh3& mesh );
+
     [[nodiscard]] Common::ResultStr<DeformOutcome>
     HoleFill( const DynamicMesh3& input, const std::vector<int32_t>& loops, const HoleFillSettings& settings );
 } // namespace Desert::Geometry

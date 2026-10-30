@@ -85,6 +85,7 @@ namespace Desert::ECS
                      light.ContactShadowInWorld          = spotlight.Data.ContactShadowLengthInWorldSpace ? 1 : 0;
                      light.ContactShadowCastingIntensity = spotlight.Data.ContactShadowCastingIntensity;
                      light.ContactShadowNonCastingIntensity = spotlight.Data.ContactShadowNonCastingIntensity;
+                     light.VolumetricScatteringIntensity    = spotlight.Data.VolumetricScatteringIntensity;
 
                      // What the light asks of its shadow, and who it is (its tiles stay its own while it and
                      // its casters stand still: MeshRenderer::UpdateLocalShadows).
@@ -93,6 +94,7 @@ namespace Desert::ECS
                           .DepthBias       = spotlight.Data.ShadowBias,
                           .SlopeBias       = spotlight.Data.ShadowSlopeBias,
                           .ResolutionScale = spotlight.Data.ShadowResolutionScale,
+                          .ShadowMethod    = spotlight.Data.ShadowMethod,
                           .SourceId        = static_cast<uint32_t>( entity ) + 1u };
 
                      renderCommandBuffer.Emplace<Graphic::Render::SpotLightCommand>( light, shadow );

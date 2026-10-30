@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace Desert::Graphic::API::Vulkan
@@ -34,6 +35,10 @@ namespace Desert::Graphic::API::Vulkan
         // An unused binary semaphore of the current slot (unsignalled: every semaphore handed out in a slot's
         // previous frame was signalled and waited by that frame's submissions, which the fence covered).
         Common::ResultStr<VkSemaphore> AcquireSemaphore();
+        // RDG-EXTERNAL. Signals each timeline point from the host (vkSignalSemaphore): the points a dropped
+        // submission would have signalled, so another API already waiting on one (an enqueued OIDN filter) is
+        // released instead of waiting forever. Logs a refusal; a point at or below the counter is skipped.
+        void SignalOnHost( std::span<const RDG::ExternalTimelinePoint> points ) const;
 
     private:
         struct PipePool
@@ -82,6 +87,13 @@ namespace Desert::Graphic::API::Vulkan
         std::vector<VkSemaphore>          WaitSemaphores;
         std::vector<VkPipelineStageFlags> WaitStages;
         std::vector<VkSemaphore>          SignalSemaphores;
+        // RDG-EXTERNAL. Parallel to WaitSemaphores / SignalSemaphores: the timeline value of each entry, 0 for a
+        // binary semaphore (VkTimelineSemaphoreSubmitInfo ignores it). Empty when no entry is a timeline.
+        std::vector<uint64_t> WaitValues;
+        std::vector<uint64_t> SignalValues;
+        // The timeline points this submission signals (PipeSegment::SignalExternal): if it is dropped or fails,
+        // the caller signals them from the host (VulkanRdgQueueObjects::SignalOnHost).
+        std::vector<RDG::ExternalTimelinePoint> ExternalSignals;
     };
 
     // The backend's segment state for the graphs executed since the last TakeSubmissions: one command buffer per
@@ -118,6 +130,7 @@ namespace Desert::Graphic::API::Vulkan
         // Take; null outside it, so no segment call can read the result of a graph whose Execute has returned.
         const RDG::CompileResult*          m_Result = nullptr;
         std::vector<VkSemaphore>           m_SyncSemaphores; // by CompileResult::Syncs index, this graph only
+        const VulkanRdgQueueObjects*       m_Objects = nullptr; // BeginGraph's, for SignalOnHost on abandon
         uint32_t                           m_NextSegment      = 0;
         size_t                             m_GraphSubmissions = 0; // first submission of the current graph
         std::optional<VulkanRdgSubmission> m_Open;

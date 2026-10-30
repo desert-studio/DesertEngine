@@ -37,10 +37,6 @@ namespace Desert::Editor::Tools
             // The tool target (GetToolTargetMesh): what the tool reads, and what the component holds now.
             ToolTargetMesh Target;
 
-            [[nodiscard]] ECS::StaticMeshComponent& Mesh() const
-            {
-                return Entity.GetComponent<ECS::StaticMeshComponent>();
-            }
         };
 
         // The selected entity's tool target mesh (its EditableMesh or its asset lifted) + its world transform;
@@ -238,7 +234,9 @@ namespace Desert::Editor::Tools
                     // elements its new face normal, the rule the tool applied to render vertices before. A
                     // seam stays a seam - only element VALUES change, never which triangles share one.
                     Geometry::RefreshFaceNormalsAround( *next, m_SelVerts );
-                    if ( auto set = ECS::SetEditableMesh( target->Mesh(), std::move( next ) ); set.IsSuccess() )
+                    if ( auto set = ECS::SetEditableMesh( *target->Entity.GetRegistry(), target->Entity.GetHandle(),
+                                                          std::move( next ) );
+                         set.IsSuccess() )
                     {
                         m_CentroidWorld += ds * wN;
                         m_DragS = s;

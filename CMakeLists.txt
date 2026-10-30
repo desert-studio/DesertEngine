@@ -22,6 +22,12 @@ endif()
 
 project(Desert LANGUAGES C CXX)
 if(APPLE)
+    # Objective-C++ is compiled by the C++ compiler project() just resolved, BY ITS FULL PATH. A bare name
+    # ("clang++", once in the preset) is not looked up for OBJCXX the way it is for CXX: enable_language failed
+    # with "is not a full path and was not found in the PATH" on the macOS runners (run 40953089350).
+    if(NOT CMAKE_OBJCXX_COMPILER)
+        set(CMAKE_OBJCXX_COMPILER "${CMAKE_CXX_COMPILER}")
+    endif()
     enable_language(OBJCXX)
 endif()
 

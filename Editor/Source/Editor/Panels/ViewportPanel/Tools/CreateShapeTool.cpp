@@ -131,18 +131,19 @@ namespace Desert::Editor::Tools
                 label = fmt::format( "{}{}", MS::ShapeName( settings.Kind ), n );
         }
         const ECS::Entity entity    = scene.CreateNewEntity( std::move( label ) );
-        auto&             transform = entity.GetComponent<ECS::TransformComponent>();
-        transform.Translation       = spot.Point;
-        transform.Rotation          = glm::eulerAngles( spot.Rotation );
-        auto& smc = entity.AddComponent<ECS::StaticMeshComponent>();
+        entity.SetLocalTransform( ECS::LocalTransform{
+             spot.Point, glm::eulerAngles( spot.Rotation ),
+             entity.GetComponent<ECS::TransformComponent>().GetScale() } );
+        ECS::StaticMeshDesc shape;
         if ( auto set = ECS::SetEditableMesh(
-                  smc, std::make_shared<const Geometry::DynamicMesh3>( mesh.ExtractValue() ) );
+                  shape, std::make_shared<const Geometry::DynamicMesh3>( mesh.ExtractValue() ) );
              !set.IsSuccess() )
         {
             scene.DestroyEntity( entity );
             return Common::MakeFormattedError<Common::UUID>( "the {} was not placed: {}",
                                                              MS::ShapeName( settings.Kind ), set.GetError() );
         }
+        ECS::SetStaticMesh( *entity.GetRegistry(), entity.GetHandle(), shape );
         const Common::UUID id = entity.GetComponent<ECS::UUIDComponent>().UUID;
         // Output: Static Mesh swaps the editable mesh for a new asset BEFORE the creation is recorded, so the one
         // step below creates the finished static-mesh entity. A refused write takes the entity back out:

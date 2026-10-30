@@ -47,7 +47,7 @@ Shader "TextRayHit"
             void main()
             {
                 TextRayHitRowRef row = TextRayHitRowRef( RayHitRecord.MaterialRow );
-                if ( !TextRayHitCovered( row, DesertRayHitFetch().UV ) )
+                if ( !TextRayHitCovered( row, DesertMeshTextureUV( DesertRayHitFetch().UV ) ) )
                     ignoreIntersectionEXT;
             }
         }

@@ -25,6 +25,15 @@
 // caster covers it or the sun turns, only dirty requested pages are cleared and drawn, and the screen mask is
 // traced through the map with shadow-map rays inside the sun's SourceAngle cone (SMRT).
 //
+// THE POINT AND SPOT LIGHTS (VSM-LOCAL; UE FVirtualShadowMap per local light): the same page table, pool and page
+// passes hold every shadowed local light under the same method. A spot light is one 16k perspective view, a point
+// light six cube faces, each view a chain of kVsmLocalMipCount mips (128 x 128 pages at mip 0 down to 1 x 1); a
+// G-buffer pixel requests the page of the mip its footprint asks for ("VSM: Mark Local"), only requested pages get
+// a physical page, only dirty ones are cleared and drawn ("VSM: Raster", one node per drawn mip), and a page stays
+// cached until the light changes or a caster's box (the motion mask: CollectVirtualShadowInvalidation's moved and
+// changed casters) covers it. "VSM: Project Local" writes each light's screen mask into the local mask array the
+// deferred composite reads by ShadowMaskSlot.
+//
 // The GPU side is Common/VirtualShadowMap.glslh and Programs/Shadows/VirtualShadowMap*.shader; every constant
 // below has its twin there.
 namespace Desert::Graphic::System
@@ -53,6 +62,41 @@ namespace Desert::Graphic::System
     // r.Shadow.Virtual.SMRT.RayLengthScaleDirectional bounds the same march): the widest penumbra the map can
     // show.
     inline constexpr float kVsmSmrtRayLengthPages = 4.0f;
+    // How steeply a local light's SMRT ray may extrapolate the surface it has followed from the receiver (UE
+    // r.Shadow.Virtual.SMRT.ExtrapolateMaxSlopeLocal; Common/VirtualShadowMap.glslh VsmLocalVisibilityRay), in cm of
+    // the map's view depth per cm of lateral travel across the map (2 = surfaces up to ~63 degrees from the light's
+    // view plane): an occluder that continues that surface within this slope is the receiver's own surface, not a
+    // caster. Higher = softer contact penumbrae and less self-shadowing on tilted receivers, more light leaking
+    // behind a caster whose depth jump is below the slope times the lateral step; 0 = the surface held flat.
+    inline constexpr float kVsmSmrtExtrapolateMaxSlopeLocal = 2.0f;
+
+    // Local lights (VSM_LEVEL_LOCAL): every view a mip chain of virtual maps, mip k of a view 128 >> k pages a
+    // side.
+    inline constexpr uint32_t kVsmLocalMipCount = 8; // VSM_LOCAL_MIPS (UE VSM_MAX_MIP_LEVELS)
+    // The page-table entries of one local view: 128^2 + 64^2 + ... + 1^2.
+    inline constexpr uint32_t kVsmLocalViewEntries = ( 4u * kVsmPagesPerLevel - 1u ) / 3u;
+    static_assert( kVsmLocalViewEntries == 21845u );
+    [[nodiscard]] constexpr uint32_t VsmLocalMipPages( const uint32_t mip )
+    {
+        return kVsmLevelPages >> mip;
+    }
+    // The first entry of mip @p mip within its view's kVsmLocalViewEntries.
+    [[nodiscard]] constexpr uint32_t VsmLocalMipEntryOffset( const uint32_t mip )
+    {
+        uint32_t offset = 0;
+        for ( uint32_t m = 0; m < mip; ++m )
+            offset += VsmLocalMipPages( m ) * VsmLocalMipPages( m );
+        return offset;
+    }
+    static_assert( VsmLocalMipEntryOffset( kVsmLocalMipCount ) == kVsmLocalViewEntries );
+    inline constexpr uint32_t kVsmLevelKindClipmap = 0; // VSM_LEVEL_CLIPMAP
+    inline constexpr uint32_t kVsmLevelKindLocal   = 1; // VSM_LEVEL_LOCAL
+    inline constexpr float kVsmLocalPointCone = -2.0f; // VSM_LOCAL_POINT_CONE: VsmLocalLightGpu::Spot.w of a point
+    // The page table's room for local views starts at this many and doubles when the frame's lights need more (the
+    // table is made again then: every page starts unmapped).
+    inline constexpr uint32_t kVsmMinLocalViews = 64;
+    // A light not handed in for this many frames gives its view slots back.
+    inline constexpr uint64_t kVsmLocalRetireFrames = 120;
 
     // Page-table flags (VSM_FLAG_*).
     inline constexpr uint32_t kVsmFlagAllocated = 1u;
@@ -71,16 +115,29 @@ namespace Desert::Graphic::System
         glm::vec4 Lod{ 0.0f };             // x LOD bias, y level count, z first level, w frame index
         glm::vec4 ToSun{ 0.0f };           // xyz toward the sun, w SourceAngle radians
         glm::vec4 Smrt{ 0.0f };            // x rays, y samples per ray, z normal bias texels, w ray length pages
+        glm::vec4 SmrtLocal{ 0.0f };       // x samples per local ray, y extrapolation max slope, zw 0 (std430 pad)
     };
-    static_assert( sizeof( VsmFrameGpu ) == 128 );
+    static_assert( sizeof( VsmFrameGpu ) == 144 );
 
     struct VsmLevelGpu
     {
         glm::mat4  ViewProjection{ 1.0f }; // world -> level clip, orthographic, standard Z
         glm::ivec4 Window{ 0 };            // xy window origin (world page), z absolute level, w 1 = reset now
         glm::vec4  Extent{ 0.0f };         // x page world cm, y depth range cm, z radius cm, w texel world cm
+        // x first page-table entry, y pages per side (0 = unused level), z kVsmLevelKind*, w local light index
+        glm::uvec4 Pages{ 0u };
     };
-    static_assert( sizeof( VsmLevelGpu ) == 96 );
+    static_assert( sizeof( VsmLevelGpu ) == 112 );
+
+    // One point / spot light shaded from the map this frame (VsmLocalLight in Common/VirtualShadowMap.glslh).
+    struct VsmLocalLightGpu
+    {
+        glm::vec4  Position{ 0.0f }; // xyz cm, w attenuation radius cm
+        glm::vec4  Spot{ 0.0f };     // xyz out of the apex, w cos outer (kVsmLocalPointCone = point)
+        glm::uvec4 Views{ 0u };      // x level of view 0 mip 0, y view count, z mask layer, w finest mip
+        glm::vec4  Params{ 0.0f }; // x near cm, y far cm, z texel world size at unit distance (mip 0), w source cm
+    };
+    static_assert( sizeof( VsmLocalLightGpu ) == 64 );
 
     struct VsmPageEntryGpu
     {
@@ -169,6 +226,7 @@ namespace Desert::Graphic::System
         float ResolutionLodBias = 0.0f; // Shadows.VirtualResolutionLodBias, levels (ResolutionLodBiasDirectional)
         uint32_t SmrtRayCount   = 8;    // Shadows.VirtualSMRTRayCount (r.Shadow.Virtual.SMRT.RayCountDirectional)
         uint32_t SmrtSamplesPerRay = 4; // Shadows.VirtualSMRTSamplesPerRay (SMRT.SamplesPerRayDirectional)
+        uint32_t SmrtSamplesPerRayLocal = 8; // Shadows.VirtualSMRTSamplesPerRayLocal (SMRT.SamplesPerRayLocal)
     };
 
     // A world box whose casters changed this frame (UE FVirtualShadowMapCacheManager invalidation): a movable
@@ -181,8 +239,13 @@ namespace Desert::Graphic::System
 
     struct VirtualShadowMapViewInputs
     {
-        RDG::TextureRef Depth;  // the G-buffer's reversed-Z depth
-        RDG::TextureRef Normal; // the G-buffer's world normal
+        RDG::TextureRef Depth;  // the view's reversed-Z opaque depth: the G-buffer's, or the forward depth prepass's
+        RDG::TextureRef Normal; // the G-buffer's world normal; invalid on the forward shading path
+        // The sun's pages need both (its projection reads the normal); the local lights' are marked from Depth alone,
+        // then from the receivers' depths and the coarse mips. Neither valid: the receivers and the coarse mips only.
+        // NoDepth: the texture a kernel that reads no depth binds in the depth's slot then (the graph's
+        // System.Black).
+        RDG::TextureRef NoDepth;
         glm::mat4       InvJitteredViewProjection{ 1.0f };
         glm::mat4       Projection{ 1.0f }; // the camera's (its [1][1] gives the pixel footprint)
         glm::vec3       CameraPosition{ 0.0f };
@@ -197,17 +260,67 @@ namespace Desert::Graphic::System
         float     SourceAngleDegrees = 0.0f; // DirectionalLightData::SourceAngle
     };
 
+    // A shadowed point or spot light of the frame (SceneRenderer, from its payload). Its views keep their pages
+    // while SourceId and everything the views are made of (position, direction, cone, reach) stay the same.
+    struct VirtualShadowMapLocalLight
+    {
+        uint32_t  SourceId = 0; // LocalLightShadowSettings::SourceId (entity + 1)
+        glm::vec3 Position{ 0.0f };
+        float     Radius = 0.0f; // the point's radius / the spot's range, cm (the views' far plane)
+        glm::vec3 SpotDirection{ 0.0f, 0.0f, -1.0f };
+        float     CosOuter     = kVsmLocalPointCone; // kVsmLocalPointCone = a point light (six views)
+        float     SourceRadius = 0.0f;               // cm
+        // Its layer of the frame's local screen-mask array (ShadowMaskSlot). Only lights whose sphere meets the
+        // view are handed in; the pages of one that is not stay cached.
+        uint32_t MaskSlot = 0;
+    };
+
+    // A drawn mip of a local view: one "VSM: Raster" node of the mesh renderer, over a ResolutionPages * 128 texel
+    // square, its casters drawn with ViewProjection.
+    struct VsmLocalRaster
+    {
+        uint32_t  Level           = 0; // its level in the frame's level table (RasterLevel, AddCasterCulling)
+        uint32_t  ResolutionPages = 0; // pages per side of its mip
+        uint32_t  Light           = 0; // index into the frame's local lights
+        uint32_t  View            = 0; // 0 for a spot, the cube face of a point light
+        uint32_t  Mip             = 0;
+        glm::mat4 ViewProjection{ 1.0f };
+    };
+
+    // One local light's pages as last read back (DesertCtl state, "vsm").
+    struct VsmLocalLightStats
+    {
+        uint32_t SourceId  = 0;
+        uint32_t Views     = 0; // 1 spot, 6 point
+        uint32_t Requested = 0; // pages a pixel asked for
+        uint32_t Rendered  = 0; // of them, cleared and drawn that frame
+        uint32_t Cached    = 0; // of them, kept from an earlier frame
+        uint32_t Coarse    = 0; // of them, asked for by "VSM: Mark Coarse" (the coarse mip, every frame)
+        uint32_t Receivers = 0; // of them, asked for by "VSM: Mark Receivers" (a forward receiver's own depth)
+    };
+
     // What the casters' raster reads to draw this frame's dirty pages, and what the projection reads.
     struct VirtualShadowMapFrame
     {
-        RDG::BufferRef  FrameData;    // VsmFrameData: VsmFrameGpu + kVsmClipmapLevelCount VsmLevelGpu
+        RDG::BufferRef  FrameData;    // VsmFrameData: VsmFrameGpu + LevelCount VsmLevelGpu
         RDG::BufferRef  PageTable;    // VsmPageTable
         RDG::TextureRef PhysicalPool; // R32_UINT, the casters' atomic max target
         // VsmRasterLevel of each level: { level index, 0, 0, 0 }, the one value a caster's fragment needs beside
         // FrameData to find its page (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
-        std::array<RDG::BufferRef, kVsmClipmapLevelCount> RasterLevel{};
-        RDG::BufferRef DirtyMask; // VsmDirtyMask: kVsmMaskWordsPerLevel words per level
-        std::array<glm::mat4, kVsmClipmapLevelCount> LevelViewProjection{};
+        // Every level of the table: the kVsmClipmapLevelCount sun levels first, then the local views' mips.
+        std::vector<RDG::BufferRef> RasterLevel;
+        RDG::BufferRef              DirtyMask; // VsmDirtyMask: kVsmMaskWordsPerLevel words per level
+        std::vector<glm::mat4>      LevelViewProjection;
+        // The sun levels' world size of one texel, cm (VsmLevelGpu::Extent.w): what a caster's LOD is measured in
+        // (the virtual geometry's cut per level, SceneRenderer::AddFrameVirtualGeometryShadowPages).
+        std::array<float, kVsmClipmapLevelCount> LevelTexelWorld{};
+        uint32_t                    LevelCount = 0;
+        // Whether the sun's clipmap levels are in use this frame (a sun was handed to AddPagePasses).
+        bool HasSun = false;
+        // The local lights' drawn mips, in light order, then view, then mip.
+        std::vector<VsmLocalRaster> LocalRasters;
+        RDG::BufferRef              LocalLights; // VsmLocalLights: VsmLocalLightGpu per light
+        uint32_t                    LocalLightCount = 0;
     };
 
     class VirtualShadowMapRenderer
@@ -218,12 +331,18 @@ namespace Desert::Graphic::System
         // The frame's page passes, in order: Invalidate, Invalidate Casters, Mark, Gather Available Pages,
         // Allocate, Clear Args, Clear Pages. After them the casters draw the dirty pages into PhysicalPool; then
         // AddProjection.
-        // @p invalidations: the boxes of the casters that moved (now and last frame). @p staticCastersChanged: the
-        // casters that do not move by themselves changed (added, removed, edited): every cached page is dropped.
+        // @p sun: nullptr = no sun this frame (its levels hold nothing). @p locals: the shadowed point / spot
+        // lights whose sphere meets the view, each with its mask layer (Mark Local, the local rasters, Project
+        // Local). @p invalidations: the boxes of the casters that moved or changed (now and last frame), the
+        // motion mask every level's cached pages are tested against. @p staticCastersChanged: every cached page is
+        // dropped. @p receiverDepths: the forward receivers' own device depths (reversed-Z, the view's render size;
+        // the translucent front layer), each marked for the local lights like the G-buffer ("VSM: Mark Receivers").
+        // Every local light's coarse mip is marked as well ("VSM: Mark Coarse"), for the readers with no depth.
         [[nodiscard]] Common::ResultStr<VirtualShadowMapFrame>
-        AddPagePasses( RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun& sun,
-                       const VirtualShadowMapQuality& quality, std::span<const VsmInvalidationBox> invalidations,
-                       bool staticCastersChanged );
+        AddPagePasses( RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* sun,
+                       std::span<const VirtualShadowMapLocalLight> locals,
+                       std::span<const RDG::TextureRef> receiverDepths, const VirtualShadowMapQuality& quality,
+                       std::span<const VsmInvalidationBox> invalidations, bool staticCastersChanged );
 
         // "VSM: Cull Casters" of level @p level (UE CullPerPageDrawCommands): every instance of @p cull whose
         // world box covers a cell of the level holding a page drawn this frame (frame.DirtyMask) is counted into
@@ -239,6 +358,19 @@ namespace Desert::Graphic::System
                                                                         const VirtualShadowMapFrame&      frame,
                                                                         const VirtualShadowMapViewInputs& view );
 
+        // "VSM: Project Local": every local light of @p frame into its layer of @p masks (the 2D-array screen mask
+        // RayTracedLocalShadowRenderer::CreateMasks makes, read by the composite through ShadowMaskSlot).
+        [[nodiscard]] Common::BoolResultStr AddLocalProjection( RDG::Builder&                     graph,
+                                                                const VirtualShadowMapFrame&      frame,
+                                                                const VirtualShadowMapViewInputs& view,
+                                                                RDG::TextureRef                   masks );
+
+        // The local lights' pages of the newest frame read back (one entry per light of that frame; empty before).
+        [[nodiscard]] const std::vector<VsmLocalLightStats>& GetLocalLightStats() const
+        {
+            return m_LocalStats;
+        }
+
     private:
         enum Kernel : uint32_t
         {
@@ -252,6 +384,8 @@ namespace Desert::Graphic::System
             Project,
             DirtyMask,
             CullCasters,
+            MarkLocal,
+            ProjectLocal,
             KernelCount
         };
         struct KernelProgram
@@ -263,8 +397,20 @@ namespace Desert::Graphic::System
 
         // The pool, the page table and the owners: made on the first frame and again when the pool's size changes
         // (every page then starts unmapped).
-        [[nodiscard]] bool AcquirePersistent( RDG::Builder& graph, uint32_t physicalPages, RDG::TextureRef& pool,
-                                              RDG::BufferRef& pageTable, RDG::BufferRef& owners );
+        [[nodiscard]] bool AcquirePersistent( RDG::Builder& graph, uint32_t physicalPages, uint32_t localViews,
+                                              RDG::TextureRef& pool, RDG::BufferRef& pageTable,
+                                              RDG::BufferRef& owners );
+        // Places the local views of @p locals in the table (a light keeps its view slots while it stays; a changed
+        // one keeps them and is reset), fills the frame's VsmLocalLightGpu and rasters. Returns the view capacity
+        // the table needs (>= m_LocalViews; more makes the table again).
+        uint32_t PlaceLocalLights( std::span<const VirtualShadowMapLocalLight> locals, const glm::vec3& camera,
+                                   float pixelFootprint, float lodBias, uint64_t frameIndex,
+                                   std::vector<VsmLocalLightGpu>& gpuLights,
+                                   std::vector<VsmLocalRaster>&   rasters );
+        // The levels of every local view slot (from kVsmClipmapLevelCount on): unused slots have no pages.
+        void WriteLocalLevels( std::vector<VsmLevelGpu>& levels, bool resetAll ) const;
+        // The page counts of the frame that last used @p slot, per light (m_LocalStats).
+        void ReadStats( uint32_t slot );
         // This frame's clipmap: fills @p levels and says which levels' depth ranges moved; true when the light
         // basis changed (every page is dropped).
         bool UpdateClipmap( const glm::vec3& directionToSun, const glm::vec3& camera,
@@ -287,6 +433,29 @@ namespace Desert::Graphic::System
         RDG::ExternalBuffer  m_PageTable;
         RDG::ExternalBuffer  m_Owners;
         uint32_t             m_PhysicalPages = 0; // 0 = not made yet
+        uint32_t             m_LocalViews    = 0; // the table's room for local views
+
+        // THE LOCAL VIEWS IN THE TABLE: per light, its first view slot and what its views were drawn from.
+        struct LocalPlacement
+        {
+            uint32_t                 SourceId  = 0;
+            uint32_t                 FirstView = 0;
+            uint32_t                 Views     = 0;
+            std::array<glm::mat4, 6> ViewProjection{};
+            float                    Near        = 0.0f;
+            float                    Far         = 0.0f;
+            float                    TexelAtUnit = 0.0f;
+            uint64_t                 LastFrame   = 0;
+            uint32_t                 FrameLight = kVsmInvalid; // its index among this frame's lights, if handed in
+            bool                     Reset      = true;        // its levels are reset this frame
+        };
+        std::vector<LocalPlacement> m_LocalPlacements;
+
+        // Per frame-in-flight slot: the level counters "VSM: Dirty Mask" counted that frame, and the light
+        // (SourceId, view count) each of its levels belonged to ({0, 0}: the sun's or none).
+        std::vector<RDG::ExternalBuffer>                        m_StatsReadback;
+        std::vector<std::vector<std::pair<uint32_t, uint32_t>>> m_StatsLevelLights;
+        std::vector<VsmLocalLightStats>                         m_LocalStats;
 
         std::optional<glm::vec3>                 m_LightDirection; // the basis the cached pages were drawn in
         std::array<float, kVsmClipmapLevelCount> m_DepthCentres{};

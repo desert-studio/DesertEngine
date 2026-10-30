@@ -4,6 +4,7 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
+#include <algorithm>
 #include <unordered_set>
 
 // GPU-INSTANCED SECTIONS (GpuInstances.hpp): the landscape grass. The transforms and the instance count are the
@@ -24,6 +25,19 @@ namespace Desert::Graphic::System
         const DataDrivenMaterial* SectionTemplate( const MaterialInstancePtr& instance )
         {
             return instance ? dynamic_cast<const DataDrivenMaterial*>( instance->GetParentMaterial() ) : nullptr;
+        }
+
+        // The LOD levels a GPU-instanced section is drawn in (MeshRenderer::GpuInstancedRenderData::Levels): a
+        // blade strip's levels are its submeshes, drawn by one draw.
+        uint32_t LevelsOf( const MeshRenderer::GpuInstancedRenderData& gpu )
+        {
+            return gpu.Path == MeshVertexPath::Instanced ? std::max( 1u, gpu.Levels ) : 1u;
+        }
+
+        // Where level @p level's records begin: one record per submesh per level (GpuInstances.hpp).
+        uint64_t LevelArgsOffset( const MeshRenderer::GpuInstancedRenderData& gpu, uint32_t level )
+        {
+            return GpuInstanceArgsOffset( level * static_cast<uint32_t>( gpu.Mesh->GetSubmeshes().size() ) );
         }
 
         // The producer's buffers into the cell: the instances, and a blade's shape (MeshPathOwnBinding).
@@ -48,7 +62,8 @@ namespace Desert::Graphic::System
     }
 
     void MeshRenderer::BuildGpuInstancedDraws( MeshDrawList& list, GraphicsPipeline* instancedPipeline,
-                                               const MeshPass pass, const SceneFrameBinding& frameState )
+                                               const MeshPass pass, const SceneFrameBinding& frameState,
+                                               const StaticPassCells* companion )
     {
         if ( m_GpuInstancedQueue.empty() || instancedPipeline == nullptr )
             return;
@@ -73,10 +88,30 @@ namespace Desert::Graphic::System
             const DataDrivenMaterial* parent = SectionTemplate( gpu.Material );
             if ( materials->AwaitsTextures( parent ) )
                 continue; // a texture in flight: drawn from the frame its material is rebuilt bound (GRASS-SETTLE)
-            const uint32_t            view = kGpuInstancedViewBase + gpu.Key * 2u + ( pass == MeshPass::GBuffer );
-            DataDrivenMaterial*       cell = parent != nullptr && materials->Owns( parent )
-                                                  ? materials->GetViewVariant( parent, gpu.Path, pass, view, this )
-                                                  : nullptr;
+            // The masked depth prepass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the Masked
+            // sections alone; the G-buffer draws a section it drew at its depth, without writes
+            // (m_InstancedGBufferEqualPipeline). The forward depth prepass (Depth with a companion) draws every one.
+            const bool masked        = IsMaskedSurface( parent );
+            const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
+            if ( maskedPrepass && !masked )
+                continue;
+            const bool prepassed = pass == MeshPass::GBuffer && masked &&
+                                   std::find( m_MaskedPrepassed.begin(), m_MaskedPrepassed.end(), gpu.Key ) !=
+                                        m_MaskedPrepassed.end();
+            // One cell (and instance) per section x view pass.
+            const auto viewOf = [&gpu]( const MeshPass of )
+            { return kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of ); };
+            // This view's copy of the section's (path x pass) cell; the Forward one in its virtual-shadow
+            // permutation (ForwardVirtualCell: a blade or instance under a local light reads the VSM).
+            const auto cellOf = [&]( const MeshPass of ) -> DataDrivenMaterial*
+            {
+                if ( parent == nullptr || !materials->Owns( parent ) )
+                    return nullptr;
+                return ForwardVirtualCell( materials->GetViewVariant( parent, gpu.Path, of, viewOf( of ), this ),
+                                           parent, gpu.Path, of, viewOf( of ) );
+            };
+            const uint32_t      view = viewOf( pass );
+            DataDrivenMaterial* cell = cellOf( pass );
             if ( cell == nullptr )
             {
                 static std::unordered_set<const DataDrivenMaterial*> s_Refused;
@@ -86,13 +121,39 @@ namespace Desert::Graphic::System
                                MeshVertexPathName( gpu.Path ), MeshPassName( pass ) );
                 continue;
             }
-            GraphicsPipeline* pipeline =
-                 CullPermutation( CellPipeline( instancedPipeline, *cell ), gpu.Material->IsTwoSided() );
+            GraphicsPipeline* pipeline = CullPermutation(
+                 CellPipeline( prepassed ? m_InstancedGBufferEqualPipeline.get() : instancedPipeline, *cell ),
+                 gpu.Material->IsTwoSided() );
             if ( pipeline == nullptr || pipeline->GetReadiness() != PipelineReadiness::Ready )
                 continue; // still in the driver: drawn from the frame it is Ready (RDG-PSO)
+            if ( companion != nullptr )
+            {
+                // Paired with the forward depth prepass: the prepass draws a section only when its cell is Ready
+                // in BOTH passes (and its textures are in) and records it; the base pass of the same frame draws
+                // exactly the recorded ones.
+                if ( pass == MeshPass::Forward && PrepassCurrent() )
+                {
+                    if ( !m_PrepassGpuSections.contains( static_cast<uint64_t>( gpu.Key ) ) )
+                        continue;
+                }
+                else
+                {
+                    DataDrivenMaterial* const other = cellOf( companion->Pass );
+                    GraphicsPipeline* const otherPipeline =
+                         other != nullptr && companion->InstancedState != nullptr
+                              ? CullPermutation( CellPipeline( companion->InstancedState, *other ),
+                                                 gpu.Material->IsTwoSided() )
+                              : nullptr;
+                    if ( otherPipeline == nullptr || otherPipeline->GetReadiness() != PipelineReadiness::Ready )
+                        continue;
+                    if ( pass == MeshPass::Depth )
+                        m_PrepassGpuSections.insert( static_cast<uint64_t>( gpu.Key ) );
+                }
+            }
 
+            // Recreated when the view's cell changed (Shadows.Method switched the Forward cell's permutation).
             auto& instance = m_GpuInstancedInstances[view];
-            if ( !instance )
+            if ( !instance || instance->GetParentMaterial() != cell )
                 instance = cell->CreateInstance( "GpuInstanced" );
             BindGpuInstancedBuffers( *cell, gpu );
             // The section's row is the scene material table's (SyncGpuScene), read by the cell of its template.
@@ -102,22 +163,27 @@ namespace Desert::Graphic::System
             const uint32_t row = *materialRow;
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
+            if ( maskedPrepass )
+                m_MaskedPrepassed.push_back( gpu.Key );
 
-            list.Add( { .Pipeline          = pipeline,
-                        .Mesh              = gpu.Mesh,
-                        .Transform         = glm::mat4( 1.0f ),
-                        .Material          = cell->GetMaterialExecutor(),
-                        .HiddenSubmeshMask = gpu.HiddenSubmeshes,
-                        .IndirectArgs      = gpu.Refs->Args,
-                        .IndirectInstances = gpu.Refs->Instances,
-                        .BindState         = [cell, inst = instance.get(), row,
-                                      wind = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset )]
-                        {
-                            cell->SetMaterialIndex( row );
-                            cell->SetInstancedWind( wind );
-                            cell->SetPrimitiveFlags( 0u );
-                            cell->Bind( inst );
-                        } } );
+            // One draw per LOD level the producer sorted its instances into, each reading its level's records.
+            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
+                list.Add( { .Pipeline           = pipeline,
+                            .Mesh               = gpu.Mesh,
+                            .Transform          = glm::mat4( 1.0f ),
+                            .Material           = cell->GetMaterialExecutor(),
+                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
+                            .IndirectArgs       = gpu.Refs->Args,
+                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                            .BindState          = [cell, inst = instance.get(), row,
+                                          wind = PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset )]
+                            {
+                                cell->SetMaterialIndex( row );
+                                cell->SetInstancedWind( wind );
+                                cell->SetPrimitiveFlags( 0u );
+                                cell->Bind( inst );
+                            } } );
         }
     }
 
@@ -168,20 +234,22 @@ namespace Desert::Graphic::System
                 continue;
             const uint32_t row = *materialRow;
 
-            list.Add( { .Pipeline          = pipeline,
-                        .Mesh              = gpu.Mesh,
-                        .Transform         = glm::mat4( 1.0f ),
-                        .Material          = caster->GetMaterialExecutor(),
-                        .HiddenSubmeshMask = gpu.HiddenSubmeshes,
-                        .IndirectArgs      = gpu.Refs->Args,
-                        .IndirectInstances = gpu.Refs->Instances,
-                        .BindState = [caster, inst = gpu.Material.get(), row, wind = PackInstanceWind( gpu.Wind )]
-                        {
-                            caster->SetPushMatrix( glm::mat4( 1.0f ) );
-                            caster->SetMaterialIndex( row );
-                            caster->SetInstancedWind( wind );
-                            caster->Bind( inst );
-                        } } );
+            for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
+                list.Add( { .Pipeline           = pipeline,
+                            .Mesh               = gpu.Mesh,
+                            .Transform          = glm::mat4( 1.0f ),
+                            .Material           = caster->GetMaterialExecutor(),
+                            .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
+                            .IndirectArgs       = gpu.Refs->Args,
+                            .IndirectInstances  = gpu.Refs->Instances,
+                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                            .BindState = [caster, inst = gpu.Material.get(), row, wind = PackInstanceWind( gpu.Wind )]
+                            {
+                                caster->SetPushMatrix( glm::mat4( 1.0f ) );
+                                caster->SetMaterialIndex( row );
+                                caster->SetInstancedWind( wind );
+                                caster->Bind( inst );
+                            } } );
         }
     }
 } // namespace Desert::Graphic::System

@@ -384,6 +384,9 @@ namespace
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererDebug.cpp",
                "\"OverdrawResolvePipeline\"", Verdict::DeveloperOnly,
                "the overdraw heat map's fullscreen resolve, same toggle" },
+             { "Desert/Desert/Source/Engine/Graphic/VirtualGeometry/VirtualGeometryClusterView.cpp",
+               "\"VirtualGeometryClustersPipeline\"", Verdict::DeveloperOnly,
+               "the vg_clusters view, gated by DebugViewState::VirtualGeometry" },
 
              // ── mesh geometry, shadows and the selection outline ────────────────────────────────────
              { "Desert/Desert/Source/Engine/Graphic/Systems/Scene/Mesh/MeshRendererForward.cpp",

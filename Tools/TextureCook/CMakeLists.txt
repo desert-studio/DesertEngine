@@ -4,6 +4,7 @@
 desert_glob(_sources "Source/*.cpp")
 desert_add_executable(TextureCook FOLDER Tools SOURCES ${_sources}
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/ProjectContext.cpp"
+    "${DESERT_ROOT}/Desert/Projects/Source/Projects/RendererSettings.cpp" # the Texture Encoding efforts
     "${DESERT_ROOT}/Desert/Projects/Source/Projects/StartupLayout.cpp"
     "${DESERT_ROOT}/Editor/Source/Editor/Import/TextureImporter.cpp"
     "${DESERT_ROOT}/Editor/Source/Editor/Import/DdsSource.cpp"
@@ -23,3 +24,5 @@ desert_external_includes(TextureCook
     ${DESERT_DESERTSPECIFIC_INCLUDE_DIRS})
 desert_config_platform_defines(TextureCook)
 target_link_libraries(TextureCook PRIVATE Common Optick OpenEXRCore ReflectCpp ${DESERT_DESERTSPECIFIC_LIBRARIES})
+# The BC7 encode in BlockCompression.cpp (cmake/ThirdParty/Compressonator.cmake).
+target_link_libraries(TextureCook PRIVATE Compressonator)

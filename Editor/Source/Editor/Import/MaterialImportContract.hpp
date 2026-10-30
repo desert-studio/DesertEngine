@@ -2,6 +2,7 @@
 
 #include <Common/Content/ShaderAssetHeader.hpp>
 #include <Engine/Core/Formats/SamplerState.hpp>
+#include <Engine/Core/Formats/ShaderProgramMeta.hpp>
 #include <Engine/Core/Formats/TextureIntent.hpp>
 #include <Engine/Assets/MaterialData.hpp>
 #include <Engine/Assets/MeshSourceAsset.hpp>
@@ -62,12 +63,28 @@ namespace Desert::Editor
         // writes into a texture asset it creates for that slot (UE: the sampler type sets TC_Normalmap).
         std::map<std::string, ::Desert::Core::Formats::TextureIntent, std::less<>> TextureIntents;
         std::string                        Guid;    // the shader's header GUID (the .demat's Shader reference)
+        // The template's `BlendMode` (the DSL parser's, ShaderProgramMeta::Blend): what a material made from it
+        // draws as. The import reads it to refuse Virtual Geometry for a Translucent mesh
+        // (VirtualGeometryGate.hpp).
+        ::Desert::Core::Formats::SurfaceBlendMode Blend = ::Desert::Core::Formats::SurfaceBlendMode::Opaque;
         std::string                        Locator; // "engine:Shaders/..." — the reference's Path half
     };
 
     // A shader file as an import template: its declared name, manifest, texture Properties (the DSL parser's
     // own schema, so the kinds have one home) and header GUID. Refuses a file any of those readers refuse.
     Common::ResultStr<ImportTemplate> ReadImportTemplate( std::string_view source, std::string locator );
+
+    // A shader's BlendMode as the DSL parser reads it (ShaderProgramMeta::Blend), keyed by its header GUID: what a
+    // material drawing with that shader draws as, whether or not the shader is an import template. The import
+    // reads it to refuse Virtual Geometry for a Translucent mesh (VirtualGeometryGate.hpp).
+    struct ShaderBlendRow
+    {
+        std::string                               Guid; // the shader's header GUID (a .demat's Shader reference)
+        ::Desert::Core::Formats::SurfaceBlendMode Blend = ::Desert::Core::Formats::SurfaceBlendMode::Opaque;
+    };
+
+    // @p source's header GUID and BlendMode; refuses a file without a header GUID or one the DSL parser refuses.
+    Common::ResultStr<ShaderBlendRow> ReadShaderBlend( std::string_view source, std::string_view locator );
 
     // What a template's rows make of one source material.
     struct ImportedParam

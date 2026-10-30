@@ -19,12 +19,13 @@ namespace Desert::Graphic::System
         // where a block's shader has the slot; everything else in a block is the material's.
         // Skinned meshes are drawn here too, through the (Skinned x GBuffer) cell (UE's base pass): no forward
         // redraw follows on the deferred path.
-        m_DeferredGeometry = true;
+        m_GeometryPass = MeshPass::GBuffer;
         BuildStaticDraws( m_GBufferDraws );
         BuildSkinnedDraws( m_GBufferDraws );
-        m_DeferredGeometry = false;
+        m_GeometryPass = MeshPass::Forward;
         // Shader Overrides naming a surface template are surface materials: their (Static x GBuffer) cell, here.
         BuildGenericDraws( m_GBufferDraws, GenericSlice::DeferredSurfaceGBuffer );
+        AttachBinned( m_GBufferDraws, GpuDriven::MeshPass::GBuffer, kBinnedMainView );
         m_GBufferDraws.Declare( pass, view );
         // The skin cache's streams the (Skinned x GBuffer) cell fetches by address (Vertex_Skinned.glslh): this
         // pass reads them after "SkinCache: Skin" wrote them.
@@ -37,8 +38,43 @@ namespace Desert::Graphic::System
         return m_GBufferDraws.Record( context );
     }
 
-    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const bool rayTracedSun,
-                                                       const bool localShadowMasks )
+    void MeshRenderer::DeclareMaskedDepthDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_MaskedDepthDraws.Clear();
+        m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
+        if ( !m_InstancedViewDepthPipeline || !m_InstancedGBufferEqualPipeline || m_SceneRenderer == nullptr ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
+            return;
+        BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr );
+        m_MaskedDepthDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderMaskedDepthManual( const RDG::PassContext& context ) const
+    {
+        return m_MaskedDepthDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GBufferPostDraws.Clear();
+        const FrameBinnedView* const binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        if ( binned == nullptr || !binned->PostOcclusion )
+            return;
+        // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred:
+        // GBuffer".
+        m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
+        m_GBufferPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGBufferPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GBufferPostDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareForwardDepthNormalDraws( RDG::PassBuilder& pass, const SceneViewInputs& view,
+                                                       const bool rayTracedSun, const bool localShadowMasks,
+                                                       const bool virtualLocal )
     {
         m_DepthNormalDraws.Clear();
         // This frame's admissions start empty here, whatever returns below: "Deferred: Generic" reads only a set
@@ -48,18 +84,154 @@ namespace Desert::Graphic::System
         m_GenericPrepassFrame = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
         m_GenericPrepassRayTracedSun = rayTracedSun;
         m_GenericPrepassLocalShadowMasks = localShadowMasks;
+        m_GenericPrepassVirtualLocal     = virtualLocal;
         const auto& gbuffer          = m_SceneRenderer != nullptr ? m_SceneRenderer->GetGBuffer() : nullptr;
         if ( !gbuffer || m_SceneRenderer->GetMainCamera() == nullptr || m_GenericQueue.empty() )
             return;
-        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The depth-normal programs
-        // sample no scene/view input: the camera and the material row are the material's own blocks.
+        // The graph LOADs the G-buffer the static, skinned and terrain draws wrote. The unbinned draws carry the
+        // camera and the material row in their own blocks; the binned ones (the DepthPrepass bins, culled by the
+        // "depthPrepass" view) read the GPU scene's primitive rows, the view input bound here.
         BuildGenericDraws( m_DepthNormalDraws, GenericSlice::DeferredDepthNormal );
-        m_DepthNormalDraws.Declare( pass, std::nullopt );
+        AttachBinned( m_DepthNormalDraws, GpuDriven::MeshPass::DepthPrepass, kBinnedMainView );
+        m_DepthNormalDraws.Declare( pass, view );
     }
 
     Common::BoolResultStr MeshRenderer::RenderForwardDepthNormalManual( const RDG::PassContext& context ) const
     {
         return m_DepthNormalDraws.Record( context );
+    }
+
+    void MeshRenderer::DeclareDepthPrepassDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_DepthPrepassDraws.Clear();
+        // This frame's admissions start empty here, whatever returns below: the base pass reads only a set
+        // stamped with its own frame (PrepassCellDraw, OpaqueGenericAdmitted).
+        m_PrepassCellDraws.clear();
+        m_PrepassGpuSections.clear();
+        m_GenericPrepassed.clear();
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        m_PrepassFrame        = frame != nullptr ? std::optional<uint64_t>( frame->FrameIndex ) : std::nullopt;
+        m_GenericPrepassFrame = m_PrepassFrame;
+        if ( m_SceneRenderer == nullptr || m_SceneRenderer->GetMainCamera() == nullptr || !m_StaticDepthPipeline )
+            return;
+        // The base pass's choices, so the Forward cells checked here are the ones it records: no screen masks on
+        // the forward path, the virtual shadow map's permutation under VirtualMaps (MeshGeometryPass sets the same).
+        m_ForwardVirtualLocal            = m_SceneRenderer->LocalShadowsAreVirtual();
+        m_GenericPrepassRayTracedSun     = false;
+        m_GenericPrepassLocalShadowMasks = false;
+        m_GenericPrepassVirtualLocal     = m_ForwardVirtualLocal;
+        m_GeometryPass                   = MeshPass::Depth;
+        BuildStaticDraws( m_DepthPrepassDraws );
+        BuildSkinnedDraws( m_DepthPrepassDraws );
+        m_GeometryPass = MeshPass::Forward;
+        BuildGenericDraws( m_DepthPrepassDraws, GenericSlice::ForwardDepth );
+        m_DepthPrepassDraws.Declare( pass, view );
+        // The skin cache's streams the (Skinned x Depth) cell fetches by address (Vertex_Skinned.glslh).
+        for ( const RDG::BufferRef& streams : m_SkinCacheReads )
+            pass.Read( streams, RDG::Access::StorageRead );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderDepthPrepassManual( const RDG::PassContext& context ) const
+    {
+        return m_DepthPrepassDraws.Record( context );
+    }
+
+    bool MeshRenderer::PrepassCurrent() const
+    {
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        return frame != nullptr && m_PrepassFrame == frame->FrameIndex;
+    }
+
+    std::optional<MaterialPipelineTracker::CellDraw>
+    MeshRenderer::PrepassCellDraw( const PrepassCellKey& key ) const
+    {
+        if ( !PrepassCurrent() )
+            return std::nullopt;
+        const auto found = m_PrepassCellDraws.find( key );
+        return found != m_PrepassCellDraws.end() ? std::optional( found->second ) : std::nullopt;
+    }
+
+    bool MeshRenderer::PairsWithPrepass( const bool wireframeReplaced ) const
+    {
+        // Only the forward path builds these two passes (the deferred one draws its meshes into the G-buffer), and
+        // only with the prepass's cells; the Wireframe view's static and instanced twins write their own depth.
+        if ( m_GeometryPass != MeshPass::Forward && m_GeometryPass != MeshPass::Depth )
+            return false;
+        if ( wireframeReplaced && WireframeView() )
+            return false;
+        return m_StaticDepthPipeline != nullptr;
+    }
+
+    bool MeshRenderer::SetupDepthPrepass()
+    {
+        // (Static x Depth): the pass state of every static draw of "Forward: Depth Prepass" - the default surface's
+        // view depth program on the scene depth alone, Closer, depth written (UE: the depth pass's DepthWrite
+        // state). REQUIRED: the forward base pass tests CloserOrEqual against this depth and writes none.
+        const auto staticShader = DefaultSurfaceProgram( MeshVertexPath::Static, MeshPass::Depth );
+        if ( !staticShader )
+            return false; // DefaultSurfaceShaderName named the missing cell
+        GraphicsPipelineSpecification spec;
+        spec.DebugName         = "StaticMeshDepth";
+        spec.Layout            = MeshVertexLayout( MeshVertexPath::Static );
+        spec.DepthCompareOp    = DepthCompare::Closer;
+        spec.DepthWriteEnabled = true;
+        spec.CullMode          = CullMode::Back;
+        spec.Shader            = staticShader;
+        spec.TargetLayout      = SceneDepthLayout();
+        const auto staticPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( spec );
+        if ( !staticPipeline )
+        {
+            LOG_ERROR( "[MeshRenderer] the forward depth prepass has no static pipeline: {}",
+                       staticPipeline.GetError() );
+            return false;
+        }
+        m_StaticDepthPipeline = staticPipeline.GetValue();
+        // The unowned spare, as m_GBufferUnownedMaterial (SetupGBufferPass says why one is enough).
+        m_DepthUnownedMaterial = CreateCellMaterial( MeshVertexPath::Static, MeshPass::Depth );
+        if ( !m_DepthUnownedMaterial )
+            return false;
+
+        // (Instanced x Depth): the auto-batched statics, the Instanced Static Meshes and the landscape grass. A
+        // refusal turns instancing off in BOTH forward passes (the base pass draws only what the prepass can), so
+        // an ISM is then not drawn on the forward path - said here and by BuildStaticDraws.
+        if ( const auto instancedShader = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::Depth ) )
+        {
+            GraphicsPipelineSpecification ispec = spec;
+            ispec.DebugName                     = "StaticMeshDepthInstanced";
+            ispec.Layout                        = MeshVertexLayout( MeshVertexPath::Instanced );
+            ispec.Shader                        = instancedShader;
+            if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
+            {
+                m_InstancedDepthMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::Depth );
+                if ( m_InstancedDepthMaterial )
+                {
+                    m_InstancedDepthPipeline = instanced.GetValue();
+                    m_InstancedDepthInstance = m_InstancedDepthMaterial->CreateInstance( "StaticInstancedDepthBatch" );
+                }
+            }
+            else
+                LOG_ERROR( "[MeshRenderer] instanced drawing is off in the FORWARD path (no depth prepass cell): {}",
+                           instanced.GetError() );
+        }
+
+        // (Skinned x Depth): a refusal leaves skinned meshes out of the forward path (they would be shaded with no
+        // depth of their own).
+        if ( const auto skinnedShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::Depth ) )
+        {
+            GraphicsPipelineSpecification sspec = spec;
+            sspec.DebugName                     = "SkinnedMeshDepth";
+            sspec.Layout                        = MeshVertexLayout( MeshVertexPath::Skinned );
+            sspec.Shader                        = skinnedShader;
+            m_SkinnedDepthUnownedMaterial       = CreateCellMaterial( MeshVertexPath::Skinned, MeshPass::Depth );
+            const auto skinned                  = m_SceneRenderer->GetPipelineCache().GetOrCreate( sspec );
+            if ( skinned && m_SkinnedDepthUnownedMaterial )
+                m_SkinnedDepthPipeline = skinned.GetValue();
+            else
+                LOG_ERROR( "[MeshRenderer] skinned meshes are not drawn in the FORWARD path (no depth prepass "
+                           "cell): {}",
+                           skinned ? std::string( "the cell material was refused" ) : std::string( skinned.GetError() ) );
+        }
+        return true;
     }
 
     bool MeshRenderer::SetupGBufferPass()
@@ -129,6 +301,36 @@ namespace Desert::Graphic::System
             if ( const auto instanced = m_SceneRenderer->GetPipelineCache().GetOrCreate( ispec ) )
             {
                 m_InstancedGBufferPipeline = instanced.GetValue();
+                // The masked depth prepass's two states (DeclareMaskedDepthDraws). Optional: refused, the masked
+                // sections keep drawing their clip in the G-buffer alone, said once here.
+                GraphicsPipelineSpecification equal = ispec;
+                equal.DebugName                     = "StaticMeshGBufferInstancedDepthEqual";
+                equal.DepthWriteEnabled             = false;
+                GraphicsPipelineSpecification depth;
+                depth.DebugName      = "StaticMeshViewDepthInstanced";
+                depth.Layout         = MeshVertexLayout( MeshVertexPath::Instanced );
+                depth.DepthCompareOp = DepthCompare::CloserOrEqual;
+                depth.CullMode       = CullMode::Back;
+                depth.Shader         = DefaultSurfaceProgram( MeshVertexPath::Instanced, MeshPass::Depth );
+                depth.TargetLayout   = RenderTargetLayout{ {}, ViewTargetFormats::kGBufferDepth, 1 };
+                std::string refused = depth.Shader ? std::string{} : std::string( "no (Instanced x Depth) cell" );
+                if ( depth.Shader )
+                {
+                    const auto equalPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( equal );
+                    const auto depthPipeline = m_SceneRenderer->GetPipelineCache().GetOrCreate( depth );
+                    if ( equalPipeline && depthPipeline )
+                    {
+                        m_InstancedGBufferEqualPipeline = equalPipeline.GetValue();
+                        m_InstancedViewDepthPipeline    = depthPipeline.GetValue();
+                    }
+                    else
+                        refused = std::format( "depth: {} | equal: {}", depthPipeline ? "ok" : depthPipeline.GetError(),
+                                               equalPipeline ? "ok" : equalPipeline.GetError() );
+                }
+                if ( !refused.empty() )
+                    LOG_ERROR( "[MeshRenderer] no masked depth prepass: masked grass pays its alpha-tested overdraw "
+                               "in the G-buffer. {}",
+                               refused );
                 m_InstancedGBufferMaterial = CreateCellMaterial( MeshVertexPath::Instanced, MeshPass::GBuffer );
                 if ( m_InstancedGBufferMaterial )
                 {
@@ -151,7 +353,7 @@ namespace Desert::Graphic::System
         }
 
         // (Skinned x GBuffer): skinned meshes are drawn in the base pass on the deferred path (BuildSkinnedDraws
-        // under m_DeferredGeometry), never forward over the composite, and the surface cache captures a skinned
+        // under m_GeometryPass GBuffer), never forward over the composite, and the surface cache captures a skinned
         // mesh's cards with the same pass state. Optional like the instanced cell: a refusal costs skinned meshes
         // in a deferred scene and in the surface cache, said here.
         m_SkinnedGBufferShader = DefaultSurfaceProgram( MeshVertexPath::Skinned, MeshPass::GBuffer );

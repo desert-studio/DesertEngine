@@ -35,6 +35,10 @@ struct TerrainInstance
     vec4 InputTileSize[2];   // per material input, four to a vec4: LayerKTileSize (cm)
     vec4 InputBlend[2];      // per material input, four to a vec4: LayerKBlend (0 weight, 1 height, 2 alpha)
     vec4 DiceRings;          // half-extents (cells) of the rings diced 2, 4, 8, 16 (x..w; -1 = none)
+    vec4 DicePool;           // x = the tile's first vertex in the frame's dice pool (-1 = none), y = the finest dice
+                             // level this row's view draws (4 = the camera's; a caster's is coarser)
+    vec4 DiceClip;           // [x0, z0) .. [x1, z1) tile-local LOD-0 cells: the main camera's view footprint; a cell
+                             // outside it is undiced (LandscapeDisplacement.glslh LandscapeCellDiceOf)
 };
 
 #endif // TERRAIN_INSTANCE_GLSLH

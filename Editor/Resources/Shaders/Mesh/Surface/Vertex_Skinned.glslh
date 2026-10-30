@@ -15,16 +15,26 @@
 #include <Mesh/MeshVertexInputsSkinned.glslh>
 
 #include <Common/CameraUB.glslh>
+#ifdef DESERT_SURFACE_VIEW_PASS
+// The view's depth prepass (Mesh/Surface/Pass_Depth.glslh) and the base pass test each other's depth for equality:
+// one gl_Position, bit for bit, whichever cell computes it (GLSL invariance, UE's precise position).
+invariant gl_Position;
+#endif
 #ifdef DESERT_SURFACE_CASTER_PASS
 #include <Common/ShadowCasterBias.glslh>
 #endif
-#ifdef DESERT_SURFACE_VIEW_PASS
+#if defined( DESERT_SURFACE_VIEW_PASS ) || defined( DESERT_SURFACE_BINNED )
 #define DESERT_GPU_SCENE_PRIMITIVES 1 // this stage reads its primitive's GpuScene row
 #define DESERT_GPU_SCENE_BONES 1      // ...and both of its palettes from the scene's ObjectBones
 #elif defined( DESERT_SURFACE_HAS_VARYINGS )
 // A light view with varyings (masked caster) reads its primitive's row too, for the skin-cache fields only: the
 // row is their one source, and MaterialTransport's block has no room for them (120 of the guaranteed 128 bytes).
 #define DESERT_GPU_SCENE_PRIMITIVES 1
+#endif
+#ifdef DESERT_SURFACE_BINNED
+// Binned (SurfaceTypes.glslh): the instance id resolves the row, so every pass - the light views too - skins from the
+// scene's ObjectBones at the row's offsets, as the view pass does; the draw pushes nothing.
+#define DESERT_GPU_SCENE_DRAWS 1
 #endif
 #include <Common/GpuScene.glslh>
 #include <Common/Velocity.glslh>
@@ -33,7 +43,7 @@
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 #include <Common/MaterialTransport.glslh>
 DESERT_SURFACE_VARYINGS( out )
-#else
+#elif !defined( DESERT_SURFACE_BINNED )
 // The light view's own block: BoneOffset right after the transform (offset 64), where MaterialTransport keeps it
 // at 68 behind MaterialIndex; then the primitive's skin-cache streams (MaterialShadowSkinned::SetSkinCache, from
 // its GpuScenePrimitive row; vertex count 0 = not cached, skin from the palette).
@@ -48,8 +58,8 @@ layout( push_constant ) uniform constants
 m_PushConstants;
 #endif
 
-#ifdef DESERT_SURFACE_VIEW_PASS
-// View pass: both palettes come from the scene's ObjectBones at the row's two offsets (Common/GpuScene.glslh).
+#if defined( DESERT_SURFACE_VIEW_PASS ) || defined( DESERT_SURFACE_BINNED )
+// View pass and binned cell: both palettes come from the scene's ObjectBones at the row's two offsets (Common/GpuScene.glslh).
 #define DESERT_SKIN_MATRIX( base, i ) objectBones.Palettes[( base ) + ( i )]
 #else
 // Light view (shadow depth / RSM): the pass's own Bones buffer (generated from ShaderProtocols/SkinnedMaterialUB.hpp,
@@ -60,12 +70,19 @@ m_PushConstants;
 
 void main()
 {
-#ifdef DESERT_SURFACE_VIEW_PASS
+#if defined( DESERT_SURFACE_VIEW_PASS ) || defined( DESERT_SURFACE_BINNED )
     // View pass: see Vertex_Static. The previous pose is the one the view drew this primitive with last frame:
     // the skin cache's previous positions, or the palette at the row's PrevBoneOffset in the same ObjectBones.
+#ifdef DESERT_SURFACE_BINNED
+    const DesertMeshDraw    draw      = DesertResolveMeshDraw();
+    const GpuScenePrimitive row       = gpuScene.Primitives[draw.Primitive];
+    const mat4              model     = draw.World;
+    const mat4              prevModel = draw.PrevWorld;
+#else
     const GpuScenePrimitive row       = gpuScene.Primitives[m_PushConstants.PrimitiveIndex];
     const mat4            model     = GpuScene_LocalToWorld( row ) * m_PushConstants.Transform;
     const mat4            prevModel = GpuScene_PrevLocalToWorld( row ) * m_PushConstants.Transform;
+#endif
     vec3                  posed;
     vec3                  prevPosed;
     vec3                  skinnedNormal;
@@ -102,6 +119,9 @@ void main()
         skinnedTangent   = skin3 * a_Tangent;
         skinnedBitangent = skin3 * a_Bitangent;
     }
+#ifdef DESERT_SURFACE_CASTER_PASS
+    const vec3 casterNormal = skinnedNormal; // the posed normal the caster's slope bias reads (object space)
+#endif
 #else
     // Light view (shadow depth): the cached pose when the push block names streams, else the pass's palette.
     const mat4 model = m_PushConstants.Transform;
@@ -165,6 +185,10 @@ void main()
     v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
     v_Surface.TBN            = mat3( T, B, N );
+#endif
+#if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
+    v_Surface.MaterialRow    = draw.MaterialRow;
+    v_Surface.PrimitiveFlags = draw.Flags;
 #endif
 #ifdef DESERT_SURFACE_VIEW_PASS
     v_Surface.Clip     = cameraUB.ViewProjection * worldPos;
