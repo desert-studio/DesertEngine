@@ -344,7 +344,7 @@ TEST( TeardownOrder, EverySiteThatDestroysASceneRendererIdlesTheDeviceFirst )
 // Three owners, and NOT ONE of them was a forgotten line inside a release function:
 //
 //   * 5919 sat in VulkanAllocator's deferred-deletion queue. RT_Destroy* only ENQUEUES, and the queue is
-//     drained from exactly one place -- VulkanRendererAPI::PresentFinalImage. Shutdown releases the engine's
+//     drained from exactly one place -- VulkanRendererAPI::BeginFrame. Shutdown releases the engine's
 //     entire content AFTER the last frame, so there was no frame left to collect any of it on.
 //   * 220 were CommandBufferAllocator's nine command pools and the one-off buffers taken from them. That
 //     class had no teardown at all, and FlushCommandBuffer's pool parameter was commented out.
@@ -385,7 +385,7 @@ TEST( TeardownOrder, TheDeviceTeardownReachesEveryVulkanOwner )
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanFrameLoop.cpp",
            "VulkanFrameLoop::~VulkanFrameLoop", "vkDestroyFence", "the frame slots' fences" },
          { "Desert/Desert/Source/Engine/Graphic/API/Vulkan/VulkanRenderer.cpp",
-           "Common::BoolResultStr VulkanRendererAPI::PresentFinalImage", "ProcessDeletionQueue()",
+           "Common::BoolResultStr VulkanRendererAPI::BeginFrame", "ProcessDeletionQueue()",
            "the per-frame drain, which is what makes the queue bounded at all" },
     };
 

@@ -69,6 +69,33 @@ namespace Desert::Graphic::API::Vulkan
                                       "line above for the cause." );
         }
 
+        // WAIT FOR GPU: THE FRAME'S CPU WAIT ON THE DEVICE, AND ITS FIRST STATEMENT (GPU-COST-11; UE: the RHI waits
+        // the fence of frame N-k before it records frame N, and the wait is a stat row of its own, not part of
+        // Present). This slot's fence is that of frame N-k (k = frames in flight): every object of the slot, the
+        // geometry pool's released spans (GeometryPool::BeginFrame, below) and every deletion queued at frame
+        // N-k or earlier are free once it has signalled, so the wait stands before all of them. Until the first
+        // frame builds the frame loop (BeginRdgFrame) no frame was submitted and there is nothing to wait.
+        // BeginSlot waits the same fence again further down; it is signalled by then and the call returns at once.
+        if ( m_FrameLoop )
+        {
+            DESERT_PROFILE_SCOPE( "Wait for GPU" );
+            const uint32_t slot = EngineContext::GetInstance().GetCurrentFrameIndex();
+            if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
+            {
+                m_CurrentCommandBuffer = nullptr;
+                return Common::MakeFormattedError<bool>( "this frame's slot (frame N-k): {}", waited.GetError() );
+            }
+        }
+        // The per-frame drain, under the fence just waited (VulkanAllocator::IsRetired), and the one-off command
+        // buffers that have finished.
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: slot retire" );
+            SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
+                 ->GetVulkanAllocator()
+                 ->ProcessDeletionQueue();
+            (void)CommandBufferAllocator::GetInstance().CollectFinished();
+        }
+
         // ROLLED HERE AND NOT IN EndFrame, and the difference is observable. A lost device returns above
         // without recording anything, so rolling in EndFrame would either be skipped — leaving the last
         // GOOD frame's count standing as if it were the failed one's — or would zero the very number that
@@ -92,7 +119,7 @@ namespace Desert::Graphic::API::Vulkan
              ->GetPhysicalDevice()
              ->RefreshRuntimeOffers();
 
-        // ONE PATH, WINDOW OR NOT. BeginRdgFrame waited this slot's fence (VulkanFrameLoop::BeginSlot) and began
+        // ONE PATH, WINDOW OR NOT. The slot's fence was waited at the top ("Wait for GPU"); BeginRdgFrame began
         // its objects; the frame records into a graphics command buffer of the slot, already begun. A window is
         // only an output of PresentFinalImage's submission (Desert/Tests/Engine/EngineHost runs this same frame
         // with none). vkBeginCommandBuffer cannot report VK_ERROR_DEVICE_LOST (only out-of-memory), so its
@@ -204,21 +231,15 @@ namespace Desert::Graphic::API::Vulkan
         if ( Graphic::DeviceLost::IsLost() )
             return Common::MakeError( "the device was lost while submitting or presenting this frame." );
 
-        // The next slot: its previous frame must be complete before the output acquires on its semaphore and
-        // before anything that frame used is destroyed (the deletion queue's per-frame drain). Its fence wait is a
-        // Wait row of its own, so this row's wait column separates the GPU throttle from the retire work.
-        DESERT_PROFILE_SCOPE( "Vulkan: slot retire" );
+        // The frame counter advances; the next slot's fence is NOT waited here (GPU-COST-11). It used to be, right
+        // after the submit, so this row carried the whole GPU throttle and the CPU sat idle for everything between
+        // here and the next frame's recording. The wait is the first thing the next frame does
+        // (VulkanRendererAPI::BeginFrame, row "Wait for GPU"), on the fence of frame N-k, and the deletion drain
+        // that needs it follows it there.
         Engine::FrameManager::GetInstance().NextFrame();
         if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
             bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
                                 Engine::FrameManager::GetInstance().GetMaxFramesInFlight() );
-        const uint32_t next = EngineContext::GetInstance().GetCurrentFrameIndex();
-        if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( next ); !waited )
-            return Common::MakeFormattedError<bool>( "the next frame's slot: {}", waited.GetError() );
-        SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-             ->GetVulkanAllocator()
-             ->ProcessDeletionQueue();
-        (void)CommandBufferAllocator::GetInstance().CollectFinished();
         return BOOLSUCCESS;
     }
 
