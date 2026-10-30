@@ -191,6 +191,13 @@ namespace Desert::Graphic
         return shaderName.ends_with( Core::Preprocess::kSurfaceBinnedCellSuffix );
     }
 
+    std::string_view BinnedBaseOf( std::string_view shaderName )
+    {
+        if ( IsBinnedCell( shaderName ) )
+            shaderName.remove_suffix( Core::Preprocess::kSurfaceBinnedCellSuffix.size() );
+        return shaderName;
+    }
+
     std::string VirtualGeometryCellOf( const std::string_view binnedCell )
     {
         return std::format( "{}{}", binnedCell, Core::Preprocess::kSurfaceVirtualGeometryCellSuffix );

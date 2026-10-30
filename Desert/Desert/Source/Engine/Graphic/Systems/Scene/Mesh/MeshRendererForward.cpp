@@ -780,9 +780,9 @@ namespace Desert::Graphic::System
                 AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants,
                                                  path != MeshVertexPath::Static );
             }
-            // The G-buffer cells of a template the deferred early-Z pass can draw (EarlyZAdmits: Masked or
-            // `.Parallax` under EarlyZPass Masked, every Opaque one too under All), in the equal-depth permutation
-            // the G-buffer draws them in after it (DepthEqualCell, BuildGpuInstancedDraws): per object and
+            // The G-buffer cells of a template the deferred early-Z pass can draw (EarlyZAdmits: Masked under
+            // EarlyZPass Masked, every Opaque one too under All; never a `.Parallax` one), in the equal-depth
+            // permutation the G-buffer draws them in after it (DepthEqualCell, BuildGpuInstancedDraws): per object and
             // auto-batched / ISM statics, skinned meshes, GPU-instanced sections and blades.
             for ( const MeshVertexPath path : { MeshVertexPath::Static, MeshVertexPath::Instanced,
                                                 MeshVertexPath::Skinned, MeshVertexPath::GrassBlade } )
@@ -798,6 +798,16 @@ namespace Desert::Graphic::System
                      blend != Core::Formats::SurfaceBlendMode::Opaque )
                     continue;
                 Core::ShaderVariant permutation = SurfaceDepthEqualVariant();
+                // The cell's `.Binned` twin too (Static, Instanced, Skinned: the binned paths), the G-buffer bins'
+                // equal-depth twin after their depth twin (MeshRenderer::EarlyZBinTwinsOf). A `.Parallax` cell is
+                // not admitted (EarlyZAdmitsCell), so its binned one is never asked for.
+                if ( path != MeshVertexPath::GrassBlade && !IsParallaxCell( cell.GetValue() ) )
+                {
+                    const std::string binned = BinnedCellOf( cell.GetValue() );
+                    if ( shaders.GetByName( binned ) != nullptr &&
+                         listed.emplace( binned, permutation.Hash() ).second )
+                        variants.push_back( { binned, permutation } );
+                }
                 if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
                     variants.push_back( { cell.GetValue(), std::move( permutation ) } );
             }
