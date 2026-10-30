@@ -4,7 +4,10 @@
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
+#include <cmath>
 #include <unordered_set>
 
 // GPU-INSTANCED SECTIONS (GpuInstances.hpp): the landscape grass. The transforms and the instance count are the
@@ -300,6 +303,33 @@ namespace Desert::Graphic::System
         return true;
     }
 
+    MeshRenderer::BladeCasterLod MeshRenderer::BladeShadowSet( const GpuInstancedRenderData& gpu,
+                                                               const uint32_t                cascade ) const
+    {
+        // A segment of the blade per this many texels of its height: a finer curve than that is lost in the
+        // map's own filtering (the PCF / PCSS footprint is several texels wide).
+        constexpr float     kBladeShadowTexelsPerSegment = 4.0f;
+        const GpuInstanceBladeShadowLod& lod             = gpu.ShadowLod;
+        const float                      worldPerTexel   = GetCascadeWorldPerTexel( cascade );
+        if ( gpu.Path != MeshVertexPath::GrassBlade || lod.Levels == 0u || worldPerTexel <= 0.0f )
+            return {};
+        const float texel  = worldPerTexel * std::exp2( static_cast<float>( std::clamp( m_FoliageShadowLodBias, 0, 3 ) ) );
+        const auto  wanted = static_cast<uint32_t>(
+             std::max( 1.0f, std::ceil( lod.Height / ( texel * kBladeShadowTexelsPerSegment ) ) ) );
+        BladeCasterLod out{};
+        // The strip's levels halve its segments down to one (GrassRenderer::BladeStrip): the coarsest that still
+        // has the segments the cascade resolves.
+        for ( uint32_t segments = std::max( 1u, lod.Segments ); out.Set + 1u < lod.Levels; ++out.Set )
+        {
+            const uint32_t next = std::max( 1u, segments / 2u );
+            if ( next < wanted )
+                break;
+            segments = next;
+        }
+        out.ThinFrom = lod.PixelSpread > 0.0f && lod.StartCull > 0.0f ? texel / lod.PixelSpread : 0.0f;
+        return out;
+    }
+
     bool MeshRenderer::BuildGpuInstancedShadowDraws( const uint32_t c, const uint32_t shadowView,
                                                      const ShadowCasterLayer layer, MeshDrawList& list )
     {
@@ -383,9 +413,16 @@ namespace Desert::Graphic::System
                 continue;
             const uint32_t row = *materialRow;
 
-            // A light view's B.w is the split (InstanceWindPush; no previous instance in a light view).
-            InstanceWindPush wind = PackInstanceWind( gpu.Wind );
-            wind.B.w              = std::bit_cast<float>( split );
+            // A light view's B.w is the split (InstanceWindPush; no previous instance in a light view), and a
+            // blade's B.z the cascade's thinning (BladeShadowSet: half x the distance it thins from, half y the
+            // generator's StartCull through the lens; 0 = every instance, Vertex_GrassBlade.glslh).
+            InstanceWindPush     wind   = PackInstanceWind( gpu.Wind );
+            const BladeCasterLod shadow = BladeShadowSet( gpu, c );
+            wind.B.w                    = std::bit_cast<float>( split );
+            wind.B.z                    = std::bit_cast<float>(
+                 shadow.ThinFrom > 0.0f ? glm::packHalf2x16( glm::vec2( std::min( shadow.ThinFrom, 65000.0f ),
+                                                                         std::min( gpu.ShadowLod.StartCull, 65000.0f ) ) )
+                                                         : 0u );
             for ( uint32_t level = 0; level < LevelsOf( gpu ); ++level )
                 list.Add( { .Pipeline           = pipeline,
                             .Mesh               = gpu.Mesh,
@@ -394,7 +431,8 @@ namespace Desert::Graphic::System
                             .HiddenSubmeshMask  = gpu.HiddenSubmeshes,
                             .IndirectArgs       = gpu.Refs->Args,
                             .IndirectInstances  = gpu.Refs->Instances,
-                            .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
+                            // A blade's levels are one draw; its set is the cascade's shadow LOD.
+                            .IndirectArgsOffset = LevelArgsOffset( gpu, level + shadow.Set ),
                             .Push               = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .MaterialIndex( row )
