@@ -43,7 +43,9 @@ namespace Desert::Assets
     // version-1 asset (UpgradeMeshSourceAsset: mode None, default bake settings).
     // 3 (VIRT-GEOM): IMPT states MeshImportSettings::VirtualGeometry; a version-1 or -2 asset is raised with it
     // off.
-    inline constexpr uint32_t kMeshAssetSubsystemVersion = 3;
+    // 4 (FIELD-WINTER): IMPT states MeshImportSettings::Canopy (the leaf slots); a version-1..3 asset is raised
+    // with none.
+    inline constexpr uint32_t kMeshAssetSubsystemVersion = 4;
 
     // The header read context a mesh asset is judged with (its one known subsystem).
     Common::Content::AssetHeaderReadContext MeshAssetHeaderReadContext();
@@ -105,6 +107,18 @@ namespace Desert::Assets
         Recovered,
     };
 
+    // A TREE'S CROWN AS ONE VOLUME (UE / SpeedTree foliage practice: leaf-card normals transferred from a proxy
+    // volume around the crown; FStaticMeshBuilder derives them at build, so they follow the source and the
+    // settings). The sections drawn by @p LeafSlots (material slot names) are the crown's leaf cards: the mesh
+    // build (MeshDeriver) gives each of their vertices the crown's surface normal - the normal of the crown's top
+    // height field near the top, the crown ellipsoid's below - and its depth under the crown's top in COLOR_0.a
+    // (SurfaceTypes.glslh DesertIsCanopyVertex / DesertCanopyDepthCm). Empty = no canopy. In the render-data key.
+    struct MeshCanopySettings
+    {
+        std::vector<std::string> LeafSlots;
+        bool                     operator==( const MeshCanopySettings& ) const = default;
+    };
+
     struct MeshImportSettings
     {
         float            UniformScale = 1.0f; // applied on import, source units -> cm; finite and > 0
@@ -118,6 +132,7 @@ namespace Desert::Assets
         // (Geometry/ClusterDag.hpp) into the "StaticMesh" record, and the discrete LOD chain is cut from that DAG.
         // In the render-data key.
         bool                         VirtualGeometry                               = false;
+        MeshCanopySettings           Canopy;
         bool                         operator==( const MeshImportSettings& ) const = default;
     };
 

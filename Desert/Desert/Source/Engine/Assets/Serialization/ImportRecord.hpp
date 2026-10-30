@@ -70,6 +70,9 @@ namespace Desert::Assets::Serialization
         std::optional<float> DisplacementEdgeLengthCm;
         /// MeshImportSettings::VirtualGeometry; absent = off.
         std::optional<bool> VirtualGeometry;
+        /// MeshImportSettings::Canopy.LeafSlots, the material slot names whose sections are the crown's leaf
+        /// cards; absent = no canopy.
+        std::optional<std::vector<std::string>> CanopyLeafSlots;
     };
     [[nodiscard]] SourceImportSettingsText ImportSettingsToText( const Assets::SourceImportSettings& settings );
     /// Refused, by name, for an unknown up axis or LOD policy or a scale that is not finite and > 0.

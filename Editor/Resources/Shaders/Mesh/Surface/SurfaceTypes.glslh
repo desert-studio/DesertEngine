@@ -311,7 +311,8 @@ uint g_SurfaceMaterialRow = 0u;
 // foliage: the card normals are transferred from a proxy around the crown, so the crown shades and takes snow as one
 // volume) carry the canopy in COLOR_0.a: alpha in [0, kDesertCanopyAlphaMax] is a canopy vertex, its depth below the
 // crown's top surface = (1 - alpha / kDesertCanopyAlphaMax) * kDesertCanopyDepthRangeCm; a mesh without vertex
-// colours reads white (alpha 1) = not a canopy. Baked by scripts/Content/foliage_canopy_normals.py.
+// colours reads white (alpha 1) = not a canopy. Derived at the mesh build from MeshImportSettings::Canopy
+// (Editor/Import/MeshDeriver.cpp BakeCanopy, whose kCanopyDepthRangeCm / kCanopyAlphaMax equal these).
 const float kDesertCanopyDepthRangeCm = 1024.0;
 const float kDesertCanopyAlphaMax     = 0.5;
 

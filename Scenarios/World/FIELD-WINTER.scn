@@ -11,7 +11,7 @@
 Тогда-вид 1_winter_eye barn, fence and bales as p7; trees on the horizon white on top; barn, trees, fence and bales in frame (imported mesh sources re-imported from their glTF, no stale-cache error); barn roof white, not grey; snow lies on the branches as a layer, not specks; walls and trunks bare; blades poke out of the snow; editor.log errors 0
 Когда --subject viewport set Camera.Position 0,900,2500
 Когда --subject viewport set Camera.Direction 0.15,-0.15,-1
-Тогда-вид 2_winter_high the whole field white under snow to the horizon, Terrain Far included, no sharp snow edge at grazing distance; barn and trees visible, roof white, wall faces dark and bare, no black patches
+Тогда-вид 2_winter_high editor alive (not killed by memory); the whole field white under snow to the horizon, Terrain Far included, no sharp snow edge at grazing distance; barn and trees visible, roof white, wall faces dark and bare, no black patches
 Когда --subject viewport set Camera.Position -300,2221,-3600
 Когда --subject viewport set Camera.Direction -0.53,-0.51,-0.7
-Тогда-вид 3_winter_tree Tree 1 from 25 m above and aside: crowns white on top as a layer (canopy normal + canopy depth COLOR_0.a baked in island_tree_01.gltf; the crown no longer occludes its own leaves), the crown's underside and the trunk dark; editor.log errors 0
+Тогда-вид 3_winter_tree Tree 1 from 25 m above and aside: Tree 1, the other trees and the shrubs white on top as a layer, the crowns' underside, inside and the trunks green/dark (canopy normal + depth derived at the mesh build from the import records' CanopyLeafSlots; no *_canopy.bin read); editor.log errors 0

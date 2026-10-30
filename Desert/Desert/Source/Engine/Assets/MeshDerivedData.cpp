@@ -53,6 +53,15 @@ namespace Desert::Assets
             PutU32( out, std::bit_cast<uint32_t>( dag.GroupReduction ) );
             PutU32( out, std::bit_cast<uint32_t>( dag.MinReductionGain ) );
         }
+        // The canopy's leaf slots, by name (count, then each name's length and bytes): which sections the build
+        // turns into the crown's volume.
+        PutU32( out, static_cast<uint32_t>( settings.Import.Canopy.LeafSlots.size() ) );
+        for ( const std::string& slot : settings.Import.Canopy.LeafSlots )
+        {
+            PutU32( out, static_cast<uint32_t>( slot.size() ) );
+            for ( const char c : slot )
+                out.push_back( static_cast<std::byte>( c ) );
+        }
         PutU32( out, settings.BuilderVersion );
         return out;
     }
