@@ -23,6 +23,7 @@ local bindingLine = "binding: waiting for the player's mapping context"
 local deaths = 0
 local restarts = 0
 local lifeLine = ""
+local lastPawnPos = nil -- where the pawn was last seen: the dead pawn's labels stay there until RestartPlayer
 local door = nil
 local doorClosedY = 0.0
 
@@ -61,6 +62,7 @@ function OnUpdate(dt)
     local pawn = gameMode.pawn()
     if pawn ~= nil then
         local p = pawn:getPosition()
+        lastPawnPos = p
         local state = string.format("pawn (%.0f, %.0f, %.0f) %s%s", p.x, p.y, p.z,
             pawn:isOnGround() and "on ground" or "IN THE AIR", pawn:isCrouched() and ", CROUCHED" or "")
         DebugDraw.text(p + vector.create(0, 150, 0), bindingLine, GREEN, 0, 1.2)
@@ -68,11 +70,17 @@ function OnUpdate(dt)
         if lifeLine ~= "" then
             DebugDraw.text(p + vector.create(0, 110, 0), lifeLine, AMBER, 0, 1.2)
         end
+    elseif lastPawnPos ~= nil and lifeLine ~= "" then
+        -- between OnPawnDied and RestartPlayer there is no pawn: the death line stays where it died
+        DebugDraw.text(lastPawnPos + vector.create(0, 130, 0), "pawn: dead, waiting for RestartPlayer", WHITE, 0, 1.2)
+        DebugDraw.text(lastPawnPos + vector.create(0, 110, 0), lifeLine, AMBER, 0, 1.2)
     end
     if door ~= nil then
         local d = door:getPosition()
         local open = d.y - doorClosedY
-        DebugDraw.text(d + vector.create(0, 180, 0), string.format("door %s (+%.0f cm)",
+        -- anchored at the door's CLOSED place (not on the moving slab), 150 cm toward the level's centre:
+        -- the label stays in frame while the slab rises 250 cm out of it, and the closed slab does not hide it
+        DebugDraw.text(vector.create(d.x - 150, doorClosedY - 100, d.z), string.format("door %s (+%.0f cm)",
             open > 1 and "OPEN" or "closed", open), AMBER, 0, 1.2)
     end
 end
@@ -80,6 +88,7 @@ end
 function OnPawnDied(pawn)
     deaths = deaths + 1
     local p = pawn:getPosition()
+    lastPawnPos = p
     lifeLine = string.format("died at (%.0f, %.0f, %.0f), deaths %d", p.x, p.y, p.z, deaths)
     Log.info("[GAMEPLAY-PROOF] " .. lifeLine)
 end
