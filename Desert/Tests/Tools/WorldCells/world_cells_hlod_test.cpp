@@ -211,10 +211,30 @@ namespace
         Cells::WorldIndex                                 Index;
     };
 
+    // The fixture's one prefab: a root that is a cube. An instance is expanded at cook (WP21), so its body is
+    // batched like any record.
+    Cells::PrefabReader ThingPrefab()
+    {
+        return []( std::string_view stated ) -> Common::ResultStr<Assets::PrefabData>
+        {
+            if ( stated != "Prefabs/Thing.deprefab" )
+                return Common::MakeError<Assets::PrefabData>( "no prefab '" + std::string( stated ) + "'" );
+            Assets::PrefabData prefab;
+            prefab.Name = "Thing";
+            prefab.Root = Common::UUID( 900 );
+            EntityData root;
+            root.id  = prefab.Root;
+            root.Tag = "ThingRoot";
+            WithMesh( root, Cube() );
+            prefab.Entities.push_back( root );
+            return Common::MakeSuccess( prefab );
+        };
+    }
+
     Cooked CookIt( const SceneSerialized& scene )
     {
         Cooked out;
-        auto   cooked = Cells::CookWorld( scene, {} );
+        auto   cooked = Cells::CookWorld( scene, {}, ThingPrefab() );
         EXPECT_TRUE( cooked.IsSuccess() ) << ( cooked.IsSuccess() ? "" : cooked.GetError() );
         if ( !cooked )
             return out;
@@ -338,17 +358,12 @@ TEST( WorldCellsHLOD, WhatDrawsAndCannotBeBatchedIsNamedWithItsReason )
     const std::string text = Common::Json::Write( cooked.Index );
     EXPECT_NE( text.find( R"("Reason":"HiddenSubmeshes")" ), std::string::npos ) << text;
 
-    // The prefab instance's cell has nothing to batch: a row without a file, naming the hole.
+    // The prefab instance was expanded at cook (WP21): its root is a cube like any other, batched, no hole.
     const auto* origin = HLODHolding( cooked.Index, kPrefab );
     ASSERT_NE( origin, nullptr );
-    EXPECT_FALSE( origin->File.has_value() );
-    EXPECT_TRUE( origin->Ids.empty() );
-    ASSERT_EQ( origin->NotInstanced.size(), 1u );
-    EXPECT_EQ( origin->NotInstanced[0].Reason, Rules::HLODExclusion::PrefabInstance );
-    auto none = Cells::HLODRecords( cooked.Index, ReaderOf( cooked.Files ),
-                                    static_cast<std::size_t>( origin - cooked.Index.HLODs.data() ) );
-    ASSERT_TRUE( none.IsSuccess() ) << none.GetError();
-    EXPECT_TRUE( none.GetValue().empty() );
+    EXPECT_TRUE( origin->File.has_value() );
+    EXPECT_TRUE( origin->NotInstanced.empty() );
+    EXPECT_GE( origin->Instances, 1u );
 
     // A cell that draws nothing has no HLOD; one far cube has its own.
     EXPECT_EQ( HLODHolding( cooked.Index, kEmptyCell ), nullptr );
@@ -502,7 +517,7 @@ TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
     scene.Entities.push_back( points );
 
     const std::array<Common::Utils::AssetRegistry, 1> registries{ MaterialRegistry() };
-    auto                                              cooked = Cells::CookWorld( scene, registries );
+    auto cooked = Cells::CookWorld( scene, registries, Cells::PrefabReader{} );
     ASSERT_TRUE( cooked.IsSuccess() ) << cooked.GetError();
     const Cells::WorldIndex& index = cooked.GetValue().Index;
     // The authored ISM's instance sits at the origin, so its footprint is another cell: read every HLOD.
@@ -526,7 +541,7 @@ TEST( WorldCellsHLOD, AMeshWhoseEveryMaterialHasItsOwnShaderIsANamedHole )
     EXPECT_NE( text.find( R"("Reason":"CustomShaderMaterial")" ), std::string::npos ) << text;
 
     // Without a registry nothing is known to be custom, and every cube is instanced — the stated condition.
-    auto blind = Cells::CookWorld( scene, {} );
+    auto blind = Cells::CookWorld( scene, {}, Cells::PrefabReader{} );
     ASSERT_TRUE( blind.IsSuccess() ) << blind.GetError();
     for ( const Cells::IndexHLOD& hlod : blind.GetValue().Index.HLODs )
         EXPECT_TRUE( hlod.NotInstanced.empty() );

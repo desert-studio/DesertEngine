@@ -397,18 +397,82 @@ namespace Desert::Core::WorldCells
         };
     }
 
+    // The cook over an expanded world (no record states a prefab) and the descriptors it is planned with.
+    static Common::ResultStr<CookedWorld> CookPlanned( const SceneSerialized&                        scene,
+                                                       std::span<const Rules::EntityDescriptor>      descriptors,
+                                                       std::span<const Common::Utils::AssetRegistry> registries,
+                                                       const StoredHLODs*                            hlods );
+
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const StoredHLODs*                            hlods )
+                                              const PrefabReader& prefabs, const StoredHLODs* hlods )
     {
-        const std::vector<Rules::EntityDescriptor> descriptors = Rules::DescribeEntities( scene.Entities );
-        return CookWorld( scene, descriptors, registries, hlods );
+        auto expanded = ExpandPrefabInstances( scene, prefabs );
+        if ( !expanded )
+            return Common::MakeError<CookedWorld>( "'" + scene.SceneName + "': " + expanded.GetError() );
+        const SceneSerialized&                     world       = expanded.GetValue().Scene;
+        const std::vector<Rules::EntityDescriptor> descriptors = Rules::DescribeEntities( world.Entities );
+        return CookPlanned( world, descriptors, registries, hlods );
+    }
+
+    Common::ResultStr<ExpandedWorld> ExpandWorldForCook( const SceneSerialized&                   scene,
+                                                         std::span<const Rules::EntityDescriptor> descriptors,
+                                                         const PrefabReader&                      prefabs )
+    {
+        using Result = ExpandedWorld;
+        // The index is the SOURCE world's: it must be its records', one for one, before an instance is expanded.
+        const auto& source = scene.Entities;
+        if ( descriptors.size() != source.size() )
+            return Common::MakeError<Result>(
+                 std::format( "'{}' has {} records and {} descriptors; the descriptor index is not this world's",
+                              scene.SceneName, source.size(), descriptors.size() ) );
+        for ( std::size_t record = 0; record < source.size(); ++record )
+            if ( !source[record].id.has_value() ||
+                 descriptors[record].Id != static_cast<std::uint64_t>( *source[record].id ) )
+                return Common::MakeError<Result>(
+                     std::format( "record {} of '{}' has no id or its descriptor is another entity's; the "
+                                  "descriptor index is stale",
+                                  record, scene.SceneName ) );
+
+        auto expanded = ExpandPrefabInstances( scene, prefabs );
+        if ( !expanded )
+            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + expanded.GetError() );
+        Result out;
+        out.World = expanded.ExtractValue();
+        // An instance's descriptor described the prefab as one unit; its expanded records describe themselves.
+        out.Descriptors.reserve( out.World.Scene.Entities.size() );
+        for ( std::size_t record = 0; record < out.World.Slots.size(); ++record )
+        {
+            const ExpandedSlot& slot = out.World.Slots[record];
+            if ( !slot.Instance )
+            {
+                out.Descriptors.push_back( descriptors[record] );
+                continue;
+            }
+            std::vector<Rules::EntityDescriptor> body =
+                 Rules::DescribeEntities( std::span<const Assets::EntityData>( out.World.Scene.Entities )
+                                               .subspan( slot.First, slot.Count ) );
+            out.Descriptors.insert( out.Descriptors.end(), std::make_move_iterator( body.begin() ),
+                                    std::make_move_iterator( body.end() ) );
+        }
+        return Common::MakeSuccess( std::move( out ) );
     }
 
     Common::ResultStr<CookedWorld> CookWorld( const SceneSerialized&                        scene,
                                               std::span<const Rules::EntityDescriptor>      descriptors,
                                               std::span<const Common::Utils::AssetRegistry> registries,
-                                              const StoredHLODs*                            hlods )
+                                              const PrefabReader& prefabs, const StoredHLODs* hlods )
+    {
+        auto expanded = ExpandWorldForCook( scene, descriptors, prefabs );
+        if ( !expanded )
+            return Common::MakeError<CookedWorld>( expanded.GetError() );
+        return CookPlanned( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries, hlods );
+    }
+
+    static Common::ResultStr<CookedWorld> CookPlanned( const SceneSerialized&                        scene,
+                                                       std::span<const Rules::EntityDescriptor>      descriptors,
+                                                       std::span<const Common::Utils::AssetRegistry> registries,
+                                                       const StoredHLODs*                            hlods )
     {
         using Result = CookedWorld;
         if ( !scene.WorldPartition.has_value() )
@@ -1179,12 +1243,33 @@ namespace Desert::Core::WorldCells
         return Common::Utils::Crc32c( text.data(), text.size() );
     }
 
-    Common::ResultStr<BuiltHLODIndex> BuildWorldHLODs( const SceneSerialized&                        scene,
-                                                       std::span<const Rules::EntityDescriptor>      descriptors,
-                                                       std::span<const Common::Utils::AssetRegistry> registries,
-                                                       const Rules::HLODMeshBuilder&                 meshBuilder,
-                                                       const Rules::LandscapeHLODBuilder&            landscape,
-                                                       const BuiltHLODSink&                          sink )
+    // The build over an expanded world, as CookPlanned is the cook over one.
+    static Common::ResultStr<BuiltHLODIndex>
+    BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+                       std::span<const Common::Utils::AssetRegistry> registries,
+                       const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
+                       const BuiltHLODSink& sink );
+
+    Common::ResultStr<BuiltHLODIndex>
+    BuildWorldHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+                     std::span<const Common::Utils::AssetRegistry> registries, const PrefabReader& prefabs,
+                     const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
+                     const BuiltHLODSink& sink )
+    {
+        // The HLODs are built from the world the cook cuts: every prefab instance expanded the same way, by the
+        // same function, so a cook finds them fresh (StaleHLODCells over the expanded records).
+        auto expanded = ExpandWorldForCook( scene, descriptors, prefabs );
+        if ( !expanded )
+            return Common::MakeError<BuiltHLODIndex>( expanded.GetError() );
+        return BuildPlannedHLODs( expanded.GetValue().World.Scene, expanded.GetValue().Descriptors, registries,
+                                  meshBuilder, landscape, sink );
+    }
+
+    static Common::ResultStr<BuiltHLODIndex>
+    BuildPlannedHLODs( const SceneSerialized& scene, std::span<const Rules::EntityDescriptor> descriptors,
+                       std::span<const Common::Utils::AssetRegistry> registries,
+                       const Rules::HLODMeshBuilder& meshBuilder, const Rules::LandscapeHLODBuilder& landscape,
+                       const BuiltHLODSink& sink )
     {
         using Result = BuiltHLODIndex;
         auto planned = PlanHLODs( scene, descriptors, registries );
