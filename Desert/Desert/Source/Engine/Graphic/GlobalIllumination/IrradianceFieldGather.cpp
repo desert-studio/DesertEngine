@@ -132,9 +132,9 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr RDG::Access kW   = RDG::Access::StorageWrite;
         constexpr RDG::Access kS   = RDG::Access::SampledCompute;
         const auto            all  = RDG::SubresourceRange::All();
-        // ASYNC COMPUTE (with the radiance cache it reads): both nodes read the G-buffer and the cache and write their
-        // imports only; the graph joins them at the first graphics reader of the gathered lighting.
-        const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+        // ASYNC COMPUTE (with the radiance cache it reads): both nodes read the G-buffer and the cache and write
+        // their imports only; the graph joins them at the first graphics reader of the gathered lighting.
+        const RDG::PassFlags  kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const glm::uvec2      half = ( inputs.Extent + 1u ) / 2u;
         {
             ComputePipeline* const pipeline = m_Pipelines[Gather].get();

@@ -592,8 +592,7 @@ namespace Desert::Graphic::DistanceField
             const RDG::TextureRef clipmap  = frame.Clipmaps[level];
             const RDG::TextureRef grid     = frame.ObjectGrid;
             graph.AddPass(
-                 std::format( "GlobalDistanceField: Composite L{} ({} bricks)", level, count ),
-                 kAsyncPass,
+                 std::format( "GlobalDistanceField: Composite L{} ({} bricks)", level, count ), kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pipeline->SetStorageBuffer( kGdfAssetBinding, scene.GetAssetBuffer().get() );
@@ -728,15 +727,15 @@ namespace Desert::Graphic::DistanceField
 
         constexpr RDG::Access kR = RDG::Access::StorageRead;
         constexpr RDG::Access kW = RDG::Access::StorageWrite;
-        // ASYNC COMPUTE: the near-field cull, grid and sort nodes read the field's imports and host uploads and write
-        // graph buffers only; they run with the composite on the compute queue (the graph places fork and join).
+        // ASYNC COMPUTE: the near-field cull, grid and sort nodes read the field's imports and host uploads and
+        // write graph buffers only; they run with the composite on the compute queue (the graph places fork and
+        // join).
         const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         {
             ComputePipeline* const pipeline = m_CullObjectsPipeline.get();
             const uint32_t         groups   = std::max( ( fields.NumObjects + 63u ) / 64u, 1u );
             graph.AddPass(
-                 std::format( "DistanceField: Near-field cull ({} objects)", fields.NumObjects ),
-                 kAsyncPass,
+                 std::format( "DistanceField: Near-field cull ({} objects)", fields.NumObjects ), kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullObjectsLayout.Get( m_CullObjectsShader ),
@@ -785,8 +784,7 @@ namespace Desert::Graphic::DistanceField
         {
             ComputePipeline* const pipeline = m_CullOffsetsPipeline.get();
             graph.AddPass(
-                 std::format( "DistanceField: Near-field grid offsets ({} cells)", total ),
-                 kAsyncPass,
+                 std::format( "DistanceField: Near-field grid offsets ({} cells)", total ), kAsyncPass,
                  [&]( RDG::PassBuilder& pass )
                  {
                      pass.Bindings( m_CullOffsetsLayout.Get( m_CullOffsetsShader ),

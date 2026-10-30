@@ -247,8 +247,8 @@ namespace Desert::Graphic::System
             BehindScene,
         };
         // The sky draw on the scene target: SkyDepth::Fill (the forward base pass's first node) and
-        // SkyDepth::BehindScene (the deferred sky after the G-buffer depth). Empty (no TargetFramebuffer) without a
-        // target.
+        // SkyDepth::BehindScene (the deferred sky after the G-buffer depth). Empty (no TargetFramebuffer) without
+        // a target.
         [[nodiscard]] SystemRasterPass SkyPass();
         [[nodiscard]] SystemRasterPass SkyBehindScenePass();
 
@@ -341,7 +341,7 @@ namespace Desert::Graphic::System
 
         // Procedural sky (engine-generated atmosphere) — alternative to the HDR cubemap, same Sky pass.
         std::shared_ptr<GraphicsPipeline>      m_ProceduralPipeline;
-        std::shared_ptr<GraphicsPipeline>      m_ProceduralBehindPipeline; // SkyDepth::BehindScene's, built with it
+        std::shared_ptr<GraphicsPipeline> m_ProceduralBehindPipeline; // SkyDepth::BehindScene's, built with it
         std::shared_ptr<Shader>                m_ProceduralShader;
         std::shared_ptr<MaterialProceduralSky> m_ProceduralMaterial;
         ShaderBindingLayoutCache               m_ProceduralLayout; // keyed on m_ProceduralPipeline's shader

@@ -2011,14 +2011,10 @@ namespace Desert::Graphic::System
         // level @p level's drawn pages, over a @p resolution texel square. All (a local view) and Static (a sun
         // level's still casters, with the non-mesh casters) write both pool layers of the pages whose static layer
         // is redrawn; Movable (a sun level's movers) the merged layer of every drawn page.
-        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode( RDG::Builder&                   graph,
-                                                                        const VirtualShadowMapFrame&    frame,
-                                                                        const VirtualShadowMapRenderer& map,
-                                                                        uint32_t level, uint32_t view,
-                                                                        ShadowCasterLayer layer,
-                                                                        uint32_t resolution, std::string name,
-                                                                        MeshRendererDetail::MeshDrawList& draws,
-                                                                        std::vector<VsmCasterEntry>&      casters );
+        [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode(
+             RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
+             uint32_t level, uint32_t view, ShadowCasterLayer layer, uint32_t resolution, std::string name,
+             MeshRendererDetail::MeshDrawList& draws, std::vector<VsmCasterEntry>& casters );
         // CollectVirtualShadowInvalidation's state from the last frame the map was drawn: the casters that stand
         // still, sorted by signature, and the boxes of the ones that move by themselves. The instance snapshots
         // the still ISMs' signatures name, kept alive so a freed snapshot's address is not reused by a new one

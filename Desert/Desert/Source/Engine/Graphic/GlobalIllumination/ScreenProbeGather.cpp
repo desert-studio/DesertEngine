@@ -420,11 +420,11 @@ namespace Desert::Graphic::GlobalIllumination
     ScreenProbeGather::AddPasses( RDG::Builder& graph, const WorldRadianceCache::ImportImage& import,
                                   const ScreenProbeGatherInputs& inputs, ScreenProbeGatherHistory& history )
     {
-        // ASYNC COMPUTE (UE Lumen screen probes on the async pipe, ERDGPassFlags::AsyncCompute): every node below is a
-        // compute dispatch whose every input and output is a graph resource (G-buffer, HZB, velocity, the radiance
-        // cache, the tracer's field / TLAS, the surface cache), so the graph forks at the last graphics writer of what
-        // the run reads (the G-buffer, HZB) and joins at the first graphics reader of its lighting (Deferred:
-        // Composite). The passes are consecutive in AddPass order: one segment, one fork, one join.
+        // ASYNC COMPUTE (UE Lumen screen probes on the async pipe, ERDGPassFlags::AsyncCompute): every node below
+        // is a compute dispatch whose every input and output is a graph resource (G-buffer, HZB, velocity, the
+        // radiance cache, the tracer's field / TLAS, the surface cache), so the graph forks at the last graphics
+        // writer of what the run reads (the G-buffer, HZB) and joins at the first graphics reader of its lighting
+        // (Deferred: Composite). The passes are consecutive in AddPass order: one segment, one fork, one join.
         const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         if ( inputs.Extent.x == 0 || inputs.Extent.y == 0 || inputs.Extent.x >= 4096 || inputs.Extent.y >= 4096 )
             return Common::MakeFormattedError<ScreenProbeGatherFrame>(

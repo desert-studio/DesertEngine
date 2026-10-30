@@ -284,10 +284,11 @@ namespace Desert::Graphic::GlobalIllumination
         constexpr RDG::Access kRW = RDG::Access::StorageWrite;
         constexpr RDG::Access kR  = RDG::Access::StorageRead;
         constexpr RDG::Access kS  = RDG::Access::SampledCompute;
-        // ASYNC COMPUTE (UE Lumen radiance cache on the async pipe): the six nodes read and write graph resources only
-        // (the cache's imports, the G-buffer depth / normal, the light uploads, the tracer, the surface cache); the
-        // graph forks after their last graphics writer and joins at the first graphics reader of the cache.
-        const RDG::PassFlags kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
+        // ASYNC COMPUTE (UE Lumen radiance cache on the async pipe): the six nodes read and write graph resources
+        // only (the cache's imports, the G-buffer depth / normal, the light uploads, the tracer, the surface
+        // cache); the graph forks after their last graphics writer and joins at the first graphics reader of the
+        // cache.
+        const RDG::PassFlags  kAsyncPass = RDG::PassFlags::Compute | RDG::PassFlags::AsyncCompute;
         const auto            all = RDG::SubresourceRange::All();
         for ( uint32_t pass = 0; pass < PassCount; ++pass )
         {

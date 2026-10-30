@@ -309,7 +309,8 @@ namespace Desert::Graphic
     static_assert( offsetof( CloudSelfShadowParams, WorldToMap ) == 0 );
     static_assert( offsetof( CloudSelfShadowParams, Map ) == 64 );
     static_assert( offsetof( CloudSelfShadowParams, LocalSamples ) == 80 );
-    static_assert( sizeof( CloudSelfShadowParams ) == 84, "a mat4, a vec4 and a float - the shader reads exactly this" );
+    static_assert( sizeof( CloudSelfShadowParams ) == 84,
+                   "a mat4, a vec4 and a float - the shader reads exactly this" );
 
     inline constexpr uint32_t kCloudSelfShadowParamsBytes = sizeof( CloudSelfShadowParams );
 
@@ -323,15 +324,15 @@ namespace Desert::Graphic
      * @param localSamples  VolumetricCloudData::LightMarchLocalSamples.
      * @param ceiling       CloudQualityScale::LightMarchLocalSampleCeiling.
      */
-    inline CloudSelfShadowParams CloudSelfShadowPack( bool hasMap, const CloudShadowMapView& view, int32_t localSamples,
-                                                      int32_t ceiling )
+    inline CloudSelfShadowParams CloudSelfShadowPack( bool hasMap, const CloudShadowMapView& view,
+                                                      int32_t localSamples, int32_t ceiling )
     {
         const int32_t top = std::clamp( ceiling, 1, ECS::kCloudLightMarchLocalMaxSamples );
 
         CloudSelfShadowParams data;
-        data.WorldToMap   = hasMap ? view.WorldToMap : glm::mat4( 1.0f );
-        data.Map          = glm::vec4( hasMap ? view.FarDepthKm : 0.0f, hasMap ? 1.0f : 0.0f,
-                                       hasMap ? view.BorderFadeUv : 0.0f, kCloudSelfShadowLocalKm );
+        data.WorldToMap = hasMap ? view.WorldToMap : glm::mat4( 1.0f );
+        data.Map        = glm::vec4( hasMap ? view.FarDepthKm : 0.0f, hasMap ? 1.0f : 0.0f,
+                              hasMap ? view.BorderFadeUv : 0.0f, kCloudSelfShadowLocalKm );
         data.LocalSamples = static_cast<float>( std::clamp( localSamples, 1, top ) );
         return data;
     }

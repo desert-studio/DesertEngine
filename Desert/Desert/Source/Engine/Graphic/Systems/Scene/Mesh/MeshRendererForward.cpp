@@ -879,9 +879,9 @@ namespace Desert::Graphic::System
 
     bool MeshRenderer::TranslucentSectionsVisible() const
     {
-        // DeclareGlassBindings' first three tests (queue entry, frustum, translucent surface): a superset of what it
-        // draws (it also drops a refused cell or a missing row), so a false here is a frame the glass node draws
-        // nothing in.
+        // DeclareGlassBindings' first three tests (queue entry, frustum, translucent surface): a superset of what
+        // it draws (it also drops a refused cell or a missing row), so a false here is a frame the glass node
+        // draws nothing in.
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
         if ( camera == nullptr )
             return false;

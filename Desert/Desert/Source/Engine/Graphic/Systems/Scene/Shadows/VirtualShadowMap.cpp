@@ -443,17 +443,18 @@ namespace Desert::Graphic::System
         const std::span<const std::byte> bytes = readback.Physical->ReadForHost();
         if ( bytes.size() < sizeof( VsmAllocatorGpu ) )
         {
-            LOG_ERROR( "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes of {}; the drawn pages "
-                       "and the pool overflow are not known",
-                       bytes.size(), sizeof( VsmAllocatorGpu ) );
+            LOG_ERROR(
+                 "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes of {}; the drawn pages "
+                 "and the pool overflow are not known",
+                 bytes.size(), sizeof( VsmAllocatorGpu ) );
             return;
         }
         VsmAllocatorGpu counters;
         std::memcpy( &counters, bytes.data(), sizeof( counters ) );
-        m_PageStats = { .Drawn          = counters.DirtyCount,
-                        .StaticRedrawn  = counters.StaticRedrawn,
-                        .MovableRedrawn = counters.MovableRedrawn,
-                        .Overflow       = counters.Overflow };
+        m_PageStats             = { .Drawn          = counters.DirtyCount,
+                                    .StaticRedrawn  = counters.StaticRedrawn,
+                                    .MovableRedrawn = counters.MovableRedrawn,
+                                    .Overflow       = counters.Overflow };
         const uint32_t overflow = counters.Overflow;
         if ( overflow == m_ReportedOverflow )
             return;
@@ -473,8 +474,9 @@ namespace Desert::Graphic::System
 
     Common::ResultStr<VirtualShadowMapFrame> VirtualShadowMapRenderer::AddPagePasses(
          RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* const sun,
-         const std::span<const VirtualShadowMapLocalLight> locals, const std::span<const RDG::TextureRef> receiverDepths,
-         const VirtualShadowMapQuality& quality, const std::span<const VsmInvalidationBox> invalidations,
+         const std::span<const VirtualShadowMapLocalLight> locals,
+         const std::span<const RDG::TextureRef> receiverDepths, const VirtualShadowMapQuality& quality,
+         const std::span<const VsmInvalidationBox> invalidations,
          const std::span<const VsmInvalidationBox> movableInvalidations, const bool staticCastersChanged )
     {
         if ( !m_Kernels[Project].Pipeline )
@@ -863,10 +865,10 @@ namespace Desert::Graphic::System
         const bool        movable = layer == VsmCasterLayer::Movable;
         const std::string kind    = movable ? "Movable" : "";
         if ( cull.Instances.empty() || cull.Draws.empty() || cull.Arguments.empty() || cull.RemapSize == 0 )
-            return Common::MakeError<VsmCulledCasters>(
-                 std::format( "VSM: Cull {}Casters L{}: nothing to cull ({} instances, {} draws, {} argument words)",
-                              movable ? "Movable " : "", level, cull.Instances.size(), cull.Draws.size(),
-                              cull.Arguments.size() ) );
+            return Common::MakeError<VsmCulledCasters>( std::format(
+                 "VSM: Cull {}Casters L{}: nothing to cull ({} instances, {} draws, {} argument words)",
+                 movable ? "Movable " : "", level, cull.Instances.size(), cull.Draws.size(),
+                 cull.Arguments.size() ) );
         const auto instances = static_cast<uint32_t>( cull.Instances.size() );
         // One thread per instance, the groups spread over y past the dispatch limit of x.
         constexpr uint32_t kMaxGroupsX = 65535u;
@@ -890,8 +892,8 @@ namespace Desert::Graphic::System
                                  std::format( "VSM.CullInstances{}{}", kind, level ) );
         graph.QueueBufferUpload( boxes, Bytes( cull.Instances ) );
 
-        // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index), w = the
-        // mask's first level (0: the static mask, LevelCount: the drawn mask).
+        // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index), w =
+        // the mask's first level (0: the static mask, LevelCount: the drawn mask).
         const glm::uvec4 push( level, instances, grid.x * kGroup64, movable ? frame.LevelCount : 0u );
         graph.AddPass(
              std::format( "VSM: Cull {}Casters L{}", movable ? "Movable " : "", level ), RDG::PassFlags::Compute,

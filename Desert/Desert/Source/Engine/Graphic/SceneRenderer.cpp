@@ -2349,16 +2349,16 @@ namespace Desert::Graphic
                 }
                 // THE COPY ONLY FOR A CONSUMER (UE: the scene colour copy only for a view with a refractive
                 // primitive): next frame's screen traces (the history above), this frame's water, or a translucent
-                // section in the view (the glass refraction). None of them: no copy, and the water and glass nodes,
-                // which have nothing to draw, add none.
+                // section in the view (the glass refraction). None of them: no copy, and the water and glass
+                // nodes, which have nothing to draw, add none.
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-                const auto* water        = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
-                const bool  copyConsumed = screenTrace.SceneHistory.IsValid() ||
-                                          ( water != nullptr && water->HasDraws() ) ||
-                                          ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
+                const auto* water = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+                const bool  copyConsumed =
+                     screenTrace.SceneHistory.IsValid() || ( water != nullptr && water->HasDraws() ) ||
+                     ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
                 const RDG::TextureRef sceneCopy =
-                     copyConsumed ? AddFrameSceneCopy( graph, textures, sceneColor(), copy, screenTrace.SceneHistory,
-                                                       std::move( stampHistory ) )
+                     copyConsumed ? AddFrameSceneCopy( graph, textures, sceneColor(), copy,
+                                                       screenTrace.SceneHistory, std::move( stampHistory ) )
                                   : RDG::TextureRef{};
 
                 // The water after the copy (the scene without water, which its refraction reads) and before the

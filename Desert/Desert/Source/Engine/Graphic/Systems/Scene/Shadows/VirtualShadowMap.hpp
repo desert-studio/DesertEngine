@@ -362,7 +362,7 @@ namespace Desert::Graphic::System
         // VsmRasterLevel of each sun level's movers' node: { level index, VSM_LAYER_MOVABLE, 0, 0 }.
         std::vector<RDG::BufferRef> RasterLevelMovable;
         // VsmDirtyMask: the static mask, then the drawn mask, kVsmMaskWordsPerLevel words per level each.
-        RDG::BufferRef DirtyMask;
+        RDG::BufferRef              DirtyMask;
         std::vector<glm::mat4>      LevelViewProjection;
         // The sun levels' world size of one texel, cm (VsmLevelGpu::Extent.w): what a caster's LOD is measured in
         // (the virtual geometry's cut per level, SceneRenderer::AddFrameVirtualGeometryShadowPages).
@@ -389,9 +389,10 @@ namespace Desert::Graphic::System
         // Local). @p invalidations: the boxes of the still casters that changed (before and after): their pages'
         // static layer is redrawn. @p movableInvalidations: the boxes of the mover instances (now and last frame):
         // a sun level redraws only their pages' merged layer, a local view (drawn whole into both layers) both.
-        // @p staticCastersChanged: every cached page is dropped. @p receiverDepths: the forward receivers' own device depths (reversed-Z, the view's render size;
-        // the translucent front layer), each marked for the local lights like the G-buffer ("VSM: Mark Receivers").
-        // Every local light's coarse mip is marked as well ("VSM: Mark Coarse"), for the readers with no depth.
+        // @p staticCastersChanged: every cached page is dropped. @p receiverDepths: the forward receivers' own
+        // device depths (reversed-Z, the view's render size; the translucent front layer), each marked for the
+        // local lights like the G-buffer ("VSM: Mark Receivers"). Every local light's coarse mip is marked as well
+        // ("VSM: Mark Coarse"), for the readers with no depth.
         [[nodiscard]] Common::ResultStr<VirtualShadowMapFrame>
         AddPagePasses( RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* sun,
                        std::span<const VirtualShadowMapLocalLight> locals,
@@ -406,8 +407,7 @@ namespace Desert::Graphic::System
         // caller adds no raster node then).
         [[nodiscard]] Common::ResultStr<VsmCulledCasters> AddCasterCulling( RDG::Builder&                graph,
                                                                             const VirtualShadowMapFrame& frame,
-                                                                            uint32_t                     level,
-                                                                            VsmCasterLayer               layer,
+                                                                            uint32_t level, VsmCasterLayer layer,
                                                                             const VsmCasterCull& cull ) const;
 
         // "VSM: Project": the sun's screen shadow mask (System::kShadowMaskSunName), 1 = lit.

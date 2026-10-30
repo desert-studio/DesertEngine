@@ -732,10 +732,10 @@ namespace Desert::Graphic::System
             // (the merged layer of every drawn page, over the static layer "VSM: Clear Pages" copied there).
             for ( uint32_t level = 0; level < kVsmClipmapLevelCount; ++level )
             {
-                if ( auto added = AddVirtualShadowRasterNode(
-                          graph, frame, map, level, kVsmViewBase + level, ShadowCasterLayer::Static,
-                          kVsmVirtualResolution, std::format( "VSM: Raster L{}", level ), m_VsmDraws[level],
-                          m_VsmCasters[level] );
+                if ( auto added = AddVirtualShadowRasterNode( graph, frame, map, level, kVsmViewBase + level,
+                                                              ShadowCasterLayer::Static, kVsmVirtualResolution,
+                                                              std::format( "VSM: Raster L{}", level ),
+                                                              m_VsmDraws[level], m_VsmCasters[level] );
                      !added.IsSuccess() )
                     return added;
                 if ( auto added = AddVirtualShadowRasterNode(
@@ -812,14 +812,10 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode( RDG::Builder&                   graph,
-                                                                    const VirtualShadowMapFrame&    frame,
-                                                                    const VirtualShadowMapRenderer& map,
-                                                                    const uint32_t level, const uint32_t view,
-                                                                    const ShadowCasterLayer layer,
-                                                                    const uint32_t resolution, std::string name,
-                                                                    MeshDrawList&                draws,
-                                                                    std::vector<VsmCasterEntry>& casters )
+    Common::BoolResultStr MeshRenderer::AddVirtualShadowRasterNode(
+         RDG::Builder& graph, const VirtualShadowMapFrame& frame, const VirtualShadowMapRenderer& map,
+         const uint32_t level, const uint32_t view, const ShadowCasterLayer layer, const uint32_t resolution,
+         std::string name, MeshDrawList& draws, std::vector<VsmCasterEntry>& casters )
     {
         draws.Clear();
         BuildShadowCascadeDraws( view, draws, layer );
@@ -913,7 +909,8 @@ namespace Desert::Graphic::System
         // cells also fetch through the level's instance remap (Vertex_Instanced.glslh).
         const RDG::BufferRef rasterLevel = movable ? frame.RasterLevelMovable[level] : frame.RasterLevel[level];
         const VirtualShadowBlockParameters parameters =
-             [&frame, rasterLevel, remap]( RDG::BindingBlockBuilder& block, const RDG::ShaderBindingLayout& layout )
+             [&frame, rasterLevel, remap]( RDG::BindingBlockBuilder&       block,
+                                           const RDG::ShaderBindingLayout& layout )
         {
             block.Storage( MeshVirtualShadowShaderParameters::VsmFrameData, frame.FrameData,
                            RDG::Access::StorageRead )
