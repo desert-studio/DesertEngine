@@ -46,7 +46,7 @@ namespace Desert::Graphic::System
              m_SceneRenderer->GetMainCamera() == nullptr )
             return;
         BuildGpuInstancedDraws( m_MaskedDepthDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
-                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ) );
+                                CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr );
         m_MaskedDepthDraws.Declare( pass, view );
     }
 
