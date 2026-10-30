@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "fa90621c7cb44d2e966ffb945e5cf1a4",
         "Versions": {
-            "VFXS": 5
+            "VFXS": 6
         },
         "Dependencies": [
             "02637a2ef2774901a0a88452af542abd",
@@ -242,7 +242,8 @@
                         "Path": "assets:VFX/Tests/M_Test_BrokenParticle.demat"
                     }
                 }
-            ]
+            ],
+            "EventHandlers": []
         },
         {
             "Name": "BrokenMaterialRibbon",
@@ -527,7 +528,8 @@
                         "UVTileDistance": 100.0
                     }
                 }
-            ]
+            ],
+            "EventHandlers": []
         }
     ]
 }

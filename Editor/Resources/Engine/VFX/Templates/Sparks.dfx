@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "a3ec3417abf74dd38416ab22310dd9e5",
         "Versions": {
-            "VFXS": 5
+            "VFXS": 6
         },
         "Dependencies": [
             "0caef28c515f4a4e93363f1616ed3ca3", "10e483e233d547108e31d1855328a54b", "13cdf49c6bf0428790436694facfc331", "2d5323b9c4d349f8b91c4fc795599f4f", "3435fcff54c84b3499fa6ed992a4bfd3", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "6f2b9c41d8e04a57b3a1c0e9f5d27b86",
@@ -365,7 +365,8 @@
                         "Path": "engine:Engine/Materials/M_ParticleAdditive.demat"
                     }
                 }
-            ]
+            ],
+            "EventHandlers": []
         }
     ]
 }

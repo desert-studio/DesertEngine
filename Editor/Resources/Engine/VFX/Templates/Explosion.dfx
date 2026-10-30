@@ -3,7 +3,7 @@
         "Kind": "VFXSystem",
         "Guid": "e7a1c3d95b2f4e8a9c06d1f2b3a4e5c6",
         "Versions": {
-            "VFXS": 5
+            "VFXS": 6
         },
         "Dependencies": [
             "02637a2ef2774901a0a88452af542abd", "0caef28c515f4a4e93363f1616ed3ca3", "240adf0c6a0f407489419764780491eb", "2d5323b9c4d349f8b91c4fc795599f4f", "3435fcff54c84b3499fa6ed992a4bfd3", "37ef32a37dfc4501bb57e95fc9919372", "55923c5734e04fc78e068ad051c4772c", "94456c88cf0e495e9396474e052d53bd",
@@ -425,7 +425,8 @@
                     "Kind": "Sprite",
                     "Enabled": true
                 }
-            ]
+            ],
+            "EventHandlers": []
         },
         {
             "Name": "Fireball",
@@ -859,7 +860,8 @@
                     "Kind": "Sprite",
                     "Enabled": true
                 }
-            ]
+            ],
+            "EventHandlers": []
         },
         {
             "Name": "Sparks",
@@ -1174,7 +1176,8 @@
                     "Kind": "Sprite",
                     "Enabled": true
                 }
-            ]
+            ],
+            "EventHandlers": []
         }
     ]
 }
