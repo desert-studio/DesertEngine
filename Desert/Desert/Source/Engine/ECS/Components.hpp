@@ -894,7 +894,7 @@ namespace Desert::ECS
         if ( m_InstanceRevision == 0 || InstanceTransforms.size() != desc.InstanceTransforms.size() ||
              ( !InstanceTransforms.empty() &&
                std::memcmp( InstanceTransforms.data(), desc.InstanceTransforms.data(),
-                          InstanceTransforms.size() * sizeof( glm::mat4 ) ) != 0 ) )
+                            InstanceTransforms.size() * sizeof( glm::mat4 ) ) != 0 ) )
         {
             InstanceTransforms = desc.InstanceTransforms;
             m_InstanceRevision = NextInstanceRevision();

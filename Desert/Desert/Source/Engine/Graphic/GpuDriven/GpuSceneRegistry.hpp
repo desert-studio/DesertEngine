@@ -139,14 +139,14 @@ namespace Desert::Graphic::GpuDriven
     // The component's Receive Shadows off zeroes the row's ReceiveSunShadows (MeshRenderer::SyncGpuScene).
     inline constexpr uint32_t kMaterialRowNoSunShadows = 1u;
 
-    // What a material row's values were derived from (UE: a cached mesh draw command stays valid until its material
-    // changes): the template's row revision (DataDrivenMaterial::GetParamRowRevision) and the instance's parameter
-    // revision (MaterialInstance::GetParameterRevision, 0 = no instance). Both are process-unique, so a key whose
-    // address was reused never matches. Template 0 = no revision: the row is always compared.
+    // What a material row's values were derived from (UE: a cached mesh draw command stays valid until its
+    // material changes): the template's row revision (DataDrivenMaterial::GetParamRowRevision) and the instance's
+    // parameter revision (MaterialInstance::GetParameterRevision, 0 = no instance). Both are process-unique, so a
+    // key whose address was reused never matches. Template 0 = no revision: the row is always compared.
     struct MaterialRowRevision
     {
-        uint64_t Template = 0;
-        uint64_t Instance = 0;
+        uint64_t Template                                       = 0;
+        uint64_t Instance                                       = 0;
         bool     operator==( const MaterialRowRevision& ) const = default;
     };
 
@@ -267,10 +267,10 @@ namespace Desert::Graphic::GpuDriven
         // last frame is dropped by BeginFrame.
         struct EntityScratch
         {
-            uint64_t                       Sync  = 0;
-            uint64_t                       Frame = kNoFrame;
-            std::vector<Owned>             Primitives;
-            std::vector<const glm::mat4*>  FieldSets;
+            uint64_t                      Sync  = 0;
+            uint64_t                      Frame = kNoFrame;
+            std::vector<Owned>            Primitives;
+            std::vector<const glm::mat4*> FieldSets;
         };
         EntityScratch& ScratchOf( uint32_t entity );
 
@@ -287,7 +287,7 @@ namespace Desert::Graphic::GpuDriven
         GpuScene                                            m_Scene;
         std::unordered_map<MotionKey, Entry, MotionKeyHash> m_Entries;
         std::unordered_map<MaterialRowKey, MaterialEntry, MaterialRowKeyHash> m_MaterialRows;
-        std::unordered_map<uint32_t, EntityScratch>         m_EntityScratch;
+        std::unordered_map<uint32_t, EntityScratch>                           m_EntityScratch;
         std::vector<glm::mat4>                              m_FramePalettes;
         uint64_t                                            m_SyncSerial = 0;
         std::vector<std::pair<Entry*, bool>>                m_ContentTouched; // entry, added this Sync

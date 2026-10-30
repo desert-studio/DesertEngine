@@ -25,7 +25,6 @@
 
 #include <Engine/Runtime/SelectionContext.hpp>
 
-
 namespace Desert::ECS
 {
     class MeshECSSystem : public System

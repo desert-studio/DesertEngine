@@ -773,16 +773,17 @@ namespace Desert::Graphic::System
             return claimed->Index;
         // The row is rebuilt and compared only when the template's row or the instance's overrides moved since the
         // registry's row was derived (UE: cached mesh draw commands invalidated by a material change).
-        const GpuDriven::MaterialRowRevision revision{ .Template = material->GetParamRowRevision(),
-                                                       .Instance =
-                                                            instance != nullptr ? instance->GetParameterRevision() : 0 };
+        const GpuDriven::MaterialRowRevision revision{
+             .Template = material->GetParamRowRevision(),
+             .Instance = instance != nullptr ? instance->GetParameterRevision() : 0 };
         if ( const std::optional<uint32_t> reused = registry.ReuseMaterialRow( key, revision ) )
             claimed->Index = *reused;
         else
         {
             Core::Formats::MaterialParamRow row = MeshRendererDetail::EffectiveRow( material, instance );
             if ( !receiveSunShadows )
-                Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows", glm::vec4( 0.0f ) );
+                Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows",
+                                                 glm::vec4( 0.0f ) );
             claimed->Index = registry.SyncMaterialRow( key, row, revision );
         }
         const uint32_t index = claimed->Index;
@@ -806,7 +807,8 @@ namespace Desert::Graphic::System
         // Keys the previous sync did not claim leave (their template or instance may be freed); the rest keep
         // their nodes. Only a key claimed by THIS sync is ever read (Sync == m_MaterialRowSync).
         const uint64_t previous = m_MaterialRowSync;
-        std::erase_if( m_FrameMaterialRows, [previous]( const auto& held ) { return held.second.Sync != previous; } );
+        std::erase_if( m_FrameMaterialRows,
+                       [previous]( const auto& held ) { return held.second.Sync != previous; } );
         ++m_MaterialRowSync;
     }
 
@@ -844,7 +846,8 @@ namespace Desert::Graphic::System
         return true;
     }
 
-    const MeshRenderer::BinnedPrimitiveFeed* MeshRenderer::BinnedFeedOf( const GpuDriven::PrimitiveIndex primitive ) const
+    const MeshRenderer::BinnedPrimitiveFeed*
+    MeshRenderer::BinnedFeedOf( const GpuDriven::PrimitiveIndex primitive ) const
     {
         if ( primitive >= m_BinnedFeed.size() )
             return nullptr;
@@ -903,11 +906,11 @@ namespace Desert::Graphic::System
         // mask).
         const uint64_t serial = ++m_BinnedFeedSerial;
         m_BinnedFrameTouched.clear();
-        const auto claim = [this, serial, &scene]( const GpuDriven::PrimitiveIndex primitive, const Desert::Mesh* mesh,
-                                            const MeshVertexPath path, const uint32_t firstInstance,
-                                            const uint32_t instanceCount, const uint64_t hidden,
-                                            const uint32_t row, const bool generic = false,
-                                            const bool genericProgram = false )
+        const auto claim = [this, serial, &scene]( const GpuDriven::PrimitiveIndex primitive,
+                                                   const Desert::Mesh* mesh, const MeshVertexPath path,
+                                                   const uint32_t firstInstance, const uint32_t instanceCount,
+                                                   const uint64_t hidden, const uint32_t row,
+                                                   const bool generic = false, const bool genericProgram = false )
         {
             if ( mesh == nullptr || !scene.IsValid( primitive ) )
                 return;

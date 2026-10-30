@@ -220,14 +220,16 @@ namespace Desert::Graphic::System
                     data.MaterialSlots = data.MaterialSlots->Displaced;
             }
 
-        // Split each displaced ISM record by the twin its instances draw: the base keeps the undisplaced ones, every
-        // twin gets a record of its own with the displaced material, each instance keeping its GPU-scene row. The
-        // split is cached (m_DisplacedSplits): re-derived only when the record names another transform snapshot or
-        // the cache's twin generation moved, so a steady frame neither asks Find() per instance nor allocates.
+        // Split each displaced ISM record by the twin its instances draw: the base keeps the undisplaced ones,
+        // every twin gets a record of its own with the displaced material, each instance keeping its GPU-scene
+        // row. The split is cached (m_DisplacedSplits): re-derived only when the record names another transform
+        // snapshot or the cache's twin generation moved, so a steady frame neither asks Find() per instance nor
+        // allocates.
         if ( frame != m_DisplacedSplitFrame )
         {
             const uint64_t previous = m_DisplacedSplitFrame;
-            std::erase_if( m_DisplacedSplits, [previous]( const auto& held ) { return held.second.Frame != previous; } );
+            std::erase_if( m_DisplacedSplits,
+                           [previous]( const auto& held ) { return held.second.Frame != previous; } );
             m_DisplacedSplitFrame = frame;
         }
         const uint64_t generation = cache.GetTwinGeneration();
@@ -244,7 +246,7 @@ namespace Desert::Graphic::System
                 split.Snapshot       = ism.Transforms;
                 split.TwinGeneration = generation;
                 split.Groups.clear();
-                const std::vector<glm::mat4>& transforms = *ism.Transforms;
+                const std::vector<glm::mat4>&                                 transforms = *ism.Transforms;
                 std::vector<std::pair<std::shared_ptr<StaticMesh>, uint32_t>> drawn;
                 drawn.reserve( transforms.size() );
                 bool anyTwin = false;
