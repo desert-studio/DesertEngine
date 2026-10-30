@@ -28,6 +28,14 @@ namespace Desert::Core
         Common::AssetHandle Texture{};
     };
 
+    /// What a SurfaceLayer row's graph contributes to the instance: its name (the layer id is
+    /// ShaderGraph::SurfaceLayerId of it) and the textures it samples. An empty Name = the graph did not resolve.
+    struct SurfaceLayerSource
+    {
+        std::string              Name;
+        std::vector<std::string> Textures;
+    };
+
     /**
      * @brief The world's instance of its collection — UE's UMaterialParameterCollectionInstance: the scene's
      * collection (SceneSettings::WorldParameters) adopted with its defaults, then set by gameplay at runtime
@@ -45,7 +53,8 @@ namespace Desert::Core
         /// same handle with equal data keeps the live values; a different handle or changed data (the asset was
         /// edited and saved) resets every value to the new defaults.
         void Adopt( const Common::AssetHandle& source, const Assets::Serialization::WorldParametersData* data,
-                    const std::function<Common::AssetHandle( const std::string& )>& resolveTexture = {} );
+                    const std::function<Common::AssetHandle( const std::string& )>& resolveTexture = {},
+                    const std::function<SurfaceLayerSource( const std::string& )>&  resolveLayer   = {} );
 
         [[nodiscard]] const Common::AssetHandle& Source() const
         {

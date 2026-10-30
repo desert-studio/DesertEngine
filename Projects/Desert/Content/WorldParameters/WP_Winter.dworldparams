@@ -69,49 +69,6 @@
             ]
         },
         {
-            "Name": "SnowAlbedo",
-            "Type": "Texture",
-            "Default": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Texture": "Environments/FieldBarn/Textures/snow/Snow010A_Color_2k.detex"
-        },
-        {
-            "Name": "SnowNormal",
-            "Type": "Texture",
-            "Default": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Texture": "Environments/FieldBarn/Textures/snow/Snow010A_NormalGL_2k.detex"
-        },
-        {
-            "Name": "SnowArm",
-            "Type": "Texture",
-            "Default": [
-                0.0,
-                0.0,
-                0.0,
-                0.0
-            ],
-            "Texture": "Environments/FieldBarn/Textures/snow/Snow010A_arm_2k.detex"
-        },
-        {
-            "Name": "SnowTileSize",
-            "Type": "Scalar",
-            "Default": [
-                250.0,
-                0.0,
-                0.0,
-                0.0
-            ]
-        },
-        {
             "Name": "SnowDepth",
             "Type": "Scalar",
             "Default": [
@@ -120,6 +77,17 @@
                 0.0,
                 0.0
             ]
+        },
+        {
+            "Name": "SurfaceLayer",
+            "Type": "SurfaceLayer",
+            "Default": [
+                0.0,
+                0.0,
+                0.0,
+                0.0
+            ],
+            "Layer": "ShaderGraphs/M_SnowLayer.dgraph"
         }
     ]
 }

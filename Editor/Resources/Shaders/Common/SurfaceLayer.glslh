@@ -1,0 +1,72 @@
+#ifndef DESERT_SURFACE_LAYER_GLSLH
+#define DESERT_SURFACE_LAYER_GLSLH
+
+// THE WORLD'S SURFACE LAYER — the contract a Surface Layer shader graph (ShaderGraph::Domain::SurfaceLayer) is
+// compiled against. What lies ON the world's surfaces (snow, snow with dirt, ash, moss) is an ASSET: a graph whose
+// Surface Layer Output says what the layer looks like at a point (BaseColor / Normal / Roughness / Occlusion /
+// Metallic) and where it lies (Weight). The graph compiler writes every such graph as one function into
+// Generated/SurfaceLayers.glslh, plus DesertEvaluateSurfaceLayer, which picks the one the world names: the
+// collection's SurfaceLayer row publishes the layer's id under kDesertSurfaceLayerKey, so a switch of layer is a
+// value the next frame reads, not a recompile. The engine places it (Common/WeatherSnow.glslh: the sky's exposure,
+// the canopy's shelter and each material's response gate the weight); the look is the graph's.
+//
+// UE puts a Material Layer stack (or a snow Material Function) inside EACH master material, so a material that
+// forgets it has no snow; here one layer covers every lit surface and the landscape, and no material is edited.
+//
+// Needs the bindless table (injected into every material-row cell by DShaderParser).
+#include <Common/WorldParameters.glslh>
+#include <Common/TangentNormal.glslh>
+
+// Serialization::WorldParameterKey( "SurfaceLayer" ), pinned by a static_assert in Graphic/WorldParameterTable.hpp.
+const uint kDesertSurfaceLayerKey = 0xf2f26379u;
+
+// What the layer is told about the point (the Surface Layer Input node's pins, by name).
+struct DesertSurfaceLayerInput
+{
+    vec3  WorldPosition; // cm
+    vec3  WorldNormal;   // the geometric world normal: the layer buries the surface's own relief
+    vec2  TopUV;         // projected from above (a layer falls, it does not wrap): (x, -z) in cm
+    float Up;            // WorldNormal.y: 1 = faces the sky, 0 = a wall
+};
+
+// What the layer says (the Surface Layer Output node's pins, by name). Normal is tangent space in a frame laid
+// around WorldNormal (T = +X, B = -Z projected onto the surface), as a top-projected normal map reads it.
+struct DesertSurfaceLayerOutput
+{
+    vec4  BaseColor;
+    vec3  Normal;
+    float Roughness;
+    float Occlusion;
+    float Metallic;
+    float Weight; // 0 = no layer here, 1 = only the layer
+};
+
+// A Texture world parameter as a bindless texture; false while the collection names none or it is not resident.
+bool DesertWorldTexture( const uint key, out BindlessTexture t )
+{
+    const vec4 v = DesertWorldParameter( key );
+    t            = BindlessTexture( floatBitsToUint( v.x ), floatBitsToUint( v.y ), 0u, 0u );
+    return v.w > 0.5;
+}
+
+// The layer the world names (ShaderGraph::SurfaceLayerId of its graph's name; 0 = none). The id is a 24-bit
+// integer the float holds exactly, so it converts as it is: `+ 0.5` rounded every odd id at or above 2^23 (float
+// spacing 1 there, ties to even) to the next one, and such a layer (M_SnowLayer, 0x99f35f) never drew.
+uint DesertSurfaceLayerSelected()
+{
+    return uint( DesertWorldParameter( kDesertSurfaceLayerKey ).x );
+}
+
+DesertSurfaceLayerOutput DesertSurfaceLayerNone()
+{
+    DesertSurfaceLayerOutput o;
+    o.BaseColor = vec4( 0.0 );
+    o.Normal    = vec3( 0.0, 0.0, 1.0 );
+    o.Roughness = 1.0;
+    o.Occlusion = 1.0;
+    o.Metallic  = 0.0;
+    o.Weight    = 0.0;
+    return o;
+}
+
+#endif

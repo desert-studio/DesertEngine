@@ -30,14 +30,11 @@ namespace Desert::Graphic
     static_assert( sizeof( GpuWorldParameterHeader ) == 16 && sizeof( GpuWorldParameterSlot ) == 32,
                    "the std430 layout of Common/WorldParameters.glslh" );
 
-    // Common/WeatherSnow.glslh reads the snow layer by these keys, written there as literals (GLSL has no
-    // strings).
-    static_assert( Assets::Serialization::WorldParameterKey( "SnowCover" ) == 0x0b8bf081u &&
-                        Assets::Serialization::WorldParameterKey( "SnowAlbedo" ) == 0xc0678c8bu &&
-                        Assets::Serialization::WorldParameterKey( "SnowNormal" ) == 0x253367e1u &&
-                        Assets::Serialization::WorldParameterKey( "SnowArm" ) == 0xc2d545c4u &&
-                        Assets::Serialization::WorldParameterKey( "SnowTileSize" ) == 0x2fe67b17u,
-                   "the snow layer's keys in Common/WeatherSnow.glslh" );
+    // Common/SurfaceLayer.glslh reads the world's surface layer by this key, written there as a literal (GLSL has
+    // no strings); the layer's own values are read by keys the graph compiler writes into
+    // Generated/SurfaceLayers.glslh.
+    static_assert( Assets::Serialization::WorldParameterKey( "SurfaceLayer" ) == 0xf2f26379u,
+                   "the surface layer's key in Common/SurfaceLayer.glslh" );
 
     struct WorldParameterTable
     {

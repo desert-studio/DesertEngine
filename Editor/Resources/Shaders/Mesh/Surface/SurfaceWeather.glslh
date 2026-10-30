@@ -105,7 +105,7 @@ SurfaceOutput ApplySnow( SurfaceInput i, SurfaceOutput s, const float response )
     s.BaseColor        = mix( s.BaseColor, snow.Albedo, w );
     s.Roughness        = mix( s.Roughness, snow.Roughness, w );
     s.AmbientOcclusion = mix( s.AmbientOcclusion, snow.AO, w );
-    s.Metallic         = mix( s.Metallic, 0.0, w );
+    s.Metallic         = mix( s.Metallic, snow.Metallic, w );
     s.Normal           = normalize( mix( s.Normal, snowTS, w ) );
     return s;
 }

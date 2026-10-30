@@ -1,5 +1,9 @@
 #include <Engine/Core/WorldParameterInstance.hpp>
 
+#include <Engine/Assets/Serialization/ShaderGraph.hpp>
+
+#include <Common/Core/Logger.hpp>
+
 #include <cmath>
 #include <format>
 
@@ -20,7 +24,8 @@ namespace Desert::Core
     void
     WorldParameterInstance::Adopt( const Common::AssetHandle&                                      source,
                                    const Assets::Serialization::WorldParametersData*               data,
-                                   const std::function<Common::AssetHandle( const std::string& )>& resolveTexture )
+                                   const std::function<Common::AssetHandle( const std::string& )>& resolveTexture,
+                                   const std::function<SurfaceLayerSource( const std::string& )>&  resolveLayer )
     {
         if ( data == nullptr )
         {
@@ -36,11 +41,39 @@ namespace Desert::Core
         m_Values.clear();
         m_Values.reserve( data->Parameters.size() );
         for ( const auto& row : data->Parameters )
+        {
             m_Values.push_back( { row.Name, Assets::Serialization::WorldParameterKey( row.Name ), row.Type,
                                   glm::vec4( row.Default[0], row.Default[1], row.Default[2], row.Default[3] ),
                                   row.Type == WorldParameterType::Texture && resolveTexture
                                        ? resolveTexture( row.Texture )
                                        : Common::AssetHandle{} } );
+            if ( row.Type != WorldParameterType::SurfaceLayer )
+                continue;
+            // The layer's id under the row's own key (the shaders' dispatcher reads it), then each texture the
+            // layer samples as a Texture value of its own: the layer's look rides the world's bindless table.
+            const SurfaceLayerSource layer    = resolveLayer ? resolveLayer( row.Layer ) : SurfaceLayerSource{};
+            const size_t             layerRow = m_Values.size() - 1;
+            m_Values.back().Value             = glm::vec4(
+                 layer.Name.empty()
+                      ? 0.0f
+                      : static_cast<float>( Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name ) ),
+                 0.0f, 0.0f, 0.0f );
+            std::string handles;
+            for ( const std::string& texture : layer.Textures )
+            {
+                std::string    name = Assets::Serialization::ShaderGraph::SurfaceLayerTextureName( texture );
+                const uint32_t key  = Assets::Serialization::WorldParameterKey( name );
+                m_Values.push_back( { std::move( name ), key, WorldParameterType::Texture, glm::vec4( 0.0f ),
+                                      resolveTexture ? resolveTexture( texture ) : Common::AssetHandle{} } );
+                handles += std::format( " {}={}", texture, static_cast<uint64_t>( m_Values.back().Texture ) );
+            }
+            // Once per adoption (a scene open, a collection switch or a saved edit), never per frame: which layer
+            // the world now draws and whether each of its textures resolved (0 = the texture service did not know
+            // the path, and that texture's samples read as absent until the next adoption).
+            LOG_INFO( "[WorldParameters] '{}' adopts surface layer '{}' (id {:#x}, from '{}'), {} texture(s):{}",
+                      row.Name, layer.Name, static_cast<uint32_t>( m_Values[layerRow].Value.x ), row.Layer,
+                      layer.Textures.size(), handles );
+        }
     }
 
     const WorldParameterValue* WorldParameterInstance::Find( const std::string_view   name,

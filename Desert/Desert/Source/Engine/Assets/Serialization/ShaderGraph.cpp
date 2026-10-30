@@ -2,6 +2,7 @@
 
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <format>
 
 namespace Desert::Assets::Serialization::ShaderGraph
@@ -20,6 +21,16 @@ namespace Desert::Assets::Serialization::ShaderGraph
             return Common::MakeError<Document>( std::format( "bad .dgraph: {}", parsed.GetError() ) );
 
         return Common::MakeSuccess( parsed.ExtractValue() );
+    }
+
+    std::vector<std::string> SurfaceLayerTextures( const Document& doc )
+    {
+        std::vector<std::string> textures;
+        for ( const Node& node : doc.Nodes )
+            if ( node.Kind == "LayerTexture" && !node.Asset.empty() &&
+                 std::find( textures.begin(), textures.end(), node.Asset ) == textures.end() )
+                textures.push_back( node.Asset );
+        return textures;
     }
 
 } // namespace Desert::Assets::Serialization::ShaderGraph

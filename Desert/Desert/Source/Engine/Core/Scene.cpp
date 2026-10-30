@@ -1,4 +1,8 @@
 #include <Engine/Core/Scene.hpp>
+
+#include <Engine/Assets/Serialization/ShaderGraph.hpp>
+#include <Common/Core/Constants.hpp>
+#include <Common/Utilities/FileSystem.hpp>
 #include <Engine/Core/PlayerStart.hpp>
 
 #include <Engine/Graphic/SceneRenderer.hpp>
@@ -627,18 +631,45 @@ namespace Desert::Core
         }
         // A Texture row names its .detex by path; the world holds the handle, each view its bindless slot.
         std::string unresolved;
-        m_WorldParameters.Adopt( named, data.GetValue(),
-                                 [&unresolved]( const std::string& path )
-                                 {
-                                     const auto handle =
-                                          Runtime::ResourceRegistry::GetTextureService()->HandleForPath( path );
-                                     if ( !handle )
-                                     {
-                                         unresolved = handle.GetError();
-                                         return Common::AssetHandle{};
-                                     }
-                                     return Common::AssetHandle( handle.GetValue() );
-                                 } );
+        m_WorldParameters.Adopt(
+             named, data.GetValue(),
+             [&unresolved]( const std::string& path )
+             {
+                 const auto handle = Runtime::ResourceRegistry::GetTextureService()->HandleForPath( path );
+                 if ( !handle )
+                 {
+                     unresolved = handle.GetError();
+                     return Common::AssetHandle{};
+                 }
+                 return Common::AssetHandle( handle.GetValue() );
+             },
+             // A SurfaceLayer row names its .dgraph by content path: the layer's name and the
+             // textures it samples come from the graph itself, so the collection names the
+             // layer and nothing about its look.
+             [&unresolved]( const std::string& path )
+             {
+                 const auto text =
+                      Common::Utils::FileSystem::ReadFileContent( Common::Constants::Path::ASSETS_PATH / path );
+                 if ( !text )
+                 {
+                     unresolved = std::format( "surface layer '{}': {}", path, text.GetError() );
+                     return Core::SurfaceLayerSource{};
+                 }
+                 auto doc = Assets::Serialization::ShaderGraph::ParseShaderGraph( text.GetValue() );
+                 if ( !doc )
+                 {
+                     unresolved = std::format( "surface layer '{}': {}", path, doc.GetError() );
+                     return Core::SurfaceLayerSource{};
+                 }
+                 if ( doc.GetValue().DomainEnum() != Assets::Serialization::ShaderGraph::Domain::SurfaceLayer )
+                 {
+                     unresolved = std::format( "'{}' is not a Surface Layer graph", path );
+                     return Core::SurfaceLayerSource{};
+                 }
+                 return Core::SurfaceLayerSource{
+                      doc.GetValue().Name,
+                      Assets::Serialization::ShaderGraph::SurfaceLayerTextures( doc.GetValue() ) };
+             } );
         if ( !unresolved.empty() )
             return Common::MakeFormattedError<bool>( "the scene's world parameters {}: {}",
                                                      static_cast<uint64_t>( named ), unresolved );

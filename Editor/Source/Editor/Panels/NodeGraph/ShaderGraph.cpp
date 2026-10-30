@@ -1,6 +1,7 @@
 #include "ShaderGraph.hpp"
 
 #include <Editor/Core/TextList.hpp>
+#include <Engine/Assets/Serialization/WorldParameters.hpp>
 #include <Engine/Core/ShaderCompiler/ShaderGraphMedium.hpp>
 
 #include <algorithm>
@@ -35,6 +36,9 @@ namespace Desert::Editor::ShaderGraph
     static constexpr unsigned SURFACE = DomainBit( Domain::Surface );
     static constexpr unsigned POST    = DomainBit( Domain::PostProcess );
     static constexpr unsigned VOLUME  = DomainBit( Domain::Volume );
+    // The world's surface layer: no material row (its own textures are named on its Layer Texture nodes and ride
+    // the world parameter table), no mesh UV (it is projected from above) and no view clock.
+    static constexpr unsigned LAYER = DomainBit( Domain::SurfaceLayer );
 
     // Nodes that are valid everywhere EXCEPT the cloud medium. What a volume has none of is UVs and scene
     // colour — there is a `v_UV` in neither a compute march nor a participating medium, and no rendered
@@ -84,6 +88,39 @@ namespace Desert::Editor::ShaderGraph
               {}, false, false, false, SURFACE },
             { "PostProcessOutput", "Post Process Output", RGBA( 150, 90, 60, 255 ),
               { { "Color", ValueType::Color } }, {}, false, false, false, POST },
+            // THE WORLD'S SURFACE LAYER (Common/SurfaceLayer.glslh): what lies on the surface at this point and how
+            // much of it. APPENDED and never reordered, like every pin list here.
+            { "SurfaceLayerOutput", "Surface Layer Output", RGBA( 150, 90, 60, 255 ),
+              { { "BaseColor", ValueType::Color },
+                { "Normal", ValueType::Vec3 },
+                { "Roughness", ValueType::Float },
+                { "Occlusion", ValueType::Float },
+                { "Metallic", ValueType::Float },
+                { "Weight", ValueType::Float } },
+              {}, false, false, false, LAYER },
+            // What the engine tells the layer about the point — DesertSurfaceLayerInput, member per pin.
+            { "SurfaceLayerInput", "Surface Layer Input", RGBA( 70, 110, 160, 255 ), {},
+              { { "WorldPosition", ValueType::Vec3 },
+                { "WorldNormal", ValueType::Vec3 },
+                { "TopUV", ValueType::Vec2 },
+                { "Up", ValueType::Float } },
+              false, false, false, LAYER },
+            // A texture the LAYER owns (Node::Asset, as UE's Texture Sample holds its texture): published by the
+            // world's instance under ShaderGraph::SurfaceLayerTextureName and sampled bindless.
+            { "LayerTexture", "Layer Texture", RGBA( 70, 110, 160, 255 ),
+              { { "UV", ValueType::Vec2 } },
+              { { "RGBA", ValueType::Color }, { "R", ValueType::Float }, { "G", ValueType::Float },
+                { "B", ValueType::Float }, { "A", ValueType::Float } },
+              false, false, false, LAYER },
+            { "LerpVec3", "Lerp (Vector 3)", RGBA( 120, 90, 130, 255 ),
+              { { "A", ValueType::Vec3 }, { "B", ValueType::Vec3 }, { "T", ValueType::Float } },
+              { { "Out", ValueType::Vec3 } }, false, false, false, VOLUME | LAYER },
+            // A two-channel (BC5) normal map's RG to a unit tangent-space normal (Common/TangentNormal.glslh).
+            { "DecodeNormal", "Decode Normal Map", RGBA( 90, 90, 120, 255 ),
+              { { "RGBA", ValueType::Color } }, { { "Normal", ValueType::Vec3 } }, false, false, false, LAYER },
+            { "SmoothstepFloat", "Smoothstep (Float)", RGBA( 120, 90, 130, 255 ),
+              { { "Edge0", ValueType::Float }, { "Edge1", ValueType::Float }, { "X", ValueType::Float } },
+              { { "Out", ValueType::Float } }, false, false, false, CORE },
             { "SceneColor", "Scene Color", RGBA( 70, 110, 160, 255 ), {},
               { { "Color", ValueType::Color } }, false, false, false, POST },
             // THE CLOUD MEDIUM'S FIVE OUTPUTS — the Volume domain's contract (O1_DESIGN §3.3, accepted
@@ -159,26 +196,26 @@ namespace Desert::Editor::ShaderGraph
             { "CloudParam", "Cloud Material Param", RGBA( 160, 80, 90, 255 ), {},
               { { "Value", ValueType::Float } }, /*param*/ true, false, false, VOLUME },
             { "Vec3Const", "Vector 3", RGBA( 120, 70, 80, 255 ), {},
-              { { "Vector", ValueType::Vec3 } }, false, /*color*/ true, false, VOLUME },
+              { { "Vector", ValueType::Vec3 } }, false, /*color*/ true, false, VOLUME | LAYER },
             { "MultiplyVec3", "Multiply (Vector 3)", RGBA( 90, 90, 120, 255 ),
               { { "A", ValueType::Vec3 }, { "B", ValueType::Vec3 } },
-              { { "Out", ValueType::Vec3 } }, false, false, false, VOLUME },
+              { { "Out", ValueType::Vec3 } }, false, false, false, VOLUME | LAYER },
             { "ScaleVec3", "Scale (Vector 3 x Float)", RGBA( 90, 90, 120, 255 ),
               { { "Vector", ValueType::Vec3 }, { "Factor", ValueType::Float } },
-              { { "Out", ValueType::Vec3 } }, false, false, false, VOLUME },
+              { { "Out", ValueType::Vec3 } }, false, false, false, VOLUME | LAYER },
             { "SplitVec3", "Split (Vector 3)", RGBA( 110, 110, 110, 255 ),
               { { "In", ValueType::Vec3 } },
               { { "X", ValueType::Float }, { "Y", ValueType::Float }, { "Z", ValueType::Float } },
-              false, false, false, VOLUME },
+              false, false, false, VOLUME | LAYER },
             // ---- core: valid everywhere ----
             { "TextureSample", "Texture Sample", RGBA( 70, 110, 160, 255 ),
               { { "UV", ValueType::Vec2 } },
               { { "RGBA", ValueType::Color }, { "R", ValueType::Float } },
-              /*param*/ true, false, false, NOT_VOLUME },
+              /*param*/ true, false, false, NOT_VOLUME & ~LAYER },
             { "ColorParam", "Color Param", RGBA( 160, 80, 90, 255 ), {},
-              { { "Color", ValueType::Color } }, /*param*/ true, /*color*/ true, false, NOT_VOLUME },
+              { { "Color", ValueType::Color } }, /*param*/ true, /*color*/ true, false, NOT_VOLUME & ~LAYER },
             { "FloatParam", "Float Param", RGBA( 90, 140, 90, 255 ), {},
-              { { "Value", ValueType::Float } }, /*param*/ true, false, /*float*/ true, CORE },
+              { { "Value", ValueType::Float } }, /*param*/ true, false, /*float*/ true, CORE & ~LAYER },
             // A Vec3 AND NOT A COLOR PARAM, because a vec4 has nowhere to go in this domain: the medium's
             // three-component outputs are an albedo and an emission per kilometre, and the only vec4 sink
             // in the palette is none at all. A Color Param offered here would be a node that can never be
@@ -209,7 +246,7 @@ namespace Desert::Editor::ShaderGraph
               false, false, false, NOT_VOLUME },
             { "TileUV", "Tile UV", RGBA( 150, 130, 60, 255 ),
               { { "UV", ValueType::Vec2 }, { "Scale", ValueType::Float } },
-              { { "UV", ValueType::Vec2 } }, false, false, false, /*mesh tiling*/ SURFACE },
+              { { "UV", ValueType::Vec2 } }, false, false, false, /*mesh tiling, a layer's top UV*/ SURFACE | LAYER },
             // UE's ParallaxOcclusionMapping function with its Pixel Depth Offset wired: the mesh UV moved to the
             // relief point the view ray hits (Mesh/Surface/SurfaceParallax.glslh). The node gives the template its
             // surface height - the `Height` line and the material inputs Height (Texture2D) / HeightScale (cm) /
@@ -258,15 +295,15 @@ namespace Desert::Editor::ShaderGraph
             // which is the frame the modelling volume was BAKED in. Wind belongs to the sample position
             // the Cloud Sample node already hands out.
             { "Time", "Time", RGBA( 60, 140, 150, 255 ), {},
-              { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME },
+              { { "Seconds", ValueType::Float } }, false, false, false, NOT_VOLUME & ~LAYER },
             // UE's Collection Parameter node: a value of the world's parameter collection, by name. The node names
             // no collection — the scene does (SceneSettings::WorldParameters) — so it compiles to the same
             // `WorldParameter( "Name" )` read a hand-written surface writes, which DShaderParser lowers to a key.
             // Surface only: the world's table is a view-pass scene read.
             { "WorldParameter", "World Parameter (Vector)", RGBA( 60, 150, 110, 255 ), {},
-              { { "Value", ValueType::Color } }, true, false, false, SURFACE },
+              { { "Value", ValueType::Color } }, true, false, false, SURFACE | LAYER },
             { "WorldParameterScalar", "World Parameter (Scalar)", RGBA( 60, 150, 110, 255 ), {},
-              { { "Value", ValueType::Float } }, true, false, false, SURFACE },
+              { { "Value", ValueType::Float } }, true, false, false, SURFACE | LAYER },
             // ---- particles (UE's Particle Color / Particle SubUV / Particle Random / Particle Relative Time) ----
             // Each reads one field of SurfaceInput.Particle (Mesh/Surface/SurfaceTypes.glslh), which the
             // ParticleSprite cell fills from the particle the quad was expanded from (Pass_ParticleSprite.glslh)
@@ -388,6 +425,8 @@ namespace Desert::Editor::ShaderGraph
                 return "PostProcessOutput";
             case Domain::Volume:
                 return "VolumeOutput";
+            case Domain::SurfaceLayer:
+                return "SurfaceLayerOutput";
             case Domain::Surface:
                 break;
         }
@@ -548,6 +587,12 @@ namespace Desert::Editor::ShaderGraph
                 // whole-sample pin with an R pin, and `.r` reads the same on the vec4 one and on the
                 // medium's vec3 one — the difference between the nodes is where the coordinate comes
                 // from, not what a sample is.
+                // A Layer Texture hands out every channel by its own pin (an ARM map's three are three
+                // quantities).
+                if ( src->Kind == "LayerTexture" )
+                    for ( size_t i = 1; i < src->Outputs.size(); ++i )
+                        if ( it->second == src->Outputs[i].Id )
+                            return var + "." + std::string( 1, "rgba"[i - 1] );
                 if ( ( src->Kind == "TextureSample" || src->Kind == "MediumTexture" ) &&
                      src->Outputs.size() == 2 && it->second == src->Outputs[1].Id )
                     return var + ".r";
@@ -558,7 +603,7 @@ namespace Desert::Editor::ShaderGraph
                 // statements nobody reads.
                 // Particle SubImage is a SurfaceSubUV whose members are named as its pins (UV0, UV1, Blend).
                 if ( src->Kind == "CloudSample" || src->Kind == "SplitVec3" || src->Kind == "CloudNoise" ||
-                     src->Kind == "ParticleSubImage" )
+                     src->Kind == "ParticleSubImage" || src->Kind == "SurfaceLayerInput" )
                 {
                     for ( size_t i = 0; i < src->Outputs.size(); ++i )
                     {
@@ -790,7 +835,8 @@ namespace Desert::Editor::ShaderGraph
                     decl = std::format( "vec2 {} = SurfaceParallaxOcclusion( i, v_UV, s );", var );
                 else if ( node.Kind == "TileUV" )
                 {
-                    const std::string uv     = EmitInput( node, 0, "v_UV" );
+                    const std::string uv =
+                         EmitInput( node, 0, doc.DomainEnum() == Domain::SurfaceLayer ? "li.TopUV" : "v_UV" );
                     const std::string tiling = EmitInput( node, 1, "1.0" );
 
                     decl = std::format( "vec2 {} = {} * {};", var, uv, tiling );
@@ -846,10 +892,55 @@ namespace Desert::Editor::ShaderGraph
                 }
                 else if ( node.Kind == "Sine" )
                     decl = std::format( "float {} = sin( {} );", var, EmitInput( node, 0, "0.0" ) );
+                // A surface layer is a plain GLSL include, not a DShader program, so it has no
+                // `WorldParameter("...")` sugar: it reads the table by the key the sugar would have hashed.
                 else if ( node.Kind == "WorldParameter" )
-                    decl = std::format( "vec4 {} = WorldParameter( \"{}\" );", var, node.ParamName );
+                    decl =
+                         doc.DomainEnum() == Domain::SurfaceLayer
+                              ? std::format( "vec4 {} = DesertWorldParameter( {:#010x}u );", var,
+                                             ::Desert::Assets::Serialization::WorldParameterKey( node.ParamName ) )
+                              : std::format( "vec4 {} = WorldParameter( \"{}\" );", var, node.ParamName );
                 else if ( node.Kind == "WorldParameterScalar" )
-                    decl = std::format( "float {} = WorldParameter( \"{}\" ).x;", var, node.ParamName );
+                    decl =
+                         doc.DomainEnum() == Domain::SurfaceLayer
+                              ? std::format( "float {} = DesertWorldParameter( {:#010x}u ).x;", var,
+                                             ::Desert::Assets::Serialization::WorldParameterKey( node.ParamName ) )
+                              : std::format( "float {} = WorldParameter( \"{}\" ).x;", var, node.ParamName );
+                else if ( node.Kind == "SurfaceLayerInput" )
+                    decl = std::format( "DesertSurfaceLayerInput {} = li;", var );
+                else if ( node.Kind == "LayerTexture" )
+                {
+                    // Fetched unconditionally, in the control flow every pixel of the quad shares (an implicit-LOD
+                    // fetch behind a per-pixel branch has undefined derivatives); a texture that is not resident
+                    // takes the whole layer out (`resident`, declared by the layer function), never a black.
+                    const std::string uv  = EmitInput( node, 0, "li.TopUV" );
+                    const uint32_t    key = ::Desert::Assets::Serialization::WorldParameterKey(
+                         ::Desert::Assets::Serialization::ShaderGraph::SurfaceLayerTextureName( node.Asset ) );
+                    decl =
+                         std::format( "BindlessTexture {0}_t; const bool {0}_ok = DesertWorldTexture( {1:#010x}u, "
+                                      "{0}_t ); resident = resident && {0}_ok; vec4 {0} = SampleBindless( {0}_t, "
+                                      "{2} );",
+                                      var, key, uv );
+                }
+                else if ( node.Kind == "DecodeNormal" )
+                    decl = std::format( "vec3 {} = DecodeTangentNormal( ( {} ).rg );", var,
+                                        EmitInput( node, 0, "vec4( 0.5, 0.5, 1.0, 1.0 )" ) );
+                else if ( node.Kind == "LerpVec3" )
+                {
+                    const std::string from = EmitInput( node, 0, "vec3( 0.0 )" );
+                    const std::string to   = EmitInput( node, 1, "vec3( 1.0 )" );
+                    const std::string t    = EmitInput( node, 2, "0.5" );
+
+                    decl = std::format( "vec3 {} = mix( {}, {}, {} );", var, from, to, t );
+                }
+                else if ( node.Kind == "SmoothstepFloat" )
+                {
+                    const std::string e0 = EmitInput( node, 0, "0.0" );
+                    const std::string e1 = EmitInput( node, 1, "1.0" );
+                    const std::string x  = EmitInput( node, 2, "0.0" );
+
+                    decl = std::format( "float {} = smoothstep( {}, {}, {} );", var, e0, e1, x );
+                }
                 else if ( node.Kind == "Time" )
                     // A surface reads the view block's clock through its input (SurfaceInput.Time, UE's
                     // View.GameTime); a post-process program has no view block and declares TimeUB.
@@ -924,6 +1015,8 @@ namespace Desert::Editor::ShaderGraph
                     return "Post Process";
                 case Domain::Volume:
                     return "Cloud Medium";
+                case Domain::SurfaceLayer:
+                    return "Surface Layer";
                 case Domain::Surface:
                     break;
             }
@@ -1161,6 +1254,120 @@ namespace Desert::Editor::ShaderGraph
         }
     } // namespace
 
+    Common::ResultStr<std::string> CompileSurfaceLayerFunction( const Document& doc )
+    {
+        if ( doc.DomainEnum() != Domain::SurfaceLayer )
+            return Common::MakeError<std::string>( std::format( "'{}' is not a Surface Layer graph", doc.Name ) );
+        if ( !IsValidIdentifier( doc.Name ) )
+            return Common::MakeError<std::string>(
+                 std::format( "'{}' is not a valid layer name (letters/digits/underscore)", doc.Name ) );
+        if ( std::string err = ValidateGraph( doc, Domain::SurfaceLayer ); !err.empty() )
+            return Common::MakeError<std::string>( std::format( "surface layer '{}': {}", doc.Name, err ) );
+
+        const Node* output = nullptr;
+        for ( const auto& node : doc.Nodes )
+        {
+            if ( node.Kind == "LayerTexture" && node.Asset.empty() )
+                return Common::MakeError<std::string>(
+                     std::format( "surface layer '{}': a Layer Texture names no texture asset", doc.Name ) );
+            if ( node.Kind != "SurfaceLayerOutput" )
+                continue;
+            if ( output )
+                return Common::MakeError<std::string>(
+                     std::format( "surface layer '{}' has more than one Surface Layer Output", doc.Name ) );
+            output = &node;
+        }
+        if ( !output )
+            return Common::MakeError<std::string>(
+                 std::format( "surface layer '{}' needs a Surface Layer Output node", doc.Name ) );
+
+        // ONE BODY FOR THE SIX OUTPUTS (unlike the medium's five functions): every output is read at the same
+        // point on every call, so a node two outputs share is evaluated once. An unconnected output is the "no
+        // layer" value of Common/SurfaceLayer.glslh's DesertSurfaceLayerNone — an unwired Weight lays nothing.
+        struct Out
+        {
+            const char* Pin;
+            const char* Member;
+            const char* Fallback;
+        };
+        static const Out kOutputs[] = {
+             { "BaseColor", "BaseColor", "vec4( 0.0 )" }, { "Normal", "Normal", "vec3( 0.0, 0.0, 1.0 )" },
+             { "Roughness", "Roughness", "1.0" },         { "Occlusion", "Occlusion", "1.0" },
+             { "Metallic", "Metallic", "0.0" },           { "Weight", "Weight", "0.0" },
+        };
+
+        Compiler                 compiler( doc );
+        std::vector<std::string> expressions;
+        for ( const Out& o : kOutputs )
+        {
+            size_t pinIndex = output->Inputs.size();
+            for ( size_t i = 0; i < output->Inputs.size(); ++i )
+                if ( output->Inputs[i].Name == o.Pin )
+                    pinIndex = i;
+            if ( pinIndex == output->Inputs.size() )
+                return Common::MakeError<std::string>( std::format(
+                     "surface layer '{}': the Surface Layer Output has no '{}' input", doc.Name, o.Pin ) );
+            expressions.push_back( compiler.EmitInput( *output, pinIndex, o.Fallback ) );
+            if ( !compiler.error.empty() )
+                return Common::MakeError<std::string>(
+                     std::format( "surface layer '{}': {}", doc.Name, compiler.error ) );
+        }
+
+        std::ostringstream out;
+        out << std::format( "// Surface layer '{}' (id {:#08x})\n", doc.Name,
+                            ::Desert::Assets::Serialization::ShaderGraph::SurfaceLayerId( doc.Name ) );
+        out << "DesertSurfaceLayerOutput DesertSurfaceLayer_" << doc.Name
+            << "( const DesertSurfaceLayerInput li )\n{\n            bool resident = true;\n";
+        out << compiler.body.str();
+        out << "            DesertSurfaceLayerOutput o;\n";
+        for ( size_t i = 0; i < std::size( kOutputs ); ++i )
+            out << std::format( "            o.{} = {};\n", kOutputs[i].Member, expressions[i] );
+        out << "            o.Weight = resident ? clamp( o.Weight, 0.0, 1.0 ) : 0.0;\n";
+        out << "            return o;\n}\n\n";
+        return Common::MakeSuccess( out.str() );
+    }
+
+    Common::ResultStr<std::string> CompileSurfaceLayers( std::vector<Document> layers )
+    {
+        // By name, so the file is a function of the set of graphs and not of the order a directory lists them in.
+        std::sort( layers.begin(), layers.end(),
+                   []( const Document& a, const Document& b ) { return a.Name < b.Name; } );
+
+        std::ostringstream                        functions;
+        std::unordered_map<uint32_t, std::string> ids;
+        for ( const Document& layer : layers )
+        {
+            const uint32_t id = ::Desert::Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name );
+            if ( const auto [it, fresh] = ids.emplace( id, layer.Name ); !fresh )
+                return Common::MakeError<std::string>(
+                     std::format( "surface layers '{}' and '{}' share the id {:#08x}: rename one", it->second,
+                                  layer.Name, id ) );
+            auto function = CompileSurfaceLayerFunction( layer );
+            if ( !function )
+                return function;
+            functions << function.GetValue();
+        }
+
+        std::ostringstream out;
+        out << "// GENERATED by the Desert Shader Graph editor from every Surface Layer graph "
+               "(ShaderGraphs/*.dgraph) —\n"
+               "// edit the graphs, not this file. The contract is Common/SurfaceLayer.glslh; the world picks the "
+               "layer\n"
+               "// by its SurfaceLayer world parameter (the graph's id), so switching layers is a value, not a "
+               "recompile.\n";
+        out << "#ifndef DESERT_GENERATED_SURFACE_LAYERS_GLSLH\n#define DESERT_GENERATED_SURFACE_LAYERS_GLSLH\n\n";
+        out << "#include <Common/SurfaceLayer.glslh>\n\n";
+        out << functions.str();
+        out << "DesertSurfaceLayerOutput DesertEvaluateSurfaceLayer( const DesertSurfaceLayerInput li )\n{\n";
+        out << "    const uint layer = DesertSurfaceLayerSelected();\n";
+        for ( const Document& layer : layers )
+            out << std::format( "    if ( layer == {:#08x}u )\n        return DesertSurfaceLayer_{}( li );\n",
+                                ::Desert::Assets::Serialization::ShaderGraph::SurfaceLayerId( layer.Name ),
+                                layer.Name );
+        out << "    return DesertSurfaceLayerNone();\n}\n\n#endif\n";
+        return Common::MakeSuccess( out.str() );
+    }
+
     Common::ResultStr<std::string> CompileToDShader( const Document& doc )
     {
         if ( !IsValidIdentifier( doc.Name ) )
@@ -1189,6 +1396,11 @@ namespace Desert::Editor::ShaderGraph
         }
         if ( !output )
             return Common::MakeError<std::string>( std::format( "graph needs a {} node", outTitle ) );
+
+        if ( domain == Domain::SurfaceLayer )
+            return Common::MakeError<std::string>(
+                 "a Surface Layer graph is not a program: it compiles into Generated/SurfaceLayers.glslh "
+                 "(CompileSurfaceLayers), which every surface program and the landscape include" );
 
         // ---------------------------------------------------------- Volume domain -----------------
         //

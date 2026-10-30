@@ -104,6 +104,7 @@
 #include "Editor/Panels/SceneHierarchy/SceneHierarchyPanel.hpp"
 #include <Editor/Core/SkeletonAssignPalette.hpp>
 #include <Editor/Panels/AnimationEditor/SkeletonReferenceSlots.hpp>
+#include <Editor/Panels/NodeGraph/NodeGraphPanel.hpp>
 #include <Engine/Assets/Mesh/SkinnedMeshAsset.hpp>
 #include <Engine/Assets/Serialization/AnimationClipWrite.hpp>
 #include "Editor/Panels/FileExplorer/FileExplorerPanel.hpp"
@@ -293,6 +294,10 @@ namespace Desert::Editor
             m_Panels.JoinEvents( *events, EventNode() );
             m_Subsystems.emplace( *this, *events, EventNode() );
         }
+        // The world's surface layers before any surface program compiles against them (SNOW-LAYER): the generated
+        // include is a function of the project's Surface Layer graphs and is never older than they are.
+        if ( auto layers = NodeGraphPanel::RegenerateSurfaceLayers(); !layers )
+            LOG_ERROR( "[SurfaceLayer] {}", layers.GetError() );
         // THE CONTROL CHANNEL, IF ONE WAS ASKED FOR. Before anything else, so a client that started this
         // editor can connect and watch the boot rather than guessing how long to wait for the socket.
         //

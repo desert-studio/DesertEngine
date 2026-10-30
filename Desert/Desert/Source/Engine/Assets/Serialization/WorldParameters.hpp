@@ -47,6 +47,11 @@ namespace Desert::Assets::Serialization
         /// a weather layer there is a material function every master material repeats; here the layer is the
         /// engine's (Mesh/Surface/SurfaceWeather.glslh) and its look stays an asset the preset's world names.
         Texture,
+        // The world's SURFACE LAYER (ShaderGraph::Domain::SurfaceLayer): `Layer` names the layer's .dgraph
+        // (content-relative). The instance publishes the layer's id under this row's key and each texture the
+        // layer samples under ShaderGraph::SurfaceLayerTextureName, so a switch of layer is a value, not a
+        // recompile.
+        SurfaceLayer,
     };
 
     struct WorldParameterData
@@ -57,6 +62,7 @@ namespace Desert::Assets::Serialization
         /// A Texture parameter's .detex, relative to the project's Content (`Environments/x/y.detex`); empty for
         /// a scalar or a vector.
         std::string Texture;
+        std::string Layer; // SurfaceLayer rows: the layer graph (content-relative .dgraph)
 
         [[nodiscard]] bool operator==( const WorldParameterData& ) const = default;
     };
