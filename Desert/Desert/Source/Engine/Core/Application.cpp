@@ -368,7 +368,7 @@ namespace Desert::Engine
             // 9. The frame rate limit (GameUserSettings::Display.FrameRateLimit): the next frame starts on
             // the pacer's schedule. Returns at once when there is no limit.
             {
-                DESERT_PROFILE_SCOPE( "FramePacer" );
+                DESERT_PROFILE_WAIT( "FramePacer" );
                 m_FramePacer.WaitForNextFrame();
             }
         }

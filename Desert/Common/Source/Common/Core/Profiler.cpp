@@ -40,6 +40,8 @@ namespace Common::Profiling
             avg.Name      = name;
             avg.TotalMs   = result.TotalMs * inv;                              // avg ms / frame
             avg.Calls     = static_cast<uint32_t>( Math::RoundToNearest( result.Calls * inv ) ); // avg calls/frame
+            avg.SelfMs    = result.SelfMs * inv;
+            avg.WaitMs    = result.WaitMs * inv;
             avg.GpuMs     = result.GpuMs * inv;                                // avg GPU ms / frame
             avg.GpuSelfMs = result.GpuSelfMs * inv;
             avg.GpuCalls  = static_cast<uint32_t>( Math::RoundToNearest( result.GpuCalls * inv ) );
@@ -59,7 +61,7 @@ namespace Common::Profiling
         m_WindowStart  = now;
     }
 
-    void Profiler::AddSample( const char* name, double ms )
+    void Profiler::AddSample( const char* name, double totalMs, double selfMs, double waitMs )
     {
         if ( !m_Enabled )
             return;
@@ -68,8 +70,61 @@ namespace Common::Profiling
         auto&                       r = m_Accum[name]; // summed across the whole window, averaged on publish
         if ( r.Name.empty() )
             r.Name = name;
-        r.TotalMs += ms;
+        r.TotalMs += totalMs;
+        r.SelfMs += selfMs;
+        r.WaitMs += waitMs;
         r.Calls += 1;
+    }
+
+    namespace
+    {
+        // The innermost open ScopedTimer of this thread: the top of the thread's scope stack, linked through
+        // ScopedTimer::m_Enclosing. Per thread, so a job's scopes on a worker never become children of
+        // whatever the main thread has open.
+        thread_local ScopedTimer* t_Innermost = nullptr;
+    } // namespace
+
+    ScopedTimer::ScopedTimer( const char* name, ScopeKind kind )
+        : m_Name( name ), m_Enclosing( t_Innermost ), m_Start( std::chrono::high_resolution_clock::now() ),
+          m_Kind( kind )
+    {
+        t_Innermost = this;
+    }
+
+    ScopedTimer::~ScopedTimer()
+    {
+        // A BODY-LEVEL try, not a function-try-block, and the difference is not style. A function-try-block
+        // on a destructor also covers the destruction of bases and members, none of which can throw here;
+        // what it DOES do is put a `try` between the class body and the brace, and the pointer-ownership
+        // census tracks members by brace depth (measured: it stopped seeing the members entirely).
+        try
+        {
+            const double totalMs =
+                 std::chrono::duration<double, std::milli>( std::chrono::high_resolution_clock::now() - m_Start )
+                      .count();
+            // A Wait scope is wait from end to end; a Work scope reports the waits nested in it.
+            const double waitMs = m_Kind == ScopeKind::Wait ? totalMs : m_WaitMs;
+
+            // Off the stack. The innermost timer in the ordinary case; otherwise a timer opened after this one
+            // is still open (it outlives its parent) and takes this one's enclosing timer as its own.
+            if ( t_Innermost == this )
+                t_Innermost = m_Enclosing;
+            else
+                for ( ScopedTimer* inner = t_Innermost; inner != nullptr; inner = inner->m_Enclosing )
+                    if ( inner->m_Enclosing == this )
+                    {
+                        inner->m_Enclosing = m_Enclosing;
+                        break;
+                    }
+            if ( m_Enclosing != nullptr )
+            {
+                m_Enclosing->m_NestedMs += totalMs;
+                m_Enclosing->m_WaitMs += waitMs;
+            }
+
+            Profiler::Get().AddSample( m_Name, totalMs, std::max( 0.0, totalMs - m_NestedMs ), waitMs );
+        }
+        DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
     }
 
     void Profiler::AddGpuSample( const char* name, double inclusiveMs, double selfMs )

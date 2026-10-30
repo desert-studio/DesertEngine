@@ -73,7 +73,10 @@ namespace Desert::Graphic::API::Vulkan
 
     void VulkanSwapChainOutput::Present()
     {
-        DESERT_PROFILE_SCOPE( "Vulkan: Present" ); // a row of its own (FPS-CPU-2): a driver may block here
+        // A WAIT row (FPS-CPU-2, PRESENT-COST): vkQueuePresentKHR blocks while the swapchain's queue of
+        // presented images is full (vsync, or the display behind the GPU); the driver's own present work is in
+        // the same row and is small next to that. Enclosing rows count it in their wait column.
+        DESERT_PROFILE_WAIT( "Vulkan: Present" );
         if ( !Graphic::DeviceLost::AllowWork() )
             return;
 

@@ -56,8 +56,25 @@ namespace Desert::Graphic::API::Vulkan
         }
 
     private:
+        // One frame entry as Submit hands it to vkQueueSubmit: the entry's waits and signals plus the window's
+        // and the uploads' (Submit), with the timeline info that points into them.
+        struct PreparedSubmission
+        {
+            VkQueue                           Queue = VK_NULL_HANDLE;
+            std::vector<VkSemaphore>          Waits;
+            std::vector<VkPipelineStageFlags> Stages;
+            std::vector<VkSemaphore>          Signals;
+            std::vector<uint64_t>             WaitValues;
+            std::vector<uint64_t>             SignalValues;
+            VkTimelineSemaphoreSubmitInfo Timeline{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            bool                          HasTimeline = false;
+        };
+
         VkDevice              m_Device = VK_NULL_HANDLE;
         VulkanRdgQueueObjects m_QueueObjects;
         std::vector<VkFence>  m_Fences; // per slot; VK_NULL_HANDLE when its creation failed (refused by name)
+        // Submit's per-frame storage, kept across frames so a steady frame allocates nothing to submit.
+        std::vector<PreparedSubmission> m_Prepared;
+        std::vector<VkSubmitInfo>       m_SubmitInfos;
     };
 } // namespace Desert::Graphic::API::Vulkan

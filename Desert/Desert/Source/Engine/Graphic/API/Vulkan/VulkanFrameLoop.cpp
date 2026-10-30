@@ -70,57 +70,97 @@ namespace Desert::Graphic::API::Vulkan
         const CommandBufferAllocator::UploadSyncPoint uploads =
              CommandBufferAllocator::GetInstance().NewestUploadSync();
         bool waitedOnUploads = uploads.Value == 0; // nothing uploaded yet: nothing to wait
+        // PREPARE every entry first, into storage that outlives the batches below (VkSubmitInfo and the timeline
+        // info point into it). Kept across frames: an entry's vectors are re-assigned, not re-allocated.
+        if ( m_Prepared.size() < frame.size() )
+            m_Prepared.resize( frame.size() );
         for ( size_t i = 0; i < frame.size(); ++i )
         {
-            const VulkanRdgSubmission&        entry   = frame[i];
-            const bool                        last    = i + 1 == frame.size();
-            const VkQueue target = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
-            std::vector<VkSemaphore>          waits   = entry.WaitSemaphores;
-            std::vector<VkPipelineStageFlags> stages  = entry.WaitStages;
-            std::vector<VkSemaphore>          signals = entry.SignalSemaphores;
+            const VulkanRdgSubmission& entry    = frame[i];
+            PreparedSubmission&        prepared = m_Prepared[i];
+            const bool                 last     = i + 1 == frame.size();
+            prepared.Queue = entry.Queue != VK_NULL_HANDLE ? entry.Queue : device->GetGraphicsQueue();
+            prepared.Waits.assign( entry.WaitSemaphores.begin(), entry.WaitSemaphores.end() );
+            prepared.Stages.assign( entry.WaitStages.begin(), entry.WaitStages.end() );
+            prepared.Signals.assign( entry.SignalSemaphores.begin(), entry.SignalSemaphores.end() );
             // The values of a submission that waits or signals a timeline: one per semaphore, ignored for the
             // binary ones. Starts from the entry's own (RDG-EXTERNAL points; empty when it has none).
-            std::vector<uint64_t> waitValues   = entry.WaitValues;
-            std::vector<uint64_t> signalValues = entry.SignalValues;
-            const bool            timelines    = !waitValues.empty() || !signalValues.empty();
+            prepared.WaitValues.assign( entry.WaitValues.begin(), entry.WaitValues.end() );
+            prepared.SignalValues.assign( entry.SignalValues.begin(), entry.SignalValues.end() );
+            const bool timelines = !prepared.WaitValues.empty() || !prepared.SignalValues.empty();
             if ( output != nullptr && !waitedOnImage && entry.OnPipe == RDG::Pipe::Graphics )
             {
-                waits.push_back( output->ImageAcquired );
-                stages.push_back( output->ImageFirstUse );
+                prepared.Waits.push_back( output->ImageAcquired );
+                prepared.Stages.push_back( output->ImageFirstUse );
                 if ( timelines )
-                    waitValues.push_back( 0 );
+                    prepared.WaitValues.push_back( 0 );
                 waitedOnImage = true;
             }
-            VkTimelineSemaphoreSubmitInfo timelineInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
             if ( !waitedOnUploads && entry.OnPipe == RDG::Pipe::AsyncCompute &&
-                 target != device->GetGraphicsQueue() )
+                 prepared.Queue != device->GetGraphicsQueue() )
             {
-                waitValues.resize( waits.size(), 0 );
-                waits.push_back( uploads.Timeline );
-                stages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
-                waitValues.push_back( uploads.Value );
+                prepared.WaitValues.resize( prepared.Waits.size(), 0 );
+                prepared.Waits.push_back( uploads.Timeline );
+                prepared.Stages.push_back( VK_PIPELINE_STAGE_ALL_COMMANDS_BIT );
+                prepared.WaitValues.push_back( uploads.Value );
                 waitedOnUploads = true;
             }
             if ( last && output != nullptr )
             {
-                signals.push_back( output->RenderComplete );
+                prepared.Signals.push_back( output->RenderComplete );
                 if ( timelines )
-                    signalValues.push_back( 0 );
+                    prepared.SignalValues.push_back( 0 );
             }
-            if ( !waitValues.empty() || !signalValues.empty() )
+            prepared.Timeline    = VkTimelineSemaphoreSubmitInfo{ .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+            prepared.HasTimeline = !prepared.WaitValues.empty() || !prepared.SignalValues.empty();
+            if ( prepared.HasTimeline )
             {
-                waitValues.resize( waits.size(), 0 );
-                signalValues.resize( signals.size(), 0 );
-                timelineInfo.waitSemaphoreValueCount   = static_cast<uint32_t>( waitValues.size() );
-                timelineInfo.pWaitSemaphoreValues      = waitValues.data();
-                timelineInfo.signalSemaphoreValueCount = static_cast<uint32_t>( signalValues.size() );
-                timelineInfo.pSignalSemaphoreValues    = signalValues.data();
+                prepared.WaitValues.resize( prepared.Waits.size(), 0 );
+                prepared.SignalValues.resize( prepared.Signals.size(), 0 );
+                prepared.Timeline.waitSemaphoreValueCount   = static_cast<uint32_t>( prepared.WaitValues.size() );
+                prepared.Timeline.pWaitSemaphoreValues      = prepared.WaitValues.data();
+                prepared.Timeline.signalSemaphoreValueCount = static_cast<uint32_t>( prepared.SignalValues.size() );
+                prepared.Timeline.pSignalSemaphoreValues    = prepared.SignalValues.data();
+            }
+        }
+
+        // ONE vkQueueSubmit PER RUN OF ENTRIES ON THE SAME QUEUE, not one per entry (PRESENT-COST). The frame is
+        // split at every graph and every graph segment, so a frame has many entries, and each vkQueueSubmit is a
+        // driver call plus a round of the device's queue mutex, which upload workers also take. A run passes its
+        // entries in order as the batches of ONE call, and the batches of one call start in submission order
+        // exactly as separate calls do (UE batches a queue's pending command lists into one submit the same way).
+        // The run ends where the queue changes, so an entry that waits a semaphore another queue signals is still
+        // submitted after the submission that signals it.
+        for ( size_t first = 0; first < frame.size(); )
+        {
+            size_t end = first + 1;
+            while ( end < frame.size() && m_Prepared[end].Queue == m_Prepared[first].Queue )
+                ++end;
+            const bool holdsLast = end == frame.size();
+
+            m_SubmitInfos.clear();
+            for ( size_t i = first; i < end; ++i )
+            {
+                const PreparedSubmission& prepared = m_Prepared[i];
+                VkSubmitInfo              submitInfo{};
+                submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                submitInfo.pNext                = prepared.HasTimeline ? &prepared.Timeline : nullptr;
+                submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( prepared.Waits.size() );
+                submitInfo.pWaitSemaphores      = prepared.Waits.data();
+                submitInfo.pWaitDstStageMask    = prepared.Stages.data();
+                submitInfo.commandBufferCount   = 1;
+                submitInfo.pCommandBuffers      = &frame[i].CommandBuffer;
+                submitInfo.signalSemaphoreCount = static_cast<uint32_t>( prepared.Signals.size() );
+                submitInfo.pSignalSemaphores    = prepared.Signals.data();
+                m_SubmitInfos.push_back( submitInfo );
             }
 
             // RESET IMMEDIATELY BEFORE THE SUBMISSION THAT SIGNALS IT. BeginSlot waited this fence for the slot's
             // previous frame; resetting any earlier would leave a fence that nothing will signal behind a frame
-            // that failed between the two, and the slot's next wait would never return.
-            if ( last )
+            // that failed between the two, and the slot's next wait would never return. The fence goes with the
+            // run that holds the frame's graphics tail: it is signalled once every batch of that call and
+            // everything submitted to the queue before it has completed.
+            if ( holdsLast )
             {
                 // THIS RESULT USED TO GO STRAIGHT ON THE FLOOR, and it is the first line of the crash that
                 // motivated the device-lost gate: "vkResetFences(): pFences[0] is in use. (a VK_ERROR_DEVICE_LOST
@@ -135,28 +175,20 @@ namespace Desert::Graphic::API::Vulkan
                 }
             }
 
-            VkSubmitInfo submitInfo{};
-            submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            submitInfo.pNext                = waitValues.empty() && signalValues.empty() ? nullptr : &timelineInfo;
-            submitInfo.waitSemaphoreCount   = static_cast<uint32_t>( waits.size() );
-            submitInfo.pWaitSemaphores      = waits.data();
-            submitInfo.pWaitDstStageMask    = stages.data();
-            submitInfo.commandBufferCount   = 1;
-            submitInfo.pCommandBuffers      = &entry.CommandBuffer;
-            submitInfo.signalSemaphoreCount = static_cast<uint32_t>( signals.size() );
-            submitInfo.pSignalSemaphores    = signals.data();
             const VkResult submitted =
-                 device->SubmitToQueue( target, 1, &submitInfo, last ? m_Fences[slot] : VK_NULL_HANDLE );
+                 device->SubmitToQueue( m_Prepared[first].Queue, static_cast<uint32_t>( m_SubmitInfos.size() ),
+                                        m_SubmitInfos.data(), holdsLast ? m_Fences[slot] : VK_NULL_HANDLE );
             if ( submitted != VK_SUCCESS )
             {
                 (void)NoteIfDeviceLost( submitted, "vkQueueSubmit", __FILE__, __LINE__ );
-                // RDG-EXTERNAL: the points this and the later entries would have signalled are signalled from the
-                // host, so another API waiting on one (an enqueued OIDN filter) is released.
-                for ( size_t rest = i; rest < frame.size(); ++rest )
+                // RDG-EXTERNAL: the points this run and the later entries would have signalled are signalled from
+                // the host, so another API waiting on one (an enqueued OIDN filter) is released.
+                for ( size_t rest = first; rest < frame.size(); ++rest )
                     m_QueueObjects.SignalOnHost( frame[rest].ExternalSignals );
-                return Common::MakeFormattedError<bool>( "vkQueueSubmit of frame entry {} of {} failed: {}", i,
-                                                         frame.size(), VkResultToString( submitted ) );
+                return Common::MakeFormattedError<bool>( "vkQueueSubmit of frame entries {}..{} of {} failed: {}",
+                                                         first, end - 1, frame.size(), VkResultToString( submitted ) );
             }
+            first = end;
         }
         return Common::MakeSuccess( true );
     }
@@ -170,7 +202,7 @@ namespace Desert::Graphic::API::Vulkan
 
         // A row of its own (FPS-CPU-2): the frames-in-flight throttle is the one CPU wait every steady frame
         // may pay; it is the GPU being behind, not CPU work, and the profile must say which.
-        DESERT_PROFILE_SCOPE( "Vulkan: frame slot fence wait" );
+        DESERT_PROFILE_WAIT( "Vulkan: frame slot fence wait" );
         const VkResult waited = vkWaitForFences( m_Device, 1, &m_Fences[slot], VK_TRUE, UINT64_MAX );
         if ( waited != VK_SUCCESS )
         {

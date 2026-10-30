@@ -29,8 +29,16 @@ namespace Common::Profiling
     struct ScopeResult
     {
         std::string Name;
-        double      TotalMs = 0.0; // summed across all calls this frame
+        double      TotalMs = 0.0; // summed across all calls this frame; INCLUSIVE of every nested scope
         uint32_t    Calls   = 0;
+        // TotalMs with every nested CPU scope subtracted: what ran in this scope's own lines. Unlike TotalMs it
+        // can be summed across rows (on one thread).
+        double SelfMs = 0.0;
+        // The part of TotalMs this thread spent BLOCKED in a ScopeKind::Wait scope (its own, or one nested in
+        // it at any depth): a fence, an acquire, a present, the frame pacer. TotalMs - WaitMs is the scope's
+        // work. UE keeps waits as stats of their own for the same reason: a present scope that "costs 8 ms" is
+        // almost always the GPU or the display being waited for, and an inclusive number cannot say which.
+        double WaitMs = 0.0;
         // GPU time for the SAME name, measured by the backend's timestamp queries. Zero for a scope that
         // records no GPU work (most of them) and for a build/device without timestamp support. It arrives
         // MaxFramesInFlight frames late (see IGpuProfilerSink) — invisible here because both numbers are
@@ -48,6 +56,16 @@ namespace Common::Profiling
     // anything summing the per-pass column has to leave it out. Declared here, beside the results it
     // appears in, so the backend that writes it and the panel that reads it share one string.
     inline constexpr const char* kGpuFrameTotalScope = "GPU: Frame Total";
+
+    // What a CPU scope is. Work is the default; Wait marks a scope whose time is the thread BLOCKED on
+    // something outside it (vkWaitForFences, vkAcquireNextImageKHR, vkQueuePresentKHR, the frame pacer's
+    // sleep). Every enclosing scope reports that time in its WaitMs column, so a parent row splits into work
+    // and wait without a second name for either half.
+    enum class ScopeKind : uint8_t
+    {
+        Work,
+        Wait,
+    };
 
     // How the backend (Vulkan) is told where a GPU scope starts and ends. Common must not know about
     // Vulkan, so the graphics layer installs an implementation and the profiling macros call through it.
@@ -76,7 +94,9 @@ namespace Common::Profiling
         // Averaging makes the numbers readable at high FPS (per-frame values flicker too fast to read).
         void BeginFrame();
 
-        void AddSample( const char* name, double ms );
+        // One closed CPU scope: @p totalMs inclusive, @p selfMs with nested scopes subtracted, @p waitMs the
+        // part of totalMs spent in Wait scopes (ScopeResult).
+        void AddSample( const char* name, double totalMs, double selfMs, double waitMs );
 
         // Resolved GPU time for a scope, fed by the backend once the queries for a finished frame are
         // readable. Lands in the same row as the CPU sample of the same name. @p inclusiveMs covers nested
@@ -161,33 +181,26 @@ namespace Common::Profiling
         IGpuProfilerSink*                            m_GpuSink       = nullptr;
     };
 
+    // A CPU scope. Timers on one thread form a stack (they nest by C++ scope): each knows the timer it opened
+    // inside, and on closing hands that one its inclusive time (for the parent's self time) and the wait time
+    // it contained (for the parent's wait column). Closing out of order (a timer outliving one opened after
+    // it) is unlinked from the middle of the stack, not mistaken for the innermost one.
     class ScopedTimer
     {
     public:
-        explicit ScopedTimer( const char* name )
-            : m_Name( name ), m_Start( std::chrono::high_resolution_clock::now() )
-        {
-        }
-        ~ScopedTimer()
-        {
-            // A BODY-LEVEL try, not a function-try-block, and the difference is not style. A
-            // function-try-block on a destructor also covers the destruction of bases and members, which
-            // is what the other seven guarded destructors want; this one has two members, a `const char*`
-            // and a time_point, neither of which can throw. What the function-try-block DOES do here is
-            // put a `try` between the class body and the brace, and the pointer-ownership census tracks
-            // members by brace depth — measured: it stopped seeing m_Name and m_Start entirely.
-            try
-            {
-                const auto end = std::chrono::high_resolution_clock::now();
-                Profiler::Get().AddSample( m_Name,
-                                           std::chrono::duration<double, std::milli>( end - m_Start ).count() );
-            }
-            DESERT_DESTRUCTOR_GUARD( "~ScopedTimer" )
-        }
+        explicit ScopedTimer( const char* name, ScopeKind kind = ScopeKind::Work );
+        ~ScopedTimer();
+
+        ScopedTimer( const ScopedTimer& )            = delete;
+        ScopedTimer& operator=( const ScopedTimer& ) = delete;
 
     private:
         const char*                                    m_Name;
+        ScopedTimer*                                   m_Enclosing = nullptr;
         std::chrono::high_resolution_clock::time_point m_Start;
+        double                                         m_NestedMs = 0.0; // inclusive time of the direct children
+        double                                         m_WaitMs   = 0.0; // Wait-scope time inside, any depth
+        ScopeKind                                      m_Kind;
     };
 
     // The GPU half of ScopedTimer: brackets the same scope with two device timestamps. Costs one virtual
@@ -260,6 +273,7 @@ namespace Common::Profiling
 #if !DESERT_DEV_INSTRUMENTS
 
 #define DESERT_PROFILE_SCOPE( NAME )
+#define DESERT_PROFILE_WAIT( NAME )
 #define DESERT_PROFILE_SCOPE_DYNAMIC( CSTR )
 #define DESERT_PROFILE_FUNC()
 #define DESERT_PROFILE_PASS( NAME )
@@ -277,6 +291,14 @@ namespace Common::Profiling
 #define DESERT_PROFILE_SCOPE( NAME )                                                                              \
     OPTICK_EVENT( NAME );                                                                                         \
     const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertProf_, __LINE__ )( NAME )
+
+// A scope whose time is the thread BLOCKED (ScopeKind::Wait): a fence, an acquire, a present, a pacer sleep.
+// Its own row as DESERT_PROFILE_SCOPE, plus its time in the WaitMs column of every enclosing row; Optick
+// draws it in its Wait category. Wrap only the blocking call, so the row is the wait and nothing else.
+#define DESERT_PROFILE_WAIT( NAME )                                                                               \
+    OPTICK_CATEGORY( NAME, ::Optick::Category::Wait );                                                            \
+    const ::Common::Profiling::ScopedTimer DESERT_PROF_CONCAT( _desertWait_, __LINE__ )(                          \
+         NAME, ::Common::Profiling::ScopeKind::Wait )
 
 // Like DESERT_PROFILE_SCOPE but for a runtime name (e.g. a render-pass name). The const char* must stay
 // valid for the duration of the scope.
