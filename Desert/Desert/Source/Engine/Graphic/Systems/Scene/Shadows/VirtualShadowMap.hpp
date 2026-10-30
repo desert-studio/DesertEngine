@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -33,6 +34,17 @@
 // cached until the light changes or a caster's box (the motion mask: CollectVirtualShadowInvalidation's moved and
 // changed casters) covers it. "VSM: Project Local" writes each light's screen mask into the local mask array the
 // deferred composite reads by ShadowMaskSlot.
+//
+// THE STATIC AND THE MOVABLE LAYER (UE r.Shadow.Virtual.Cache.StaticSeparate): every physical page has two
+// layers of the pool. The STATIC layer holds only the casters that stand still (static, generic and still
+// instanced meshes, the clusters, the terrain); the MERGED layer, the one every receiver reads, holds the static
+// layer plus the casters that move by themselves (swaying foliage, skinned meshes). A page's static layer is
+// redrawn only when a still caster over it changed (kVsmFlagDirtyStatic, with kVsmFlagDirty); a mover over it
+// marks it kVsmFlagDirty alone: "VSM: Clear Pages" copies its static layer into its merged one and only the movers
+// are drawn over the copy ("VSM: Raster Movable L<l>"). A swaying forest then re-rasterises its trees every frame,
+// never the barn, the ground or the still casters under them. UE merges the layers the same way before any
+// receiver samples (its "merge static cached pages"), so no reader samples twice. The local lights' views draw
+// every caster into both layers (their invalidations always carry kVsmFlagDirtyStatic).
 //
 // The GPU side is Common/VirtualShadowMap.glslh and Programs/Shadows/VirtualShadowMap*.shader; every constant
 // below has its twin there.
@@ -102,7 +114,18 @@ namespace Desert::Graphic::System
     inline constexpr uint32_t kVsmFlagAllocated = 1u;
     inline constexpr uint32_t kVsmFlagDirty     = 2u;
     inline constexpr uint32_t kVsmFlagRequested = 4u;
-    inline constexpr uint32_t kVsmInvalid       = 0xFFFFFFFFu;
+    // Its static layer is redrawn too (a still caster over it changed, or the page is new); never without
+    // kVsmFlagDirty. kVsmFlagDirty alone: the merged layer is the static layer copied plus the movers.
+    inline constexpr uint32_t kVsmFlagDirtyStatic = 32u;
+    inline constexpr uint32_t kVsmInvalid         = 0xFFFFFFFFu;
+
+    // Which casters a "VSM: Raster" node draws (VsmRasterLevel.y, VSM_LAYER_*): the still ones into both layers of
+    // the pages whose static layer is redrawn, or the movers into the merged layer of every drawn page.
+    enum class VsmCasterLayer : uint32_t
+    {
+        Static  = 0, // VSM_LAYER_STATIC
+        Movable = 1, // VSM_LAYER_MOVABLE
+    };
 
     inline constexpr std::string_view kVirtualShadowMapPassPrefix = "VSM: ";
 
@@ -149,8 +172,11 @@ namespace Desert::Graphic::System
     static_assert( sizeof( VsmPageEntryGpu ) == 16 );
 
     // "VSM: Dirty Mask": per level, one bit per cell of kVsmMaskCellPages x kVsmMaskCellPages window pages, set
-    // when a page of the cell is drawn this frame (allocated, dirty, requested) - what "VSM: Cull Casters" tests a
-    // caster's footprint against (UE: the page flags' hierarchy CullPerPageDrawCommands reads).
+    // when a page of the cell is drawn this frame - what "VSM: Cull Casters" tests a caster's footprint against
+    // (UE: the page flags' hierarchy CullPerPageDrawCommands reads). Two masks end to end: first the STATIC mask
+    // (level l at word l * kVsmMaskWordsPerLevel: pages whose static layer is redrawn - what the still casters,
+    // the clusters' cut and the instance cull test), then the DRAWN mask (level l at (LevelCount + l) *
+    // kVsmMaskWordsPerLevel: every drawn page - what the movers test).
     inline constexpr uint32_t kVsmMaskCellPages     = 8;
     inline constexpr uint32_t kVsmMaskCells         = kVsmLevelPages / kVsmMaskCellPages; // per side
     inline constexpr uint32_t kVsmMaskWordsPerLevel = kVsmMaskCells * kVsmMaskCells / 32u;
@@ -194,9 +220,32 @@ namespace Desert::Graphic::System
     };
 
     // VsmAllocator: the frame's counters and the indirect dispatch of "VSM: Clear Pages" at kVsmClearArgsOffset.
-    inline constexpr uint64_t kVsmAllocatorBytes  = 48;
-    inline constexpr uint64_t kVsmClearArgsOffset = 32;
-    inline constexpr uint64_t kVsmOverflowOffset  = 16; // VsmAllocator.Overflow
+    // The VsmAllocator record of the page shaders (Allocate, Gather, Clear Args).
+    struct VsmAllocatorGpu
+    {
+        uint32_t   EmptyCount       = 0;
+        uint32_t   CachedCount      = 0;
+        uint32_t   AllocationCursor = 0;
+        uint32_t   DirtyCount       = 0; // pages cleared and drawn this frame
+        uint32_t   Overflow         = 0; // requests the pool could not hold
+        uint32_t   StaticRedrawn    = 0; // of DirtyCount, the pages whose static layer is redrawn
+        uint32_t   MovableRedrawn   = 0; // of DirtyCount, the pages whose static layer was copied (movers only)
+        uint32_t   Padding          = 0;
+        glm::uvec4 ClearArgs{ 0u }; // VkDispatchIndirectCommand of "VSM: Clear Pages"
+    };
+    static_assert( sizeof( VsmAllocatorGpu ) == 48 );
+    inline constexpr uint64_t kVsmAllocatorBytes  = sizeof( VsmAllocatorGpu );
+    inline constexpr uint64_t kVsmClearArgsOffset = offsetof( VsmAllocatorGpu, ClearArgs );
+    static_assert( kVsmClearArgsOffset == 32 );
+
+    // The pages of the newest frame read back (DesertCtl state "vsm" pages): every level, sun and local.
+    struct VsmPageStats
+    {
+        uint32_t Drawn          = 0; // pages cleared and drawn
+        uint32_t StaticRedrawn  = 0; // of them, the static layer redrawn (a still caster changed, a new page)
+        uint32_t MovableRedrawn = 0; // of them, only the movers drawn over the copied static layer
+        uint32_t Overflow       = 0; // requests the pool could not hold
+    };
 
     // ---- The clipmap, on the CPU (UE FVirtualShadowMapClipmap).
     // -------------------------------------------------- One level's placement this frame. The window is snapped
@@ -229,8 +278,9 @@ namespace Desert::Graphic::System
         uint32_t SmrtSamplesPerRayLocal = 8; // Shadows.VirtualSMRTSamplesPerRayLocal (SMRT.SamplesPerRayLocal)
     };
 
-    // A world box whose casters changed this frame (UE FVirtualShadowMapCacheManager invalidation): a movable
-    // caster's bounds now and where it stood last frame.
+    // A world box whose casters changed this frame (UE FVirtualShadowMapCacheManager invalidation): a still
+    // caster's bounds before and after it changed (its pages' static layer is redrawn), or one mover instance's
+    // bounds now and where it stood last frame (only its pages' merged layer is redrawn).
     struct VsmInvalidationBox
     {
         glm::vec3 Min{ 0.0f };
@@ -309,7 +359,10 @@ namespace Desert::Graphic::System
         // FrameData to find its page (Mesh/Surface/Pass_VirtualShadowDepth.glslh).
         // Every level of the table: the kVsmClipmapLevelCount sun levels first, then the local views' mips.
         std::vector<RDG::BufferRef> RasterLevel;
-        RDG::BufferRef              DirtyMask; // VsmDirtyMask: kVsmMaskWordsPerLevel words per level
+        // VsmRasterLevel of each sun level's movers' node: { level index, VSM_LAYER_MOVABLE, 0, 0 }.
+        std::vector<RDG::BufferRef> RasterLevelMovable;
+        // VsmDirtyMask: the static mask, then the drawn mask, kVsmMaskWordsPerLevel words per level each.
+        RDG::BufferRef DirtyMask;
         std::vector<glm::mat4>      LevelViewProjection;
         // The sun levels' world size of one texel, cm (VsmLevelGpu::Extent.w): what a caster's LOD is measured in
         // (the virtual geometry's cut per level, SceneRenderer::AddFrameVirtualGeometryShadowPages).
@@ -333,24 +386,28 @@ namespace Desert::Graphic::System
         // AddProjection.
         // @p sun: nullptr = no sun this frame (its levels hold nothing). @p locals: the shadowed point / spot
         // lights whose sphere meets the view, each with its mask layer (Mark Local, the local rasters, Project
-        // Local). @p invalidations: the boxes of the casters that moved or changed (now and last frame), the
-        // motion mask every level's cached pages are tested against. @p staticCastersChanged: every cached page is
-        // dropped. @p receiverDepths: the forward receivers' own device depths (reversed-Z, the view's render size;
+        // Local). @p invalidations: the boxes of the still casters that changed (before and after): their pages'
+        // static layer is redrawn. @p movableInvalidations: the boxes of the mover instances (now and last frame):
+        // a sun level redraws only their pages' merged layer, a local view (drawn whole into both layers) both.
+        // @p staticCastersChanged: every cached page is dropped. @p receiverDepths: the forward receivers' own device depths (reversed-Z, the view's render size;
         // the translucent front layer), each marked for the local lights like the G-buffer ("VSM: Mark Receivers").
         // Every local light's coarse mip is marked as well ("VSM: Mark Coarse"), for the readers with no depth.
         [[nodiscard]] Common::ResultStr<VirtualShadowMapFrame>
         AddPagePasses( RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* sun,
                        std::span<const VirtualShadowMapLocalLight> locals,
                        std::span<const RDG::TextureRef> receiverDepths, const VirtualShadowMapQuality& quality,
-                       std::span<const VsmInvalidationBox> invalidations, bool staticCastersChanged );
+                       std::span<const VsmInvalidationBox> invalidations,
+                       std::span<const VsmInvalidationBox> movableInvalidations, bool staticCastersChanged );
 
         // "VSM: Cull Casters" of level @p level (UE CullPerPageDrawCommands): every instance of @p cull whose
-        // world box covers a cell of the level holding a page drawn this frame (frame.DirtyMask) is counted into
-        // each of its draw's records and written to the draw's remap slots; a level with no such page draws
-        // nothing. Refused for an empty @p cull (the caller adds no raster node then).
+        // world box covers a cell of the level holding a page drawn this frame (frame.DirtyMask: the static mask
+        // for @p layer Static, the drawn mask for Movable) is counted into each of its draw's records and written
+        // to the draw's remap slots; a level with no such page draws nothing. Refused for an empty @p cull (the
+        // caller adds no raster node then).
         [[nodiscard]] Common::ResultStr<VsmCulledCasters> AddCasterCulling( RDG::Builder&                graph,
                                                                             const VirtualShadowMapFrame& frame,
                                                                             uint32_t                     level,
+                                                                            VsmCasterLayer               layer,
                                                                             const VsmCasterCull& cull ) const;
 
         // "VSM: Project": the sun's screen shadow mask (System::kShadowMaskSunName), 1 = lit.
@@ -369,6 +426,11 @@ namespace Desert::Graphic::System
         [[nodiscard]] const std::vector<VsmLocalLightStats>& GetLocalLightStats() const
         {
             return m_LocalStats;
+        }
+        // Every level's drawn pages of the newest frame read back, static and movable apart (zero before).
+        [[nodiscard]] const VsmPageStats& GetPageStats() const
+        {
+            return m_PageStats;
         }
 
     private:
@@ -416,10 +478,10 @@ namespace Desert::Graphic::System
         bool UpdateClipmap( const glm::vec3& directionToSun, const glm::vec3& camera,
                             std::array<VsmLevelGpu, kVsmClipmapLevelCount>& levels );
 
-        // The pool overflow of the frame that last used @p slot (its fence was waited before this frame recorded),
-        // logged once per change of the count, naming Shadows.VirtualMaxPhysicalPages (UE prints the same warning
-        // from its VSM stats readback).
-        void ReportOverflow( uint32_t slot );
+        // The allocator counters of the frame that last used @p slot (its fence was waited before this frame
+        // recorded): its drawn pages into m_PageStats, and its pool overflow logged once per change of the count,
+        // naming Shadows.VirtualMaxPhysicalPages (UE prints the same warning from its VSM stats readback).
+        void ReadAllocator( uint32_t slot );
 
         std::array<KernelProgram, KernelCount> m_Kernels;
 
@@ -428,6 +490,7 @@ namespace Desert::Graphic::System
         std::vector<RDG::ExternalBuffer> m_AllocatorReadback;
         std::vector<uint32_t>            m_ReadbackPhysicalPages;
         uint32_t                         m_ReportedOverflow = 0;
+        VsmPageStats                     m_PageStats;
 
         RDG::ExternalTexture m_Pool;
         RDG::ExternalBuffer  m_PageTable;

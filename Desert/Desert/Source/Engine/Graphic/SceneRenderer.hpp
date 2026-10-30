@@ -727,6 +727,11 @@ namespace Desert::Graphic
         {
             return m_VirtualShadowMap.GetLocalLightStats();
         }
+        // The virtual shadow map's drawn pages as last read back, static layer and movers apart (state "vsm").
+        [[nodiscard]] const System::VsmPageStats& GetVirtualShadowPageStats() const
+        {
+            return m_VirtualShadowMap.GetPageStats();
+        }
 
         // THE CURRENT FRAME'S VIEW (TAA1 step 3) — what every camera-block writer of this renderer fills
         // CameraUB from (ShaderProtocols::MakeCameraUB). CONTRACT: non-null only while OnUpdate runs, from the

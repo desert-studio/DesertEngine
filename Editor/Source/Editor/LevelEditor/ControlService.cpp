@@ -1671,6 +1671,11 @@ namespace Desert::Editor
                                             .Cells            = prepass.Cells,
                                             .GpuSections      = prepass.GpuSections,
                                             .DepthWriteInBase = prepass.DepthWriteInBase };
+                const Graphic::System::VsmPageStats& vsmPages = primary->GetVirtualShadowPageStats();
+                snapshot.VsmPagesDrawn                        = vsmPages.Drawn;
+                snapshot.VsmPagesStaticRedrawn                = vsmPages.StaticRedrawn;
+                snapshot.VsmPagesMovableRedrawn               = vsmPages.MovableRedrawn;
+                snapshot.VsmPagesOverflow                     = vsmPages.Overflow;
                 for ( const Graphic::System::VsmLocalLightStats& light : primary->GetVirtualShadowLocalStats() )
                     snapshot.VsmLocalLights.push_back( { .Source    = light.SourceId,
                                                          .Views     = light.Views,

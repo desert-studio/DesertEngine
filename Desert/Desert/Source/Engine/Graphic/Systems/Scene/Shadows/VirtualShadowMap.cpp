@@ -198,8 +198,10 @@ namespace Desert::Graphic::System
         m_Owners    = {};
 
         const uint32_t rows = Groups( physicalPages, kVsmPoolPagesPerRow );
+        // Two layers one above the other: the merged layer every reader samples, then the static layer
+        // (Common/VirtualShadowMap.glslh VsmPoolStaticPageOrigin).
         pool = graph.CreateTexture( RDG::TextureDesc{ .Size   = { .Width  = kVsmPoolPagesPerRow * kVsmPageSize,
-                                                                  .Height = rows * kVsmPageSize },
+                                                                  .Height = 2u * rows * kVsmPageSize },
                                                       .Format = Core::Formats::ImageFormat::R32_UINT },
                                     "VSM.PhysicalPool" );
         // Written by "VSM: Clear Pages" and the casters, read by "VSM: Project": the last use of a frame is the
@@ -433,22 +435,26 @@ namespace Desert::Graphic::System
         return lightChanged;
     }
 
-    void VirtualShadowMapRenderer::ReportOverflow( const uint32_t slot )
+    void VirtualShadowMapRenderer::ReadAllocator( const uint32_t slot )
     {
         const RDG::ExternalBuffer& readback = m_AllocatorReadback[slot];
         if ( !readback.Physical )
             return; // the slot has not been used yet
         const std::span<const std::byte> bytes = readback.Physical->ReadForHost();
-        if ( bytes.size() < kVsmOverflowOffset + sizeof( uint32_t ) )
+        if ( bytes.size() < sizeof( VsmAllocatorGpu ) )
         {
-            LOG_ERROR(
-                 "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes, the overflow count is at "
-                 "{}; the pool overflow is not known",
-                 bytes.size(), kVsmOverflowOffset );
+            LOG_ERROR( "[Shadows] Virtual Shadow Map: the allocator readback holds {} bytes of {}; the drawn pages "
+                       "and the pool overflow are not known",
+                       bytes.size(), sizeof( VsmAllocatorGpu ) );
             return;
         }
-        uint32_t overflow = 0;
-        std::memcpy( &overflow, bytes.data() + kVsmOverflowOffset, sizeof( overflow ) );
+        VsmAllocatorGpu counters;
+        std::memcpy( &counters, bytes.data(), sizeof( counters ) );
+        m_PageStats = { .Drawn          = counters.DirtyCount,
+                        .StaticRedrawn  = counters.StaticRedrawn,
+                        .MovableRedrawn = counters.MovableRedrawn,
+                        .Overflow       = counters.Overflow };
+        const uint32_t overflow = counters.Overflow;
         if ( overflow == m_ReportedOverflow )
             return;
         m_ReportedOverflow = overflow;
@@ -469,7 +475,7 @@ namespace Desert::Graphic::System
          RDG::Builder& graph, const VirtualShadowMapViewInputs& view, const VirtualShadowMapSun* const sun,
          const std::span<const VirtualShadowMapLocalLight> locals, const std::span<const RDG::TextureRef> receiverDepths,
          const VirtualShadowMapQuality& quality, const std::span<const VsmInvalidationBox> invalidations,
-         const bool staticCastersChanged )
+         const std::span<const VsmInvalidationBox> movableInvalidations, const bool staticCastersChanged )
     {
         if ( !m_Kernels[Project].Pipeline )
             return Common::MakeError<VirtualShadowMapFrame>(
@@ -591,7 +597,7 @@ namespace Desert::Graphic::System
             m_StatsLevelLights.assign( slots, {} );
         }
         const uint32_t slot = static_cast<uint32_t>( view.FrameIndex % slots );
-        ReportOverflow( slot );
+        ReadAllocator( slot );
         ReadStats( slot );
         m_AllocatorReadback[slot]     = RDG::ExternalBuffer{};
         m_ReadbackPhysicalPages[slot] = pages;
@@ -606,21 +612,30 @@ namespace Desert::Graphic::System
                   ++level )
                 levelLights[level] = { placement.SourceId, placement.Views };
 
-        // VsmRasterLevel of the levels drawn this frame: the sun's, and the local mips (LocalRasters).
+        // VsmRasterLevel of the levels drawn this frame: the sun's (its still casters' node and its movers'), and
+        // the local mips (LocalRasters: every caster by the static layer's rule, both layers written).
         frame.RasterLevel.resize( levelCount );
-        const auto rasterLevel = [&graph, &frame]( const uint32_t level )
+        const auto rasterLevel = [&graph]( const uint32_t level, const VsmCasterLayer layer )
         {
-            const glm::uvec4 value( level, 0u, 0u, 0u );
-            frame.RasterLevel[level] = graph.CreateBuffer( RDG::BufferDesc{ .Bytes = sizeof( value ) },
-                                                           std::format( "VSM.RasterLevel{}", level ) );
-            graph.QueueBufferUpload( frame.RasterLevel[level],
-                                     std::as_bytes( std::span<const glm::uvec4>( &value, 1 ) ) );
+            const glm::uvec4     value( level, static_cast<uint32_t>( layer ), 0u, 0u );
+            const RDG::BufferRef buffer = graph.CreateBuffer(
+                 RDG::BufferDesc{ .Bytes = sizeof( value ) },
+                 layer == VsmCasterLayer::Movable ? std::format( "VSM.RasterLevelMovable{}", level )
+                                                  : std::format( "VSM.RasterLevel{}", level ) );
+            graph.QueueBufferUpload( buffer, std::as_bytes( std::span<const glm::uvec4>( &value, 1 ) ) );
+            return buffer;
         };
         if ( sun != nullptr )
+        {
+            frame.RasterLevelMovable.resize( kVsmClipmapLevelCount );
             for ( uint32_t i = 0; i < kVsmClipmapLevelCount; ++i )
-                rasterLevel( i );
+            {
+                frame.RasterLevel[i]        = rasterLevel( i, VsmCasterLayer::Static );
+                frame.RasterLevelMovable[i] = rasterLevel( i, VsmCasterLayer::Movable );
+            }
+        }
         for ( const VsmLocalRaster& raster : frame.LocalRasters )
-            rasterLevel( raster.Level );
+            frame.RasterLevel[raster.Level] = rasterLevel( raster.Level, VsmCasterLayer::Static );
 
         const RDG::BufferRef  frameData = frame.FrameData;
         const RDG::BufferRef  pageTable = frame.PageTable;
@@ -667,19 +682,31 @@ namespace Desert::Graphic::System
              },
              glm::uvec4( resetAll, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
 
-        // Nothing to invalidate per caster when every page was just dropped.
-        if ( !invalidations.empty() && resetAll == 0u )
+        // Nothing to invalidate per caster when every page was just dropped. The still casters' boxes first (the
+        // static and the merged layer), then the movers' (a sun level's merged layer alone).
+        const std::size_t boxCount = invalidations.size() + movableInvalidations.size();
+        if ( boxCount != 0u && resetAll == 0u )
         {
             std::vector<glm::vec4> boxes;
-            boxes.reserve( invalidations.size() * 2 );
-            for ( const VsmInvalidationBox& box : invalidations )
+            boxes.reserve( boxCount * 2 );
+            const auto addBoxes = [&boxes]( const std::span<const VsmInvalidationBox> set )
             {
-                boxes.emplace_back( box.Min, 0.0f );
-                boxes.emplace_back( box.Max, 0.0f );
-            }
+                for ( const VsmInvalidationBox& box : set )
+                {
+                    boxes.emplace_back( box.Min, 0.0f );
+                    boxes.emplace_back( box.Max, 0.0f );
+                }
+            };
+            addBoxes( invalidations );
+            addBoxes( movableInvalidations );
             const RDG::BufferRef boxBuffer = graph.CreateBuffer(
                  RDG::BufferDesc{ .Bytes = boxes.size() * sizeof( glm::vec4 ) }, "VSM.Invalidations" );
             graph.QueueBufferUpload( boxBuffer, Bytes( boxes ) );
+            // One group per (box, level); the boxes spread over z past the dispatch limit of x (a swaying forest
+            // hands one box per instance).
+            constexpr uint32_t kMaxGroupsX = 65535u;
+            const auto         count       = static_cast<uint32_t>( boxCount );
+            const uint32_t     groupsX     = std::min( count, kMaxGroupsX );
             dispatch(
                  InvalidateCasters,
                  [&]( RDG::BindingBlockBuilder& block )
@@ -688,8 +715,9 @@ namespace Desert::Graphic::System
                           .Storage( VirtualShadowMapPagesShaderParameters::VsmPageTable, pageTable, kW )
                           .Storage( VirtualShadowMapPagesShaderParameters::VsmInvalidations, boxBuffer, kR );
                  },
-                 std::nullopt,
-                 glm::uvec3( static_cast<uint32_t>( invalidations.size() ), levelCount, 1u ) );
+                 // x = the first mover's box, y = the box count, z = boxes per z slice of the grid
+                 glm::uvec4( static_cast<uint32_t>( invalidations.size() ), count, groupsX, 0u ),
+                 glm::uvec3( groupsX, levelCount, Groups( count, groupsX ) ) );
         }
 
         if ( sun != nullptr )
@@ -770,12 +798,12 @@ namespace Desert::Graphic::System
              },
              glm::uvec4( pages, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
 
-        // The cells of each level holding a page drawn this frame, for the casters' cull.
-        frame.DirtyMask =
-             graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ levelCount } * kVsmMaskWordsPerLevel *
-                                                           sizeof( uint32_t ) },
-                                 "VSM.DirtyMask" );
-        const std::vector<uint32_t> zeroMask( size_t{ levelCount } * kVsmMaskWordsPerLevel, 0u );
+        // The cells of each level holding a page drawn this frame, for the casters' cull: the static mask (the
+        // still casters), then the drawn mask (the movers).
+        frame.DirtyMask = graph.CreateBuffer(
+             RDG::BufferDesc{ .Bytes = 2ull * levelCount * kVsmMaskWordsPerLevel * sizeof( uint32_t ) },
+             "VSM.DirtyMask" );
+        const std::vector<uint32_t> zeroMask( 2ull * levelCount * kVsmMaskWordsPerLevel, 0u );
         graph.QueueBufferUpload( frame.DirtyMask, Bytes( zeroMask ) );
         const RDG::BufferRef dirtyMask = frame.DirtyMask;
         dispatch(
@@ -787,7 +815,7 @@ namespace Desert::Graphic::System
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmDirtyMask, dirtyMask, kW )
                       .Storage( VirtualShadowMapPagesShaderParameters::VsmLevelStats, levelStats, kW );
              },
-             std::nullopt, glm::uvec3( entryGroups, levelCount, 1u ) );
+             glm::uvec4( levelCount, 0u, 0u, 0u ), glm::uvec3( entryGroups, levelCount, 1u ) );
 
         dispatch(
              ClearArgs, [&]( RDG::BindingBlockBuilder& block )
@@ -825,16 +853,20 @@ namespace Desert::Graphic::System
 
     Common::ResultStr<VsmCulledCasters>
     VirtualShadowMapRenderer::AddCasterCulling( RDG::Builder& graph, const VirtualShadowMapFrame& frame,
-                                                const uint32_t level, const VsmCasterCull& cull ) const
+                                                const uint32_t level, const VsmCasterLayer layer,
+                                                const VsmCasterCull& cull ) const
     {
         const KernelProgram& kernel = m_Kernels[CullCasters];
         if ( !kernel.Pipeline )
             return Common::MakeError<VsmCulledCasters>(
                  "Shadows: Virtual Shadow Map: the pipelines are not initialised" );
+        const bool        movable = layer == VsmCasterLayer::Movable;
+        const std::string kind    = movable ? "Movable" : "";
         if ( cull.Instances.empty() || cull.Draws.empty() || cull.Arguments.empty() || cull.RemapSize == 0 )
             return Common::MakeError<VsmCulledCasters>(
-                 std::format( "VSM: Cull Casters L{}: nothing to cull ({} instances, {} draws, {} argument words)",
-                              level, cull.Instances.size(), cull.Draws.size(), cull.Arguments.size() ) );
+                 std::format( "VSM: Cull {}Casters L{}: nothing to cull ({} instances, {} draws, {} argument words)",
+                              movable ? "Movable " : "", level, cull.Instances.size(), cull.Draws.size(),
+                              cull.Arguments.size() ) );
         const auto instances = static_cast<uint32_t>( cull.Instances.size() );
         // One thread per instance, the groups spread over y past the dispatch limit of x.
         constexpr uint32_t kMaxGroupsX = 65535u;
@@ -844,24 +876,25 @@ namespace Desert::Graphic::System
         VsmCulledCasters culled;
         culled.Arguments =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Arguments.size() * sizeof( uint32_t ) },
-                                 std::format( "VSM.CasterArguments{}", level ) );
+                                 std::format( "VSM.CasterArguments{}{}", kind, level ) );
         graph.QueueBufferUpload( culled.Arguments, Bytes( cull.Arguments ) );
         culled.InstanceRemap =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = uint64_t{ cull.RemapSize } * sizeof( uint32_t ) },
-                                 std::format( "VSM.InstanceRemap{}", level ) );
+                                 std::format( "VSM.InstanceRemap{}{}", kind, level ) );
         const RDG::BufferRef draws =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Draws.size() * sizeof( VsmCullDrawGpu ) },
-                                 std::format( "VSM.CullDraws{}", level ) );
+                                 std::format( "VSM.CullDraws{}{}", kind, level ) );
         graph.QueueBufferUpload( draws, Bytes( cull.Draws ) );
         const RDG::BufferRef boxes =
              graph.CreateBuffer( RDG::BufferDesc{ .Bytes = cull.Instances.size() * sizeof( VsmCullInstanceGpu ) },
-                                 std::format( "VSM.CullInstances{}", level ) );
+                                 std::format( "VSM.CullInstances{}{}", kind, level ) );
         graph.QueueBufferUpload( boxes, Bytes( cull.Instances ) );
 
-        // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index).
-        const glm::uvec4 push( level, instances, grid.x * kGroup64, 0u );
+        // x = level, y = instance count, z = threads per row of groups (the y stride of the instance index), w = the
+        // mask's first level (0: the static mask, LevelCount: the drawn mask).
+        const glm::uvec4 push( level, instances, grid.x * kGroup64, movable ? frame.LevelCount : 0u );
         graph.AddPass(
-             std::format( "VSM: Cull Casters L{}", level ), RDG::PassFlags::Compute,
+             std::format( "VSM: Cull {}Casters L{}", movable ? "Movable " : "", level ), RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( kernel.Layout.Get( kernel.Program ),

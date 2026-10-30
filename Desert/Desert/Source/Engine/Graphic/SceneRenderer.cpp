@@ -3061,8 +3061,7 @@ namespace Desert::Graphic
              meshes->CollectVirtualShadowInvalidation();
         const Common::ResultStr<System::VirtualShadowMapFrame> pages = m_VirtualShadowMap.AddPagePasses(
              graph, view, hasSun ? &sun : nullptr, locals, receiverDepths, m_VirtualShadowQuality,
-             invalidation.Boxes,
-             invalidation.StaticCastersChanged );
+             invalidation.Boxes, invalidation.MovableBoxes, invalidation.StaticCastersChanged );
         if ( !pages )
         {
             LOG_ERROR( "[SceneRenderer] {}: {}; the virtual shadow map casts no shadow this frame",

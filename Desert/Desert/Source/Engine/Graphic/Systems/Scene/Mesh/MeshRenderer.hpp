@@ -974,7 +974,11 @@ namespace Desert::Graphic::System
         // and a cube face alike.
         static constexpr uint32_t           kCascadeMovableViewBase = kCascadeViews;
         static constexpr uint32_t           kVsmViewBase            = kCascadeMovableViewBase + kCascadeViews;
-        static constexpr uint32_t kRainOcclusionView      = kVsmViewBase + kVsmClipmapLevelCount;
+        // Each sun level's movers ("VSM: Raster Movable L<l>", ShadowCasterLayer::Movable) draw from a view of
+        // their own, in the same frame as the level's still casters: materials of their own, as a cascade's
+        // movable layer.
+        static constexpr uint32_t kVsmMovableViewBase     = kVsmViewBase + kVsmClipmapLevelCount;
+        static constexpr uint32_t kRainOcclusionView      = kVsmMovableViewBase + kVsmClipmapLevelCount;
         static constexpr uint32_t kLocalShadowViewBase    = kRainOcclusionView + 1u;
         static constexpr uint32_t kFixedShadowViews       = kLocalShadowViewBase;
         // A virtual shadow map view: a clipmap level of the sun (the fixed range), or a local view this frame's
@@ -994,7 +998,8 @@ namespace Desert::Graphic::System
         // compiling when the pages were drawn, so the cached pages lack it and every one is dropped.
         struct VirtualShadowInvalidation
         {
-            std::vector<VsmInvalidationBox> Boxes;
+            std::vector<VsmInvalidationBox> Boxes;        // the still casters that changed: both layers
+            std::vector<VsmInvalidationBox> MovableBoxes; // every mover instance, now and last frame: merged layer
             bool                            StaticCastersChanged = false;
         };
         [[nodiscard]] VirtualShadowInvalidation CollectVirtualShadowInvalidation();
@@ -1954,6 +1959,8 @@ namespace Desert::Graphic::System
         // Each level's casters, built by its node's setup and recorded by its exec; the non-mesh casters its setup
         // declared, each with the index of its first block (after the list's).
         std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmDraws;
+        // Each level's movers ("VSM: Raster Movable L<l>"): no non-mesh caster, so its caster list stays empty.
+        std::array<MeshRendererDetail::MeshDrawList, kVsmClipmapLevelCount> m_VsmMovableDraws;
         // This frame's VG-only issue of every level (SetVirtualShadowGeometry), consumed by
         // AddVirtualShadowRasterPasses into m_VsmGeometryDraws ("VSM: Raster VirtualGeometry"); while set, the
         // levels' CPU walk leaves out the submeshes whose clusters it draws (CpuWalkHidden).
@@ -1985,6 +1992,7 @@ namespace Desert::Graphic::System
             uint32_t                     FirstRecord = 0;
         };
         std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmCasters;
+        std::array<std::vector<VsmCasterEntry>, kVsmClipmapLevelCount> m_VsmMovableCasters;
         // The local lights' drawn mips (VirtualShadowMapFrame::LocalRasters), one entry each, in the frame's order:
         // its casters and non-mesh casters as a sun level's. Grows and is never shrunk, so a node's lambdas hold a
         // stable entry.
@@ -1994,12 +2002,15 @@ namespace Desert::Graphic::System
             std::vector<VsmCasterEntry>      Casters;
         };
         std::vector<std::unique_ptr<VsmLocalRasterDraws>> m_VsmLocalDraws;
-        // One raster node of the virtual shadow map: the casters of shadow view @p view culled against level
-        // @p level's drawn pages, over a @p resolution texel square.
+        // One raster node of the virtual shadow map: the casters of shadow view @p view in @p layer culled against
+        // level @p level's drawn pages, over a @p resolution texel square. All (a local view) and Static (a sun
+        // level's still casters, with the non-mesh casters) write both pool layers of the pages whose static layer
+        // is redrawn; Movable (a sun level's movers) the merged layer of every drawn page.
         [[nodiscard]] Common::BoolResultStr AddVirtualShadowRasterNode( RDG::Builder&                   graph,
                                                                         const VirtualShadowMapFrame&    frame,
                                                                         const VirtualShadowMapRenderer& map,
                                                                         uint32_t level, uint32_t view,
+                                                                        ShadowCasterLayer layer,
                                                                         uint32_t resolution, std::string name,
                                                                         MeshRendererDetail::MeshDrawList& draws,
                                                                         std::vector<VsmCasterEntry>&      casters );

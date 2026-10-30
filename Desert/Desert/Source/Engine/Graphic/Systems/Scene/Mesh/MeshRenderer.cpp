@@ -166,6 +166,8 @@ namespace Desert::Graphic::System
         }
         for ( auto& level : m_VsmDraws )
             level.CountAs( GpuDriven::MeshPass::VirtualShadow );
+        for ( auto& level : m_VsmMovableDraws )
+            level.CountAs( GpuDriven::MeshPass::VirtualShadow );
 
         const auto& targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
