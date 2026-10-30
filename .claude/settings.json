@@ -119,6 +119,14 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/board_guard.py\""
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/tools/arch_prompt.py\""
+          }
+        ]
       }
     ],
     "Stop": [
