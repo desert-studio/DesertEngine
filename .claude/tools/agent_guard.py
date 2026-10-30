@@ -95,6 +95,7 @@ CI_WAIT = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^;&|]*--watch)|"
 
 
 MAX_BRIEF_ITEMS = 2
+ARCH_KEYS = ("Эталон", "Варианты", "Выбор")  # «## Архитектура»: reference followed / alternatives weighed / why this one
 MAX_BRIEF_DO_CHARS = 900  # calibrated 10-05: done = M18f 749, ANIM-AUDIT 839; wip = MEDIA-2 1106, MEDIA-3 1083, VIDEO-1 2100, VIDEO-2a 1017
 
 
@@ -122,6 +123,15 @@ def brief_size_denial(prompt):
     if not scen or not re.search(r"^\s*(Тогда|Then)[^\n]*\[[\w.-]+\]", scen.group(1), re.M):
         return (f"[agent_guard] Тимлид: в брифе {found.group(0)} нет «## Сценарий» с хотя бы одной строкой "
                 "«Тогда [имя_кадра]: что видно» (владелец 10-22: спека карточки = сценарий Дано/Когда/Тогда до кода).")
+    # Owner 10-30 «ты часто просто выкидываешь идею, которая может быть не лучшая по архитектуре … я всё время на неё
+    # опираюсь»: every brief carries «## Архитектура» with the reference it follows, the alternatives weighed and why
+    # this one — written by the lead BEFORE the launch, so a first idea cannot reach an agent unexamined.
+    arch = re.search(r"^## Архитектура[^\n]*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    missing = [k for k in ARCH_KEYS if not arch or not re.search(rf"^\s*[-*]?\s*{k}:\s*\S", arch.group(1), re.M)]
+    if missing:
+        return (f"[agent_guard] Тимлид: в брифе {found.group(0)} нет «## Архитектура» со строками "
+                f"{', '.join(k + ':' for k in ARCH_KEYS)} (не хватает: {', '.join(missing)}). Владелец 10-30: решение — "
+                "лучшее по архитектуре, не первая идея: как это сделано у UE/AAA, какие варианты отброшены, почему этот.")
     items = re.findall(r"^\s*\d+[.)]\s", body, re.M)
     if len(items) > MAX_BRIEF_ITEMS or len(body) > MAX_BRIEF_DO_CHARS:
         return (f"[agent_guard] Тимлид: задача крупнее одного агента — «## Сделать» {len(items)} пунктов / {len(body)} знаков "
