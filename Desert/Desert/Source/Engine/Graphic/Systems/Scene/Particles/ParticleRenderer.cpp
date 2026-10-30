@@ -69,7 +69,22 @@ namespace
         DESERT_SHADER_PARAMETER( StorageBuffer, StackParams );
         DESERT_SHADER_PARAMETER( StorageBuffer, StackCurves );
         DESERT_SHADER_PARAMETER( StorageBuffer, PointSets );
+        // A colliding (PostOpaque) stack only: ParticleSimulate under VFX_READS_SCENE_DEPTH.
+        DESERT_SHADER_PARAMETER( StorageBuffer, CollisionView );
+        DESERT_SHADER_PARAMETER( Texture, SceneDepth );
+        DESERT_SHADER_PARAMETER( Sampler, CollisionPointSampler );
     };
+
+    // ParticleSimulate's CollisionView block (std430): the simulating view's jittered view-projection and its
+    // inverse (the matrices its scene depth was drawn with), the camera position (cm), w = 1 when SceneDepth is
+    // this frame's scene depth.
+    struct ParticleCollisionViewGpu
+    {
+        glm::mat4 ViewProjection{ 1.0f };
+        glm::mat4 InvViewProjection{ 1.0f };
+        glm::vec4 Camera{ 0.0f };
+    };
+    static_assert( sizeof( ParticleCollisionViewGpu ) == 144, "ParticleSimulate.shader CollisionView" );
 
     // The slot names this pass binds, spelled once (RDGShaderParameters.hpp).
     struct ParticleMeshInstancesShaderParameters
@@ -325,28 +340,115 @@ namespace Desert::Graphic::System
         }
     }
 
-    uint32_t ParticleRenderer::SimulationStepCount() const
+    uint32_t ParticleRenderer::SimulationStepCount( const VFX::VFXTickStage stage ) const
     {
         if ( !m_Simulates || !m_CompactPipeline || !m_ArgsPipeline )
             return 0; // the nodes dispatch nothing either
         uint32_t steps = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
-            if ( ve.Declared )
+            if ( ve.Declared && ve.Frame->Gpu->TickStage == stage )
                 steps = std::max( steps, ve.Frame->StepCount );
         return steps;
     }
 
-    bool ParticleRenderer::RunsStep( const ViewEmitter& ve, const uint32_t step ) const
+    bool ParticleRenderer::SimulatesStage( const VFX::VFXTickStage stage ) const
     {
-        return m_Simulates && ve.Declared && ve.Frame->Pipeline != nullptr && step < ve.Frame->StepCount;
+        if ( !m_CompactPipeline || !m_ArgsPipeline )
+            return false;
+        return std::ranges::any_of( m_ViewEmitters, [this, stage]( const ViewEmitter& ve )
+                                    { return RunsCompact( ve, 0, stage ); } );
     }
 
-    bool ParticleRenderer::RunsCompact( const ViewEmitter& ve, const uint32_t compact ) const
+    bool ParticleRenderer::RunsStep( const ViewEmitter& ve, const uint32_t step,
+                                     const VFX::VFXTickStage stage ) const
     {
-        return m_Simulates && ve.Declared && compact <= ve.Frame->StepCount;
+        return RunsCompact( ve, 0, stage ) && ve.Frame->Pipeline != nullptr && step < ve.Frame->StepCount;
     }
 
-    Common::BoolResultStr ParticleRenderer::Compact( const RDG::PassContext& context, const uint32_t compact )
+    bool ParticleRenderer::RunsCompact( const ViewEmitter& ve, const uint32_t compact,
+                                        const VFX::VFXTickStage stage ) const
+    {
+        // The PostOpaque chain runs only with its scene inputs in the graph (ImportCollisionInputs).
+        return m_Simulates && ve.Declared && ve.Frame->Gpu->TickStage == stage && compact <= ve.Frame->StepCount &&
+               ( stage == VFX::VFXTickStage::PreOpaque || m_CollisionReady );
+    }
+
+    bool ParticleRenderer::ReadsPreviousHalf( const ViewEmitter& ve, const bool beforeChains ) const
+    {
+        // A view that does not simulate draws after the simulating view's whole frame (it claimed the tick first):
+        // its draws all read the finished half.
+        return beforeChains && m_Simulates && ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque;
+    }
+
+    uint32_t ParticleRenderer::DrawnHalf( const ViewEmitter& ve, const bool beforeChains ) const
+    {
+        return ReadsPreviousHalf( ve, beforeChains ) ? ve.Frame->PreviousHalf : ve.Frame->StepCount & 1u;
+    }
+
+    bool ParticleRenderer::HasDrawnHalf( const ViewEmitter& ve, const bool beforeChains ) const
+    {
+        if ( ReadsPreviousHalf( ve, beforeChains ) )
+            return ve.Frame->HasPrevious;
+        // A PostOpaque emitter whose chain did not run this frame (ImportCollisionInputs refused) has no current
+        // half: its Counters still hold the previous tick's slots.
+        return !m_Simulates || ve.Frame->Gpu->TickStage != VFX::VFXTickStage::PostOpaque || m_CollisionReady;
+    }
+
+    VFX::VFXTickStage ParticleRenderer::DrawSortPhase( const ViewEmitter& ve, const bool gbuffer ) const
+    {
+        return m_Simulates && !gbuffer && ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque
+                    ? VFX::VFXTickStage::PostOpaque
+                    : VFX::VFXTickStage::PreOpaque;
+    }
+
+    Common::BoolResultStr ParticleRenderer::OpenDrawSlots( const RDG::PassContext& context,
+                                                           const VFX::VFXTickStage stage )
+    {
+        if ( !m_ArgsPipeline )
+            return BOOLSUCCESS;
+
+        auto&    renderer = Renderer::GetInstance();
+        uint32_t block    = 0;
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsCompact( ve, 0, stage ) )
+                continue;
+            const ParticleEmitterGpu& gpu = *ve.Frame->Gpu;
+            // Open mode (ParticleDispatchArgs Step.w = 1): x = the range's pool base, y = its particle count.
+            const ParticleArgsPush push{ glm::uvec4( gpu.Range.Base, gpu.Range.Count, 0u, 1u ) };
+            RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
+            bindings.PushConstants( &push, sizeof( push ) );
+            const Common::BoolResultStr dispatched =
+                 renderer.DispatchCompute( bindings, *m_ArgsPipeline, 1, 1, 1 );
+            if ( !dispatched )
+                return dispatched;
+        }
+        return BOOLSUCCESS;
+    }
+
+    void ParticleRenderer::DeclareOpenBindings( RDG::PassBuilder& pass, const VFX::VFXTickStage stage ) const
+    {
+        if ( !m_ArgsPipeline )
+            return; // OpenDrawSlots dispatches nothing either
+        const auto& layout = m_ArgsLayout.Get( m_ArgsPipeline->GetSpecification().Shader );
+        for ( const ViewEmitter& ve : m_ViewEmitters )
+        {
+            if ( !RunsCompact( ve, 0, stage ) )
+                continue; // OpenDrawSlots skips it the same way
+            // The program's three slots (one shader, two modes): open mode writes Counters only, the step table
+            // and the arguments are read / written by the step mode and still bound here.
+            pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
+                 .Storage( ParticleDispatchArgsShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
+                 .Storage( ParticleDispatchArgsShaderParameters::Counters, ve.CountersRef,
+                           RDG::Access::StorageWrite )
+                 .Storage( ParticleDispatchArgsShaderParameters::DispatchArgs, ve.ArgsRef,
+                           RDG::Access::StorageWrite )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( ParticleArgsPush ) ) );
+        }
+    }
+
+    Common::BoolResultStr ParticleRenderer::Compact( const RDG::PassContext& context, const uint32_t compact,
+                                                     const VFX::VFXTickStage stage )
     {
         if ( !m_CompactPipeline )
             return BOOLSUCCESS;
@@ -355,7 +457,7 @@ namespace Desert::Graphic::System
         uint32_t block    = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsCompact( ve, compact ) )
+            if ( !RunsCompact( ve, compact, stage ) )
                 continue;
             ParticleEmitterGpu& gpu   = *ve.Frame->Gpu;
             const bool          reset = compact == 0 && gpu.NeedsReset;
@@ -380,14 +482,15 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::DeclareCompactBindings( RDG::PassBuilder& pass, const uint32_t compact ) const
+    void ParticleRenderer::DeclareCompactBindings( RDG::PassBuilder& pass, const uint32_t compact,
+                                                   const VFX::VFXTickStage stage ) const
     {
         if ( !m_CompactPipeline )
             return; // Compact dispatches nothing either
         const auto& layout = m_CompactLayout.Get( m_CompactPipeline->GetSpecification().Shader );
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsCompact( ve, compact ) )
+            if ( !RunsCompact( ve, compact, stage ) )
                 continue; // Compact skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_CompactPipeline ) )
                  .Storage( ParticleCompactShaderParameters::PoolSlots, m_Pool.SlotsRef, RDG::Access::StorageWrite )
@@ -401,7 +504,7 @@ namespace Desert::Graphic::System
     }
 
     Common::BoolResultStr ParticleRenderer::BuildDispatchArgs( const RDG::PassContext& context,
-                                                               const uint32_t          step )
+                                                               const uint32_t step, const VFX::VFXTickStage stage )
     {
         if ( !m_ArgsPipeline )
             return BOOLSUCCESS;
@@ -410,7 +513,7 @@ namespace Desert::Graphic::System
         uint32_t block    = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue;
             const ParticleArgsPush push{ glm::uvec4( step, 0u, 0u, 0u ) };
             RDG::PassBindings      bindings( context, context.GetBindingBlock( block++ ) );
@@ -423,14 +526,15 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::DeclareDispatchArgsBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    void ParticleRenderer::DeclareDispatchArgsBindings( RDG::PassBuilder& pass, const uint32_t step,
+                                                        const VFX::VFXTickStage stage ) const
     {
         if ( !m_ArgsPipeline )
             return; // BuildDispatchArgs dispatches nothing either
         const auto& layout = m_ArgsLayout.Get( m_ArgsPipeline->GetSpecification().Shader );
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue; // BuildDispatchArgs skips it the same way
             pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_ArgsPipeline ) )
                  .Storage( ParticleDispatchArgsShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
@@ -442,12 +546,13 @@ namespace Desert::Graphic::System
         }
     }
 
-    Common::BoolResultStr ParticleRenderer::Simulate( const RDG::PassContext& context, const uint32_t step )
+    Common::BoolResultStr ParticleRenderer::Simulate( const RDG::PassContext& context, const uint32_t step,
+                                                      const VFX::VFXTickStage stage )
     {
         uint32_t block = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue;
             ParticleSimPush push = ve.Frame->Push;
             push.Counts.y        = step;
@@ -462,16 +567,27 @@ namespace Desert::Graphic::System
         return BOOLSUCCESS;
     }
 
-    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step ) const
+    void ParticleRenderer::DeclareSimulateBindings( RDG::PassBuilder& pass, const uint32_t step,
+                                                    const VFX::VFXTickStage stage ) const
     {
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
-            if ( !RunsStep( ve, step ) )
+            if ( !RunsStep( ve, step, stage ) )
                 continue; // Simulate skips it the same way
             const ComputePipeline& program = *ve.Frame->Pipeline;
             const auto&            layout  = m_SimLayouts[&program].Get( program.GetSpecification().Shader );
-            pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) )
-                 .Storage( ParticleSimulateShaderParameters::PoolSlots, m_Pool.SlotsRef,
+            auto                   block   = pass.Bindings( layout, Renderer::GetPipelineRouteFill( program ) );
+            // PORT-VFX-MODULES (UE Scene Depth collision): a colliding stack - the one kind that ticks PostOpaque
+            // (VFXStackCompiler 4b) - declares CollisionView / SceneDepth (VFX::kVFXSceneDepthDefine); every other
+            // stack declares neither, so the same test that chose its chain chooses its slots.
+            if ( ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque )
+                block.Storage( ParticleSimulateShaderParameters::CollisionView, m_CollisionViewRef,
+                               RDG::Access::StorageRead )
+                     .Texture( ParticleSimulateShaderParameters::SceneDepth, m_CollisionDepthRef,
+                               RDG::Access::SampledCompute, RDG::SubresourceRange::All() )
+                     .Sampler( ParticleSimulateShaderParameters::CollisionPointSampler,
+                               RDG::SamplerDesc::PointClamp() );
+            block.Storage( ParticleSimulateShaderParameters::PoolSlots, m_Pool.SlotsRef,
                            RDG::Access::StorageWrite )
                  .Storage( ParticleSimulateShaderParameters::StepTable, ve.StepsRef, RDG::Access::StorageRead )
                  .Storage( ParticleSimulateShaderParameters::FreeList, m_Pool.FreeRef, RDG::Access::StorageRead )
@@ -497,11 +613,14 @@ namespace Desert::Graphic::System
         for ( ViewEmitter& ve : m_ViewEmitters )
         {
             ve.Declared = false;
-            ve.Sorted   = false;
+            ve.Sorted   = {};
             ve.Debugged = false;
             ve.Lit      = false;
-            ve.Ribboned = false;
+            ve.Ribboned = {};
         }
+        m_CollisionViewRef  = {};
+        m_CollisionDepthRef = {};
+        m_CollisionReady    = false;
         if ( m_World == nullptr || m_ViewEmitters.empty() || !m_World->Pool().Slots )
             return;
         const ParticlePoolBuffers& pool = m_World->Pool();
@@ -604,6 +723,56 @@ namespace Desert::Graphic::System
                  graph.RegisterExternal( ve.DrawLayoutImport, std::format( "ParticleDrawLayout{}", i ) );
             ve.Declared    = true;
         }
+    }
+
+    bool ParticleRenderer::ImportCollisionInputs( RDG::Builder& graph, const RDG::TextureRef sceneDepth )
+    {
+        m_CollisionReady    = false;
+        m_CollisionViewRef  = {};
+        m_CollisionDepthRef = {};
+        if ( !m_Simulates )
+            return false;
+        Common::BoolResultStr written = BOOLSUCCESS;
+        const ViewFrame*      view    = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( view == nullptr )
+            written = Common::MakeError( "the view has no frame this frame" );
+        else if ( !sceneDepth.IsValid() )
+            written = Common::MakeError( "the frame resolved no single-sample scene depth" );
+        if ( written && !m_CollisionView )
+        {
+            m_CollisionView = ShaderResources::StorageBuffer::Create(
+                 "ParticleCollisionView", static_cast<uint32_t>( sizeof( ParticleCollisionViewGpu ) ), 11 );
+            if ( !m_CollisionView )
+                written = Common::MakeError( "the buffer was not created" );
+        }
+        if ( written )
+        {
+            ParticleCollisionViewGpu collision;
+            collision.ViewProjection    = view->JitteredViewProjection;
+            collision.InvViewProjection = view->InvJitteredViewProjection;
+            collision.Camera            = glm::vec4( view->CameraPosition, 1.0f );
+            written = m_CollisionView->SetData( &collision, static_cast<uint32_t>( sizeof( collision ) ) );
+        }
+        if ( written )
+            written = Renderer::ImportBuffer( m_CollisionView, m_CollisionViewImport );
+        if ( !written )
+        {
+            // A colliding stack's Spawn+Update binds both, and a frame that cannot hand them simulates no
+            // PostOpaque emitter: their forward draws skip the frame too (HasDrawnHalf).
+            const bool any =
+                 std::ranges::any_of( m_ViewEmitters, [this]( const ViewEmitter& ve )
+                                      { return m_Simulates && ve.Declared && ve.Frame->Gpu->TickStage == VFX::VFXTickStage::PostOpaque; } );
+            if ( any )
+                LOG_ERROR(
+                     "[Particles] the PostOpaque emitters (scene depth collision) are not simulated or drawn "
+                     "this frame, the collision inputs are not in the frame graph: {}",
+                     written.GetError() );
+            return false;
+        }
+        m_CollisionViewRef  = graph.RegisterExternal( m_CollisionViewImport, "ParticleCollisionView" );
+        m_CollisionDepthRef = sceneDepth;
+        m_CollisionReady    = true;
+        return true;
     }
 
     bool ParticleRenderer::RunsDebug( const ViewEmitter& ve ) const

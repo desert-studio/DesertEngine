@@ -16,6 +16,7 @@
 #include "ParticleGpuLayout.hpp"
 #include "ParticleWorldGpu.hpp"
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -132,9 +133,31 @@ namespace Desert::Graphic::System
             return m_ViewCulls;
         }
 
-        // How many fixed steps this frame simulates: the most any declared emitter runs (0 in a view that does not
-        // simulate).
-        [[nodiscard]] uint32_t SimulationStepCount() const;
+        // How many fixed steps the @p stage chain simulates this frame: the most any declared emitter of that tick
+        // stage (ParticleEmitterGpu::TickStage) runs (0 in a view that does not simulate).
+        [[nodiscard]] uint32_t SimulationStepCount( VFX::VFXTickStage stage ) const;
+
+        // Whether the @p stage chain has an emitter to simulate this frame (a declared emitter of that stage in
+        // the simulating view, with the compact / args programs ready): SceneRenderer adds the stage's nodes only
+        // then.
+        [[nodiscard]] bool SimulatesStage( VFX::VFXTickStage stage ) const;
+
+        // "Particles <stage>: Open", the first node of the @p stage chain (UE: the GPU instance counts opened per
+        // tick stage): one ParticleDispatchArgs dispatch in open mode per emitter of that stage, writing both its
+        // Counters slots empty with their FirstVertex. The Counters are persistent and the host never writes them:
+        // until this node they hold the previous tick's slots, which a PostOpaque emitter's draws recorded before
+        // its chain read (ParticleFrameEmitter::PreviousHalf).
+        [[nodiscard]] Common::BoolResultStr OpenDrawSlots( const RDG::PassContext& context,
+                                                           VFX::VFXTickStage       stage );
+        void DeclareOpenBindings( RDG::PassBuilder& pass, VFX::VFXTickStage stage ) const;
+
+        // The PostOpaque chain's scene inputs (UE: the PostOpaqueRender tick's scene depth and view): @p
+        // sceneDepth is this frame's single-sample depth (SceneRenderer::AddFrameSceneDepthResolve), the
+        // CollisionView block the view's jittered matrices it was drawn with (w = 1 when @p sceneDepth is valid).
+        // A colliding stack (VFX::kVFXSceneDepthDefine, PostOpaque by construction) binds both in Spawn+Update.
+        // False (logged): the block is not in the graph and the PostOpaque emitters sit the frame out. Call in the
+        // simulating view, before the PostOpaque nodes are added.
+        bool ImportCollisionInputs( RDG::Builder& graph, RDG::TextureRef sceneDepth );
 
         // Imports the scene's pool (particles, free list, alive list) and every emitter's Counters into @p graph,
         // and in the simulating view its step table and dispatch arguments too (Renderer::ImportBuffer +
@@ -148,24 +171,31 @@ namespace Desert::Graphic::System
         // the indirect draw arguments. Compact 0 scans the whole range (and kills it first when it restarts);
         // a later compact scans only what the step touched and is dispatched INDIRECT from the step's Dispatch
         // Args (kParticleCompactArgsOffset). Block n is the n-th such emitter (DeclareCompactBindings).
-        [[nodiscard]] Common::BoolResultStr Compact( const RDG::PassContext& context, uint32_t compact );
-        void DeclareCompactBindings( RDG::PassBuilder& pass, uint32_t compact ) const;
+        // Every simulation node takes its tick stage and dispatches only the emitters of that stage.
+        [[nodiscard]] Common::BoolResultStr Compact( const RDG::PassContext& context, uint32_t compact,
+                                                     VFX::VFXTickStage stage );
+        void DeclareCompactBindings( RDG::PassBuilder& pass, uint32_t compact, VFX::VFXTickStage stage ) const;
 
         // Dispatch Args of step @p step: one single-thread ParticleDispatchArgs dispatch per emitter running the
         // step, writing from compact @p step's alive / free counts and the step's spawn budget the group counts of
         // Spawn+Update @p step and of compact @p step + 1, and opening compact @p step + 1's Counters slot.
-        [[nodiscard]] Common::BoolResultStr BuildDispatchArgs( const RDG::PassContext& context, uint32_t step );
-        void DeclareDispatchArgsBindings( RDG::PassBuilder& pass, uint32_t step ) const;
+        [[nodiscard]] Common::BoolResultStr BuildDispatchArgs( const RDG::PassContext& context, uint32_t step,
+                                                               VFX::VFXTickStage stage );
+        void DeclareDispatchArgsBindings( RDG::PassBuilder& pass, uint32_t step, VFX::VFXTickStage stage ) const;
 
         // Spawn+Update of step @p step: one ParticleSimulate dispatch per declared emitter that runs the step,
         // INDIRECT from the step's Dispatch Args (kParticleSimulateArgsOffset); block n = the n-th such emitter.
-        [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step );
-        void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step ) const;
+        [[nodiscard]] Common::BoolResultStr Simulate( const RDG::PassContext& context, uint32_t step,
+                                                      VFX::VFXTickStage stage );
+        void DeclareSimulateBindings( RDG::PassBuilder& pass, uint32_t step, VFX::VFXTickStage stage ) const;
 
         // VFX-08: this view's back-to-front sort of every translucent / additive emitter (ParticleSortGraph.hpp),
         // one Compute node per stage, after the simulation and before ParticlePass. Every view adds its own (the
         // key is the view depth), whether or not it claimed the simulation. Call after ImportFrameBuffers.
-        void AddSortPasses( RDG::Builder& graph );
+        // @p phase is the sort's place in the frame (DrawSortPhase): PreOpaque - after the PreOpaque chain, for
+        // every draw but a simulated PostOpaque emitter's forward ones (its G-buffer rows sort its previous half);
+        // PostOpaque - after the PostOpaque chain, for those forward draws (its current half).
+        void AddSortPasses( RDG::Builder& graph, VFX::VFXTickStage phase );
 
         // VFX-16 (UE Niagara Debugger, dev only): whether an editor debugger asked for this tick's readback (the
         // node is added only then, in the simulating view), and the node "Particles: Debug Readback": one
@@ -339,8 +369,10 @@ namespace Desert::Graphic::System
             bool                        Lit      = false;
             bool                        Declared = false;
             bool                        InView   = false; // its fixed Bounds meet this view's frustum (PrepareFrame)
-            bool                        Sorted   = false; // the draw reads m_SortedRef, not AliveList
-            bool                        Ribboned = false; // its ribbon link order is in m_RibbonRef
+            // Per sort phase (DrawSortPhase, indexed by the VFXTickStage): that phase's draws read
+            // m_Sort[phase].Sorted, not AliveList, and its ribbon link order is in m_Sort[phase].Ribbon.
+            std::array<bool, 2> Sorted{};
+            std::array<bool, 2> Ribboned{};
         };
 
         bool CreatePipelines();
@@ -348,9 +380,20 @@ namespace Desert::Graphic::System
         // emitters by, so the exec's n-th drawn emitter opens the n-th declared block.
         static bool IsDrawn( const ViewEmitter& ve );
         // Whether step @p step's Dispatch Args and Spawn+Update nodes dispatch @p ve.
-        bool RunsStep( const ViewEmitter& ve, uint32_t step ) const;
-        // Whether compact @p compact's node dispatches @p ve (compacts 0..StepCount of a declared emitter).
-        bool RunsCompact( const ViewEmitter& ve, uint32_t compact ) const;
+        bool RunsStep( const ViewEmitter& ve, uint32_t step, VFX::VFXTickStage stage ) const;
+        // Whether compact @p compact's node of the @p stage chain dispatches @p ve (compacts 0..StepCount of a
+        // declared emitter of that tick stage); compact 0's test is also the Open node's.
+        bool RunsCompact( const ViewEmitter& ve, uint32_t compact, VFX::VFXTickStage stage ) const;
+        // A draw recorded BEFORE the PostOpaque chain (@p beforeChains: a G-buffer row, a Mesh row's instances) of
+        // a PostOpaque emitter in the simulating view reads the previous tick's half (UE: a PostOpaque emitter's
+        // opaque renderers lag one frame); every other draw reads the half this frame's last compact filled.
+        bool     ReadsPreviousHalf( const ViewEmitter& ve, bool beforeChains ) const;
+        uint32_t DrawnHalf( const ViewEmitter& ve, bool beforeChains ) const;
+        // False: the draw reads the previous half and there is none (no tick since the emitter's reset): skipped.
+        bool HasDrawnHalf( const ViewEmitter& ve, bool beforeChains ) const;
+        // The sort a draw reads (AddSortPasses' phase): PostOpaque for a forward draw of a simulated PostOpaque
+        // emitter, PreOpaque for every other draw.
+        VFX::VFXTickStage DrawSortPhase( const ViewEmitter& ve, bool gbuffer ) const;
         // Whether the Debug Readback node dispatches @p ve.
         bool RunsDebug( const ViewEmitter& ve ) const;
         // Whether the Light Readback node dispatches @p ve.
@@ -392,9 +435,21 @@ namespace Desert::Graphic::System
         uint32_t m_MeshFrame = 1; // AddMeshInstances calls + 1: the history's frame stamp (the
         // first frame is 2, so a zeroed history row - stamp 0 - is never "the previous frame")
         mutable ShaderBindingLayoutCache m_SortLayout;
-        RDG::BufferRef                   m_SortKeysRef;
-        RDG::BufferRef                   m_SortedRef; // this view's SortedAlive, valid while any ve.Sorted
-        RDG::BufferRef                   m_RibbonRef; // this view's RibbonOrder, valid while any ve.Ribboned
+        // This view's sort buffers per sort phase (AddSortPasses): SortedAlive, valid while any ve.Sorted[phase],
+        // and RibbonOrder, valid while any ve.Ribboned[phase].
+        struct SortBuffers
+        {
+            RDG::BufferRef Keys;
+            RDG::BufferRef Sorted;
+            RDG::BufferRef Ribbon;
+        };
+        std::array<SortBuffers, 2> m_Sort;
+        // PORT-VFX-MODULES: the PostOpaque chain's scene inputs (ImportCollisionInputs), simulating view only.
+        std::shared_ptr<ShaderResources::StorageBuffer> m_CollisionView;
+        RDG::ExternalBuffer                             m_CollisionViewImport;
+        RDG::BufferRef                                  m_CollisionViewRef;
+        RDG::TextureRef                                 m_CollisionDepthRef;
+        bool m_CollisionReady = false; // both are in this frame's graph: the PostOpaque chain runs
         // The shaders' binding layouts, kept between frames (re-derived on a swapped or reloaded shader).
         // Per stack host program (ParticleWorldGpu's, alive with the scene's GPU state).
         mutable std::unordered_map<const ComputePipeline*, ShaderBindingLayoutCache> m_SimLayouts;
