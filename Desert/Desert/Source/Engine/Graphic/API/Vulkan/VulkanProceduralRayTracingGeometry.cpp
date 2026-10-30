@@ -14,27 +14,20 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        using Prepared = RayTracing::ProceduralBlasPrepared;
-
         // Built once per upload and traced for many frames: trace speed over build speed (UE static geometry).
         constexpr VkBuildAccelerationStructureFlagsKHR kProceduralBlasFlags =
              VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-
-        std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
-        {
-            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        }
     } // namespace
 
-    Common::ResultStr<Prepared>
+    Common::ResultStr<RayTracing::ProceduralBlasPrepared>
     VulkanProceduralRayTracingGeometry::Prepare( const RayTracing::RayTracingMeshInput& input )
     {
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical )
-            return Common::MakeError<Prepared>( "procedural BLAS: no Vulkan device" );
+            return Common::MakeError<RayTracing::ProceduralBlasPrepared>( "procedural BLAS: no Vulkan device" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
         if ( !functions.Complete() )
-            return Common::MakeError<Prepared>(
+            return Common::MakeError<RayTracing::ProceduralBlasPrepared>(
                  "procedural BLAS: the device has no acceleration-structure functions, but a resolved method "
                  "traces rays" );
 
@@ -44,18 +37,20 @@ namespace Desert::Graphic::API::Vulkan
         const auto  indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
-            return Common::MakeError<Prepared>( "procedural BLAS: the mesh has no resident vertex/index buffer" );
+            return Common::MakeError<RayTracing::ProceduralBlasPrepared>(
+                 "procedural BLAS: the mesh has no resident vertex/index buffer" );
 
         const VertexBufferRange vertexRange{ vertices, input.VertexByteOffset };
         const IndexBufferRange  indexRange{ indices, input.IndexByteOffset };
         if ( m_Handle != VK_NULL_HANDLE && vertexRange == m_Vertices && indexRange == m_Indices &&
              input.Segments == m_Segments )
-            return Common::MakeSuccess(
-                 Prepared{ m_BuildScratch + kMaxAccelerationStructureScratchAlignment, !m_Built } );
+            return Common::MakeSuccess( RayTracing::ProceduralBlasPrepared{
+                 m_BuildScratch + kMaxAccelerationStructureScratchAlignment, !m_Built } );
 
         Release();
         if ( input.Segments.empty() )
-            return Common::MakeError<Prepared>( "procedural BLAS: the mesh has no visible triangle" );
+            return Common::MakeError<RayTracing::ProceduralBlasPrepared>(
+                 "procedural BLAS: the mesh has no visible triangle" );
         m_Segments = input.Segments;
 
         const VkDevice device = logical->GetVulkanLogicalDevice();
@@ -82,7 +77,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_Storage = VK_NULL_HANDLE;
             Release();
-            return Common::MakeFormattedError<Prepared>( "procedural BLAS storage: {}", storage.GetError() );
+            return Common::MakeFormattedError<RayTracing::ProceduralBlasPrepared>( "procedural BLAS storage: {}",
+                                                                                   storage.GetError() );
         }
         m_StorageMemory = storage.GetValue();
         m_StorageBytes  = sizes.accelerationStructureSize;
@@ -99,7 +95,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_Handle = VK_NULL_HANDLE;
             Release();
-            return Common::MakeFormattedError<Prepared>(
+            return Common::MakeFormattedError<RayTracing::ProceduralBlasPrepared>(
                  "vkCreateAccelerationStructureKHR (procedural BLAS) failed: {}", static_cast<int>( created ) );
         }
         VkAccelerationStructureDeviceAddressInfoKHR addressInfo{
@@ -109,7 +105,7 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_DeviceAddress == 0 )
         {
             Release();
-            return Common::MakeError<Prepared>(
+            return Common::MakeError<RayTracing::ProceduralBlasPrepared>(
                  "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a procedural BLAS" );
         }
 
@@ -125,7 +121,8 @@ namespace Desert::Graphic::API::Vulkan
             m_StorageExternal.State = RDG::GetAccessState( RDG::Access::AccelStructRead );
             return BOOLSUCCESS;
         };
-        return Common::MakeSuccess( Prepared{ m_BuildScratch + kMaxAccelerationStructureScratchAlignment, true } );
+        return Common::MakeSuccess( RayTracing::ProceduralBlasPrepared{
+             m_BuildScratch + kMaxAccelerationStructureScratchAlignment, true } );
     }
 
     Common::BoolResultStr VulkanProceduralRayTracingGeometry::RecordBuild( const RDG::PassContext&   context,
@@ -143,7 +140,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto scratchBuffer = VulkanRdgBackend::BufferOf( scratch );
         if ( !scratchBuffer )
             return Common::MakeError( scratchBuffer.GetError() );
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical || m_Handle == VK_NULL_HANDLE )
             return Common::MakeError( "procedural BLAS build recorded without a prepared acceleration structure" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();

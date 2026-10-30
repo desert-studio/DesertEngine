@@ -265,6 +265,11 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( std::move( device ) );
     }
 
+    std::shared_ptr<VulkanLogicalDevice> VulkanLogicalDevice::Current()
+    {
+        return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
+    }
+
     Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> VulkanLogicalDevice::Create()
     {
         // machine.json is the one place a machine withholds a capability from the engine (NO-RT): read here, once,

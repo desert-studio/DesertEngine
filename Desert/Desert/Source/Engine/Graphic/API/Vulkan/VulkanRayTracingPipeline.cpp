@@ -23,11 +23,6 @@ namespace Desert::Graphic::API::Vulkan
              VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
              VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
 
-        std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
-        {
-            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        }
-
         VulkanAllocator& Allocator()
         {
             return *SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
@@ -83,7 +78,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto             fail = [&]( const std::string& why ) -> Common::BoolResultStr
         { return Common::MakeFormattedError( "RayTracingPipeline '{}': {}", name, why ); };
 
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical )
             return fail( "no Vulkan device" );
         const DeviceCaps& caps = logical->GetPhysicalDevice()->GetDeviceCaps();
@@ -282,7 +277,7 @@ namespace Desert::Graphic::API::Vulkan
     VulkanRayTracingPipeline::CreateHostBuffer( const char* tag, VkDeviceSize bytes,
                                                 VkBufferUsageFlags usage ) const
     {
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical )
             return Common::MakeError<HostBuffer>( "no Vulkan device" );
         HostBuffer               out;

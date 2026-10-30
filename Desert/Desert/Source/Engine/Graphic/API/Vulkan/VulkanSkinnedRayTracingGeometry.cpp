@@ -14,18 +14,11 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        using Prepared = RayTracing::SkinnedBlasPrepared;
-
         // A deformed BLAS is rebuilt or refit every frame and traced for one: fast build over fast trace, and
         // ALLOW_UPDATE so the frames after the first refit instead of rebuilding (UE dynamic geometry flags).
         constexpr VkBuildAccelerationStructureFlagsKHR kSkinnedBlasFlags =
              VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR |
              VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-
-        std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
-        {
-            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        }
     } // namespace
 
     Common::ResultStr<bool> VulkanSkinCacheStreams::Prepare( const uint32_t vertexCount )
@@ -34,7 +27,7 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeSuccess( false );
         if ( vertexCount == 0 )
             return Common::MakeError<bool>( "SkinCache: the skinned mesh has no vertex" );
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical )
             return Common::MakeError<bool>( "SkinCache: no Vulkan device" );
         if ( !logical->GetPhysicalDevice()->GetDeviceCaps().Has( Capability::BufferDeviceAddress ) )
@@ -114,15 +107,15 @@ namespace Desert::Graphic::API::Vulkan
     }
     DESERT_DESTRUCTOR_GUARD( "~VulkanSkinCacheStreams" )
 
-    Common::ResultStr<Prepared>
+    Common::ResultStr<RayTracing::SkinnedBlasPrepared>
     VulkanSkinnedRayTracingGeometry::Prepare( const RayTracing::RayTracingMeshInput& input )
     {
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical )
-            return Common::MakeError<Prepared>( "SkinCache: no Vulkan device" );
+            return Common::MakeError<RayTracing::SkinnedBlasPrepared>( "SkinCache: no Vulkan device" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
         if ( !functions.Complete() )
-            return Common::MakeError<Prepared>(
+            return Common::MakeError<RayTracing::SkinnedBlasPrepared>(
                  "SkinCache: the device has no acceleration-structure functions, but "
                  "a resolved method traces rays" );
 
@@ -132,7 +125,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto  indexBuffer  = SP_CAST( VulkanIndexBuffer, indices );
         if ( !vertexBuffer || !indexBuffer || vertexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE ||
              indexBuffer->GetVulkanBuffer() == VK_NULL_HANDLE )
-            return Common::MakeError<Prepared>(
+            return Common::MakeError<RayTracing::SkinnedBlasPrepared>(
                  "SkinCache: the skinned mesh has no resident vertex/index buffer" );
 
         const uint32_t          vertexCount = input.VertexCount;
@@ -140,13 +133,13 @@ namespace Desert::Graphic::API::Vulkan
         const IndexBufferRange  indexRange{ indices, input.IndexByteOffset };
         if ( m_Handle != VK_NULL_HANDLE && vertexRange == m_Vertices && indexRange == m_Indices &&
              input.Segments == m_Segments && vertexCount == m_VertexCount )
-            return Common::MakeSuccess( Prepared{ ( m_Built ? m_UpdateScratch : m_BuildScratch ) +
-                                                       kMaxAccelerationStructureScratchAlignment,
-                                                  m_Built } );
+            return Common::MakeSuccess( RayTracing::SkinnedBlasPrepared{
+                 ( m_Built ? m_UpdateScratch : m_BuildScratch ) + kMaxAccelerationStructureScratchAlignment,
+                 m_Built } );
 
         Release();
         if ( input.Segments.empty() || vertexCount == 0 )
-            return Common::MakeFormattedError<Prepared>(
+            return Common::MakeFormattedError<RayTracing::SkinnedBlasPrepared>(
                  "SkinCache: the skinned mesh has no visible triangle ({} vertices, {} segments)", vertexCount,
                  input.Segments.size() );
         m_Segments = input.Segments;
@@ -177,7 +170,8 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_Storage = VK_NULL_HANDLE;
             Release();
-            return Common::MakeFormattedError<Prepared>( "SkinCache BLAS storage: {}", storage.GetError() );
+            return Common::MakeFormattedError<RayTracing::SkinnedBlasPrepared>( "SkinCache BLAS storage: {}",
+                                                                                storage.GetError() );
         }
         m_StorageMemory = storage.GetValue();
         m_StorageBytes  = sizes.accelerationStructureSize;
@@ -194,7 +188,7 @@ namespace Desert::Graphic::API::Vulkan
         {
             m_Handle = VK_NULL_HANDLE;
             Release();
-            return Common::MakeFormattedError<Prepared>(
+            return Common::MakeFormattedError<RayTracing::SkinnedBlasPrepared>(
                  "vkCreateAccelerationStructureKHR (skinned BLAS) failed: {}", static_cast<int>( created ) );
         }
         VkAccelerationStructureDeviceAddressInfoKHR addressInfo{
@@ -204,8 +198,9 @@ namespace Desert::Graphic::API::Vulkan
         if ( m_DeviceAddress == 0 )
         {
             Release();
-            return Common::MakeError<Prepared>( "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a "
-                                                "skinned BLAS" );
+            return Common::MakeError<RayTracing::SkinnedBlasPrepared>(
+                 "vkGetAccelerationStructureDeviceAddressKHR answered 0 for a "
+                 "skinned BLAS" );
         }
 
         m_Vertices    = vertexRange;
@@ -224,8 +219,8 @@ namespace Desert::Graphic::API::Vulkan
             m_StorageExternal.State = RDG::GetAccessState( RDG::Access::AccelStructRead );
             return BOOLSUCCESS;
         };
-        return Common::MakeSuccess(
-             Prepared{ m_BuildScratch + kMaxAccelerationStructureScratchAlignment, false } );
+        return Common::MakeSuccess( RayTracing::SkinnedBlasPrepared{
+             m_BuildScratch + kMaxAccelerationStructureScratchAlignment, false } );
     }
 
     Common::BoolResultStr VulkanSkinnedRayTracingGeometry::RecordBuild( const RDG::PassContext&   context,
@@ -243,7 +238,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto scratchBuffer = VulkanRdgBackend::BufferOf( scratch );
         if ( !scratchBuffer )
             return Common::MakeError( scratchBuffer.GetError() );
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical || m_Handle == VK_NULL_HANDLE )
             return Common::MakeError( "skinned BLAS build recorded without a prepared acceleration structure" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
