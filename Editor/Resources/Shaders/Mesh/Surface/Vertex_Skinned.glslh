@@ -184,6 +184,7 @@ void main()
     v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
     v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
     v_Surface.VertexColor    = a_Color;
+    v_Surface.ObjectScaleUp = 1.0;
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )

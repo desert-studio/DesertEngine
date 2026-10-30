@@ -44,6 +44,7 @@ void main()
                               v_Surface.VertexColor, gl_FrontFacing );
     DESERT_SURFACE_CLIP( i );
 #ifdef DESERT_SURFACE_WEATHER
+    i.ObjectScaleUp = v_Surface.ObjectScaleUp;
     // The material's weather response (Mesh/Surface/SurfaceWeather.glslh), before anything reads the surface.
     const SurfaceOutput s = DesertApplySurfaceWeather( i, EvaluateSurface( i ) );
 #else

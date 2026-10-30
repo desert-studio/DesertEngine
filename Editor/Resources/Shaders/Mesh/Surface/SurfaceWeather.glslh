@@ -36,13 +36,17 @@
 const float kDesertCanopyClearTexels = 2.0;
 float DesertCanopyLift( SurfaceInput i, const float texel )
 {
-    return DesertIsCanopyVertex( i.VertexColor ) ? DesertCanopyDepthCm( i.VertexColor ) + kDesertCanopyClearTexels * texel
-                                                 : 0.0;
+    // The depth is the mesh's cm, the lift is world cm: a tree placed at scale 3 hangs its leaves three times deeper
+    // (FIELD-WINTER p11: Tree 1 at scale 3, lifted by its mesh depth, read its own crown as its roof - all green).
+    return DesertIsCanopyVertex( i.VertexColor )
+              ? DesertCanopyDepthCm( i.VertexColor ) * i.ObjectScaleUp + kDesertCanopyClearTexels * texel
+              : 0.0;
 }
 
 // Snow lies on the crown's OUTER SHELL: a leaf deeper than kDesertCanopyShellCm under the crown's top surface is
 // sheltered by the leaves above it (they hold the snow), so its weight falls to 0 over the next shell - the crown's
-// inside stays green. Only a canopy vertex has a depth; any other surface: 1.
+// inside stays green. The shell is the crown's, in the mesh's cm like the bake's top shell (MeshDeriver
+// kCanopyShellCm): it grows with the tree's scale. Only a canopy vertex has a depth; any other surface: 1.
 const float kDesertCanopyShellCm = 40.0;
 float DesertCanopyShelter( SurfaceInput i )
 {

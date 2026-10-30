@@ -70,6 +70,9 @@ struct SurfaceInput
     mat3 TBN; // tangent -> world; SurfaceOutput.Normal goes through it
     vec2 UV1;         // the mesh's second UV set; (0,0) when it has none
     vec4 VertexColor; // linear RGBA; white when the mesh has none (UE's VertexColor node)
+    // World cm per mesh cm along the object's up axis (the vertex stage's |world * (0,1,0)|; 1 where no object
+    // scale applies). A canopy depth is baked in the mesh's cm and read against world quantities through it.
+    float ObjectScaleUp;
     // From the view block, not the vertex: the drawing view's eye (world cm; a light's eye in a shadow-depth cell,
     // as UE's View.WorldCameraOrigin in a shadow view) and the world clock in seconds (UE's View.GameTime — the
     // scene's game time, so a paused world holds still; the same value in every view of the frame).
@@ -293,6 +296,7 @@ SurfaceOutput DefaultSurfaceOutput()
         vec4 Clip; \
         vec4 PrevClip; \
         flat float ObjectMoved; \
+        flat float ObjectScaleUp; \
         DESERT_SURFACE_BINNED_VARYINGS \
     } v_Surface;
 
@@ -329,18 +333,6 @@ float DesertCanopyDepthCm( const vec4 vertexColor )
               : 0.0;
 }
 
-// The canopy depth is baked in the MESH's centimetres (BakeCanopy measures along the mesh's up axis); the surface
-// reads it against world-space quantities (the occlusion map's depth, the snow shell), so the vertex stage carries
-// it to world centimetres with the object's scale along its up axis - as it carries the normal by the normal
-// matrix. A tree placed at scale 3 has a crown three times deeper in the world than in its mesh.
-vec4 DesertCanopyColorToWorld( const vec4 vertexColor, const mat3 world )
-{
-    if ( !DesertIsCanopyVertex( vertexColor ) )
-        return vertexColor;
-    const float depthWorld = DesertCanopyDepthCm( vertexColor ) * length( world[1] );
-    return vec4( vertexColor.rgb,
-                 kDesertCanopyAlphaMax * ( 1.0 - clamp( depthWorld / kDesertCanopyDepthRangeCm, 0.0, 1.0 ) ) );
-}
 
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
@@ -366,6 +358,7 @@ SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3
     i.TBN           = facing * tbn;
     i.UV1           = uv1;
     i.VertexColor   = vertexColor;
+    i.ObjectScaleUp = 1.0; // the passes that read it set v_Surface.ObjectScaleUp after this
     i.CameraPosition = cameraUB.CameraPos;
     i.Time           = cameraUB.Time;
     // A mesh is not a particle: white, the start of a life, no per-particle variation (the sprite pass overwrites).
