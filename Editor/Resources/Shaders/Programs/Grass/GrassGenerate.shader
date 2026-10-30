@@ -61,6 +61,9 @@ Shader "GrassGenerate"
             vec4  Lean;      // x = Tilt (radians), y = FacingJitter (radians), z = the world's SnowDepth (cm)
             vec4  Lod;       // a mesh's levels by screen size: x = the lens's screen multiple x local half-diagonal, y = |Projection[2][3]|
             vec4  Patches;   // the variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = seed bits
+            uvec4 Cascades;  // the cascades' lists (GPU-COST-21): x = lists (0: none), y = words of one list's copy of
+                             // Args' layout in CascadeArgs, z = the cull pad (float bits, cm: a mesh's sway past its bounds)
+            vec4  CascadePlanes[48]; // list k's caster box at 6k..6k+5 (GrassRenderer kGrassCascadeLists = 8 lists)
         };
 
         ReadBuffer(0) Field
@@ -105,6 +108,20 @@ Shader "GrassGenerate"
         Buffer(7) Candidates
         {
             uvec4 GrassCandidatesData[];
+        };
+
+        // THE CASCADES' LISTS (GPU-COST-21; UE: every shadow view culls its casters by its own volume): per live
+        // cascade view a list of the instances inside that cascade's caster box, the same records and bucket table
+        // as Args, list k's copy at k x Cascades.y words, its buckets at k x capacity in CascadeInstances. The
+        // cascade draws its list instead of the full one (MeshRenderer::BuildGpuInstancedShadowDraws).
+        Buffer(8) CascadeInstances
+        {
+            mat4 GrassCascadeInstancesData[];
+        };
+
+        Buffer(9) CascadeArgs
+        {
+            uint CascadeArguments[];
         };
 
         // Mirrors Graphic::System::GrassGeneratePush (GrassRenderer.cpp).
@@ -480,6 +497,32 @@ Shader "GrassGenerate"
                 instance = mat4( vec4( basis[0] * scale.x, 0.0 ), vec4( basis[1] * scale.y, 0.0 ),
                                  vec4( basis[2] * scale.z, 0.0 ), vec4( position, 1.0 ) );
             GrassInstancesData[index] = instance;
+
+            // Into each cascade's list whose caster box (the six planes of the matrix the cascade draws with,
+            // MeshRenderer::CascadeCasterBoxSet: its ortho box pulled back towards the light, so a caster between
+            // the light and the slice is inside) the instance's reach meets: a sphere about the root - after the
+            // snow sank it - holding its bounds at the final scale, the clump's height included, plus a mesh's sway.
+            // A list's bucket gets at most what the full list's kept, so it never passes the capacity they share.
+            if ( p.Cascades.x != 0u )
+            {
+                float reach = ( abs( p.ScaleY.z ) + p.Range.w ) * max( scale.x, max( scale.y, scale.z ) ) +
+                              uintBitsToFloat( p.Cascades.z );
+                for ( uint k = 0u; k < p.Cascades.x; ++k )
+                {
+                    bool inside = true;
+                    for ( uint i = 0u; i < 6u && inside; ++i )
+                    {
+                        vec4 plane = p.CascadePlanes[k * 6u + i];
+                        inside     = dot( plane.xyz, position ) + plane.w >= -reach;
+                    }
+                    if ( !inside )
+                        continue;
+                    uint at   = k * p.Cascades.y + table;
+                    uint slot = atomicAdd( CascadeArguments[at], 1u );
+                    if ( slot < CascadeArguments[at + 2u] )
+                        GrassCascadeInstancesData[CascadeArguments[at + 1u] + slot] = instance;
+                }
+            }
 
             // The camera's list: the visible instance at once, the hidden one as a candidate for phase 2. Both
             // counts together stay within the bucket's kept count, so neither passes its capacity.

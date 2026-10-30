@@ -3,6 +3,7 @@
 #include <Engine/Graphic/GpuInstances.hpp>
 #include <Engine/Graphic/InstanceWind.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
+#include <Engine/Graphic/Materials/SceneResources.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
@@ -13,6 +14,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -32,6 +34,11 @@ namespace Desert::Graphic
 namespace Desert::Graphic::System
 {
     class MeshRenderer;
+
+    // GPU-COST-21: the cascade views a variety keeps a list of its own for, at most (every shadowed directional
+    // light's cascades; MeshRenderer::kCascadeViews). GrassGenerate.shader CascadePlanes and GrassFinalize.shader
+    // kCascadeViews are sized by it.
+    inline constexpr uint32_t kGrassCascadeLists = SceneResources::kMaxCascadeViews;
 
     // One landscape root's heights and grass-layer weights on ONE sample grid over all its tiles (tiles share
     // their edge samples), packed as the generator reads it (Programs/Grass/GrassGenerate.shader, FieldData):
@@ -226,6 +233,10 @@ namespace Desert::Graphic::System
             glm::vec4  Camera[4]{};
             bool       Swept = false; // Full is wider than Camera: the cells and capacity leave the lens's wedge
             CameraList List  = CameraList::None;
+            // GPU-COST-21: the cascade views this frame draws (bit v: view v, MeshRenderer::CascadeCasterBoxSet) and
+            // their caster boxes, list k's six planes (the k-th set bit's) at 6k (GrassGenerate.shader CascadePlanes).
+            uint32_t  CascadeMask = 0;
+            glm::vec4 CascadePlanes[kGrassCascadeLists * 6u]{};
         };
         struct FieldGpu
         {
@@ -257,6 +268,8 @@ namespace Desert::Graphic::System
             // GRASS-VIS-7: the drawn counts this frame's Feedback copy held (GrassFinalize, FramesInFlight frames
             // ago): the full list's, the camera's phase 1's, phase 2's appended; none before its first write.
             std::optional<glm::uvec3>                       Drawn;
+            // GPU-COST-21: the same copy's drawn count of each cascade view's list (0: the view had none).
+            std::array<uint32_t, kGrassCascadeLists>        DrawnCascades{};
             RDG::ExternalBuffer InstancesImport, ArgsImport, ParamsImport, FeedbackImport;
             RDG::BufferRef      FeedbackRef;
             GpuInstanceRefs                                 Refs;
@@ -273,6 +286,16 @@ namespace Desert::Graphic::System
             GpuInstanceRefs     CameraRefs; // phase 1's draws
             GpuInstanceRefs     PostRefs;   // phase 2's: CameraInstances through PostArgs
             RDG::BufferRef      CandidatesRef;
+            // GPU-COST-21, THE CASCADES' LISTS (UE: each shadow view culls its instances by its own volume): per
+            // cascade view of CascadeMask (list k the k-th set bit) the instances inside that cascade's caster box,
+            // CascadeInstances list k at k x Capacity, CascadeArgs one copy of Args' layout (CascadeArgWords words)
+            // per list, its bucket firsts moved by k x Capacity. No live view: one-word stand-ins the passes bind.
+            uint32_t                                        CascadeMask     = 0;
+            uint32_t                                        CascadeArgWords = 0;
+            std::shared_ptr<ShaderResources::StorageBuffer> CascadeInstances;
+            std::shared_ptr<ShaderResources::StorageBuffer> CascadeArgs;
+            RDG::ExternalBuffer                             CascadeInstancesImport, CascadeArgsImport;
+            GpuInstanceRefs                                 CascadeRefs;
             RDG::BufferRef                                  ParamsRef;
             RDG::BufferRef                                  FieldRef;
             glm::ivec4                                      Cells{ 0 };

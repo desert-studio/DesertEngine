@@ -7,6 +7,7 @@
 #include <Engine/Graphic/Systems/Scene/Grass/GrassRenderer.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Core/Frustum.hpp>
 #include <Engine/Geometry/Mesh.hpp>
 #include <Engine/Geometry/MeshBounds.hpp>
 #include <Engine/Geometry/StaticMesh.hpp>
@@ -47,7 +48,11 @@ namespace Desert::Graphic::System
         constexpr uint32_t kPhaseWords = 4u;
         // GRASS-VIS-7: Feedback's words per variety past its bucket counts (GrassFinalize.shader Feedback): the
         // written mark, the full list's drawn count, the camera's phase-1 drawn count, phase 2's appended count.
-        constexpr uint32_t kFeedbackTailWords = 4u;
+        // GPU-COST-21: then one drawn count per cascade view's list (GrassFinalize.shader FinalizeCascades).
+        constexpr uint32_t kFeedbackTailWords = 4u + kGrassCascadeLists;
+        static_assert( kGrassCascadeLists == MeshRenderer::kCascadeViews &&
+                            kGrassCascadeLists == GrassDrawCounters::kCascadeViews && kGrassCascadeLists == 8u,
+                       "GrassGenerate.shader CascadePlanes[48] and GrassFinalize.shader kCascadeViews are sized by it" );
         // A camera candidate's two uvec4 (GrassGenerate.shader Candidates): its sphere and its row of Instances.
         constexpr uint32_t kCandidateBytes = 32u;
         // GrassGenerate's phase 2 runs one thread per slot (64 a group); its groups wrap at this many along x.
@@ -75,8 +80,11 @@ namespace Desert::Graphic::System
             // The variety's world patches: x = Coverage (1: none), y = Size cm, z = Softness, w = the noise seed's
             // bits (shared by a Group).
             glm::vec4 Patches;
+            // GPU-COST-21: x = the cascade lists, y = one list's words of Args' layout, z = the cull pad (float bits)
+            glm::uvec4 Cascades;
+            glm::vec4  CascadePlanes[kGrassCascadeLists * 6u]; // list k's caster box at 6k
         };
-        static_assert( sizeof( GrassParamsGpu ) == 336 );
+        static_assert( sizeof( GrassParamsGpu ) == 1120 );
 
         // Instances whose cell centre lies within [inner, outer) of the camera, the ring widened on each side by
         // one jittered cell and by @p moved, the farthest a blade's scatter and clump pull carry it from its cell.
@@ -188,6 +196,8 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, CameraInstances );
             DESERT_SHADER_PARAMETER( StorageBuffer, CameraArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, Candidates );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CascadeInstances );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CascadeArgs );
         };
 
         // GrassGenerate's push block, std430 (Programs/Grass/GrassGenerate.shader PushConstants).
@@ -206,6 +216,7 @@ namespace Desert::Graphic::System
             DESERT_SHADER_PARAMETER( StorageBuffer, Feedback );
             DESERT_SHADER_PARAMETER( StorageBuffer, CameraArgs );
             DESERT_SHADER_PARAMETER( StorageBuffer, PostArgs );
+            DESERT_SHADER_PARAMETER( StorageBuffer, CascadeArgs );
         };
 
         // GrassFinalize's push block (Programs/Grass/GrassFinalize.shader PushConstants).
@@ -421,6 +432,7 @@ namespace Desert::Graphic::System
         std::vector<uint32_t> counted( buckets + kFeedbackTailWords, 0u );
         bool                  fedBack = false;
         gpu.Drawn                     = std::nullopt;
+        gpu.DrawnCascades             = {};
         if ( gpu.Feedback && gpu.Buckets == buckets )
         {
             if ( const auto read = gpu.Feedback->ReadBack( counted.data(), ( buckets + kFeedbackTailWords ) * 4u );
@@ -432,7 +444,11 @@ namespace Desert::Graphic::System
             {
                 fedBack = counted[buckets] != 0u;
                 if ( fedBack )
+                {
                     gpu.Drawn = glm::uvec3( counted[buckets + 1u], counted[buckets + 2u], counted[buckets + 3u] );
+                    for ( uint32_t v = 0; v < kGrassCascadeLists; ++v )
+                        gpu.DrawnCascades[v] = counted[buckets + 4u + v];
+                }
             }
         }
         if ( gpu.LowFrames.size() != buckets )
@@ -514,7 +530,8 @@ namespace Desert::Graphic::System
         m_Settling = m_Settling || gpu.SettleReads > 0u;
 
         if ( gpu.Mesh != &mesh || gpu.Capacity != capacity || gpu.Buckets != buckets ||
-             gpu.BucketCapacities != capacities || !gpu.Instances || gpu.List != volumes.List )
+             gpu.BucketCapacities != capacities || !gpu.Instances || gpu.List != volumes.List ||
+             gpu.CascadeMask != volumes.CascadeMask )
         {
             gpu.List             = volumes.List;
             gpu.Mesh             = &mesh;
@@ -608,6 +625,37 @@ namespace Desert::Graphic::System
                 gpu.Candidates = ShaderResources::StorageBuffer::Create( "GrassCandidates", 16u, 7, true );
                 gpu.PostArgs   = ShaderResources::StorageBuffer::Create( "GrassPostArgs", 16u, 3, true );
             }
+            // The cascades' lists (GPU-COST-21): per cascade view this frame draws a copy of the records and the
+            // bucket table, list k's bucket firsts moved by k x capacity into CascadeInstances.
+            gpu.CascadeMask     = volumes.CascadeMask;
+            gpu.CascadeArgWords = static_cast<uint32_t>( args.size() );
+            if ( const auto lists = static_cast<uint32_t>( std::popcount( volumes.CascadeMask ) ); lists > 0u )
+            {
+                gpu.CascadeInstances = ShaderResources::StorageBuffer::Create(
+                     "GrassCascadeInstances", std::max( lists * capacity, 1u ) * sizeof( glm::mat4 ), 8, true );
+                std::vector<uint32_t> cascadeArgs;
+                cascadeArgs.reserve( args.size() * lists );
+                for ( uint32_t k = 0; k < lists; ++k )
+                {
+                    const size_t at = cascadeArgs.size();
+                    cascadeArgs.insert( cascadeArgs.end(), args.begin(), args.end() );
+                    for ( uint32_t b = 0; b < buckets; ++b )
+                        cascadeArgs[at + tableWord + b * kBucketWords + 1u] += k * capacity;
+                }
+                const auto cascadeBytes = static_cast<uint32_t>( cascadeArgs.size() * 4u );
+                gpu.CascadeArgs = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", cascadeBytes, 9, true );
+                if ( const auto wrote = gpu.CascadeArgs->SetData( cascadeArgs.data(), cascadeBytes );
+                     !wrote.IsSuccess() )
+                {
+                    LOG_ERROR( "[Grass] the cascade lists' records were not written: {}", wrote.GetError() );
+                    return nullptr;
+                }
+            }
+            else
+            {
+                gpu.CascadeInstances = ShaderResources::StorageBuffer::Create( "GrassCascadeInstances", 16u, 8, true );
+                gpu.CascadeArgs      = ShaderResources::StorageBuffer::Create( "GrassCascadeArgs", 16u, 9, true );
+            }
             gpu.Params = ShaderResources::StorageBuffer::Create( "GrassParams", sizeof( GrassParamsGpu ), 1 );
             if ( const uint32_t feedbackBytes = ( buckets + kFeedbackTailWords ) * 4u;
                  !gpu.Feedback || gpu.Feedback->GetSize() != feedbackBytes )
@@ -679,6 +727,13 @@ namespace Desert::Graphic::System
         // The world's snow buries every instance's root by its depth (Common/WeatherSnow.glslh): a blade shows only
         // what stands above the snow, and one shorter than it is gone, in every pass that draws or shades it.
         params.Lean.z = std::max( m_SceneRenderer->GetWorldParameterScalar( "SnowDepth" ), 0.0f );
+        // The cascades' lists (GPU-COST-21): their count, one copy's words, a mesh's sway past its bounds (a blade's
+        // sphere holds its sway), and each list's caster box.
+        params.Cascades = glm::uvec4(
+             static_cast<uint32_t>( std::popcount( gpu.CascadeMask ) ), gpu.CascadeArgWords,
+             std::bit_cast<uint32_t>( variety.Blade ? 0.0f : static_cast<float>( WindBoundsPad( variety.Wind ) ) ), 0u );
+        std::copy( std::begin( volumes.CascadePlanes ), std::end( volumes.CascadePlanes ),
+                   std::begin( params.CascadePlanes ) );
         if ( !variety.Blade )
         {
             const Common::Math::AABB bounds   = Geometry::LocalBounds( submeshes );
@@ -733,7 +788,9 @@ namespace Desert::Graphic::System
             gpu.FrameKey.push_back( static_cast<uint32_t>( gpu.Cells[i] ) );
         gpu.FrameKey.push_back( gpu.Capacity );
         for ( const void* buffer :
-              { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ) } )
+              { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ),
+                static_cast<const void*>( gpu.CascadeInstances.get() ),
+                static_cast<const void*>( gpu.CascadeArgs.get() ) } )
         {
             const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
             gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
@@ -754,6 +811,25 @@ namespace Desert::Graphic::System
         std::copy( std::begin( volumes.Camera ), std::end( volumes.Camera ), std::begin( volumes.Full ) );
         volumes.Swept = SweepPlanes( volumes.Full, meshes.DirectionalCasterSweeps() );
         volumes.List  = testsHzb ? CameraList::PlanesAndHzb : volumes.Swept ? CameraList::Planes : CameraList::None;
+        // GPU-COST-21: the cascade views this frame draws, each with its own list culled by its caster box - the six
+        // planes of the matrix it draws with (UpdateCascades fitted it above).
+        {
+            const MeshRenderer::CascadeCasterBoxes boxes = meshes.CascadeCasterBoxSet();
+            volumes.CascadeMask                          = boxes.Live;
+            uint32_t list                                = 0;
+            for ( uint32_t v = 0; v < kGrassCascadeLists; ++v )
+            {
+                if ( ( boxes.Live & ( 1u << v ) ) == 0u )
+                    continue;
+                const Core::Frustum box( boxes.ViewProj[v], glm::mat4( 1.0f ) );
+                for ( uint32_t i = 0; i < 6u; ++i )
+                {
+                    const Core::Frustum::Plane& plane = box.GetPlane( static_cast<Core::FrustumPlane>( i ) );
+                    volumes.CascadePlanes[list * 6u + i] = glm::vec4( plane.Normal, plane.Distance );
+                }
+                ++list;
+            }
+        }
         m_Frame.clear();
         m_FrameGenerate.clear();
         m_Settling       = false;
@@ -809,7 +885,9 @@ namespace Desert::Graphic::System
                       { std::pair{ &gpu->CameraInstances, &gpu->CameraInstancesImport },
                         std::pair{ &gpu->CameraArgs, &gpu->CameraArgsImport },
                         std::pair{ &gpu->Candidates, &gpu->CandidatesImport },
-                        std::pair{ &gpu->PostArgs, &gpu->PostArgsImport } } )
+                        std::pair{ &gpu->PostArgs, &gpu->PostArgsImport },
+                        std::pair{ &gpu->CascadeInstances, &gpu->CascadeInstancesImport },
+                        std::pair{ &gpu->CascadeArgs, &gpu->CascadeArgsImport } } )
                     if ( imported )
                         imported = Renderer::ImportBuffer( *buffer, *into );
                 if ( !imported )
@@ -826,10 +904,13 @@ namespace Desert::Graphic::System
                 gpu->CandidatesRef        = graph.RegisterExternal( gpu->CandidatesImport, "GrassCandidates" );
                 gpu->PostRefs.Instances   = gpu->CameraRefs.Instances;
                 gpu->PostRefs.Args        = graph.RegisterExternal( gpu->PostArgsImport, "GrassPostArgs" );
+                gpu->CascadeRefs.Instances =
+                     graph.RegisterExternal( gpu->CascadeInstancesImport, "GrassCascadeInstances" );
+                gpu->CascadeRefs.Args = graph.RegisterExternal( gpu->CascadeArgsImport, "GrassCascadeArgs" );
                 gpu->FieldRef       = fieldGpu.Ref;
                 m_Frame.push_back( gpu );
                 if ( gpu->Drawn )
-                    DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z );
+                    DrawCounter::RecordGrass( gpu->Drawn->x, gpu->Drawn->y, gpu->Drawn->z, gpu->DrawnCascades );
                 const auto revision = static_cast<uint64_t>( fieldGpu.Revision );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision ) );
                 gpu->FrameKey.push_back( static_cast<uint32_t>( revision >> 32u ) );
@@ -866,6 +947,10 @@ namespace Desert::Graphic::System
                            .Refs             = &gpu->Refs,
                            .CameraRefs       = cameraList ? &gpu->CameraRefs : nullptr,
                            .PostRefs         = testsHzb ? &gpu->PostRefs : nullptr,
+                           .CascadeInstances = gpu->CascadeInstances,
+                           .CascadeRefs      = gpu->CascadeMask != 0u ? &gpu->CascadeRefs : nullptr,
+                           .CascadeMask      = gpu->CascadeMask,
+                           .CascadeArgBytes  = gpu->CascadeArgWords * 4u,
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
                            .Levels           = variety.Blade ? 1u : gpu->Buckets,
@@ -935,6 +1020,10 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( GrassGenerateShaderParameters::Candidates, gpu->CandidatesRef,
                                         RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::CascadeInstances, gpu->CascadeRefs.Instances,
+                                        RDG::Access::StorageWrite )
+                              .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                        RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
                  },
                  [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -974,6 +1063,8 @@ namespace Desert::Graphic::System
                                         RDG::Access::StorageWrite )
                               .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
                                         RDG::Access::StorageWrite )
+                              .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                        RDG::Access::StorageWrite )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
                  },
                  [this, cameraList = volumes.List != CameraList::None]( RDG::PassContext& context )
@@ -984,7 +1075,8 @@ namespace Desert::Graphic::System
                      {
                          RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
                          const GrassFinalizePush mode{ glm::uvec4(
-                              0u, cameraList ? 1u : 0u, m_FrameGenerate[i]->Shape ? 1u : 0u, 0u ) };
+                              0u, cameraList ? 1u : 0u, m_FrameGenerate[i]->Shape ? 1u : 0u,
+                              m_FrameGenerate[i]->CascadeMask ) };
                          bindings.PushConstants( &mode, sizeof( mode ) );
                          if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
                               !dispatched )
@@ -1035,6 +1127,10 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageWrite )
                           .Storage( GrassGenerateShaderParameters::Candidates, gpu->CandidatesRef,
                                     RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::CascadeInstances, gpu->CascadeRefs.Instances,
+                                    RDG::Access::StorageRead )
+                          .Storage( GrassGenerateShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                    RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassGeneratePush ) ) );
              },
              [this, push]( RDG::PassContext& context ) -> Common::BoolResultStr
@@ -1073,6 +1169,8 @@ namespace Desert::Graphic::System
                                     RDG::Access::StorageRead )
                           .Storage( GrassFinalizeShaderParameters::PostArgs, gpu->PostRefs.Args,
                                     RDG::Access::StorageWrite )
+                          .Storage( GrassFinalizeShaderParameters::CascadeArgs, gpu->CascadeRefs.Args,
+                                    RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( GrassFinalizePush ) ) );
              },
              [this]( RDG::PassContext& context ) -> Common::BoolResultStr
