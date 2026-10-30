@@ -6,6 +6,7 @@
 #include <Engine/Assets/CloudProceduralVolume.hpp>
 #include <Engine/Graphic/Clouds/CloudProceduralClipmap.hpp>
 #include <Engine/ECS/VolumetricCloudComponent.hpp>
+#include <Engine/Graphic/Clouds/CloudAmortizedRefresh.hpp>
 #include <Engine/Graphic/Clouds/CloudAuthoredPayload.hpp>
 #include <Engine/Graphic/Clouds/CloudEnvironmentBake.hpp>
 #include <Engine/Graphic/Clouds/CloudMaterialValues.hpp>
@@ -24,6 +25,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <chrono>
@@ -199,6 +201,18 @@ namespace Desert::Graphic::System
         // The sky-occlusion volume's dispatch over m_ParamsBuffer / m_AuthoredBuffer as this frame uploaded them
         // (DeclareFrameNodes, DeclareSkyOcclusionNodes), writing m_SkyOcclusionVolume (EnsureSkyOcclusionVolume).
         ComputeNodeDeclaration SkyOcclusionNode();
+        // The volume's node when its inputs (SkyOcclusionInputsKey) moved since the bytes it holds were marched,
+        // none when they did not: the volume is a pure function of them
+        // (Graphic/Clouds/CloudAmortizedRefresh.hpp). Either way the volume may be read this frame. Settled by
+        // NoteSkyOcclusionAccepted.
+        void DeclareSkyOcclusionIfStale( std::vector<ComputeNodeDeclaration>& nodes,
+                                         const CloudGpuPayload&               payload );
+        void NoteSkyOcclusionAccepted( bool accepted );
+        // Every input of the two cached field producers but the push constant and the wind: the field block as
+        // they read it, the authored block, the medium (its variant and values), the sampled images and their
+        // write generations. CloudAmortizedRefresh.hpp says why the wind is out when the field is rigid in it.
+        uint64_t FieldInputsKey( const CloudGpuPayload& payload, bool windRigid ) const;
+        bool     WindIsRigid() const;
 
         /**
          * @brief Stage SM — the cloud shadow map. Must be called outside any render pass, and EARLY:
@@ -210,7 +224,7 @@ namespace Desert::Graphic::System
          * Costs exactly nothing when the layer is absent, disabled, not casting or at zero strength: the
          * image is not even allocated until all four are true.
          */
-        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes( RDG::Builder& graph );
+        std::vector<ComputeNodeDeclaration> DeclareShadowMapNodes();
         // HasShadowMap() becomes true only when the graph accepted the shadow-map node DeclareShadowMapNodes
         // built.
         void SettleShadowMapNodes( bool accepted );
@@ -230,11 +244,12 @@ namespace Desert::Graphic::System
             return m_Present;
         }
 
-        /// The map: a transient of the graph DeclareShadowMapNodes was given. Invalid unless HasShadowMap(); a
-        /// reader takes it through FrameTransients::CloudShadowMap (SceneViewInputsOf).
-        RDG::TextureRef GetShadowMap() const
+        /// The map the lit passes read this frame: the FRONT of the two persistent copies
+        /// (CloudShadowRefreshState), null unless HasShadowMap(). A reader imports it into the frame
+        /// (FrameTransients::CloudShadowMap, SceneViewInputsOf).
+        std::shared_ptr<Image> GetShadowMap() const
         {
-            return m_ShadowMapValid ? m_ShadowMap : RDG::TextureRef{};
+            return m_ShadowMapValid ? m_ShadowMap : nullptr;
         }
 
         /// This frame's projection and its far depth, for a consumer that has to transform a world
@@ -491,6 +506,8 @@ namespace Desert::Graphic::System
         /// m_MediumVariant.Hash(), kept beside it so the per-frame comparison is one integer and not a
         /// re-hash of the whole body. 0 is the default medium.
         uint64_t m_MediumVariantHash = 0;
+        // The shipped medium (no authored graph): the field is rigid in the wind (CloudWindIsRigid).
+        bool m_MediumIsDefault = true;
 
         // THE STRONG REFERENCES, and they are what keeps the variant programs alive: ShaderService holds
         // variants only weakly, precisely so that a medium nobody uses any more releases its
@@ -552,8 +569,17 @@ namespace Desert::Graphic::System
         // frame. What forces two of them is the frame, not the data — this pass is issued before the
         // render graph and the march after it, and writing one non-persistent buffer twice between two
         // dispatches is a hazard whose only defence today is that the bytes happen to be equal.
-        // The map itself is a transient of the frame graph, this ref valid in the graph that declared it.
-        RDG::TextureRef                                 m_ShadowMap;
+        // THE MAP IS TWO PERSISTENT COPIES, no longer a transient re-marched every frame: the FRONT the lit passes
+        // read and the BACK a wind-only refresh re-marches in bands (Graphic/Clouds/CloudAmortizedRefresh.hpp).
+        // m_ShadowMap is this frame's front, null when the frame has no map. The plan is decided at declaration
+        // and committed by SettleShadowMapNodes only when the graph accepted its node.
+        std::shared_ptr<Image>                          m_ShadowMap;
+        std::array<std::shared_ptr<Image2D>, 2>         m_ShadowMapImages;
+        uint32_t                                        m_ShadowMapImageResolution = 0;
+        CloudShadowRefreshState                         m_ShadowRefresh{};
+        CloudShadowRefreshPlan                          m_ShadowRefreshPlan{};
+        uint64_t                                        m_ShadowRefreshKey        = 0;
+        uint32_t                                        m_ShadowRefreshResolution = 0;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ShadowParamsBuffer;
 
         // This frame's projection, and whether it describes anything. Rebuilt every frame rather than
@@ -592,6 +618,17 @@ namespace Desert::Graphic::System
         // was created. Until it has, m_SkyOcclusionValid means "not yet", not "no", and the environment
         // bake is told to wait rather than bake a panorama the next frame would render stale.
         bool m_SkyOcclusionDecided = false;
+
+        // What the volume's bytes were marched from (FieldInputsKey), valid while m_SkyOcclusionBuilt; the key a
+        // node of this frame marches from, until the graph accepts it (NoteSkyOcclusionAccepted).
+        bool                    m_SkyOcclusionBuilt    = false;
+        uint64_t                m_SkyOcclusionBuiltKey = 0;
+        std::optional<uint64_t> m_SkyOcclusionPendingKey;
+
+        // How many batches of input uploads (AddInputUploads) reached the graph: an uploaded image changed bytes
+        // the cached producers marched through. A batch still pending counts as landed (FieldInputsKey), because
+        // its copy is ordered before every reader of the frame that declares it.
+        uint64_t m_UploadEpoch = 0;
 
         // CO-OWNED, like m_AuthoredAtlas: Runtime::CloudNoiseService owns every noise volume and shares one
         // upload across all views, and this renderer holds the service's handle (AssetRef::Share) for as long

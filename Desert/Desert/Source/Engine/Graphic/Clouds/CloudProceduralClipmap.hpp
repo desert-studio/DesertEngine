@@ -104,6 +104,13 @@ namespace Desert::Graphic
             return m_Image;
         }
 
+        /// How many times the image's texels were written (a shape landing, a level scrolling). A consumer that
+        /// caches what it marched through the image (the cloud shadow map, the sky-occlusion volume) keys on it.
+        uint64_t WriteGeneration() const
+        {
+            return m_WriteGeneration;
+        }
+
         /// CloudLevel[k] for the march (CloudParams.glslh): xy the level's minimum corner on the device,
         /// world km; z 1 / its side, 1/km; w its voxel, km. Texel coordinate of a world point p (km) on
         /// level k: p * z (REPEAT), equivalently (p - xy) * z + fract( xy * z ).
@@ -157,6 +164,7 @@ namespace Desert::Graphic
         Common::BoolResultStr EnsureImage( uint32_t side );
 
         std::shared_ptr<Image3D> m_Image;
+        uint64_t                 m_WriteGeneration = 0;
 
         Assets::CloudProceduralFieldParams   m_DeviceParams{};
         std::array<glm::ivec2, kLevels>      m_DeviceOrigin{};

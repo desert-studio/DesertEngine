@@ -137,17 +137,14 @@ namespace Desert::Graphic
         auto* clouds = UNIQUE_GET_AS( System::VolumetricCloudRenderer, m_RenderSystems["VolumetricCloudSystem"] );
         if ( clouds == nullptr )
             return;
-        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareShadowMapNodes( graph );
-        // ASYNC COMPUTE (UE r.VolumetricCloud.ShadowMap on the async pipe): every input is the cloud field (host
-        // payloads, the uploads just below) and its first reader is a lit pass after the shadow depths, the light
-        // grids and the G-buffer, so the march overlaps them. Fork: after the input uploads; join: the first lit
-        // reader of Clouds.ShadowMap.
-        for ( ComputeNodeDeclaration& node : nodes )
-            node.AsyncCompute = true;
+        std::vector<ComputeNodeDeclaration> nodes = clouds->DeclareShadowMapNodes();
+        // NOT ON THE ASYNC PIPE: the map is two persistent copies now (CloudAmortizedRefresh.hpp), and the copy a
+        // node writes was read by the previous frame's lit passes on the graphics queue; on the one queue the
+        // graph's barrier from the image's recorded state orders the two, across the queues nothing here does.
         clouds->AddInputUploads( graph, textures ); // what the declaration just baked, before its readers
         clouds->SettleShadowMapNodes( AddComputeNodes( graph, textures, std::move( nodes ) ) );
-        // A transient of this graph; its readers take the ref through SceneViewInputsOf (CloudShadowMapOrWhite).
-        textures.Transients.CloudShadowMap = clouds->GetShadowMap();
+        // The front copy; its readers take the ref through SceneViewInputsOf (CloudShadowMapOrWhite).
+        textures.Transients.CloudShadowMap = textures.Import( clouds->GetShadowMap(), "Clouds.ShadowMap" );
     }
 
     void SceneRenderer::AddFrameCloudSkyOcclusion( RDG::Builder& graph, FrameTextures& textures )
