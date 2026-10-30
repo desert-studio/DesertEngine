@@ -172,6 +172,8 @@ namespace Desert::Graphic::API::Vulkan
         explicit VulkanLogicalDevice( std::shared_ptr<VulkanPhysicalDevice> physicalDevice );
         // Selects and probes the device (DeviceCapsProbe), refuses one without the required set, creates it.
         [[nodiscard]] static Common::ResultStr<std::shared_ptr<VulkanLogicalDevice>> Create();
+        // The engine's device (EngineContext) as the Vulkan device: the one accessor every Vulkan-side file uses.
+        [[nodiscard]] static std::shared_ptr<VulkanLogicalDevice> Current();
         ~VulkanLogicalDevice() override;
 
         // Device interface implementation

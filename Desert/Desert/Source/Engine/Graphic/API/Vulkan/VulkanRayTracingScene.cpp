@@ -57,18 +57,13 @@ namespace Desert::Graphic::API::Vulkan
                                                           &build, &instanceCount, &sizes );
             return sizes;
         }
-
-        std::shared_ptr<VulkanLogicalDevice> LogicalDevice()
-        {
-            return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() );
-        }
     } // namespace
 
     Common::ResultStr<RayTracing::TlasBuildSizes> VulkanRayTracingScene::Prepare( uint32_t   instanceCount,
                                                                                   const bool update )
     {
         using Sizes        = RayTracing::TlasBuildSizes;
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical )
             return Common::MakeError<Sizes>( "TLAS: no Vulkan device" );
         const RayTracingDeviceFunctions& functions = logical->GetRayTracingFunctions();
@@ -150,7 +145,7 @@ namespace Desert::Graphic::API::Vulkan
         const auto scratchBuffer = VulkanRdgBackend::BufferOf( scratch );
         if ( !scratchBuffer )
             return Common::MakeError( scratchBuffer.GetError() );
-        const auto logical = LogicalDevice();
+        const auto logical = VulkanLogicalDevice::Current();
         if ( !logical || m_Handle == VK_NULL_HANDLE )
             return Common::MakeError( "TLAS build recorded without a prepared acceleration structure" );
         if ( update && m_BuiltInstances != instanceCount )
