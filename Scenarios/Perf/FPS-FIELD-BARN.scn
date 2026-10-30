@@ -1,0 +1,26 @@
+# FPS-FIELD-BARN: the FIELD_Barn per-pass GPU/CPU table, measured the same way on every build (UE `stat gpu` /
+# ProfileGPU: one repeatable run gives the frame's per-pass GPU times; no hand capture). Played by the lead on the
+# dev Editor (before) and the int/fps Editor (after), default machine settings (no machine.json overrides).
+# Two measurements of the same view, 300 frames of warm-up each: A = still air (the scene's one WindSource at
+# Speed 0, edit mode), B = the scene's own wind (Speed 1500 cm/s) under Simulate, so foliage sways and the cloud
+# layer drifts (the gameplay clock the sway reads is zero while editing - Graphic/InstanceWind.hpp:11-12).
+# GPU timestamps: `--gpu-profile` on the Проект line switches them on with per-pass scopes (Sandbox.hpp:289-290).
+# [gpu] PASS when editor.log carries two "[Profiler] ---- per-pass breakdown" tables (one after 1_static, one
+# after 2_wind) with the same rows - "GPU: Frame Total", "Clouds: ShadowMap", "Clouds: SkyOcclusion" (gpu ms /
+# gpu self; VolumetricCloudRenderer.cpp:1056,1228), "Clouds: ShadowMapHero" (int/fps only: it is declared on
+# task/FPS-GPU-WIN, absent on dev) and the MeshRenderer::* / "Mesh: *" CPU scopes (cpu ms) - comparable between
+# the dev run and the int/fps run. NOT PLAYABLE TO PASS TODAY: no control operation writes or returns that table in an
+# interactive editor (ProfilerWindow::DumpProfilerToLog runs only at the end of a headless --shot,
+# ShotDirector.cpp:363-364); the smallest addition is named in REMAINDER-FPS-MEASURE.md. Until it lands, the
+# headless FPS-MAC command (Scenarios/Perf/FPS-MAC.scn, view 1_eye) is the per-pass table, still air only.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 300
+Тогда-вид 1_static FIELD_Barn at 1.7 m, still air: field, barn, trees and sky drawn, nothing black or missing; [Profiler] table A (GPU: Frame Total, Clouds: ShadowMap, Clouds: ShadowMapHero on int/fps, Clouds: SkyOcclusion, MeshRenderer::* / Mesh: *) follows in editor.log
+Когда set 8180000000000004 WindSourceData.Speed 1500
+Когда run Action Simulate
+Когда frames 300
+Тогда-вид 2_wind the same view under Simulate with the scene's wind: the same field, grass and crowns bent along the wind, clouds moved; [Profiler] table B with the same rows as A follows in editor.log
