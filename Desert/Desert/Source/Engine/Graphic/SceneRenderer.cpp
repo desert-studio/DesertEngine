@@ -839,29 +839,56 @@ namespace Desert::Graphic
     }
     DESERT_DESTRUCTOR_GUARD( "~SceneRenderer" )
 
+    float SceneRenderer::GetWorldParameterScalar( std::string_view name ) const
+    {
+        for ( const auto& value : m_WorldParameterValues )
+            if ( value.Type == Assets::Serialization::WorldParameterType::Scalar && value.Name == name )
+                return value.Value.x;
+        return 0.0f;
+    }
+
     Common::BoolResultStr SceneRenderer::UploadWorldParameters( const Desert::Core::Scene& scene )
     {
         // A Texture parameter's slot carries its texture's bindless image and sampler (x, y as uint bits) and w =
         // 1 once the texture is resident; until then the slot is zero and the surface reads no such texture.
         std::vector<Desert::Core::WorldParameterValue> values( scene.GetWorldParameters().Values().begin(),
                                                                scene.GetWorldParameters().Values().end() );
-        for ( auto& value : values )
+        const auto* camera = GetMainCamera();
+        for ( size_t index = 0; index < values.size(); ++index )
         {
+            auto& value = values[index];
             if ( value.Type != Assets::Serialization::WorldParameterType::Texture )
                 continue;
-            value.Value              = glm::vec4( 0.0f );
+            value.Value = glm::vec4( 0.0f );
+            // A world texture is laid over everything the view sees, the ground at the eye included, so it is
+            // asked for at full size (as a camera inside a draw's sphere asks for all). No draw notes it otherwise:
+            // without this the streamer keeps only its smallest mips.
+            if ( camera != nullptr && GetViewExtent().Height > 0 )
+            {
+                const Geometry::LODView view{ camera->GetPosition(), camera->GetProjectionMatrix() };
+                TextureStreamingDemand::Get().NoteAsset(
+                     value.Texture,
+                     TextureStreamingDemand::ScreenPixels( camera->GetPosition(), 1.0f, view, GetViewExtent().Height ) );
+            }
             const Texture2D* texture = Runtime::ResourceRegistry::GetTextureService()->Get( value.Texture );
-            if ( texture == nullptr || !texture->GetImageHandle().IsValid() )
-                continue;
             // The bindless slot lives on the texture's image (as Texture2DProperty::GetBindlessSlot reads it).
-            const auto* image = dynamic_cast<const Image2D*>(
-                 Runtime::ResourceRegistry::GetImageService()->Resolve( texture->GetImageHandle() ) );
-            if ( image == nullptr || !image->GetBindlessSlot().IsValid() )
-                continue;
-            value.Value = glm::vec4(
-                 glm::uintBitsToFloat( image->GetBindlessSlot().Index ),
-                 glm::uintBitsToFloat( BindlessSamplerFor( Core::Formats::SamplerState{} ).Index ), 0.0f, 1.0f );
+            const auto* image = texture != nullptr && texture->GetImageHandle().IsValid()
+                                     ? dynamic_cast<const Image2D*>( Runtime::ResourceRegistry::GetImageService()->Resolve(
+                                            texture->GetImageHandle() ) )
+                                     : nullptr;
+            if ( image != nullptr && image->GetBindlessSlot().IsValid() )
+                value.Value = glm::vec4(
+                     glm::uintBitsToFloat( image->GetBindlessSlot().Index ),
+                     glm::uintBitsToFloat( BindlessSamplerFor( Core::Formats::SamplerState{} ).Index ), 0.0f, 1.0f );
+            const bool was = index < m_WorldParameterValues.size() && m_WorldParameterValues[index].Name == value.Name &&
+                             m_WorldParameterValues[index].Value.w > 0.5f;
+            if ( was != ( value.Value.w > 0.5f ) )
+                LOG_INFO( "[WorldParameters] '{}' {} ({})", value.Name, was ? "lost its texture" : "has its texture",
+                          texture == nullptr ? "no texture loaded"
+                          : image == nullptr ? "the texture has no image"
+                                             : std::format( "bindless slot {}", image->GetBindlessSlot().Index ) );
         }
+        m_WorldParameterValues = values;
         const WorldParameterTable table = BuildWorldParameterTable( values );
         std::vector<std::byte>    bytes( sizeof( table.Header ) +
                                          table.Slots.size() * sizeof( GpuWorldParameterSlot ) );

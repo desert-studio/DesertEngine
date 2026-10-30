@@ -37,6 +37,7 @@
 #include <Engine/Graphic/View/SpatialUpscale.hpp>
 #include <Engine/Graphic/View/TemporalUpscaler.hpp>
 #include <Engine/Core/ViewBudget.hpp>
+#include <Engine/Core/WorldParameterInstance.hpp>
 #include <Engine/Graphic/Environment/SceneEnvironment.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
 #include <Engine/Graphic/SystemRasterPass.hpp>
@@ -705,6 +706,10 @@ namespace Desert::Graphic
         /// before the render graph records, so every pass in the frame may ask. Returns the default (disabled, no
         /// map) whenever the layer is absent, off, not casting or at zero strength.
         CloudShadowInput GetCloudShadowInput() const;
+        /// A Scalar world parameter as this frame's snapshot holds it (BeginScene): for the CPU side of a pass whose
+        /// program takes the value through its own params (GrassRenderer: SnowDepth); 0 when the collection has none.
+        [[nodiscard]] float GetWorldParameterScalar( std::string_view name ) const;
+
         /// The view's snapshot of the world's parameters this frame (Common/WorldParameters.glslh), written once
         /// at BeginScene from Scene::GetWorldParameters; every capture of the frame binds this one buffer.
         [[nodiscard]] const std::shared_ptr<ShaderResources::StorageBuffer>& GetWorldParametersBuffer() const
@@ -899,6 +904,8 @@ namespace Desert::Graphic
         double m_SceneTimeSeconds = 0.0;
         // The world's parameters as of BeginScene (GetWorldParametersBuffer): per (view x frame in flight).
         std::shared_ptr<ShaderResources::StorageBuffer> m_WorldParameters;
+        // The values m_WorldParameters was built from this frame (GetWorldParameterScalar).
+        std::vector<Desert::Core::WorldParameterValue> m_WorldParameterValues;
         // Uploads Scene::GetWorldParameters into m_WorldParameters (BeginScene, inside the view's scope).
         [[nodiscard]] Common::BoolResultStr UploadWorldParameters( const Desert::Core::Scene& scene );
 
