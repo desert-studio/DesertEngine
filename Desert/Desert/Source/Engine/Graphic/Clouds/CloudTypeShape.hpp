@@ -429,6 +429,15 @@ namespace Desert::Graphic
         /// a cell (Placement Scale) is a PATCH of such bodies, not one body. Read only by the bake
         /// (Assets::CloudProceduralVolume's cluster emission), so the GPU payload does not carry it.
         float BodyDiameterKm = 1.0f;
+
+        /// HOW DENSE THIS TYPE FILLS THE AIR BETWEEN ITS BODIES (WTH-OVERCAST p4), 0..1: the peak of the
+        /// fill field (Assets::CloudProceduralFillField) where the 2D presence is one. Like UE's cloud type
+        /// profile it states the density of the column, while the weather map (Coverage, presence) states
+        /// where it stands; the 3D noise only erodes it. 0.35 is the congestus calibration the KeptCover table
+        /// (Assets/CloudProceduralVolume.hpp) was measured at; a sheet type (Stratus) states 1 so its deck is
+        /// one density from body to horizon, not bodies with a weak fill the Coverage threshold cuts into holes.
+        /// Read only by the bake, so the GPU payload does not carry it.
+        float FillDensity = 0.35f;
     };
 
     /**

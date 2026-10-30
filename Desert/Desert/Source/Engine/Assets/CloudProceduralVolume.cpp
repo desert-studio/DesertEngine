@@ -785,7 +785,7 @@ namespace Desert::Assets
         // A NEW FIELD HAS TO BE CONSIDERED HERE, not silently left out of the key: these sizes are the field
         // lists SerializeCloudProceduralBakeInputs writes. Growing either struct fails the build right here.
         static_assert( sizeof( Graphic::CloudTypeShape ) ==
-                            ( 14u + 2u * Graphic::kCloudProfileSamples ) * sizeof( float ),
+                            ( 15u + 2u * Graphic::kCloudProfileSamples ) * sizeof( float ),
                        "CloudTypeShape gained a field: add it to SerializeCloudProceduralBakeInputs" );
         static_assert( sizeof( CloudLayoutPlacement ) == 2u * sizeof( uint32_t ) + 4u * sizeof( float ),
                        "CloudLayoutPlacement gained a field: add it to SerializeCloudProceduralBakeInputs" );
@@ -870,6 +870,7 @@ namespace Desert::Assets
             KeyF32( out, shape.PlacementScale );
             KeyF32( out, shape.PlacementAnisotropy );
             KeyF32( out, shape.BodyDiameterKm );
+            KeyF32( out, shape.FillDensity );
         }
         return out;
     }
@@ -1965,7 +1966,7 @@ namespace Desert::Assets
             const float mask = kCloudFillFloor + ( 1.0f - kCloudFillFloor ) * std::clamp( presence, 0.0f, 1.0f );
             const float noise =
                  kCloudFillFloor + ( 1.0f - kCloudFillFloor ) * std::clamp( base.PerlinWorley, 0.0f, 1.0f );
-            return kCloudFillCeiling * mask * noise * CloudProceduralAltitudeDensity( type, pointKm.y );
+            return type.FillDensity * mask * noise * CloudProceduralAltitudeDensity( type, pointKm.y );
         }
 
         float CloudShapeNoiseOf( const CloudProceduralFieldParams& params, uint32_t slot, const glm::vec3& pointKm,

@@ -2,6 +2,7 @@
 # deck covered zenith and mid sky but stopped short of the horizon, where a band of blue sky with cumulus showed.
 # UE's Volumetric Cloud gives one field at every distance (weather map + cloud type), so the deck must reach the
 # horizon. Clouds_Weather_{Clear,Rain} = Clouds_Protocol with M_Clouds_Weather and an unbound WeatherZone.
+# p4: Stratus.decloudtype FillDensity 1 - the sheet type fills its layer as densely as its bodies.
 # Weather applies only while the scene ticks gameplay (Scene.cpp TicksGameplay), so each scene is shot in Play from Here.
 Дано run Scene "Open Scene Clouds_Weather_Clear.desce"
 Дано run View "View mode: Lit"
@@ -26,4 +27,4 @@
 Когда --subject viewport set Camera.Direction 1,0.6,0.1
 Тогда-вид 5_rain_mid Rain: the grey deck at mid elevation, no blue
 Когда --subject viewport set Camera.Direction 1,0.04,0.1
-Тогда-вид 6_rain_horizon Rain: the grey deck reaches down to the horizon - no band of blue sky or lone cumulus beneath it
+Тогда-вид 6_rain_horizon Rain: an even grey sheet down to the very horizon - no arc, no blue, no lighter band past the body overhead (Stratus FillDensity 1, WTH-OVERCAST p4)
