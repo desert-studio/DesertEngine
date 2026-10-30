@@ -1,0 +1,16 @@
+# FOLIAGE-TRUNK-GLOW: the centre tree (FIELD_Barn "Tree 1", island_tree_01 as a StaticMesh entity) glowed green-yellow
+# on its trunk against a low sun while the scattered trees' trunks (FB_TreeA, the same mesh as ISMs) stayed dark.
+# The FOLIAGE-PROOF frame 3 setup; then the G-buffer views that name the cause.
+Дано run Scene "Open Scene FIELD_Barn.desce"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.FOV 70
+Дано run Entity "Sun"
+Дано --subject selection set SunElevation 12
+Дано --subject selection set SunAzimuth 180
+Дано --subject viewport set Camera.Position -1500,450,-2800
+Дано --subject viewport set Camera.Direction 0,0.05,-1
+Тогда-вид 3_field_backlit the centre tree's trunk dark like the neighbouring trunks; the crowns lit through as before
+Когда run View "View mode: Shading Model"
+Тогда-вид 4_shading_model the centre trunk shows the Default Lit colour, the leaves the foliage colour
+Когда run View "View mode: Albedo (Unlit)"
+Тогда-вид 5_albedo the centre trunk shows bark albedo, not leaf albedo
