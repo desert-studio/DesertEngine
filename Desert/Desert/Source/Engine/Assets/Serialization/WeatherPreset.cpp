@@ -4,7 +4,9 @@
 #include <Common/Content/CanonicalText.hpp>
 #include <Common/Json/Json.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <set>
 #include <string>
 #include <system_error>
 #include <unordered_set>
@@ -33,13 +35,18 @@ namespace Desert::Assets::Serialization
         for ( size_t i = 0; i < data.CloudTypes.size(); ++i )
         {
             const WeatherCloudTypeWeight& t = data.CloudTypes[i];
-            if ( t.Type.empty() )
-                return Common::MakeFormattedError<bool>( "CloudTypes[{}] names no cloud type", i );
-            if ( !types.insert( t.Type ).second )
-                return Common::MakeFormattedError<bool>( "CloudTypes[{}] '{}' is stated twice", i, t.Type );
+            if ( const auto guid = Common::Content::AssetGuidFromText( t.Type.Guid );
+                 !guid || guid.GetValue().IsNull() )
+                return Common::MakeFormattedError<bool>(
+                     "CloudTypes[{}] '{}' states no well-formed cloud type GUID ('{}') - run Tools/SceneMigrator", i,
+                     t.Type.Path, t.Type.Guid );
+            if ( t.Type.Path.empty() )
+                return Common::MakeFormattedError<bool>( "CloudTypes[{}] {} states no Path", i, t.Type.Guid );
+            if ( !types.insert( t.Type.Guid ).second )
+                return Common::MakeFormattedError<bool>( "CloudTypes[{}] '{}' is stated twice", i, t.Type.Path );
             if ( !( t.Weight >= 0.0f && t.Weight <= 1.0f ) )
                 return Common::MakeFormattedError<bool>( "CloudTypes[{}] '{}' weight {} is outside [0, 1]", i,
-                                                         t.Type, t.Weight );
+                                                         t.Type.Path, t.Weight );
         }
         if ( data.CloudDensity && !( *data.CloudDensity >= 0.0f && *data.CloudDensity <= 2.0f ) )
             return Common::MakeFormattedError<bool>( "CloudDensity {} is outside [0, 2]", *data.CloudDensity );
@@ -72,12 +79,27 @@ namespace Desert::Assets::Serialization
         if ( auto valid = ValidateWeatherPresetData( data ); !valid )
             return Common::MakeFormattedError<WeatherPresetData>( "{}", valid.GetError() );
 
-        if ( data.Header && !data.Header->Dependencies.empty() )
+        // ONE REFERENCE, TWO STATEMENTS OF IT (as a VFX system's rows): the registry, the cook and the packager
+        // read the edges from the header (ContentRegistry::Closure), the weather from the rows. A cloud type a row
+        // names and the header leaves out would be missing from a packaged game.
+        const auto  expected = WeatherPresetDependencies( data );
+        const auto& stated   = data.Header ? data.Header->Dependencies : std::vector<std::string>{};
+        if ( stated.size() != expected.size() ||
+             !std::is_permutation( stated.begin(), stated.end(), expected.begin() ) )
             return Common::MakeFormattedError<WeatherPresetData>(
-                 "the header states {} Dependencies; a weather preset references no asset",
-                 data.Header->Dependencies.size() );
+                 "the header states {} Dependencies; the preset references exactly its {} cloud type(s) - run "
+                 "Tools/SceneMigrator",
+                 stated.size(), expected.size() );
 
         return Common::MakeSuccess( std::move( data ) );
+    }
+
+    std::vector<std::string> WeatherPresetDependencies( const WeatherPresetData& data )
+    {
+        std::set<std::string> guids;
+        for ( const WeatherCloudTypeWeight& t : data.CloudTypes )
+            guids.insert( t.Type.Guid );
+        return { guids.begin(), guids.end() };
     }
 
     std::string WriteWeatherPreset( const WeatherPresetData& data )
@@ -85,7 +107,7 @@ namespace Desert::Assets::Serialization
         WeatherPresetData out = data;
         out.Header            = Assets::StampTextHeader( data.Header, Common::Content::ContentKind::WeatherPreset,
                                                          WeatherPresetTextSubsystems() );
-        out.Header->Dependencies.clear();
+        out.Header->Dependencies = WeatherPresetDependencies( data );
         return Common::Json::Write( out );
     }
 

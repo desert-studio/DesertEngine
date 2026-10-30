@@ -11,6 +11,7 @@
 #include <Engine/Runtime/Services/Material/MaterialService.hpp>
 #include <Engine/Runtime/Services/Weather/WeatherPresetService.hpp>
 
+#include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -61,16 +62,20 @@ namespace Desert::Core
         values.Parameters    = preset.Parameters;
         values.CloudCoverage = preset.CloudCoverage;
         values.CloudDensity  = preset.CloudDensity;
+        // THE GUID RESOLVES (Assets/AssetGuidRef.hpp): a cloud type's handle is HandleForGuid of its header GUID,
+        // the same number the layer material's CloudType slot holds, so Apply matches slots without a lookup.
+        // ParseWeatherPreset refused a malformed GUID.
         for ( const auto& type : preset.CloudTypes )
         {
-            const auto handle =
-                 Runtime::ResourceRegistry::GetWeatherPresetService()->CloudTypeHandleForPath( type.Type );
-            if ( !handle )
+            const auto guid = Common::Content::AssetGuidFromText( type.Type.Guid );
+            if ( !guid )
             {
-                LOG_ERROR( "[Weather] a preset's cloud type '{}' is not shown: {}", type.Type, handle.GetError() );
+                LOG_ERROR( "[Weather] a preset's cloud type '{}' is not shown: {}", type.Type.Path, guid.GetError() );
                 continue;
             }
-            values.CloudTypes.emplace_back( handle.GetValue(), type.Weight );
+            values.CloudTypes.emplace_back(
+                 Assets::AssetHandle( static_cast<uint64_t>( Common::Content::HandleForGuid( guid.GetValue() ) ) ),
+                 type.Weight );
         }
         values.FogDensity    = preset.FogDensity;
         values.WindSpeed     = preset.WindSpeed;
