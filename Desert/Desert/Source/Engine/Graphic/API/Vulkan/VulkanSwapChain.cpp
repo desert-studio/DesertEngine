@@ -565,6 +565,10 @@ namespace Desert::Graphic::API::Vulkan
 
     Common::BoolResultStr VulkanSwapChain::ImportBackBuffer( ::Desert::Graphic::RDG::ExternalTexture& into )
     {
+        // Only the image this frame holds (VulkanRendererAPI::ImportBackBuffer acquires it late, right before
+        // this): the index of a frame that held none is the PREVIOUS frame's, already presented and given back.
+        if ( !m_Output->HasAcquiredImage() )
+            return Common::MakeError( "ImportBackBuffer: this frame holds no acquired swapchain image" );
         const uint32_t index = GetCurrentBufferIndex();
         if ( index >= m_SwapChainImages.Images.size() || index >= m_BackBufferGraphTextures.size() )
             return Common::MakeError( std::format( "ImportBackBuffer: image index {} of a {}-image swapchain",
@@ -598,10 +602,6 @@ namespace Desert::Graphic::API::Vulkan
     uint32_t VulkanSwapChain::GetCurrentBufferIndex() const
     {
         return m_Output->GetImageIndex();
-    }
-    void VulkanSwapChain::PrepareFrame()
-    {
-        m_Output->AcquireImage();
     }
     void VulkanSwapChain::Present()
     {
@@ -683,6 +683,12 @@ namespace Desert::Graphic::API::Vulkan
                  static_cast<int>( m_ColorFormat ) );
         }
 
+        // The acquire is late (at the back-buffer import), so a frame whose present graph did not run holds no
+        // image, and the index left over names the previous frame's, already given back by its present.
+        if ( !m_Output->HasAcquiredImage() )
+            return Common::MakeError<bool>(
+                 "this frame holds no acquired swapchain image (its present graph did not import the back "
+                 "buffer, or the acquire was out of date); there is nothing to copy." );
         const uint32_t imageIndex = m_Output->GetImageIndex();
         if ( imageIndex >= m_SwapChainImages.Images.size() )
         {

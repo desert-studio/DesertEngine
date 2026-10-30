@@ -158,28 +158,41 @@ namespace Desert::Graphic::API::Vulkan
         // submitting a still-recording buffer is undefined behaviour that the validation layers report
         // as a driver-side error with no line of ours in it. Returning the message here puts the cause
         // in the frame's own result, which Application::Run now reads.
-        const auto ended = EndFrame();
-        if ( !ended.IsSuccess() )
-            return Common::MakeError( ended.GetError() );
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: EndFrame" );
+            const auto ended = EndFrame();
+            if ( !ended.IsSuccess() )
+                return Common::MakeError( ended.GetError() );
+        }
 
-        // THE FRAME'S ONE SUBMISSION. A window is an output of it: its acquired image is waited by the first
-        // graphics entry, its render-complete signalled by the last, and it presents afterwards. Without one
-        // (EngineHost) nothing else changes.
+        // THE FRAME'S ONE SUBMISSION. A window is an output of it WHEN THE FRAME HOLDS ITS IMAGE (acquired late,
+        // at the back-buffer import): the acquired image is waited by the first graphics entry recorded after
+        // the acquire, its render-complete signalled by the last entry, and it presents afterwards. A frame that
+        // holds no image (no present graph ran, or the late acquire was out of date) and a frame with no window
+        // (EngineHost) are submitted without one.
         const auto             window = m_Window.lock();
         VulkanSwapChainOutput* output =
              window ? SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput().get() : nullptr;
         const uint32_t                   slot = EngineContext::GetInstance().GetCurrentFrameIndex();
         std::optional<VulkanFrameOutput> frameOutput;
-        if ( output != nullptr )
-            frameOutput = output->GetFrameOutput();
-        const Common::BoolResultStr submitted =
-             m_FrameLoop->Submit( slot, m_FrameSubmissions, frameOutput ? &*frameOutput : nullptr );
-        m_FrameSubmissions.clear();
-        if ( !submitted )
-            return Common::MakeError( submitted.GetError() );
+        if ( output != nullptr && output->HasAcquiredImage() )
+        {
+            frameOutput                         = output->GetFrameOutput();
+            frameOutput->FirstEntryAfterAcquire = m_BackBufferFirstEntry;
+        }
+        {
+            DESERT_PROFILE_SCOPE( "Vulkan: frame submit" );
+            const Common::BoolResultStr submitted =
+                 m_FrameLoop->Submit( slot, m_FrameSubmissions, frameOutput ? &*frameOutput : nullptr );
+            m_FrameSubmissions.clear();
+            m_BackBufferFirstEntry = 0;
+            if ( !submitted )
+                return Common::MakeError( submitted.GetError() );
+        }
 
-        // With an output, present. Without one the frame is synchronous: THIS slot's fence is waited, so the
-        // caller may read back what the frame wrote (EngineHost) -- the slot's fence, not the device.
+        // With an output, present (a frame holding no image presents nothing: Present returns). Without one the
+        // frame is synchronous: THIS slot's fence is waited, so the caller may read back what the frame wrote
+        // (EngineHost) -- the slot's fence, not the device.
         if ( output != nullptr )
             output->Present();
         else if ( const Common::BoolResultStr waited = m_FrameLoop->WaitSlot( slot ); !waited )
@@ -192,7 +205,9 @@ namespace Desert::Graphic::API::Vulkan
             return Common::MakeError( "the device was lost while submitting or presenting this frame." );
 
         // The next slot: its previous frame must be complete before the output acquires on its semaphore and
-        // before anything that frame used is destroyed (the deletion queue's per-frame drain).
+        // before anything that frame used is destroyed (the deletion queue's per-frame drain). Its fence wait is a
+        // Wait row of its own, so this row's wait column separates the GPU throttle from the retire work.
+        DESERT_PROFILE_SCOPE( "Vulkan: slot retire" );
         Engine::FrameManager::GetInstance().NextFrame();
         if ( BindlessTextureTable* bindless = TryGetBindlessTextureTable() )
             bindless->EndFrame( Engine::FrameManager::GetInstance().GetAbsoluteFrameCount(),
@@ -1624,7 +1639,26 @@ namespace Desert::Graphic::API::Vulkan
         const auto window = m_Window.lock();
         if ( !window )
             return Common::MakeError( "ImportBackBuffer: the window is gone" );
-        return SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->ImportBackBuffer( into );
+        const auto swapChain = SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() );
+
+        // THE LATE ACQUIRE (PRESENT-COST; UE resolves the viewport's back buffer at the final pass the same way).
+        // The frame's last pass imports the back buffer, so by now the layers' update and every scene graph of
+        // the frame are recorded, and the CPU waits on the display (FIFO, a full present queue) only after it has
+        // built the frame instead of before. Everything recorded so far is in m_FrameSubmissions or in the open
+        // frame command buffer, which is pushed at exactly the current size: no entry below that index can touch
+        // the image, so the acquire semaphore is waited by the first graphics entry from there on
+        // (VulkanFrameOutput::FirstEntryAfterAcquire), not by the frame's first.
+        VulkanSwapChainOutput& output = *swapChain->GetOutput();
+        if ( !output.HasAcquiredImage() )
+        {
+            if ( !output.AcquireImage() )
+                return Common::MakeError(
+                     "ImportBackBuffer: no swapchain image for this frame (the acquire was out of date and the "
+                     "swapchain is rebuilt at the next frame boundary, or it failed; see the line above). The "
+                     "frame is submitted without being presented." );
+            m_BackBufferFirstEntry = m_FrameSubmissions.size();
+        }
+        return swapChain->ImportBackBuffer( into );
     }
 
     Common::BoolResultStr VulkanRendererAPI::ImportImage( const std::shared_ptr<Image>& image,

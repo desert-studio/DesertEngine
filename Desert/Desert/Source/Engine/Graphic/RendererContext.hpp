@@ -16,9 +16,11 @@ namespace Desert::Graphic
 
         virtual void Init() = 0;
 
-        /// Acquires the next presentable image. This is the LIVE path — `Window::PrepareNextFrame` calls it
-        /// — and its result now reaches `Application::Run`, which ends the run on a lost device rather than
-        /// recording one more frame into nothing.
+        /// The frame boundary: applies a requested swapchain rebuild and reports a lost device. It does NOT
+        /// acquire; the image is acquired late, at the frame's back-buffer import (RendererAPI::ImportBackBuffer).
+        /// This is the LIVE path — `Window::PrepareNextFrame` calls it — and its result reaches
+        /// `Application::Run`, which ends the run on a lost device rather than recording one more frame into
+        /// nothing.
         [[nodiscard]] virtual Common::BoolResultStr BeginFrame() const = 0;
 
         // `EndFrame() const = 0` USED TO SIT HERE AND NOTHING EVER CALLED IT. Submitting and presenting go

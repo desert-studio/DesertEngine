@@ -127,10 +127,12 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr ImportImage( const std::shared_ptr<Image>& image,
                                                    RDG::ExternalTexture&         into ) = 0;
 
-        // Imports the window's back buffer acquired for this frame into @p into for one graph (UE: the viewport's
-        // RHI texture registered as an external texture each frame). Its prior contents are undefined; the graph
-        // that writes it extracts it as RDG::Access::Present, and the frame presents after that graph. Fails when
-        // there is no window or no acquired image.
+        // Imports the window's back buffer for this frame into @p into for one graph (UE: the viewport's RHI
+        // texture registered as an external texture each frame). THE ACQUIRE HAPPENS HERE, on the frame's first
+        // import (late acquire, PRESENT-COST): call it from the frame's final pass, after the scene is recorded.
+        // Its prior contents are undefined; the graph that writes it extracts it as RDG::Access::Present, and the
+        // frame presents after that graph. Fails when there is no window or no image could be acquired (an
+        // out-of-date swapchain: rebuilt at the next frame boundary, this frame is not presented).
         virtual Common::BoolResultStr ImportBackBuffer( RDG::ExternalTexture& into ) = 0;
 
         // Imports the copy of @p buffer bound for this frame and the active view into @p into for one graph:

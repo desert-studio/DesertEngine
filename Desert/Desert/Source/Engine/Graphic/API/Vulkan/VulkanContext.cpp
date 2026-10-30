@@ -302,14 +302,16 @@ namespace Desert::Graphic::API::Vulkan
             DESERT_VERIFY( false );
         }
 
-        // The previous frame waited this slot's fence (VulkanRendererAPI::PresentFinalImage), so the slot's
-        // image-acquired semaphore is free to be signalled again.
-        SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput()->AcquireImage();
+        // THE FRAME BOUNDARY, AND NO LONGER THE ACQUIRE. A requested swapchain rebuild is applied here, before
+        // anything of the frame is recorded; the image itself is acquired late, when the frame's last pass
+        // imports the back buffer (VulkanRendererAPI::ImportBackBuffer, PRESENT-COST), so the CPU builds the frame
+        // before it can wait on the display.
+        SP_CAST( VulkanSwapChain, window->GetWindowSwapChain() )->GetOutput()->ApplyFrameBoundaryRebuild();
 
-        // Asked AFTER the acquire too. A device that died during the PREVIOUS frame's submit is discovered
+        // Asked AFTER the rebuild too. A device that died during the PREVIOUS frame's submit is discovered
         // here — the submit itself returned VK_SUCCESS and the failure arrived asynchronously — and saying
         // so in this frame's result is what lets the loop stop now instead of one frame of illegal calls
-        // later.
+        // later. (The previous frame's own fence waits at its end, WaitSlot(next), surface it as well.)
         if ( Graphic::DeviceLost::IsLost() )
             return Common::MakeError( "the device was lost while preparing this frame." );
 

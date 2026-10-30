@@ -242,16 +242,19 @@ namespace Desert::Engine
                 LOG_INFO( "[Application] the window has a drawable area again; frames resume." );
             }
 
-            // 2. Prepare Frame (Acquire next image) — CPU blocks here if the GPU is behind / vsync-gated.
+            // 2. Prepare Frame: the frame boundary (a requested swapchain rebuild is applied, a lost device is
+            // reported). NOT the acquire any more: the swapchain image is acquired late, when the frame's final
+            // pass imports the back buffer during step 5 (RendererAPI::ImportBackBuffer, PRESENT-COST), so the
+            // CPU no longer blocks on the display (vsync, a full present queue) before it has built the frame.
             {
-                DESERT_PROFILE_SCOPE( "PrepareNextFrame (Acquire)" );
+                DESERT_PROFILE_SCOPE( "PrepareNextFrame (frame boundary)" );
                 // ITS RESULT USED TO BE DISCARDED — by this line, and by the two links beneath it, which
                 // both declared themselves void over a backend that returns one. A frame that could not
                 // acquire an image was therefore recorded and submitted anyway.
                 const auto prepared = m_Window->PrepareNextFrame();
                 if ( !prepared.IsSuccess() )
                 {
-                    if ( EndRunOnDeviceLoss( "acquiring the next image" ) )
+                    if ( EndRunOnDeviceLoss( "preparing the next frame" ) )
                         break;
                     // A failure here that is NOT a device loss has no other cause today — the Vulkan
                     // backend's acquire path reports only that — so this branch is currently unreachable
@@ -295,9 +298,9 @@ namespace Desert::Engine
                 // submits and presents — a stale or torn image with no error anywhere, which is the
                 // failure shape this project has paid for more than once.
                 //
-                // `continue` is worse still, and less obviously so: PrepareNextFrame has ALREADY acquired
-                // a swapchain image, and skipping the present never gives it back. A few iterations of
-                // that and the next acquire blocks forever, so a reported error becomes a hang.
+                // `continue` is worse still, and less obviously so: it skips the frame's submit, and the
+                // frame slot's state (and, if an import ever ran before this, an acquired swapchain image that
+                // only a present gives back) would carry into the next iteration unfinished.
                 //
                 // Both of BeginFrame's failures are terminal anyway — the window is gone, or
                 // vkBeginCommandBuffer refused. The SECOND of those used to be described here as "which

@@ -88,7 +88,11 @@ namespace Desert::Graphic::API::Vulkan
             prepared.WaitValues.assign( entry.WaitValues.begin(), entry.WaitValues.end() );
             prepared.SignalValues.assign( entry.SignalValues.begin(), entry.SignalValues.end() );
             const bool timelines = !prepared.WaitValues.empty() || !prepared.SignalValues.empty();
-            if ( output != nullptr && !waitedOnImage && entry.OnPipe == RDG::Pipe::Graphics )
+            // The acquire semaphore is waited where the back buffer can first be touched: the first graphics entry
+            // recorded after the late acquire. The entries before it (the scene's graphs) start without waiting on
+            // the display.
+            if ( output != nullptr && !waitedOnImage && entry.OnPipe == RDG::Pipe::Graphics &&
+                 i >= output->FirstEntryAfterAcquire )
             {
                 prepared.Waits.push_back( output->ImageAcquired );
                 prepared.Stages.push_back( output->ImageFirstUse );
@@ -123,6 +127,13 @@ namespace Desert::Graphic::API::Vulkan
                 prepared.Timeline.pSignalSemaphoreValues    = prepared.SignalValues.data();
             }
         }
+        // The tail is a graphics entry recorded after any acquire, so an output always finds its waiter. Refused
+        // by name rather than submitted: a frame that signals RenderComplete without waiting the acquire would
+        // write an image the presentation engine may still be reading.
+        if ( output != nullptr && !waitedOnImage )
+            return Common::MakeFormattedError<bool>(
+                 "no graphics submission at or after entry {} of {} waits the acquired image",
+                 output->FirstEntryAfterAcquire, frame.size() );
 
         // ONE vkQueueSubmit PER RUN OF ENTRIES ON THE SAME QUEUE, not one per entry (PRESENT-COST). The frame is
         // split at every graph and every graph segment, so a frame has many entries, and each vkQueueSubmit is a
