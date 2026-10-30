@@ -5,10 +5,13 @@
 Когда run Quality "Quality: GlobalIllumination.Method PathTraced"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 16"
 Когда run Quality "Quality: PathTracing.Denoiser OIDN"
+Когда frames 120
 Когда state device
 Тогда-вид oidn_16 16 paths per pixel denoised by OIDN: clean, not black; log "[PathTracing] OIDN denoised the WxH image of 16 paths per pixel on <device>"; state device.oidn.created true, device.oidn.device "CUDA: ..." on this RTX machine (else "CPU" with device.oidn.reason), runs >= 1, lastPaths 16, lastFilterMs > 0, error empty
 Когда run Quality "Quality: PathTracing.Denoiser ReLAX"
+Когда frames 120
 Тогда-вид relax_16 the same 16 paths through ReLAX (the bar oidn_16 must beat)
 Когда run Quality "Quality: PathTracing.Denoiser Off"
 Когда run Quality "Quality: PathTracing.SamplesPerPixel 1024"
+Когда frames 1200
 Тогда-вид oidn_ref_1024 the raw 1024-path reference

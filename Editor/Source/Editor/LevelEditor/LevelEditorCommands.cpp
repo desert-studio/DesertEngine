@@ -95,7 +95,7 @@ namespace Desert::Editor
                              {
                                  for ( PaletteCommand& command : QualityLevelPaletteCommands() )
                                      out.push_back( std::move( command ) );
-                                 for ( PaletteCommand& command : QualityMethodOverridePaletteCommands() )
+                                 for ( PaletteCommand& command : QualityOverridePaletteCommands() )
                                      out.push_back( std::move( command ) );
                                  for ( PaletteCommand& command : QualityRenderScalePaletteCommands(
                                             Common::Scalability::QualityState::Catalog() ) )

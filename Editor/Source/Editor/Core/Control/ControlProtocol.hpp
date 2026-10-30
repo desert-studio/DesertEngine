@@ -78,6 +78,8 @@ namespace Desert::Editor::Control
         Advance,      ///< answered once Play's simulated time has moved on by the asked seconds (no client sleep)
         NnCheck, ///< run the NN layer's fused MLP on the GPU against its CPU reference (the forced path, or every
                  ///< path)
+        Frames,  ///< answered once the asked number of frames has been presented (UE automation's
+                 ///< FWaitForFrames latent command; in or out of Play, no input sent, no client sleep)
     };
 
     /**
@@ -135,6 +137,7 @@ namespace Desert::Editor::Control
          { "add-component", Op::AddComponent, RequiresReady::Yes },
          { "advance", Op::Advance, RequiresReady::Yes },
          { "nn-check", Op::NnCheck, RequiresReady::Yes },
+         { "frames", Op::Frames, RequiresReady::Yes },
     };
 
     /// The longest `advance`. Its reply waits behind the settle gate (ControlPipeline.hpp
@@ -142,6 +145,11 @@ namespace Desert::Editor::Control
     /// cap is the documented protocol limit (DesertCtl usage: 0 < seconds <= 2), and a longer wait is several
     /// `advance` steps.
     inline constexpr float kMaxAdvanceSeconds = 2.0f;
+
+    /// The longest `frames`. Its reply waits behind the settle gate (ControlPipeline.hpp FrameGate::kSettleBudget,
+    /// 10 minutes of wall clock: the wait's timeout, which refuses naming the pending frame count), and 3600
+    /// frames sit inside it down to 6 frames a second; a longer wait is several `frames` steps.
+    inline constexpr int kMaxWaitFrames = 3600;
 
     /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
     /// VFX-13) - the widest property a document offers. A number property still takes exactly its own count.
@@ -655,6 +663,19 @@ namespace Desert::Editor::Control
                          "'advance' needs 'value' as one number: the seconds of Play's simulated time to wait "
                          "for, above 0 and at most {}.",
                          kMaxAdvanceSeconds );
+                }
+                break;
+            }
+            case Op::Frames:
+            {
+                if ( ReadFloatArray( fields, "value", request.Value ) != NumberArray::Read ||
+                     request.Value.size() != 1 || !( request.Value[0] >= 1.0f ) ||
+                     request.Value[0] > static_cast<float>( kMaxWaitFrames ) ||
+                     request.Value[0] != static_cast<float>( static_cast<int>( request.Value[0] ) ) )
+                {
+                    return Common::MakeFormattedError<Request>(
+                         "'frames' needs 'value' as one whole number: the frames to wait for, from 1 to {}.",
+                         kMaxWaitFrames );
                 }
                 break;
             }

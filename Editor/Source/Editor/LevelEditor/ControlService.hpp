@@ -205,6 +205,10 @@ namespace Desert::Editor
         // (PendingWork::GameTime) until the clock reaches it, or Play ends.
         std::optional<double> m_AdvanceUntil;
 
+        // A `frames`'s mark on m_FrameIndex: the id of the frame after the last one it waits for. The reply is
+        // held (PendingWork::FrameCount) while the frame being built is before the last one.
+        std::optional<uint64_t> m_FramesUntil;
+
         // The playing scene's simulated seconds; empty outside Play or without a physics world.
         [[nodiscard]] std::optional<double> PlaySimulatedSeconds() const;
     };
