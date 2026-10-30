@@ -201,7 +201,7 @@ namespace Desert::Engine
 
             // 1. Pump GLFW events before touching any GPU resources.
             // Resize/close callbacks can destroy descriptor sets and framebuffers; they must
-            // fire outside of a recording session, before PrepareNextFrame acquires the image.
+            // fire outside of a recording session, before PrepareNextFrame applies a requested rebuild.
             {
                 DESERT_PROFILE_SCOPE( "ProcessEvents" );
                 m_Window->ProcessEvents();
@@ -216,10 +216,11 @@ namespace Desert::Engine
             // left from the last real frame. Measured on Windows, three minimise/restore cycles: 72
             // acquire failures and 72 of that VUID, one pair per frame.
             //
-            // HERE, BEFORE THE ACQUIRE, WHICH IS WHAT MAKES `continue` SAFE. Skipping the rest of the loop
-            // after PrepareNextFrame would leak an acquired image every iteration and the next acquire
-            // would eventually block forever (see BeginFrame's failure branch below, which cannot use
-            // `continue` for exactly that reason). Nothing has been acquired at this point in the loop.
+            // HERE, BEFORE THE FRAME IS BEGUN, WHICH IS WHAT MAKES `continue` SAFE. Skipping the rest of the
+            // loop after BeginFrame would leave a frame open, and skipping it after the late acquire (step 5,
+            // RendererAPI::ImportBackBuffer) would leak an acquired image every iteration until the next
+            // acquire blocked forever (see BeginFrame's failure branch below, which cannot use `continue` for
+            // exactly that reason). Nothing has been begun or acquired at this point in the loop.
             //
             // The event pump above keeps running, which is what eventually delivers the restore.
             const auto drawable = drawableArea.Observe( m_Window->HasDrawableArea() );
@@ -257,7 +258,7 @@ namespace Desert::Engine
                     if ( EndRunOnDeviceLoss( "preparing the next frame" ) )
                         break;
                     // A failure here that is NOT a device loss has no other cause today — the Vulkan
-                    // backend's acquire path reports only that — so this branch is currently unreachable
+                    // backend's frame boundary reports only that — so this branch is currently unreachable
                     // and is a log rather than an ending. Reporting it and carrying on is what this line
                     // did before, with the difference that it now says so.
                     LOG_ERROR( "[Application] PrepareNextFrame failed: {}", prepared.GetError() );
@@ -404,7 +405,7 @@ namespace Desert::Engine
             return Common::MakeError( std::format( "presenting the interim frame: {}", presented.GetError() ) );
         if ( const auto prepared = window.PrepareNextFrame(); !prepared.IsSuccess() )
             return Common::MakeError(
-                 std::format( "acquiring after the interim frame: {}", prepared.GetError() ) );
+                 std::format( "the frame boundary after the interim frame: {}", prepared.GetError() ) );
         if ( const auto begun = Graphic::Renderer::GetInstance().BeginFrame(); !begun.IsSuccess() )
             return Common::MakeError( std::format( "beginning after the interim frame: {}", begun.GetError() ) );
         return BOOLSUCCESS;

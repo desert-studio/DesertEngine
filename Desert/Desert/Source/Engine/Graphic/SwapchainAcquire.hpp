@@ -12,8 +12,9 @@
 //
 // The standard scheme (Vulkan spec, WSI chapter; UE's FVulkanViewport::TryAcquireImageIndex): SUCCESS and
 // SUBOPTIMAL both hand over an image and signal the semaphore, so the frame goes on with it and the rebuild
-// waits for the present; only OUT_OF_DATE leaves the semaphore untouched, which is the one case where
-// rebuilding and acquiring again on the same semaphore is legal.
+// waits for the present; only OUT_OF_DATE leaves the semaphore untouched. The acquire is late (at the
+// frame's first back-buffer import, PRESENT-COST), so an OUT_OF_DATE there is "no image this frame" and the
+// rebuild is requested for the next frame boundary rather than run mid-frame (AcquireLate).
 
 #include <Common/Core/ResultStr.hpp>
 
@@ -39,28 +40,27 @@ namespace Desert::Graphic
         return status != AcquireStatus::OutOfDate;
     }
 
-    // One acquire for one frame, the way the loop must run it. `acquire()` returns
+    // The one acquire of a frame, at the frame's first import of the back buffer (VulkanRendererAPI::
+    // ImportBackBuffer -> VulkanSwapChainOutput::AcquireImage). `acquire()` returns
     // Common::ResultStr<AcquireStatus> (an error is anything that is neither an image nor OUT_OF_DATE);
-    // `rebuild()` returns Common::ResultStr<bool> and must not change which frame-in-flight slot is current --
-    // the fence was reset and the semaphore chosen for that slot, and the submit reads the slot again.
-    template <typename Acquire, typename Rebuild>
-    [[nodiscard]] Common::ResultStr<AcquireStatus> AcquireForFrame( Acquire&& acquire, Rebuild&& rebuild )
+    // `requestRebuild()` asks for a rebuild at the NEXT frame boundary (RebuildAtFrameBoundary) and returns
+    // nothing. The answer is true when the frame holds an image (SUCCESS or SUBOPTIMAL: the semaphore is
+    // signalled and the frame's submit must wait on it; a SUBOPTIMAL rebuild belongs after the present), false
+    // when the swapchain was OUT_OF_DATE: no image this frame, the semaphore untouched, the frame submitted
+    // without the output and not presented. It never rebuilds and acquires again: this runs at the frame's
+    // last pass, and a rebuild now would release what the frame already recorded against (the composite
+    // framebuffer, after a device wait-idle in the middle of the frame).
+    template <typename Acquire, typename RequestRebuild>
+    [[nodiscard]] Common::ResultStr<bool> AcquireLate( Acquire&& acquire, RequestRebuild&& requestRebuild )
     {
-        auto first = std::forward<Acquire>( acquire )();
-        if ( !first.IsSuccess() || SignalsSemaphore( first.GetValue() ) )
-            return first;
+        const auto acquired = std::forward<Acquire>( acquire )();
+        if ( !acquired.IsSuccess() )
+            return Common::MakeFormattedError<bool>( "{}", acquired.GetError() );
+        if ( SignalsSemaphore( acquired.GetValue() ) )
+            return Common::MakeSuccess( true );
 
-        const auto rebuilt = std::forward<Rebuild>( rebuild )();
-        if ( !rebuilt.IsSuccess() )
-            return Common::MakeFormattedError<AcquireStatus>(
-                 "the swapchain was out of date and rebuilding it failed: {}", rebuilt.GetError() );
-
-        auto second = acquire();
-        if ( second.IsSuccess() && !SignalsSemaphore( second.GetValue() ) )
-            return Common::MakeError<AcquireStatus>(
-                 "the swapchain was out of date again immediately after it was rebuilt; no image was acquired "
-                 "for this frame." );
-        return second;
+        std::forward<RequestRebuild>( requestRebuild )();
+        return Common::MakeSuccess( false );
     }
 
     struct SwapchainExtent

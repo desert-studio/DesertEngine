@@ -98,7 +98,8 @@ namespace Desert::Graphic
         virtual Common::BoolResultStr BeginFrame()                                                     = 0;
         virtual Common::BoolResultStr EndFrame()                                                       = 0;
         // `PrepareNextFrame() = 0` USED TO SIT HERE, AND THE WHOLE CHAIN BELOW IT WAS UNREACHABLE.
-        // `Window::PrepareNextFrame` acquires through `RendererContext::BeginFrame` instead, so this
+        // `Window::PrepareNextFrame` runs the frame boundary through `RendererContext::BeginFrame` (and the
+        // image is acquired late, in `ImportBackBuffer`), so this
         // interface, `Renderer::PrepareNextFrame` and `VulkanRendererAPI::PrepareNextFrame` were a second
         // spelling of the acquire that nothing ever called. Two paths to one act, one of them never
         // exercised, is how a guard ends up on the wrong one — removed rather than kept "just in case".
