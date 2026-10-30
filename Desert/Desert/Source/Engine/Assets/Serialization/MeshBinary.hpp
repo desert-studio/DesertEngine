@@ -104,7 +104,8 @@ namespace Desert::Assets::Serialization
     /// Version 7 (VIRT-GEOM) appends the six cluster-DAG sections; version 8 (GPU-COST-9) appends
     /// `SubmeshLodChains`, one uint32 per submesh: 1 = its LODs are the cook's whole chain, possibly none
     /// (SubmeshData::LodChainCooked), 0 = generated at load. Versions 6-8 are read by one function; a v6/v7
-    /// submesh reads as cooked exactly when it carries LODs, and Tools/SceneMigrator re-states those files as v8.
+    /// submesh reads as cooked exactly when it carries LODs or its mesh is skinned, and Tools/SceneMigrator
+    /// re-states those files as v8.
     using Common::Content::kMeshBinaryVersion; // the header layout lives in Common (MeshBinaryHeader.hpp)
 
     using Common::Content::kMeshBinaryMagic;

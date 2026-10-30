@@ -79,8 +79,10 @@ namespace Desert::Assets::Serialization
         // FStaticMeshRenderData::LODResources, nothing is generated on load). True for a submesh whose LODs above
         // are its whole chain - possibly none (LodPolicy None, or a chain whose targets the section cannot reach)
         // - so the load appends exactly those. False = no cook decided the chain; the load generates
-        // Geometry::UnbakedLODChain. A v6/v7 file states none and reads as cooked exactly when it carries LODs
-        // (what its loads did), the upgrade DecodeMeshBinary applies and Tools/SceneMigrator writes back.
+        // Geometry::UnbakedLODChain. Every MeshBinary writer states it true (MeshDeriver, the skinned import,
+        // ProceduralCharacterFactory). A v6/v7 file states none and reads as cooked exactly when it carries LODs
+        // or is skinned (what its loads did), the upgrade DecodeMeshBinary applies and Tools/SceneMigrator writes
+        // back.
         bool LodChainCooked = false;
 
         // THE SUBMESH'S CLUSTER LOD DAG (MeshBinary v7, VIRT-GEOM): built at cook for a mesh imported with

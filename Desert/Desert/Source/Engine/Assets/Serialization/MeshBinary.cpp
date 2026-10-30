@@ -741,7 +741,7 @@ namespace Desert::Assets::Serialization
 
         // THE COOKED LOD CHAIN (v8): one row per submesh, 0 or kSubmeshLodChainCooked. A v6/v7 file states none
         // and is upgraded to what its loads did: a submesh carrying LODs drew exactly those, one without generated
-        // them.
+        // them - except a skinned one, whose load never generated any (its chain is LOD0 alone, cooked).
         if ( header.Version >= 8u )
         {
             if ( N( SecSubmeshLodChains ) != data.Submeshes.size() )
@@ -766,7 +766,7 @@ namespace Desert::Assets::Serialization
         }
         else
             for ( SubmeshData& submesh : data.Submeshes )
-                submesh.LodChainCooked = !submesh.LODs.empty();
+                submesh.LodChainCooked = data.IsSkinned || !submesh.LODs.empty();
 
         // One per face or none: a partial list would pair groups with the wrong triangles past its end.
         if ( N( SecPolyGroups ) != 0 && N( SecPolyGroups ) != N( SecIndices ) )
