@@ -956,6 +956,26 @@ namespace Desert::Graphic::System
         return SpriteDrawFor( engine );
     }
 
+    void ParticleRenderer::UploadSpriteCells( const bool gbuffer, const ViewFrame& view )
+    {
+        // Per cell of this pass, once per frame and BEFORE its first Bind: the rows the declare assembled and the
+        // view's camera block. Made here, beside the Bind that resolves the copies the draws read, not in the
+        // declare: a declare-time write reached the forward cells but left the G-buffer twins' CameraUB copy at
+        // zero (VFX-12 p36 A/B: the twin's vertex stage read a zero camera, so nothing was drawn and nothing was
+        // depth-tested), and a write next to its bind cannot land in another view's or frame's copy.
+        for ( auto& [cell, sprite] : m_Sprites )
+        {
+            if ( !sprite || sprite->Rows.empty() || ( sprite->Pass == MeshPass::GBuffer ) != gbuffer )
+                continue;
+            // Find: a sprite surface template with no parameters (or every row field dead) declares no row
+            // block.
+            if ( auto* sb = sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
+                sb->SetRawData( sprite->Rows.data(),
+                                static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
+            SceneCameraBind( sprite->Material.get(), view );
+        }
+    }
+
     Common::BoolResultStr ParticleRenderer::RecordSpriteDraws( RDG::PassContext& context, const bool gbuffer )
     {
         if ( m_ViewEmitters.empty() )
@@ -963,6 +983,7 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || m_SceneRenderer->GetViewFrame() == nullptr )
             return BOOLSUCCESS;
 
+        UploadSpriteCells( gbuffer, *m_SceneRenderer->GetViewFrame() );
         uint32_t block = 0;
         for ( const ViewEmitter& ve : m_ViewEmitters )
         {
@@ -1003,8 +1024,8 @@ namespace Desert::Graphic::System
         if ( m_SceneRenderer->GetMainCamera() == nullptr || view == nullptr )
             return; // the exec draws nothing either
 
-        // Per cell, once per frame and BEFORE its blocks are declared: the rows of the emitters it draws and
-        // the view's camera block, so the route fill is what the draws read.
+        // Per cell, once per frame: the rows of the emitters it draws (each draw names its row). The GPU writes
+        // of those rows and of the view's camera block are made where the cell is bound (UploadSpriteCells).
         // Only this pass's cells: a cell is drawn by one of the two passes (SpriteDraw::Pass).
         for ( auto& [cell, sprite] : m_Sprites )
             if ( sprite && ( sprite->Pass == MeshPass::GBuffer ) == gbuffer )
@@ -1026,17 +1047,6 @@ namespace Desert::Graphic::System
                 draw.Row = MeshRendererDetail::AppendRow(
                      draw.Sprite->Rows, MeshRendererDetail::EffectiveRow( rowMaterial, instance ) );
             }
-        }
-        for ( auto& [cell, sprite] : m_Sprites )
-        {
-            if ( !sprite || sprite->Rows.empty() || ( sprite->Pass == MeshPass::GBuffer ) != gbuffer )
-                continue;
-            // Find: a sprite surface template with no parameters (or every row field dead) declares no row
-            // block.
-            if ( auto* sb = sprite->Material->Find<StorageBufferProperty>( ParticleShaderParameters::Materials ) )
-                sb->SetRawData( sprite->Rows.data(),
-                                static_cast<uint32_t>( sprite->Rows.size() * sizeof( glm::vec4 ) ) );
-            SceneCameraBind( sprite->Material.get(), *view );
         }
 
         // The scene depth the cells fade against: the single-sample depth (the attachment itself at MSAA 1,

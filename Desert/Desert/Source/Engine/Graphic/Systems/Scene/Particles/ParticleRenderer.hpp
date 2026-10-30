@@ -38,6 +38,7 @@ namespace Desert::Graphic::RDG
 namespace Desert::Graphic
 {
     class DataDrivenMaterial;
+    struct ViewFrame;
 }
 
 namespace Desert
@@ -351,6 +352,8 @@ namespace Desert::Graphic::System
         bool RunsDebug( const ViewEmitter& ve ) const;
         // Whether the Light Readback node dispatches @p ve.
         bool RunsLight( const ViewEmitter& ve ) const;
+        // The per-frame GPU writes of this pass's cells (rows, camera), beside the Bind that reads them.
+        void UploadSpriteCells( bool gbuffer, const ViewFrame& view );
         // The draws of one pass (@p gbuffer: GBufferPass's, else DrawPass's): the exec and the Declare walk the
         // same draws in the same order, so the n-th recorded draw opens the n-th declared block.
         [[nodiscard]] Common::BoolResultStr RecordSpriteDraws( RDG::PassContext& context, bool gbuffer );
