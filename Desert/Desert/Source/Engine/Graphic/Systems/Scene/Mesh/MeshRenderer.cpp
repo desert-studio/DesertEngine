@@ -773,9 +773,6 @@ namespace Desert::Graphic::System
             Core::Formats::SetMaterialParam( material->GetSchema(), row, "ReceiveSunShadows", glm::vec4( 0.0f ) );
         const uint32_t index = registry.SyncMaterialRow( key, row );
         m_FrameMaterialRows.emplace( key, index );
-        if ( index >= m_RowSurfaces.size() )
-            m_RowSurfaces.resize( index + 1 );
-        m_RowSurfaces[index] = { material, instance };
         return index;
     }
 
@@ -831,7 +828,7 @@ namespace Desert::Graphic::System
         const bool virtualShadow = m_SceneRenderer != nullptr && m_SceneRenderer->SunShadowIsVirtual();
         // The re-resolution runs AFTER this frame's feed reached the cache (below): a held primitive's material
         // row may name an instance freed since its last feed (a re-imported mesh's materials), and only this
-        // frame's rows (m_RowSurfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
+        // frame's records (their surfaces, registered by SyncGpuScene) are alive - resolving first read a dangling
         // instance.
         bool reresolve = false;
         if ( const uint64_t epoch = Graphic::PipelineRebuildEpoch(); epoch != m_BinnedPipelineEpoch ||
@@ -943,9 +940,7 @@ namespace Desert::Graphic::System
                      TemplateCellShader( g.ShaderName, MeshVertexPath::Static, MeshPass::GBuffer, isRegistered )
                           .has_value();
                 claim( g.GpuPrimitive, g.Mesh, MeshVertexPath::Static, g.GpuInstance, 1, ~g.VisibleSubmeshMask,
-                       *g.MaterialRow,
-                       *g.MaterialRow < m_RowSurfaces.size() ? m_RowSurfaces[*g.MaterialRow] : RowSurface{}, true,
-                       !surfaceOverride );
+                       *g.MaterialRow, g.MaterialSurface, true, !surfaceOverride );
             }
         }
 
@@ -1683,11 +1678,6 @@ namespace Desert::Graphic::System
         // the same layout. The component's Receive Shadows off zeroes the row's ReceiveSunShadows (either one opts
         // out), so a static draw that opts out has a second row; its shadow caster and glass draw name the first.
         m_FrameMaterialRows.clear();
-        // Every row's surface is forgotten with it and named again only by this frame's registrations (UE drops a
-        // primitive's cached draw commands when it leaves the scene): a row no queued draw registers names a
-        // template or instance that may be freed since (a re-imported mesh's materials), and resolving it read a
-        // dangling instance.
-        std::fill( m_RowSurfaces.begin(), m_RowSurfaces.end(), RowSurface{} );
         for ( auto& data : m_StaticQueue )
         {
             if ( !data.MaterialSlots )

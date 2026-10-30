@@ -446,6 +446,18 @@ namespace Desert::Graphic::System
         //    shader-keyed shared material (SlotMaterial == nullptr, all submeshes).
         //  - v3 per-slot materials: SlotMaterial points at the slot's own DataDrivenMaterial (asset
         //    params already applied) and VisibleSubmeshMask limits the draw to that slot's submeshes.
+        // The (template, instance) a scene material row was registered for: what names a draw's surface, and so
+        // its cell. A row index alone never does: GpuScene::AddMaterialRow counts it in its own template's stride
+        // (each template's shader reads Materials[] as an array of ITS block), so two templates' rows share
+        // indices (FOLIAGE-TRUNK-GLOW). Every record carries its surface next to its row; no table is indexed by
+        // a bare row.
+        struct RowSurface
+        {
+            const DataDrivenMaterial* Surface  = nullptr;
+            const MaterialInstance*   Instance = nullptr;
+            bool                      operator==( const RowSurface& ) const = default;
+        };
+
         struct GenericMeshRenderData
         {
             // The entity that owns the draw: the key of its primitive in the scene's GpuSceneRegistry.
@@ -494,6 +506,9 @@ namespace Desert::Graphic::System
             // keyed by Entity/MotionPart). nullopt: SyncGpuScene could not shade the record (no compiled program,
             // a domain the mesh path does not draw) and the record is not drawn.
             std::optional<uint32_t> MaterialRow;
+            // The surface MaterialRow was registered for (RegisterGenericRows): the row's template, which picks
+            // the record's binned cell (ResolveBinnedPipeline). Empty while MaterialRow is.
+            RowSurface MaterialSurface;
         };
 
         // THE MATERIAL A SECTION SHADES WITH, and whether it is Masked: the one answer the raster's casters
@@ -2233,15 +2248,6 @@ namespace Desert::Graphic::System
         // upload, so the table is at its final size and content before any pass is declared; the draw paths only
         // look rows up and lend the table to the recording cell. Cleared at each SyncGpuScene.
         std::unordered_map<GpuDriven::MaterialRowKey, uint32_t, GpuDriven::MaterialRowKeyHash> m_FrameMaterialRows;
-        // The surface and instance each scene material row was registered for (RegisterMaterialRow), indexed by
-        // row: what ResolveBinnedPipeline turns a GpuDrawSlot's MaterialRow back into a cell with.
-        struct RowSurface
-        {
-            const DataDrivenMaterial* Surface  = nullptr;
-            const MaterialInstance*   Instance = nullptr;
-            bool                      operator==( const RowSurface& ) const = default;
-        };
-        std::vector<RowSurface> m_RowSurfaces;
         // What the DrawCommandCache holds per primitive (m_BinnedFeed) and what this sync gathered (scratch): a
         // primitive is re-added only when its entry differs, removed when no record named it.
         struct BinnedPrimitiveFeed
