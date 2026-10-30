@@ -112,6 +112,7 @@ namespace Desert::Core::Rules
         // References from records resident at the end of this tick to a record this tick destroyed.
         std::size_t UnboundReferences = 0;
         std::size_t WaitingForBudget  = 0;
+        std::size_t WaitingForGate    = 0; // wanted Loaded units the step's ResidencyGate held back
         std::size_t StaleOutcomes     = 0;
         // Units whose loaded records were let go this tick (after a Deactivate, or a Loaded unit leaving range).
         std::size_t UnitsUnloaded = 0;
@@ -207,10 +208,13 @@ namespace Desert::Core::Rules
         // first Tick starts loading the ones @p sources want; nothing is destroyed. @p recordCount records are
         // named by index only — their ids are the world's, which resolves them — and @p observations are the
         // observation references between them (from, to) that cross a unit, the only ones that can dangle.
+        // @p madeCells: cell units the caller ALSO made entities of before this (the HLOD cells over the world
+        // cells Edit -> Play kept, WorldStreamer::BeginHLODCells); they start Activated, read by nobody.
         [[nodiscard]] static Common::ResultStr<ResidencyExecutor>
         BeginFromAlwaysLoaded( WorldPartitionPlan plan, WorldPartitionSerialized partition,
                                const ResidencySettings& settings, std::size_t recordCount,
-                               std::span<const std::pair<std::size_t, std::size_t>> observations )
+                               std::span<const std::pair<std::size_t, std::size_t>> observations,
+                               std::span<const std::size_t>                         madeCells = {} )
         {
             auto made = Make( std::move( plan ), std::move( partition ), settings, recordCount, observations );
             if ( !made.IsSuccess() )
@@ -218,6 +222,14 @@ namespace Desert::Core::Rules
             ResidencyExecutor executor = made.ExtractValue();
             for ( std::size_t unit = 0; unit < executor.m_Plan.AlwaysLoaded.size(); ++unit )
                 executor.MarkActivated( unit );
+            for ( const std::size_t unit : madeCells )
+            {
+                if ( unit < executor.m_Plan.AlwaysLoaded.size() || unit >= ResidencyUnitCount( executor.m_Plan ) )
+                    return Common::MakeError<ResidencyExecutor>(
+                         std::format( "ResidencyExecutor: unit {} was made at the start and is no cell of {}", unit,
+                                      ResidencyUnitCount( executor.m_Plan ) ) );
+                executor.MarkActivated( unit );
+            }
             for ( std::size_t record = 0; record < recordCount; ++record )
                 if ( executor.m_UnitOfRecord[record] == kNoRecord )
                     return Common::MakeError<ResidencyExecutor>(
@@ -227,13 +239,14 @@ namespace Desert::Core::Rules
         }
 
         // ONE FRAME: step the residency with the loads the world finished since the last one, then perform its
-        // actions in the order it gives them.
+        // actions in the order it gives them. @p gate: what another residency holds back this step (null = none).
         [[nodiscard]] Common::ResultStr<ResidencyTick> Tick( std::span<const StreamingSource> sources,
-                                                             double nowSeconds, ResidencyWorld& world )
+                                                             double nowSeconds, ResidencyWorld& world,
+                                                             const ResidencyGate* gate = nullptr )
         {
             const std::vector<LoadOutcome> finished = world.TakeLoadOutcomes();
             auto stepped = StepResidency( m_Plan, m_Partition, sources, m_Settings, std::move( m_State ), finished,
-                                          nowSeconds );
+                                          nowSeconds, gate );
             if ( !stepped.IsSuccess() )
                 return Common::MakeError<ResidencyTick>( stepped.GetError() );
             ResidencyStep step = stepped.ExtractValue();
@@ -243,6 +256,7 @@ namespace Desert::Core::Rules
             std::vector<std::size_t> activated;
             std::vector<std::size_t> destroyed;
             tick.WaitingForBudget = step.WaitingForBudget;
+            tick.WaitingForGate   = step.WaitingForGate;
             tick.StaleOutcomes    = step.StaleOutcomes;
             for ( const ResidencyAction& action : step.Actions )
             {

@@ -5,7 +5,7 @@
 # Replay only to REBUILD the world; the WP scenarios open it as saved.
 Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP_Protocol.desce
 Дано run Scene "Convert scene to World Partition"
-Дано set world WorldPartition '{"Grids":[{"Name":"Main","CellSize":2500,"LoadingRange":20000,"Priority":0,"HLODLayer":"HLOD_Main"},{"Name":"Foliage","CellSize":1280,"LoadingRange":6400,"Priority":0,"HLODLayer":"HLOD_Foliage"},{"Name":"LandscapeTiles","CellSize":5000,"LoadingRange":51000,"Priority":0,"HLODLayer":"HLOD_Landscape"}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
+Дано set world WorldPartition '{"Grids":[{"Name":"Main","CellSize":2500,"LoadingRange":20000,"Priority":0,"HLODLayer":"HLOD_Main"},{"Name":"Foliage","CellSize":1280,"LoadingRange":6400,"Priority":0,"HLODLayer":"HLOD_Foliage"},{"Name":"LandscapeTiles","CellSize":5000,"LoadingRange":51000,"Priority":0,"HLODLayer":"HLOD_Landscape"}],"HLODLayers":[{"Name":"HLOD_Main","Type":"Instancing","ParentLayer":"HLOD_Main_Far","CellSize":51200,"LoadingRange":102400},{"Name":"HLOD_Main_Far","Type":"MeshMerge"},{"Name":"HLOD_Foliage","Type":"Instancing"},{"Name":"HLOD_Landscape","Type":"Instancing"}],"ChunkRegionSize":100000}'
 Дано run Action "Save Scene"
 Дано run Scene "Build HLODs"
 Дано run Action "Save Scene"

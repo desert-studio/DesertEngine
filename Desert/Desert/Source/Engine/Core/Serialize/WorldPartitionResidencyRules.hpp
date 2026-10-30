@@ -166,7 +166,21 @@ namespace Desert::Core::Rules
         std::vector<ResidencyAction> Actions;
         double                       ActivationMs     = 0.0; // the estimate spent by this frame's activations
         std::size_t                  WaitingForBudget = 0;   // wanted Loaded units left for a later frame
+        std::size_t                  WaitingForGate   = 0;   // wanted Loaded units a ResidencyGate held back
         std::size_t                  StaleOutcomes    = 0;
+    };
+
+    // WHAT ANOTHER RESIDENCY ASKS OF THIS STEP (WP-FAR-8: a world's cells and the HLOD cells that stand in for
+    // them, WorldPartitionHLODSwitch.hpp). Per unit, empty = nothing held:
+    //  HoldActivation 1 = a Loaded unit stays Loaded this step even when wanted (what stands in for it is not
+    //                     yet in a state to give way to it); counted in WaitingForGate.
+    //  HoldRelease    1 = an Activated unit stays Activated this step even outside its band (something beneath
+    //                     it is still drawn and would be drawn twice once it goes).
+    // A gate only delays; it never starts a load, activates or releases anything by itself.
+    struct ResidencyGate
+    {
+        std::vector<std::uint8_t> HoldActivation;
+        std::vector<std::uint8_t> HoldRelease;
     };
 
     [[nodiscard]] inline std::size_t ResidencyUnitCount( const WorldPartitionPlan& plan )
@@ -283,7 +297,8 @@ namespace Desert::Core::Rules
     [[nodiscard]] inline Common::ResultStr<ResidencyStep>
     StepResidency( const WorldPartitionPlan& plan, const WorldPartitionSerialized& partition,
                    std::span<const StreamingSource> sources, const ResidencySettings& settings,
-                   ResidencyState state, std::span<const LoadOutcome> outcomes, double nowSeconds )
+                   ResidencyState state, std::span<const LoadOutcome> outcomes, double nowSeconds,
+                   const ResidencyGate* gate = nullptr )
     {
         if ( auto valid = Detail::CheckResidencySettings( settings ); !valid.IsSuccess() )
             return Common::MakeError<ResidencyStep>( valid.GetError() );
@@ -301,6 +316,15 @@ namespace Desert::Core::Rules
                               "always-loaded + {} cells); a plan does not change under a running world",
                               state.Units.size(), unitCount, plan.AlwaysLoaded.size(), plan.Cells.size() ) );
         }
+
+        if ( gate != nullptr &&
+             ( ( !gate->HoldActivation.empty() && gate->HoldActivation.size() != unitCount ) ||
+               ( !gate->HoldRelease.empty() && gate->HoldRelease.size() != unitCount ) ) )
+            return Common::MakeError<ResidencyStep>(
+                 std::format( "StepResidency: the gate holds {} activation(s) and {} release(s) for {} unit(s)",
+                              gate->HoldActivation.size(), gate->HoldRelease.size(), unitCount ) );
+        const auto held = []( const std::vector<std::uint8_t>& holds, std::size_t unit )
+        { return !holds.empty() && holds[unit] != 0; };
 
         ResidencyStep step;
 
@@ -369,6 +393,8 @@ namespace Desert::Core::Rules
             UnitResidency& unit = state.Units[index];
             if ( kept[index] || unit.State == Residency::Unloaded )
                 continue;
+            if ( unit.State == Residency::Activated && gate != nullptr && held( gate->HoldRelease, index ) )
+                continue;
             switch ( unit.State )
             {
                 case Residency::Loading:
@@ -418,6 +444,11 @@ namespace Desert::Core::Rules
             UnitResidency& unit = state.Units[index];
             if ( unit.State != Residency::Loaded )
                 continue;
+            if ( gate != nullptr && held( gate->HoldActivation, index ) )
+            {
+                ++step.WaitingForGate;
+                continue;
+            }
             const double cost = static_cast<double>( ResidencyUnitRecords( plan, index ) ) * settings.MsPerRecord;
             if ( budgetSpent || ( activated > 0 && step.ActivationMs + cost > settings.ActivationBudgetMs ) )
             {
