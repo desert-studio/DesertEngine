@@ -183,7 +183,12 @@ def main():
             proc.kill()
     log.close()
     with open(os.path.join(out, "editor.log"), encoding="utf-8", errors="replace") as f:
-        errs = sum(1 for l in f if "error" in l.lower() or "assert" in l.lower())
+        lines = f.readlines()
+    errs = sum(1 for l in lines if "error" in l.lower() or "assert" in l.lower())
+    # a refused scene/prefab load leaves an empty view that still answers every step - the run proves nothing
+    refused = next((l.strip() for l in lines if "NOTHING WAS LOADED" in l), None)
+    if refused and not fail:
+        fail = f"editor.log: {refused[:200]}"
     res = f"FAIL {fail}" if fail else f"PASS {steps} steps, {frames}/{thens} frames"
     res += f"; editor.log errors {errs}"
     with open(os.path.join(out, "result.txt"), "w", encoding="utf-8") as f:
