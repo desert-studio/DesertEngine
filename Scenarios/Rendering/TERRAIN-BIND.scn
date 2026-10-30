@@ -1,0 +1,14 @@
+# TERRAIN-BIND: the landscape's G-buffer program reads WorldParameters (Common/WeatherSnow.glslh, FIELD-WINTER) and takes
+# it from the one applier every lit material gets its scene groups from (SceneFrameBinding::ApplyTo by the template's
+# SceneReads; TerrainRenderer::ApplySceneFrame, 24ff76541). The p9base "no ground" frame was a stale Release binary
+# (06:57, FPS-MAC p8 source without 24ff76541) run against the runtime-compiled shaders that already read the table.
+# Headless Release (build/Bin/Release/Editor), the FPS-MAC eye view:
+#   Editor --project Projects/Desert/Desert.deproj --scene Content/Scenes/<scene> --camera 0,170,2500
+#          --look 0.15,-0.03,-1 --shot <dir>/<frame>.png --shot-frames 120
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Тогда barn_ground FIELD_Barn from the eye: the ground is drawn under the grass to the horizon, no sky through the ground; editor.log has no "filled by neither"
+Когда run Scene "Open Scene FIELD_Barn_Winter.desce"
+Тогда barn_ground_winter FIELD_Barn_Winter from the eye: the ground is drawn and lies white under snow, no sky through it; no "filled by neither"
