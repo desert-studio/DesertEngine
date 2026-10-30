@@ -1,0 +1,10 @@
+# WP21-PLAY (Far): editor Play expands every prefab instance as the cook does (ExpandPrefabInstances), so the
+# instance WP21_Span (4 cubes 1500 cm apart) streams as 4 records in 4 cells and the saved HLODs stand in for
+# each one. Compare with the Runtime frame of the cooked world (WP21 p10, frames/runtime/wp21_far.png).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/WP21_PrefabSpan_Far.desce
+Дано run Scene "Build HLODs"
+Когда run Action "Play"
+Когда advance 2
+Когда advance 1
+Тогда play_far 4 HLOD-замены кубов, без дыры на месте префаба, как кадр Runtime far; 0 ячеек загружено
+Когда run Action "Stop"
