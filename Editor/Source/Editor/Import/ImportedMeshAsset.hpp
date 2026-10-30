@@ -24,6 +24,20 @@ namespace Desert::Editor
     // "<base>_LOD<n>" (case-insensitive suffix, digits only) -> { base, n }; any other name is { name, 0 }.
     std::pair<std::string, int> ParseSourceModelLOD( const std::string& name );
 
+    // The slot name a submesh of the import draws: @p named's by material GUID, else the submesh's base name -
+    // the rule MeshSourceFromImport names its slot table by.
+    std::string ImportedSlotName( const Assets::Serialization::SubmeshData& submesh,
+                                  std::span<const Assets::MeshMaterialSlot> named );
+
+    // The import settings' canopy leaf slots (MeshImportSettings::Canopy) each name a slot the WHOLE source file
+    // draws (a split import's node meshes each hold only their own slots, so the check is the file's, made once
+    // before any node is written). A name no slot carries - a typo - is the import's error, naming the source,
+    // the name and the slots there are; not a canopy silently left unbaked.
+    Common::BoolResultStr ValidateCanopyLeafSlots( const Assets::Serialization::MeshAssetData& imported,
+                                                   std::span<const Assets::MeshMaterialSlot>   named,
+                                                   const Assets::MeshImportSettings&           settings,
+                                                   const std::string&                          name );
+
     struct ImportedMeshSource
     {
         Assets::MeshSourceData Source;

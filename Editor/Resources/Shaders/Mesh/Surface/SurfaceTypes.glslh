@@ -329,6 +329,19 @@ float DesertCanopyDepthCm( const vec4 vertexColor )
               : 0.0;
 }
 
+// The canopy depth is baked in the MESH's centimetres (BakeCanopy measures along the mesh's up axis); the surface
+// reads it against world-space quantities (the occlusion map's depth, the snow shell), so the vertex stage carries
+// it to world centimetres with the object's scale along its up axis - as it carries the normal by the normal
+// matrix. A tree placed at scale 3 has a crown three times deeper in the world than in its mesh.
+vec4 DesertCanopyColorToWorld( const vec4 vertexColor, const mat3 world )
+{
+    if ( !DesertIsCanopyVertex( vertexColor ) )
+        return vertexColor;
+    const float depthWorld = DesertCanopyDepthCm( vertexColor ) * length( world[1] );
+    return vec4( vertexColor.rgb,
+                 kDesertCanopyAlphaMax * ( 1.0 - clamp( depthWorld / kDesertCanopyDepthRangeCm, 0.0, 1.0 ) ) );
+}
+
 #ifdef DESERT_SURFACE_HAS_VARYINGS
 SurfaceInput DesertSurfaceInput( vec3 worldPosition, vec3 normal, vec2 uv0, mat3 tbn, vec2 uv1, vec4 vertexColor,
                                  bool frontFacing )

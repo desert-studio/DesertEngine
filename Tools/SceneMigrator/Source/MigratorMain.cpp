@@ -1807,10 +1807,10 @@ namespace Desert::Migration
                 ++( layout == Layout::Failed ? failed : relaid );
         }
 
-        // THE MESH ASSETS (DISPLACE, VIRT-GEOM): MSAS 1 -> 2 states the displacement mode and bake settings in IMPT,
-        // 2 -> 3 the VirtualGeometry flag. The step
-        // is the engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a
-        // cooked MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
+        // THE MESH ASSETS (DISPLACE, VIRT-GEOM): MSAS 1 -> 2 states the displacement mode and bake settings in
+        // IMPT, 2 -> 3 the VirtualGeometry flag, 3 -> 4 the canopy leaf slots (FIELD-WINTER). The step is the
+        // engine's own UpgradeMeshSourceAsset (one statement of the format): nullopt = already current; a cooked
+        // MeshBinary is the mesh pass's above; a file neither reads FAILS by name and is left untouched.
         for ( const auto& path : meshes )
         {
             const std::string bytes = ReadAll( path );
@@ -1826,7 +1826,7 @@ namespace Desert::Migration
             }
             if ( !raised.GetValue() )
                 continue;
-            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS 1/2 -> "
+            out << ( check ? "would raise " : "raised " ) << path.string() << " MSAS (older) -> "
                 << Desert::Assets::kMeshAssetSubsystemVersion << "\n";
             if ( check )
                 continue;

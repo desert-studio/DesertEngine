@@ -220,6 +220,9 @@ namespace Desert::Editor
         if ( !Ser::MeshDataBounds( imported ) )
             return Common::MakeFormattedError<Result>( "'{}': the import has no submesh, so no box",
                                                        source.string() );
+        if ( auto canopy = ValidateCanopyLeafSlots( imported, named, settings.Mesh, source.generic_string() );
+             !canopy )
+            return Common::MakeError<Result>( canopy.GetError() );
         if ( auto recorded = RecordImport( source, Common::Content::ContentKind::StaticMesh, &imported, settings );
              !recorded )
             return Common::MakeError<Result>( recorded.GetError() );
@@ -274,6 +277,9 @@ namespace Desert::Editor
                  "'{}': its node meshes are missing or older than the source, and a cook writes nothing into "
                  "Content - re-import the source (Import Settings > Reimport)",
                  source.generic_string() );
+        if ( auto canopy = ValidateCanopyLeafSlots( imported, named, settings.Mesh, source.generic_string() );
+             !canopy )
+            return Common::MakeError<bool>( canopy.GetError() );
         auto split = NodeMeshesOfImport( imported, submeshNodes, source );
         if ( !split )
             return Common::MakeError<bool>( split.GetError() );

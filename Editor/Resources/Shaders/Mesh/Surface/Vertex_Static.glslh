@@ -109,7 +109,7 @@ void main()
     v_Surface.Normal         = N;
     v_Surface.UV0            = DesertMeshTextureUV( a_TextureCoord );
     v_Surface.UV1            = DesertMeshTextureUV( a_TexCoord1 );
-    v_Surface.VertexColor    = a_Color;
+    v_Surface.VertexColor    = DesertCanopyColorToWorld( a_Color, mat3( world ) );
     v_Surface.TBN            = mat3( T, B, N );
 #endif
 #if defined( DESERT_SURFACE_BINNED ) && defined( DESERT_SURFACE_HAS_VARYINGS )
