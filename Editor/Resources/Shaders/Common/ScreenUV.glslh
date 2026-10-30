@@ -15,4 +15,11 @@ vec2 ScreenUVToNdc(vec2 uv)
 	return vec2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
 }
 
+// NDC xy -> screen texture coordinate: the inverse of ScreenUVToNdc, for a stage that projects a world point and
+// reads a screen texture (or a hierarchy of one) at it - the GPU cull's HZB test (Common/GpuCullTests.glslh).
+vec2 NdcToScreenUV(vec2 ndc)
+{
+	return vec2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
+}
+
 #endif // SCREEN_UV_GLSLH
