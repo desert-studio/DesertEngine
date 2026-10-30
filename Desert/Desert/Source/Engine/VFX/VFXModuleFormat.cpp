@@ -169,6 +169,18 @@ namespace Desert::VFX
     Common::BoolResultStr ValidateVFXModule( const VFXModuleDefinition& module )
     {
         const std::string where  = std::format( "VFX module '{}'", module.DisplayName );
+        // The text states one number per component of the input's type (none for `= Binding`); a component past
+        // them is not written and reads back 0, so the canonical module keeps it 0.
+        for ( const VFXModuleInputDecl& in : module.Block.Inputs )
+        {
+            const uint32_t stated = in.BindingRequired ? 0u : Assets::Serialization::ComponentCount( in.Type );
+            for ( uint32_t c = stated; c < 4; ++c )
+                if ( in.Default[static_cast<int>( c )] != 0.0f )
+                    return Common::MakeFormattedError<bool>(
+                         "{}: input '{}' ({}{}) has a default component {} = {} its text cannot state", where, in.Name,
+                         GlslTypeName( in.Type ), in.BindingRequired ? ", Binding" : "", c,
+                         in.Default[static_cast<int>( c )] );
+        }
         auto              parsed = ParseVFXModule( WriteVFXModule( module ), where );
         if ( !parsed )
             return Common::MakeError<bool>( parsed.GetError() );
