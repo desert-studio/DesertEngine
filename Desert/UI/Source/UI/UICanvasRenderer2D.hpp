@@ -60,6 +60,12 @@ namespace Desert::UI
         glm::vec2 MousePx       = { 0.0f, 0.0f };
         bool      MouseDown     = false;
         bool      MouseReleased = false;
+        // The pointer is over THIS view. False when a view drawn above it covers the pointer (the editor's
+        // widget gallery over the level's canvases — Slate's hit-test grid, where the topmost window wins):
+        // nothing here is elected, so nothing hovers, and a press or a wheel notch lands on nothing. A control
+        // that already holds the pointer (UIViewContext::Capture) keeps following it, and a release still
+        // closes an open popup, as a click on another window closes a menu.
+        bool PointerOver = true;
         // The RIGHT button, held. Only its press edge is used — context menus open on press, as every
         // desktop toolkit does — and that edge is derived inside the frame from UIViewContext::PrevRightDown
         // exactly as the left one is, because a host that reported the edge itself would be a second place

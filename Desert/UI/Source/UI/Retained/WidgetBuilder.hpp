@@ -5,8 +5,10 @@
 #include <UI/Retained/Delegate.hpp>
 #include <UI/Retained/WidgetTree.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -96,6 +98,10 @@ namespace Desert::UI
         WidgetDecl& Size( glm::vec2 size ); // the preferred size: OffsetMax - OffsetMin
 
         WidgetDecl& Cursor( UICursorShape cursor );
+        WidgetDecl& CapturesPointer( bool captures = true ); // a press holds the pointer (a drag handle)
+
+        // The node's own drawing (a paint leaf, WidgetTree::OnPaint): into the frame's draw list, every frame.
+        WidgetDecl& OnPaint( Delegate<void( const UIPaintArgs& )> onPaint );
         WidgetDecl& StableId( std::uint64_t id );
 
         // Write the built node's id to @p out (Slate's SAssignNew).
@@ -116,6 +122,49 @@ namespace Desert::UI
     };
 
     // The common shapes. Each places itself through UILayoutData (the canvas excepted: it is the root).
+    enum class SplitAxis : std::uint8_t
+    {
+        Horizontal, // panes side by side, resized left / right
+        Vertical    // panes stacked, resized up / down
+    };
+
+    // WHAT A SPLITTER KEEPS — the panes' shares of its length (Slate's SSplitter slot SizeValue), and the box it
+    // was last painted in. One layout belongs to ONE splitter (the handles measure the pointer against its
+    // box); any number of cells may follow it (SplitCell), which is how a header row's columns and the rows
+    // under it stay the same widths (SHeaderRow + its list's rows).
+    class SplitLayout
+    {
+    public:
+        // @p ratios are relative (normalised here); empty or non-positive = equal shares. @p minFraction is the
+        // smallest share a drag leaves a pane (clamped so every pane can have it).
+        SplitLayout( SplitAxis axis, std::vector<float> ratios, float minFraction = 0.05f );
+
+        [[nodiscard]] SplitAxis                 Axis() const;
+        [[nodiscard]] std::size_t               Count() const;
+        [[nodiscard]] const std::vector<float>& Ratios() const; // sums to 1
+        [[nodiscard]] float                     Start( std::size_t pane ) const; // fraction where pane starts
+        [[nodiscard]] float                     End( std::size_t pane ) const;
+
+        // Pane @p pane's anchors in the splitter: its span along the axis, the full extent across it.
+        [[nodiscard]] glm::vec2 AnchorMin( std::size_t pane ) const;
+        [[nodiscard]] glm::vec2 AnchorMax( std::size_t pane ) const;
+
+        // Move the boundary after pane @p boundary to fraction @p t of the length; only the two panes beside
+        // it change, and neither drops below the minimum share.
+        void MoveBoundary( std::size_t boundary, float t );
+
+        // The splitter's box, noted by its paint every frame; the pointer's fraction along the axis in it.
+        void                      NoteBox( const Rect& box );
+        [[nodiscard]] const Rect& Box() const;
+        [[nodiscard]] float       FractionAt( glm::vec2 pointer ) const;
+
+    private:
+        SplitAxis          m_Axis;
+        std::vector<float> m_Ratios;
+        float              m_MinFraction;
+        Rect               m_Box{};
+    };
+
     namespace Widgets
     {
         [[nodiscard]] WidgetDecl Canvas( std::string name, float referenceWidth = 1280.0f,
@@ -132,5 +181,25 @@ namespace Desert::UI
         [[nodiscard]] WidgetDecl HorizontalBox( std::string name, float spacing = 6.0f );
         // A scrolling view of @p contentHeight design px; its rows are its children (a VerticalBox, usually).
         [[nodiscard]] WidgetDecl ScrollBox( std::string name, float contentHeight );
+
+        // A node that draws itself (Slate's SLeafWidget): a rect whose look is @p onPaint.
+        [[nodiscard]] WidgetDecl PaintBox( std::string name, Delegate<void( const UIPaintArgs& )> onPaint );
+
+        // SSplitter: @p panes laid along @p layout's axis at its shares, each filling its slot, with a drag
+        // handle of @p handlePx between neighbours (resize cursor, pointer capture). The shares live in
+        // @p layout — the widget's state — and a drag changes them there.
+        [[nodiscard]] WidgetDecl Splitter( std::string name, std::shared_ptr<SplitLayout> layout,
+                                           std::vector<WidgetDecl> panes, float handlePx = 6.0f );
+
+        // The slot of pane @p pane of @p layout: a box spanning that pane's share, inset by half of
+        // @p handlePx on each side that has a neighbour — exactly where Splitter puts its pane. Put the
+        // cell's content inside it ([]). A row's cells under a Columns header are these.
+        [[nodiscard]] WidgetDecl SplitCell( std::string name, std::shared_ptr<SplitLayout> layout, std::size_t pane,
+                                            float handlePx = 6.0f );
+
+        // SHeaderRow: one labelled header cell per @p labels entry, resizable columns at @p layout's shares
+        // (horizontal). Rows below follow the same widths with SplitCell over the same layout.
+        [[nodiscard]] WidgetDecl Columns( std::string name, std::shared_ptr<SplitLayout> layout,
+                                          std::vector<std::string> labels, float handlePx = 6.0f );
     } // namespace Widgets
 } // namespace Desert::UI

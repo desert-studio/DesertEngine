@@ -119,6 +119,18 @@ namespace Desert::UI
             NodeAt( n ).Cursor = cursor;
     }
 
+    void WidgetTree::SetCapturesPointer( NodeId n, bool captures )
+    {
+        if ( Valid( n ) )
+            NodeAt( n ).Captures = captures;
+    }
+
+    void WidgetTree::OnPaint( NodeId n, Delegate<void( const UIPaintArgs& )> onPaint )
+    {
+        if ( Valid( n ) )
+            NodeAt( n ).Painter = std::move( onPaint );
+    }
+
     void WidgetTree::RefreshAttributes()
     {
         // By index and re-fetched on every step: a getter is user code and the vector may not stay put.
@@ -288,5 +300,20 @@ namespace Desert::UI
     std::optional<UICursorShape> WidgetTree::CursorOf( NodeId n ) const
     {
         return Valid( n ) ? NodeAt( n ).Cursor : std::nullopt;
+    }
+
+    bool WidgetTree::CapturesPointer( NodeId n ) const
+    {
+        return Valid( n ) && NodeAt( n ).Captures;
+    }
+
+    void WidgetTree::Paint( NodeId n, const UIPaintArgs& args )
+    {
+        if ( !Valid( n ) || !NodeAt( n ).Painter.IsBound() )
+            return;
+        // Run from a copy: the delegate may edit this tree's arguments, and a node's storage is not promised
+        // to stay where it was while user code runs.
+        const Delegate<void( const UIPaintArgs& )> painter = NodeAt( n ).Painter;
+        painter.Execute( args );
     }
 } // namespace Desert::UI

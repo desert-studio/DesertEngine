@@ -115,7 +115,9 @@ namespace Desert::Editor::Render
                 if ( shot.PlayActive() && scene->IsPlaying() )
                     ++m_CliPlayWalks;
                 const bool live      = !shot.PlayActive() || m_CliPlayWalks >= 2;
-                const bool ready     = live && m_UIView.Hot != UI::NodeId::Null;
+                // Either view's election counts: over the gallery the level elects nothing (UIInput::PointerOver).
+                const bool ready     = live && ( m_UIView.Hot != UI::NodeId::Null ||
+                                             ( pv.WidgetGallery && m_GalleryView.Hot != UI::NodeId::Null ) );
                 input.MouseDown      = ready && shot.UIPress == ShotOptions::UIButtonHeld::Left;
                 input.MouseRightDown = ready && shot.UIPress == ShotOptions::UIButtonHeld::Right;
             }
@@ -168,6 +170,19 @@ namespace Desert::Editor::Render
             // the level was being looked at, and Play then inherited the finished playhead: a black viewport.
             m_UIView.GameWorld = scene->GetState() != ::Desert::Core::Scene::SceneState::Edit;
 
+            // THE TOPMOST VIEW OWNS THE POINTER (Slate's hit-test grid: the window on top wins). The gallery is
+            // drawn over the level, so while it holds the pointer — something of it is under the pointer, or a
+            // press on it is being held — the level's canvases see the pointer as not over them
+            // (UIInput::PointerOver) and a click on the gallery never also lands on the level behind it. A drag
+            // the LEVEL started keeps the pointer the other way round, so a level slider dragged across the
+            // gallery is not handed over mid-drag. Both views read the other's election of the last frame — the
+            // same one-frame-old Hot every control already reacts to.
+            const bool levelHolds = m_UIView.Capture != UI::NodeId::Null;
+            const bool galleryHolds =
+                 pv.WidgetGallery && !levelHolds &&
+                 ( m_GalleryView.Hot != UI::NodeId::Null || m_GalleryView.Capture != UI::NodeId::Null );
+            input.PointerOver = !galleryHolds;
+
             const std::vector<entt::entity> canvases = UI::CanvasesInDrawOrder( scene->GetRegistry() );
             UI::BeginUIFrame( m_UIView, scene->GetRegistry(), UI::Rect{ 0.0f, 0.0f, w, h }, m_FrameDtSeconds );
             for ( const entt::entity canvas : canvases )
@@ -192,6 +207,8 @@ namespace Desert::Editor::Render
                 m_GalleryView.RenderTextures       = &m_RenderTextures;
                 m_GalleryView.AuthoringPreview     = !feed;
                 m_GalleryView.DrivesSceneAnimation = false;
+
+                input.PointerOver = !levelHolds;
 
                 std::string              galleryClicked;
                 std::vector<std::string> galleryMessages;

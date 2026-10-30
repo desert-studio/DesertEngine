@@ -1,0 +1,11 @@
+# EDITOR-UI-E2: paint leaf (IUITree::Paint, Widgets::PaintBox) and splitter/columns (Widgets::Splitter/Columns) on the retained tree.
+# Gallery layout (1280x720 reference, panel centred): paint leaf at ref px x 300..500, y 388..508; splitter beside it
+# x 510..940 (panes 40/60, handle at x ~682); Columns header y 518..546; list below. Points scale with the viewport.
+# The click step goes through the OS path (DesertCtl input), so the topmost-view rule is tested as a hand would hit it.
+Проект Desert.deproj --scene Content/Scenes/MainMenu.desce
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 1_gallery галерея: под «Picked: none» — слева квадрат рисованного листа (тёмная плашка с рамкой, оранжево-розовое кольцо, зелёный треугольник, голубая синусоида), справа сплиттер из двух панелей «Left» (синяя) и «Right» (бордовая) в доле 40/60 с полоской-ручкой между ними; ниже заголовок колонок «Name | Kind» 60/40, строки списка с двумя колонками
+Когда input click Viewport 640,360
+Тогда-вид 2_click_on_gallery клик в центр галереи: канвы MainMenu под галереей не реагируют (ни нажатия, ни перехода экрана, кадр MainMenu вне панели галереи тот же, что в 1_gallery); галерея на месте
+Дано run UI "UI: Toggle the widget gallery"
+Тогда-вид 3_mainmenu MainMenu без галереи совпадает с кадром dev (pixel diff = 0)

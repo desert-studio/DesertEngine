@@ -1,6 +1,7 @@
 #include "UICanvasRenderer2D.hpp"
 
 #include <UI/UIOverlay.hpp>
+#include <UI/UIPaint.hpp>
 
 #include <Common/Core/AssetHandle.hpp>
 #include <Render2DCore/Text/BakedFont.hpp>
@@ -64,7 +65,7 @@ namespace Desert::UI
                                              return tree.Has<UIButtonData>( t ) || tree.Has<UIToggleData>( t ) ||
                                                     tree.Has<UISliderData>( t ) ||
                                                     tree.Has<UIInputFieldData>( t ) ||
-                                                    tree.Has<UIDropdownData>( t );
+                                                    tree.Has<UIDropdownData>( t ) || tree.CapturesPointer( t );
                                          } );
             }
 
@@ -85,10 +86,12 @@ namespace Desert::UI
             // A slider does: its value follows the pointer along the track, and a drag that leaves the track
             // must keep moving the handle (to the clamp) rather than drop it where the edge was crossed —
             // SSlider captures on press for exactly this. A button does NOT: a press dragged off a button and
-            // released elsewhere is a cancelled click, which needs the button to stop hearing the pointer.
+            // released elsewhere is a cancelled click, which needs the button to stop hearing the pointer. A node
+            // the tree itself declares a captor (IUITree::CapturesPointer — a splitter's handle) does too.
             bool CapturesPointer( IUITree& tree, NodeId n )
             {
-                return n != NodeId::Null && tree.Valid( n ) && tree.Has<UISliderData>( n );
+                return n != NodeId::Null && tree.Valid( n ) &&
+                       ( tree.Has<UISliderData>( n ) || tree.CapturesPointer( n ) );
             }
 
             // The pointer shape over @p hot (or for the captor @p capture, which wins while it holds): what the
@@ -389,7 +392,7 @@ namespace Desert::UI
                 // transform acts on, the clip is a region of the SCREEN — the scissor box the hardware cut,
                 // intersected with the oblique edges the draw list cut the geometry with. Both halves, so a
                 // pixel the clipper removed cannot still take the pointer.
-                if ( input && electsSelf && PointIn( rect, pointerPx ) &&
+                if ( input && input->PointerOver && electsSelf && PointIn( rect, pointerPx ) &&
                      Graphic::Render2D::ClipRegionContains( clipRegion, input->MousePx ) )
                 {
                     ctx.View.HotNext = e;
@@ -448,6 +451,23 @@ namespace Desert::UI
 
                 if ( tree.Has<UIRenderTextureData>( e ) )
                     DrawRenderTextureWidget( frame );
+
+                // The node's own drawing, when its tree gives it one (IUITree::Paint, a paint leaf): into the
+                // same list, in the same space, over its widgets and under its children — a node kind with
+                // code of its own, not a widget the walk has to know.
+                {
+                    const bool      overNode = interactive && ( e == ctx.View.Hot || e == ctx.View.PointerTarget );
+                    const UIPaintArgs paint{ .Dl          = dl,
+                                             .Box         = rect,
+                                             .Scale       = scale,
+                                             .Pointer     = pointerPx,
+                                             .HasPointer  = input != nullptr,
+                                             .Interactive = interactive,
+                                             .Hot         = overNode,
+                                             .Pressed     = overNode && input != nullptr && input->MouseDown,
+                                             .Captured    = e == ctx.View.Capture };
+                    tree.Paint( e, paint );
+                }
 
                 // Keyboard focus: record this control for Tab-cycling, and draw a focus ring when it holds
                 // focus (InputField draws its own coloured border, so skip the generic ring there).
@@ -689,7 +709,7 @@ namespace Desert::UI
                     dl.AddRectFilled( { viewportPx.X, viewportPx.Y },
                                       { viewportPx.X + viewportPx.W, viewportPx.Y + viewportPx.H },
                                       Tinted( ctx, scrim ) );
-                if ( input && PointIn( viewportPx, input->MousePx ) )
+                if ( input && input->PointerOver && PointIn( viewportPx, input->MousePx ) )
                 {
                     ctx.View.HotNext     = canvasEntity;
                     ctx.View.HotNextRect = viewportPx;
@@ -780,7 +800,8 @@ namespace Desert::UI
             for ( std::size_t i = 0; i < options.size(); ++i )
             {
                 const Rect row{ popup.X, popup.Y + static_cast<float>( i ) * rowH, popup.W, rowH };
-                const bool hover = input && input->MousePx.x >= row.X && input->MousePx.x <= row.X + row.W &&
+                const bool hover = input && input->PointerOver && input->MousePx.x >= row.X &&
+                                   input->MousePx.x <= row.X + row.W &&
                                    input->MousePx.y >= row.Y && input->MousePx.y <= row.Y + row.H;
                 const auto keyHl = ctx.View.DropdownHighlight.find( pi.Entity );
                 const bool keyed =

@@ -23,6 +23,8 @@
 // tree every frame, exactly as the ECS walk did, so a frame drawn through it is the frame drawn before.
 namespace Desert::UI
 {
+    struct UIPaintArgs;
+
     // A node of the tree. Bit-for-bit an `entt::entity` in the ECS adapter (null mapped explicitly), so the
     // id a debugger prints for an element is the same id either side of the seam.
     enum class NodeId : std::uint32_t
@@ -82,6 +84,28 @@ namespace Desert::UI
         {
             (void)n;
             return std::nullopt;
+        }
+
+        // Is @p n a pointer control by the tree's own declaration — one that a press on it (or on anything
+        // inside it) belongs to, and that then HOLDS the pointer until the button is up (UIViewContext::
+        // Capture)? A splitter's drag handle is: it must keep resizing when the pointer outruns it. The
+        // authored control kinds answer for themselves (a slider captures, a button does not); this is for a
+        // node whose behaviour is code rather than an authored kind. Not pure: false for every node of a
+        // store that has none.
+        [[nodiscard]] virtual bool CapturesPointer( NodeId n ) const
+        {
+            (void)n;
+            return false;
+        }
+
+        // Draw @p n's own content (UIPaint.hpp, Slate's OnPaint) into the frame's draw list. Called by the walk
+        // for every node with a rect, after its widgets and before its children. Default: nothing — a node's
+        // look is its authored arguments, and only a tree whose nodes carry code (the retained tree) has more.
+        // May edit the tree's arguments and its owner's state; must not create or destroy nodes.
+        virtual void Paint( NodeId n, const UIPaintArgs& args )
+        {
+            (void)n;
+            (void)args;
         }
 
         template <class T>

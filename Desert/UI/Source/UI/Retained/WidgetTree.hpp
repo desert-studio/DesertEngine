@@ -4,6 +4,7 @@
 #include <UI/Retained/Attribute.hpp>
 #include <UI/Retained/Delegate.hpp>
 #include <UI/UICursor.hpp>
+#include <UI/UIPaint.hpp>
 #include <UI/UITree.hpp>
 
 #include <array>
@@ -99,6 +100,16 @@ namespace Desert::UI
         void SetWorldOrigin( NodeId n, std::optional<glm::vec3> origin );
         void SetCursor( NodeId n, std::optional<UICursorShape> cursor );
 
+        // A press on @p n (or inside it) belongs to @p n and holds the pointer until the button is up
+        // (IUITree::CapturesPointer) — a drag handle. Its paint reads the hold as UIPaintArgs::Captured.
+        void SetCapturesPointer( NodeId n, bool captures );
+
+        // --- Paint leaf (Slate's SLeafWidget::OnPaint) ---------------------------------------------------
+        // @p n draws @p onPaint into the frame's draw list every frame, over its own widgets and under its
+        // children (UIPaint.hpp). The delegate runs DURING the walk: it may draw, read the pointer and edit
+        // its owner's state or this tree's arguments, but it must not create or destroy nodes.
+        void OnPaint( NodeId n, Delegate<void( const UIPaintArgs& )> onPaint );
+
         // --- Attributes (Slate's TAttribute) -------------------------------------------------------------
         // Field @p field of @p n's T arguments follows @p value. A constant is written now and never again;
         // a bound attribute is written now and on every RefreshAttributes. The binding dies with the node.
@@ -181,6 +192,8 @@ namespace Desert::UI
         [[nodiscard]] const void*                  Storage() const override;
         [[nodiscard]] std::optional<glm::vec3>     WorldOrigin( NodeId n ) const override;
         [[nodiscard]] std::optional<UICursorShape> CursorOf( NodeId n ) const override;
+        [[nodiscard]] bool                         CapturesPointer( NodeId n ) const override;
+        void                                       Paint( NodeId n, const UIPaintArgs& args ) override;
 
     private:
         // One owned argument block, type-erased: the T it holds is the one whose Arg indexes the slot.
@@ -231,11 +244,13 @@ namespace Desert::UI
             std::uint64_t                                   Stable = 0;
             std::optional<glm::vec3>                        Origin;
             std::optional<UICursorShape>                    Cursor;
+            bool                                            Captures = false;
             std::array<Box, kArgKindCount>                  Args;
             std::vector<std::function<void( WidgetTree& )>> Bindings;
             std::vector<Watch>                              Watches;
             Delegate<void()>                                Clicked;
             Delegate<void()>                                DoubleClicked;
+            Delegate<void( const UIPaintArgs& )>            Painter;
         };
 
         static constexpr std::uint32_t kIndexBits  = 20;
