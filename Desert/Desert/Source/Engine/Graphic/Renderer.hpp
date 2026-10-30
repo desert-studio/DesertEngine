@@ -134,9 +134,9 @@ namespace Desert::Graphic
                                                                    uint32_t vertexCount, uint32_t instanceCount,
                                                                    std::span<const std::byte> push = {} );
         // @p push (DrawProcedural and DrawProceduralIndirect): the draw's own push block, a copy of the material's
-        // with the draw's values over it (TerrainRenderer::RecordDraws); empty = the material's block as it stands.
-        // DrawProcedural with its counts in a graph buffer (RendererAPI::DrawProceduralIndirect): the particle
-        // billboards, whose vertex count is six per particle the compact found alive.
+        // with the draw's values over it (TerrainRenderer::RecordDraws); empty = the material's block as it
+        // stands. DrawProcedural with its counts in a graph buffer (RendererAPI::DrawProceduralIndirect): the
+        // particle billboards, whose vertex count is six per particle the compact found alive.
         [[nodiscard]] static Common::BoolResultStr DrawProceduralIndirect( const RDG::PassBindings& bindings,
                                                                            const GraphicsPipeline&  pipeline,
                                                                            const MaterialExecutor*  material,

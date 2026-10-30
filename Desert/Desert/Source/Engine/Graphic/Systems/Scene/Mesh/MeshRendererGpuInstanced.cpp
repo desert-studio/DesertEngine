@@ -99,7 +99,8 @@ namespace Desert::Graphic::System
             // The masked depth prepass (the companion-less Depth call, DeclareMaskedDepthDraws) draws the Masked
             // sections alone; the G-buffer draws a section it drew with an EQUAL depth test, without writes and
             // without the clip (m_InstancedGBufferEqualPipeline, its cell in SurfaceDepthEqualVariant: UE's base
-            // pass after the masked early-Z pass). The forward depth prepass (Depth with a companion) draws every one.
+            // pass after the masked early-Z pass). The forward depth prepass (Depth with a companion) draws every
+            // one.
             const bool masked        = IsMaskedSurface( parent );
             const bool maskedPrepass = pass == MeshPass::Depth && companion == nullptr;
             if ( maskedPrepass && !masked )
@@ -154,14 +155,16 @@ namespace Desert::Graphic::System
                 {
                     static std::unordered_set<const DataDrivenMaterial*> s_RefusedEqual;
                     if ( s_RefusedEqual.insert( parent ).second )
-                        LOG_ERROR( "[MeshRenderer] a Masked GPU-instanced section's material has no ({} x GBuffer) "
-                                   "{} permutation; the section is not in the masked depth prepass and pays its "
-                                   "alpha-tested overdraw in the G-buffer.",
-                                   MeshVertexPathName( gpu.Path ), kSurfaceDepthEqualDefine );
+                        LOG_ERROR(
+                             "[MeshRenderer] a Masked GPU-instanced section's material has no ({} x GBuffer) "
+                             "{} permutation; the section is not in the masked depth prepass and pays its "
+                             "alpha-tested overdraw in the G-buffer.",
+                             MeshVertexPathName( gpu.Path ), kSurfaceDepthEqualDefine );
                     continue;
                 }
-                GraphicsPipeline* const equalPipeline = CullPermutation(
-                     CellPipeline( m_InstancedGBufferEqualPipeline.get(), *equalCell ), gpu.Material->IsTwoSided() );
+                GraphicsPipeline* const equalPipeline =
+                     CullPermutation( CellPipeline( m_InstancedGBufferEqualPipeline.get(), *equalCell ),
+                                      gpu.Material->IsTwoSided() );
                 if ( equalPipeline == nullptr || equalPipeline->GetReadiness() != PipelineReadiness::Ready )
                     continue;
             }
@@ -216,9 +219,9 @@ namespace Desert::Graphic::System
                             .IndirectInstances  = gpu.Refs->Instances,
                             .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
                             .Push               = DrawPushFields{}
-                                       .MaterialIndex( row )
-                                       .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
-                                       .PrimitiveFlags( 0u ) } );
+                                         .MaterialIndex( row )
+                                         .Wind( PackViewInstanceWind( gpu.Wind, gpu.PrevInstanceOffset ) )
+                                         .PrimitiveFlags( 0u ) } );
         }
     }
 
@@ -278,7 +281,7 @@ namespace Desert::Graphic::System
                             .IndirectArgs       = gpu.Refs->Args,
                             .IndirectInstances  = gpu.Refs->Instances,
                             .IndirectArgsOffset = LevelArgsOffset( gpu, level ),
-                            .Push = DrawPushFields{}
+                            .Push               = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .MaterialIndex( row )
                                          .Wind( PackInstanceWind( gpu.Wind ) ) } );

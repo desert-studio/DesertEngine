@@ -780,8 +780,9 @@ namespace Desert::Graphic::System
                 AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants,
                                                  path != MeshVertexPath::Static );
             }
-            // The GPU-instanced G-buffer cells of a template the masked depth prepass draws (IsMaskedSurface: Masked
-            // or `.Parallax`), in the equal-depth permutation BuildGpuInstancedDraws draws them in after it.
+            // The GPU-instanced G-buffer cells of a template the masked depth prepass draws (IsMaskedSurface:
+            // Masked or `.Parallax`), in the equal-depth permutation BuildGpuInstancedDraws draws them in after
+            // it.
             for ( const MeshVertexPath path : { MeshVertexPath::Instanced, MeshVertexPath::GrassBlade } )
             {
                 const auto cell = materials.CellShaderNameOf( handle, path, MeshPass::GBuffer );
@@ -1252,8 +1253,8 @@ namespace Desert::Graphic::System
                                 .Transform         = glm::mat4( 1.0f ),
                                 .Material          = material->GetMaterialExecutor(),
                                 .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                                .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                .Push      = DrawPushFields{}
+                                .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                                .Push     = DrawPushFields{}
                                              .Transform( glm::mat4( 1.0f ) )
                                              .PrimitiveIndex( obj->GpuPrimitive )
                                              .MaterialIndex( draw.Row ) } );
@@ -1349,16 +1350,17 @@ namespace Desert::Graphic::System
             const auto*         obj      = draw.Object;
             DataDrivenMaterial* material = draw.State->Material.get();
             MaterialInstance*   instance = draw.State->Instance.get();
-            m_FrontLayerDraws.Add( { .Pipeline          = draw.State->Pipeline.get(),
-                                     .Mesh              = obj->Mesh,
-                                     .Transform         = glm::mat4( 1.0f ),
-                                     .Material          = material->GetMaterialExecutor(),
-                                     .HiddenSubmeshMask = obj->HiddenSubmeshes,
-                                     .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                                     .Push      = DrawPushFields{}
-                                                  .Transform( glm::mat4( 1.0f ) )
-                                                  .PrimitiveIndex( obj->GpuPrimitive )
-                                                  .MaterialIndex( draw.Row ) } );
+            m_FrontLayerDraws.Add(
+                 { .Pipeline          = draw.State->Pipeline.get(),
+                   .Mesh              = obj->Mesh,
+                   .Transform         = glm::mat4( 1.0f ),
+                   .Material          = material->GetMaterialExecutor(),
+                   .HiddenSubmeshMask = obj->HiddenSubmeshes,
+                   .LodLevel          = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                   .Push              = DrawPushFields{}
+                                .Transform( glm::mat4( 1.0f ) )
+                                .PrimitiveIndex( obj->GpuPrimitive )
+                                .MaterialIndex( draw.Row ) } );
         }
         return true;
     }
@@ -1973,8 +1975,8 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ),
                             .Material          = drawMat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = hiddenOf( obj ),
-                            .LodLevel  = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
-                            .Push      = DrawPushFields{}
+                            .LodLevel = ComputeLOD( obj->Transform, obj->Mesh, obj->ForcedLOD, obj->LODBias ),
+                            .Push     = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj->GpuPrimitive )
                                          .MaterialIndex( materialRow )
@@ -2146,9 +2148,9 @@ namespace Desert::Graphic::System
                                 .HiddenSubmeshMask = d.HiddenSubmeshMask,
                                 .LodLevel          = d.LodLevel,
                                 .Push              = DrawPushFields{}
-                                                .MaterialIndex( d.MaterialIndex )
-                                                .Wind( d.Wind )
-                                                .PrimitiveFlags( d.PrimitiveFlags ) } );
+                                             .MaterialIndex( d.MaterialIndex )
+                                             .Wind( d.Wind )
+                                             .PrimitiveFlags( d.PrimitiveFlags ) } );
                 }
             }
         }
@@ -2413,7 +2415,7 @@ namespace Desert::Graphic::System
                             .Transform         = glm::mat4( 1.0f ), // relative to the motion row's World
                             .Material          = mat->GetMaterialExecutor(),
                             .HiddenSubmeshMask = obj.Section->HiddenSubmeshes,
-                            .Push      = DrawPushFields{}
+                            .Push              = DrawPushFields{}
                                          .Transform( glm::mat4( 1.0f ) )
                                          .PrimitiveIndex( obj.Obj->GpuPrimitive )
                                          .MaterialIndex( *materialRow ) } );

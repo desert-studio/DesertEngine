@@ -214,7 +214,7 @@ namespace Desert::Graphic::System
         std::unordered_map<uint64_t, VarietyGpu>                          m_Varieties;
         std::unordered_map<uint32_t, std::shared_ptr<class Desert::Mesh>> m_BladeStrips;
         std::vector<VarietyGpu*>         m_Frame; // this frame's, in dispatch order
-        std::vector<VarietyGpu*>         m_FrameGenerate; // this frame's whose inputs changed: the dispatched
+        std::vector<VarietyGpu*>         m_FrameGenerate;    // this frame's whose inputs changed: the dispatched
         bool                             m_Settling = false; // InstancesSettling, decided by the last AddFrame
         std::shared_ptr<ComputePipeline> m_Generate;
         std::shared_ptr<ComputePipeline> m_Finalize;
@@ -224,6 +224,6 @@ namespace Desert::Graphic::System
         GrassBladeRayTracing             m_BladeRayTracing;
         // GRASS-VIS: the raster-stream rows handed out this frame (AddFrame resets it; PrepareVariety hands each
         // blade variety its capacity's worth), bounded by VirtualGeometry::kMaxVisibleClusters.
-        uint32_t                         m_VisibilityRows = 0;
+        uint32_t m_VisibilityRows = 0;
     };
 } // namespace Desert::Graphic::System

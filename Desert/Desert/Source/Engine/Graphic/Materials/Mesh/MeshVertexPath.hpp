@@ -190,7 +190,8 @@ namespace Desert::Graphic
         VirtualShadowDepth = 5,
         // Depth only, into the VIEW's scene depth before the base pass (UE: the DepthPass mesh pass): the view
         // header's vertex stage (the base pass's very gl_Position), Mesh/Surface/Pass_Depth.glslh's fragment stage
-        // (nothing / the opacity mask's clip / the relief's depth). The base pass then tests equal and writes none.
+        // (nothing / the opacity mask's clip / the relief's depth). The base pass then tests equal and writes
+        // none.
         Depth = 6,
         // THE VISIBILITY BUFFER RASTER (GRASS-VIS; UE: Nanite's raster into VisBuffer64): the view's grass blades
         // written as one 64-bit word per pixel (Common/VisibilityBuffer.glslh: reversed-Z depth bits over the

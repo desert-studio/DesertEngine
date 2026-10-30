@@ -783,28 +783,26 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings& bindings,
-                                                             const GraphicsPipeline&  pipeline,
-                                                             const MaterialExecutor*  material,
+    Common::BoolResultStr VulkanRendererAPI::DrawProcedural( const RDG::PassBindings&         bindings,
+                                                             const GraphicsPipeline&          pipeline,
+                                                             const MaterialExecutor*          material,
                                                              const std::span<const std::byte> push,
                                                              uint32_t vertexCount, uint32_t instanceCount )
     {
         if ( vertexCount == 0u || instanceCount == 0u )
             return Common::MakeFormattedError( "{}: a procedural draw of {} vertices x {} instances",
                                                bindings.GetContext().GetPassName(), vertexCount, instanceCount );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push );
+             !bound || !bound.GetValue() )
             return bound;
         // The vertex stage builds its geometry from gl_VertexIndex / gl_InstanceIndex.
         DrawCounted( vertexCount, instanceCount, 0, 0 );
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::DrawProceduralIndirect( const RDG::PassBindings& bindings,
-                                                                     const GraphicsPipeline&  pipeline,
-                                                                     const MaterialExecutor*  material,
-                                                                     const std::span<const std::byte> push,
-                                                                     const RDG::BufferRef     args,
-                                                                     const uint64_t           offset )
+    Common::BoolResultStr VulkanRendererAPI::DrawProceduralIndirect(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const MaterialExecutor* material,
+         const std::span<const std::byte> push, const RDG::BufferRef args, const uint64_t offset )
     {
         const RDG::PassContext& context = bindings.GetContext();
         if ( offset % 4u != 0u )
@@ -822,7 +820,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( !buffer )
             return Common::MakeFormattedError( "{}: indirect arguments: {}", context.GetPassName(),
                                                buffer.GetError() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, push );
+             !bound || !bound.GetValue() )
             return bound;
         vkCmdDrawIndirect( m_CurrentCommandBuffer, buffer.GetValue()->GetBuffer(), buffer.GetValue()->GetOffset() + offset, 1,
                            static_cast<uint32_t>( sizeof( VkDrawIndirectCommand ) ) );
@@ -838,7 +837,8 @@ namespace Desert::Graphic::API::Vulkan
         if ( indexCount == 0u )
             return Common::MakeFormattedError( "{}: an indexed draw of zero indices",
                                                bindings.GetContext().GetPassName() );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, {} ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, material, {} );
+             !bound || !bound.GetValue() )
             return bound;
         const VkDeviceSize offsets[] = { 0 };
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes buffers
@@ -930,12 +930,10 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr
-    VulkanRendererAPI::WalkMeshSubmeshes( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
-                                          const Mesh& mesh, const glm::mat4& transform,
-                                          const MaterialExecutor& material, const std::span<const std::byte> drawPush,
-                                          const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows,
-                                          const SubmeshDraw& draw )
+    Common::BoolResultStr VulkanRendererAPI::WalkMeshSubmeshes(
+         const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline, const Mesh& mesh,
+         const glm::mat4& transform, const MaterialExecutor& material, const std::span<const std::byte> drawPush,
+         const SubmeshMask hiddenSubmeshMask, const VkBuffer visibleRows, const SubmeshDraw& draw )
     {
         const std::string_view pass = bindings.GetContext().GetPassName();
         // The push block is the per-submesh transform the material carries (written below for each submesh).
@@ -946,7 +944,8 @@ namespace Desert::Graphic::API::Vulkan
         const MeshGeometry& geometry = mesh.GetGeometry();
         if ( !geometry.IsResident() )
             return Common::MakeFormattedError( "{}: mesh has no vertices on the GPU", pass );
-        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material, drawPush ); !bound || !bound.GetValue() )
+        if ( const Common::BoolResultStr bound = BindGraphicsPassState( bindings, pipeline, &material, drawPush );
+             !bound || !bound.GetValue() )
             return bound;
 
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): only the Vulkan API makes pipelines
@@ -963,8 +962,9 @@ namespace Desert::Graphic::API::Vulkan
 
         // The push block of every submesh: the draw's (@p drawPush - the material's block with the draw's own
         // values over it, MeshDrawList::Record; the pipeline layout's full range, zero past what it holds) with
-        // the submesh's transform over the first mat4. Stages and size are the LAYOUT's (VulkanPipeline::GetPushConstantRange),
-        // never the shader's current reflection, which a recompile can move past the layout this pipeline holds.
+        // the submesh's transform over the first mat4. Stages and size are the LAYOUT's
+        // (VulkanPipeline::GetPushConstantRange), never the shader's current reflection, which a recompile can
+        // move past the layout this pipeline holds.
         const auto& pushConstant = graphics->GetPushConstantRange();
         ReportPushStagesApart( *graphics, shader->GetName(), shader->GetShaderPushConstant() );
         std::vector<std::byte> push;
@@ -1001,13 +1001,11 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings,
-                                                         const GraphicsPipeline& pipeline, const Mesh& mesh,
-                                                         const glm::mat4&        transform,
-                                                         const MaterialExecutor&          material,
-                                                         const std::span<const std::byte> push,
-                                                         uint32_t instanceCount, uint32_t firstInstance,
-                                                         SubmeshMask hiddenSubmeshMask, uint32_t lodLevel )
+    Common::BoolResultStr
+    VulkanRendererAPI::RenderMesh( const RDG::PassBindings& bindings, const GraphicsPipeline& pipeline,
+                                   const Mesh& mesh, const glm::mat4& transform, const MaterialExecutor& material,
+                                   const std::span<const std::byte> push, uint32_t instanceCount,
+                                   uint32_t firstInstance, SubmeshMask hiddenSubmeshMask, uint32_t lodLevel )
     {
         DESERT_PROFILE_FUNC();
         const std::string_view pass = bindings.GetContext().GetPassName();
@@ -1192,9 +1190,9 @@ namespace Desert::Graphic::API::Vulkan
         return Common::MakeSuccess( true );
     }
 
-    Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings& bindings,
-                                                                    const GraphicsPipeline&  pipeline,
-                                                                    const MaterialExecutor*  material,
+    Common::BoolResultStr VulkanRendererAPI::BindGraphicsPassState( const RDG::PassBindings&         bindings,
+                                                                    const GraphicsPipeline&          pipeline,
+                                                                    const MaterialExecutor*          material,
                                                                     const std::span<const std::byte> drawPush )
     {
         const RDG::PassContext&                  context = bindings.GetContext();
@@ -1259,10 +1257,11 @@ namespace Desert::Graphic::API::Vulkan
         if ( !drawPush.empty() )
         {
             if ( materialPush.empty() )
-                return Common::MakeFormattedError( "{}: the draw carries a push block, its material has none", pass );
+                return Common::MakeFormattedError( "{}: the draw carries a push block, its material has none",
+                                                   pass );
             if ( drawPush.size() != materialPush.size() )
-                return Common::MakeFormattedError( "{}: the draw's push block is {} bytes, its material's {}", pass,
-                                                   drawPush.size(), materialPush.size() );
+                return Common::MakeFormattedError( "{}: the draw's push block is {} bytes, its material's {}",
+                                                   pass, drawPush.size(), materialPush.size() );
             materialPush = drawPush;
         }
 

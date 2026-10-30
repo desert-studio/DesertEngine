@@ -42,13 +42,14 @@ namespace Desert::Graphic::RDG
 //    (Systems/Scene/Mesh/MeshRenderer.hpp:71-104, Record MeshRenderer.cpp:381-427, pass loops
 //    MeshRendererDeferred.cpp:8-56, MeshRendererForward.cpp:103, MeshRendererShadow.cpp:670,
 //    MeshRendererVirtualShadow.cpp:360-441).
-//  - The per-draw state of a CPU draw (MeshDrawCommand::Push / BindTarget: transform push, material row, bone offset,
+//  - The per-draw state of a CPU draw (MeshDrawCommand::Push / BindTarget: transform push, material row, bone
+//  offset,
 //    wind, instance descriptor bind) becomes DATA: GpuDrawSlot (material row) + GpuScenePrimitive/Instance
 //    (transforms, bones, skin cache) read by instance id. A draw keeps no closure.
 //  - A submesh's node transform (Submesh::Transform, relative to the primitive) is DATA too: one row per submesh
-//    of each mesh in SubmeshTransforms[], named by GpuDrawSlot::SubmeshTransform, so World = Primitive.LocalToWorld
-//    x Instance.InstanceToPrimitive x SubmeshTransforms[slot.SubmeshTransform] (today the per-submesh push of
-//    WalkMeshSubmeshes, API/Vulkan/VulkanRenderer.cpp:868).
+//    of each mesh in SubmeshTransforms[], named by GpuDrawSlot::SubmeshTransform, so World =
+//    Primitive.LocalToWorld x Instance.InstanceToPrimitive x SubmeshTransforms[slot.SubmeshTransform] (today the
+//    per-submesh push of WalkMeshSubmeshes, API/Vulkan/VulkanRenderer.cpp:868).
 //  - A submesh that does not draw in a pass (hidden, or no PSO for it there) keeps its slot with Bin =
 //    kInvalidIndex: the slot formula of GpuPrimitivePassDraws stays dense, the cull skips the slot.
 //  - Bin = pass x pipeline x mesh x submesh x LOD: every instance in a bin draws the same index range with the

@@ -187,9 +187,9 @@ namespace Desert::Core
     inline constexpr uint32_t kVgRasterDagsBinding               = kVirtualGeometryRasterBindingFirst + 1u;
     inline constexpr uint32_t kVgRasterVisibleClustersBinding    = kVirtualGeometryRasterBindingFirst + 2u;
     inline constexpr uint32_t kVgRasterPrimitiveDrawsBinding     = kVirtualGeometryRasterBindingFirst + 3u;
-    // THE VIEW'S VISIBILITY BUFFER (GRASS-VIS, Common/VisibilityBuffer.glslh `VisibilityBuffer`): one uint64 word per
-    // pixel (VirtualGeometryLayout.hpp PackVisibility), written by the Visibility cells' atomic max and read by the
-    // VisibilityResolve cells; bound by name (the grass renderer's buffer, GrassRenderer::VisibilityFrame).
+    // THE VIEW'S VISIBILITY BUFFER (GRASS-VIS, Common/VisibilityBuffer.glslh `VisibilityBuffer`): one uint64 word
+    // per pixel (VirtualGeometryLayout.hpp PackVisibility), written by the Visibility cells' atomic max and read
+    // by the VisibilityResolve cells; bound by name (the grass renderer's buffer, GrassRenderer::VisibilityFrame).
     inline constexpr uint32_t kVgRasterVisibilityBinding         = kVirtualGeometryRasterBindingFirst + 4u;
     inline constexpr uint32_t kVirtualGeometryRasterBindingCount = 5u;
 

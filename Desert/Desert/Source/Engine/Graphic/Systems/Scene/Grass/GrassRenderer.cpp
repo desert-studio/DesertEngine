@@ -480,8 +480,8 @@ namespace Desert::Graphic::System
             // of the view's visibility buffer, the bucket table tells the resolve which strip level drew it.
             gpu.VisibilityRow = m_VisibilityRows;
             m_VisibilityRows += std::max( capacity, 1u );
-            gpu.ShapeData.Visibility =
-                 glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ), 0u );
+            gpu.ShapeData.Visibility = glm::uvec4( gpu.VisibilityRow, b.Segments,
+                                                   std::min( buckets, kGrassBladeVisibilityMaxBuckets ), 0u );
             for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
                   first += capacities[bucket], ++bucket )
                 gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;
@@ -580,8 +580,8 @@ namespace Desert::Graphic::System
         for ( int i = 0; i < 4; ++i )
             gpu.FrameKey.push_back( static_cast<uint32_t>( gpu.Cells[i] ) );
         gpu.FrameKey.push_back( gpu.Capacity );
-        for ( const void* buffer : { static_cast<const void*>( gpu.Instances.get() ),
-                                     static_cast<const void*>( gpu.Args.get() ) } )
+        for ( const void* buffer :
+              { static_cast<const void*>( gpu.Instances.get() ), static_cast<const void*>( gpu.Args.get() ) } )
         {
             const auto address = reinterpret_cast<std::uintptr_t>( buffer ); // NOLINT: identity, not access
             gpu.FrameKey.push_back( static_cast<uint32_t>( address ) );
@@ -722,7 +722,8 @@ namespace Desert::Graphic::System
                      const auto& layout = m_GenerateLayout.Get( m_Generate->GetSpecification().Shader );
                      for ( const VarietyGpu* gpu : m_FrameGenerate )
                          pass.Bindings( layout, Renderer::GetPipelineRouteFill( *m_Generate ) )
-                              .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef, RDG::Access::StorageRead )
+                              .Storage( GrassGenerateShaderParameters::Field, gpu->FieldRef,
+                                        RDG::Access::StorageRead )
                               .Storage( GrassGenerateShaderParameters::Params, gpu->ParamsRef,
                                         RDG::Access::StorageRead )
                               .Storage( GrassGenerateShaderParameters::Instances, gpu->Refs.Instances,
@@ -743,7 +744,8 @@ namespace Desert::Graphic::System
                               ( static_cast<uint32_t>( gpu->Cells.z ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
                          const auto groupsZ =
                               ( static_cast<uint32_t>( gpu->Cells.w ) + kGrassGroupSize - 1 ) / kGrassGroupSize;
-                         if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsZ, 1 );
+                         if ( auto dispatched =
+                                   renderer.DispatchCompute( bindings, *m_Generate, groupsX, groupsZ, 1 );
                               !dispatched )
                              return dispatched;
                      }

@@ -36,17 +36,16 @@ namespace Desert::Assets
     // source.
     inline constexpr uint32_t kMeshBuilderVersion =
          16; // 16: the generated LOD chain runs to a few dozen triangles (Geometry::LODChainSettings, eight
-             // levels with LOD 0 - was three ratios ending at 10 %, GPU-COST-5); 15: canopy top surface = the highest leaf per cell, not dilated (a tall round crown's leaves read
-             // ~1 m under a dilated top, all sheltered - FIELD-WINTER p12);
-             // 14: canopy leaf cards (MeshImportSettings::Canopy: crown normal + depth in COLOR_0.a);
-             // 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's LODs cut from its DAG);
-             // 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction and MikkTSpace
-             // tangent frames together; 10: UV weighs 0.5 in the reduction
-             // (chart borders priced, not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3
-             // Permissive + Prune (seams crossed natively, small parts pruned); 5: LODs reduced over
-             // position-welded topology; 4: LODs reduced to the ratio with normal/UV attributes, no error cap /
-             // MikkTSpace tangent frames (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2:
-             // sections named by slot
+             // levels with LOD 0 - was three ratios ending at 10 %, GPU-COST-5); 15: canopy top surface = the
+             // highest leaf per cell, not dilated (a tall round crown's leaves read ~1 m under a dilated top, all
+             // sheltered - FIELD-WINTER p12); 14: canopy leaf cards (MeshImportSettings::Canopy: crown normal +
+             // depth in COLOR_0.a); 13: MeshBinary v7 container (cluster DAG sections; a VirtualGeometry mesh's
+             // LODs cut from its DAG); 12: MeshBinary v6 container (displacement streams); 11: M23 LOD reduction
+             // and MikkTSpace tangent frames together; 10: UV weighs 0.5 in the reduction (chart borders priced,
+             // not crossed for free); 7-9 were probes; 6: LODs reduced by meshoptimizer 1.3 Permissive + Prune
+             // (seams crossed natively, small parts pruned); 5: LODs reduced over position-welded topology; 4:
+             // LODs reduced to the ratio with normal/UV attributes, no error cap / MikkTSpace tangent frames
+             // (import and DynamicMesh derive); 3: vertex colour and UV1 streams; 2: sections named by slot
 
     // The settings image the key hashes (UE SerializeForKey): fixed order, little-endian, one u32 per field.
     struct MeshBuildSettings

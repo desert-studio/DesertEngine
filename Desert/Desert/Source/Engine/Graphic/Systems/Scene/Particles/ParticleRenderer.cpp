@@ -1249,8 +1249,9 @@ namespace Desert::Graphic::System
                 push.assign( pushed.Size, std::byte{ 0 } );
                 if ( pushed.Data != nullptr && pushed.Size != 0u )
                     std::memcpy( push.data(), pushed.Data, pushed.Size );
-                if ( auto written = DrawPushFields{}.MaterialIndex( draw.Row ).WriteInto(
-                          push, sprite.Material->GetMaterialLayout() );
+                if ( auto written = DrawPushFields{}
+                                         .MaterialIndex( draw.Row )
+                                         .WriteInto( push, sprite.Material->GetMaterialLayout() );
                      !written )
                     return Common::MakeFormattedError( "{}: sprite cell '{}': {}", context.GetPassName(),
                                                        sprite.Cell, written.GetError() );

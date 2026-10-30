@@ -650,8 +650,8 @@ namespace Desert::Graphic::System
                                                  .Transform = sd->Transform,
                                                  .Material  = skinnedMask->GetMaterialExecutor(),
                                                  .Push      = DrawPushFields{}
-                                                             .BoneOffset( boneOffset, /*required*/ false )
-                                                             .SkinCache( address, row.SkinCacheVertexCount ) } );
+                                                              .BoneOffset( boneOffset, /*required*/ false )
+                                                              .SkinCache( address, row.SkinCacheVertexCount ) } );
                     }
                 }
             }

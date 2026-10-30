@@ -237,8 +237,8 @@ namespace Desert::Graphic
                                   const uint64_t offset, const SubmeshMask hiddenSubmeshMask,
                                   const MeshDrawArgumentsOrder order )
     {
-        return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, push, args, offset,
-                                                  hiddenSubmeshMask, order );
+        return s_RendererAPI->RenderMeshIndirect( bindings, pipeline, mesh, transform, material, push, args,
+                                                  offset, hiddenSubmeshMask, order );
     }
 
     void Renderer::ComputeImageBeginWrite( Image* image )

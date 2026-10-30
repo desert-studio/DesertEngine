@@ -172,7 +172,8 @@ namespace Desert::Graphic::GpuDriven
 
     // ONE ROW PER CACHED DRAW of a pass (DrawCommandCache: a primitive's submesh at one LOD): the bin its
     // instances are counted into, and the per-draw state that today rides the push block (MaterialIndex,
-    // PrimitiveFlags; Common/MaterialTransport.glslh) or the CPU draw's by-value push fields (MeshDrawCommand::Push).
+    // PrimitiveFlags; Common/MaterialTransport.glslh) or the CPU draw's by-value push fields
+    // (MeshDrawCommand::Push).
     struct GpuDrawSlot
     {
         // Its row in the pass's DrawBins[] / IndirectDraws[]; kInvalidIndex = the submesh does not draw in this pass

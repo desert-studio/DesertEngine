@@ -1458,16 +1458,15 @@ namespace Desert::Graphic::System
                     std::optional<Common::Math::AABB> pose;
                     if ( IsVirtualShadowView( c ) )
                         pose = gathered.Skinned[caster.Index].WorldBounds;
-                    list.Add(
-                         { .Pipeline          = casters.Skinned,
-                           .Mesh              = caster.Data->Mesh,
-                           .Transform         = caster.Data->Transform,
-                           .Material          = skinMat->GetMaterialExecutor(),
-                           .HiddenSubmeshMask = caster.Hidden,
-                           .Push              = DrawPushFields{}
-                                       .BoneOffset( caster.BoneOffset, /*required*/ false )
-                                       .SkinCache( address, row.SkinCacheVertexCount ),
-                           .WorldBounds = pose } );
+                    list.Add( { .Pipeline          = casters.Skinned,
+                                .Mesh              = caster.Data->Mesh,
+                                .Transform         = caster.Data->Transform,
+                                .Material          = skinMat->GetMaterialExecutor(),
+                                .HiddenSubmeshMask = caster.Hidden,
+                                .Push              = DrawPushFields{}
+                                             .BoneOffset( caster.BoneOffset, /*required*/ false )
+                                             .SkinCache( address, row.SkinCacheVertexCount ),
+                                .WorldBounds = pose } );
                 }
             }
         }
@@ -1670,33 +1669,33 @@ namespace Desert::Graphic::System
 
             if ( state.RedrawStatic )
             {
-                SystemRasterPass pass{ .Name        = name + ".Static",
-                                       .ExecuteFunc = [this, c]( RDG::PassContext& context,
-                                                                 const FrameGraphRefs& ) -> Common::BoolResultStr
-                                       {
-                                           if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
-                                               return drawn;
-                                           // The keyed non-mesh casters (the landscape), into the cached layer
-                                           // their key is part of (PlanCascadeCache).
-                                           for ( const auto& [weak, firstBlock] : m_CascadeStaticCasters[c] )
-                                           {
-                                               const auto caster = weak.lock();
-                                               if ( !caster )
-                                               {
-                                                   continue; // gone since the setup: its draws went with it
-                                               }
-                                               if ( auto cast = caster->RecordShadowView( context, c, firstBlock,
-                                                                                          m_CascadeCasterVP[c],
-                                                                                          m_CascadeCasterBias[c] );
-                                                    !cast.IsSuccess() )
-                                               {
-                                                   return cast;
-                                               }
-                                           }
-                                           return BOOLSUCCESS;
-                                       },
-                                       .TargetFramebuffer = m_CascadeStaticFB[c],
-                                       .ClearDepth        = 1.0f };
+                SystemRasterPass pass{
+                     .Name        = name + ".Static",
+                     .ExecuteFunc = [this, c]( RDG::PassContext& context,
+                                               const FrameGraphRefs& ) -> Common::BoolResultStr
+                     {
+                         if ( auto drawn = m_CascadeDraws[c].Record( context ); !drawn.IsSuccess() )
+                             return drawn;
+                         // The keyed non-mesh casters (the landscape), into the cached layer
+                         // their key is part of (PlanCascadeCache).
+                         for ( const auto& [weak, firstBlock] : m_CascadeStaticCasters[c] )
+                         {
+                             const auto caster = weak.lock();
+                             if ( !caster )
+                             {
+                                 continue; // gone since the setup: its draws went with it
+                             }
+                             if ( auto cast = caster->RecordShadowView(
+                                       context, c, firstBlock, m_CascadeCasterVP[c], m_CascadeCasterBias[c] );
+                                  !cast.IsSuccess() )
+                             {
+                                 return cast;
+                             }
+                         }
+                         return BOOLSUCCESS;
+                     },
+                     .TargetFramebuffer = m_CascadeStaticFB[c],
+                     .ClearDepth        = 1.0f };
                 pass.Declare = [this, c]( RenderPassDeclaration& declared, const FrameGraphRefs& )
                 {
                     // Depth-only casters sample no graph resource: one block per caster material with the

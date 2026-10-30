@@ -9,8 +9,7 @@ namespace Desert::Geometry
 {
     std::vector<std::vector<Index>> SimplifyLODLevels( const float* positions, uint32_t vertexCount,
                                                        const std::vector<Index>& localTris,
-                                                       const LODChainSettings&   chain,
-                                                       const float*              attributes )
+                                                       const LODChainSettings& chain, const float* attributes )
     {
         const std::vector<uint32_t> targets = LODChainTargets( static_cast<uint32_t>( localTris.size() ), chain );
         std::vector<std::vector<Index>> levels;

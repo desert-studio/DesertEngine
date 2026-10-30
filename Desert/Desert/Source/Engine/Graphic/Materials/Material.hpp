@@ -241,8 +241,8 @@ namespace Desert::Graphic
         friend class MaterialExecutor;
 
         // Uploads all dirty TProperty members to the matching FieldProperty/Texture slot. Called by Bind and by
-        // MaterialExecutor::PrepareForRecording (upload before recording), so a material drawn without Bind needs no
-        // manual flush.
+        // MaterialExecutor::PrepareForRecording (upload before recording), so a material drawn without Bind needs
+        // no manual flush.
         //
         // It used to hand back the set of uniform buffers it had touched, and all four callers threw
         // that set away -- an out-parameter nobody read, which is a dead parameter by any reading of

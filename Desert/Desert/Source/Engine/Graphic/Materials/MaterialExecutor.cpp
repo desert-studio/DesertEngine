@@ -246,13 +246,10 @@ namespace Desert::Graphic
             return Common::MakeFormattedError( "material '{}' was not prepared this frame: the pass that draws it "
                                                "declares it in its setup (PassBuilder::Prepares)",
                                                m_DebugName );
-        const bool fieldsPending =
-             std::any_of( m_UniformBufferPropertiesStorage.begin(), m_UniformBufferPropertiesStorage.end(),
-                          []( const auto& prop )
-                          {
-                              return prop->GetFillKind() == ShaderResources::FillKind::Fields &&
-                                     prop->HasDirtyFields();
-                          } );
+        const bool fieldsPending = std::any_of(
+             m_UniformBufferPropertiesStorage.begin(), m_UniformBufferPropertiesStorage.end(),
+             []( const auto& prop )
+             { return prop->GetFillKind() == ShaderResources::FillKind::Fields && prop->HasDirtyFields(); } );
         if ( NewestPropertyWrite() > m_PreparedVersion || fieldsPending ||
              ( m_Owner != nullptr && m_Owner->HasPendingRegisteredProperties() ) )
             return Common::MakeFormattedError( "material '{}' was written after its prepare and a recording pass "

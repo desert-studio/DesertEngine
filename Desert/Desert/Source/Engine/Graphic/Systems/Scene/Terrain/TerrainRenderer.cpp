@@ -1083,13 +1083,11 @@ namespace Desert::Graphic::System
     // landscape's mesh draw commands carry their own shader bindings, the record writes nothing shared.
     // Group g's draws go through the block the node's setup declared for its material (firstBlock + g). The
     // first refused draw is the node's error.
-    Common::BoolResultStr
-    TerrainRenderer::RecordDraws( const RDG::PassContext& context, const uint32_t firstBlock,
-                                  const GraphicsPipeline&             pipeline,
-                                  std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program,
-                                  const glm::mat4& clipFromWorld, const std::vector<FrameDraw>& draws,
-                                  const std::optional<glm::vec2>&             shadowSlope,
-                                  const std::optional<VirtualShadowIndirect>& indirect )
+    Common::BoolResultStr TerrainRenderer::RecordDraws(
+         const RDG::PassContext& context, const uint32_t firstBlock, const GraphicsPipeline& pipeline,
+         std::unique_ptr<DataDrivenMaterial> ProgramMaterials::*program, const glm::mat4& clipFromWorld,
+         const std::vector<FrameDraw>& draws, const std::optional<glm::vec2>& shadowSlope,
+         const std::optional<VirtualShadowIndirect>& indirect )
     {
         std::vector<std::unique_ptr<RDG::PassBindings>> blocks;
         blocks.reserve( m_FrameGroups.size() );

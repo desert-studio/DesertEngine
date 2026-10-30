@@ -572,8 +572,8 @@ namespace Desert::Graphic::System
                 {
                     static_assert( kGpuInstanceArgsRecordBytes == kMeshDrawArgumentsBytes );
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
-                              draw.IndirectArgs, draw.IndirectArgsOffset, draw.HiddenSubmeshMask,
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              push, draw.IndirectArgs, draw.IndirectArgsOffset, draw.HiddenSubmeshMask,
                               MeshDrawArgumentsOrder::Submesh );
                          !drawn.IsSuccess() )
                         return drawn;
@@ -582,16 +582,16 @@ namespace Desert::Graphic::System
                 if ( m_IndirectArguments.IsValid() )
                 {
                     if ( auto drawn = Renderer::RenderMeshIndirect(
-                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
-                              m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
+                              *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
+                              push, m_IndirectArguments, uint64_t{ m_FirstRecords[i] } * kMeshDrawArgumentsBytes,
                               draw.HiddenSubmeshMask, MeshDrawArgumentsOrder::Drawn );
                          !drawn.IsSuccess() )
                         return drawn;
                     continue;
                 }
                 if ( auto drawn = Renderer::RenderMesh(
-                          *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material,
-                          push, draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
+                          *blocks[m_BlockOf[i]], *draw.Pipeline, *draw.Mesh, draw.Transform, *draw.Material, push,
+                          draw.InstanceCount, draw.FirstInstance, draw.HiddenSubmeshMask, draw.LodLevel );
                      !drawn.IsSuccess() )
                     return drawn;
             }

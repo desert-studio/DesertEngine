@@ -1622,7 +1622,8 @@ namespace Desert::Graphic::System
         // The cascade's non-mesh casters (m_ShadowCasters) its Declare declared, each with the index of its first
         // binding block (after m_CascadeDraws[c]'s); the exec records exactly these.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeCasters[kCascadeViews];
-        // ...and the ones its static layer's Declare declared (".Static", into m_CascadeStaticFB[c]), the same way.
+        // ...and the ones its static layer's Declare declared (".Static", into m_CascadeStaticFB[c]), the same
+        // way.
         std::vector<std::pair<std::weak_ptr<IShadowCaster>, uint32_t>> m_CascadeStaticCasters[kCascadeViews];
         // THE PLAN'S SPLIT OF THE NON-MESH CASTERS (PlanCascadeCache), per cascade: a caster that keyed what it
         // draws there (IShadowCaster::CascadeShadowSignature) is in the static layer, one that did not in the
@@ -1715,9 +1716,9 @@ namespace Desert::Graphic::System
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
-        // THE PERMUTATION a Masked GPU-instanced section's G-buffer cell is drawn in after the masked depth prepass
-        // drew it (kSurfaceDepthEqualDefine: equal depth test, no clip; BuildGpuInstancedDraws), asked by the draw
-        // and by the cook (MaterialProgramVariants) from this one function.
+        // THE PERMUTATION a Masked GPU-instanced section's G-buffer cell is drawn in after the masked depth
+        // prepass drew it (kSurfaceDepthEqualDefine: equal depth test, no clip; BuildGpuInstancedDraws), asked by
+        // the draw and by the cook (MaterialProgramVariants) from this one function.
         [[nodiscard]] static Core::ShaderVariant SurfaceDepthEqualVariant();
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun

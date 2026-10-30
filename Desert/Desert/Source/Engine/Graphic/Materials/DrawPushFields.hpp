@@ -17,12 +17,12 @@
 
 namespace Desert::Graphic
 {
-    // THE PER-DRAW PUSH VALUES OF ONE MESH OR TERRAIN DRAW, BY VALUE (UE FMeshDrawCommand: the command is immutable and
-    // carries what differs per draw; the shared material is never written to record it). Built in the node's
-    // setup next to the draw (MeshDrawCommand::Push); MeshDrawList::Record lays them, by name through the cell's
-    // reconciled MaterialLayout (MaterialBinder::ResolvePush, the same placement Material::WritePushField uses),
-    // over a COPY of the material's push block, and that copy is the draw's push block. Two passes recording the
-    // same material on two threads therefore read one unchanged material.
+    // THE PER-DRAW PUSH VALUES OF ONE MESH OR TERRAIN DRAW, BY VALUE (UE FMeshDrawCommand: the command is
+    // immutable and carries what differs per draw; the shared material is never written to record it). Built in
+    // the node's setup next to the draw (MeshDrawCommand::Push); MeshDrawList::Record lays them, by name through
+    // the cell's reconciled MaterialLayout (MaterialBinder::ResolvePush, the same placement
+    // Material::WritePushField uses), over a COPY of the material's push block, and that copy is the draw's push
+    // block. Two passes recording the same material on two threads therefore read one unchanged material.
     //
     // A field the cell does not declare is skipped (BoneOffset on a static cell), exactly as WritePushField
     // skips it, unless the write is Required (Material::SetPrimitiveIndex / SetSkinnedBoneOffset verified it):

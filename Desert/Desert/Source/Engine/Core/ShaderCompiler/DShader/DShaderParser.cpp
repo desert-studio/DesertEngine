@@ -3250,12 +3250,11 @@ namespace Desert::Core::Preprocess
                     cell.Name  = SurfaceCellName( kSurfaceGrassBladePath, pass );
                     cell.State = cellState;
                     for ( const ShaderStage stage : { ShaderStage::Vertex, ShaderStage::Fragment } )
-                        cell.Stages.emplace(
-                             stage, AssembleSurfaceCellStage( stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
-                                                              includeBlock, autoDecls, result.Surface.Blend,
-                                                              shadingModelDefine, result.Surface.ResponsiveAA,
-                                                              opacityMaskFunction, false, heightFunctions,
-                                                              false ) );
+                        cell.Stages.emplace( stage, AssembleSurfaceCellStage(
+                                                         stage, kSurfaceGrassBladePath, pass, *surfaceBlock,
+                                                         includeBlock, autoDecls, result.Surface.Blend,
+                                                         shadingModelDefine, result.Surface.ResponsiveAA,
+                                                         opacityMaskFunction, false, heightFunctions, false ) );
                     result.Meta.PassNames.push_back( cell.Name );
                     result.Surface.Cells.push_back( cell.Name );
                     result.Passes.push_back( std::move( cell ) );

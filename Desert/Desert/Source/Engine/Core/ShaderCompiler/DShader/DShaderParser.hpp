@@ -188,10 +188,10 @@ namespace Desert::Core::Preprocess
     // `GrassBlade.Visibility` (the blade vertex path; Mesh/Surface/Pass_Visibility.glslh: the mask's clip, then
     // the 64-bit atomic max of depth and raster-stream row into the view's visibility buffer, no colour) and
     // `GrassBlade.VisibilityResolve` (a full-screen triangle, Vertex_GrassBlade.glslh's resolve branch;
-    // Mesh/Surface/Pass_VisibilityResolve.glslh: the word's blade triangle rebuilt by the same BladeAt, the surface
-    // evaluated once per pixel with analytic texture gradients, the G-buffer and the depth written).
+    // Mesh/Surface/Pass_VisibilityResolve.glslh: the word's blade triangle rebuilt by the same BladeAt, the
+    // surface evaluated once per pixel with analytic texture gradients, the G-buffer and the depth written).
     inline constexpr std::array<std::string_view, 2> kSurfaceGrassVisibilityPasses = { "Visibility",
-                                                                                      "VisibilityResolve" };
+                                                                                       "VisibilityResolve" };
     // THE WATER MESH USAGE (UE: the water mesh vertex factory, FWaterMeshVertexFactory, and the SingleLayerWater
     // mesh pass). A template of `ShadingModel SingleLayerWater` declares `Usage WaterMesh` and gets ONE more cell,
     // `WaterMesh.SingleLayerWater`: the vertex stage is Vertex_WaterMesh.glslh (the water quadtree's tiles,
