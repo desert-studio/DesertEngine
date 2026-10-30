@@ -127,10 +127,13 @@ namespace Desert::Graphic::System
                 continue;
             if ( maskedPrepass && !EarlyZAdmits( parent ) )
                 continue;
-            // A post-occlusion draw was never in the early-Z pass: it keeps its own clip and depth writes.
-            const bool prepassed = !postOcclusion && pass == MeshPass::GBuffer &&
-                                   std::find( m_MaskedPrepassed.begin(), m_MaskedPrepassed.end(), gpu.Key ) !=
-                                        m_MaskedPrepassed.end();
+            // Each phase's G-buffer draws EQUAL exactly the sections its own depth pass drew: phase 1's "Deferred:
+            // Masked Depth Prepass" (m_MaskedPrepassed), phase 2's "Grass: Depth Prepass Post-Occlusion"
+            // (m_MaskedPrepassedPost, the same records the G-buffer post pass draws).
+            std::vector<uint32_t>& phasePrepassed = postOcclusion ? m_MaskedPrepassedPost : m_MaskedPrepassed;
+            const bool             prepassed      = pass == MeshPass::GBuffer &&
+                                   std::find( phasePrepassed.begin(), phasePrepassed.end(), gpu.Key ) !=
+                                        phasePrepassed.end();
             // One cell (and instance) per section x view pass.
             const auto viewOf = [&gpu]( const MeshPass of )
             { return kGpuInstancedViewBase + gpu.Key * kMeshPassCount + static_cast<uint32_t>( of ); };
@@ -230,7 +233,7 @@ namespace Desert::Graphic::System
             frameState.ApplyTo( instance.get() );
             cell->SetPushMatrix( glm::mat4( 1.0f ) ); // unused by the instanced vertex stage
             if ( maskedPrepass )
-                m_MaskedPrepassed.push_back( gpu.Key );
+                phasePrepassed.push_back( gpu.Key );
 
             // THE RESOLVE (GRASS-VIS): one full-screen triangle per section - record 0 of the view's resolve table
             // (VirtualGeometry::VisibilityBuffer: {3, 1, 0, 0, 0}, the strip's first three indices, which

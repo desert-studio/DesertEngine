@@ -66,6 +66,7 @@ namespace Desert::Graphic::System
     {
         m_MaskedDepthDraws.Clear();
         m_MaskedPrepassed.clear(); // this frame's: the G-buffer's setup reads it right after
+        m_MaskedPrepassedPost.clear(); // phase 2's: "Grass: Depth Prepass Post-Occlusion" refills it this frame
         // This frame's admissions start empty here, whatever returns below: the G-buffer reads only a set stamped
         // with its own frame (PrepassCellDraw), and only when the static / skinned halves below ran.
         m_PrepassCellDraws.clear();
@@ -73,6 +74,8 @@ namespace Desert::Graphic::System
         m_PrepassFrame.reset();
         m_EarlyZGBufferIssue.reset();
         m_EarlyZBinFrame.reset();
+        m_EarlyZPostGBufferIssue.reset();
+        m_EarlyZPostFrame.reset();
         // This frame's grass visibility sections, decided before the prepass and the G-buffer skip them (GRASS-VIS).
         m_GrassVisibilitySections.clear();
         if ( m_GrassVisibilityActive && m_InstancedVisibilityPipeline && m_InstancedVisibilityResolvePipeline &&
@@ -185,52 +188,25 @@ namespace Desert::Graphic::System
         return built.GetValue();
     }
 
-    MeshRenderer::EarlyZBinTwins MeshRenderer::EarlyZBinTwinsOf( const GraphicsPipeline& group )
+    std::pair<const GraphicsPipeline*, const GraphicsPipeline*>
+    MeshRenderer::EarlyZTwinPairOf( EarlyZTwinPairSlot& slot, const std::string& equalCell,
+                                    const std::string& depthCell, const GraphicsPipeline* depthState,
+                                    const GraphicsPipeline* equalState, const CullMode cull )
     {
-        const std::shared_ptr<Shader>& cell = group.GetSpecification().Shader;
-        if ( !cell || !EarlyZAdmitsCell( cell->GetProgramMeta().Blend, cell->GetName() ) )
-            return {};
-        EarlyZBinTwinSlot& slot = m_EarlyZBinTwins[&group];
-        if ( slot.GroupShader.lock() != cell )
-            slot = EarlyZBinTwinSlot{ .GroupShader = cell };
         if ( slot.Refused )
             return {};
-        const std::string&                name  = cell->GetName();
         std::shared_ptr<GraphicsPipeline> depth = slot.Depth.lock();
         std::shared_ptr<GraphicsPipeline> equal = slot.Equal.lock();
         if ( !depth || !equal )
         {
-            // The pass states of the group's path: the prepass's (path x Depth) (the G-buffer's depth format) and
-            // the G-buffer's EQUAL / no-write one.
-            const std::optional<MeshVertexPath> path       = MeshCellPath( name );
-            const GraphicsPipeline*             depthState = nullptr;
-            const GraphicsPipeline*             equalState = nullptr;
-            if ( path == MeshVertexPath::Static )
-            {
-                depthState = m_StaticDepthPipeline.get();
-                equalState = m_StaticGBufferEqualPipeline.get();
-            }
-            else if ( path == MeshVertexPath::Instanced )
-            {
-                depthState = m_InstancedDepthPipeline.get();
-                equalState = m_InstancedGBufferEqualPipeline.get();
-            }
-            else if ( path == MeshVertexPath::Skinned )
-            {
-                depthState = m_SkinnedDepthPipeline.get();
-                equalState = m_SkinnedGBufferEqualPipeline.get();
-            }
-            auto* const                      shaders = Runtime::ResourceRegistry::GetShaderService();
-            const std::string_view           templ   = std::string_view( name ).substr( 0, name.find( '/' ) );
-            const std::optional<std::string> depthCell =
-                 path ? MeshShaderFor( templ, *path, MeshPass::Depth ) : std::nullopt;
+            auto* const                   shaders     = Runtime::ResourceRegistry::GetShaderService();
             const std::shared_ptr<Shader> depthShader =
-                 depthCell && shaders != nullptr ? shaders->GetByName( BinnedCellOf( *depthCell ) ) : nullptr;
-            std::shared_ptr<Shader> equalShader;
-            std::string             refusal = "no shader service";
+                 shaders != nullptr && !depthCell.empty() ? shaders->GetByName( depthCell ) : nullptr;
+            std::shared_ptr<Shader>       equalShader;
+            std::string                   refusal = "no shader service";
             if ( shaders != nullptr )
             {
-                auto acquired = shaders->AcquireVariant( name, SurfaceDepthEqualVariant() );
+                auto acquired = shaders->AcquireVariant( equalCell, SurfaceDepthEqualVariant() );
                 if ( acquired )
                     equalShader = acquired.ExtractValue();
                 else
@@ -239,24 +215,25 @@ namespace Desert::Graphic::System
             if ( depthState == nullptr || equalState == nullptr || !depthShader || !equalShader )
             {
                 slot.Refused = true;
-                if ( m_BinnedRefused.insert( name + "|earlyz" ).second )
+                if ( m_BinnedRefused.insert( equalCell + "|earlyz" ).second )
                 {
                     std::string why;
                     if ( depthState == nullptr || equalState == nullptr )
                         why = "no depth / equal pass state for its path";
+                    else if ( depthCell.empty() )
+                        why = "its template has no (path x Depth) cell";
                     else if ( !depthShader )
-                        why = std::format( "no '{}' cell", depthCell ? BinnedCellOf( *depthCell ) : name );
+                        why = std::format( "no '{}' cell", depthCell );
                     else
                         why = std::format( "no DESERT_SURFACE_DEPTH_EQUAL permutation: {}", refusal );
-                    LOG_ERROR( "[MeshRenderer] G-buffer bin '{}' has no early-Z twin ({}): its bins clip and write "
-                               "their depth in the G-buffer",
-                               name, why );
+                    LOG_ERROR( "[MeshRenderer] G-buffer bin '{}' has no early-Z twin ({}): it clips and writes its "
+                               "depth in the G-buffer",
+                               equalCell, why );
                 }
                 return {};
             }
-            const CullMode cull = group.GetSpecification().CullMode;
-            depth               = EarlyZTwinPipeline( depthShader, *depthState, cull, depthShader->GetName() );
-            equal               = EarlyZTwinPipeline( equalShader, *equalState, cull, name );
+            depth = EarlyZTwinPipeline( depthShader, *depthState, cull, depthCell );
+            equal = EarlyZTwinPipeline( equalShader, *equalState, cull, equalCell );
             if ( !depth || !equal )
             {
                 slot.Refused = true;
@@ -269,10 +246,10 @@ namespace Desert::Graphic::System
              equal->GetReadiness() == PipelineReadiness::Failed )
         {
             slot.Refused = true;
-            if ( m_BinnedRefused.insert( name + "|earlyz" ).second )
-                LOG_ERROR( "[MeshRenderer] the early-Z twins of G-buffer bin '{}' did not compile: its bins clip and "
-                           "write their depth in the G-buffer",
-                           name );
+            if ( m_BinnedRefused.insert( equalCell + "|earlyz" ).second )
+                LOG_ERROR( "[MeshRenderer] the early-Z twins of G-buffer bin '{}' did not compile: it clips and "
+                           "writes its depth in the G-buffer",
+                           equalCell );
             return {};
         }
         // Both or neither: while either compiles the group draws as before (asked again next frame).
@@ -281,16 +258,78 @@ namespace Desert::Graphic::System
         return { depth.get(), equal.get() };
     }
 
-    void MeshRenderer::DeclareEarlyZBins()
+    MeshRenderer::EarlyZBinTwins MeshRenderer::EarlyZBinTwinsOf( const GpuDriven::IndirectGroup& group )
     {
-        const FrameBinnedView* const view  = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
-        const ViewFrame* const       frame = m_SceneRenderer->GetViewFrame();
-        if ( view == nullptr || !view->Issue.BinsIssued || view->Issue.Table == nullptr || frame == nullptr )
-            return;
-        const MeshRendererDetail::BinnedIssue&       source = view->Issue;
+        if ( group.Pipeline == nullptr )
+            return {};
+        const std::shared_ptr<Shader>& cell = group.Pipeline->GetSpecification().Shader;
+        if ( !cell || !EarlyZAdmitsCell( cell->GetProgramMeta().Blend, cell->GetName() ) )
+            return {};
+        EarlyZBinTwinSlot& slot = m_EarlyZBinTwins[group.Pipeline];
+        if ( slot.GroupShader.lock() != cell )
+            slot = EarlyZBinTwinSlot{ .GroupShader = cell };
+        // The pass states of the group's path: the prepass's (path x Depth) (the G-buffer's depth format) and the
+        // G-buffer's EQUAL / no-write one.
+        const std::string&                  name       = cell->GetName();
+        const std::optional<MeshVertexPath> path       = MeshCellPath( name );
+        const GraphicsPipeline*             depthState = nullptr;
+        const GraphicsPipeline*             equalState = nullptr;
+        if ( path == MeshVertexPath::Static )
+        {
+            depthState = m_StaticDepthPipeline.get();
+            equalState = m_StaticGBufferEqualPipeline.get();
+        }
+        else if ( path == MeshVertexPath::Instanced )
+        {
+            depthState = m_InstancedDepthPipeline.get();
+            equalState = m_InstancedGBufferEqualPipeline.get();
+        }
+        else if ( path == MeshVertexPath::Skinned )
+        {
+            depthState = m_SkinnedDepthPipeline.get();
+            equalState = m_SkinnedGBufferEqualPipeline.get();
+        }
+        const std::string_view           templ = std::string_view( name ).substr( 0, name.find( '/' ) );
+        const std::optional<std::string> depthCell =
+             path ? MeshShaderFor( templ, *path, MeshPass::Depth ) : std::nullopt;
+        const std::string depthBinned = depthCell ? BinnedCellOf( *depthCell ) : std::string();
+        EarlyZBinTwins    twins;
+        const auto [binDepth, binEqual] = EarlyZTwinPairOf( slot.Bins, name, depthBinned, depthState, equalState,
+                                                            group.Pipeline->GetSpecification().CullMode );
+        twins.Depth = binDepth;
+        twins.Equal = binEqual;
+        // The group's clusters (its `.VirtualGeometry` twin, ResolveVirtualGeometryPipeline): the same pair over the
+        // cluster cells, `<Path>.Depth.Binned.VirtualGeometry` first, then the G-buffer cluster cell EQUAL.
+        if ( group.VirtualGeometryPipeline != nullptr && depthCell )
+        {
+            const std::shared_ptr<Shader>& clusterCell = group.VirtualGeometryPipeline->GetSpecification().Shader;
+            if ( clusterCell )
+            {
+                if ( slot.ClusterShader.lock() != clusterCell )
+                {
+                    slot.ClusterShader = clusterCell;
+                    slot.Clusters      = EarlyZTwinPairSlot{};
+                }
+                const auto [clusterDepth, clusterEqual] = EarlyZTwinPairOf(
+                     slot.Clusters, clusterCell->GetName(), VirtualGeometryCellOf( depthBinned ), depthState,
+                     equalState, group.VirtualGeometryPipeline->GetSpecification().CullMode );
+                twins.VgDepth = clusterDepth;
+                twins.VgEqual = clusterEqual;
+            }
+        }
+        return twins;
+    }
+
+    bool MeshRenderer::EarlyZSplit( const MeshRendererDetail::BinnedIssue& source,
+                                    const SceneFrameBinding& frameState, MeshRendererDetail::BinnedIssue& depth,
+                                    MeshRendererDetail::BinnedIssue&                                gbuffer,
+                                    std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot>* kept )
+    {
+        if ( source.Table == nullptr || ( !source.BinsIssued && !source.VirtualGeometry ) )
+            return false;
         const std::vector<GpuDriven::IndirectGroup>& groups = source.Table->Groups;
-        // The depth issue: the same cull's records (CulledDraws) and tables, the paired groups only, no VG raster.
-        MeshRendererDetail::BinnedIssue depth;
+        // The depth issue: the same cull's records (CulledDraws) and tables, the paired groups only.
+        depth                   = MeshRendererDetail::BinnedIssue{};
         depth.Table             = source.Table;
         depth.Culled            = source.Culled;
         depth.Instances         = source.Instances;
@@ -299,50 +338,138 @@ namespace Desert::Graphic::System
         depth.Mode              = source.Mode;
         depth.GroupCarriers.assign( groups.size(), nullptr );
         depth.GroupPipelines.assign( groups.size(), nullptr );
-        // The G-buffer's issue: the view's own, its paired groups swapped to their equal twins.
-        MeshRendererDetail::BinnedIssue gbuffer = source;
+        // The G-buffer's issue: the source, its paired groups swapped to their equal twins.
+        gbuffer = source;
         gbuffer.GroupPipelines.resize( groups.size() );
         for ( size_t group = 0; group < groups.size(); ++group )
-            gbuffer.GroupPipelines[group] = groups[group].Pipeline;
-        const SceneFrameBinding frameState = CaptureFrameState( frame );
-        std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot> kept;
-        bool                                                           paired = false;
-        for ( size_t group = 0; group < groups.size(); ++group )
+            gbuffer.GroupPipelines[group] = source.GroupPipeline( group );
+        // The cluster raster's two issues likewise (the same cut's bins and rows).
+        std::optional<MeshRendererDetail::VirtualGeometryIssue> depthClusters;
+        if ( source.VirtualGeometry )
         {
-            const GpuDriven::IndirectGroup& indirect = groups[group];
-            if ( indirect.BinCount == 0u || indirect.Pipeline == nullptr )
-                continue;
-            const EarlyZBinTwins twins = EarlyZBinTwinsOf( *indirect.Pipeline );
-            if ( const auto slot = m_EarlyZBinTwins.find( indirect.Pipeline ); slot != m_EarlyZBinTwins.end() )
-                kept.insert( *slot );
-            if ( twins.Depth == nullptr || twins.Equal == nullptr )
-                continue;
+            depthClusters = *source.VirtualGeometry;
+            depthClusters->GroupCarriers.assign( groups.size(), nullptr );
+            depthClusters->GroupPipelines.assign( groups.size(), nullptr );
+            MeshRendererDetail::VirtualGeometryIssue& clusters = *gbuffer.VirtualGeometry;
+            clusters.GroupPipelines.resize( groups.size() );
+            for ( size_t group = 0; group < groups.size(); ++group )
+                clusters.GroupPipelines[group] = source.VirtualGeometry->GroupPipeline( *source.Table, group );
+        }
+        bool binsPaired     = false;
+        bool clustersPaired = false;
+        // Both carriers of a pair, or the pair is not drawn early-Z (said once per message).
+        const auto carriers = [&]( const GraphicsPipeline* depthTwin, const GraphicsPipeline* equalTwin )
+             -> std::pair<const MaterialExecutor*, const MaterialExecutor*>
+        {
             std::string                   error;
             const MaterialExecutor* const depthCarrier =
-                 PrepareBinnedCarrier( twins.Depth->GetSpecification().Shader, kBinnedMainView, frameState, error );
+                 PrepareBinnedCarrier( depthTwin->GetSpecification().Shader, kBinnedMainView, frameState, error );
             const MaterialExecutor* const equalCarrier =
-                 depthCarrier != nullptr ? PrepareBinnedCarrier( twins.Equal->GetSpecification().Shader,
-                                                                 kBinnedMainView, frameState, error )
-                                         : nullptr;
+                 depthCarrier != nullptr
+                      ? PrepareBinnedCarrier( equalTwin->GetSpecification().Shader, kBinnedMainView, frameState, error )
+                      : nullptr;
             if ( depthCarrier == nullptr || equalCarrier == nullptr )
             {
                 if ( m_BinnedRefused.insert( error ).second )
                     LOG_ERROR( "[MeshRenderer] {}; that G-buffer bin clips and writes its depth in the G-buffer",
                                error );
-                continue;
+                return {};
             }
-            depth.GroupPipelines[group]   = twins.Depth;
-            depth.GroupCarriers[group]    = depthCarrier;
-            gbuffer.GroupPipelines[group] = twins.Equal;
-            gbuffer.GroupCarriers[group]  = equalCarrier;
-            paired                        = true;
+            return { depthCarrier, equalCarrier };
+        };
+        for ( size_t group = 0; group < groups.size(); ++group )
+        {
+            const GpuDriven::IndirectGroup& indirect = groups[group];
+            if ( indirect.BinCount == 0u || indirect.Pipeline == nullptr )
+                continue;
+            // A group this issue already draws through another pipeline is not this split's to pair.
+            if ( source.GroupPipeline( group ) != indirect.Pipeline )
+                continue;
+            const EarlyZBinTwins twins = EarlyZBinTwinsOf( indirect );
+            if ( kept != nullptr )
+                if ( const auto slot = m_EarlyZBinTwins.find( indirect.Pipeline ); slot != m_EarlyZBinTwins.end() )
+                    kept->insert( *slot );
+            if ( source.BinsIssued && twins.Depth != nullptr && twins.Equal != nullptr )
+                if ( const auto [depthCarrier, equalCarrier] = carriers( twins.Depth, twins.Equal ); depthCarrier )
+                {
+                    depth.GroupPipelines[group]   = twins.Depth;
+                    depth.GroupCarriers[group]    = depthCarrier;
+                    gbuffer.GroupPipelines[group] = twins.Equal;
+                    gbuffer.GroupCarriers[group]  = equalCarrier;
+                    binsPaired                    = true;
+                }
+            // The group's clusters: only those the cut rasters with the group's own cluster pipeline
+            // (SetFrameVirtualGeometry made its carrier).
+            if ( depthClusters && source.VirtualGeometry->GroupCarriers[group] != nullptr &&
+                 source.VirtualGeometry->GroupPipeline( *source.Table, group ) == indirect.VirtualGeometryPipeline &&
+                 twins.VgDepth != nullptr && twins.VgEqual != nullptr )
+                if ( const auto [depthCarrier, equalCarrier] = carriers( twins.VgDepth, twins.VgEqual );
+                     depthCarrier )
+                {
+                    depthClusters->GroupPipelines[group]             = twins.VgDepth;
+                    depthClusters->GroupCarriers[group]              = depthCarrier;
+                    gbuffer.VirtualGeometry->GroupPipelines[group] = twins.VgEqual;
+                    gbuffer.VirtualGeometry->GroupCarriers[group]  = equalCarrier;
+                    clustersPaired                                 = true;
+                }
         }
-        m_EarlyZBinTwins = std::move( kept );
+        if ( !binsPaired && !clustersPaired )
+            return false;
+        // A depth issue without paired bins rasters clusters only (BinnedIssue::BinsIssued false: Culled unused).
+        depth.BinsIssued = binsPaired;
+        if ( clustersPaired )
+            depth.VirtualGeometry = std::move( depthClusters );
+        return true;
+    }
+
+    void MeshRenderer::DeclareEarlyZBins()
+    {
+        const FrameBinnedView* const view  = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        const ViewFrame* const       frame = m_SceneRenderer->GetViewFrame();
+        if ( view == nullptr || frame == nullptr )
+            return;
+        std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot> kept;
+        MeshRendererDetail::BinnedIssue                                depth;
+        MeshRendererDetail::BinnedIssue                                gbuffer;
+        const bool paired = EarlyZSplit( view->Issue, CaptureFrameState( frame ), depth, gbuffer, &kept );
+        m_EarlyZBinTwins  = std::move( kept );
         if ( !paired )
             return;
         m_MaskedDepthDraws.SetBinned( std::move( depth ) );
         m_EarlyZGBufferIssue = std::move( gbuffer );
         m_EarlyZBinFrame     = frame->FrameIndex;
+    }
+
+    void MeshRenderer::DeclareEarlyZPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_EarlyZPostDepthDraws.Clear();
+        m_EarlyZPostGBufferIssue.reset();
+        m_EarlyZPostFrame.reset();
+        if ( m_EarlyZPass == ::Common::Scalability::EarlyZPassMode::Off || m_SceneRenderer == nullptr ||
+             m_SceneRenderer->GetMainCamera() == nullptr )
+        {
+            m_EarlyZPostDepthDraws.Declare( pass, view );
+            return;
+        }
+        const FrameBinnedView* const binned = FrameBinned( GpuDriven::MeshPass::GBuffer, kBinnedMainView );
+        const ViewFrame* const       frame  = m_SceneRenderer->GetViewFrame();
+        // Phase 2's records and the post cut's clusters through the same twins as phase 1's (m_EarlyZBinTwins,
+        // pruned by phase 1 only: phase 2 draws the same table's groups).
+        MeshRendererDetail::BinnedIssue depth;
+        MeshRendererDetail::BinnedIssue gbuffer;
+        if ( binned != nullptr && binned->PostOcclusion && frame != nullptr &&
+             EarlyZSplit( *binned->PostOcclusion, CaptureFrameState( frame ), depth, gbuffer, nullptr ) )
+        {
+            m_EarlyZPostDepthDraws.SetBinned( std::move( depth ) );
+            m_EarlyZPostGBufferIssue = std::move( gbuffer );
+            m_EarlyZPostFrame        = frame->FrameIndex;
+        }
+        m_EarlyZPostDepthDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderEarlyZPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_EarlyZPostDepthDraws.Record( context );
     }
 
     Common::BoolResultStr MeshRenderer::RenderMaskedDepthManual( const RDG::PassContext& context ) const
@@ -407,13 +534,34 @@ namespace Desert::Graphic::System
         return ( postOcclusion ? m_GrassVisibilityResolvePostDraws : m_GrassVisibilityResolveDraws ).Record( context );
     }
 
+    void MeshRenderer::DeclareGrassDepthPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
+    {
+        m_GrassDepthPostDraws.Clear();
+        m_MaskedPrepassedPost.clear();
+        // Phase 2's grass by phase 1's rule (BuildGpuInstancedDraws' companion-less Depth call): the sections
+        // EarlyZAdmits whose DEPTH_EQUAL G-buffer half is Ready write their clipped depth here, through their
+        // phase-2 records, and are recorded in m_MaskedPrepassedPost for "Grass: GBuffer Post-Occlusion".
+        if ( m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off && m_InstancedViewDepthPipeline &&
+             m_InstancedGBufferEqualPipeline && m_SceneRenderer != nullptr &&
+             m_SceneRenderer->GetMainCamera() != nullptr )
+            BuildGpuInstancedDraws( m_GrassDepthPostDraws, m_InstancedViewDepthPipeline.get(), MeshPass::Depth,
+                                    CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, true );
+        m_GrassDepthPostDraws.Declare( pass, view );
+    }
+
+    Common::BoolResultStr MeshRenderer::RenderGrassDepthPostOcclusionManual( const RDG::PassContext& context ) const
+    {
+        return m_GrassDepthPostDraws.Record( context );
+    }
+
     void MeshRenderer::DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view )
     {
         m_GrassGBufferPostDraws.Clear();
         if ( !m_InstancedGBufferPipeline || m_SceneRenderer == nullptr || m_SceneRenderer->GetMainCamera() == nullptr )
             return;
-        // Phase 2's grass that the G-buffer path draws (a mesh variety, a blade off the visibility buffer): the
-        // section's (Instanced x GBuffer) cell with its own clip and depth writes, phase 2's records.
+        // Phase 2's grass that the G-buffer path draws (a mesh variety, a blade off the visibility buffer), phase
+        // 2's records: the sections "Grass: Depth Prepass Post-Occlusion" drew through their DEPTH_EQUAL cell (EQUAL,
+        // no writes, no clip), every other one through its (path x GBuffer) cell with its own clip and depth writes.
         BuildGpuInstancedDraws( m_GrassGBufferPostDraws, m_InstancedGBufferPipeline.get(), MeshPass::GBuffer,
                                 CaptureFrameState( m_SceneRenderer->GetViewFrame() ), nullptr, true );
         m_GrassGBufferPostDraws.Declare( pass, view );
@@ -431,8 +579,14 @@ namespace Desert::Graphic::System
         if ( binned == nullptr || !binned->PostOcclusion )
             return;
         // Only bins: every CPU record of the view was drawn (or dropped for its phase-1 bin) by "Deferred:
-        // GBuffer".
-        m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
+        // GBuffer". This frame's early-Z issue of phase 2 when "Deferred: Depth Prepass Post-Occlusion" drew some
+        // of its groups (DeclareEarlyZPostOcclusionDraws: those EQUAL through their twins), the view's own otherwise.
+        const ViewFrame* const frame = m_SceneRenderer != nullptr ? m_SceneRenderer->GetViewFrame() : nullptr;
+        if ( m_EarlyZPostGBufferIssue && frame != nullptr && m_EarlyZPostFrame == frame->FrameIndex )
+            m_GBufferPostDraws.SetBinned( std::move( *m_EarlyZPostGBufferIssue ) );
+        else
+            m_GBufferPostDraws.SetBinned( *binned->PostOcclusion );
+        m_EarlyZPostGBufferIssue.reset();
         m_GBufferPostDraws.Declare( pass, view );
     }
 

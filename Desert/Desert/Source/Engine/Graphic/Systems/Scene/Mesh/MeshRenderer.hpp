@@ -161,6 +161,17 @@ namespace Desert::Graphic::System
             uint32_t       GroupCount = 0;
             std::vector<const MaterialExecutor*>
                  GroupCarriers; // per Table->Groups; null = the group draws no cluster
+            // Empty: each group's clusters draw with its IndirectGroup::VirtualGeometryPipeline. Otherwise per
+            // Table->Groups, the pipeline this issue rasters the group's clusters with, null = not drawn by this
+            // issue (the deferred early-Z pass: the `.Depth.Binned.VirtualGeometry` twins in the depth prepass,
+            // the equal-depth twins in the G-buffer; MeshRenderer::EarlyZSplit).
+            std::vector<const GraphicsPipeline*>  GroupPipelines;
+            [[nodiscard]] const GraphicsPipeline* GroupPipeline( const GpuDriven::PassDrawTable& table,
+                                                                 const size_t                    group ) const
+            {
+                return GroupPipelines.empty() ? table.Groups[group].VirtualGeometryPipeline
+                                              : GroupPipelines[group];
+            }
         };
 
         struct BinnedIssue
@@ -1147,15 +1158,20 @@ namespace Desert::Graphic::System
         {
             m_GrassVisibilityActive = active;
         }
-        // THE DEFERRED EARLY-Z PASS (UE r.EarlyZPass; Scalability EarlyZPass). SceneRenderer sets it per frame BEFORE
-        // "Deferred: Masked Depth Prepass". Off: no mesh is in the prepass, every one clips and writes its own depth
-        // in the G-buffer. Masked: the masked meshes of every kind (static, auto-batched, ISM, skinned, GPU-instanced)
-        // write their clipped depth there and the G-buffer draws them EQUAL, without writes and without the clip
-        // (DESERT_SURFACE_DEPTH_EQUAL). All (UE r.EarlyZPass 2): the opaque meshes too, so the G-buffer shades each
-        // texel once. Meshes the GPU-driven bins issue keep their G-buffer bins (the bins have no prepass twin).
+        // THE DEFERRED EARLY-Z PASS (UE r.EarlyZPass; Scalability EarlyZPass). SceneRenderer sets it per frame
+        // BEFORE "Deferred: Masked Depth Prepass". Off: no mesh is in the prepass, every one clips and writes its
+        // own depth in the G-buffer. Masked: the masked meshes of every kind (static, auto-batched, ISM, skinned,
+        // GPU-instanced) write their clipped depth there and the G-buffer draws them EQUAL, without writes and
+        // without the clip (DESERT_SURFACE_DEPTH_EQUAL). All (UE r.EarlyZPass 2): the opaque meshes too, so the
+        // G-buffer shades each texel once. The GPU-driven bins and the virtual-geometry clusters of both occlusion
+        // phases are paired by the same rule (EarlyZSplit: their depth twins first, then EQUAL in the G-buffer).
         void SetEarlyZPass( const ::Common::Scalability::EarlyZPassMode mode )
         {
             m_EarlyZPass = mode;
+        }
+        [[nodiscard]] bool DrawsEarlyZ() const
+        {
+            return m_EarlyZPass != ::Common::Scalability::EarlyZPassMode::Off;
         }
         // SETUP of "Grass: Visibility Raster" (the G-buffer's depth LOADed, tested, not written; no colour): the
         // sections' (GrassBlade x Visibility) cells atomic-max (depth | row | triangle) into @p visibility.
@@ -1174,9 +1190,19 @@ namespace Desert::Graphic::System
                                                  bool postOcclusion );
         [[nodiscard]] Common::BoolResultStr RenderGrassVisibilityResolveManual( const RDG::PassContext& context,
                                                                                 bool postOcclusion ) const;
+        // SETUP of "Grass: Depth Prepass Post-Occlusion" (GRASS-VIS-13; the G-buffer's depth LOADed, no colour;
+        // after "Grass: Post-Occlusion Finalize" wrote phase 2's records, before "Grass: GBuffer Post-Occlusion";
+        // UE: the two-pass occlusion's second depth pass, grass HISM by the same rule as every mesh): the G-buffer
+        // path's sections EarlyZAdmits, by their phase-2 records through their (path x Depth) cell, each only when
+        // its DEPTH_EQUAL G-buffer half is Ready too (m_MaskedPrepassedPost). The exec records that list.
+        void DeclareGrassDepthPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr
+        RenderGrassDepthPostOcclusionManual( const RDG::PassContext& context ) const;
         // SETUP of "Grass: GBuffer Post-Occlusion" (GRASS-VIS phase 2, after this frame's HZB): the G-buffer path's
         // GPU-instanced sections (not through the visibility buffer) drawn by their phase-2 records, LOADing the
-        // G-buffer, with their own clip and depth writes (they were not in the masked prepass).
+        // G-buffer. A section "Grass: Depth Prepass Post-Occlusion" drew (m_MaskedPrepassedPost) is drawn EQUAL,
+        // without writes and without the clip (m_InstancedGBufferEqualPipeline); every other one with its own clip
+        // and depth writes.
         void DeclareGrassGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
         [[nodiscard]] Common::BoolResultStr
         RenderGrassGBufferPostOcclusionManual( const RDG::PassContext& context ) const;
@@ -1187,8 +1213,17 @@ namespace Desert::Graphic::System
         }
         // SETUP of "Deferred: GBuffer Post-Occlusion" (SceneRenderer::AddFrameDrawBinsPostOcclusion, after this
         // frame's HZB): only the main view's phase-2 bins (SetFramePostOcclusion), LOADing the G-buffer the
-        // phase-1 draws wrote. The exec records that list.
+        // phase-1 draws wrote. The exec records that list: this frame's early-Z issue of phase 2 when "Deferred:
+        // Depth Prepass Post-Occlusion" drew some of its groups (DeclareEarlyZPostOcclusionDraws), the view's own
+        // phase-2 issue otherwise.
         void DeclareGBufferPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        // SETUP of "Deferred: Depth Prepass Post-Occlusion" (the G-buffer's depth LOADed, no colour; after the
+        // phase-2 cull and cluster cut, before "Deferred: GBuffer Post-Occlusion"; UE: the two-pass occlusion's
+        // second depth pass): the main view's phase-2 bins and clusters EarlyZSplit pairs, through their depth
+        // twins. The exec records that list.
+        void DeclareEarlyZPostOcclusionDraws( RDG::PassBuilder& pass, const SceneViewInputs& view );
+        [[nodiscard]] Common::BoolResultStr
+        RenderEarlyZPostOcclusionManual( const RDG::PassContext& context ) const;
         [[nodiscard]] Common::BoolResultStr
         RenderGBufferPostOcclusionManual( const RDG::PassContext& context ) const;
         // SETUP of "Deferred: Forward Depth/Normal" (after the terrain's G-buffer, before the depth resolve and
@@ -1684,26 +1719,51 @@ namespace Desert::Graphic::System
         // (path x Depth) `.Binned` cell on the prepass's depth state, Equal = the group's own cell in its
         // SurfaceDepthEqualVariant (no clip) on the G-buffer's EQUAL / no-write state, both with the group's cull
         // mode. Both or neither: none while either compiles (the group draws as before this frame, its clip and
-        // depth write in the G-buffer, and is asked again next frame), for a cell EarlyZAdmitsCell refuses, and for
-        // a cell without the twins (said once).
+        // depth write in the G-buffer, and is asked again next frame), for a cell EarlyZAdmitsCell refuses, and
+        // for a cell without the twins (said once). The group's clusters (IndirectGroup::VirtualGeometryPipeline,
+        // its `<Path>.GBuffer.Binned.VirtualGeometry` cell) are a second pair by the same rule: VgDepth = the
+        // template's `<Path>.Depth.Binned.VirtualGeometry` cell on the depth state, VgEqual = the cluster cell's
+        // SurfaceDepthEqualVariant on the EQUAL state, both with the cluster pipeline's cull mode; each pair is
+        // both or neither on its own (a group may pair its bins and not yet its clusters).
         struct EarlyZBinTwins
         {
-            const GraphicsPipeline* Depth = nullptr;
-            const GraphicsPipeline* Equal = nullptr;
+            const GraphicsPipeline* Depth   = nullptr;
+            const GraphicsPipeline* Equal   = nullptr;
+            const GraphicsPipeline* VgDepth = nullptr;
+            const GraphicsPipeline* VgEqual = nullptr;
         };
-        [[nodiscard]] EarlyZBinTwins EarlyZBinTwinsOf( const GraphicsPipeline& group );
+        struct EarlyZTwinPairSlot;
+        struct EarlyZBinTwinSlot;
+        [[nodiscard]] EarlyZBinTwins EarlyZBinTwinsOf( const GpuDriven::IndirectGroup& group );
+        // One pair of EarlyZBinTwinsOf: @p depthCell on @p depthState, @p equalCell's SurfaceDepthEqualVariant on
+        // @p equalState, both with @p cull. {null, null} while either compiles (asked again next frame) and when
+        // refused (said once under @p equalCell; @p slot is then Refused and not asked again).
+        [[nodiscard]] std::pair<const GraphicsPipeline*, const GraphicsPipeline*>
+        EarlyZTwinPairOf( EarlyZTwinPairSlot& slot, const std::string& equalCell, const std::string& depthCell,
+                          const GraphicsPipeline* depthState, const GraphicsPipeline* equalState, CullMode cull );
         // Ready @p shader on @p passState's spec with @p cull, or null (compiling: silently, asked again; refused:
         // said once under @p label).
         [[nodiscard]] std::shared_ptr<GraphicsPipeline> EarlyZTwinPipeline( const std::shared_ptr<Shader>& shader,
                                                                             const GraphicsPipeline&        passState,
                                                                             CullMode                       cull,
                                                                             const std::string&             label );
-        // This frame's two issues of the G-buffer view's phase-1 bins (the view's one cull): the depth twins of the
-        // paired groups into m_MaskedDepthDraws, and the G-buffer's issue - the paired groups through their equal
-        // twins, every other group through its own pipeline - kept for DeclareGBufferDraws (m_EarlyZGBufferIssue,
-        // stamped m_EarlyZBinFrame). Phase 2 (the post-occlusion bins) is not paired: what the HZB of this
-        // frame's depth newly finds visible draws as before, clip and depth write in its own G-buffer pass.
+        // This frame's two issues of the G-buffer view's phase-1 bins (the view's one cull): the depth twins of
+        // the paired groups into m_MaskedDepthDraws, and the G-buffer's issue - the paired groups through their
+        // equal twins, every other group through its own pipeline - kept for DeclareGBufferDraws
+        // (m_EarlyZGBufferIssue, stamped m_EarlyZBinFrame). Phase 2 is paired by the same split
+        // (DeclareEarlyZPostOcclusionDraws).
         void DeclareEarlyZBins();
+        // THE ONE EARLY-Z SPLIT of a G-buffer issue (either occlusion phase; UE two-pass occlusion: each phase's
+        // depth pass, then its base pass EQUAL). @p depth = @p source's records and clusters of the groups whose
+        // twins are Ready, through their depth twins and carriers (every other group null: not drawn by it);
+        // @p gbuffer = @p source with those groups through their equal twins and the others through their own
+        // pipelines. False: nothing paired (@p depth and @p gbuffer are then not to be used). @p kept, when given,
+        // collects the twin slots the issue's groups use (the per-frame prune of m_EarlyZBinTwins, phase 1).
+        [[nodiscard]] bool EarlyZSplit( const MeshRendererDetail::BinnedIssue&                          source,
+                                        const SceneFrameBinding&                                        frameState,
+                                        MeshRendererDetail::BinnedIssue&                                depth,
+                                        MeshRendererDetail::BinnedIssue&                                gbuffer,
+                                        std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot>* kept );
         // The G-buffer cell of @p built's @p path drawn EQUAL after the prepass: its SurfaceDepthEqualVariant. A
         // masked template's drops its clip; an opaque one's is the same program, but a sibling of its own, so the
         // Equal half never shares a recorder (its Materials / InstanceTransforms) with the Rest half's plain cell.
@@ -1777,6 +1837,10 @@ namespace Desert::Graphic::System
         // The GPU-instanced sections (GpuInstancedRenderData::Key) THIS frame's masked depth prepass drew: the
         // G-buffer draws exactly these through m_InstancedGBufferEqualPipeline, every other one as before.
         std::vector<uint32_t> m_MaskedPrepassed;
+        // The same for phase 2 (GRASS-VIS-13): the sections "Grass: Depth Prepass Post-Occlusion" drew by their
+        // phase-2 records THIS frame, which "Grass: GBuffer Post-Occlusion" draws EQUAL. Cleared by
+        // DeclareMaskedDepthDraws (every deferred frame) and by the depth node's setup.
+        std::vector<uint32_t> m_MaskedPrepassedPost;
         // GRASS-VIS (SetGrassVisibilityActive): on this frame; the blade sections (GpuInstancedRenderData::Key) whose
         // two visibility pipelines are Ready, chosen by DeclareMaskedDepthDraws and drawn by the two lists below
         // instead of the masked prepass + G-buffer; the resolve's argument table of this frame.
@@ -1788,8 +1852,11 @@ namespace Desert::Graphic::System
         MeshRendererDetail::MeshDrawList m_GrassVisibilityRasterPostDraws;
         MeshRendererDetail::MeshDrawList m_GrassVisibilityResolvePostDraws;
         MeshRendererDetail::MeshDrawList m_GrassGBufferPostDraws;
+        MeshRendererDetail::MeshDrawList m_GrassDepthPostDraws; // "Grass: Depth Prepass Post-Occlusion"
         RDG::BufferRef                   m_GrassResolveArgs{};
         MeshRendererDetail::MeshDrawList m_GBufferPostDraws; // "Deferred: GBuffer Post-Occlusion": phase-2 bins
+        // "Deferred: Depth Prepass Post-Occlusion": phase 2's paired bins and clusters through their depth twins.
+        MeshRendererDetail::MeshDrawList m_EarlyZPostDepthDraws;
         MeshRendererDetail::MeshDrawList m_GenericDraws; // "Deferred: Generic"
         MeshRendererDetail::MeshDrawList m_DepthNormalDraws; // "Deferred: Forward Depth/Normal"
         MeshRendererDetail::MeshDrawList m_DepthPrepassDraws; // "Forward: Depth Prepass"
@@ -2052,17 +2119,28 @@ namespace Desert::Graphic::System
         // The G-buffer groups' early-Z twins (EarlyZBinTwinsOf), per group pipeline: checked against the group's
         // cell shader (a pipeline rebuilt at the same address is a new group) and held weakly (the PipelineCache
         // owns them; one it dropped is resolved again). Pruned to this frame's groups by DeclareEarlyZBins.
-        struct EarlyZBinTwinSlot
+        struct EarlyZTwinPairSlot
         {
-            std::weak_ptr<Shader>           GroupShader;
             std::weak_ptr<GraphicsPipeline> Depth;
             std::weak_ptr<GraphicsPipeline> Equal;
             bool                            Refused = false; // no such cell / variant: not asked again
+        };
+        struct EarlyZBinTwinSlot
+        {
+            std::weak_ptr<Shader> GroupShader;
+            EarlyZTwinPairSlot    Bins;
+            // The group's cluster cell (IndirectGroup::VirtualGeometryPipeline's shader): Clusters starts again
+            // when it changes (the cluster pipeline is made after the group's, or rebuilt).
+            std::weak_ptr<Shader> ClusterShader;
+            EarlyZTwinPairSlot    Clusters;
         };
         std::unordered_map<const GraphicsPipeline*, EarlyZBinTwinSlot> m_EarlyZBinTwins;
         // The G-buffer's issue of the paired bins (DeclareEarlyZBins), valid for the frame m_EarlyZBinFrame names.
         std::optional<MeshRendererDetail::BinnedIssue> m_EarlyZGBufferIssue;
         std::optional<uint64_t>                         m_EarlyZBinFrame;
+        // Phase 2's (DeclareEarlyZPostOcclusionDraws), read by DeclareGBufferPostOcclusionDraws of the same frame.
+        std::optional<MeshRendererDetail::BinnedIssue>              m_EarlyZPostGBufferIssue;
+        std::optional<uint64_t>                                     m_EarlyZPostFrame;
         ForwardPrepassStats                                         m_ForwardPrepassStats; // GetForwardPrepassStats
         // Whether the pass being built pairs with the other half of the forward prepass (m_GeometryPass Forward
         // or Depth on the forward path, with the prepass's cells): static/instanced/grass/skinned not under the

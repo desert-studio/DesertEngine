@@ -807,6 +807,12 @@ namespace Desert::Graphic::System
                     if ( shaders.GetByName( binned ) != nullptr &&
                          listed.emplace( binned, permutation.Hash() ).second )
                         variants.push_back( { binned, permutation } );
+                    // Its `.VirtualGeometry` twin (Static, Instanced), the G-buffer clusters' equal-depth twin
+                    // after their `.Depth.Binned.VirtualGeometry` one (EarlyZBinTwinsOf, GRASS-VIS-12).
+                    const std::string cluster = VirtualGeometryCellOf( binned );
+                    if ( shaders.GetByName( cluster ) != nullptr &&
+                         listed.emplace( cluster, permutation.Hash() ).second )
+                        variants.push_back( { cluster, permutation } );
                 }
                 if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
                     variants.push_back( { cell.GetValue(), std::move( permutation ) } );

@@ -1365,7 +1365,8 @@ namespace Desert::Graphic
         // Frame assembly: one graph pass each, moved out of OnUpdate (SceneRendererFrame*.cpp).
         void AddFrameGBuffer( RDG::Builder& graph, FrameTextures& textures, System::MeshRenderer* meshRenderer );
         // "Deferred: GBuffer Post-Occlusion" (AddFrameDrawBinsPostOcclusion): the main view's phase-2 bins over
-        // the loaded G-buffer.
+        // the loaded G-buffer, preceded (early-Z on) by "Deferred: Depth Prepass Post-Occlusion": the phase-2 bins
+        // and post-cut clusters the early-Z split pairs, through their depth twins (MeshRenderer::EarlyZSplit).
         void AddFrameGBufferPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                            System::MeshRenderer* meshRenderer );
         void AddFrameTerrainGBuffer( RDG::Builder& graph, FrameTextures& textures );
