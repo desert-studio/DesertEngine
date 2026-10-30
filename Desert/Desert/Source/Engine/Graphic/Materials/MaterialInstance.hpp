@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MaterialProperty.hpp"
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>

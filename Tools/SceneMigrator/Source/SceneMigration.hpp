@@ -972,7 +972,8 @@ namespace Desert::Migration
     //          engine module library (the frozen kEngineVFXModulesV3); LocalModules goes (a non-empty list is an
     //          error - a local module becomes a project .dfxmod by hand).
     //   4 -> 5 (VFX-PORT-2): the system's fixed Bounds move into every emitter (VFXEmitterData::Bounds, UE
-    //          UNiagaraEmitter::FixedBounds); a system without Bounds or an emitter already stating them is an error.
+    //          UNiagaraEmitter::FixedBounds); a system without Bounds or an emitter already stating them is an
+    //          error.
     //   5 -> 6 (PORT-VFX-MODULES): every emitter states EventHandlers, empty (VFXEmitterData::EventHandlers, UE
     //          emitter Event Handlers); an emitter already stating them is an error.
     // A file that states no VFXS, or the current one or later, is an error naming what it states. PURE - no

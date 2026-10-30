@@ -60,13 +60,12 @@ namespace Desert::Editor
                 std::string events;
                 if ( e.GpuRead && e.Events > 0 )
                     events = std::format( ", events {}", e.Events );
-                rows.push_back( std::format( "    {}: {} / {}{}{}{}{}{}", e.Name,
-                                             e.GpuRead ? std::to_string( e.Alive ) : std::string( "-" ), e.Capacity,
-                                             e.Runs ? "" : " (inactive)",
-                                             culled( system.EntityId, e.Emitter ) ? " (culled)" : "",
-                                             draws( system.EntityId, e.Emitter ), events,
-                                             e.Channel.Overflow > 0 ? std::format( ", overflow {}", e.Channel.Overflow )
-                                                                    : "" ) );
+                rows.push_back( std::format(
+                     "    {}: {} / {}{}{}{}{}{}", e.Name,
+                     e.GpuRead ? std::to_string( e.Alive ) : std::string( "-" ), e.Capacity,
+                     e.Runs ? "" : " (inactive)", culled( system.EntityId, e.Emitter ) ? " (culled)" : "",
+                     draws( system.EntityId, e.Emitter ), events,
+                     e.Channel.Overflow > 0 ? std::format( ", overflow {}", e.Channel.Overflow ) : "" ) );
             }
         }
 

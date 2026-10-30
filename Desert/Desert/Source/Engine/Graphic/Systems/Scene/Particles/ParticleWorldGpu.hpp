@@ -37,8 +37,8 @@ namespace Desert::Graphic::System
         glm::mat4  LocalToWorld = glm::mat4( 1.0f );
         glm::vec4  Step;   // x = the fixed step length (seconds), yzw 0
         glm::uvec4 Counts; // range count, step index into the step table, range pool base, local-space
-        glm::uvec4 Stack;  // x = the emitter's own serial of this tick's step 0 (the random streams' step), y = the
-                           // system's event step serial of step 0 (Common/VFXEvents.glslh), zw 0
+        glm::uvec4 Stack; // x = the emitter's own serial of this tick's step 0 (the random streams' step), y = the
+                          // system's event step serial of step 0 (Common/VFXEvents.glslh), zw 0
     };
 
     // ParticleCompact's push constant: x = pool base, y = particle count, z = the slot filled, w = flags
@@ -297,8 +297,8 @@ namespace Desert::Graphic::System
         const Assets::Serialization::VFXLightRendererData* Light = nullptr;
         uint32_t            StepCount = 0; // fixed steps this tick; compacts 0..StepCount
         // The half the previous tick's last compact filled, read by the draws recorded BEFORE this emitter's
-        // simulation (a PostOpaque emitter's G-buffer rows and Mesh instances); HasPrevious false = no previous tick
-        // since the last reset, and those draws are skipped.
+        // simulation (a PostOpaque emitter's G-buffer rows and Mesh instances); HasPrevious false = no previous
+        // tick since the last reset, and those draws are skipped.
         uint32_t PreviousHalf = 0;
         bool     HasPrevious  = false;
         // VFX-PORT-2: the emitter's fixed Bounds through this tick's placement transform (VFXBoundsAt), cm: what every view and

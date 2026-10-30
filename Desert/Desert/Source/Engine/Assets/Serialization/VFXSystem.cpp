@@ -143,9 +143,10 @@ namespace Desert::Assets::Serialization
             return guid && collision && guid.GetValue() == collision.GetValue();
         }
 
-        /// An emitter's Event Handlers: each names ANOTHER emitter of the same system, spawns at least one particle
-        /// per event, inherits a finite velocity scale; a Collision handler's source must collide (an enabled
-        /// Collision module in its ParticleUpdate), or the handler could never fire - a dead setting, refused.
+        /// An emitter's Event Handlers: each names ANOTHER emitter of the same system, spawns at least one
+        /// particle per event, inherits a finite velocity scale; a Collision handler's source must collide (an
+        /// enabled Collision module in its ParticleUpdate), or the handler could never fire - a dead setting,
+        /// refused.
         Common::BoolResultStr CheckEventHandlers( const VFXEmitterData& e, const VFXSystemData& system,
                                                   const std::string& at )
         {
@@ -164,11 +165,11 @@ namespace Desert::Assets::Serialization
                          "{} event handler {}: SourceEmitter '{}' is the handler's own emitter", at, h,
                          handler.SourceEmitter );
                 if ( handler.SpawnCount == 0 )
-                    return Common::MakeFormattedError<bool>( "{} event handler {}: SpawnCount 0 spawns nothing", at,
-                                                             h );
+                    return Common::MakeFormattedError<bool>( "{} event handler {}: SpawnCount 0 spawns nothing",
+                                                             at, h );
                 if ( !std::isfinite( handler.InheritVelocity ) )
-                    return Common::MakeFormattedError<bool>( "{} event handler {}: InheritVelocity {} is not finite",
-                                                             at, h, handler.InheritVelocity );
+                    return Common::MakeFormattedError<bool>(
+                         "{} event handler {}: InheritVelocity {} is not finite", at, h, handler.InheritVelocity );
                 if ( handler.Event == VFXEventKind::Collision &&
                      std::ranges::none_of( source->Stack.ParticleUpdate, []( const VFXModuleUse& use )
                                            { return use.Enabled && IsCollisionModule( use ); } ) )
@@ -461,8 +462,8 @@ namespace Desert::Assets::Serialization
     std::vector<std::string> VFXSystemDependencies( const VFXSystemData& data )
     {
         // Every asset a row names: each stack module (`.dfxmod`), each renderer's material and mesh, and the
-        // SpawnFromEvent module the stack compiler appends to an emitter with EventHandlers. Sorted, each once, so a
-        // rewrite of the same system states the same header.
+        // SpawnFromEvent module the stack compiler appends to an emitter with EventHandlers. Sorted, each once, so
+        // a rewrite of the same system states the same header.
         std::set<std::string> guids;
         for ( const VFXEmitterData& e : data.Emitters )
         {

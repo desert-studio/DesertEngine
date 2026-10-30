@@ -39,8 +39,8 @@
 
 namespace Desert::Graphic
 {
-    // The claiming view's simulation nodes of one tick stage's chain (Open, Compact 0, then per step Dispatch Args /
-    // Spawn+Update / Compact), every node with @p flags.
+    // The claiming view's simulation nodes of one tick stage's chain (Open, Compact 0, then per step Dispatch Args
+    // / Spawn+Update / Compact), every node with @p flags.
     static void AddParticleSimulationSteps( RDG::Builder& graph, System::ParticleRenderer& renderer,
                                             VFX::VFXTickStage stage, RDG::PassFlags flags );
     // The claiming view's Debug / Light readbacks of the finished tick: after BOTH chains.
@@ -89,12 +89,13 @@ namespace Desert::Graphic
     {
         // PreOpaque - ASYNC COMPUTE (UE Niagara GPU simulation on the async pipe): every node reads and writes the
         // particle pool and the emitters' host-written step tables only; the first graphics reader is the particle
-        // draw (translucency) or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run async
-        // as well, so the run is not joined by its own next node. Fork: the pool imports' first touch; join: that
-        // first reader. PostOpaque - the graphics queue: its Spawn+Update reads the scene depth just resolved.
+        // draw (translucency) or, for Mesh rows, the cascades. The sort and mesh-instance nodes after them run
+        // async as well, so the run is not joined by its own next node. Fork: the pool imports' first touch; join:
+        // that first reader. PostOpaque - the graphics queue: its Spawn+Update reads the scene depth just
+        // resolved.
         System::ParticleRenderer* particles = &renderer;
         const uint32_t            steps     = particles->SimulationStepCount( stage );
-        const std::string_view    name = stage == VFX::VFXTickStage::PreOpaque ? "PreOpaque" : "PostOpaque";
+        const std::string_view    name      = stage == VFX::VFXTickStage::PreOpaque ? "PreOpaque" : "PostOpaque";
         graph.AddPass(
              std::format( "Particles {}: Open", name ), flags,
              [particles, stage]( RDG::PassBuilder& pass ) { particles->DeclareOpenBindings( pass, stage ); },

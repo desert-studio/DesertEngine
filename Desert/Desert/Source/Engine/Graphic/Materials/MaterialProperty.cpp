@@ -1,6 +1,7 @@
 #include "MaterialProperty.hpp"
 
 #include <atomic>
+#include <cstdint>
 #include <string>
 
 namespace Desert::Graphic

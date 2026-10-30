@@ -495,8 +495,9 @@ namespace Desert::VFX
         const S::VFXEmitterData& authoredEmitter = system.Emitters[emitterIndex];
 
         // An emitter with Event Handlers spawns particles from events: SpawnFromEvent (UE's Receive Event modules)
-        // goes after every authored spawn module, so an event newborn sits at its event around what the spawn group
-        // gave it. It is the handlers' own module: an authored row naming it is refused (it would run twice).
+        // goes after every authored spawn module, so an event newborn sits at its event around what the spawn
+        // group gave it. It is the handlers' own module: an authored row naming it is refused (it would run
+        // twice).
         const auto namesSpawnFromEvent = []( const S::VFXModuleUse& use )
         {
             const auto guid  = Common::Content::AssetGuidFromText( use.Module.Guid );
@@ -759,9 +760,10 @@ namespace Desert::VFX
 
         // 4b. The tick stage (VFXTickStage): a stack whose GLSL calls a scene-reading host function runs after the
         //     opaque passes.
-        const bool readsScene = std::ranges::any_of( kVFXSceneReadHostFunctions, [&body]( const std::string_view f )
-                                                     { return CallsIdentifier( body, f ); } );
-        compiled.TickStage    = readsScene ? VFXTickStage::PostOpaque : VFXTickStage::PreOpaque;
+        const bool readsScene =
+             std::ranges::any_of( kVFXSceneReadHostFunctions,
+                                  [&body]( const std::string_view f ) { return CallsIdentifier( body, f ); } );
+        compiled.TickStage = readsScene ? VFXTickStage::PostOpaque : VFXTickStage::PreOpaque;
         if ( readsScene )
             body.insert( 0, std::format( "#define {} 1\n", kVFXSceneDepthDefine ) );
 
@@ -883,9 +885,9 @@ namespace Desert::VFX
         for ( std::size_t handler = 0; handler < count; ++handler )
             for ( const S::VFXEventHandler& row : system.Emitters[handler].EventHandlers )
             {
-                const auto source = std::find_if( system.Emitters.begin(), system.Emitters.begin() + count,
-                                                  [&row]( const S::VFXEmitterData& e )
-                                                  { return e.Name == row.SourceEmitter; } );
+                const auto source =
+                     std::find_if( system.Emitters.begin(), system.Emitters.begin() + count,
+                                   [&row]( const S::VFXEmitterData& e ) { return e.Name == row.SourceEmitter; } );
                 if ( source == system.Emitters.begin() + count )
                     continue;
                 parent[root( static_cast<std::size_t>( source - system.Emitters.begin() ) )] = root( handler );

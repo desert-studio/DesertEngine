@@ -1556,10 +1556,11 @@ namespace Desert::Graphic
         DESERT_PROFILE_PHASE( phases, "SceneRenderer: Frame setup" );
         RDG::Builder graph( "SceneView" );
         graph.SetPassCulling( !m_DebugView.DisablePassCulling );
-        // RenderPipeline.AsyncCompute: the AsyncCompute passes below (particle simulation, SSAO, the light grids,
-        // the global distance field update and near-field cull, the radiance cache, the screen probe / irradiance
-        // field gather) run on the compute queue, or on the graphics queue when the setting or the device says no.
-        // The cloud shadow map is NOT among them: it is a graphics-queue pass.
+        // RenderPipeline.AsyncCompute: the AsyncCompute passes below (the PreOpaque particle simulation chain,
+        // SSAO, the light grids, the global distance field update and near-field cull, the radiance cache, the
+        // screen probe / irradiance field gather) run on the compute queue, or on the graphics queue when the
+        // setting or the device says no. The cloud shadow map and the PostOpaque particle chain (it reads the
+        // resolved scene depth, AddFrameParticlesPostOpaque) are NOT among them: they are graphics-queue passes.
         graph.SetAsyncCompute( m_Quality.As<int>( Common::Scalability::Parameter::AsyncCompute ) != 0 );
 
         // THE ONE PER-FRAME VIEW (TAA1 step 3). Every pass below that needs a matrix, the camera position or a

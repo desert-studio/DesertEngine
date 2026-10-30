@@ -298,8 +298,7 @@ namespace Desert::Graphic::System
                  "ParticleSteps", std::max( 1u, stepCapacity ) * kParticleStepStride, 1 );
         }
         return e.Steps && e.Counters && e.DispatchArgs && e.ChannelSpawns && e.EventTable && e.Events &&
-               e.AttributeFloats &&
-               e.AttributeInts && e.Params && e.Curves && e.PointSets && e.DrawLayout;
+               e.AttributeFloats && e.AttributeInts && e.Params && e.Curves && e.PointSets && e.DrawLayout;
     }
 
     std::shared_ptr<ComputePipeline> ParticleWorldGpu::ProgramFor( const uint64_t key, const std::string& name,
@@ -367,7 +366,7 @@ namespace Desert::Graphic::System
             return refuse( source.GetError() );
 
         gpu.Pipeline  = ProgramFor( compiled.GetValue().Key, compiled.GetValue().ShaderName, source.GetValue() );
-        gpu.TickStage       = compiled.GetValue().TickStage;
+        gpu.TickStage = compiled.GetValue().TickStage;
         gpu.ReadsSceneDepth = gpu.TickStage == VFX::VFXTickStage::PostOpaque; // before UnifyEventTickStages
         if ( !gpu.Pipeline )
             return refuse( "its host program did not build (logged above)" );
@@ -843,10 +842,10 @@ namespace Desert::Graphic::System
         if ( !gpu.ChannelSpawns )
             return false;
 
-        // The draw slots are opened on the GPU, not here: the emitter's chain starts with "Particles <stage>: Open"
-        // (ParticleRenderer::OpenDrawSlots, ParticleDispatchArgs in its open mode), which writes slot h empty with
-        // FirstVertex = 6 x (2 Base + h Count) for compact 0 to fill. Until that node runs the Counters still hold
-        // the previous tick's slots (a PostOpaque emitter's draws before its simulation read them).
+        // The draw slots are opened on the GPU, not here: the emitter's chain starts with "Particles <stage>:
+        // Open" (ParticleRenderer::OpenDrawSlots, ParticleDispatchArgs in its open mode), which writes slot h
+        // empty with FirstVertex = 6 x (2 Base + h Count) for compact 0 to fill. Until that node runs the Counters
+        // still hold the previous tick's slots (a PostOpaque emitter's draws before its simulation read them).
 
         // Where this tick's draw finds the particles: the compiled columns, the range they are strided by, and the
         // placement transform a Local emitter's particles are drawn through (the one the simulation placed them by).
@@ -898,10 +897,10 @@ namespace Desert::Graphic::System
         fe.StepCount       = stepCount;
         // The half the previous tick's last compact filled (PostOpaque emitters' draws before their simulation);
         // none after a reset - the range starts dead.
-        fe.PreviousHalf    = gpu.LastHalf;
-        fe.HasPrevious     = gpu.HasLastHalf && !gpu.NeedsReset;
-        gpu.LastHalf       = stepCount & 1u;
-        gpu.HasLastHalf    = true;
+        fe.PreviousHalf      = gpu.LastHalf;
+        fe.HasPrevious       = gpu.HasLastHalf && !gpu.NeedsReset;
+        gpu.LastHalf         = stepCount & 1u;
+        gpu.HasLastHalf      = true;
         fe.Push.LocalToWorld = localToWorld;
         fe.Push.Step         = glm::vec4( stepSeconds, 0.0f, 0.0f, 0.0f );
         fe.WorldBounds       = Assets::Serialization::VFXBoundsAt( data.Bounds, localToWorld );
