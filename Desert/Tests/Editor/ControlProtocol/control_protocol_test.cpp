@@ -178,6 +178,10 @@ TEST( ControlProtocol, EveryKnownOperationParses )
             line += R"(,"subject":"viewport","value":[1,2,3,4])";
         if ( spec.Operation == Op::Input )
             line += R"(,"kind":"click","value":[1,2])";
+        if ( spec.Operation == Op::Advance )
+            line += R"(,"value":[0.5])";
+        if ( spec.Operation == Op::Frames )
+            line += R"(,"value":[120])";
         line += "}";
 
         const Request request = ParseOk( line );
