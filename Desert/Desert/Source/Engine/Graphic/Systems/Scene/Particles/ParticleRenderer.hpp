@@ -11,6 +11,7 @@
 #include <Engine/Graphic/RDG/RDGResources.hpp>
 #include <Engine/Graphic/ShaderBindingLayoutCache.hpp>
 #include <Engine/Graphic/GpuInstances.hpp>
+#include <Engine/Graphic/Materials/Mesh/MeshVertexPath.hpp>
 
 #include "ParticleGpuLayout.hpp"
 #include "ParticleWorldGpu.hpp"
@@ -71,6 +72,10 @@ namespace Desert::Graphic::System
         uint32_t EntityId = 0; // the raw entt entity value, as VFXSystemDebugStats::EntityId
         uint32_t Emitter  = 0; // the emitter's index in its system
         bool     Culled   = false;
+        // The sprite / ribbon draws this view resolved for the emitter (UE stat Niagara's draw calls): Forward
+        // ones go to ParticlePass, G-buffer ones (Opaque / Masked on a deferred view) to ParticleGBuffer.
+        uint32_t ForwardDraws = 0;
+        uint32_t GBufferDraws = 0;
     };
 
     class ParticleRenderer final : public RenderSystem
@@ -85,6 +90,14 @@ namespace Desert::Graphic::System
         // SceneRenderer::AddFrameTranslucency after the fog apply and the cloud composite - by EVERY view,
         // simulating or not. Empty (no TargetFramebuffer) without a target.
         [[nodiscard]] SystemRasterPass DrawPass();
+
+        // THE OPAQUE PARTICLES' BASE PASS (UE: an Opaque / Masked material on a sprite or ribbon renderer draws in
+        // the base pass, FBasePassMeshProcessor, lit by the deferred lighting like any surface): every draw whose
+        // template is Opaque or Masked, through its ParticleSprite.GBuffer / ParticleRibbon.GBuffer cell, into the
+        // view's G-buffer (LOAD, depth written). Added by SceneRenderer after the terrain's G-buffer on the
+        // deferred path; empty (no TargetFramebuffer) on a view without a G-buffer, where those draws stay in
+        // DrawPass.
+        [[nodiscard]] SystemRasterPass GBufferPass();
 
         // Drops this view's emitter instances and imports (IRenderSystem::OnSceneReplaced, kind 2). m_Materials is
         // keyed by the raw entt entity value, which a fresh registry hands out from zero again. The GPU particle
@@ -192,6 +205,8 @@ namespace Desert::Graphic::System
             Core::Formats::SurfaceBlendMode     Blend = Core::Formats::SurfaceBlendMode::Opaque;
             mutable ShaderBindingLayoutCache    Layout;
             std::vector<glm::vec4>              Rows; // this frame's Materials rows, one per drawn emitter
+            std::string                         Cell; // the cell shader's name ("<Template>/<Path>.<Pass>")
+            MeshPass Pass = MeshPass::Forward;        // Forward: DrawPass, GBuffer: GBufferPass
         };
 
         // One Mesh row's GPU instances in this view (GpuInstances.hpp): the mesh, its material sections (the row's
@@ -261,6 +276,7 @@ namespace Desert::Graphic::System
             MaterialInstance* Instance = nullptr; // the row's own (null = the cell's defaults)
             const DataDrivenMaterial* Material = nullptr; // the row's material asset's cell (null = the cell's own)
             uint32_t          Row      = 0;       // the draw's row in Sprite->Rows this frame
+            bool GBuffer = false; // drawn by GBufferPass (an opaque / masked cell), not DrawPass
         };
 
         // One Mesh row of an emitter this frame: its GPU instances and the row's Scale.
@@ -335,8 +351,20 @@ namespace Desert::Graphic::System
         bool RunsDebug( const ViewEmitter& ve ) const;
         // Whether the Light Readback node dispatches @p ve.
         bool RunsLight( const ViewEmitter& ve ) const;
+        // The draws of one pass (@p gbuffer: GBufferPass's, else DrawPass's): the exec and the Declare walk the
+        // same draws in the same order, so the n-th recorded draw opens the n-th declared block.
+        [[nodiscard]] Common::BoolResultStr RecordSpriteDraws( RDG::PassContext& context, bool gbuffer );
+        void DeclareSpriteDraws( RenderPassDeclaration& declared, const FrameGraphRefs& refs, bool gbuffer );
         // The sprite draw of @p cellShader in this view, built on first use (null = refused, said once by name).
-        SpriteDraw* SpriteDrawFor( const std::string& cellShader );
+        // @p pass Forward = the over-the-scene pipeline (DrawPass); GBuffer = the G-buffer one (GBufferPass, depth
+        // written).
+        SpriteDraw* SpriteDrawFor( const std::string& cellShader, MeshPass pass = MeshPass::Forward );
+        // An opaque / masked Forward draw's G-buffer twin on a deferred view: the same template's
+        // <Path>.GBuffer cell (null = refused, said once by name).
+        SpriteDraw* GBufferTwinOf( const SpriteDraw& forward, MeshVertexPath path );
+        // Whether this view's opaque / masked particle draws go to GBufferPass (the deferred path with a
+        // G-buffer).
+        [[nodiscard]] bool DrawsOpaqueIntoGBuffer() const;
         // The draw renderer row @p row of @p fe draws with this frame: the row's material's cell of the row's
         // vertex path (Sprite: ParticleSprite.Forward, Ribbon: ParticleRibbon.Forward); no material named = that
         // path's engine default cell; a named material that is broken / missing / without the cell =
@@ -388,6 +416,7 @@ namespace Desert::Graphic::System
         std::unordered_map<uint32_t, EmitterMaterials> m_Materials;
         const ParticleWorldGpu*                        m_World     = nullptr;
         bool                                          m_Simulates = false;
+        bool                                           m_GBufferView = false; // DrawsOpaqueIntoGBuffer, per frame
         std::vector<ViewEmitter>                      m_ViewEmitters;
         std::vector<ParticleViewEmitterCull>          m_ViewCulls; // one per m_ViewEmitters entry
         ViewPool                                      m_Pool;
