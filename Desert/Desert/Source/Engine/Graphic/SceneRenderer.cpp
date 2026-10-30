@@ -2198,6 +2198,9 @@ namespace Desert::Graphic
             AddFrameDrawBinsPostOcclusion( graph, textures, meshRenderer, frame );
             AddFrameForwardDepthNormal( graph, textures, meshRenderer );
             AddFrameDepthResolve( graph, textures );
+            // The scene target's depth is the opaque scene's now: the sky behind it, before the composite (which
+            // discards the texels it shades) and before every node that reads the scene colour.
+            AddFrameSkyBehindScene( graph, textures );
 
             // THE PATH-TRACED FRAME (UE RenderPathTracing): the lit image is the path tracer's accumulation,
             // written over the scene colour in place of the deferred lighting chain - no SSAO, surface cache,
@@ -2342,8 +2345,19 @@ namespace Desert::Graphic
                                                    m_RenderSystems["SceneColorHistorySystem"] );
                     stampHistory  = [history, index = frame.FrameIndex]() { history->Stamp( index ); };
                 }
-                const RDG::TextureRef sceneCopy = AddFrameSceneCopy(
-                     graph, textures, sceneColor(), copy, screenTrace.SceneHistory, std::move( stampHistory ) );
+                // THE COPY ONLY FOR A CONSUMER (UE: the scene colour copy only for a view with a refractive
+                // primitive): next frame's screen traces (the history above), this frame's water, or a translucent
+                // section in the view (the glass refraction). None of them: no copy, and the water and glass nodes,
+                // which have nothing to draw, add none.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+                const auto* water        = UNIQUE_GET_AS( System::WaterRenderer, m_RenderSystems["WaterSystem"] );
+                const bool  copyConsumed = screenTrace.SceneHistory.IsValid() ||
+                                          ( water != nullptr && water->HasDraws() ) ||
+                                          ( meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible() );
+                const RDG::TextureRef sceneCopy =
+                     copyConsumed ? AddFrameSceneCopy( graph, textures, sceneColor(), copy, screenTrace.SceneHistory,
+                                                       std::move( stampHistory ) )
+                                  : RDG::TextureRef{};
 
                 // The water after the copy (the scene without water, which its refraction reads) and before the
                 // glass.
@@ -2363,7 +2377,11 @@ namespace Desert::Graphic
             // NOLINTEND(cppcoreguidelines-pro-type-static-cast-downcast)
             // The opaque scene is complete: its fog, and the fog inputs the glass reads, before the copy.
             AddFrameOpaqueFog( graph, textures, frame );
-            const RDG::TextureRef sceneCopy = AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} );
+            // The copy only for a translucent section in the view (its one consumer on this path).
+            const RDG::TextureRef sceneCopy =
+                 meshRenderer != nullptr && meshRenderer->TranslucentSectionsVisible()
+                      ? AddFrameSceneCopy( graph, textures, sceneColor(), copy, {}, {} )
+                      : RDG::TextureRef{};
             AddFrameGlass( graph, textures, sceneCopy, meshRenderer, FrameFrontLayer{} );
         }
 

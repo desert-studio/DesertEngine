@@ -911,6 +911,11 @@ namespace Desert::Graphic::System
         // The visible translucent sections of the static queue (RenderGlassManual's cells, TranslucentDrawFor) and
         // their front layer cells (FrontLayerShaderFor) whose compiled program samples @p textureName.
         [[nodiscard]] bool QueuedStaticTranslucentSamples( std::string_view textureName ) const;
+        // A translucent section of the static queue in the camera's frustum: what "Deferred: Glass" can draw this
+        // frame (DeclareGlassBindings walks the same queue through the same tests and draws a subset of these).
+        // SceneRenderer's scene-copy decision (UE: the scene colour copy only for a view with a refractive
+        // primitive): false, the glass node has nothing to draw and the frame needs no copy for it.
+        [[nodiscard]] bool TranslucentSectionsVisible() const;
         // The visible queued forward draws whose compiled program samples @p textureName (blended ones only when
         // @p blendedOnly).
         [[nodiscard]] bool QueuedForwardDrawSamples( std::string_view textureName, bool blendedOnly ) const;

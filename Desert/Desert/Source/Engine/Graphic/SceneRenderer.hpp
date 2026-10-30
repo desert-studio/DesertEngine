@@ -1284,6 +1284,9 @@ namespace Desert::Graphic
         void AddFrameDrawBinsPostOcclusion( RDG::Builder& graph, FrameTextures& textures,
                                             System::MeshRenderer* meshRenderer, const ViewFrame& frame );
         void AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures );
+        // The deferred path's sky, after AddFrameDepthResolve: SkyboxRenderer::SkyBehindScenePass on the scene
+        // target, shading only the texels whose depth is the far plane.
+        void AddFrameSkyBehindScene( RDG::Builder& graph, FrameTextures& textures );
         // THE FORWARD PATH'S DEPTH PREPASS (UE: the full DepthPass of the forward renderer), every forward frame:
         // the opaque meshes and the terrain into the scene target's depth ALONE, cleared here; the base pass
         // (AddFrameBasePass) then loads it, tests CloserOrEqual and writes none. The scene depth it wrote, for

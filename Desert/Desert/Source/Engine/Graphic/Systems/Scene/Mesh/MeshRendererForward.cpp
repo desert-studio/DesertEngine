@@ -877,6 +877,28 @@ namespace Desert::Graphic::System
         return false;
     }
 
+    bool MeshRenderer::TranslucentSectionsVisible() const
+    {
+        // DeclareGlassBindings' first three tests (queue entry, frustum, translucent surface): a superset of what it
+        // draws (it also drops a refused cell or a missing row), so a false here is a frame the glass node draws
+        // nothing in.
+        const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
+        if ( camera == nullptr )
+            return false;
+        const Core::Frustum frustum = camera->GetFrustum();
+        for ( const auto& data : m_StaticQueue )
+        {
+            if ( data.Mesh == nullptr || !data.MaterialSlots || data.MaterialSlots->Slots.empty() )
+                continue;
+            if ( !IsVisibleInView( frustum, data.Transform, Geometry::LocalBounds( data.Mesh->GetSubmeshes() ) ) )
+                continue;
+            const auto [surfaceInst, mat] = SectionSurface( data.MaterialSlots.get(), data.SectionSlot );
+            if ( surfaceInst != nullptr && IsTranslucent( mat ) )
+                return true;
+        }
+        return false;
+    }
+
     bool MeshRenderer::QueuedForwardDrawSamples( const std::string_view textureName, const bool blendedOnly ) const
     {
         const auto* camera = m_SceneRenderer != nullptr ? m_SceneRenderer->GetMainCamera() : nullptr;
