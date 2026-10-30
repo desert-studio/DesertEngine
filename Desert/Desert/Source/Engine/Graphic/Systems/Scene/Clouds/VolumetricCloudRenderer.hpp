@@ -209,9 +209,11 @@ namespace Desert::Graphic::System
                                          const CloudGpuPayload&               payload );
         void NoteSkyOcclusionAccepted( bool accepted );
         // Every input of the two cached field producers but the push constant and the wind: the field block as
-        // they read it, the authored block, the medium (its variant and values), the sampled images and their
-        // write generations. CloudAmortizedRefresh.hpp says why the wind is out when the field is rigid in it.
-        uint64_t FieldInputsKey( const CloudGpuPayload& payload, bool windRigid ) const;
+        // they read it, the authored block (@p withHeroClouds: the shadow map's rigid copies march without slot
+        // A), the medium (its variant and values), the sampled images by identity (Image::GetHash, never reused)
+        // and their write generations. CloudAmortizedRefresh.hpp says why the wind is out when the field is rigid
+        // in it.
+        uint64_t FieldInputsKey( const CloudGpuPayload& payload, bool windRigid, bool withHeroClouds ) const;
         bool     WindIsRigid() const;
 
         /**
@@ -573,13 +575,23 @@ namespace Desert::Graphic::System
         // read and the BACK a wind-only refresh re-marches in bands (Graphic/Clouds/CloudAmortizedRefresh.hpp).
         // m_ShadowMap is this frame's front, null when the frame has no map. The plan is decided at declaration
         // and committed by SettleShadowMapNodes only when the graph accepted its node.
-        std::shared_ptr<Image>                          m_ShadowMap;
-        std::array<std::shared_ptr<Image2D>, 2>         m_ShadowMapImages;
-        uint32_t                                        m_ShadowMapImageResolution = 0;
-        CloudShadowRefreshState                         m_ShadowRefresh{};
-        CloudShadowRefreshPlan                          m_ShadowRefreshPlan{};
-        uint64_t                                        m_ShadowRefreshKey        = 0;
-        uint32_t                                        m_ShadowRefreshResolution = 0;
+        std::shared_ptr<Image>                  m_ShadowMap;
+        std::array<std::shared_ptr<Image2D>, 2> m_ShadowMapImages;
+        uint32_t                                m_ShadowMapImageResolution = 0;
+        CloudShadowRefreshState                 m_ShadowRefresh{};
+        CloudShadowRefreshPlan                  m_ShadowRefreshPlan{};
+        uint64_t                                m_ShadowRefreshKey        = 0;
+        uint32_t                                m_ShadowRefreshResolution = 0;
+        // THE HERO CLOUDS' PART, patched into the front in place (CloudShadowHeroRect). m_ShadowHeroFrontRect is
+        // the rectangle whose texels the current front's content holds a slot-A march in (a later patch re-marches
+        // it too, so a hero cloud that moved or left takes its old shadow with it); m_ShadowHeroBuiltKey what that
+        // patch was marched from. The Pending pair is this frame's patch until SettleShadowMapNodes accepts it.
+        CloudShadowTexelRect                            m_ShadowHeroFrontRect{};
+        bool                                            m_ShadowHeroBuilt    = false;
+        uint64_t                                        m_ShadowHeroBuiltKey = 0;
+        bool                                            m_ShadowHeroPlanned  = false;
+        CloudShadowTexelRect                            m_ShadowHeroPendingRect{};
+        uint64_t                                        m_ShadowHeroPendingKey = 0;
         std::shared_ptr<ShaderResources::StorageBuffer> m_ShadowParamsBuffer;
 
         // This frame's projection, and whether it describes anything. Rebuilt every frame rather than

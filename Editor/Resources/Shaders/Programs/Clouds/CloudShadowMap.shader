@@ -101,12 +101,7 @@ Shader "CloudShadowMap"
         #define CLOUD_SAMPLE_LAYOUT_MASK(uv) textureLod(CloudLayoutMaskTexture, (uv), 0.0f).r
         #define CLOUD_SAMPLE_AUTHORED(p) textureLod(CloudAuthoredAtlasTexture, (p), 0.0f)
 
-        #define CLOUD_AUTHORED_BUFFER_BINDING 8
-        #include <Common/CloudAuthored.glslh>
-
-        #include <Common/CloudField.glslh>
-        #include <Common/CloudParams.glslh>
-
+        // DECLARED BEFORE THE FIELD, because the field's hero-cloud count reads it (below Common/CloudAuthored.glslh).
         PushConstant CloudShadowPush
         {
             // The map's clip space back to world units. A texel's ray starts on the near plane at
@@ -117,9 +112,23 @@ Shader "CloudShadowMap"
             // x = the kilometres the map's clip z spans. PUSHED rather than compiled from
             // CLOUD_SHADOWMAP_EXTENT_KM, because the quality tier scales the extent and this shader would
             // otherwise encode every front depth against a far plane the projection it was handed does
-            // not have. y/z/w are unwritten — a push constant is laid out in vec4s.
+            // not have. y, z = the first row and column this dispatch marches (Graphic/Clouds/
+            // CloudAmortizedRefresh.hpp: a band of the back copy, or the hero clouds' rectangle of the front).
             vec4 CloudShadowDepth;
+            // xyz = the accumulated wind (km) this dispatch marches the field at — a band of the back copy is
+            // marched at its frozen wind, not at the parameter block's; w = 1 when the hero clouds are marched
+            // too, 0 for the wind-rigid field alone (the hero clouds stand in the world, not in the wind, so the
+            // amortized copies hold the field without them and their rectangle is re-marched whole on top).
+            vec4 CloudShadowWind;
         };
+
+        #define CLOUD_AUTHORED_BUFFER_BINDING 8
+        #include <Common/CloudAuthored.glslh>
+        #undef CLOUD_AUTHORED_COUNT
+        #define CLOUD_AUTHORED_COUNT ( CloudShadowWind.w > 0.5f ? CloudAuthoredCount : 0 )
+
+        #include <Common/CloudField.glslh>
+        #include <Common/CloudParams.glslh>
 
         LocalSize(8, 8, 1);
 
@@ -167,9 +176,10 @@ Shader "CloudShadowMap"
         void main()
         {
             ivec2 size  = imageSize(CloudShadowMapTexture);
-            // CloudShadowDepth.y: the first row of the band this dispatch marches (Graphic::CloudPlanShadowRefresh
-            // spreads a wind-only refresh of the back copy over bands; a full march starts at row 0).
-            ivec2 coord = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, int(CloudShadowDepth.y));
+            // CloudShadowDepth.zy: the first column and row this dispatch marches (Graphic::CloudPlanShadowRefresh
+            // spreads a wind-only refresh of the back copy over bands, Graphic::CloudShadowHeroRect is the hero
+            // clouds' rectangle; a full march starts at the origin).
+            ivec2 coord = ivec2(gl_GlobalInvocationID.xy) + ivec2(int(CloudShadowDepth.z), int(CloudShadowDepth.y));
             if (coord.x >= size.x || coord.y >= size.y)
                 return;
 
@@ -189,6 +199,8 @@ Shader "CloudShadowMap"
 
             g_ShadowLayer = CloudUnpackLayer();
             g_ShadowField = CloudUnpackFieldParams();
+            // The wind this dispatch marches at (CloudShadowWind), which the copy it writes is read back against.
+            g_ShadowField.WindOffsetKm = CloudShadowWind.xyz;
 
             // THIS WHOLE PASS IS A SHADOW RAY. Every sample it takes is integrated into optical depth and
             // never into radiance, so an authored medium may answer it cheaply — the same permission Epic
