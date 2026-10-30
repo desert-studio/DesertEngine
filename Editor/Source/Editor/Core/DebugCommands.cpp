@@ -59,7 +59,8 @@ namespace Desert::Editor
         {
             auto& profiler = Common::Profiling::Profiler::Get();
             if ( on && !profiler.GetGpuSink() )
-                return Common::MakeError<bool>( "this device reports no GPU timestamps; there is nothing to time." );
+                return Common::MakeError<bool>(
+                     "this device reports no GPU timestamps; there is nothing to time." );
             profiler.GpuEnabled()    = on;
             profiler.GpuPassScopes() = on;
             return PaletteCommandDone();
