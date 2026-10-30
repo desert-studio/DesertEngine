@@ -2025,7 +2025,8 @@ namespace Desert::Graphic
             // path-traced frame draws none either: its paths trace every light's visibility through the TLAS.
             // Under HardwareTraced the deferred composite reads "Shadows: Ray Traced Local" (ShadowMaskSlot), and
             // the maps are drawn only while a queued forward draw in view samples them
-            // (LocalShadowMapsRead: meshes, forward terrain, particles) - no forward surface loses its shadows.
+            // (LocalShadowMapsRead: meshes, forward terrain, particles, the volumetric fog's froxels) - no
+            // reader the masks cannot serve loses its shadows.
             // Under VirtualMaps no atlas is drawn: every reader (the forward and translucent cells, the forward
             // terrain, the composite, the surface cache) reads DESERT_LOCAL_SHADOW_VSM (ForwardShadowMaskVariant).
             {
@@ -2075,17 +2076,17 @@ namespace Desert::Graphic
             ImportViewShadowMaps( graph, textures );
             // The sun's cascades this frame: always under CascadedMaps; under a ray-traced sun only when a program
             // of this frame samples them (SunCascadesRead: blended/glass mesh draws, forward terrain, particles,
-            // whose program
-            // declares ShadowCascadesTexture - the low-detail sun CSM, budgeted by the Shadows.RayTracedTranslucency*
-            // rows). Not drawn -> the view binds the far-plane stand-in, never last drawn frame's maps; drawn
-            // after a gap -> every cascade's static cache is redrawn (it went stale while nothing drew it). A
-            // path-traced frame reads no cascade: its paths trace the sun's visibility through the TLAS, and the
-            // lit passes that sample the maps do not run.
-            // EVERY OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
+            // the volumetric fog's froxels - each program that declares ShadowCascadesTexture; the low-detail sun
+            // CSM, budgeted by the Shadows.RayTracedTranslucency* rows). Not drawn -> the view binds the far-plane
+            // stand-in, never last drawn frame's maps; drawn after a gap -> every cascade's static cache is
+            // redrawn (it went stale while nothing drew it). A path-traced frame reads no cascade: its paths trace
+            // the sun's visibility through the TLAS, and the lit passes that sample the maps do not run. EVERY
+            // OTHER DIRECTIONAL LIGHT keeps its cascades under the sun's mask (the moon, slot
             // kShadowLightAtmosphere1: DeferredScreenShadowMask::Lights, the surface cache's cascade arm), so the
             // array is drawn while any slot casts. The sun's own slot is dropped when nothing reads it
-            // (MeshRenderer::DropDirectionalShadow): its layers are not drawn for the moon's sake, and the receivers
-            // that pack DirectionalShadows() below (the composite, the surface cache) see it with no cascade.
+            // (MeshRenderer::DropDirectionalShadow): its layers are not drawn for the moon's sake, and the
+            // receivers that pack DirectionalShadows() below (the composite, the surface cache) see it with no
+            // cascade.
             const bool sunCascadesUnread = SunShadowIsScreenMask() && !SunCascadesRead();
             if ( meshes != nullptr && sunCascadesUnread )
                 meshes->DropDirectionalShadow( SceneResources::kDirectionalShadowSun );
@@ -2685,11 +2686,20 @@ namespace Desert::Graphic
 
     namespace
     {
-        // The forward readers of one shadow map name outside the mesh renderer: the forward terrain and the view's
-        // particle sprites (both prepared before OnUpdate's shadow gates).
+        // The readers of one shadow map name outside the mesh renderer: the forward terrain, the view's particle
+        // sprites (both prepared before OnUpdate's shadow gates) and the volumetric fog. A froxel has no screen
+        // position, so no screen mask can stand in for its lookup: while the fog's nodes run this frame
+        // (VolumetricFogRenderer::IsActive, settled by BeginScene and the scene's fog command) its scattering
+        // pass reads the sun's cascades and - outside VirtualMaps - the point/spot atlas through the same
+        // Point/SpotLightShadow every surface reads (Mesh/LocalLightShadowLookup.glslh). Without its maps the
+        // lights' ShadowView is -1 and the froxels light through every wall.
         template <typename Systems>
-        bool TerrainOrParticlesSample( const Systems& systems, const std::string_view mapName )
+        bool ShadowMapReadersOutsideMeshes( const Systems& systems, const std::string_view mapName )
         {
+            const auto fog = systems.find( "VolumetricFogSystem" );
+            if ( fog != systems.end() && fog->second &&
+                 static_cast<const System::VolumetricFogRenderer*>( fog->second.get() )->IsActive() )
+                return true;
             const auto terrain = systems.find( "TerrainSystem" );
             if ( terrain != systems.end() && terrain->second &&
                  static_cast<const System::TerrainRenderer*>( terrain->second.get() )->ForwardReadsTexture( mapName ) )
@@ -2715,7 +2725,7 @@ namespace Desert::Graphic
         if ( meshes != m_RenderSystems.end() && meshes->second &&
              static_cast<const System::MeshRenderer*>( meshes->second.get() )->LocalShadowMapReadersQueued() )
             return true;
-        return TerrainOrParticlesSample( m_RenderSystems, kSceneViewLocalShadowAtlasName );
+        return ShadowMapReadersOutsideMeshes( m_RenderSystems, kSceneViewLocalShadowAtlasName );
     }
 
     bool SceneRenderer::SunCascadesRead() const
@@ -2724,7 +2734,7 @@ namespace Desert::Graphic
         if ( meshes != m_RenderSystems.end() && meshes->second &&
              static_cast<const System::MeshRenderer*>( meshes->second.get() )->SunCascadeReadersQueued() )
             return true;
-        return TerrainOrParticlesSample( m_RenderSystems, kSceneViewShadowCascadesName );
+        return ShadowMapReadersOutsideMeshes( m_RenderSystems, kSceneViewShadowCascadesName );
     }
 
     void SceneRenderer::AssignLocalShadowMaskSlots( const Core::Frustum& view )

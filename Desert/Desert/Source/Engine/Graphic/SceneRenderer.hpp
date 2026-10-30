@@ -1178,8 +1178,10 @@ namespace Desert::Graphic
         [[nodiscard]] bool LocalShadowsAreScreenMask() const;
         // THE ONE ANSWER TO "does a program of this frame read the point/spot shadow maps" while the composite
         // reads the ray-traced masks: a mesh forward draw (MeshRenderer::LocalShadowMapReadersQueued), the forward
-        // terrain (TerrainRenderer::ForwardReadsTexture) or a view emitter's sprite (ParticleRenderer::
-        // ViewEmittersSample) whose program samples LocalShadowAtlasTexture. OnUpdate draws the maps only when true.
+        // terrain (TerrainRenderer::ForwardReadsTexture), a view emitter's sprite (ParticleRenderer::
+        // ViewEmittersSample) whose program samples LocalShadowAtlasTexture, or the volumetric fog's froxels
+        // (VolumetricFogRenderer::IsActive: a froxel has no pixel to read a mask at). OnUpdate draws the maps only
+        // when true.
         [[nodiscard]] bool LocalShadowMapsRead() const;
         // The same derivation for the sun's cascades (ShadowCascadesTexture) while the sun is a screen mask.
         [[nodiscard]] bool SunCascadesRead() const;
