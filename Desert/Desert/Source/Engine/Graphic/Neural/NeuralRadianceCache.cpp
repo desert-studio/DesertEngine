@@ -21,12 +21,11 @@ namespace Desert::Engine::Neural
 {
     namespace
     {
-        constexpr const char* kShaderName = NeuralRadianceCache::kProgram;
-        constexpr uint32_t    W           = kFusedMlpWidth;
+        constexpr const char* kNrcShader  = NeuralRadianceCache::kProgram;
         constexpr uint32_t    kNoCounter  = 0xFFFFFFFFu;
         constexpr uint32_t    kGroup      = 64; // LocalSize of every NeuralRadianceCache.shader pass
 
-        constexpr uint32_t kWeightElements = kNrcMatrixCount * W * W;
+        constexpr uint32_t kWeightElements = kNrcMatrixCount * kFusedMlpWidth * kFusedMlpWidth;
         constexpr uint32_t kHashElements   = kNrcHashLevels * kNrcHashTableSize * kNrcHashFeatures;
         constexpr uint32_t kLossPartials   = kNrcTrainingSteps * ( kNrcTrainingBatch / kGroup ) * 2;
 
@@ -63,7 +62,7 @@ namespace Desert::Engine::Neural
             DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedDiffuseTexture );
             DESERT_SHADER_PARAMETER( StorageTexture, DemodulatedSpecularTexture );
         };
-        using Slots = NeuralRadianceCacheShaderParameters;
+        using NrcSlots = NeuralRadianceCacheShaderParameters;
 
         // NeuralRadianceCache.shader "NrcPush".
         struct NrcPush
@@ -100,20 +99,6 @@ namespace Desert::Engine::Neural
                 bindings.PushConstants( &push, static_cast<uint32_t>( sizeof( push ) ) );
                 return Graphic::Renderer::DispatchCompute( bindings, *pipeline, groupsX, groupsY, 1 );
             };
-        }
-
-        uint32_t PathDefine( const NeuralKernelPath path )
-        {
-            switch ( path )
-            {
-                case NeuralKernelPath::Fp32:
-                    return 0;
-                case NeuralKernelPath::Fp16:
-                    return 1;
-                case NeuralKernelPath::CoopMatFp16:
-                    return 2;
-            }
-            return 0;
         }
     } // namespace
 
@@ -158,35 +143,36 @@ namespace Desert::Engine::Neural
         using Graphic::RDG::Erase;
         const std::pair<Program*, std::vector<Graphic::RDG::ShaderParameter>> programs[] = {
              { &m_Encode,
-               { Erase( Slots::NrcSourceUB ), Erase( Slots::NrcHashTableUB ), Erase( Slots::NrcCountersUB ),
-                 Erase( Slots::NnInput ) } },
+               { Erase( NrcSlots::NrcSourceUB ), Erase( NrcSlots::NrcHashTableUB ),
+                 Erase( NrcSlots::NrcCountersUB ), Erase( NrcSlots::NnInput ) } },
              { &m_Loss,
-               { Erase( Slots::NrcTrainingSamplesUB ), Erase( Slots::NrcSelfQueriesUB ),
-                 Erase( Slots::NrcSelfOutputUB ), Erase( Slots::NnOutput ), Erase( Slots::NrcCountersUB ),
-                 Erase( Slots::NnOutputGrad ), Erase( Slots::NrcLossPartialsUB ) } },
+               { Erase( NrcSlots::NrcTrainingSamplesUB ), Erase( NrcSlots::NrcSelfQueriesUB ),
+                 Erase( NrcSlots::NrcSelfOutputUB ), Erase( NrcSlots::NnOutput ), Erase( NrcSlots::NrcCountersUB ),
+                 Erase( NrcSlots::NnOutputGrad ), Erase( NrcSlots::NrcLossPartialsUB ) } },
              { &m_InputGrad,
-               { Erase( Slots::NnWeights ), Erase( Slots::NnGrads ), Erase( Slots::NrcTrainingSamplesUB ),
-                 Erase( Slots::NrcCountersUB ), Erase( Slots::NrcHashGradUB ) } },
+               { Erase( NrcSlots::NnWeights ), Erase( NrcSlots::NnGrads ), Erase( NrcSlots::NrcTrainingSamplesUB ),
+                 Erase( NrcSlots::NrcCountersUB ), Erase( NrcSlots::NrcHashGradUB ) } },
              { &m_AdamMlp,
-               { Erase( Slots::NnWeightGrad ), Erase( Slots::NrcWeightsUB ), Erase( Slots::NrcAdamMlpUB ),
-                 Erase( Slots::NrcCountersUB ), Erase( Slots::NrcWeightsEmaUB ),
-                 Erase( Slots::NrcInferenceWeightsUB ) } },
+               { Erase( NrcSlots::NnWeightGrad ), Erase( NrcSlots::NrcWeightsUB ), Erase( NrcSlots::NrcAdamMlpUB ),
+                 Erase( NrcSlots::NrcCountersUB ), Erase( NrcSlots::NrcWeightsEmaUB ),
+                 Erase( NrcSlots::NrcInferenceWeightsUB ) } },
              { &m_AdamHash,
-               { Erase( Slots::NrcHashTableUB ), Erase( Slots::NrcAdamHashUB ), Erase( Slots::NrcHashGradUB ),
-                 Erase( Slots::NrcCountersUB ), Erase( Slots::NrcHashEmaUB ) } },
+               { Erase( NrcSlots::NrcHashTableUB ), Erase( NrcSlots::NrcAdamHashUB ),
+                 Erase( NrcSlots::NrcHashGradUB ), Erase( NrcSlots::NrcCountersUB ),
+                 Erase( NrcSlots::NrcHashEmaUB ) } },
              { &m_Composite,
-               { Erase( Slots::NrcQueriesUB ), Erase( Slots::NnOutput ), Erase( Slots::AccumulationTexture ),
-                 Erase( Slots::DemodulatedDiffuseTexture ), Erase( Slots::DemodulatedSpecularTexture ),
-                 Erase( Slots::NrcCountersUB ) } },
+               { Erase( NrcSlots::NrcQueriesUB ), Erase( NrcSlots::NnOutput ),
+                 Erase( NrcSlots::AccumulationTexture ), Erase( NrcSlots::DemodulatedDiffuseTexture ),
+                 Erase( NrcSlots::DemodulatedSpecularTexture ), Erase( NrcSlots::NrcCountersUB ) } },
         };
         for ( const auto& [program, expected] : programs )
         {
-            const std::string name = std::format( "{}/{}", kShaderName, program->Pass );
+            const std::string name = std::format( "{}/{}", kNrcShader, program->Pass );
             // InputGrad reads the MLP's gradients in the path's storage type (NN_PATH, as NeuralFusedMlp.shader).
             if ( program == &m_InputGrad && m_Path != NeuralKernelPath::Fp32 )
             {
                 ::Desert::Core::ShaderVariant variant;
-                variant.Defines = { std::format( "NN_PATH={}", PathDefine( m_Path ) ) };
+                variant.Defines = { std::format( "NN_PATH={}", NeuralKernelPathDefine( m_Path ) ) };
                 auto acquired = shaders->AcquireVariant( name, variant );
                 if ( !acquired )
                 {
@@ -375,8 +361,9 @@ namespace Desert::Engine::Neural
         const uint64_t queries = uint64_t( m_QueryCapacity ) * pathsPerFrame;
         targets.Queries = graph.CreateBuffer( RDG::BufferDesc{ queries * sizeof( NrcQueryGpu ) }, "NRC.Queries" );
         m_Stats.QueryCapacity    = m_QueryCapacity;
-        m_Stats.QueryMemoryBytes = queries * sizeof( NrcQueryGpu ) +
-                                   2ull * std::min( kNrcInferenceChunk, m_QueryCapacity ) * W * sizeof( float );
+        m_Stats.QueryMemoryBytes =
+             queries * sizeof( NrcQueryGpu ) +
+             2ull * std::min( kNrcInferenceChunk, m_QueryCapacity ) * kFusedMlpWidth * sizeof( float );
         targets.TrainingSamples = graph.CreateBuffer(
              RDG::BufferDesc{ uint64_t( kNrcTrainingSamples ) * sizeof( NrcTrainingSampleGpu ) },
              "NRC.TrainingSamples" );
@@ -419,7 +406,7 @@ namespace Desert::Engine::Neural
             records = capacity = kNrcMaxTrainingPaths;
         const uint32_t       dispatched = Groups( rows ) * kGroup;
         const RDG::BufferRef input      = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( dispatched ) * W * sizeof( float ) }, "NRC.Input" );
+             RDG::BufferDesc{ uint64_t( dispatched ) * kFusedMlpWidth * sizeof( float ) }, "NRC.Input" );
         NrcPush push;
         push.Rows  = glm::uvec4( strideVec4, firstRow, dispatched, records );
         push.Extra = glm::uvec4( countIndex, capacity, countBase, 0u );
@@ -430,10 +417,10 @@ namespace Desert::Engine::Neural
              {
                  pass.Bindings( m_Encode.Layout.Get( m_Encode.Shader ),
                                 Graphic::Renderer::GetPipelineRouteFill( *m_Encode.Pipeline ) )
-                      .Storage( Slots::NrcSourceUB, source, RDG::Access::StorageRead )
-                      .Storage( Slots::NrcHashTableUB, hashTable, RDG::Access::StorageRead )
-                      .Storage( Slots::NrcCountersUB, counters, RDG::Access::StorageRead )
-                      .Storage( Slots::NnInput, input, RDG::Access::StorageWrite )
+                      .Storage( NrcSlots::NrcSourceUB, source, RDG::Access::StorageRead )
+                      .Storage( NrcSlots::NrcHashTableUB, hashTable, RDG::Access::StorageRead )
+                      .Storage( NrcSlots::NrcCountersUB, counters, RDG::Access::StorageRead )
+                      .Storage( NrcSlots::NnInput, input, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
              },
              RecordDispatch( m_Encode.Pipeline, push, Groups( dispatched ), 1 ) );
@@ -489,14 +476,15 @@ namespace Desert::Engine::Neural
                      {
                          pass.Bindings( m_Composite.Layout.Get( m_Composite.Shader ),
                                         Graphic::Renderer::GetPipelineRouteFill( *m_Composite.Pipeline ) )
-                              .Storage( Slots::NrcQueriesUB, trace.Queries, RDG::Access::StorageRead )
-                              .Storage( Slots::NnOutput, output.GetValue(), RDG::Access::StorageRead )
-                              .Storage( Slots::AccumulationTexture, composite.Radiance, RDG::Access::StorageWrite )
-                              .Storage( Slots::DemodulatedDiffuseTexture, composite.DemodulatedDiffuse,
+                              .Storage( NrcSlots::NrcQueriesUB, trace.Queries, RDG::Access::StorageRead )
+                              .Storage( NrcSlots::NnOutput, output.GetValue(), RDG::Access::StorageRead )
+                              .Storage( NrcSlots::AccumulationTexture, composite.Radiance,
                                         RDG::Access::StorageWrite )
-                              .Storage( Slots::DemodulatedSpecularTexture, composite.DemodulatedSpecular,
+                              .Storage( NrcSlots::DemodulatedDiffuseTexture, composite.DemodulatedDiffuse,
                                         RDG::Access::StorageWrite )
-                              .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
+                              .Storage( NrcSlots::DemodulatedSpecularTexture, composite.DemodulatedSpecular,
+                                        RDG::Access::StorageWrite )
+                              .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                               .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                      },
                      RecordDispatch( m_Composite.Pipeline, push, Groups( rows ), 1 ) );
@@ -524,7 +512,8 @@ namespace Desert::Engine::Neural
                 return Common::MakeFormattedError( "NRC training forward: {}", forward.GetError() );
 
             const RDG::BufferRef outputGrad = graph.CreateBuffer(
-                 RDG::BufferDesc{ uint64_t( kNrcTrainingBatch ) * W * sizeof( float ) }, "NRC.OutputGrad" );
+                 RDG::BufferDesc{ uint64_t( kNrcTrainingBatch ) * kFusedMlpWidth * sizeof( float ) },
+                 "NRC.OutputGrad" );
             NrcPush lossPush;
             lossPush.Rows = glm::uvec4( step, kNrcTrainingBatch, kNrcMaxTrainingPaths, 0u );
             graph.AddPass(
@@ -533,13 +522,14 @@ namespace Desert::Engine::Neural
                  {
                      pass.Bindings( m_Loss.Layout.Get( m_Loss.Shader ),
                                     Graphic::Renderer::GetPipelineRouteFill( *m_Loss.Pipeline ) )
-                          .Storage( Slots::NrcTrainingSamplesUB, trace.TrainingSamples, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcSelfQueriesUB, trace.SelfQueries, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcSelfOutputUB, selfOutput.GetValue(), RDG::Access::StorageRead )
-                          .Storage( Slots::NnOutput, forward.GetValue().Output, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
-                          .Storage( Slots::NnOutputGrad, outputGrad, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcLossPartialsUB, lossPartials, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcTrainingSamplesUB, trace.TrainingSamples,
+                                    RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcSelfQueriesUB, trace.SelfQueries, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcSelfOutputUB, selfOutput.GetValue(), RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NnOutput, forward.GetValue().Output, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NnOutputGrad, outputGrad, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcLossPartialsUB, lossPartials, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
                  RecordDispatch( m_Loss.Pipeline, lossPush, Groups( kNrcTrainingBatch ), 1 ) );
@@ -557,11 +547,12 @@ namespace Desert::Engine::Neural
                  {
                      pass.Bindings( m_InputGrad.Layout.Get( m_InputGrad.Shader ),
                                     Graphic::Renderer::GetPipelineRouteFill( *m_InputGrad.Pipeline ) )
-                          .Storage( Slots::NnWeights, cache.Weights, RDG::Access::StorageRead )
-                          .Storage( Slots::NnGrads, backward.GetValue().Grads, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcTrainingSamplesUB, trace.TrainingSamples, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NnWeights, cache.Weights, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NnGrads, backward.GetValue().Grads, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcTrainingSamplesUB, trace.TrainingSamples,
+                                    RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
                  RecordDispatch( m_InputGrad.Pipeline, gradPush, Groups( kNrcTrainingBatch ), 1 ) );
@@ -579,13 +570,14 @@ namespace Desert::Engine::Neural
                  {
                      pass.Bindings( m_AdamMlp.Layout.Get( m_AdamMlp.Shader ),
                                     Graphic::Renderer::GetPipelineRouteFill( *m_AdamMlp.Pipeline ) )
-                          .Storage( Slots::NnWeightGrad, backward.GetValue().WeightGrad, RDG::Access::StorageRead )
-                          .Storage( Slots::NrcWeightsUB, cache.Weights, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcAdamMlpUB, cache.AdamMlp, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcWeightsEmaUB, cache.WeightsEma, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcInferenceWeightsUB, cache.InferenceWeights,
+                          .Storage( NrcSlots::NnWeightGrad, backward.GetValue().WeightGrad,
+                                    RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcWeightsUB, cache.Weights, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcAdamMlpUB, cache.AdamMlp, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcWeightsEmaUB, cache.WeightsEma, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcInferenceWeightsUB, cache.InferenceWeights,
                                     RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
                  RecordDispatch( m_AdamMlp.Pipeline, mlpPush, Groups( kWeightElements ), 1 ) );
@@ -601,11 +593,11 @@ namespace Desert::Engine::Neural
                  {
                      pass.Bindings( m_AdamHash.Layout.Get( m_AdamHash.Shader ),
                                     Graphic::Renderer::GetPipelineRouteFill( *m_AdamHash.Pipeline ) )
-                          .Storage( Slots::NrcHashTableUB, cache.HashTable, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcAdamHashUB, cache.AdamHash, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcHashEmaUB, cache.HashEma, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
-                          .Storage( Slots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
+                          .Storage( NrcSlots::NrcHashTableUB, cache.HashTable, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcAdamHashUB, cache.AdamHash, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcHashEmaUB, cache.HashEma, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcHashGradUB, cache.HashGrad, RDG::Access::StorageWrite )
+                          .Storage( NrcSlots::NrcCountersUB, trace.Counters, RDG::Access::StorageRead )
                           .PushConstantBytes( static_cast<uint32_t>( sizeof( NrcPush ) ) );
                  },
                  RecordDispatch( m_AdamHash.Pipeline, hashPush, kHashGroupsX,

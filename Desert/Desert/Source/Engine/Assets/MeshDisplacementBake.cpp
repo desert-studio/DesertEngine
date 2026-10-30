@@ -1,5 +1,6 @@
 #include <Engine/Assets/MeshDisplacementBake.hpp>
 
+#include <Engine/Assets/BuilderSlot.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -15,14 +16,12 @@
 #include <bit>
 #include <cstring>
 #include <format>
-#include <mutex>
 
 namespace Desert::Assets
 {
     namespace
     {
-        std::mutex           s_BuilderMutex;
-        DisplacedMeshBuilder s_Builder;
+        BuilderSlot<DisplacedMeshBuilder> s_DisplacedMeshBuilder;
 
     } // namespace
 
@@ -150,11 +149,6 @@ namespace Desert::Assets
             return Common::MakeSuccess( FromBinary( decoded.GetValue(), key ) );
         }
 
-        DisplacedMeshBuilder CurrentBuilder()
-        {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            return s_Builder;
-        }
     } // namespace
 
     Common::ResultStr<std::optional<SubmeshHeightInput>>
@@ -244,8 +238,7 @@ namespace Desert::Assets
 
     void SetDisplacedMeshBuilder( DisplacedMeshBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        s_DisplacedMeshBuilder.Set( std::move( builder ) );
     }
 
     Common::ResultStr<std::shared_ptr<const DisplacedMeshData>>
@@ -253,7 +246,7 @@ namespace Desert::Assets
                        const std::function<Common::ResultStr<DisplacedMeshBuildInput>()>& input )
     {
         using Result                       = std::shared_ptr<const DisplacedMeshData>;
-        const DisplacedMeshBuilder builder = CurrentBuilder();
+        const DisplacedMeshBuilder builder = s_DisplacedMeshBuilder.Get();
         if ( !builder )
         {
             auto hit = Common::DDC::Get( kDisplacedStaticMeshDeriver, key );
@@ -285,7 +278,7 @@ namespace Desert::Assets
                         const DisplacedMeshBuildInput& input )
     {
         using Result                       = std::shared_ptr<const DisplacedMeshData>;
-        const DisplacedMeshBuilder builder = CurrentBuilder();
+        const DisplacedMeshBuilder builder = s_DisplacedMeshBuilder.Get();
         if ( !builder )
             return Common::MakeFormattedError<Result>( "mesh asset '{}': the displaced surface {:016x} cannot be "
                                                        "built here (no builder: a packaged game "

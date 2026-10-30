@@ -1,17 +1,16 @@
 #include <Engine/Assets/MeshDisplacementTopology.hpp>
 
+#include <Engine/Assets/BuilderSlot.hpp>
 #include <array>
 #include <cstring>
 #include <format>
-#include <mutex>
 #include <span>
 
 namespace Desert::Assets
 {
     namespace
     {
-        std::mutex                  s_BuilderMutex;
-        DisplacementTopologyBuilder s_Builder;
+        BuilderSlot<DisplacementTopologyBuilder> s_DisplacementTopologyBuilder;
     } // namespace
 
     uint64_t DisplacementTopologyDerivedDataKey( const uint64_t renderDataKey )
@@ -23,8 +22,7 @@ namespace Desert::Assets
 
     void SetDisplacementTopologyBuilder( DisplacementTopologyBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        s_DisplacementTopologyBuilder.Set( std::move( builder ) );
     }
 
     Common::ResultStr<std::string> BuildDisplacementTopologyBytes( const DisplacementTopologyBuildInput& input )
@@ -42,11 +40,7 @@ namespace Desert::Assets
     {
         using Result                    = std::shared_ptr<const Geometry::DisplacementTopology>;
         const uint64_t              key = DisplacementTopologyDerivedDataKey( renderDataKey );
-        DisplacementTopologyBuilder builder;
-        {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            builder = s_Builder;
-        }
+        const DisplacementTopologyBuilder builder = s_DisplacementTopologyBuilder.Get();
         std::string bytes;
         if ( !builder )
         {

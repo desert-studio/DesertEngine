@@ -29,8 +29,9 @@ namespace Desert::Editor
     {
         using ValueType = Assets::Serialization::VFXValueType;
 
-        constexpr std::array<ValueType, 6> kValueTypes = { ValueType::Float, ValueType::Vec2, ValueType::Vec3,
-                                                           ValueType::Vec4,  ValueType::Int,  ValueType::Bool };
+        constexpr std::array<ValueType, 6> kModuleValueTypes = { ValueType::Float, ValueType::Vec2,
+                                                                 ValueType::Vec3,  ValueType::Vec4,
+                                                                 ValueType::Int,   ValueType::Bool };
 
         constexpr std::array<VFX::VFXStage, 4> kStages = { VFX::VFXStage::EmitterSpawn, VFX::VFXStage::EmitterUpdate,
                                                            VFX::VFXStage::ParticleSpawn, VFX::VFXStage::ParticleUpdate };
@@ -371,7 +372,7 @@ namespace Desert::Editor
             const std::string current( VFX::GlslTypeName( currentType ) );
             if ( ImGui::BeginCombo( "##type", current.c_str() ) )
             {
-                for ( const ValueType type : kValueTypes )
+                for ( const ValueType type : kModuleValueTypes )
                 {
                     const std::string name( VFX::GlslTypeName( type ) );
                     if ( ImGui::Selectable( name.c_str(), type == currentType ) && type != currentType )

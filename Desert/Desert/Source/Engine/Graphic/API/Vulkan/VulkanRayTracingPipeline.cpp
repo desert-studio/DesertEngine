@@ -23,12 +23,6 @@ namespace Desert::Graphic::API::Vulkan
              VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
              VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
 
-        VulkanAllocator& Allocator()
-        {
-            return *SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-                         ->GetVulkanAllocator();
-        }
-
         constexpr VkDeviceSize AlignUp( VkDeviceSize value, VkDeviceSize alignment )
         {
             return alignment == 0 ? value : ( value + alignment - 1 ) / alignment * alignment;
@@ -67,7 +61,7 @@ namespace Desert::Graphic::API::Vulkan
         Release( m_Rows );
         // A rebuild mid-session (the hit group set changed) drops a pipeline the previous frames recorded
         // vkCmdTraceRaysKHR with: it waits for those frames in the deletion queue, as the SBT above does.
-        Allocator().RT_DestroyPipeline( m_Pipeline, m_Layout );
+        VulkanAllocator::Current().RT_DestroyPipeline( m_Pipeline, m_Layout );
         m_Pipeline = VK_NULL_HANDLE;
         m_Layout   = VK_NULL_HANDLE;
     }
@@ -283,7 +277,7 @@ namespace Desert::Graphic::API::Vulkan
         HostBuffer               out;
         const VkBufferCreateInfo info = DeviceAddressBufferInfo( bytes, usage );
         const auto               allocation =
-             Allocator().RT_AllocateBuffer( tag, info, VMA_MEMORY_USAGE_CPU_TO_GPU, out.Buffer );
+             VulkanAllocator::Current().RT_AllocateBuffer( tag, info, VMA_MEMORY_USAGE_CPU_TO_GPU, out.Buffer );
         if ( !allocation )
             return Common::MakeFormattedError<HostBuffer>( "{}: {}", tag, allocation.GetError() );
         out.Allocation = allocation.GetValue();
@@ -295,7 +289,7 @@ namespace Desert::Graphic::API::Vulkan
     void VulkanRayTracingPipeline::Release( HostBuffer& buffer ) const
     {
         if ( buffer.Buffer != VK_NULL_HANDLE )
-            Allocator().RT_DestroyBuffer( buffer.Buffer, buffer.Allocation );
+            VulkanAllocator::Current().RT_DestroyBuffer( buffer.Buffer, buffer.Allocation );
         buffer = {};
     }
 
@@ -361,7 +355,7 @@ namespace Desert::Graphic::API::Vulkan
             std::memcpy( bytes.data() + base + hitOffset, handle( 2u ), m_HandleSize );
 
         {
-            MappedMemory mapped = Allocator().MapMemory( m_Sbt.Allocation );
+            MappedMemory mapped = VulkanAllocator::Current().MapMemory( m_Sbt.Allocation );
             if ( !mapped )
                 return Common::MakeFormattedError( "RayTracingPipeline '{}': the SBT could not be mapped: {}",
                                                    name, mapped.GetRefusal() );
@@ -370,7 +364,7 @@ namespace Desert::Graphic::API::Vulkan
         }
         if ( !table.Rows.empty() )
         {
-            MappedMemory mapped = Allocator().MapMemory( m_Rows.Allocation );
+            MappedMemory mapped = VulkanAllocator::Current().MapMemory( m_Rows.Allocation );
             if ( !mapped )
                 return Common::MakeFormattedError( "RayTracingPipeline '{}': the material rows could not be "
                                                    "mapped: {}",

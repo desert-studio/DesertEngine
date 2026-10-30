@@ -24,8 +24,7 @@ namespace Desert::Engine::Neural
 {
     namespace
     {
-        constexpr const char* kShaderName = FusedMlpCompute::kProgram;
-        constexpr uint32_t    W           = kFusedMlpWidth;
+        constexpr const char* kFusedMlpShader = FusedMlpCompute::kProgram;
 
         // NN_KERNEL values (NeuralFusedMlp.shader).
         constexpr uint32_t kForward    = 0;
@@ -46,27 +45,13 @@ namespace Desert::Engine::Neural
             DESERT_SHADER_PARAMETER( StorageBuffer, NnGrads );
             DESERT_SHADER_PARAMETER( StorageBuffer, NnWeightGrad );
         };
-        using Slots = NeuralFusedMlpShaderParameters;
+        using FusedMlpSlots = NeuralFusedMlpShaderParameters;
 
         struct NeuralMlpPush
         {
             uint32_t Batch       = 0;
             uint32_t MatrixCount = 0;
         };
-
-        uint32_t PathDefine( const NeuralKernelPath path )
-        {
-            switch ( path )
-            {
-                case NeuralKernelPath::Fp32:
-                    return 0;
-                case NeuralKernelPath::Fp16:
-                    return 1;
-                case NeuralKernelPath::CoopMatFp16:
-                    return 2;
-            }
-            return 0;
-        }
 
         std::vector<float> FromStored( const std::vector<uint8_t>& bytes, const NeuralKernelPath path )
         {
@@ -119,6 +104,20 @@ namespace Desert::Engine::Neural
         }
         return Common::MakeFormattedError<NeuralKernelPath>( "unknown NN kernel path {}",
                                                              static_cast<uint32_t>( *forced ) );
+    }
+
+    uint32_t NeuralKernelPathDefine( const NeuralKernelPath path )
+    {
+        switch ( path )
+        {
+            case NeuralKernelPath::Fp32:
+                return 0;
+            case NeuralKernelPath::Fp16:
+                return 1;
+            case NeuralKernelPath::CoopMatFp16:
+                return 2;
+        }
+        return 0;
     }
 
     uint32_t FusedMlpStoredElementBytes( const NeuralKernelPath path )
@@ -178,17 +177,17 @@ namespace Desert::Engine::Neural
 
         ::Desert::Core::ShaderVariant variant;
         variant.Defines = { std::format( "NN_KERNEL={}", kernel ),
-                            std::format( "NN_PATH={}", PathDefine( path ) ) };
+                            std::format( "NN_PATH={}", NeuralKernelPathDefine( path ) ) };
         NeuralSubgroupRequest subgroups;
         if ( path == NeuralKernelPath::CoopMatFp16 )
         {
             // The tile is the device's (SelectNeuralKernelPath), so these variants are per device: not cooked.
             const CooperativeMatrixShape& tile = m_Caps.Tile;
-            if ( tile.M == 0 || tile.N == 0 || tile.K == 0 || W % tile.M != 0 || W % tile.N != 0 ||
-                 W % tile.K != 0 )
+            if ( tile.M == 0 || tile.N == 0 || tile.K == 0 || kFusedMlpWidth % tile.M != 0 ||
+                 kFusedMlpWidth % tile.N != 0 || kFusedMlpWidth % tile.K != 0 )
                 return Common::MakeFormattedError<KernelResult>(
                      "the cooperative-matrix tile {} does not divide the network width {}",
-                     FormatCooperativeMatrixShape( tile ), W );
+                     FormatCooperativeMatrixShape( tile ), kFusedMlpWidth );
             variant.Defines.push_back( std::format( "NN_TM={}", tile.M ) );
             variant.Defines.push_back( std::format( "NN_TN={}", tile.N ) );
             variant.Defines.push_back( std::format( "NN_TK={}", tile.K ) );
@@ -206,27 +205,27 @@ namespace Desert::Engine::Neural
 
         Runtime::ShaderService* service = Runtime::ResourceRegistry::GetShaderService();
         if ( !service )
-            return Common::MakeFormattedError<KernelResult>( "no shader service to compile '{}' ({})", kShaderName,
-                                                             key );
-        auto acquired = service->AcquireVariant( kShaderName, variant );
+            return Common::MakeFormattedError<KernelResult>( "no shader service to compile '{}' ({})",
+                                                             kFusedMlpShader, key );
+        auto acquired = service->AcquireVariant( kFusedMlpShader, variant );
         if ( !acquired )
         {
-            m_ShaderRefusal = NeuralShaderRefusal{ .Program = kShaderName, .Variant = variant };
+            m_ShaderRefusal = NeuralShaderRefusal{ .Program = kFusedMlpShader, .Variant = variant };
             return Common::MakeFormattedError<KernelResult>(
                  "the shader '{}' ({}) was refused: {} (source "
                  "Editor/Resources/Shaders/Programs/Compute/NeuralFusedMlp.shader)",
-                 kShaderName, key, acquired.GetError() );
+                 kFusedMlpShader, key, acquired.GetError() );
         }
         const std::shared_ptr<Graphic::Shader> shader = acquired.ExtractValue();
 
         Graphic::ComputePipelineSpecification specification;
         specification.Shader               = shader;
-        specification.DebugName            = std::format( "{} ({})", kShaderName, key );
+        specification.DebugName            = std::format( "{} ({})", kFusedMlpShader, key );
         specification.RequiredSubgroupSize = subgroups.RequiredSubgroupSize;
         specification.RequireFullSubgroups = subgroups.RequireFullSubgroups;
         const auto built                   = Graphic::ComputePipeline::Create( specification );
         if ( !built )
-            return Common::MakeFormattedError<KernelResult>( "pipeline '{}' ({}): {}", kShaderName, key,
+            return Common::MakeFormattedError<KernelResult>( "pipeline '{}' ({}): {}", kFusedMlpShader, key,
                                                              built.GetError() );
 
         // The slots the variant declares must be the ones its pass binds: a shader edit that renames or drops
@@ -235,31 +234,38 @@ namespace Desert::Engine::Neural
         switch ( kernel )
         {
             case kForward:
-                expected = { Graphic::RDG::Erase( Slots::NnWeights ), Graphic::RDG::Erase( Slots::NnInput ),
-                             Graphic::RDG::Erase( Slots::NnOutput ), Graphic::RDG::Erase( Slots::NnActivations ) };
+                expected = { Graphic::RDG::Erase( FusedMlpSlots::NnWeights ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnInput ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnOutput ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnActivations ) };
                 break;
             case kBackward:
-                expected = { Graphic::RDG::Erase( Slots::NnWeights ), Graphic::RDG::Erase( Slots::NnOutputGrad ),
-                             Graphic::RDG::Erase( Slots::NnActivations ), Graphic::RDG::Erase( Slots::NnGrads ) };
+                expected = { Graphic::RDG::Erase( FusedMlpSlots::NnWeights ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnOutputGrad ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnActivations ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnGrads ) };
                 break;
             case kInference:
-                expected = { Graphic::RDG::Erase( Slots::NnWeights ), Graphic::RDG::Erase( Slots::NnInput ),
-                             Graphic::RDG::Erase( Slots::NnOutput ) };
+                expected = { Graphic::RDG::Erase( FusedMlpSlots::NnWeights ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnInput ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnOutput ) };
                 break;
             default:
-                expected = { Graphic::RDG::Erase( Slots::NnActivations ), Graphic::RDG::Erase( Slots::NnGrads ),
-                             Graphic::RDG::Erase( Slots::NnWeightGrad ) };
+                expected = { Graphic::RDG::Erase( FusedMlpSlots::NnActivations ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnGrads ),
+                             Graphic::RDG::Erase( FusedMlpSlots::NnWeightGrad ) };
                 break;
         }
         Kernel made;
         made.Pipeline = built.GetValue();
         if ( const auto valid = made.Layout.Validate( shader, expected ); !valid )
-            return Common::MakeFormattedError<KernelResult>( "pipeline '{}' ({}): {}", kShaderName, key,
+            return Common::MakeFormattedError<KernelResult>( "pipeline '{}' ({}): {}", kFusedMlpShader, key,
                                                              valid.GetError() );
 
         if ( path == NeuralKernelPath::CoopMatFp16 )
-            LOG_INFO( "[nn_pipeline] {} ({}): requireFullSubgroups={} requiredSubgroupSize={} — {}", kShaderName,
-                      key, subgroups.RequireFullSubgroups, subgroups.RequiredSubgroupSize, subgroups.Reason );
+            LOG_INFO( "[nn_pipeline] {} ({}): requireFullSubgroups={} requiredSubgroupSize={} — {}",
+                      kFusedMlpShader, key, subgroups.RequireFullSubgroups, subgroups.RequiredSubgroupSize,
+                      subgroups.Reason );
         Kernel& kept = m_Kernels[key] = std::move( made );
         return Common::MakeSuccess( KernelResult{ &kept } );
     }
@@ -329,10 +335,11 @@ namespace Desert::Engine::Neural
 
         const uint32_t       L = inputs.Shape.MatrixCount();
         FusedMlpGraphOutputs out;
-        out.Output      = graph.CreateBuffer( RDG::BufferDesc{ uint64_t( inputs.Batch ) * W * sizeof( float ) },
-                                              "NeuralFusedMlp.Output" );
+        out.Output =
+             graph.CreateBuffer( RDG::BufferDesc{ uint64_t( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
+                                 "NeuralFusedMlp.Output" );
         out.Activations = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( L ) * inputs.Batch * W * FusedMlpStoredElementBytes( path ) },
+             RDG::BufferDesc{ uint64_t( L ) * inputs.Batch * kFusedMlpWidth * FusedMlpStoredElementBytes( path ) },
              "NeuralFusedMlp.Activations" );
 
         // Forward: h_0 = input, h_{l+1} = ReLU(W_l h_l), y = W_last h_last.
@@ -342,10 +349,10 @@ namespace Desert::Engine::Neural
              {
                  pass.Bindings( forward.Layout.Get( forward.Pipeline->GetSpecification().Shader ),
                                 Graphic::Renderer::GetPipelineRouteFill( *forward.Pipeline ) )
-                      .Storage( Slots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
-                      .Storage( Slots::NnInput, inputs.Input, RDG::Access::StorageRead )
-                      .Storage( Slots::NnOutput, out.Output, RDG::Access::StorageWrite )
-                      .Storage( Slots::NnActivations, out.Activations, RDG::Access::StorageWrite )
+                      .Storage( FusedMlpSlots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnInput, inputs.Input, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnOutput, out.Output, RDG::Access::StorageWrite )
+                      .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
              RecordNnDispatch( forward.Pipeline, NeuralMlpPush{ .Batch = inputs.Batch, .MatrixCount = L },
@@ -365,17 +372,18 @@ namespace Desert::Engine::Neural
             return Common::MakeError<RDG::BufferRef>( acquired.GetError() );
         Kernel& inference = *acquired.GetValue();
 
-        const RDG::BufferRef output = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( inputs.Batch ) * W * sizeof( float ) }, "NeuralFusedMlp.InferenceOutput" );
+        const RDG::BufferRef output =
+             graph.CreateBuffer( RDG::BufferDesc{ uint64_t( inputs.Batch ) * kFusedMlpWidth * sizeof( float ) },
+                                 "NeuralFusedMlp.InferenceOutput" );
         graph.AddPass(
              "NN: Inference", RDG::PassFlags::Compute,
              [&]( RDG::PassBuilder& pass )
              {
                  pass.Bindings( inference.Layout.Get( inference.Pipeline->GetSpecification().Shader ),
                                 Graphic::Renderer::GetPipelineRouteFill( *inference.Pipeline ) )
-                      .Storage( Slots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
-                      .Storage( Slots::NnInput, inputs.Input, RDG::Access::StorageRead )
-                      .Storage( Slots::NnOutput, output, RDG::Access::StorageWrite )
+                      .Storage( FusedMlpSlots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnInput, inputs.Input, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnOutput, output, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
              RecordNnDispatch( inference.Pipeline,
@@ -408,15 +416,16 @@ namespace Desert::Engine::Neural
         const uint32_t       batch = inputs.Batch;
         FusedMlpGraphOutputs out   = forward;
         out.Grads                  = graph.CreateBuffer(
-             RDG::BufferDesc{ uint64_t( L ) * batch * W * FusedMlpStoredElementBytes( path ) },
+             RDG::BufferDesc{ uint64_t( L ) * batch * kFusedMlpWidth * FusedMlpStoredElementBytes( path ) },
              "NeuralFusedMlp.Grads" );
-        out.WeightGrad = graph.CreateBuffer( RDG::BufferDesc{ uint64_t( L ) * W * W * sizeof( float ) },
-                                             "NeuralFusedMlp.WeightGrad" );
+        out.WeightGrad = graph.CreateBuffer(
+             RDG::BufferDesc{ uint64_t( L ) * kFusedMlpWidth * kFusedMlpWidth * sizeof( float ) },
+             "NeuralFusedMlp.WeightGrad" );
 
         const NeuralMlpPush push{ .Batch = batch, .MatrixCount = L };
         // Weight gradient: scalar 16 groups of 4 rows per matrix; coopmat one group per matrix, its subgroups
         // walking the tiles.
-        const uint32_t weightGradGroups = path == NeuralKernelPath::CoopMatFp16 ? 1u : W / 4u;
+        const uint32_t weightGradGroups = path == NeuralKernelPath::CoopMatFp16 ? 1u : kFusedMlpWidth / 4u;
 
         // Backward: g_last = dL/dy, g_{l-1} = (W_l^T g_l) * [h_l > 0], after the forward wrote every h_l.
         graph.AddPass(
@@ -425,10 +434,10 @@ namespace Desert::Engine::Neural
              {
                  pass.Bindings( backward.Layout.Get( backward.Pipeline->GetSpecification().Shader ),
                                 Graphic::Renderer::GetPipelineRouteFill( *backward.Pipeline ) )
-                      .Storage( Slots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
-                      .Storage( Slots::NnOutputGrad, inputs.OutputGrad, RDG::Access::StorageRead )
-                      .Storage( Slots::NnActivations, out.Activations, RDG::Access::StorageRead )
-                      .Storage( Slots::NnGrads, out.Grads, RDG::Access::StorageWrite )
+                      .Storage( FusedMlpSlots::NnWeights, inputs.Weights, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnOutputGrad, inputs.OutputGrad, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnGrads, out.Grads, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
              RecordNnDispatch( backward.Pipeline, push, batch / kFusedMlpBatchGranularity, 1 ) );
@@ -440,9 +449,9 @@ namespace Desert::Engine::Neural
              {
                  pass.Bindings( weightGrad.Layout.Get( weightGrad.Pipeline->GetSpecification().Shader ),
                                 Graphic::Renderer::GetPipelineRouteFill( *weightGrad.Pipeline ) )
-                      .Storage( Slots::NnActivations, out.Activations, RDG::Access::StorageRead )
-                      .Storage( Slots::NnGrads, out.Grads, RDG::Access::StorageRead )
-                      .Storage( Slots::NnWeightGrad, out.WeightGrad, RDG::Access::StorageWrite )
+                      .Storage( FusedMlpSlots::NnActivations, out.Activations, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnGrads, out.Grads, RDG::Access::StorageRead )
+                      .Storage( FusedMlpSlots::NnWeightGrad, out.WeightGrad, RDG::Access::StorageWrite )
                       .PushConstantBytes( static_cast<uint32_t>( sizeof( NeuralMlpPush ) ) );
              },
              RecordNnDispatch( weightGrad.Pipeline, push, weightGradGroups, L ) );
@@ -552,8 +561,8 @@ namespace Desert::Engine::Neural
         };
 
         FusedMlpResult gpu;
-        gpu.Output.resize( size_t( problem.Batch ) * W );
-        gpu.WeightGrad.resize( size_t( L ) * W * W );
+        gpu.Output.resize( size_t( problem.Batch ) * kFusedMlpWidth );
+        gpu.WeightGrad.resize( size_t( L ) * kFusedMlpWidth * kFusedMlpWidth );
         const auto output = bytesOf( m_Output, gpu.Output.size() * sizeof( float ), "output" );
         if ( !output )
             return Common::MakeError<FusedMlpPathCheck>( output.GetError() );
@@ -564,7 +573,8 @@ namespace Desert::Engine::Neural
             return Common::MakeError<FusedMlpPathCheck>( weightGrad.GetError() );
         std::memcpy( gpu.WeightGrad.data(), weightGrad.GetValue().data(), weightGrad.GetValue().size() );
         const auto activations = bytesOf(
-             m_Activations, size_t( L ) * problem.Batch * W * FusedMlpStoredElementBytes( m_Path ), "activation" );
+             m_Activations, size_t( L ) * problem.Batch * kFusedMlpWidth * FusedMlpStoredElementBytes( m_Path ),
+             "activation" );
         if ( !activations )
             return Common::MakeError<FusedMlpPathCheck>( activations.GetError() );
         gpu.Activations = FromStored( activations.GetValue(), m_Path );
@@ -578,7 +588,7 @@ namespace Desert::Engine::Neural
         if ( !reference )
             return Common::MakeFormattedError<FusedMlpPathCheck>(
                  "NN {} activation read-back holds {} values, the shape needs {}", name, gpu.Activations.size(),
-                 size_t( L ) * problem.Batch * W );
+                 size_t( L ) * problem.Batch * kFusedMlpWidth );
 
         FusedMlpPathCheck check;
         check.Path   = m_Path;

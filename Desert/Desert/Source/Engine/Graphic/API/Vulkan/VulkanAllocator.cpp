@@ -220,6 +220,11 @@ namespace Desert::Graphic::API::Vulkan
         return s_VmaAllocator;
     }
 
+    VulkanAllocator& VulkanAllocator::Current()
+    {
+        return *SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )->GetVulkanAllocator();
+    }
+
     Common::ResultStr<VmaAllocation> VulkanAllocator::RT_AllocateBuffer( const std::string& tag, const VkBufferCreateInfo& bufferCreateInfo,
                                                                           VmaMemoryUsage usage, VkBuffer& outBuffer )
     {

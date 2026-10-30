@@ -8,6 +8,7 @@
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
+#include <Common/Core/Math/Rounding.hpp>
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
@@ -28,11 +29,6 @@ namespace Desert::Graphic::System
 
         // UE jitters the froxel sample by Halton(2,3,5) over 16 frames (r.VolumetricFog.Jitter).
         constexpr uint32_t kJitterSequenceLength = 16;
-
-        constexpr uint32_t Groups( uint32_t extent, uint32_t group )
-        {
-            return ( extent + group - 1 ) / group;
-        }
 
         // Radical inverse of @p index (>= 1) in @p base: the Halton sequence's value there, in (0, 1).
         float Halton( uint32_t index, uint32_t base )
@@ -400,8 +396,9 @@ namespace Desert::Graphic::System
         {
             const RDG::PassBindings     bindings( context, context.GetBindingBlock( 0 ) );
             const Common::BoolResultStr dispatched = Renderer::DispatchCompute(
-                 bindings, *scatteringPipeline, Groups( grid.x, kScatteringGroup ),
-                 Groups( grid.y, kScatteringGroup ), Groups( grid.z, kScatteringGroup ) );
+                 bindings, *scatteringPipeline, Common::Math::DivideRoundUp( grid.x, kScatteringGroup ),
+                 Common::Math::DivideRoundUp( grid.y, kScatteringGroup ),
+                 Common::Math::DivideRoundUp( grid.z, kScatteringGroup ) );
             if ( dispatched )
             {
                 // Recorded: the view's next frame may reproject from this volume.
@@ -429,8 +426,8 @@ namespace Desert::Graphic::System
         {
             RDG::PassBindings bindings( context, context.GetBindingBlock( 0 ) );
             return Renderer::DispatchCompute( bindings, *m_IntegrationPipeline,
-                                              Groups( grid.x, kIntegrationGroup ),
-                                              Groups( grid.y, kIntegrationGroup ), 1 );
+                                              Common::Math::DivideRoundUp( grid.x, kIntegrationGroup ),
+                                              Common::Math::DivideRoundUp( grid.y, kIntegrationGroup ), 1 );
         };
         nodes.push_back( std::move( integration ) );
 

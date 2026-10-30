@@ -11,6 +11,8 @@
 #include <cstring>
 #include <Engine/Assets/TextureSourceAsset.hpp>
 
+#include <Engine/Assets/LittleEndianBytes.hpp>
+#include <Engine/Assets/BuilderSlot.hpp>
 #include <Common/Utilities/FileSystem.hpp>
 #include <Common/Utilities/PakFile.hpp>
 
@@ -28,18 +30,8 @@ namespace Desert::Assets
     {
         // 1 = without ColorSpace, 2 = without AlphaCoverageThresholds, 3 = without ColorDilationMask
         // (UpgradeTextureSourceAsset only)
-        constexpr uint32_t kImportInfoVersion = 4;
+        constexpr uint32_t kTextureImportInfoVersion = 4;
 
-        void PutU32( std::vector<std::byte>& out, const uint32_t v )
-        {
-            for ( int i = 0; i < 4; ++i )
-                out.push_back( static_cast<std::byte>( ( v >> ( 8 * i ) ) & 0xFFu ) );
-        }
-        void PutU64( std::vector<std::byte>& out, const uint64_t v )
-        {
-            for ( int i = 0; i < 8; ++i )
-                out.push_back( static_cast<std::byte>( ( v >> ( 8 * i ) ) & 0xFFu ) );
-        }
         void PutString( std::vector<std::byte>& out, const std::string_view s )
         {
             PutU32( out, static_cast<uint32_t>( s.size() ) );
@@ -80,12 +72,12 @@ namespace Desert::Assets
             }
         };
 
-        std::vector<std::byte> EncodeImportInfo( const TextureImportInfo& info )
+        std::vector<std::byte> EncodeTextureImportInfo( const TextureImportInfo& info )
         {
             // The intent travels by NAME, as the authored JSON spelled it: reordering the enum must not
             // silently re-intend every asset.
             std::vector<std::byte> out;
-            PutU32( out, kImportInfoVersion );
+            PutU32( out, kTextureImportInfoVersion );
             PutString( out, info.SourceFile );
             PutU64( out, info.SourceHash );
             PutString( out, Core::Formats::TextureIntentName( info.Settings.Intent ) );
@@ -99,10 +91,11 @@ namespace Desert::Assets
             return out;
         }
 
-        // @p expected is kImportInfoVersion everywhere but the version-1 upgrade, which reads the layout
+        // @p expected is kTextureImportInfoVersion everywhere but the version-1 upgrade, which reads the layout
         // without ColorSpace and leaves the field for the caller to decide.
-        Common::ResultStr<TextureImportInfo> DecodeImportInfo( std::span<const std::byte> bytes,
-                                                               const uint32_t expected = kImportInfoVersion )
+        Common::ResultStr<TextureImportInfo>
+        DecodeTextureImportInfo( std::span<const std::byte> bytes,
+                                 const uint32_t             expected = kTextureImportInfoVersion )
         {
             TextureSourceReader r{ bytes };
             TextureImportInfo info;
@@ -180,7 +173,8 @@ namespace Desert::Assets
             return Common::MakeSuccess( true );
         }
 
-        const CC::SubsystemVersion kKnown[] = { { kTextureAssetSubsystemTag, kTextureAssetSubsystemVersion } };
+        const CC::SubsystemVersion kTextureKnown[] = {
+             { kTextureAssetSubsystemTag, kTextureAssetSubsystemVersion } };
     } // namespace
 
     TextureSourceAsset MakeTextureSourceAsset( const CC::ContentKind kind, std::string sourceKey,
@@ -208,20 +202,20 @@ namespace Desert::Assets
         CC::AssetEnvelope envelope;
         envelope.Asset.Kind       = asset.Kind;
         envelope.Asset.Guid       = asset.Guid;
-        envelope.Asset.Subsystems = { kKnown[0] };
+        envelope.Asset.Subsystems = { kTextureKnown[0] };
         CC::EnvelopeMeta meta;
         meta.Name = asset.Name;
         envelope.Sections.push_back(
              { CC::EnvelopeSection::Meta, CC::EnvelopeCodec::Stored, CC::EncodeEnvelopeMeta( meta ) } );
-        envelope.Sections.push_back(
-             { CC::EnvelopeSection::ImportInfo, CC::EnvelopeCodec::Stored, EncodeImportInfo( asset.Import ) } );
+        envelope.Sections.push_back( { CC::EnvelopeSection::ImportInfo, CC::EnvelopeCodec::Stored,
+                                       EncodeTextureImportInfo( asset.Import ) } );
         envelope.Sections.push_back( { CC::EnvelopeSection::Source, CC::EnvelopeCodec::Stored, asset.Source } );
         return CC::WriteAssetEnvelope( envelope );
     }
 
     Common::ResultStr<TextureSourceAsset> DecodeTextureSourceAsset( std::span<const std::byte> file )
     {
-        auto envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ kKnown } );
+        auto envelope = CC::ReadAssetEnvelope( file, CC::AssetHeaderReadContext{ kTextureKnown } );
         if ( !envelope.IsSuccess() )
             return Common::MakeError<TextureSourceAsset>( envelope.GetError() );
         const CC::AssetEnvelope& e = envelope.GetValue();
@@ -244,7 +238,7 @@ namespace Desert::Assets
             }
             else if ( s.Tag == CC::EnvelopeSection::ImportInfo )
             {
-                auto info = DecodeImportInfo( s.Bytes );
+                auto info = DecodeTextureImportInfo( s.Bytes );
                 if ( !info.IsSuccess() )
                     return Common::MakeError<TextureSourceAsset>( info.GetError() );
                 asset.Import = info.GetValue();
@@ -472,7 +466,8 @@ namespace Desert::Assets
             return Common::MakeError<TextureAssetKey>( prefix.GetError() );
         const auto asBytes = []( const std::string& s )
         { return std::span<const std::byte>( reinterpret_cast<const std::byte*>( s.data() ), s.size() ); };
-        auto header = CC::ReadEnvelopeHeader( asBytes( prefix.GetValue() ), CC::AssetHeaderReadContext{ kKnown } );
+        auto header =
+             CC::ReadEnvelopeHeader( asBytes( prefix.GetValue() ), CC::AssetHeaderReadContext{ kTextureKnown } );
         if ( !header.IsSuccess() )
             return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), header.GetError() );
         const CC::EnvelopeHeader& h = header.GetValue();
@@ -509,7 +504,7 @@ namespace Desert::Assets
         key.Guid   = h.Asset.Guid;
         if ( impt )
         {
-            auto info = DecodeImportInfo( bytes );
+            auto info = DecodeTextureImportInfo( bytes );
             if ( !info.IsSuccess() )
                 return Common::MakeFormattedError<TextureAssetKey>( "'{}': {}", asset.string(), info.GetError() );
             key.SourceFile     = info.GetValue().SourceFile;
@@ -543,7 +538,7 @@ namespace Desert::Assets
         CC::AssetEnvelope envelope;
         envelope.Asset.Kind       = asset.Kind;
         envelope.Asset.Guid       = asset.Guid;
-        envelope.Asset.Subsystems = { kKnown[0] };
+        envelope.Asset.Subsystems = { kTextureKnown[0] };
         CC::EnvelopeMeta meta;
         meta.Name = asset.Name;
         envelope.Sections.push_back(
@@ -555,14 +550,12 @@ namespace Desert::Assets
 
     namespace
     {
-        std::mutex                 s_BuilderMutex;
-        TexturePlatformDataBuilder s_Builder;
+        BuilderSlot<TexturePlatformDataBuilder> s_TexturePlatformDataBuilder;
     } // namespace
 
     void SetTexturePlatformDataBuilder( TexturePlatformDataBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        s_TexturePlatformDataBuilder.Set( std::move( builder ) );
     }
 
     Common::ResultStr<std::string> LoadTexturePlatformData( const std::filesystem::path& asset )
@@ -573,11 +566,7 @@ namespace Desert::Assets
         if ( auto hit = FetchTexturePlatformData( key.GetValue() ); hit.has_value() )
             return Common::MakeSuccess( std::move( *hit ) );
 
-        TexturePlatformDataBuilder builder;
-        {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            builder = s_Builder;
-        }
+        const TexturePlatformDataBuilder builder = s_TexturePlatformDataBuilder.Get();
         if ( !builder )
             return Common::MakeFormattedError<std::string>(
                  "texture asset '{}' has no platform data under DDC key {:016x} ({}), and this build cannot "
@@ -654,11 +643,11 @@ namespace Desert::Assets
                 // The IMPT section states its own layout version; an envelope raised earlier may carry an
                 // older IMPT (WP_Protocol_HLOD: envelope 3, IMPT 2), so the section is read at the version it states.
                 const uint32_t stated = TextureSourceReader{ s.Bytes }.Get( 4 );
-                if ( stated == 0 || stated > kImportInfoVersion )
+                if ( stated == 0 || stated > kTextureImportInfoVersion )
                     return Common::MakeFormattedError<Out>( "texture ImportInfo version {} is not one this build "
                                                             "can raise (1..{})",
-                                                            stated, kImportInfoVersion );
-                auto info = DecodeImportInfo( s.Bytes, stated );
+                                                            stated, kTextureImportInfoVersion );
+                auto info = DecodeTextureImportInfo( s.Bytes, stated );
                 if ( !info.IsSuccess() )
                     return Common::MakeError<Out>( info.GetError() );
                 asset.Import  = info.GetValue();

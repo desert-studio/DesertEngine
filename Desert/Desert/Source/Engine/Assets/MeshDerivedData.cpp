@@ -4,6 +4,8 @@
 // string keys over the MeshDescription id + FMeshBuildSettings per LOD + platform; the build step is a
 // registered function (the editor's) instead of IMeshBuilderModule, so a packaged game carries no builder.
 #include <Engine/Assets/MeshDerivedData.hpp>
+#include <Engine/Assets/LittleEndianBytes.hpp>
+#include <Engine/Assets/BuilderSlot.hpp>
 #include <Engine/Geometry/ClusterDag.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
@@ -13,7 +15,6 @@
 #include <Common/Utilities/PakFile.hpp>
 
 #include <bit>
-#include <mutex>
 #include <optional>
 #include <span>
 #include <utility>
@@ -22,15 +23,8 @@ namespace Desert::Assets
 {
     namespace
     {
-        void PutU32( std::vector<std::byte>& out, const uint32_t v )
-        {
-            for ( int i = 0; i < 4; ++i )
-                out.push_back( static_cast<std::byte>( ( v >> ( 8 * i ) ) & 0xFFu ) );
-        }
-
-        std::mutex              s_BuilderMutex;
-        MeshPlatformDataBuilder s_Builder;
-        MeshSourceBuilder       s_SourceBuilder;
+        BuilderSlot<MeshPlatformDataBuilder> s_MeshPlatformDataBuilder;
+        BuilderSlot<MeshSourceBuilder>       s_MeshSourceBuilder;
 
     } // namespace
 
@@ -79,14 +73,12 @@ namespace Desert::Assets
 
     void SetMeshPlatformDataBuilder( MeshPlatformDataBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        s_MeshPlatformDataBuilder.Set( std::move( builder ) );
     }
 
     void SetMeshSourceBuilder( MeshSourceBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_SourceBuilder = std::move( builder );
+        s_MeshSourceBuilder.Set( std::move( builder ) );
     }
 
     Common::ResultStr<std::string> LoadMeshPlatformData( const std::filesystem::path& asset )
@@ -104,11 +96,7 @@ namespace Desert::Assets
             return Common::MakeError<MeshPlatformDataBytes>( source.GetError() );
         const uint64_t key = MeshAssetDerivedDataKey( source.GetValue() );
 
-        MeshPlatformDataBuilder builder;
-        {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            builder = s_Builder;
-        }
+        const MeshPlatformDataBuilder builder = s_MeshPlatformDataBuilder.Get();
         if ( !builder )
         {
             if ( auto hit = Common::DDC::Get( kMeshDeriver, key ); hit.has_value() )
@@ -183,11 +171,7 @@ namespace Desert::Assets
         auto           hit = Common::DDC::Get( kMeshSourceDeriver, key );
         if ( !hit.has_value() )
         {
-            MeshSourceBuilder builder;
-            {
-                const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-                builder = s_SourceBuilder;
-            }
+            const MeshSourceBuilder builder = s_MeshSourceBuilder.Get();
             if ( !builder )
                 return Common::MakeFormattedError<MeshSourceAsset>(
                      "'{}' has no imported source under DDC key {:016x} ({}) for '{}', and this build cannot "

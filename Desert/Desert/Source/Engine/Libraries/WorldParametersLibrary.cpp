@@ -2,6 +2,7 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
+#include <Engine/Libraries/ScriptWorld.hpp>
 
 namespace Desert::Libraries
 {
@@ -9,22 +10,21 @@ namespace Desert::Libraries
     {
         // The running script's world with its collection adopted: a script's OnStart runs before the scene's first
         // OnUpdate has synced, and must find the parameters all the same.
-        Common::ResultStr<Core::Scene*> World( const char* call )
+        Common::ResultStr<Core::Scene*> SyncedWorld( const char* call )
         {
-            const Core::WorldContext* context = Core::WorldContext::Current();
-            if ( context == nullptr || context->World == nullptr )
-                return Common::MakeFormattedError<Core::Scene*>( "WorldParameters.{}: no world runs this call",
-                                                                 call );
-            if ( const auto synced = context->World->SyncWorldParameters(); !synced )
+            auto world = ScriptWorld( "WorldParameters", call );
+            if ( !world )
+                return world;
+            if ( const auto synced = world.GetValue()->SyncWorldParameters(); !synced )
                 return Common::MakeFormattedError<Core::Scene*>( "WorldParameters.{}: {}", call,
                                                                  synced.GetError() );
-            return Common::MakeSuccess( context->World );
+            return world;
         }
     } // namespace
 
     Common::BoolResultStr WorldParametersLibrary::SetScalar( const std::string& name, const float value )
     {
-        const auto world = World( "setScalar" );
+        const auto world = SyncedWorld( "setScalar" );
         if ( !world )
             return Common::MakeError( world.GetError() );
         return world.GetValue()->GetWorldParameters().SetScalar( name, value );
@@ -32,7 +32,7 @@ namespace Desert::Libraries
 
     Common::BoolResultStr WorldParametersLibrary::SetVector( const std::string& name, const glm::vec4& value )
     {
-        const auto world = World( "setVector" );
+        const auto world = SyncedWorld( "setVector" );
         if ( !world )
             return Common::MakeError( world.GetError() );
         return world.GetValue()->GetWorldParameters().SetVector( name, value );
@@ -40,7 +40,7 @@ namespace Desert::Libraries
 
     Common::ResultStr<float> WorldParametersLibrary::GetScalar( const std::string& name )
     {
-        const auto world = World( "getScalar" );
+        const auto world = SyncedWorld( "getScalar" );
         if ( !world )
             return Common::MakeError<float>( world.GetError() );
         return world.GetValue()->GetWorldParameters().GetScalar( name );
@@ -48,7 +48,7 @@ namespace Desert::Libraries
 
     Common::ResultStr<glm::vec4> WorldParametersLibrary::GetVector( const std::string& name )
     {
-        const auto world = World( "getVector" );
+        const auto world = SyncedWorld( "getVector" );
         if ( !world )
             return Common::MakeError<glm::vec4>( world.GetError() );
         return world.GetValue()->GetWorldParameters().GetVector( name );

@@ -15,13 +15,6 @@ namespace Desert::Graphic::API::Vulkan
 {
     namespace
     {
-        VulkanAllocator* Allocator()
-        {
-            return SP_CAST( VulkanContext, EngineContext::GetInstance().GetRendererContext() )
-                 ->GetVulkanAllocator()
-                 .get();
-        }
-
         VkDevice Device()
         {
             return SP_CAST( VulkanLogicalDevice, EngineContext::GetInstance().GetDevice() )
@@ -102,7 +95,7 @@ namespace Desert::Graphic::API::Vulkan
 
     ViewPoolBlock::~ViewPoolBlock()
     {
-        Allocator()->RT_DestroyDescriptorPool( m_Pool );
+        VulkanAllocator::Current().RT_DestroyDescriptorPool( m_Pool );
     }
 
     VulkanViewSets::~VulkanViewSets()
@@ -110,7 +103,7 @@ namespace Desert::Graphic::API::Vulkan
         // The bindless table's place holds no set of this pool (AllocateViewSets).
         std::erase( m_Sets, VkDescriptorSet{ VK_NULL_HANDLE } );
         if ( m_Pool )
-            Allocator()->RT_FreeDescriptorSets( m_Pool->Get(), std::move( m_Sets ) );
+            VulkanAllocator::Current().RT_FreeDescriptorSets( m_Pool->Get(), std::move( m_Sets ) );
     }
 
     Graphic::DescriptorRequest DescriptorCostOf( const std::vector<DescriptorSetLayoutRef>& layouts )

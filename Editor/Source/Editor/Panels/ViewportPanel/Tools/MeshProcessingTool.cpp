@@ -38,7 +38,7 @@ namespace Desert::Editor::Tools
     {
         using MS = Core::ModelingState;
 
-        const char* ToolName( MS::Tool tool )
+        const char* ProcessingToolName( MS::Tool tool )
         {
             switch ( tool )
             {
@@ -217,7 +217,7 @@ namespace Desert::Editor::Tools
             if ( m_Session->Pending.valid() )
             {
                 LOG_INFO( "[Modeling] {0}: settings changed, the compute running for {1:.1f} ms is cancelled",
-                          ToolName( m_Session->Tool ),
+                          ProcessingToolName( m_Session->Tool ),
                           std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
                                                                      m_Session->PendingStarted )
                                .count() );
@@ -451,13 +451,13 @@ namespace Desert::Editor::Tools
                          return Geometry::Warp( *input, warp, objectToGizmo );
                  }
              } );
-        ms.DeformStatus = std::format( "{}: computing...", ToolName( m_Session->Tool ) );
+        ms.DeformStatus = std::format( "{}: computing...", ProcessingToolName( m_Session->Tool ) );
     }
 
     void MeshProcessingTool::ApplyResult( ::Desert::Core::Scene& scene, MS& ms )
     {
         Common::ResultStr<Geometry::DeformOutcome> out = m_Session->Pending.get();
-        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ToolName( m_Session->Tool ),
+        LOG_INFO( "[Modeling] {0} computed in the background in {1:.1f} ms", ProcessingToolName( m_Session->Tool ),
                   std::chrono::duration<double, std::milli>( std::chrono::steady_clock::now() -
                                                              m_Session->PendingStarted )
                        .count() );
@@ -524,8 +524,8 @@ namespace Desert::Editor::Tools
             case MeshRestore::Set:
                 if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Committed );
                      !set.IsSuccess() )
-                    LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}", ToolName( m_Session->Tool ),
-                               set.GetError() );
+                    LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}",
+                               ProcessingToolName( m_Session->Tool ), set.GetError() );
                 break;
         }
     }
@@ -534,8 +534,8 @@ namespace Desert::Editor::Tools
     {
         const auto refuse = [&]( const std::string& why )
         {
-            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", ToolName( ms.ActiveTool ), why );
-            ToastManager::Push( std::format( "{} Accept refused: {}", ToolName( ms.ActiveTool ), why ),
+            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", ProcessingToolName( ms.ActiveTool ), why );
+            ToastManager::Push( std::format( "{} Accept refused: {}", ProcessingToolName( ms.ActiveTool ), why ),
                                 ToastLevel::Error, 10.0f );
             return false;
         };
@@ -546,16 +546,17 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( component == nullptr || component->GetEditableMesh() != m_Session->Preview )
             return refuse( "the entity no longer draws the preview" );
-        Commands::RecordMeshChange( m_Session->Entity, std::format( "Modeling: {}", ToolName( m_Session->Tool ) ),
+        Commands::RecordMeshChange( m_Session->Entity,
+                                    std::format( "Modeling: {}", ProcessingToolName( m_Session->Tool ) ),
                                     m_Session->Committed );
-        LOG_INFO( "[Modeling] {0} accepted: {1}", ToolName( m_Session->Tool ), ms.DeformStatus );
+        LOG_INFO( "[Modeling] {0} accepted: {1}", ProcessingToolName( m_Session->Tool ), ms.DeformStatus );
         m_Session.reset();
         return true;
     }
 
     bool MeshProcessingTool::AcceptCreateFromSelected( ::Desert::Core::Scene& scene, MS& ms )
     {
-        const char* tool   = ToolName( ms.ActiveTool );
+        const char* tool   = ProcessingToolName( ms.ActiveTool );
         const auto  refuse = [&]( const std::string& why )
         {
             LOG_ERROR( "[Modeling] {0} Accept refused: {1}", tool, why );

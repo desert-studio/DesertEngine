@@ -2,25 +2,15 @@
 
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
+#include <Engine/Libraries/ScriptWorld.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 
 namespace Desert::Libraries
 {
-    namespace
-    {
-        Common::ResultStr<Core::Scene*> World( const char* call )
-        {
-            const Core::WorldContext* context = Core::WorldContext::Current();
-            if ( context == nullptr || context->World == nullptr )
-                return Common::MakeFormattedError<Core::Scene*>( "Weather.{}: no world runs this call", call );
-            return Common::MakeSuccess( context->World );
-        }
-    } // namespace
-
     Common::BoolResultStr WeatherLibrary::SetWeather( ECS::Entity zone, const std::string& preset,
                                                       const float seconds )
     {
-        const auto world = World( "set" );
+        const auto world = ScriptWorld( "Weather", "set" );
         if ( !world )
             return Common::MakeError( world.GetError() );
         const auto handle = Runtime::ResourceRegistry::GetWeatherPresetService()->HandleForPath( preset );
@@ -36,7 +26,7 @@ namespace Desert::Libraries
 
     Common::ResultStr<float> WeatherLibrary::GetScalarAt( const glm::vec3& point, const std::string& name )
     {
-        const auto world = World( "getScalar" );
+        const auto world = ScriptWorld( "Weather", "getScalar" );
         if ( !world )
             return Common::MakeError<float>( world.GetError() );
         Core::Scene*              scene = world.GetValue();

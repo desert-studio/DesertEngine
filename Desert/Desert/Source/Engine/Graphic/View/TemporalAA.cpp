@@ -40,7 +40,7 @@ namespace Desert::Graphic
         constexpr const char* kShaderName      = "TemporalAA";
         constexpr const char* kHistoryName     = "TAA.History";
         constexpr const char* kPreviousName    = "TAA.History.Previous";
-        constexpr const char* kOutputName      = "TAA.Output";
+        constexpr const char* kTaaOutputName   = "TAA.Output";
         constexpr const char* kParamsName      = "TAA.Params";
         constexpr auto        kHistoryFormat   = Core::Formats::ImageFormat::RGBA16F;
         constexpr uint32_t    kQualityVariants = 3; // TemporalAAQuality Low / Medium / High
@@ -166,7 +166,7 @@ namespace Desert::Graphic
         RDG::TextureDesc    outputDesc;
         outputDesc.Size              = extent;
         outputDesc.Format            = kHistoryFormat;
-        const RDG::TextureRef output = graph.CreateTexture( outputDesc, kOutputName );
+        const RDG::TextureRef output = graph.CreateTexture( outputDesc, kTaaOutputName );
 
         const TemporalAAParams params = MakeTemporalAAParams( frame, extent );
         const RDG::BufferRef   buffer =

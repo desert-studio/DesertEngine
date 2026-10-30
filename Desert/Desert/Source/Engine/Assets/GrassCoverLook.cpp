@@ -1,5 +1,6 @@
 #include <Engine/Assets/GrassCoverLook.hpp>
 
+#include <Engine/Assets/BuilderSlot.hpp>
 #include <Engine/Assets/AssetManager.hpp>
 #include <Engine/Assets/ContentRegistry.hpp>
 #include <Engine/Assets/MaterialData.hpp>
@@ -12,14 +13,12 @@
 #include <bit>
 #include <cmath>
 #include <cstring>
-#include <mutex>
 
 namespace Desert::Assets
 {
     namespace
     {
-        std::mutex            s_BuilderMutex;
-        GrassCoverLookBuilder s_Builder;
+        BuilderSlot<GrassCoverLookBuilder> s_GrassCoverLookBuilder;
 
         // The texture a material's chain assigns to @p name (child first): its asset path and derived-data key;
         // nullopt when nobody assigns one.
@@ -55,11 +54,6 @@ namespace Desert::Assets
                 h = ( h ^ b ) * 1099511628211ull;
         }
 
-        GrassCoverLookBuilder CurrentBuilder()
-        {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            return s_Builder;
-        }
     } // namespace
 
     Common::ResultStr<std::optional<GrassCoverLookInput>>
@@ -218,14 +212,13 @@ namespace Desert::Assets
 
     void SetGrassCoverLookBuilder( GrassCoverLookBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        s_GrassCoverLookBuilder.Set( std::move( builder ) );
     }
 
     Common::ResultStr<GrassCoverLook> LoadGrassCoverLook( const GrassCoverLookInput& input )
     {
         const uint64_t              key     = GrassCoverLookKey( input );
-        const GrassCoverLookBuilder builder = CurrentBuilder();
+        const GrassCoverLookBuilder builder = s_GrassCoverLookBuilder.Get();
         if ( !builder )
         {
             auto hit = Common::DDC::Get( kGrassCoverLookDeriver, key );

@@ -28,7 +28,7 @@ namespace Desert::Editor::Tools
     {
         using MS = Core::ModelingState;
 
-        const char* ToolName( MS::Tool tool )
+        const char* UVToolName( MS::Tool tool )
         {
             switch ( tool )
             {
@@ -47,7 +47,7 @@ namespace Desert::Editor::Tools
             }
         }
 
-        glm::dmat4 WorldOf( ::Desert::Core::Scene& scene, const Common::UUID& id )
+        glm::dmat4 WorldOfDouble( ::Desert::Core::Scene& scene, const Common::UUID& id )
         {
             auto ref = scene.FindEntityByID( id );
             return ref ? glm::dmat4( ref->get().GetWorldTransform() ) : glm::dmat4( 1.0 );
@@ -266,7 +266,7 @@ namespace Desert::Editor::Tools
                 out = Geometry::AutoUV( input, ms.UVAuto );
                 break;
             case MS::Tool::UVProject:
-                m_Session->MeshToWorld = WorldOf( scene, m_Session->Entity );
+                m_Session->MeshToWorld = WorldOfDouble( scene, m_Session->Entity );
                 out = Geometry::ProjectUVs( input, m_Session->MeshToWorld, ms.UVProject );
                 break;
             case MS::Tool::UVUnwrap:
@@ -302,8 +302,8 @@ namespace Desert::Editor::Tools
         ms.UVStatus        = out.GetValue().Report;
         m_Session->Volume.reset();
         if ( m_Session->Tool == MS::Tool::UVProject )
-            if ( auto volume = Geometry::ResolveUVProjectionVolume( input, WorldOf( scene, m_Session->Entity ),
-                                                                    ms.UVProject );
+            if ( auto volume = Geometry::ResolveUVProjectionVolume(
+                      input, WorldOfDouble( scene, m_Session->Entity ), ms.UVProject );
                  volume.IsSuccess() )
                 m_Session->Volume = volume.GetValue();
     }
@@ -323,8 +323,8 @@ namespace Desert::Editor::Tools
             case MeshRestore::Set:
                 if ( auto set = ECS::SetEditableMesh( scene.GetRegistry(), scene.FindEntityByID( m_Session->Entity )->get().GetHandle(), m_Session->Committed );
                      !set.IsSuccess() )
-                    LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}", ToolName( m_Session->Tool ),
-                               set.GetError() );
+                    LOG_ERROR( "[Modeling] {0}: the mesh could not be put back: {1}",
+                               UVToolName( m_Session->Tool ), set.GetError() );
                 break;
         }
     }
@@ -333,8 +333,8 @@ namespace Desert::Editor::Tools
     {
         const auto refuse = [&]( const std::string& why )
         {
-            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", ToolName( ms.ActiveTool ), why );
-            ToastManager::Push( std::format( "{} Accept refused: {}", ToolName( ms.ActiveTool ), why ),
+            LOG_ERROR( "[Modeling] {0} Accept refused: {1}", UVToolName( ms.ActiveTool ), why );
+            ToastManager::Push( std::format( "{} Accept refused: {}", UVToolName( ms.ActiveTool ), why ),
                                 ToastLevel::Error, 10.0f );
             return false;
         };
@@ -345,9 +345,10 @@ namespace Desert::Editor::Tools
         ECS::StaticMeshComponent* component = FindToolTargetComponent( scene, m_Session->Entity );
         if ( component == nullptr || component->GetEditableMesh() != m_Session->Preview )
             return refuse( "the entity no longer draws the preview" );
-        Commands::RecordMeshChange( m_Session->Entity, std::format( "Modeling: {}", ToolName( m_Session->Tool ) ),
+        Commands::RecordMeshChange( m_Session->Entity,
+                                    std::format( "Modeling: {}", UVToolName( m_Session->Tool ) ),
                                     m_Session->Committed );
-        LOG_INFO( "[Modeling] {0} accepted: {1}", ToolName( m_Session->Tool ), ms.UVStatus );
+        LOG_INFO( "[Modeling] {0} accepted: {1}", UVToolName( m_Session->Tool ), ms.UVStatus );
         m_Session.reset();
         return true;
     }
@@ -356,7 +357,7 @@ namespace Desert::Editor::Tools
     {
         using Vertex       = Graphic::MaterialDebugLine::LineVertex;
         const MS&  ms      = MS::Get();
-        const auto world   = WorldOf( scene, m_Session->Entity );
+        const auto world   = WorldOfDouble( scene, m_Session->Entity );
         const auto normal  = glm::transpose( glm::inverse( glm::dmat3( world ) ) );
         const auto toWorld = [&]( const glm::dvec3& p ) { return glm::dvec3( world * glm::dvec4( p, 1.0 ) ); };
         Render::ToolPreviewMesh preview;
@@ -525,7 +526,8 @@ namespace Desert::Editor::Tools
 
     bool UVTool::TransformChanged( ::Desert::Core::Scene& scene ) const
     {
-        return m_Session->Tool == MS::Tool::UVProject && WorldOf( scene, m_Session->Entity ) != m_Session->MeshToWorld;
+        return m_Session->Tool == MS::Tool::UVProject &&
+               WorldOfDouble( scene, m_Session->Entity ) != m_Session->MeshToWorld;
     }
 
     void UVTool::RememberSettings( const MS& ms )

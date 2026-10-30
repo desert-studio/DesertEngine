@@ -217,6 +217,10 @@ namespace Desert::Graphic::API::Vulkan
 
         static VmaAllocator& GetVMAAllocator();
 
+        /// The running renderer's allocator (EngineContext's renderer context, cast to Vulkan): the one accessor
+        /// a Vulkan source reaches it through.
+        static VulkanAllocator& Current();
+
         VulkanAllocator() = default;
 
     private:

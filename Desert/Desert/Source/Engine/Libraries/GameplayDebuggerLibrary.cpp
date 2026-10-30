@@ -4,40 +4,26 @@
 #include <Common/Core/Logger.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
+#include <Engine/Libraries/ScriptWorld.hpp>
 
 namespace Desert::Libraries
 {
 #if DESERT_DEV_INSTRUMENTS
-    namespace
-    {
-        // The world of the running script; nullptr (logged) outside a script call.
-        Core::Scene* World( const char* function )
-        {
-            const Core::WorldContext* context = Core::WorldContext::Current();
-            if ( context == nullptr || context->World == nullptr )
-            {
-                LOG_ERROR( "[Script] GameplayDebugger.{}: no world — called outside a script call", function );
-                return nullptr;
-            }
-            return context->World;
-        }
-    } // namespace
-
     void GameplayDebuggerLibrary::SetActive( const bool active )
     {
-        if ( Core::Scene* scene = World( "setActive" ) )
+        if ( Core::Scene* scene = ScriptScene( "GameplayDebugger", "setActive" ) )
             scene->GetGameplayDebugger().SetActive( active );
     }
 
     bool GameplayDebuggerLibrary::IsActive()
     {
-        const Core::Scene* scene = World( "isActive" );
+        const Core::Scene* scene = ScriptScene( "GameplayDebugger", "isActive" );
         return scene != nullptr && scene->GetGameplayDebugger().IsActive();
     }
 
     bool GameplayDebuggerLibrary::SetCategory( const std::string& name, const bool enabled )
     {
-        Core::Scene* scene = World( "setCategory" );
+        Core::Scene* scene = ScriptScene( "GameplayDebugger", "setCategory" );
         if ( scene == nullptr )
             return false;
         if ( scene->GetGameplayDebugger().SetCategoryEnabled( name, enabled ) )

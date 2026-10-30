@@ -8,6 +8,7 @@
 #include <Engine/Assets/Shader/ShaderAsset.hpp>
 #include <Engine/Core/Scene.hpp>
 #include <Engine/Core/WorldContext.hpp>
+#include <Engine/Libraries/ScriptWorld.hpp>
 #include <Engine/ECS/Components.hpp>
 #include <Engine/Geometry/PrimitiveType.hpp>
 #include <Engine/Graphic/Materials/MaterialInstance.hpp>
@@ -28,17 +29,6 @@ namespace Desert::Libraries
             return entity ? entity.GetRegistry()->try_get<T>( entity.GetHandle() ) : nullptr;
         }
 
-        // The world of the running script; nullptr (logged) outside a script call.
-        const Core::WorldContext* World( const char* function )
-        {
-            const Core::WorldContext* context = Core::WorldContext::Current();
-            if ( context == nullptr || context->World == nullptr )
-            {
-                LOG_ERROR( "[Script] World.{}: no world — called outside a script call", function );
-                return nullptr;
-            }
-            return context;
-        }
     } // namespace
 
     // ── EntityLibrary ──
@@ -370,7 +360,7 @@ namespace Desert::Libraries
 
     ECS::Entity WorldLibrary::Find( const std::string& name )
     {
-        const Core::WorldContext* context = World( "find" );
+        const Core::WorldContext* context = ScriptWorldContext( "World", "find" );
         if ( context == nullptr )
             return {};
         entt::registry& registry = context->World->GetRegistry();
@@ -383,7 +373,7 @@ namespace Desert::Libraries
 
     ECS::Entity WorldLibrary::Spawn( const std::string& prefabPath, const glm::vec3& position )
     {
-        const Core::WorldContext* context = World( "spawn" );
+        const Core::WorldContext* context = ScriptWorldContext( "World", "spawn" );
         if ( context == nullptr )
             return {};
         if ( context->Assets == nullptr )
@@ -410,7 +400,7 @@ namespace Desert::Libraries
 
     ECS::Entity WorldLibrary::SpawnMarker( const glm::vec3& position, float scale, const glm::vec3& color )
     {
-        const Core::WorldContext* context = World( "spawnMarker" );
+        const Core::WorldContext* context = ScriptWorldContext( "World", "spawnMarker" );
         if ( context == nullptr )
             return {};
         ECS::Entity         e = context->World->CreateNewEntity( "Marker" );
@@ -451,7 +441,7 @@ namespace Desert::Libraries
             return result;
         }
         const glm::vec3           unit    = direction / length;
-        const Core::WorldContext* context = World( "raycast" );
+        const Core::WorldContext* context = ScriptWorldContext( "World", "raycast" );
         if ( context == nullptr )
             return result;
 
@@ -470,7 +460,7 @@ namespace Desert::Libraries
     WorldRay WorldLibrary::CameraRay()
     {
         WorldRay                  ray;
-        const Core::WorldContext* context = World( "cameraRay" );
+        const Core::WorldContext* context = ScriptWorldContext( "World", "cameraRay" );
         if ( context == nullptr )
             return ray;
         if ( auto camera = context->World->GetActiveCamera() )
