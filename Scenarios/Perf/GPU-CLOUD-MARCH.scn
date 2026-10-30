@@ -1,0 +1,20 @@
+# GPU-CLOUD-MARCH: the cloud march's sun light without a per-step 32..64-sample shadow ray. Inside the cloud shadow
+# map's square a sample marches 1 km toward the sun (LightMarchLocalSamples, default 8) and reads the rest of the
+# optical depth from the map (Programs/Clouds/CloudRaymarch.shader CloudSelfShadowOpticalDepth); outside it the full
+# ray as before. FPS-FIELD-BARN's project and camera, still air, default machine settings (no machine.json), played
+# by the lead on the int/fps fc979990b Editor (before) and on task/GPU-CLOUD-MARCH (after).
+# [log] PASS when the "Clouds: March" GPU row of the [Profiler] per-pass table is lower on this branch than on
+# int/fps fc979990b (same view, same 120 frames). "Clouds: ShadowMap" is the map the march now reads; it already
+# ran in this scene (CastShadows on), so its row should not move.
+# [frame] PASS when the clouds' mean absolute difference against the int/fps frame of the same view is <= 3/255,
+# and the cloud undersides / sunward rims show no banding or texel blocks (the map's 117 m texel must not read
+# through the 1 km near ray).
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 120
+Когда profile-dump
+Тогда [log] the [Profiler] per-pass table carries "Clouds: March"; its GPU ms is below the int/fps fc979990b run of this scenario
+Тогда-вид 1_clouds FIELD_Barn at 1.7 m, still air: clouds lit like the int/fps frame (mean diff <= 3/255 over the sky), no banding or blocks in the self-shadow, field, barn and trees drawn

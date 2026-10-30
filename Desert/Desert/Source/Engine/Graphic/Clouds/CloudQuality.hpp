@@ -85,6 +85,15 @@ namespace Desert::Graphic
         int32_t LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
 
         /**
+         * The ceiling this tier puts on VolumetricCloudData::LightMarchLocalSamples — the SHORT shadow ray
+         * that runs where the cloud shadow map supplies the far optical depth (Programs/Clouds/
+         * CloudRaymarch.shader, CloudSelfShadowOpticalDepth). Composed by min() on exactly the terms of
+         * LightMarchSampleCeiling above, and for the same reason; the identity is
+         * ECS::kCloudLightMarchLocalMaxSamples.
+         */
+        int32_t LightMarchLocalSampleCeiling = ECS::kCloudLightMarchLocalMaxSamples;
+
+        /**
          * The linear scale applied to the shadow map's resolution, extent and snap TOGETHER.
          *
          * ONE NUMBER FOR THREE, and that is the point rather than a shorthand. The texel is
@@ -133,6 +142,9 @@ namespace Desert::Graphic
                 // 34% hot in the sunward highlights against the converged answer — a difference a person
                 // sees, which is the test a tier has to pass in the other direction.
                 scale.LightMarchSampleCeiling = 16;
+                // Four: the first segment of the 1 km short ray is 62.5 m, half a shadow-map texel —
+                // still inside the map's resolution, so the near field and the far term still meet.
+                scale.LightMarchLocalSampleCeiling = 4;
                 scale.ShadowMapScale          = 0.5f;
                 // Ten times the default, and the number is where the measurement stops being free: it
                 // saves 2.83 ms while moving no pixel of the shipped demo by more than 10 of 255.
@@ -141,14 +153,17 @@ namespace Desert::Graphic
 
             case Common::Settings::CloudQuality::Medium:
                 scale.LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
+                // Six: 27.8 m first segment, between Low's half texel and the authored default's 15.6 m.
+                scale.LightMarchLocalSampleCeiling = 6;
                 scale.ShadowMapScale          = 0.5f;
                 scale.StopTransmittanceFloor  = 0.0f;
                 break;
 
             case Common::Settings::CloudQuality::High:
             default:
-                scale.LightMarchSampleCeiling = ECS::kCloudLightMarchMaxSamples;
-                scale.ShadowMapScale          = 1.0f;
+                scale.LightMarchSampleCeiling      = ECS::kCloudLightMarchMaxSamples;
+                scale.LightMarchLocalSampleCeiling = ECS::kCloudLightMarchLocalMaxSamples;
+                scale.ShadowMapScale               = 1.0f;
                 scale.StopTransmittanceFloor  = 0.0f;
                 break;
         }

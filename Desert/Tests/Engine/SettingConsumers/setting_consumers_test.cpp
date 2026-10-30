@@ -308,6 +308,8 @@ namespace
          { "AerialPerspectiveFadeDistance", kCloudPayload },
          { "LightMarchDistance", kCloudPayload },
          { "LightMarchSamples", kCloudPayload },
+         // The short shadow ray beside the cloud shadow map: packed with the map's frame (CloudSelfShadowPack).
+         { "LightMarchLocalSamples", kCloudRenderer },
 
          // Shadows on the world. NEITHER GOES THROUGH THE PACKER, and that is the one thing worth
          // knowing about this pair: the shadow map is not part of CloudGpuPayload at all. `CastShadows`

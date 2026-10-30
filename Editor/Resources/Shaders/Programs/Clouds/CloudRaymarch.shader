@@ -324,6 +324,29 @@ Shader "CloudRaymarch"
         #include <Common/CloudField.glslh>
         #include <Common/CloudParams.glslh>
 
+        // THE CLOUD SHADOW MAP AS THIS MARCH'S FAR SHADOW TERM (GPU-CLOUD-MARCH). The map the ground reads
+        // (Programs/Clouds/CloudShadowMap.shader, built earlier in the frame) holds per light-ray texel the
+        // triple (front depth, mean extinction, optical depth across the shell); a sample inside the layer
+        // marches its first kilometre toward the sun itself and reads the rest of the way from the map in
+        // one fetch — CloudSelfShadowOpticalDepth below. One source for the cloud's shadow on the ground and
+        // on itself. The C++ side of the block is Graphic::CloudSelfShadowParams (CloudShadowPayload.hpp),
+        // whose static_asserts pin every offset.
+        //
+        // ALWAYS BOUND, fallback included, on the terms every sampler above is bound on; CloudSelfShadowMap.y
+        // says whether it holds this frame's map. REPEAT like the ground receiver's fetch: the border fade
+        // takes the weight to zero before the wrap could matter.
+        #include <Common/CloudShadowMap.glslh>
+        Uniform(18) texture2D CloudSelfShadowMapTexture;
+        #define CloudSelfShadowMapTexture sampler2D(CloudSelfShadowMapTexture, LinearRepeatSampler)
+        layout(std430, binding = 19) readonly buffer CloudSelfShadowBuffer
+        {
+            mat4  CloudSelfShadowWorldToMap; // world (cm) -> the map's clip space, this frame's projection
+            // x = the kilometres the map's clip z spans, y = 1 when the map is this frame's and must be read,
+            // z = the UV width of the border fade, w = the short ray's length (km).
+            vec4  CloudSelfShadowMap;
+            float CloudSelfShadowLocalSamples; // the short ray's sample count
+        };
+
         PushConstant CloudPush
         {
             mat4 InverseViewProjection;
@@ -397,6 +420,58 @@ Shader "CloudRaymarch"
         // The sun-transmittance quadrature is Common/CloudField.glslh's — see the note there. It moved out
         // of this file when the sky's environment bake began lighting the same field, because a second copy
         // of it beside this one is the mirror that drifts.
+
+        // THE OPTICAL DEPTH FROM A SAMPLE TO THE SUN, which the whole lighting of the cloud reuses (one shadow
+        // ray serves every scattering order).
+        //
+        // WHERE THE MAP COVERS THE SAMPLE: a short march over CloudSelfShadowMap.w on the same squared
+        // quadrature as the full ray — the near field, where the sample's own body is and where the map's
+        // one-mean-per-column model is least true — plus the map's reconstruction of everything past it.
+        // The price is CloudSelfShadowLocalSamples samples instead of lightSamples, per sample of the view
+        // march; that inner product was the subsystem's whole cost (GPU-COST census, candidate 2).
+        //
+        // WHERE IT DOES NOT — outside the map's square, or a frame with no map at all — the full ray of
+        // lightSamples over lightMarchKm, which is the quantity the covered region approximates and the one
+        // the environment bake marches. In the border band the two are blended by the same fade the ground
+        // receiver uses, so the edge of the map is a gradient and not a ring in the sky; only the band's
+        // pixels pay for both.
+        float CloudSelfShadowOpticalDepth(CloudLayer layer, CloudFieldParams params, vec3 samplePos, vec3 toSun,
+                                          float lightMarchKm, int lightSamples, float extinction)
+        {
+            float coverage = 0.0f;
+            float nearFar  = 0.0f;
+            if (CloudSelfShadowMap.y > 0.5f)
+            {
+                // Planet-centre kilometres back to world centimetres: the inverse of the march's own
+                // `originKm = camera + planetRadius on y`, which is also the sphere CloudBuildShadowMapView
+                // aims the map at.
+                vec3 worldPos = vec3(samplePos.x, samplePos.y - layer.PlanetRadiusKm, samplePos.z) *
+                                CLOUD_WORLD_UNITS_PER_KM;
+                vec4 mapClip  = CloudSelfShadowWorldToMap * vec4(worldPos, 1.0f);
+                mapClip      /= max(mapClip.w, 1e-6f);
+                vec2 uv       = CloudShadowClipToUv(mapClip.xy);
+                coverage      = CloudShadowBorderFade(uv, CloudSelfShadowMap.z);
+                if (coverage > 0.0f)
+                {
+                    // textureLod AND NOT texture: a compute shader has no derivatives.
+                    CloudShadowTexel texel   = CloudShadowDecode(textureLod(CloudSelfShadowMapTexture, uv, 0.0f).rgb);
+                    float            depthKm = CloudShadowDepthKm(mapClip.z, CloudSelfShadowMap.x);
+                    float            localKm = CloudSelfShadowMap.w;
+                    // SIXTEEN, and it must equal ECS::kCloudLightMarchLocalMaxSamples — the packer clamps to
+                    // the same constant (Graphic::CloudSelfShadowPack); this one only keeps a corrupt block
+                    // from running an unbounded loop.
+                    int              local   = int(clamp(CloudSelfShadowLocalSamples, 1.0f, 16.0f));
+                    nearFar = CloudLightOpticalDepth(layer, params, samplePos, toSun, localKm, local, extinction) +
+                              CloudShadowFarOpticalDepth(texel, depthKm, localKm);
+                }
+            }
+
+            if (coverage >= 1.0f)
+                return nearFar;
+
+            float full = CloudLightOpticalDepth(layer, params, samplePos, toSun, lightMarchKm, lightSamples, extinction);
+            return mix(full, nearFar, coverage);
+        }
 
         void main()
         {
@@ -759,8 +834,8 @@ Shader "CloudRaymarch"
                         // octave approximation: the expensive part is finding how much material lies
                         // between this sample and the sun, and each order then reuses that number with its
                         // own extinction scale.
-                        float opticalDepth = CloudLightOpticalDepth(layer, params, samplePos, toSun,
-                                                                    lightMarchKm, lightSamples, extinction);
+                        float opticalDepth = CloudSelfShadowOpticalDepth(layer, params, samplePos, toSun,
+                                                                         lightMarchKm, lightSamples, extinction);
 
                         // HOW MUCH OF THE SKY THIS SAMPLE CAN SEE, by one of two geometries.
                         //
