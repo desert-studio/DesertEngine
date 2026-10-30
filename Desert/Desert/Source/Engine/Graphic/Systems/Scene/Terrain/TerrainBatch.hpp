@@ -115,14 +115,19 @@ namespace Desert::Graphic::System
         // ...and the half-extents (cells) of the rings diced 2, 4, 8 and 16 sub-cells a side (x..w; -1 = no such
         // ring). Each lies inside the one before: a cell's dice is the finest ring holding it.
         glm::vec4 DiceRings{ -1.0f };
+        // THE DICE POOL (LandscapeDicePool.shader): x = the tile's first vertex in the frame's pool of displaced
+        // sub-vertices, evaluated once per frame in the camera's rings and read by every view's draw (-1 = the
+        // tile has none: it is not drawn diced); y = the finest dice level THIS row's view draws - 4 for the
+        // camera, coarser for a cascade (LandscapeCasterDicedRow), whose cells then read every k-th pool vertex.
+        glm::vec4 DicePool{ -1.0f, 4.0f, 0.0f, 0.0f };
     };
 
     static_assert( World::Landscape::kLandscapeMaxWeightLayers ==
                         2u * World::Landscape::kLandscapeWeightmapChannels,
                    "TerrainInstance carries exactly two weightmap pages of layer data - LandscapeWeights.glslh "
                    "blends two RGBA8 pages" );
-    static_assert( sizeof( TerrainInstance ) == 61 * sizeof( glm::vec4 ),
-                   "TerrainInstance must stay sixty-one 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
+    static_assert( sizeof( TerrainInstance ) == 62 * sizeof( glm::vec4 ),
+                   "TerrainInstance must stay sixty-two 16-byte slots - the GLSL mirror in TerrainInstance.glslh "
                    "reads these offsets" );
     static_assert(
          offsetof( TerrainInstance, Params2 ) == 16 && offsetof( TerrainInstance, GroundColor ) == 32 &&
@@ -139,7 +144,8 @@ namespace Desert::Graphic::System
               offsetof( TerrainInstance, DiceWindow ) == 864 &&
               offsetof( TerrainInstance, DisplacementTiling ) == 880 &&
               offsetof( TerrainInstance, InputTileSize ) == 896 &&
-              offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960,
+              offsetof( TerrainInstance, InputBlend ) == 928 && offsetof( TerrainInstance, DiceRings ) == 960 &&
+              offsetof( TerrainInstance, DicePool ) == 976,
          "TerrainInstance fields moved - the GLSL mirror in TerrainInstance.glslh no longer agrees" );
 
     // One tile's painted weight layers, as the surface shader blends them (LandscapeWeights.glslh). Kept
@@ -312,10 +318,13 @@ namespace Desert::Graphic::System
 
     // Dice ring @p level (dice 1 << level) of a row, clamped to the tile's @p cells x @p cells grid: [x0, x1) x
     // [z0, z1); empty when the ring is absent. LandscapeDisplacement.glslh LandscapeDiceRingRect is the same.
-    inline glm::ivec4 LandscapeDiceRingRect( const TerrainInstance& row, int level, int cells )
+    // @p pool: the ring as the CAMERA dices it (the dice pool's layout), not as the row's view draws it (a caster
+    // stops at DicePool.y).
+    inline glm::ivec4 LandscapeDiceRingRect( const TerrainInstance& row, int level, int cells, bool pool = false )
     {
         const float half = level == 0 ? row.DiceWindow.z : row.DiceRings[static_cast<glm::length_t>( level - 1 )];
-        if ( row.DisplacementView.w < 0.5f || half < 0.0f )
+        if ( row.DisplacementView.w < 0.5f || half < 0.0f ||
+             ( !pool && static_cast<float>( level ) > row.DicePool.y + 0.5f ) )
             return glm::ivec4( 0 );
         const int cx = static_cast<int>( std::floor( row.DiceWindow.x + 0.5f ) );
         const int cz = static_cast<int>( std::floor( row.DiceWindow.y + 0.5f ) );
@@ -349,6 +358,25 @@ namespace Desert::Graphic::System
         return total + all - inner * 6u;
     }
 
+    // The dice pool's vertices for the row (LandscapeDisplacement.glslh LandscapeDecodePoolVertex walks the same
+    // order): each ring's cells outside the finer ring, (dice + 1)^2 sub-vertices a cell; 0 when it is not diced.
+    inline uint32_t LandscapeDicePoolVertexCount( uint32_t quadsPerTile, uint32_t gridLod, const TerrainInstance& row )
+    {
+        if ( gridLod != 0u || row.DisplacementView.w < 0.5f )
+            return 0u;
+        const int cells = static_cast<int>( quadsPerTile );
+        uint32_t  total = 0u, inner = 0u;
+        for ( int level = kLandscapeDiceLevels - 1; level >= 0; --level )
+        {
+            const uint32_t area = LandscapeDiceRectArea( LandscapeDiceRingRect( row, level, cells, true ) );
+            const uint32_t side = ( 1u << level ) + 1u;
+            total += ( area - std::min( inner, area ) ) * side * side;
+            if ( area > 0u )
+                inner = area;
+        }
+        return total;
+    }
+
     // THE CAMERA'S ROW DICED FOR AN ORTHOGRAPHIC SHADOW VIEW whose texel is @p worldPerTexel cm (UE: Nanite dices
     // every view by r.Nanite.DicingRate pixels of THAT view - a shadow view by its own texels). The camera's
     // rings stop at dice 2^L, the finest whose sub-cell edge still spans @p dicingRate texels; the finer rings
@@ -365,8 +393,8 @@ namespace Desert::Graphic::System
         const int   finest   = subCells < 2.0f ? 0
                                                : std::min( kLandscapeDiceLevels - 1,
                                                            static_cast<int>( std::floor( std::log2( subCells ) ) ) );
-        for ( int level = finest + 1; level < kLandscapeDiceLevels; ++level )
-            row.DiceRings[static_cast<glm::length_t>( level - 1 )] = -1.0f;
+        // The rings stay the camera's (the pool's layout); the row's view stops at `finest`.
+        row.DicePool.y = static_cast<float>( finest );
         return row;
     }
 

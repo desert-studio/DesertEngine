@@ -1628,6 +1628,14 @@ namespace Desert::Graphic
         // The reflection captures, before any lit node reads them (SceneViewInputs).
         if ( m_FrameReflectionCaptures )
             m_FrameReflectionCaptures->AddPasses( graph, textures, ReadsReflectionCaptures() );
+        // The landscape's dice pool (its displaced sub-vertices, evaluated once), before any node that draws the
+        // terrain declares its blocks: the cascades, the forward base pass, the G-buffer fill, the virtual shadows.
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+            auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] );
+            if ( const Common::BoolResultStr pooled = terrain->AddDicePoolPass( graph, textures ); !pooled )
+                LOG_ERROR( "[SceneRenderer] {}: {}", m_ViewResources.GetName(), pooled.GetError() );
+        }
         // The view's velocity: one transient of this graph at the RENDER EXTENT (frame.Split.Render: the scene
         // target and the G-buffer are resized to it by ResizeRenderTargets), a colour slot of the scene target
         // (SceneTargetLayout, slot kSceneTargetVelocitySlot) and of the G-buffer (GBufferLayout, slot
