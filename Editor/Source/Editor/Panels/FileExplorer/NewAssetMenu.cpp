@@ -419,7 +419,9 @@ namespace Desert::Editor
         module.DisplayName = path.stem().string();
         module.Category    = "Custom";
         module.Block.Usage  = VFX::UsageBit( VFX::VFXStage::ParticleUpdate );
-        module.Block.Inputs = { { "Scale", Assets::Serialization::VFXValueType::Float, glm::vec4( 1.0f ) } };
+        // A float default states one number; the components past it are 0, as the parser reads them back.
+        module.Block.Inputs = { { "Scale", Assets::Serialization::VFXValueType::Float,
+                                  glm::vec4( 1.0f, 0.0f, 0.0f, 0.0f ) } };
         module.Block.Body   = "void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )\n{\n}\n";
         if ( const auto saved = Assets::VFXModuleAsset::Save( path, module ); !saved )
             return Common::MakeFormattedError( "New VFX Module: {}", saved.GetError() );

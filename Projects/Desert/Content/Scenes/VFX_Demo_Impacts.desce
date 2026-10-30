@@ -158,6 +158,22 @@
             }
         },
         {
+            "id": 2003,
+            "siblingIndex": 6,
+            "Tag": "ImpactEventSource",
+            "Translation": [-150.0, 80.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Script": {
+                "Scripts": [
+                    {
+                        "ScriptKey": "assets:Scripts/Examples/ImpactEvents.lua",
+                        "Props": []
+                    }
+                ]
+            }
+        },
+        {
             "id": 9001,
             "siblingIndex": 4,
             "Tag": "Camera",
