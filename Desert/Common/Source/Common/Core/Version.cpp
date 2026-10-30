@@ -18,7 +18,9 @@
 #endif
 #include "Version.gen.hpp"
 
+#include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <string>
 
 namespace Common::Version

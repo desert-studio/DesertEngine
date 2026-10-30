@@ -2314,14 +2314,43 @@ namespace Desert::Migration
              EngineVFXModuleV3{ "UpdateRotation", "94456c88cf0e495e9396474e052d53bd" },
         };
 
+        Assets::AssetGuidRef EngineVFXModuleRefV3( const EngineVFXModuleV3& row )
+        {
+            return Assets::AssetGuidRef{ std::string( row.Guid ),
+                                         std::format( "engine:Engine/VFX/Modules/{}.dfxmod", row.Name ) };
+        }
+
+        // A name read from a file: absent from the list -> nullopt.
         std::optional<Assets::AssetGuidRef> EngineVFXModuleRefV3( std::string_view name )
         {
             for ( const EngineVFXModuleV3& row : kEngineVFXModulesV3 )
                 if ( row.Name == name )
-                    return Assets::AssetGuidRef{ std::string( row.Guid ),
-                                                 std::format( "engine:Engine/VFX/Modules/{}.dfxmod", row.Name ) };
+                    return EngineVFXModuleRefV3( row );
             return std::nullopt;
         }
+
+        // Not constexpr on purpose: a constant evaluation that reaches it is not a constant, so a name the list
+        // lacks fails to compile at the Use( "<name>", ... ) that spells it.
+        void EngineVFXModuleV3IsNotInTheList()
+        {
+        }
+
+        // A name the v51 step spells in its own code, resolved to its row while compiling.
+        struct EngineVFXModuleNameV3
+        {
+            // Implicit, so the step keeps writing Use( "Drag", ... ).
+            consteval EngineVFXModuleNameV3( const char* name )
+            {
+                for ( std::size_t i = 0; i < kEngineVFXModulesV3.size(); ++i )
+                    if ( kEngineVFXModulesV3[i].Name == std::string_view( name ) )
+                    {
+                        Index = i;
+                        return;
+                    }
+                EngineVFXModuleV3IsNotInTheList();
+            }
+            std::size_t Index = 0;
+        };
 
         S::VFXModuleInput CurveInput( const char* name, S::VFXValueType type,
                                       const std::vector<std::vector<S::VFXCurveKey>>& channels )
@@ -2343,11 +2372,12 @@ namespace Desert::Migration
             return key;
         }
 
-        // Every name the v51 step uses is a row of kEngineVFXModulesV3 (the step's own constant list).
-        S::VFXModuleUse Use( const char* module, std::vector<S::VFXModuleInput> inputs )
+        // Every name the v51 step uses is a row of kEngineVFXModulesV3 (the step's own constant list), checked
+        // while compiling (EngineVFXModuleNameV3).
+        S::VFXModuleUse Use( EngineVFXModuleNameV3 module, std::vector<S::VFXModuleInput> inputs )
         {
             S::VFXModuleUse use;
-            use.Module = EngineVFXModuleRefV3( module ).value();
+            use.Module = EngineVFXModuleRefV3( kEngineVFXModulesV3[module.Index] );
             use.Inputs = std::move( inputs );
             return use;
         }

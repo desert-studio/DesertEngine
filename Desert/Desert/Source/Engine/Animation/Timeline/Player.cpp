@@ -3,8 +3,11 @@
 #include <rflcpp/rfl/enums.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace Desert::Animation::Timeline
 {

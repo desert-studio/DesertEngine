@@ -1,5 +1,6 @@
 #include "StartupMoviePlayer.hpp"
 
+#include <string>
 #include <utility>
 
 namespace Desert::Media

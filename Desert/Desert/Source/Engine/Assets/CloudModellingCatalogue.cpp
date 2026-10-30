@@ -1,6 +1,7 @@
 #include "CloudModellingCatalogue.hpp"
 
 #include <array>
+#include <cstdint>
 
 namespace Desert::Assets
 {

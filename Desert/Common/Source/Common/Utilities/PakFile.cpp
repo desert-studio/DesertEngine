@@ -8,10 +8,14 @@
 
 #include <bit>
 #include <climits>
+#include <cstdint>
 #include <cstring>
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 

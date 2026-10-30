@@ -30,11 +30,15 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Editor
 {

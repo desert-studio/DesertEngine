@@ -1,5 +1,7 @@
 #include "ContentBrowserHistory.hpp"
 
+#include <string>
+
 namespace Desert::Editor
 {
     void ContentBrowserHistory::Record( const std::string& path )

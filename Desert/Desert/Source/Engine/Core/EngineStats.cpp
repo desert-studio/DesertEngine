@@ -4,6 +4,8 @@
 
 #include <spdlog/fmt/fmt.h>
 
+#include <string>
+
 namespace Desert::Engine
 {
     void EngineStats::Update()

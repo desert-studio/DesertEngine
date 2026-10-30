@@ -2,6 +2,8 @@
 
 #include "TimelineFixtures.hpp"
 
+#include <vector>
+
 using namespace TimelineFixtures;
 
 // ── 1. On-disk integers ─────────────────────────────────────────────────────────────────────────────

@@ -7,6 +7,7 @@
 #include <glm/gtc/constants.hpp>
 
 #include <format>
+#include <optional>
 
 namespace Desert::Graphic::System
 {

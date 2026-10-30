@@ -3,11 +3,15 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstdint>
 #include <format>
 #include <mutex>
 #include <set>
 #include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace Desert::Graphic
 {

@@ -5,6 +5,8 @@
 #include "Passes/EditorToolPreviewPass.hpp"
 #include "Passes/EditorUIPass.hpp"
 
+#include <memory>
+
 namespace Desert::Editor::Render
 {
     // Owns the editor-side render passes injected into the scene render graph through the engine's

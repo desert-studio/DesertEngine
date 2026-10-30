@@ -2,6 +2,8 @@
 
 #include "IComponentWidget.hpp"
 
+#include <memory>
+
 namespace Desert::Editor
 {
     class SkyboxComponentWidget final : public IComponentWidget

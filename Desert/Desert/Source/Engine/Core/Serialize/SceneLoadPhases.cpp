@@ -1,6 +1,8 @@
 #include "SceneLoadPhases.hpp"
 
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace Desert::Core
 {

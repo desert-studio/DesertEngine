@@ -5,6 +5,8 @@
 
 #include <Common/Utilities/FileSystem.hpp>
 
+#include <string_view>
+
 namespace Common::Content
 {
     ResultStr<bool> WriteCanonicalJsonFileAtomic( const std::filesystem::path& file, std::string_view json )

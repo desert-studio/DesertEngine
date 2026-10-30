@@ -7,8 +7,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <limits>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace Desert::Editor::WorldPartitionMap
 {

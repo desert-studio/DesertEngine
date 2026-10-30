@@ -4,6 +4,8 @@
 
 #include "TimelineFixtures.hpp"
 
+#include <string>
+
 using namespace TimelineFixtures;
 
 // ── 3. Sections, tracks, the sequence ───────────────────────────────────────────────────────────────

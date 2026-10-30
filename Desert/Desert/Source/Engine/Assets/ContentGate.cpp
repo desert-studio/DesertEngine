@@ -1,5 +1,7 @@
 #include "ContentGate.hpp"
 
+#include <cstdint>
+
 namespace Desert::Assets
 {
     void ContentGate::BeginWorld( uint64_t startedCount )

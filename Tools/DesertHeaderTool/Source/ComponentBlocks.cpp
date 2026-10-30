@@ -4,7 +4,10 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <regex>
+#include <string>
+#include <vector>
 
 namespace Desert::HeaderTool
 {

@@ -3,7 +3,10 @@
 #include <meshoptimizer.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace Desert::Geometry
 {

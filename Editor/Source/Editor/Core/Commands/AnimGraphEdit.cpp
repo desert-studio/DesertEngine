@@ -2,9 +2,12 @@
 
 #include <Common/Core/Logger.hpp>
 
+#include <cstdint>
 #include <cstdio>
 #include <exception>
 #include <format>
+#include <optional>
+#include <string>
 #include <utility>
 
 namespace Desert::Editor

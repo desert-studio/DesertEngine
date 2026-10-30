@@ -1,6 +1,9 @@
 #include "CommandRegistry.hpp"
 
+#include <functional>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace Desert::Editor
 {

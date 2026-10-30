@@ -1,7 +1,10 @@
 #include "MeshAssetArrays.hpp"
 
+#include <array>
+#include <cstdint>
 #include <format>
 #include <string>
+#include <vector>
 
 namespace Desert::Geometry
 {

@@ -4,6 +4,8 @@
 
 #include <algorithm> // std::find, deduplicating the claimed extensions
 #include <format>
+#include <string>
+#include <vector>
 
 namespace Desert::Editor
 {

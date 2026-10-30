@@ -18,8 +18,8 @@ namespace Desert::Assets
 {
     namespace
     {
-        std::mutex            s_BuilderMutex;
-        GrassCoverLookBuilder s_Builder;
+        std::mutex            s_GrassCoverLookBuilderMutex;
+        GrassCoverLookBuilder s_GrassCoverLookBuilder;
 
         // The texture a material's chain assigns to @p name (child first): its asset path and derived-data key;
         // nullopt when nobody assigns one.
@@ -57,8 +57,8 @@ namespace Desert::Assets
 
         GrassCoverLookBuilder CurrentBuilder()
         {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            return s_Builder;
+            const std::lock_guard<std::mutex> lock( s_GrassCoverLookBuilderMutex );
+            return s_GrassCoverLookBuilder;
         }
     } // namespace
 
@@ -218,8 +218,8 @@ namespace Desert::Assets
 
     void SetGrassCoverLookBuilder( GrassCoverLookBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        const std::lock_guard<std::mutex> lock( s_GrassCoverLookBuilderMutex );
+        s_GrassCoverLookBuilder = std::move( builder );
     }
 
     Common::ResultStr<GrassCoverLook> LoadGrassCoverLook( const GrassCoverLookInput& input )

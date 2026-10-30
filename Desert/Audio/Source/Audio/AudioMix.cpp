@@ -1,5 +1,6 @@
 #include "AudioMix.hpp"
 
+#include <functional>
 #include <utility>
 
 namespace Desert::Audio

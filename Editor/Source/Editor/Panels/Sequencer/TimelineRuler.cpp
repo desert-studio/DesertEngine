@@ -1,5 +1,6 @@
 #include "TimelineRuler.hpp"
 
+#include <cstdint>
 #include <cstdio>
 
 namespace Desert::Editor::Sequencer

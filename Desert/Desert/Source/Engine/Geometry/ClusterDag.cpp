@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <string>
+#include <vector>
 
 // The DAG build is the meshoptimizer 1.3 clusterlod scheme (demo/clusterlod.h, MIT, zeux): clusterize ->
 // partition -> lock group borders -> simplify each group -> re-clusterize, with the bounds and error

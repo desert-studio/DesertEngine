@@ -4,6 +4,8 @@
 
 #include <filesystem>
 #include <format>
+#include <functional>
+#include <string>
 
 namespace Desert::Editor::AssetFileOps
 {

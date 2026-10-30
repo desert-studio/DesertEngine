@@ -2,7 +2,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace Desert::Editor::Graph
 {

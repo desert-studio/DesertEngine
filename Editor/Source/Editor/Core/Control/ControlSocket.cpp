@@ -4,6 +4,7 @@
 #include <Common/Core/Logger.hpp>
 
 #include <algorithm>
+#include <optional>
 
 namespace Desert::Editor::Control
 {

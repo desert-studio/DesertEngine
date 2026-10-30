@@ -6,8 +6,11 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <cstdint>
 #include <string>
+#include <string_view>
 #include <unordered_set>
+#include <vector>
 
 namespace Desert::Animation
 {

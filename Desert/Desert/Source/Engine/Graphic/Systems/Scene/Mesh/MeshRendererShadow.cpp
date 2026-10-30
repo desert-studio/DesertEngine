@@ -4,6 +4,7 @@
 #include <Engine/Graphic/Materials/SceneResources.hpp>
 
 #include <format>
+#include <unordered_set>
 
 namespace
 {

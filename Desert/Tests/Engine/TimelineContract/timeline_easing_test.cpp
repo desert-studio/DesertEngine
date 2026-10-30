@@ -4,6 +4,9 @@
 
 #include "TimelineFixtures.hpp"
 
+#include <cmath>
+#include <vector>
+
 using namespace TimelineFixtures;
 
 // ── 6. Easing presets ───────────────────────────────────────────────────────────────────────────────

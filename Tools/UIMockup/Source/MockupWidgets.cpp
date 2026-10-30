@@ -3,6 +3,7 @@
 #include <Editor/Core/ThemeManager.hpp>
 
 #include <array>
+#include <string_view>
 
 // Every mockup the tool knows. A new mockup is one file under Mockups/ plus one declaration and one row here.
 namespace Desert::UIMockup::Mockups

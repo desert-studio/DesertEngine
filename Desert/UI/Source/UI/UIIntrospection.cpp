@@ -1,8 +1,10 @@
 #include "UIIntrospection.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <unordered_set>
+#include <vector>
 
 namespace Desert::UI
 {

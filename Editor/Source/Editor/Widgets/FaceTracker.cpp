@@ -1,8 +1,12 @@
 #include "FaceTracker.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <string>
 #include <system_error>
+#include <vector>
 
 #if defined( DESERT_WITH_DLIB )
 #include <dlib/array2d.h>

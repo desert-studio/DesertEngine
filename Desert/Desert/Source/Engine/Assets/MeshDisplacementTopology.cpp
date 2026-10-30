@@ -10,8 +10,8 @@ namespace Desert::Assets
 {
     namespace
     {
-        std::mutex                  s_BuilderMutex;
-        DisplacementTopologyBuilder s_Builder;
+        std::mutex                  s_DisplacementTopologyBuilderMutex;
+        DisplacementTopologyBuilder s_DisplacementTopologyBuilder;
     } // namespace
 
     uint64_t DisplacementTopologyDerivedDataKey( const uint64_t renderDataKey )
@@ -23,8 +23,8 @@ namespace Desert::Assets
 
     void SetDisplacementTopologyBuilder( DisplacementTopologyBuilder builder )
     {
-        const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-        s_Builder = std::move( builder );
+        const std::lock_guard<std::mutex> lock( s_DisplacementTopologyBuilderMutex );
+        s_DisplacementTopologyBuilder = std::move( builder );
     }
 
     Common::ResultStr<std::string> BuildDisplacementTopologyBytes( const DisplacementTopologyBuildInput& input )
@@ -44,8 +44,8 @@ namespace Desert::Assets
         const uint64_t              key = DisplacementTopologyDerivedDataKey( renderDataKey );
         DisplacementTopologyBuilder builder;
         {
-            const std::lock_guard<std::mutex> lock( s_BuilderMutex );
-            builder = s_Builder;
+            const std::lock_guard<std::mutex> lock( s_DisplacementTopologyBuilderMutex );
+            builder = s_DisplacementTopologyBuilder;
         }
         std::string bytes;
         if ( !builder )

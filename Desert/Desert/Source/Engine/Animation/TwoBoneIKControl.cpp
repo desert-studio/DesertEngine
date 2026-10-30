@@ -4,6 +4,10 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 namespace Desert::Animation
 {
     namespace

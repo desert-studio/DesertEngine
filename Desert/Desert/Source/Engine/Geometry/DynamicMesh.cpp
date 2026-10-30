@@ -2,6 +2,9 @@
 
 #include "MeshLOD.hpp"
 
+#include <cstdint>
+#include <vector>
+
 namespace Desert
 {
     // THE WHOLE MESH GOES INTO A NEW POOL ALLOCATION (GeometryPool, static arena) on every upload: the first one,

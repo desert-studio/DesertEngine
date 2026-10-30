@@ -30,8 +30,10 @@
 #endif
 
 #include <algorithm>
+#include <cstdint>
 #include <format>
 #include <map>
+#include <string>
 
 namespace Common::Utils
 {

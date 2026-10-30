@@ -4,8 +4,10 @@
 
 #include <Common/Core/JobSystem.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <unordered_map>
 #include <vector>
 

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <format>
 #include <iterator>
+#include <string_view>
 
 namespace Desert::Editor::Graph
 {

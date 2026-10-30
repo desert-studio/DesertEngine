@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <format>
+#include <memory>
+#include <string>
 
 namespace Desert::Media
 {

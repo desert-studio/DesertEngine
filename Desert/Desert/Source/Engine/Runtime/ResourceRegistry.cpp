@@ -1,5 +1,7 @@
 #include "ResourceRegistry.hpp"
 
+#include <memory>
+
 namespace Desert::Runtime
 {
     namespace

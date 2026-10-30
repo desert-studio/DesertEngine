@@ -3,9 +3,15 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace Desert::Animation
 {

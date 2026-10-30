@@ -1,5 +1,6 @@
 #include "FramePacer.hpp"
 
+#include <cstdint>
 #include <thread>
 
 namespace Desert::Engine

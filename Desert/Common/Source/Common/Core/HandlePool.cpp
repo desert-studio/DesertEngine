@@ -1,5 +1,7 @@
 #include "HandlePool.hpp"
 
+#include <cstdint>
+
 namespace Common::Core
 {
     Handle HandlePool::Allocate()

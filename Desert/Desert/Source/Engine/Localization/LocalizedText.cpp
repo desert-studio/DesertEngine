@@ -1,7 +1,11 @@
 #include "LocalizedText.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
+#include <map>
+#include <string>
+#include <string_view>
 
 namespace Desert::Localization
 {

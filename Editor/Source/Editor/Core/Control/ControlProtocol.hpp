@@ -156,7 +156,7 @@ namespace Desert::Editor::Control
 
     /// The most numbers one `set` carries: a curve's key list of 64 keys of a float4 (time + four values each,
     /// VFX-13) - the widest property a document offers. A number property still takes exactly its own count.
-    inline constexpr std::size_t kMaxSetNumbers = 64 * 5;
+    inline constexpr std::size_t kMaxSetNumbers = std::size_t{ 64 } * 5;
 
     /// The table's answer for one operation. Yes for anything not in the table at all — an operation this
     /// build has never heard of is the last thing that should be run against a half-built editor.
