@@ -1,5 +1,6 @@
 #include <Engine/Graphic/DistanceField/DistanceFieldSceneData.hpp>
 
+#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/ShaderResources/StorageBuffer.hpp>
 
@@ -10,11 +11,6 @@
 
 namespace Desert::Graphic::DistanceField
 {
-    namespace DFShared
-    {
-#include <Common/DistanceFieldShared.glslh>
-    } // namespace DFShared
-
     // The shader-side layout and the asset format are one layout.
     static_assert( DFShared::DF_BRICK_SIZE == static_cast<int>( Assets::kDistanceFieldBrickSize ) );
     static_assert( DFShared::DF_UNIQUE_BRICK_SIZE == static_cast<int>( Assets::kDistanceFieldUniqueBrickSize ) );

@@ -148,6 +148,19 @@ if ! "$ROOT/scripts/CI/GenCompileCommands.sh" Debug; then
     exit 2
 fi
 
+# THE GENERATED SOURCES THE COMPILE LINES EXPECT ARE PRODUCED, NOT HOPED FOR. A configured tree has the
+# database but not what the build writes before it compiles (Common/Core/Version.gen.hpp, the
+# DesertHeaderTool codegen): analysing without them reports "file not found" as clang-diagnostic-errors.
+# DesertPrebuild (cmake/DesertWorkspace.cmake) runs exactly those steps and compiles nothing else.
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) TIDY_TREE="$ROOT/build/cmake/windows-msvc-ninja" ;;
+    *)                    TIDY_TREE="$ROOT/build/cmake/macos-clang-ninja" ;;
+esac
+if ! cmake --build "$TIDY_TREE" --config Debug --target DesertPrebuild; then
+    echo "clang-tidy: the build's generation steps (target DesertPrebuild) failed — see above. Gate did not run." >&2
+    exit 2
+fi
+
 # Homebrew's clang is not Xcode's, so it does not know where the macOS SDK is and cannot find
 # <memory>. The build's own command line does not carry -isysroot because Apple's driver supplies it
 # implicitly; this is the analyser's toolchain difference, not the build's, which is why it is added
@@ -393,16 +406,30 @@ echo "changed C++ files vs $BASE: $N_CHANGED, of which $COVERED are translation 
 # NAMED, NOT SILENT. A silent skip is how coverage disappears: this project spent a day undoing a
 # gate that skipped Windows and macOS entirely while looking like an ordinary red. These files are
 # listed on every run, so the hole is visible in the log rather than inferred from its absence.
+#
+# WHICH sources are foreign is CMake's answer, not a path pattern here: the platform split lives in the
+# CMakeLists (Desert/Desert: Platform/Windows/, Engine/Graphic/Upscalers/, Streamline/, FidelityFX/;
+# Editor: (Splash|Platform)/Windows/), and every one of them records what it leaves out with
+# desert_platform_foreign_sources(). desert_finalize_targets() writes that list next to the database.
+# A `*/Windows/*` pattern here called DLSSUpscaler.cpp an orphan (exit 2) because Upscalers/ has no
+# Windows/ component.
+FOREIGN_LIST="$TIDY_TREE/PlatformForeignSources.txt"
+if [ ! -f "$FOREIGN_LIST" ]; then
+    echo "clang-tidy: $FOREIGN_LIST is missing — the CMake configure writes it; re-configure first." >&2
+    exit 2
+fi
 PLATFORM_FOREIGN=""
 TRUE_ORPHANS=""
 for f in $ORPHANS; do
-    case "$f" in
-        # Any directory named Windows/Linux, not only Platform/: Editor/CMakeLists.txt removes
-        # Source/Editor/Splash/Windows/** off Windows, and the narrower pattern called the splash an
-        # orphan — exit 2 on every push that touched it (SP1), reported as an environment failure.
-        */Windows/*|*/Linux/*) PLATFORM_FOREIGN="$PLATFORM_FOREIGN $f" ;;
-        *)                     TRUE_ORPHANS="$TRUE_ORPHANS $f" ;;
-    esac
+    if FOREIGN="$f" LIST="$FOREIGN_LIST" python3 -c '
+import os, sys
+want = os.path.realpath(os.environ["FOREIGN"])
+listed = {os.path.realpath(l.strip()) for l in open(os.environ["LIST"], encoding="utf-8") if l.strip()}
+sys.exit(0 if want in listed else 1)'; then
+        PLATFORM_FOREIGN="$PLATFORM_FOREIGN $f"
+    else
+        TRUE_ORPHANS="$TRUE_ORPHANS $f"
+    fi
 done
 
 if [ -n "$PLATFORM_FOREIGN" ]; then

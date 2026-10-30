@@ -5,6 +5,7 @@
 #include <Engine/Graphic/GlobalIllumination/ScreenProbeGather.hpp>
 
 #include <Engine/Core/EngineContext.hpp>
+#include <Engine/Graphic/DistanceField/DistanceFieldShared.hpp>
 
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/Pipeline.hpp>
@@ -182,11 +183,6 @@ namespace
 
 namespace Desert::Graphic::GlobalIllumination
 {
-    namespace DFShared
-    {
-#include <Common/DistanceFieldShared.glslh>
-    } // namespace DFShared
-
     namespace
     {
         using Common::Math::DivideRoundUp;
@@ -212,7 +208,7 @@ namespace Desert::Graphic::GlobalIllumination
         // took past it has nothing left there.
         [[nodiscard]] float NearFieldEnd( const Tracer tracer )
         {
-            return tracer == Tracer::SoftwareDistanceField ? DFShared::DF_MESH_SDF_TRACE_DISTANCE
+            return tracer == Tracer::SoftwareDistanceField ? DistanceField::DFShared::DF_MESH_SDF_TRACE_DISTANCE
                                                            : std::numeric_limits<float>::max();
         }
 

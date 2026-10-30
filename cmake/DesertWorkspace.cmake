@@ -327,7 +327,12 @@ function(desert_prebuild target name)
         COMMENT "${ARG_COMMENT}"
         VERBATIM)
     set_source_files_properties("${_stamp}" PROPERTIES SYMBOLIC TRUE)
-    target_sources(${target} PRIVATE "${_stamp}")
+    # The step is its own target (<target>-<name>) that <target> depends on, so a tool that needs the generated
+    # sources and nothing else can build them: DesertPrebuild (desert_finalize_targets) depends on every step.
+    # One target owns the output; <target> only orders after it, so the command never runs twice in parallel.
+    add_custom_target(${target}-${name} DEPENDS "${_stamp}")
+    add_dependencies(${target} ${target}-${name})
+    set_property(GLOBAL APPEND PROPERTY DESERT_PREBUILD_TARGETS ${target}-${name})
 endfunction()
 
 # Collect every buildsystem target below a directory.
@@ -610,6 +615,31 @@ function(desert_finalize_targets)
         if(_no_unity)
             set_property(SOURCE ${_no_unity} TARGET_DIRECTORY ${target} PROPERTY SKIP_UNITY_BUILD_INCLUSION ON)
         endif()
+    endforeach()
+    # The sources this host leaves out of every target (desert_platform_foreign_sources), one absolute path per line.
+    # Tools that walk a change against compile_commands.json (scripts/CI/CheckTidy.sh) read this list to tell
+    # "compiled only on another platform" from "compiled nowhere" without re-deriving the platform split.
+    # DesertPrebuild: every generated source the compile lines expect (version header, reflection codegen),
+    # without compiling anything else. scripts/CI/CheckTidy.sh builds it before analysing a configured tree.
+    get_property(_prebuild GLOBAL PROPERTY DESERT_PREBUILD_TARGETS)
+    add_custom_target(DesertPrebuild)
+    if(_prebuild)
+        add_dependencies(DesertPrebuild ${_prebuild})
+    endif()
+
+    get_property(_foreign GLOBAL PROPERTY DESERT_PLATFORM_FOREIGN_SOURCES)
+    list(REMOVE_DUPLICATES _foreign)
+    list(SORT _foreign)
+    list(JOIN _foreign "\n" _foreign_text)
+    file(WRITE "${CMAKE_BINARY_DIR}/PlatformForeignSources.txt" "${_foreign_text}\n")
+endfunction()
+
+# Records sources that belong to a platform other than this host's and are therefore in no target here.
+# desert_finalize_targets() writes the list to <build>/PlatformForeignSources.txt.
+function(desert_platform_foreign_sources)
+    foreach(src IN LISTS ARGN)
+        get_filename_component(_abs "${src}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+        set_property(GLOBAL APPEND PROPERTY DESERT_PLATFORM_FOREIGN_SOURCES "${_abs}")
     endforeach()
 endfunction()
 

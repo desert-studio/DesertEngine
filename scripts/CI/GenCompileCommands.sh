@@ -52,6 +52,25 @@ src, out, config = os.environ["SRC_DB"], os.environ["OUT_DB"], os.environ["CONFI
 entries = json.load(open(src, encoding="utf-8"))
 marker = "/" + config + "/"
 kept, total, configs_seen = [], 0, set()
+
+# THE PCH IS USED AS ITS HEADER, NOT AS ITS BINARY. A clang line from CMake carries
+# `-Xclang -include-pch -Xclang <...>/cmake_pch.hxx.pch` AND `-Xclang -include -Xclang <...>/cmake_pch.hxx`: the
+# .pch exists only after a build, and a tool reading this database (clang-tidy on a --gen-only tree) has none.
+# Dropping the -include-pch pair keeps the forced include of cmake_pch.hxx (written at configure), so the TU sees
+# exactly the headers the build gives it, parsed instead of loaded. MSVC lines (/Yu /Fp) are left as they are.
+import shlex
+def strip_pch(command):
+    if "-include-pch" not in command:
+        return command
+    args = shlex.split(command, posix=True)
+    out, i = [], 0
+    while i < len(args):
+        if args[i] == "-Xclang" and i + 3 < len(args) and args[i + 1] == "-include-pch" and args[i + 2] == "-Xclang":
+            i += 4
+            continue
+        out.append(args[i])
+        i += 1
+    return shlex.join(out)
 for e in entries:
     output = e.get("output", "").replace("\\", "/")
     for name in ("Debug", "Release", "Shipping"):
@@ -65,7 +84,10 @@ for e in entries:
     # instances, assimp's config): ThirdParty code at a build path, never a file a change can touch.
     if "/ThirdParty/" in "/" + path or "/build/generated/" in path:
         continue
-    kept.append({"directory": e["directory"], "file": path, "command": e["command"]})
+    # The precompiled-header TU (cmake_pch.hxx.cxx, CMake writes it at configure) is the build's cache, not a source.
+    if os.path.basename(path).startswith("cmake_pch."):
+        continue
+    kept.append({"directory": e["directory"], "file": path, "command": strip_pch(e["command"])})
 
 if config not in configs_seen:
     sys.exit(f"GenCompileCommands: {src} holds no {config} entries (configurations seen: {sorted(configs_seen)})")
