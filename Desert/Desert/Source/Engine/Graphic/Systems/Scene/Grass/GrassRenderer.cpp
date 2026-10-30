@@ -474,6 +474,15 @@ namespace Desert::Graphic::System
                  GrassBladeShapeGpu{ glm::vec4( b.Height, b.Stiffness, b.Curvature, static_cast<float>( cards ) ),
                                      glm::vec4( b.CurvatureSpread, b.BendSpread, 0.0f, 0.0f ) };
             std::copy_n( b.Cards.begin(), cards, gpu.ShapeData.Cards.begin() );
+            // The variety's rows of this frame's raster stream (GRASS-VIS): instance i is row VisibilityRow + i
+            // of the view's visibility buffer, the bucket table tells the resolve which strip level drew it.
+            gpu.VisibilityRow = m_VisibilityRows;
+            m_VisibilityRows += std::max( capacity, 1u );
+            gpu.ShapeData.Visibility =
+                 glm::uvec4( gpu.VisibilityRow, b.Segments, std::min( buckets, kGrassBladeVisibilityMaxBuckets ), 0u );
+            for ( uint32_t bucket = 0, first = 0; bucket < std::min( buckets, kGrassBladeVisibilityMaxBuckets );
+                  first += capacities[bucket], ++bucket )
+                gpu.ShapeData.BucketFirst[bucket / 4u][bucket % 4u] = first;
             if ( const auto wrote = gpu.Shape->SetData( &gpu.ShapeData, sizeof( gpu.ShapeData ) );
                  !wrote.IsSuccess() )
             {
@@ -568,7 +577,8 @@ namespace Desert::Graphic::System
                                   const bool rayTracing )
     {
         m_Frame.clear();
-        m_Settling = false;
+        m_Settling       = false;
+        m_VisibilityRows = 0;
         m_BladeRayTracing.BeginFrame( rayTracing );
         if ( m_Queue.empty() || !m_Generate || !m_Finalize )
             return;

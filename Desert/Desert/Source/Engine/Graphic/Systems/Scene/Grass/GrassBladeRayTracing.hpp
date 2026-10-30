@@ -43,8 +43,14 @@ namespace Desert::Graphic::System
         glm::vec4                Size;    // Height, Stiffness, Curvature, card count
         glm::vec4                Bend;    // CurvatureSpread, BendSpread
         std::array<glm::vec4, 8> Cards{}; // u0, v tip, u1, v root (GRASS_BLADE_MAX_CARDS)
+        // GRASS-VIS: x = the variety's first visibility-buffer raster-stream row, y = the strip's level-0
+        // segments, z = its bucket count (GrassRenderer::PrepareVariety).
+        glm::uvec4                Visibility{ 0u };
+        std::array<glm::uvec4, 2> BucketFirst{}; // the first instance of bucket b < 8, [b / 4][b % 4]
     };
-    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 );
+    static_assert( sizeof( GrassBladeShapeGpu ) == 32 + 16 * 8 + 16 * 3 );
+    // The strip levels BucketFirst holds (a blade's buckets are its strip's levels: Segments halved down to one).
+    inline constexpr uint32_t kGrassBladeVisibilityMaxBuckets = 8u;
 
     // ONE level of the blade strip in blade space: (level + 1) rows of two vertices, position (side -1/+1, height
     // share t 0..1, 0), uv (side / 2 + 1/2, t), and two triangles per segment. GrassRenderer::BladeStrip draws it,

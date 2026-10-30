@@ -1,0 +1,26 @@
+// Surface cell pass: THE VISIBILITY BUFFER RASTER (GRASS-VIS, MeshRenderer "Grass: Visibility Raster"; UE 5 Nanite's
+// programmable raster into VisBuffer64, NaniteRasterizer.usf WritePixel). No colour attachment: the view's depth is
+// bound read-only and tested before this stage runs (early fragment tests, nothing written), so a blade behind the
+// opaque scene costs no atomic; a surviving fragment of a Masked template clips by the material's own opacity mask
+// (DESERT_SURFACE_CLIP, the line every masked cell clips with), then atomic-maxes its reversed-Z depth over its
+// raster-stream row and triangle into the pixel's word (Common/VisibilityBuffer.glslh). The nearest blade wins the
+// word whatever order the draws ran in: no overdraw is ever SHADED - the material runs once per pixel, in the
+// resolve (Pass_VisibilityResolve.glslh).
+#include <Common/MaterialTransport.glslh>
+#include <Common/VisibilityBuffer.glslh>
+
+layout( early_fragment_tests ) in;
+
+DESERT_SURFACE_VARYINGS( in )
+layout( location = 15 ) flat in uint v_VisibilityRow;
+
+void main()
+{
+    DESERT_SURFACE_BEGIN_FRAGMENT();
+#ifdef DESERT_SURFACE_MASKED
+    const SurfaceInput i = DesertSurfaceInput( v_Surface.WorldPosition, v_Surface.Normal, v_Surface.UV0, v_Surface.TBN,
+                                               v_Surface.UV1, v_Surface.VertexColor, gl_FrontFacing );
+    DESERT_SURFACE_CLIP( i );
+#endif
+    DesertWriteVisibility( ivec2( gl_FragCoord.xy ), gl_FragCoord.z, v_VisibilityRow, uint( gl_PrimitiveID ) );
+}

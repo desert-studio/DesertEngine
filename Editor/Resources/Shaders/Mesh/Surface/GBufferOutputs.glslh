@@ -1,0 +1,40 @@
+#ifndef DESERT_GBUFFER_OUTPUTS_GLSLH
+#define DESERT_GBUFFER_OUTPUTS_GLSLH
+// THE G-BUFFER TEXEL'S ONE WRITER: the six colour slots of Graphic::GBufferLayout (ViewTargetLayouts.hpp) and how a
+// surface fills them. Included by the two pass headers that write the G-buffer: the raster (Pass_GBuffer.glslh) and
+// the visibility resolve (Pass_VisibilityResolve.glslh, GRASS-VIS), so a texel means the same whichever wrote it.
+// Needs SurfaceInput / SurfaceOutput (SurfaceTypes.glslh) and DESERT_SHADING_MODEL_INDEX (the parser).
+#include <Generated/ShadingModels.glslh>
+
+layout( location = 0 ) out vec4 oGBufferA;            // BaseColor.rgb, Metallic.a
+layout( location = 1 ) out vec4 oGBufferB;            // world Normal.rgb, Roughness.a
+layout( location = 2 ) out uvec2 oGBufferShadingWord; // RG32_UINT shading word (ShadingModelContract.glslh); no
+                                                      // world position: readers reconstruct it from the depth
+layout( location = 3 ) out vec4 oGBufferEmissive;     // Emissive.rgb (HDR; the deferred resolve adds it), AO.a
+// The view's velocity (Graphic::kVelocityFormat, slot 4 of the G-buffer target): the writer writes the view's depth,
+// so it writes the same surface's motion.
+#include <Common/Velocity.glslh>
+layout( location = 4 ) out vec4 oVelocity;
+// The view's thin-geometry coverage (slot 5 of the G-buffer target, Common/ThinGeometryCoverage.glslh): the writer
+// writes the view's depth, so it says what material won it.
+#include <Common/ThinGeometryCoverage.glslh>
+layout( location = 5 ) out float oThinGeometryCoverage;
+
+// @p castsContactShadow: the primitive's contact-shadow cast (UE bCastContactShadow), as its draw states it.
+void DesertWriteGBuffer( const SurfaceInput i, const SurfaceOutput s, const vec4 clip, const vec4 prevClip,
+                         const float objectMoved, const bool castsContactShadow )
+{
+    oGBufferA = vec4( s.BaseColor, s.Metallic );
+    oGBufferB = vec4( DesertSurfaceWorldNormal( i, s ), max( s.Roughness, 0.04 ) );
+    const uvec2 word =
+         DesertPackShadingWord( DESERT_SHADING_MODEL_INDEX, s.SampledTextureCount, s.Specular,
+                                DesertPayload( s.CustomData0, s.CustomData1, s.CustomData2, s.CustomData3 ) );
+    // The material's sun-shadow receive, then the primitive's contact-shadow cast.
+    oGBufferShadingWord = DesertMarkContactShadowCast(
+         DesertMarkSunSelfShadow( DesertMarkSunShadowReceive( word, s.ReceiveSunShadows ), s.SunSelfShadow ),
+         castsContactShadow );
+    oGBufferEmissive      = vec4( s.Emissive, s.AmbientOcclusion );
+    oVelocity             = DesertVelocity( clip, prevClip, objectMoved );
+    oThinGeometryCoverage = DesertThinGeometryCoverage( DESERT_SHADING_MODEL_INDEX );
+}
+#endif
