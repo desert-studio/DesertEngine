@@ -66,6 +66,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -397,11 +398,57 @@ namespace Desert::Core::Rules
                                                     "': its ParentLayer chain loops back on itself" );
                 at = parent;
             }
+            // SPATIAL LOADING (WP-FAR-8): both numbers or neither; positive and finite.
+            if ( layer.CellSize.has_value() != layer.LoadingRange.has_value() )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                "' states one of CellSize and LoadingRange; a spatially loaded "
+                                                "layer states both, an always-loaded one neither" );
+            const bool spatial = layer.CellSize.has_value();
+            if ( spatial && !( std::isfinite( *layer.CellSize ) && *layer.CellSize > 0.0f &&
+                               std::isfinite( *layer.LoadingRange ) && *layer.LoadingRange > 0.0f ) )
+                return Common::MakeError<bool>( std::format(
+                     "HLOD layer '{}': CellSize {:f} and LoadingRange {:f} must both be positive and finite",
+                     layer.Name, *layer.CellSize, *layer.LoadingRange ) );
+            // NO HOLE AT ANY DISTANCE: beyond a spatially loaded layer's range only its parent stands in, so the
+            // chain must go on; and an always-loaded layer's own cells never leave, so a parent of it is never
+            // drawn - a setting nobody sees.
+            if ( spatial && !layer.ParentLayer.has_value() )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                "' is spatially loaded and names no ParentLayer: beyond its "
+                                                "LoadingRange nothing would stand in for its cells" );
+            if ( !spatial && layer.ParentLayer.has_value() )
+                return Common::MakeError<bool>( "HLOD layer '" + layer.Name +
+                                                "' is always loaded and names "
+                                                "ParentLayer '" +
+                                                *layer.ParentLayer +
+                                                "', whose HLODs would never be drawn; state its CellSize and "
+                                                "LoadingRange or drop the parent" );
+            // A parent must reach further than its child, or the band where the child's cell has left and the
+            // parent's has not arrived is a hole.
+            if ( spatial )
+            {
+                const HLODLayerSerialized* parent = FindHLODLayer( partition, *layer.ParentLayer );
+                if ( parent->LoadingRange.has_value() && !( *parent->LoadingRange > *layer.LoadingRange ) )
+                    return Common::MakeError<bool>( std::format(
+                         "HLOD layer '{}' (LoadingRange {:f}) has ParentLayer '{}' with LoadingRange {:f}; a "
+                         "parent must load further out than its child",
+                         layer.Name, *layer.LoadingRange, parent->Name, *parent->LoadingRange ) );
+            }
         }
         for ( const WorldPartitionGridSerialized& grid : partition.Grids )
+        {
             if ( grid.HLODLayer.has_value() && FindHLODLayer( partition, *grid.HLODLayer ) == nullptr )
                 return Common::MakeError<bool>( "grid '" + grid.Name + "' names HLODLayer '" + *grid.HLODLayer +
                                                 "', which is no layer of this world's HLODLayers" );
+            const HLODLayerSerialized* layer =
+                 grid.HLODLayer.has_value() ? FindHLODLayer( partition, *grid.HLODLayer ) : nullptr;
+            if ( layer != nullptr && layer->LoadingRange.has_value() &&
+                 !( *layer->LoadingRange > grid.LoadingRange ) )
+                return Common::MakeError<bool>( std::format(
+                     "grid '{}' (LoadingRange {:f}) builds its HLODs with spatially loaded layer '{}' of "
+                     "LoadingRange {:f}; the layer must load further out than the cells it stands in for",
+                     grid.Name, grid.LoadingRange, layer->Name, *layer->LoadingRange ) );
+        }
         return Common::MakeSuccess( true );
     }
 

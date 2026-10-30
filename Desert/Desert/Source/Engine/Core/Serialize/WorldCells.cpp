@@ -2,6 +2,7 @@
 
 #include <Engine/Assets/Serialization/FoliageType.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyRules.hpp>
+#include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
 
 #include <Common/Content/AssetEnvelope.hpp>
 #include <Common/Content/ShaderAssetHeader.hpp>
@@ -481,6 +482,17 @@ namespace Desert::Core::WorldCells
         if ( auto layers = Rules::ValidateHLODLayers( *scene.WorldPartition ); !layers )
             return Common::MakeError<Result>( "'" + scene.SceneName + "': " + layers.GetError() );
         const bool anyHLODLayer = Rules::AnyGridHLODLayer( *scene.WorldPartition );
+        // A SPATIALLY LOADED HLOD LAYER IS PLAY'S ONLY (WP-FAR-8): the cooked index (IndexHLOD) holds one HLOD per
+        // cell, resident the whole session, and has no rows for HLOD cells or their parents; packing such a world
+        // would ship its parents nowhere and keep every child resident. Refused by name until the cooked world
+        // streams HLOD cells too.
+        if ( scene.WorldPartition->HLODLayers.has_value() )
+            for ( const HLODLayerSerialized& layer : *scene.WorldPartition->HLODLayers )
+                if ( layer.CellSize.has_value() )
+                    return Common::MakeError<Result>(
+                         "'" + scene.SceneName + "': HLOD layer '" + layer.Name +
+                         "' is spatially loaded (CellSize, LoadingRange), and a cooked world does not stream HLOD "
+                         "cells yet; cook it with an always-loaded layer" );
 
         const auto&                                   records = scene.Entities;
         std::unordered_map<Common::UUID, std::size_t> byId;
@@ -1180,6 +1192,14 @@ namespace Desert::Core::WorldCells
             return "HLOD_" + cellFile.substr( 0, cellFile.size() - kCellExtension.size() ) +
                    std::string( kBuiltHLODExtension );
         }
+
+        // A parent HLOD's file stem, by the HLOD cell it stands in for: `HLOD_H<layer grid>_<X>_<Z>`.
+        std::string ParentHLODFileStem( const Rules::HLODHierarchy& hierarchy, const Rules::HLODNode& node )
+        {
+            const Rules::HLODCell& child = hierarchy.Cells.at( node.StandsFor );
+            return std::format( "HLOD_H{}_{}_{}", hierarchy.GridOfLayer.at( child.Layer ), child.Coord.X,
+                                child.Coord.Z );
+        }
     } // namespace
 
     namespace
@@ -1290,6 +1310,54 @@ namespace Desert::Core::WorldCells
         std::set<std::uint64_t>         hlodIds;
         BuiltHLODIndex                  out;
         out.SceneName = scene.SceneName;
+        // One HLOD built and handed to the sink: @p members are the records it stands in for, @p cookedName names
+        // its ids (HLODRecordId), @p name is its saved file.
+        const auto build = [&]( BuiltHLODCell& row, const HLODLayerSerialized& hlodLayer,
+                                std::span<const std::size_t> members, float minVisibleDistance,
+                                const std::string& cookedName, const std::string& name ) -> Common::BoolResultStr
+        {
+            auto builtCell = Rules::BuildCellHLOD( hlodLayer, records, world, members, minVisibleDistance,
+                                                   customShader, issues, foliageInHLOD, meshBuilder, landscape );
+            if ( !builtCell )
+                return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + builtCell.GetError() );
+            const Rules::InstancingHLOD built = builtCell.ExtractValue();
+            row.Instances                     = built.Instances;
+            for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
+                row.NotInstanced.push_back(
+                     { static_cast<std::uint64_t>( *records[missing.Record].id ), missing.Reason } );
+            if ( built.Batches.empty() )
+                return BOOLSUCCESS;
+            // The records keep the ids a cook gives them (named by the cooked HLOD file), so a stored HLOD
+            // packed by the cook is the same world as one built by it.
+            CellPayload payload;
+            payload.World = scene.SceneName;
+            payload.Units.push_back( "HLOD " + row.Unit );
+            std::set<std::uint64_t> sources;
+            for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
+            {
+                const Common::UUID id = Rules::HLODRecordId( scene.SceneName, cookedName, batch );
+                if ( id.IsNull() || hp.ById.contains( id ) ||
+                     !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
+                    return Common::MakeError( std::format(
+                         "the HLOD id {} of batch {} in '{}' is null or already taken; rename the world",
+                         static_cast<std::uint64_t>( id ), batch, name ) );
+                row.Ids.push_back( static_cast<std::uint64_t>( id ) );
+                payload.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
+                for ( const std::size_t source : built.Batches[batch].Sources )
+                    sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
+            }
+            for ( const std::size_t member : members )
+                if ( sources.contains( static_cast<std::uint64_t>( *records[member].id ) ) )
+                    row.Sources.push_back( static_cast<std::uint64_t>( *records[member].id ) );
+            auto wrapped =
+                 Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
+            if ( !wrapped )
+                return Common::MakeError( wrapped.GetError() );
+            if ( auto sunk = sink( CookedFile{ name, wrapped.ExtractValue() } ); !sunk )
+                return Common::MakeError( "'" + scene.SceneName + "', " + row.Unit + ": " + sunk.GetError() );
+            row.File = name;
+            return BOOLSUCCESS;
+        };
         for ( std::size_t unit = hp.Plan.AlwaysLoaded.size(); unit < hp.Members.size(); ++unit )
         {
             const Rules::PlannedCell& cell = hp.Plan.Cells.at( unit - hp.Plan.AlwaysLoaded.size() );
@@ -1299,58 +1367,39 @@ namespace Desert::Core::WorldCells
             // The layer is the cell's GRID's (WP22c): a grid that states none gives its cells a row with no file.
             const HLODLayerSerialized* const hlodLayer =
                  Rules::GridHLODLayer( *scene.WorldPartition, scene.WorldPartition->Grids.at( cell.Grid ) );
-            if ( hlodLayer == nullptr )
-            {
-                out.Cells.push_back( std::move( row ) );
+            if ( hlodLayer != nullptr )
+                if ( auto built = build( row, *hlodLayer, hp.Members[unit],
+                                         Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
+                                         HLODFileName( CellFileName( cell ) ), BuiltHLODFileName( cell ) );
+                     !built )
+                    return Common::MakeError<Result>( built.GetError() );
+            out.Cells.push_back( std::move( row ) );
+        }
+        // THE PARENTS (WP-FAR-8, WorldPartitionHLODHierarchy.hpp): per HLOD cell of a spatially loaded layer, the
+        // HLOD of its ParentLayer, built from the records of every world cell beneath it and seen from the child
+        // layer's LoadingRange on. Their rows follow the cells', keyed by the node's name.
+        auto hierarchy = Rules::PlanHLODHierarchy( *scene.WorldPartition, hp.Plan );
+        if ( !hierarchy )
+            return Common::MakeError<Result>( "'" + scene.SceneName + "': " + hierarchy.GetError() );
+        const std::vector<HLODLayerSerialized>& layers = *scene.WorldPartition->HLODLayers;
+        for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
+        {
+            if ( !node.ForHLODCell )
                 continue;
-            }
-            auto builtCell =
-                 Rules::BuildCellHLOD( *hlodLayer, records, world, hp.Members[unit],
-                                       Rules::HLODMinVisibleDistance( *scene.WorldPartition, hp.Plan, unit ),
-                                       customShader, issues, foliageInHLOD, meshBuilder, landscape );
-            if ( !builtCell )
-                return Common::MakeError<Result>( "'" + scene.SceneName + "', " + row.Unit + ": " +
-                                                  builtCell.GetError() );
-            const Rules::InstancingHLOD built = builtCell.ExtractValue();
-            row.Instances                     = built.Instances;
-            for ( const Rules::HLODNotInstanced& missing : built.NotInstanced )
-                row.NotInstanced.push_back(
-                     { static_cast<std::uint64_t>( *records[missing.Record].id ), missing.Reason } );
-            if ( !built.Batches.empty() )
-            {
-                // The records keep the ids a cook gives them (named by the cooked HLOD file), so a stored HLOD
-                // packed by the cook is the same world as one built by it.
-                const std::string cookedName = HLODFileName( CellFileName( cell ) );
-                const std::string name       = BuiltHLODFileName( cell );
-                CellPayload       payload;
-                payload.World = scene.SceneName;
-                payload.Units.push_back( "HLOD " + row.Unit );
-                std::set<std::uint64_t> sources;
-                for ( std::size_t batch = 0; batch < built.Batches.size(); ++batch )
-                {
-                    const Common::UUID id = Rules::HLODRecordId( scene.SceneName, cookedName, batch );
-                    if ( id.IsNull() || hp.ById.contains( id ) ||
-                         !hlodIds.insert( static_cast<std::uint64_t>( id ) ).second )
-                        return Common::MakeError<Result>( std::format(
-                             "the HLOD id {} of batch {} in '{}' is null or already taken; rename the world",
-                             static_cast<std::uint64_t>( id ), batch, name ) );
-                    row.Ids.push_back( static_cast<std::uint64_t>( id ) );
-                    payload.Records.push_back( Rules::HLODRecord( built.Batches[batch], id, batch ) );
-                    for ( const std::size_t source : built.Batches[batch].Sources )
-                        sources.insert( static_cast<std::uint64_t>( *records[source].id ) );
-                }
-                for ( const std::size_t member : hp.Members[unit] )
-                    if ( sources.contains( static_cast<std::uint64_t>( *records[member].id ) ) )
-                        row.Sources.push_back( static_cast<std::uint64_t>( *records[member].id ) );
-                auto wrapped =
-                     Wrap( CC::ContentKind::WorldCell, scene.SceneName, name, Common::Json::Write( payload ) );
-                if ( !wrapped )
-                    return Common::MakeError<Result>( wrapped.GetError() );
-                if ( auto sunk = sink( CookedFile{ name, wrapped.ExtractValue() } ); !sunk )
-                    return Common::MakeError<Result>( "'" + scene.SceneName + "', " + row.Unit + ": " +
-                                                      sunk.GetError() );
-                row.File = name;
-            }
+            std::vector<std::size_t> members;
+            for ( const std::size_t unit : node.SourceUnits )
+                members.insert( members.end(), hp.Members.at( unit ).begin(), hp.Members.at( unit ).end() );
+            std::sort( members.begin(), members.end() );
+            const Rules::HLODCell& child = hierarchy.GetValue().Cells.at( node.StandsFor );
+            const std::string      stem  = ParentHLODFileStem( hierarchy.GetValue(), node );
+            BuiltHLODCell          row;
+            row.Unit      = node.Name;
+            row.BuiltFrom = HLODBuildChecksum( records, members, *scene.WorldPartition );
+            if ( auto built =
+                      build( row, layers.at( node.Layer ), members, *layers.at( child.Layer ).LoadingRange,
+                             stem + std::string( kCellExtension ), stem + std::string( kBuiltHLODExtension ) );
+                 !built )
+                return Common::MakeError<Result>( built.GetError() );
             out.Cells.push_back( std::move( row ) );
         }
         Common::Json::ReportIssues( issues, scene.SceneName );
@@ -1486,6 +1535,23 @@ namespace Desert::Core::WorldCells
                  row->second->BuiltFrom !=
                       HLODBuildChecksum( scene.Entities, hp.Members[unit], *scene.WorldPartition ) )
                 stale.push_back( hp.Names[unit] );
+        }
+        // The parents (WP-FAR-8): each over the records of every cell beneath it.
+        auto hierarchy = Rules::PlanHLODHierarchy( *scene.WorldPartition, hp.Plan );
+        if ( !hierarchy )
+            return Common::MakeError<std::vector<std::string>>( hierarchy.GetError() );
+        for ( const Rules::HLODNode& node : hierarchy.GetValue().Nodes )
+        {
+            if ( !node.ForHLODCell )
+                continue;
+            std::vector<std::size_t> members;
+            for ( const std::size_t unit : node.SourceUnits )
+                members.insert( members.end(), hp.Members.at( unit ).begin(), hp.Members.at( unit ).end() );
+            std::sort( members.begin(), members.end() );
+            const auto row = rows.find( node.Name );
+            if ( row == rows.end() ||
+                 row->second->BuiltFrom != HLODBuildChecksum( scene.Entities, members, *scene.WorldPartition ) )
+                stale.push_back( node.Name );
         }
         return Common::MakeSuccess( std::move( stale ) );
     }

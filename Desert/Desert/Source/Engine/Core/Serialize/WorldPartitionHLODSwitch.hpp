@@ -36,6 +36,7 @@
 // proxy. What this adds is that the hole is never silent: DescribeHLODHoles names them by reason, and the
 // streamer says it once when streaming begins. The rest of the cell's HLOD is drawn as usual.
 
+#include <Engine/Core/Serialize/WorldPartitionHLODHierarchy.hpp>
 #include <Engine/Core/Serialize/WorldPartitionHLODRules.hpp>
 #include <Engine/Core/Serialize/WorldPartitionResidencyExecutor.hpp>
 #include <Engine/Core/TextTemplate.hpp>
@@ -99,19 +100,86 @@ namespace Desert::Core::Rules
             return Common::MakeSuccess( std::move( runtime ) );
         }
 
+        // THE HIERARCHY STREAMED (WP-FAR-8, WorldPartitionHLODHierarchy.hpp): one HLOD per node of @p hierarchy,
+        // in node order, over the world's @p plan and the HLOD residency @p residency made from that hierarchy. A
+        // node standing in for an HLOD cell reads that cell's state in the HLOD residency; a node living in an
+        // HLOD cell has entities only while that cell is Activated.
+        [[nodiscard]] static Common::ResultStr<HLODRuntime> Make( const WorldPartitionPlan& plan,
+                                                                  const HLODHierarchy&      hierarchy,
+                                                                  const HLODResidency&      residency )
+        {
+            const std::size_t units     = ResidencyUnitCount( plan );
+            const std::size_t hlodUnits = ResidencyUnitCount( residency.Plan );
+            HLODRuntime       runtime;
+            runtime.m_HLODOfUnit.assign( units, kNoRecord );
+            runtime.m_HLODUnits = hlodUnits;
+            runtime.m_Applied.assign( hierarchy.Nodes.size(), kNotApplied );
+            for ( std::size_t hlod = 0; hlod < hierarchy.Nodes.size(); ++hlod )
+            {
+                const HLODNode& node = hierarchy.Nodes[hlod];
+                if ( node.ForHLODCell )
+                {
+                    const std::size_t unit = residency.Plan.AlwaysLoaded.size() + node.StandsFor;
+                    if ( node.StandsFor >= hierarchy.Cells.size() || unit >= hlodUnits )
+                        return Common::MakeError<HLODRuntime>(
+                             std::format( "HLOD '{}' stands in for HLOD cell {} of {}", node.Name, node.StandsFor,
+                                          hierarchy.Cells.size() ) );
+                    runtime.m_UnitOfHLOD.push_back( unit );
+                }
+                else
+                {
+                    if ( node.StandsFor >= units || node.StandsFor < plan.AlwaysLoaded.size() )
+                        return Common::MakeError<HLODRuntime>(
+                             std::format( "HLOD '{}' stands in for unit {} of {}, which is no cell", node.Name,
+                                          node.StandsFor, units ) );
+                    if ( runtime.m_HLODOfUnit[node.StandsFor] != kNoRecord )
+                        return Common::MakeError<HLODRuntime>( "cell " + node.Name + " has two HLODs" );
+                    runtime.m_HLODOfUnit[node.StandsFor] = hlod;
+                    runtime.m_UnitOfHLOD.push_back( node.StandsFor );
+                }
+                runtime.m_ForHLODUnit.push_back( node.ForHLODCell ? 1 : 0 );
+                const std::size_t residesIn = residency.UnitOfNode.at( hlod );
+                if ( residesIn >= hlodUnits )
+                    return Common::MakeError<HLODRuntime>(
+                         std::format( "HLOD '{}' lives in HLOD unit {} of {}", node.Name, residesIn, hlodUnits ) );
+                runtime.m_ResidesIn.push_back( residesIn );
+            }
+            return Common::MakeSuccess( std::move( runtime ) );
+        }
+
         // Brings every HLOD's visibility to !IsCellVisible( its cell ) in @p world, telling it only what changed
         // since the last call (the first call tells it everything). Returns how many HLODs were switched.
         [[nodiscard]] Common::ResultStr<std::size_t> Sync( const ResidencyState& state,
                                                            HLODVisibilityWorld&  world )
         {
+            return Sync( state, nullptr, world );
+        }
+
+        // The same over a streamed hierarchy: @p hlodState is the HLOD residency's (null for a runtime made from
+        // a unit list, whose HLODs are resident the whole session). An HLOD whose own cell is not Activated has
+        // no entities: nothing is told, and it is told again the frame its cell activates.
+        [[nodiscard]] Common::ResultStr<std::size_t> Sync( const ResidencyState& state, const ResidencyState* hlodState,
+                                                           HLODVisibilityWorld& world )
+        {
             if ( state.Units.size() != m_HLODOfUnit.size() )
                 return Common::MakeError<std::size_t>(
                      std::format( "the HLOD switch was made for {} unit(s), the residency has {}",
                                   m_HLODOfUnit.size(), state.Units.size() ) );
+            const bool streamed = !m_ResidesIn.empty();
+            if ( streamed && ( hlodState == nullptr || hlodState->Units.size() != m_HLODUnits ) )
+                return Common::MakeError<std::size_t>(
+                     std::format( "the HLOD switch was made for {} HLOD unit(s), the HLOD residency has {}",
+                                  m_HLODUnits, hlodState == nullptr ? 0 : hlodState->Units.size() ) );
             std::size_t switched = 0;
             for ( std::size_t hlod = 0; hlod < m_UnitOfHLOD.size(); ++hlod )
             {
-                const std::uint8_t visible = IsCellVisible( state.Units[m_UnitOfHLOD[hlod]].State ) ? 0 : 1;
+                if ( streamed && !IsCellVisible( hlodState->Units[m_ResidesIn[hlod]].State ) )
+                {
+                    m_Applied[hlod] = kNotApplied;
+                    continue;
+                }
+                const ResidencyState& of      = streamed && m_ForHLODUnit[hlod] == 1 ? *hlodState : state;
+                const std::uint8_t    visible = IsCellVisible( of.Units[m_UnitOfHLOD[hlod]].State ) ? 0 : 1;
                 if ( m_Applied[hlod] == visible )
                     continue;
                 world.SetHLODVisible( hlod, visible == 1 );
@@ -137,6 +205,12 @@ namespace Desert::Core::Rules
             return m_UnitOfHLOD.at( hlod );
         }
 
+        // Whether UnitOf( @p hlod ) is a unit of the HLOD residency (a parent) rather than of the world's plan.
+        [[nodiscard]] bool StandsForHLODUnit( std::size_t hlod ) const
+        {
+            return !m_ForHLODUnit.empty() && m_ForHLODUnit.at( hlod ) == 1;
+        }
+
     private:
         friend class Common::ResultStr<HLODRuntime>;
         HLODRuntime() = default;
@@ -146,6 +220,11 @@ namespace Desert::Core::Rules
         std::vector<std::size_t>  m_HLODOfUnit; // per unit: its HLOD, or kNoRecord
         std::vector<std::size_t>  m_UnitOfHLOD; // per HLOD
         std::vector<std::uint8_t> m_Applied;    // per HLOD: 0 hidden, 1 visible, kNotApplied before the first Sync
+        // A streamed hierarchy only (empty otherwise): per HLOD, 1 when UnitOf is an HLOD residency unit, and the
+        // HLOD residency unit it lives in; and how many units that residency has.
+        std::vector<std::uint8_t> m_ForHLODUnit;
+        std::vector<std::size_t>  m_ResidesIn;
+        std::size_t               m_HLODUnits = 0;
     };
 
     // ONE FRAME OF A PARTITIONED WORLD WITH HLODs: the residency tick, then the switch on the state it left —
@@ -158,6 +237,24 @@ namespace Desert::Core::Rules
         if ( !tick.IsSuccess() )
             return tick;
         if ( auto synced = hlods.Sync( executor.State(), hlodWorld ); !synced.IsSuccess() )
+            return Common::MakeError<ResidencyTick>( synced.GetError() );
+        return tick;
+    }
+
+    // ONE FRAME OF A WORLD WHOSE HLODs STREAM (WP-FAR-8): the world's tick, the HLOD residency's tick, then the
+    // switch on the states both left - so an HLOD cell that activates this frame has its HLODs shown or hidden
+    // before the frame is drawn, and its parent hidden in the same frame.
+    [[nodiscard]] inline Common::ResultStr<ResidencyTick>
+    TickWithHLODs( ResidencyExecutor& executor, ResidencyExecutor& hlodExecutor, HLODRuntime& hlods,
+                   std::span<const StreamingSource> sources, double nowSeconds, ResidencyWorld& world,
+                   ResidencyWorld& hlodCells, HLODVisibilityWorld& hlodWorld )
+    {
+        auto tick = executor.Tick( sources, nowSeconds, world );
+        if ( !tick.IsSuccess() )
+            return tick;
+        if ( auto hlodTick = hlodExecutor.Tick( sources, nowSeconds, hlodCells ); !hlodTick.IsSuccess() )
+            return Common::MakeError<ResidencyTick>( "the HLOD cells: " + hlodTick.GetError() );
+        if ( auto synced = hlods.Sync( executor.State(), &hlodExecutor.State(), hlodWorld ); !synced.IsSuccess() )
             return Common::MakeError<ResidencyTick>( synced.GetError() );
         return tick;
     }

@@ -247,6 +247,15 @@ namespace Desert::Core
         // mesh's triangles kept, in (0, 1]. Required on MeshSimplify and refused on any other type, so a
         // number nobody reads cannot sit in a file looking like a setting.
         std::optional<float> SimplifyTrianglePercent;
+        // UE UHLODLayer::bIsSpatiallyLoaded / CellSize / LoadingRange (WP-FAR-8): BOTH stated = the HLODs this
+        // layer builds are SPATIALLY LOADED - each lives in a square cell of CellSize cm (by the centre of what it
+        // stands in for) and is streamed by the same residency as a grid cell, within LoadingRange cm of a
+        // source; its ParentLayer's HLOD stands in for that cell while the cell is not resident. BOTH absent = the
+        // layer's HLODs are resident for the whole session (the top of a chain). One without the other, a
+        // spatially loaded layer with no ParentLayer (a hole beyond its range) and an always-loaded layer with a
+        // ParentLayer (a parent never drawn) are refused by Rules::ValidateHLODLayers.
+        std::optional<float> CellSize;
+        std::optional<float> LoadingRange;
 
         bool operator==( const HLODLayerSerialized& ) const = default;
     };

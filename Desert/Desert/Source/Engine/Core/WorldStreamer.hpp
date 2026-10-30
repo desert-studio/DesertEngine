@@ -36,6 +36,13 @@
 // or the same builder run over the snapshot (Begin). Its records are entities for the whole session, made
 // before the first frame, and only their Visibility changes — in the same Tick that activates or destroys the
 // cell (Serialize/WorldPartitionHLODSwitch.hpp), so a cell and its HLOD never both draw and never both miss.
+//
+// THE HLOD CELLS (WP-FAR-8). When a world's HLOD layer is spatially loaded (CellSize, LoadingRange), its HLODs
+// are not entities for the session: they live in HLOD cells streamed by a SECOND ResidencyExecutor over the
+// hierarchy's plan (Serialize/WorldPartitionHLODHierarchy.hpp) - read on workers, activated under the budget,
+// destroyed the frame they leave range - and only the top of each chain (an always-loaded layer) is made before
+// the first frame, one HLOD at a time. A city then holds the HLODs around its sources and one coarse top, not
+// every HLOD it has. Begin (Play) only: a cooked world refuses such a layer (WorldCells::CookWorld).
 
 #include <set>
 #include <Engine/Core/Serialize/SceneFormat.hpp>
@@ -237,6 +244,16 @@ namespace Desert::Core
         // once, by reason.
         [[nodiscard]] Common::BoolResultStr BeginHLODs( std::vector<CellHLOD>                 hlods,
                                                         std::span<const Rules::HLODExclusion> holes );
+        // THE HLOD CELLS (see the top): @p rows per node of @p hierarchy, its saved row (null when missing or
+        // stale - already said - or when it has no file), read from @p held. Makes the always-loaded nodes
+        // entities one at a time, starts the HLOD residency and shows what stands in now.
+        [[nodiscard]] Common::BoolResultStr
+        BeginHLODCells( Rules::HLODHierarchy hierarchy, std::shared_ptr<const WorldCells::StoredHLODs> held,
+                        std::vector<const WorldCells::BuiltHLODCell*> rows,
+                        std::span<const Rules::HLODExclusion>         holes );
+
+        // The ResidencyWorld of the HLOD cells: their reads, activations and destructions (WorldStreamer.cpp).
+        class HLODCellWorld;
 
         Scene*                m_Scene;
         Assets::AssetManager* m_Assets;
@@ -269,6 +286,12 @@ namespace Desert::Core
         // Per HLOD (the switch's index): the ids of its entities, which is how SetHLODVisible finds them.
         std::vector<std::vector<Common::UUID>> m_HLODIds;
         std::optional<Rules::HLODRuntime>      m_HLODs;
+        // A streamed hierarchy only (BeginHLODCells): the hierarchy, its residency, the executor that streams its
+        // cells and the world that executor acts on.
+        std::optional<Rules::HLODHierarchy>      m_HLODHierarchy;
+        std::optional<Rules::HLODResidency>      m_HLODResidency;
+        std::optional<Rules::ResidencyExecutor>  m_HLODExecutor;
+        std::unique_ptr<HLODCellWorld>           m_HLODCells;
         // False through BeginHLODs' first Sync (which sets every HLOD); after it each switch is logged.
         bool m_HLODSwitchesSaid = false;
 
