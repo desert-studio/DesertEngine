@@ -1,0 +1,15 @@
+# GI-EMISSIVE-LIGHTS-NORT (case 3 of GI-EMISSIVE-LIGHTS): the NO-RT path - no AS, no ray query, no RT pipeline, bufferDeviceAddress still on - still lights the walls beside the emissive shades under the software tracer: the emissive list reads the cached SCENE gather, not a TLAS.
+# Before the run: machine.json (ProjectContext::ConfigDirectory) has "HideRayTracing": true; the editor reads it at launch, so this is its own file. Played by .claude/tools/play_scenario.py <tree> Scenarios/Render/GI-EMISSIVE-LIGHTS-NORT.scn.
+# The "RT shown" reference is 2_night_swgi of GI-EMISSIVE-LIGHTS.scn (same scene, camera and method, machine.json without HideRayTracing).
+# The profile table (DesertCtl profile-dump) is the profiler's per-scope table averaged over the last 0.5 s, written to editor.log: dumped after frame 120 it covers the frames just before it (~100..120).
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -150,250,300
+Дано --subject viewport set Camera.Direction -0.3,0.05,-0.95
+Когда run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Когда state device
+Когда frames 120
+Когда profile-dump
+Тогда-вид 3_night_swgi_nort [gi_emissive_nort] state device bufferDeviceAddress = true, rt = "hidden"; walls/pavement beside the emissive shades lit (lamp-region mean luminance within noise of 2_night_swgi, far above a dev SW frame); no "[SceneRenderer] Surface Cache: the emissive lights" error in editor.log; the profile table in editor.log has no "RayTracingScene: SceneGather" row (only "RayTracingScene: SceneGatherKey"); 0 VUID
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Тогда 9_level override removed (machine.json clean of GlobalIllumination.Method; HideRayTracing is put back by hand)

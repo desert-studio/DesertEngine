@@ -26,7 +26,7 @@
 Когда --subject viewport drag 600,40 600,40 1
 Тогда-вид vg_raster_cut60 the frame the next Тогда lines compare (shot at this step)
 Когда --subject viewport drag 600,40 600,40 59
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_raster_2 [vg_raster] views.virtualGeometry.instances >= 1, binnedVgInstances == 0 (main AND cascade views: every cull view has a cut view), clustersDrawn > 0, shadowClustersDrawn > 0 (the sun's cascades draw the table's clusters), overflow 0
 Тогда vg_raster_3 [vg_raster] editor.log: 0 VUID, no "[MeshRenderer] ... has no `.VirtualGeometry` pipeline" for the table's cell, no "the view draws no virtual geometry this frame", no "occluded entries past the post carry's capacity"
 Тогда-вид vg_raster_4 [vg_raster] vg_raster_cut60.png (the frame right after the camera cut, where last frame's HZB is of the other camera): no missing cluster - pixel diff vs the bins-only frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
@@ -47,13 +47,13 @@
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
 Когда --subject viewport drag 600,40 600,40 120
 Тогда-вид vg_vsm_mixed120 the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_vsm_mixed_1 [vg_vsm_mixed] views.virtualGeometry.vsmClustersDrawn: one entry per clipmap level (17), > 0 on every level that drew pages (named per level in the report); views.virtualGeometry.vsmRefusedGroups == 0; views.virtualGeometry.vsmFallbackSubmeshes == the table's sections whose VSM caster template declares no `.VirtualGeometry` twin (0 with the shipped templates); overflow == 0 (the cut of 17 levels fits kMaxVisibleClustersPerCut)
 Тогда vg_vsm_mixed_2 [vg_vsm_mixed] editor.log: 0 VUID, no "has no `.VirtualGeometry` twin", no "the virtual shadow map draws its virtual geometry on the CPU walk"
 Тогда-вид vg_vsm_mixed_3 [vg_vsm_mixed] vg_vsm_mixed120.png: the table's shadow - pixel diff of the shadow vs the bins-only VSM frame of the same steps < 1% of pixels (pixel diff, not thumbnails)
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
 Когда --subject viewport drag 600,40 600,40 2
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_vsm_mixed_4 [vg_vsm_mixed] after switching back to cascades: views.virtualGeometry.vsmRefusedGroups == 0 and vsmFallbackSubmeshes == 0 (reset every frame the method is not VirtualMaps)
 Когда run View "View mode: Virtual Geometry Clusters"
 Тогда-вид vg_raster_6 [vg_raster] the table shows per-cluster colours on the same silhouette as the lit frame
@@ -96,13 +96,13 @@
 Тогда vg_masked_1 [vg_masked] editor.log: "[Import] '...BistroExterior_Lantern_Wind_2N.stmesh': Virtual Geometry on" for N = 1..5 and "[VirtualMeshTable] '...Lantern_Wind_2N...' registered N clusters" with N > 0 for each; no "Virtual Geometry refused" (refused == 0: a Masked material stands)
 Когда --subject viewport drag 600,40 600,40 60
 Тогда-вид vg_masked_on_csm the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_masked_2 [vg_masked] views.virtualGeometry.instances >= 5, binnedVgInstances == 0, clustersDrawn > 0, shadowClustersDrawn > 0 (the lanterns cast into the cascades through their clusters), overflow 0
 Тогда-вид vg_masked_3 [vg_masked] vg_masked_on_csm.png vs vg_masked_off_csm.png: the lanterns' holes (albedo alpha < 0.5) open in the same places, on the lanterns and in their sun shadows - pixel diff ≈ 0 (< 0.5% of pixels, numeric diff, not thumbnails); a lantern drawn solid (no clip) or clipped with another row's mask (Pass_VirtualShadowDepth's material row) fails it
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
 Когда --subject viewport drag 600,40 600,40 120
 Тогда-вид vg_masked_on_vsm the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_masked_4 [vg_masked] views.virtualGeometry.vsmClustersDrawn > 0 on the levels that drew pages, vsmRefusedGroups == 0, vsmFallbackSubmeshes == 0 (StandardSurfaceMasked declares its VirtualShadowDepth twin)
 Тогда-вид vg_masked_5 [vg_masked] vg_masked_on_vsm.png vs vg_masked_off_vsm.png: the lanterns' VSM shadows with the same holes - pixel diff ≈ 0 (< 0.5% of pixels)
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
@@ -153,13 +153,13 @@
 Тогда vg_ism_2 [vg_ism] editor.log: "[Import] '...Paris_Table_01___6__6503.stmesh': Virtual Geometry on", "[VirtualMeshTable] '...Paris_Table_01___6__6503...' registered N clusters" with N > 0, no "Virtual Geometry refused"
 Когда --subject viewport drag 600,40 600,40 60
 Тогда-вид vg_ism_on_csm the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_ism_3 [vg_ism] views.virtualGeometry.instances >= 2 (the field's instances are candidates), binnedVgInstances == 0, clustersDrawn > 0, shadowClustersDrawn > 0, overflow 0
 Тогда-вид vg_ism_4 [vg_ism] vg_ism_on_csm.png vs vg_ism_off_csm.png: pixel diff < 0.5% of pixels (numeric diff, not thumbnails; the field's cascade shadow drawn once - clusters, its CPU walk dropped by ClusterWalkHidden, step 25)
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 1
 Когда --subject viewport drag 600,40 600,40 120
 Тогда-вид vg_ism_on_vsm the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_ism_5 [vg_ism] views.virtualGeometry.vsmClustersDrawn > 0 on the levels that drew pages, vsmRefusedGroups == 0, vsmFallbackSubmeshes == 0 (the ISM queue is counted too)
 Тогда-вид vg_ism_6 [vg_ism] vg_ism_on_vsm.png vs vg_ism_off_vsm.png: pixel diff < 0.5% of pixels - the table's VSM shadow drawn once (clusters), not clusters + CPU walk (LOD acne / double cost)
 Когда set 6039035132485441499 PostProcessVolumeData.Settings.ShadowsMethod 0
@@ -180,7 +180,7 @@
 Когда --subject viewport set Debug.ForceVirtualGeometryCutRefusal 1
 Когда --subject viewport drag 600,40 600,40 120
 Тогда-вид vg_refused_on the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_refused_fallback_1 [vg_refused_fallback] editor.log: "every cluster cut refused (Debug 'Force Virtual Geometry Cut Refusal')" logged once; views.virtualGeometry.clustersDrawn == 0, shadowClustersDrawn == 0, binnedVgInstances == 0
 Когда --subject viewport set Debug.ForceVirtualGeometryCutRefusal 0
 Когда run Assets "Static Mesh: Virtual Geometry off"
@@ -196,7 +196,7 @@
 Когда run Assets "Static Mesh: Virtual Geometry on"
 Когда --subject viewport drag 600,40 600,40 120
 Тогда-вид vg_post_refused_on the frame the next Тогда lines compare (shot at this step)
-Когда state views.virtualGeometry
+Когда state views
 Тогда vg_refused_fallback_4 [vg_refused_fallback] editor.log: "the post-occlusion cluster cut refused (Debug 'Force Virtual Geometry Post Cut Refusal')" logged once; no "the clusters the main cut held back are not drawn"; views.virtualGeometry.clustersDrawn > 0
 Тогда-вид vg_refused_fallback_5 [vg_refused_fallback] vg_post_refused_on.png vs vg_refused_off.png: pixel diff < 0.5% of pixels (every visible cluster drawn by the frustum-only main cut; numeric diff, not thumbnails)
 Когда --subject viewport set Debug.ForceVirtualGeometryPostCutRefusal 0

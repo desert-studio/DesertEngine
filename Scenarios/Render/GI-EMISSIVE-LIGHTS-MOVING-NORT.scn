@@ -1,0 +1,22 @@
+# GI-EMISSIVE-LIGHTS-MOVING-NORT (case 4 of GI-EMISSIVE-LIGHTS): ONE emissive prop animated under the software tracer with no TLAS on any frame - the emissive list reads the cached SCENE gather and updates the moving prop's rows in place, never rebuilding.
+# The scene GI_Bistro_Night_MovingEmitter = GI_Bistro_Night + entity "MovingEmitter_Streetlight_Glass_01a" (7120000000000000900): a copy of one emissive lamp shade (static mesh, its own GPU-scene row, emissive material unchanged) with a ScriptComponent (assets:Scripts/Examples/OrbitCircle.lua, Luau OnUpdate: self:setPosition, EntityLibrary.hpp) moving it every frame on a 50 cm circle around its placement (translation only, sections/materials untouched).
+# Before the run: F:/BistroFoliageProj has that scene and script (its branch gi-emissive-incremental, 1a4161d, landed on main at the current content version); machine.json (ProjectContext::ConfigDirectory) has "HideRayTracing": true, read at launch.
+# The counters are the session's: the first `state device` (before Simulate) is subtracted from the one after frame 300. profile-dump writes the profiler's table averaged over the last 0.5 s to editor.log: after frame 1 it holds the first frames, after frame 300 the last ones.
+Проект ../BistroFoliageProj/Desert.deproj --scene Content/Scenes/GI_Bistro_Night_MovingEmitter.desce
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position -150,250,300
+Дано --subject viewport set Camera.Direction -0.3,0.05,-0.95
+Дано run Quality "Quality: GlobalIllumination.Method SoftwareTraced"
+Дано state device
+Когда run Action "Simulate"
+Когда frames 1
+Когда profile-dump
+Когда frames 149
+Тогда-вид 4_night_swgi_moving_f150 frame 150 of the simulation: the moving glass and the light it casts at its frame-150 position
+Когда frames 150
+Когда state device
+Когда profile-dump
+Тогда-вид 4_night_swgi_moving [gi_emissive_incremental] state device.emissiveLights over the 300 frames: gatherFullRebuilds == 1 and emissiveListFullRebuilds == 1 and gpuFullRebuilds == 1; gatherMoves, emissiveListMoves and gpuMoves each == the frames the prop moved (~299: its rows updated in place every frame); gpuMovesRetried == 0; profile: "RayTracingScene: SceneGather" and "EmissiveLights: Rebuild" only in the first dump, "RayTracingScene: SceneGatherMove" and "EmissiveLights: Move" in the last; the light the prop casts follows it (wall/pavement lit beside its current position, this frame vs 4_night_swgi_moving_f150 differ there and only there up to GI noise); the textured signs keep their look; 0 VUID
+Когда run Action "Stop"
+Когда run Quality "Quality: GlobalIllumination.Method Level"
+Тогда 9_level override removed (machine.json clean of GlobalIllumination.Method; HideRayTracing is put back by hand)
