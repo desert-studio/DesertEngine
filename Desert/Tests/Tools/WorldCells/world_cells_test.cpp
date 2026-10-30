@@ -629,7 +629,7 @@ TEST( WorldCells, TheToolCooksADirectoryVerifiesItFromDiskAndRemovesWhatAnEarlie
     std::ostringstream quiet;
     std::ostringstream said;
     EXPECT_EQ( Desert::WorldCook::RunWorldCook(
-                    { source.string(), "--project", project.string(), "--out", ( root / "cooked" ).string() },
+                    { source.string(), "--no-project", "--out", ( root / "cooked" ).string() },
                     quiet, said ),
                2 );
     EXPECT_NE( said.str().find( "--no-registry" ), std::string::npos ) << said.str();

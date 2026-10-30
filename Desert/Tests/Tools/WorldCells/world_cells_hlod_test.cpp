@@ -89,11 +89,17 @@ namespace
         return data;
     }
 
+    // A static mesh's material slot as the scene states it: the GUID and the file it was saved from.
+    Assets::AssetGuidRef Slot( const std::string& guid )
+    {
+        return Assets::AssetGuidRef{ guid, "Materials/" + guid + ".dmat" };
+    }
+
     Desert::Assets::StaticMeshComponentSer Cube()
     {
         Desert::Assets::StaticMeshComponentSer mesh;
         mesh.Primitive     = Desert::Geometry::PrimitiveType::Cube;
-        mesh.MaterialGuids = std::vector<std::string>{ kMaterial };
+        mesh.MaterialSlots = std::vector<Assets::AssetGuidRef>{ Slot( kMaterial ) };
         return mesh;
     }
 
@@ -489,7 +495,9 @@ namespace
         EntityData data = Record( id, "Cube", CellCentre( 1, 1 ) + glm::vec3( x, 0.0f, 0.0f ) );
         Desert::Assets::StaticMeshComponentSer mesh;
         mesh.Primitive     = Desert::Geometry::PrimitiveType::Cube;
-        mesh.MaterialGuids = std::move( materials );
+        mesh.MaterialSlots = std::vector<Assets::AssetGuidRef>{};
+        for ( const std::string& guid : materials )
+            mesh.MaterialSlots->push_back( Slot( guid ) );
         WithMesh( data, mesh );
         return data;
     }

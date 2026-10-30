@@ -11,6 +11,8 @@
 
 #include <Engine/Geometry/DynamicMeshAsset.hpp> // FDynamicMesh3
 
+#include <entt/entt.hpp>
+
 #include <filesystem>
 #include <memory>
 #include <string_view>

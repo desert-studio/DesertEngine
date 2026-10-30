@@ -571,7 +571,8 @@ TEST( EngineHost, AnUnwrittenMaterialStorageBufferIsNotAmongTheMaterialsWrittenS
     auto&                       renderer = Renderer::GetInstance();
     const Common::BoolResultStr begun    = renderer.BeginFrame();
     ASSERT_TRUE( begun.IsSuccess() ) << begun.GetError();
-    executor->Apply();
+    const Common::BoolResultStr prepared = executor->PrepareForRecording();
+    ASSERT_TRUE( prepared.IsSuccess() ) << prepared.GetError();
     auto*      backend = dynamic_cast<API::Vulkan::VulkanMaterialBackend*>( executor->GetMaterialBackend().get() );
     const auto slots   = backend->GetWrittenSlots( EngineContext::GetInstance().GetCurrentFrameIndex() );
     const Common::BoolResultStr presented = renderer.PresentFinalImage();
