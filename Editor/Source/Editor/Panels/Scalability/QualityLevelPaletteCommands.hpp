@@ -93,7 +93,7 @@ namespace Desert::Editor
         using Common::Scalability::QualityState;
 
         std::vector<PaletteCommand> commands;
-        const auto set = [&commands]( const Parameter parameter, const std::string_view key,
+        const auto                  set = [&commands]( const Parameter parameter, const std::string_view key,
                                       const std::string_view valueLabel, const ParameterValue value )
         {
             commands.push_back( { "Quality", std::format( "Quality: {} {}", key, valueLabel ),
