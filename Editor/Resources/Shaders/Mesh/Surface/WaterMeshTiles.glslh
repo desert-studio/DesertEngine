@@ -4,6 +4,9 @@
 #ifndef DESERT_WATER_MESH_TILES_GLSLH
 #define DESERT_WATER_MESH_TILES_GLSLH
 
+// WaterGroundDepth reads the WaterInfo texture (a texture2D, no sampler) with textureSize/texelFetch.
+#extension GL_EXT_samplerless_texture_functions : require
+
 struct WaterTileRow
 {
     vec4 Tile; // xy = lower (X, Z) corner relative to the zone origin, z = still level Y, w = side length
