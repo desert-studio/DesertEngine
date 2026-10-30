@@ -672,6 +672,8 @@ namespace Common::Scalability
         using Saver = Common::BoolResultStr ( * )( const QualitySelection& selection );
         static void Initialize( ScalabilityTable table, CapabilityCatalog catalog, QualitySelection saved,
                                 Saver save );
+        // Initialize has run: Selection() is the machine's, not the empty default before it.
+        [[nodiscard]] static bool Initialized();
         // An UNATTENDED run (a scenario, a capture: Editor::IsUnattendedSession) changes the quality of THIS
         // PROCESS only; the Saver is not called. UE: a cvar set by -ExecCmds or an automation test lives in the
         // process and never reaches GameUserSettings.ini. Without this, one scenario's

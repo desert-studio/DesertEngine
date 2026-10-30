@@ -209,12 +209,12 @@ TEST_F( GameUserSettingsTest, SaveThenLoadIsTheSameSettings )
     ASSERT_TRUE( SaveGameUserSettings( saved, User() ) );
     const auto loaded = LoadGameUserSettings( Project(), User() );
     ASSERT_TRUE( loaded ) << loaded.GetError();
-    EXPECT_EQ( loaded.GetValue(), saved );
+    EXPECT_EQ( loaded.GetValue().Settings, saved );
 
     // and a second save of what was loaded writes the same bytes: nothing drifts across rounds
     std::ifstream     first( UserGameUserSettingsFile( User() ) );
     const std::string before( ( std::istreambuf_iterator<char>( first ) ), {} );
-    ASSERT_TRUE( SaveGameUserSettings( loaded.GetValue(), User() ) );
+    ASSERT_TRUE( SaveGameUserSettings( loaded.GetValue().Settings, User() ) );
     std::ifstream second( UserGameUserSettingsFile( User() ) );
     EXPECT_EQ( std::string( ( std::istreambuf_iterator<char>( second ) ), {} ), before );
 }
@@ -228,12 +228,14 @@ TEST_F( GameUserSettingsTest, TheProjectDefaultsAnswerWhenThePlayerHasNoFile )
 
     const auto fromProject = LoadGameUserSettings( Project(), User() );
     ASSERT_TRUE( fromProject ) << fromProject.GetError();
-    EXPECT_EQ( fromProject.GetValue().Language, "en" );
+    EXPECT_EQ( fromProject.GetValue().Settings.Language, "en" );
+    EXPECT_EQ( fromProject.GetValue().Source, GameUserSettingsSource::ProjectDefaults );
 
     ASSERT_TRUE( SaveGameUserSettings( Sample(), User() ) ); // the player's own file now wins
     const auto fromPlayer = LoadGameUserSettings( Project(), User() );
     ASSERT_TRUE( fromPlayer ) << fromPlayer.GetError();
-    EXPECT_EQ( fromPlayer.GetValue().Language, "ru" );
+    EXPECT_EQ( fromPlayer.GetValue().Settings.Language, "ru" );
+    EXPECT_EQ( fromPlayer.GetValue().Source, GameUserSettingsSource::PlayerFile );
 }
 
 TEST_F( GameUserSettingsTest, NoFileAnywhereIsARefusalNamingBothPaths )

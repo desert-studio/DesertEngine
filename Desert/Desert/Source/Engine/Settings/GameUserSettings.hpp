@@ -70,16 +70,39 @@ namespace Desert::Settings
     // positive sensitivity, a language this build knows. Refuses naming the field and the value.
     [[nodiscard]] Common::BoolResultStr ValidateGameUserSettings( const GameUserSettings& settings );
 
+    // Which file the settings came from: the player's own, or — on a first launch, before any was written — the
+    // game's defaults (UE: no Saved/Config GameUserSettings.ini yet, the one moment RunHardwareBenchmark runs).
+    enum class GameUserSettingsSource
+    {
+        PlayerFile,
+        ProjectDefaults
+    };
+    struct LoadedGameUserSettings
+    {
+        GameUserSettings       Settings;
+        GameUserSettingsSource Source = GameUserSettingsSource::PlayerFile;
+    };
+
     // The player's file when there is one; else the project's defaults; else a refusal naming both paths. A file
     // that is there but does not parse or validate is refused with its path — it does NOT fall through to the
     // project's, because that would silently undo what the player chose.
-    [[nodiscard]] Common::ResultStr<GameUserSettings>
+    [[nodiscard]] Common::ResultStr<LoadedGameUserSettings>
     LoadGameUserSettings( const std::filesystem::path& projectDirectory,
                           const std::filesystem::path& userDirectory );
 
     // Writes the player's file (atomically, creating the directory). Refuses an invalid value without writing.
     [[nodiscard]] Common::BoolResultStr SaveGameUserSettings( const GameUserSettings&      settings,
                                                               const std::filesystem::path& userDirectory );
+
+    // A FIRST LAUNCH (Source == ProjectDefaults) — UE ApplyHardwareBenchmarkResults: the six quality groups take the
+    // level the machine started on (Graphic::QualityBoot::Start — machine.json's saved selection, else the GPU
+    // benchmark's recommendation for this device, else High), never the project's defaults (Epic), and the
+    // result is written as the player's file; from then on that file is the only source of these levels and the
+    // recommendation never overwrites it. The rest of `settings` (display, audio, language) stays the project's.
+    // Needs QualityState initialized (QualityBoot::Start); refuses a save that fails, with SaveGameUserSettings'
+    // reason, and leaves `settings` untouched on any refusal.
+    [[nodiscard]] Common::BoolResultStr AdoptMachineQuality( GameUserSettings&            settings,
+                                                             const std::filesystem::path& userDirectory );
 
     // Hands every value to its consumer (UE: UGameUserSettings::ApplySettings) — the game calls it ONCE at start
     // and again after every change its options menu makes:

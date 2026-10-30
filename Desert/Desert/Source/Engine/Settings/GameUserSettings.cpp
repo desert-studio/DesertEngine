@@ -65,15 +65,32 @@ namespace Desert::Settings
             return Common::MakeSuccess( true );
         }
 
-        Common::ResultStr<GameUserSettings> ReadValid( const std::filesystem::path& file )
+        Common::ResultStr<LoadedGameUserSettings> ReadValid( const std::filesystem::path& file,
+                                                             const GameUserSettingsSource source )
         {
             auto parsed = Common::Json::ReadFile<GameUserSettings>( file );
             if ( !parsed )
-                return Common::MakeError<GameUserSettings>( parsed.GetError() );
+                return Common::MakeError<LoadedGameUserSettings>( parsed.GetError() );
             if ( const auto valid = ValidateGameUserSettings( parsed.GetValue() ); !valid )
-                return Common::MakeError<GameUserSettings>(
+                return Common::MakeError<LoadedGameUserSettings>(
                      std::format( "{}: {}", file.string(), valid.GetError() ) );
-            return parsed;
+            return Common::MakeSuccess( LoadedGameUserSettings{ parsed.GetValue(), source } );
+        }
+
+        // The engine's levels back as the player's (the inverse of EngineGroupLevels, same order).
+        ScalabilityLevels PlayerLevels( const Common::Scalability::QualitySelection& selection )
+        {
+            using Common::Scalability::Group;
+            const auto level = [&selection]( const Group group )
+            { return static_cast<uint8_t>( selection.Levels[static_cast<std::size_t>( group )] ); };
+            ScalabilityLevels q;
+            q.ViewDistance = level( Group::ViewDistance );
+            q.Shadows      = level( Group::Shadows );
+            q.PostProcess  = level( Group::PostProcess );
+            q.Textures     = level( Group::Textures );
+            q.Effects      = level( Group::Effects );
+            q.Foliage      = level( Group::Foliage );
+            return q;
         }
     } // namespace
 
@@ -112,20 +129,20 @@ namespace Desert::Settings
         return Common::MakeSuccess( true );
     }
 
-    Common::ResultStr<GameUserSettings> LoadGameUserSettings( const std::filesystem::path& projectDirectory,
+    Common::ResultStr<LoadedGameUserSettings> LoadGameUserSettings( const std::filesystem::path& projectDirectory,
                                                               const std::filesystem::path& userDirectory )
     {
         const std::filesystem::path user    = UserGameUserSettingsFile( userDirectory );
         const std::filesystem::path project = ProjectGameUserSettingsFile( projectDirectory );
         std::error_code             ec;
         if ( std::filesystem::exists( user, ec ) )
-            return ReadValid( user );
+            return ReadValid( user, GameUserSettingsSource::PlayerFile );
         // The project's defaults are CONTENT (UE: Config/Default*.ini ship inside the build): asked through the
         // same file layer as every asset, so a packaged game finds them in its archive (PackagedContentTrees
         // stages the project Config under the "Config" key) and the dev tree finds them on disk.
         if ( Common::Utils::FileSystem::Exists( project ) )
-            return ReadValid( project );
-        return Common::MakeError<GameUserSettings>(
+            return ReadValid( project, GameUserSettingsSource::ProjectDefaults );
+        return Common::MakeError<LoadedGameUserSettings>(
              std::format( "no game user settings: neither the player's {} nor the project's {} exists",
                           user.string(), project.string() ) );
     }
@@ -144,6 +161,23 @@ namespace Desert::Settings
         if ( const auto written = Common::Json::WriteFileAtomic( file, settings ); !written )
             return Refuse( std::format( "{} was not saved: {}", file.string(), written.GetError() ) );
         LOG_INFO( "[Settings] saved the game user settings -> {}", file.string() );
+        return Common::MakeSuccess( true );
+    }
+
+    Common::BoolResultStr AdoptMachineQuality( GameUserSettings& settings, const std::filesystem::path& userDirectory )
+    {
+        if ( !Common::Scalability::QualityState::Initialized() )
+            return Refuse( "the machine's quality was not adopted: QualityState is not initialized "
+                           "(Graphic::QualityBoot::Start did not run or refused)" );
+        GameUserSettings adopted = settings;
+        adopted.Scalability      = PlayerLevels( Common::Scalability::QualityState::Selection() );
+        if ( const auto saved = SaveGameUserSettings( adopted, userDirectory ); !saved )
+            return saved;
+        const ScalabilityLevels& q = adopted.Scalability;
+        LOG_INFO( "[Settings] first launch: the player's quality is the machine's - ViewDistance {}, Shadows {}, "
+                  "PostProcess {}, Textures {}, Effects {}, Foliage {} (0 = Low .. 3 = Epic)",
+                  q.ViewDistance, q.Shadows, q.PostProcess, q.Textures, q.Effects, q.Foliage );
+        settings = std::move( adopted );
         return Common::MakeSuccess( true );
     }
 

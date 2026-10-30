@@ -1604,6 +1604,11 @@ namespace Common::Scalability
         return Apply( selection );
     }
 
+    bool QualityState::Initialized()
+    {
+        return S().Initialized;
+    }
+
     const QualitySelection& QualityState::Selection()
     {
         return S().Selection;

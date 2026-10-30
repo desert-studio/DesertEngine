@@ -429,6 +429,7 @@ namespace
          { "Quality", Owner::Machine, kMachineSettingsImpl },
          // The benchmark's stored recommendation for this device (SCAL1). Read by MachineSettings::StartFrom:
          // a machine with no saved selection starts on it when its cache key is this device's.
+         // Written by QualityBoot::Start, which runs the GPU benchmark on a first launch (UE RunHardwareBenchmark).
          { "Recommended", Owner::Machine, kMachineSettingsImpl },
          // VSync (DisplaySettings): how frames reach this machine's monitor. QualityBoot hands it to the window.
          { "Display", Owner::Machine, "Desert/Desert/Source/Engine/Graphic/QualityBoot.cpp" },

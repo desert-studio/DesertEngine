@@ -13,6 +13,7 @@
 #include <Engine/Graphic/Renderer.hpp>
 
 #include <format>
+#include <memory>
 
 namespace Desert::Graphic::QualityBoot
 {
@@ -40,6 +41,44 @@ namespace Desert::Graphic::QualityBoot
             const bool anisoChanged  = RenderConfig::AnisotropyLevel.exchange( anisotropy ) != anisotropy;
             if ( filterChanged || anisoChanged )
                 Renderer::GetInstance().RecreateImageSamplers();
+        }
+
+        // UE UGameUserSettings::RunHardwareBenchmark on a first launch: a machine that never chose a quality and
+        // holds no recommendation measured on THIS device / driver / table (CacheValid) runs the GPU benchmark
+        // once, before the first level, and caches the answer in machine.json (Recommended) — StartFrom then
+        // starts the machine on it. A run that fails is logged with its reason and the machine starts on
+        // StartFrom's no-recommendation answer (High); nothing is invented in its place.
+        void MeasureRecommendation( const Common::Scalability::ScalabilityTable&  table,
+                                    const Common::Scalability::BenchmarkCacheKey& device )
+        {
+            using Common::Settings::MachineSettings;
+            const std::shared_ptr<Engine::Device> engineDevice = EngineContext::GetInstance().GetDevice();
+            if ( !engineDevice )
+            {
+                LOG_ERROR( "[Scalability] the GPU benchmark did not run: no device; this machine starts on High" );
+                return;
+            }
+            const std::unique_ptr<Engine::GpuBenchmark> benchmark = Engine::GpuBenchmark::Create();
+            const auto                                  measured  = benchmark->Run( *engineDevice );
+            if ( !measured )
+            {
+                LOG_ERROR( "[Scalability] the GPU benchmark did not run: {}; this machine starts on High",
+                           measured.GetError() );
+                return;
+            }
+            const Common::Scalability::BenchmarkResult& result = measured.GetValue();
+            Common::Scalability::RecommendedQuality     recommended;
+            recommended.Key                    = device;
+            recommended.GpuPerfIndex           = result.GpuPerfIndex;
+            recommended.Timed                  = result.Timed;
+            recommended.Levels                 = Common::Scalability::RecommendLevels( result, table );
+            MachineSettings::Get().Recommended = recommended;
+            LOG_INFO( "[Scalability] GPU benchmark on {}: {} (perf index {:.1f})", device.DeviceName,
+                      result.Timed ? "timed" : "not timed here, the device-class index", result.GpuPerfIndex );
+            if ( !MachineSettings::Save() )
+                LOG_ERROR( "[Scalability] the benchmark's recommendation was not written to {}: the next start "
+                           "measures again",
+                           MachineSettings::File().string() );
         }
     } // namespace
 
@@ -77,10 +116,18 @@ namespace Desert::Graphic::QualityBoot
         if ( const auto window = EngineContext::GetInstance().GetWindow() )
             window->SetDisplay( machine.Display );
 
-        const auto&                            capabilities = EngineContext::GetInstance().GetCapabilities();
+        const auto&                                  capabilities = EngineContext::GetInstance().GetCapabilities();
+        const Common::Scalability::BenchmarkCacheKey device =
+             Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version );
+        // Only where StartFrom would read the recommendation (no saved selection, or a group whose saved level did
+        // not read), and never in an unattended run (its machine.json stays byte-for-byte as it was).
+        const bool startsFromRecommendation =
+             !machine.Quality.has_value() || MachineSettings::UnreadLevels().any();
+        if ( persistence == Persistence::MachineFile && startsFromRecommendation &&
+             !Common::Scalability::CacheValid( machine.Recommended, device ) )
+            MeasureRecommendation( table.GetValue(), device );
         const MachineSettings::StartingQuality start =
-             MachineSettings::StartFrom( machine, MachineSettings::UnreadLevels(),
-                                         Engine::MakeBenchmarkCacheKey( capabilities, table.GetValue().Version ) );
+             MachineSettings::StartFrom( machine, MachineSettings::UnreadLevels(), device );
         // Load named each refused level (ERROR); this is the level the group actually starts on.
         for ( std::size_t g = 0; g < Common::Scalability::kGroupCount; ++g )
             if ( MachineSettings::UnreadLevels().test( g ) )
