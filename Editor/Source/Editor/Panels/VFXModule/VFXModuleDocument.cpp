@@ -21,6 +21,9 @@
 #include <cfloat>
 #include <filesystem>
 #include <format>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <system_error>
 
 namespace Desert::Editor
@@ -291,6 +294,30 @@ namespace Desert::Editor
                       return BOOLSUCCESS;
                   } );
             return;
+        }
+
+        // ` Unit <unit>`: the one declaration of the input's unit, which the system editor's stack widgets show.
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth( 72.0f );
+        if ( ImGui::BeginCombo( "##unit", in.Unit.empty() ? "(no unit)" : in.Unit.c_str() ) )
+        {
+            std::optional<std::string> picked;
+            if ( ImGui::Selectable( "(no unit)", in.Unit.empty() ) )
+                picked = std::string();
+            for ( const std::string_view unit : VFX::kVFXInputUnits )
+                if ( ImGui::Selectable( std::string( unit ).c_str(), in.Unit == unit ) )
+                    picked = std::string( unit );
+            ImGui::EndCombo();
+            if ( picked && *picked != in.Unit )
+            {
+                Edit( std::format( "Set unit of input {}", name ),
+                      [i, unit = *picked]( VFX::VFXModuleDefinition& m )
+                      {
+                          m.Block.Inputs[i].Unit = unit;
+                          return BOOLSUCCESS;
+                      } );
+                return;
+            }
         }
         if ( in.BindingRequired )
             return;

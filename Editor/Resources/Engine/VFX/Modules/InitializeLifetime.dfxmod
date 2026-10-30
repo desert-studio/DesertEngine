@@ -6,7 +6,7 @@ Module "InitializeLifetime"
     Usage ParticleSpawn
     Attribute Age float
     Attribute Lifetime float
-    Input Lifetime float = 1
+    Input Lifetime float = 1 Unit s
 
     // Engine VFX module InitializeLifetime (UE InitializeParticle's Lifetime, NiagaraStatelessModule_
     // InitializeParticle.ush:20-37 + the emitter's lifetime range): the newborn's age is zero and its lifetime is the

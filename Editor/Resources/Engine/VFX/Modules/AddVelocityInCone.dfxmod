@@ -5,8 +5,8 @@ Module "AddVelocityInCone"
     Description "Gives a newborn a velocity inside a cone around an axis."
     Usage ParticleSpawn
     Attribute Velocity vec3
-    Input Speed float = 100
-    Input Angle float = 45
+    Input Speed float = 100 Unit cm/s
+    Input Angle float = 45 Unit deg
     Input Falloff float = 0
     Input Axis vec3 = 0 1 0
 

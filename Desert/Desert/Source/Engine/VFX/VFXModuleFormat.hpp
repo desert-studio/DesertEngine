@@ -15,7 +15,7 @@
 //         Description "Adds a constant acceleration to the accumulated force."
 //         Usage ParticleUpdate
 //         Attribute PhysicsForce vec3
-//         Input Gravity vec3 = 0 -981 0
+//         Input Gravity vec3 = 0 -981 0 Unit cm/s2
 //
 //         void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i ) { ... }
 //     }
@@ -27,6 +27,9 @@
 // refused where the stack resolves it; ParticleSpawn / ParticleUpdate run the block's GLSL on the GPU. One module
 // is one or the other (ParseModuleBlock). An `Input` states the default a new stack row starts from
 // (`= <numbers>`), or `= Binding` for one the user must bind (SpawnFromChannel's Channel).
+// An optional trailing `Unit <unit>` (one of VFX::kVFXInputUnits) is the input's unit metadata (UE: the module
+// input's display unit): the value is stored in that unit and the system editor's stack widgets print it. Absent,
+// the input is unitless; a file without any `Unit` reads as before, so the layout generation stays VFXM 1.
 
 #include <Engine/Assets/AssetGuidRef.hpp>
 #include <Engine/Assets/TextAssetHeaderStamp.hpp>

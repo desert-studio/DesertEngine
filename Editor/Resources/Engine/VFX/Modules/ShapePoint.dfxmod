@@ -5,7 +5,7 @@ Module "ShapePoint"
     Description "Places a newborn at a point."
     Usage ParticleSpawn
     Attribute Position vec3
-    Input Offset vec3 = 0 0 0
+    Input Offset vec3 = 0 0 0 Unit cm
 
     // Engine VFX module ShapePoint (UE Shape Location, primitive Point): the particle is born at the emitter's
     // origin plus Offset (centimetres). Spawn group.

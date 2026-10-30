@@ -8,12 +8,12 @@ Module "Collision"
     Attribute Velocity vec3
     Attribute CollisionContact bool
     Attribute CollisionRelease float
-    Input Radius float = 2
-    Input Thickness float = 50
+    Input Radius float = 2 Unit cm
+    Input Thickness float = 50 Unit cm
     Input Restitution float = 0.4
     Input Friction float = 0.2
     Input KillOnCollision bool = 0
-    Input MinimumTimeBetweenEvents float = 0.25
+    Input MinimumTimeBetweenEvents float = 0.25 Unit s
 
     // Engine VFX module Collision (UE Niagara Content/Modules/Update/Collision, GPU Scene Depth mode; ported from
     // int/vfx VFX-PARAMS): the particle against the scene depth. Calling VFX_SceneDepthCollide makes the emitter

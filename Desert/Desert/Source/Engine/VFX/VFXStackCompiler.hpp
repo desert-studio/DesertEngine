@@ -78,9 +78,27 @@ namespace Desert::VFX
         /// The input has no Value default: a new row binds it to what the user picks (UE: Spawn From Data
         /// Channel's Channel, an asset reference that starts unset). Default is then unread.
         bool BindingRequired = false;
+        /// The unit the value is stated in (` Unit <unit>` after the default, one of kVFXInputUnits), empty for a
+        /// unitless input (a scale, a count, a colour). UE: the module input's metadata (FNiagaraVariableMetaData
+        /// / the pin's display unit). The one place it is declared: the stack editor's widgets and the module
+        /// editor read it from here; the value itself is always stored in this unit (centimetres, seconds,
+        /// degrees), so no widget converts.
+        std::string Unit;
 
         [[nodiscard]] bool operator==( const VFXModuleInputDecl& ) const = default;
     };
+
+    /// Every unit an `Input` may state: the engine's world units (centimetres, seconds, degrees) and their rates.
+    /// A unit outside this list is refused where the module is parsed, so a typo never reaches a slider label.
+    inline constexpr std::string_view kVFXInputUnits[] = { "cm", "cm/s", "cm/s2", "1/cm", "s", "1/s", "deg", "deg/s" };
+
+    [[nodiscard]] constexpr bool IsVFXInputUnit( const std::string_view unit )
+    {
+        for ( const std::string_view known : kVFXInputUnits )
+            if ( known == unit )
+                return true;
+        return false;
+    }
 
     /**
      * @brief One stack module's block, read from its `.dfxmod` (VFXModuleFormat.hpp).
@@ -88,7 +106,8 @@ namespace Desert::VFX
      * The block opens with declaration lines — exactly one `Usage <Stage>...` (the groups the module may sit in:
      * ParticleSpawn and/or ParticleUpdate — UE's Module Usage), `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`
      * (a particle attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type> = <default>` (a value
-     * the stack row supplies, read as `i.<Name>`) — and the rest is GLSL defining
+     * the stack row supplies, read as `i.<Name>`, optionally followed by `Unit <unit>`) — and the rest is GLSL
+     * defining
      * `void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )`.
      */
     struct VFXParticleModule

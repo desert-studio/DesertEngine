@@ -5,7 +5,7 @@ Module "ShapePointSet"
     Description "Places the particle at a weighted point of a set painted onto the level (PointSet.<set>)."
     Usage ParticleSpawn
     Attribute Position vec3
-    Input Location vec3 = 0 0 0
+    Input Location vec3 = 0 0 0 Unit cm
 
     // Engine VFX module ShapePointSet (VFX-15, UE UNiagaraDataInterfaceArrayPosition read by a shape-location
     // module: NiagaraDataInterfaceArrayFloat.h:55, PositionData :65): the particle is born at one point of a set

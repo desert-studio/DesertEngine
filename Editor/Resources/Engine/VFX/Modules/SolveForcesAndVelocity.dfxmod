@@ -10,7 +10,7 @@ Module "SolveForcesAndVelocity"
     Attribute PhysicsDrag float
     Attribute PhysicsRotationalDrag float
     Attribute Mass float
-    Input SpeedLimit float = 0
+    Input SpeedLimit float = 0 Unit cm/s
 
     // Engine VFX module SolveForcesAndVelocity (UE Niagara Content/Modules/Solvers/SolveForcesAndVelocity):
     // the last update module. Integrates the force the modules above accumulated (a = F / m) under this step's linear

@@ -354,6 +354,7 @@ namespace Desert::VFX
             bool         ok   = IsIdentifier( name ) && ParseType( typeWord, type );
             glm::vec4    initial( 0.0f );
             bool         bindingRequired = false;
+            std::string  unit;
             std::string  extra;
             if ( ok && isInput )
             {
@@ -386,11 +387,28 @@ namespace Desert::VFX
                         ok = value == static_cast<float>( static_cast<int>( value ) );
                     initial[static_cast<int>( c )] = value;
                 }
+                // ` Unit <unit>`: the input's display unit (VFXModuleInputDecl::Unit), one of kVFXInputUnits.
+                const std::streampos at = words.tellg();
+                std::string          word;
+                if ( ok && words >> word )
+                {
+                    if ( word != "Unit" )
+                        words.seekg( at ); // not a unit: the extra-word check below names the line
+                    else if ( !( words >> unit ) || !IsVFXInputUnit( unit ) )
+                    {
+                        std::string known;
+                        for ( const std::string_view u : kVFXInputUnits )
+                            known += std::format( "{}{}", known.empty() ? "" : "|", u );
+                        return Common::MakeFormattedError<VFXParticleModule>(
+                             "{}: '{}' states unit '{}', not one of `Unit <{}>`", where, line, unit, known );
+                    }
+                }
             }
             words >> extra;
             if ( ( !ok || !extra.empty() ) && isInput )
                 return Common::MakeFormattedError<VFXParticleModule>(
-                     "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = <one number per component | Binding>`",
+                     "{}: '{}' is not `Input <Name> <float|vec2|vec3|vec4|int|bool> = "
+                     "<one number per component | Binding> [Unit <unit>]`",
                      where, line );
             if ( !ok || !extra.empty() )
                 return Common::MakeFormattedError<VFXParticleModule>(
@@ -400,7 +418,7 @@ namespace Desert::VFX
                 return Common::MakeFormattedError<VFXParticleModule>( "{}: {} '{}' is declared twice", where,
                                                                       keyword, name );
             if ( isInput )
-                module.Inputs.push_back( { name, type, initial, bindingRequired } );
+                module.Inputs.push_back( { name, type, initial, bindingRequired, unit } );
             else
                 module.Attributes.push_back( { name, type } );
             bodyStart = std::string::npos;

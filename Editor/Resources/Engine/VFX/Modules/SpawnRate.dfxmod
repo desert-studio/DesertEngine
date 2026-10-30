@@ -4,7 +4,7 @@ Module "SpawnRate"
     Category Spawn
     Description "Spawns particles at a rate per second while a loop is active."
     Usage EmitterUpdate
-    Input SpawnRate float = 10
+    Input SpawnRate float = 10 Unit 1/s
 
     // Engine CPU module SpawnRate (UE SpawnRate): particles per second while a loop is active. Its behaviour is
     // engine C++ under this GUID (VFX/VFXEmitterSpawn.cpp).

@@ -6,10 +6,10 @@ Module "CurlNoiseForce"
     Usage ParticleUpdate
     Attribute Position vec3
     Attribute PhysicsForce vec3
-    Input Strength float = 100
-    Input Frequency float = 0.02
-    Input Pan vec3 = 0 0 0
-    Input Offset vec3 = 0 0 0
+    Input Strength float = 100 Unit cm/s2
+    Input Frequency float = 0.02 Unit 1/cm
+    Input Pan vec3 = 0 0 0 Unit cm/s
+    Input Offset vec3 = 0 0 0 Unit cm
 
     // Engine VFX module CurlNoiseForce (UE Niagara Content/Modules/Update/Forces/CurlNoiseForce): adds
     // Strength times the curl of a vector simplex noise field to the particle's force. The field is sampled at

@@ -5,8 +5,8 @@ Module "ShapeSphere"
     Description "Places a newborn inside or on a sphere."
     Usage ParticleSpawn
     Attribute Position vec3
-    Input Radius float = 50
-    Input Offset vec3 = 0 0 0
+    Input Radius float = 50 Unit cm
+    Input Offset vec3 = 0 0 0 Unit cm
 
     // Engine VFX module ShapeSphere (port of UE NiagaraStatelessModule_ShapeLocation.ush:97-108, Sphere): a
     // uniformly random direction (RandomUnitFloat3) times Radius. Radius is an ordinary input, so UE's
