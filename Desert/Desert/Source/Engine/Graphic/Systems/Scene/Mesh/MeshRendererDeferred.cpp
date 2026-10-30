@@ -302,9 +302,12 @@ namespace Desert::Graphic::System
             {
                 m_InstancedGBufferPipeline = instanced.GetValue();
                 // The masked depth prepass's two states (DeclareMaskedDepthDraws). Optional: refused, the masked
-                // sections keep drawing their clip in the G-buffer alone, said once here.
+                // sections keep drawing their clip in the G-buffer alone, said once here. The G-buffer half tests
+                // EQUAL and writes none (UE's base pass after the masked early-Z pass): the prepass's clip already
+                // decided every texel, so its cell is the clip-less DESERT_SURFACE_DEPTH_EQUAL permutation.
                 GraphicsPipelineSpecification equal = ispec;
                 equal.DebugName                     = "StaticMeshGBufferInstancedDepthEqual";
+                equal.DepthCompareOp                = DepthCompare::Equal;
                 equal.DepthWriteEnabled             = false;
                 GraphicsPipelineSpecification depth;
                 depth.DebugName      = "StaticMeshViewDepthInstanced";

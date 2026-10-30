@@ -1702,6 +1702,10 @@ namespace Desert::Graphic::System
         [[nodiscard]] static Core::ShaderVariant ForwardShadowMaskVariant( const Shader& shader, bool rayTracedSun,
                                                                            bool localShadowMasks,
                                                                            bool virtualLocal );
+        // THE PERMUTATION a Masked GPU-instanced section's G-buffer cell is drawn in after the masked depth prepass
+        // drew it (kSurfaceDepthEqualDefine: equal depth test, no clip; BuildGpuInstancedDraws), asked by the draw
+        // and by the cook (MaterialProgramVariants) from this one function.
+        [[nodiscard]] static Core::ShaderVariant SurfaceDepthEqualVariant();
         // The permutations the mesh path can select for @p materials (UE: a material's cooked shader map): each
         // material's (Static x Forward) cell under every ForwardShadowMaskVariant the renderer can ask for (sun
         // only, local only, both), defaults omitted and duplicates listed once - the list PackageCook

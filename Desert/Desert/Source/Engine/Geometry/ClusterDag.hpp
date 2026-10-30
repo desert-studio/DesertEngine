@@ -46,7 +46,8 @@ namespace Desert::Geometry
     // ParentLodError of a root group: never coarse enough to be replaced.
     inline constexpr float kClusterRootError = 3.0e38f;
     // The relative errors (of the submesh's bounds radius) the discrete LOD chain is cut at: LOD0 = 0 (level 0),
-    // then the levels that replace the old kLODRatios chain (MeshLOD.hpp), coarsest last.
+    // then the levels that replace the generated chain (LODChainSettings) of a mesh that is not virtual geometry,
+    // coarsest last.
     inline constexpr float kClusterDagCutErrors[] = { 0.0f, 0.002f, 0.008f, 0.03f };
 
     struct ClusterSphere

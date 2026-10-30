@@ -344,6 +344,9 @@ namespace Desert::Graphic
     // the forward terrain, the composite's transmission, the surface cache's cards) reads the virtual shadow map
     // (VirtualShadowMapReadRefs, Common/VirtualShadowMap.glslh's reader) in place of the atlas, which is not drawn.
     inline constexpr std::string_view kLocalShadowVsmDefine = "DESERT_LOCAL_SHADOW_VSM";
+    // The G-buffer cell of a Masked section the masked depth prepass drew (Mesh/Surface/Pass_GBuffer.glslh): drawn
+    // with an equal depth test, it does not repeat the clip (MeshRenderer::BuildGpuInstancedDraws).
+    inline constexpr std::string_view kSurfaceDepthEqualDefine = "DESERT_SURFACE_DEPTH_EQUAL";
     // The deferred composite's MegaLights program (Shadows Stochastic): the local lights from MegaLights'
     // MegaLightsDiffuseTexture / MegaLightsSpecularTexture (System::MegaLightsRenderer) in place of the light-grid loop.
     inline constexpr std::string_view kMegaLightsDefine = "DESERT_MEGALIGHTS";

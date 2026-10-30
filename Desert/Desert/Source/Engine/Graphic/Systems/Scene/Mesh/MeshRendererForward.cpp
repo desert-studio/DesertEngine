@@ -780,6 +780,23 @@ namespace Desert::Graphic::System
                 AppendForwardShadowMaskVariants( *program, cell.GetValue(), listed, variants,
                                                  path != MeshVertexPath::Static );
             }
+            // The GPU-instanced G-buffer cells of a template the masked depth prepass draws (IsMaskedSurface: Masked
+            // or `.Parallax`), in the equal-depth permutation BuildGpuInstancedDraws draws them in after it.
+            for ( const MeshVertexPath path : { MeshVertexPath::Instanced, MeshVertexPath::GrassBlade } )
+            {
+                const auto cell = materials.CellShaderNameOf( handle, path, MeshPass::GBuffer );
+                if ( !cell )
+                    continue;
+                const auto program = shaders.GetByName( cell.GetValue() );
+                if ( program == nullptr )
+                    continue;
+                if ( program->GetProgramMeta().Blend != Core::Formats::SurfaceBlendMode::Masked &&
+                     !IsParallaxCell( cell.GetValue() ) )
+                    continue;
+                Core::ShaderVariant permutation = SurfaceDepthEqualVariant();
+                if ( listed.emplace( cell.GetValue(), permutation.Hash() ).second )
+                    variants.push_back( { cell.GetValue(), std::move( permutation ) } );
+            }
             // The water cell (`Usage WaterMesh` templates only): WaterRenderer draws it as itself or, under
             // VirtualMaps, through its DESERT_LOCAL_SHADOW_VSM permutation
             // (WaterRenderer::VirtualLocalProgramFor).

@@ -88,7 +88,8 @@ TEST( MeshLOD, BakedEqualsGenerated )
         pos.push_back( v.Position.y );
         pos.push_back( v.Position.z );
     }
-    const auto           baked     = SimplifyLODLevels( pos.data(), g.Sub.VertexCount, g.Indices );
+    const auto           baked     = SimplifyLODLevels( pos.data(), g.Sub.VertexCount, g.Indices,
+                                                        Desert::Geometry::LODChainSettings{} );
     std::vector<Submesh> bakedSubs = { g.Sub };
     bakedSubs[0].BakedLODs         = baked;
     const auto gpuBaked            = BuildLODIndexBuffer( g.Vertices, g.Indices, bakedSubs );
