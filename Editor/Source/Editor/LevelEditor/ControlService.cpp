@@ -430,6 +430,7 @@ namespace Desert::Editor
         const bool waitsForAFrame =
              response.Ok() && ( request.Operation == Control::Op::Run || request.Operation == Control::Op::Set ||
                                 request.Operation == Control::Op::Drag || request.Operation == Control::Op::Advance ||
+                                request.Operation == Control::Op::Frames ||
                                 request.Operation == Control::Op::Input || Control::IsShot( request.Operation ) );
 
         if ( !waitsForAFrame )
@@ -538,6 +539,12 @@ namespace Desert::Editor
                 m_AdvanceUntil.reset();
         }
         quiescence.Set( Control::PendingWork::GameTime, m_AdvanceUntil.has_value() );
+        // Frames are counted by the channel's own clock (m_FrameIndex = the id of the frame being built, made
+        // the presented id in OnFramePresented): the frame with id *m_FramesUntil - 1 is the last one waited for,
+        // so it is sampled as not pending and the gate releases the reply on it (or later, if other work is).
+        if ( m_FramesUntil && m_FrameIndex + 1 >= *m_FramesUntil )
+            m_FramesUntil.reset();
+        quiescence.Set( Control::PendingWork::FrameCount, m_FramesUntil.has_value() );
         // THE SAME PICTURE THE --shot GATE WAITS FOR (ShotRecordGate): a frame drawn while the reflection
         // captures are filled for the first time, or while textures are still landing, is not the scene - the
         // first Starter shot after boot came back with a black sky that the next frame had filled.
@@ -1225,6 +1232,14 @@ namespace Desert::Editor
                          request.Id, "'advance' waits for Play's simulated time: press Play first (the scene "
                                      "has no running physics world)." );
                 m_AdvanceUntil = *now + static_cast<double>( request.Value[0] );
+                return Control::Response::Success( request.Id );
+            }
+
+            case Control::Op::Frames:
+            {
+                // The scenario's frame wait (UE FWaitForFrames): the frame being built now is the first of the
+                // asked count; nothing is sent to the editor, unlike the zero-length `drag` it replaces.
+                m_FramesUntil = m_FrameIndex + static_cast<uint64_t>( request.Value[0] );
                 return Control::Response::Success( request.Id );
             }
 
