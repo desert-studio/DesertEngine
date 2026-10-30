@@ -86,8 +86,8 @@ namespace Desert
 
         // The mesh's rows in the VirtualMeshTable, asked of EVERY mesh: MeshType::Static names a cooked StaticMesh
         // AND a DynamicMesh (a primitive, an editable mesh, a fracture / spline piece), so a reader of the static
-        // queue holds a Mesh* and cannot cast its way to the answer - a DynamicMesh read as a StaticMesh reads past
-        // its end (the thumbnail scene's material sphere, FPS-MEASURE-5). Null here: only a StaticMesh whose
+        // queue holds a Mesh* and cannot cast its way to the answer - a DynamicMesh read as a StaticMesh reads
+        // past its end (the thumbnail scene's material sphere, FPS-MEASURE-5). Null here: only a StaticMesh whose
         // cooked DAGs were registered (StaticMesh::Invalidate) has rows.
         [[nodiscard]] virtual const Graphic::VirtualGeometry::VirtualMeshRegistration* GetVirtualMesh() const
         {

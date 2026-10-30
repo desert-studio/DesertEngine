@@ -1827,7 +1827,7 @@ namespace Desert::Graphic::System
                 StaticMeshRenderData staticData;
                 staticData.Entity                   = data.Entity;
                 staticData.MotionPart               = data.MotionPart;
-                staticData.Mesh            = data.Mesh;
+                staticData.Mesh                     = data.Mesh;
                 staticData.Transform       = data.Transform;
                 staticData.MaterialSlots   = data.MaterialSlots;
                 staticData.SectionSlot              = data.SectionSlot;
