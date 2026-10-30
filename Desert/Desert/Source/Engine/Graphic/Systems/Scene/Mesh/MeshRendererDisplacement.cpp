@@ -23,18 +23,18 @@ namespace Desert::Graphic::System
         // BAKED displacement (§1g): the cooked dense mesh IS the geometry - no levels, no cache entry - drawn with
         // the displaced slots like a twin (no double relief). Captures substitute too: every view draws one surface.
         for ( StaticMeshRenderData& data : m_StaticQueue )
-            if ( data.Mesh != nullptr && data.Mesh->IsBakedDisplaced() )
-                if ( const std::shared_ptr<StaticMesh> baked = data.Mesh->GetBakedDisplaced() )
+            if ( auto* const cooked = dynamic_cast<StaticMesh*>( data.Mesh );
+                 cooked != nullptr && cooked->IsBakedDisplaced() )
+                if ( const std::shared_ptr<StaticMesh> baked = cooked->GetBakedDisplaced() )
                 {
                     data.Mesh = baked.get(); // held by the base mesh while its surface is the same
                     if ( data.MaterialSlots && data.MaterialSlots->Displaced )
                         data.MaterialSlots = data.MaterialSlots->Displaced;
                 }
         for ( InstancedMeshRenderData& ism : m_InstancedQueue )
-            if ( ism.Mesh != nullptr && ism.Mesh->GetType() == MeshType::Static && ism.Mesh->IsBakedDisplaced() &&
-                 ism.DisplacedMaterial )
-                if ( const std::shared_ptr<StaticMesh> baked =
-                          static_cast<StaticMesh*>( ism.Mesh )->GetBakedDisplaced() )
+            if ( auto* const cooked = dynamic_cast<StaticMesh*>( ism.Mesh );
+                 cooked != nullptr && cooked->IsBakedDisplaced() && ism.DisplacedMaterial )
+                if ( const std::shared_ptr<StaticMesh> baked = cooked->GetBakedDisplaced() )
                 {
                     ism.Mesh     = baked.get();
                     ism.Material = ism.DisplacedMaterial;
@@ -45,7 +45,8 @@ namespace Desert::Graphic::System
         {
             if ( !requestLevels )
                 break;
-            if ( data.Mesh == nullptr || !data.Mesh->GetDisplacementTopology() || !data.MaterialSlots ||
+            const auto* const cooked = dynamic_cast<const StaticMesh*>( data.Mesh );
+            if ( cooked == nullptr || !cooked->GetDisplacementTopology() || !data.MaterialSlots ||
                  data.MaterialSlots->Slots.empty() )
                 continue;
             const std::vector<Submesh>& submeshes = data.Mesh->GetSubmeshes();
@@ -74,7 +75,7 @@ namespace Desert::Graphic::System
             if ( std::none_of( materials.begin(), materials.end(),
                                []( const std::optional<DisplacementMaterialRecord>& m ) { return m.has_value(); } ) )
                 continue;
-            cache.Request( data.Entity, data.MotionPart, *data.Mesh, data.Transform, materials, view,
+            cache.Request( data.Entity, data.MotionPart, *cooked, data.Transform, materials, view,
                            viewHeightPixels, frame );
         }
         // ISM members (§9.8): one request per instance - equal levels share one twin, so a field of stones costs
@@ -89,8 +90,8 @@ namespace Desert::Graphic::System
         {
             if ( !requestLevels )
                 break;
-            if ( ism.Mesh == nullptr || ism.Mesh->GetType() != MeshType::Static || !ism.DisplacedMaterial ||
-                 !ism.Mesh->GetDisplacementTopology() )
+            const auto* const cooked = dynamic_cast<const StaticMesh*>( ism.Mesh );
+            if ( cooked == nullptr || !ism.DisplacedMaterial || !cooked->GetDisplacementTopology() )
                 continue;
             auto* surface = dynamic_cast<DataDrivenMaterial*>( ism.Material->GetParentMaterial() );
             if ( surface == nullptr )
@@ -105,7 +106,7 @@ namespace Desert::Graphic::System
             }
             if ( !record.GetValue() )
                 continue;
-            const auto& mesh = *static_cast<const StaticMesh*>( ism.Mesh );
+            const StaticMesh& mesh = *cooked;
             materials.assign( mesh.GetSubmeshes().size(), std::nullopt );
             for ( size_t s = 0; s < materials.size(); ++s )
                 if ( s >= 64 || ( ism.HiddenSubmeshes & ( 1ull << s ) ) == 0 )

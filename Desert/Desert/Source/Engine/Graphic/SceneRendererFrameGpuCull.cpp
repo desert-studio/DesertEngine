@@ -85,7 +85,7 @@ namespace Desert::Graphic
             using Result                                   = VirtualGeometryCandidateTables;
             const VirtualGeometry::VirtualMeshTable& table = VirtualGeometry::VirtualMeshTable::Get();
             std::map<uint32_t, std::vector<VirtualGeometry::VirtualMeshDagSpan>> byPrimitive;
-            const auto addSpans = [&]( const uint32_t primitive, const StaticMesh* mesh, const uint64_t hidden )
+            const auto addSpans = [&]( const uint32_t primitive, const Desert::Mesh* mesh, const uint64_t hidden )
             {
                 if ( mesh == nullptr || primitive >= primitiveRows )
                     return;
@@ -115,7 +115,7 @@ namespace Desert::Graphic
             const auto fieldPrims = meshes.GetFieldPrimitives();
             for ( size_t f = 0; f < fields.size() && f < fieldPrims.size(); ++f )
                 if ( fields[f].Transforms && !fields[f].Transforms->empty() )
-                    addSpans( fieldPrims[f], dynamic_cast<const StaticMesh*>( fields[f].Mesh ),
+                    addSpans( fieldPrims[f], fields[f].Mesh,
                               fields[f].HiddenSubmeshes );
             Result out;
             if ( byPrimitive.empty() )

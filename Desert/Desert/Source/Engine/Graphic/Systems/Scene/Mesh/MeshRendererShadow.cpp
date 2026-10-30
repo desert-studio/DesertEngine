@@ -867,9 +867,9 @@ namespace Desert::Graphic::System
 
         // Keyed by (mesh, hidden mask): a section caster batches with the same section of its twins.
         std::vector<
-             std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
+             std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<const StaticMeshRenderData*>>>
                    byMesh;
-        const auto bucketFor = [&]( Desert::StaticMesh* mesh,
+        const auto bucketFor = [&]( Desert::Mesh*       mesh,
                                     const SubmeshMask   hidden ) -> std::vector<const StaticMeshRenderData*>&
         {
             for ( auto& [key, v] : byMesh )
@@ -980,7 +980,7 @@ namespace Desert::Graphic::System
         singles.clear();
         for ( auto& [meshKey, bucket] : byMesh )
         {
-            Desert::StaticMesh* const mesh = meshKey.first;
+            Desert::Mesh* const mesh = meshKey.first;
             if ( instancingOn && bucket.size() >= 2 )
             {
                 // One draw per level, exactly as the geometry pass does it, and for the

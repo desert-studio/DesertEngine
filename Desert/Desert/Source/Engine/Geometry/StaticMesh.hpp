@@ -57,7 +57,7 @@ namespace Desert
 
         // The mesh's rows in the VirtualMeshTable: null (or an empty registration) when it is not a
         // virtual-geometry mesh or its DAGs were refused.
-        [[nodiscard]] const Graphic::VirtualGeometry::VirtualMeshRegistration* GetVirtualMesh() const
+        [[nodiscard]] const Graphic::VirtualGeometry::VirtualMeshRegistration* GetVirtualMesh() const override
         {
             return m_VirtualMesh.get();
         }

@@ -1693,8 +1693,8 @@ namespace Desert::Graphic::System
             // classic per-object path below — which also preserves their individual material overrides.
             // Keyed by (mesh, hidden mask): a section draw of a multi-material mesh batches with the same
             // section of its twins, one mask for the whole instanced draw.
-            std::vector<std::pair<std::pair<Desert::StaticMesh*, SubmeshMask>, std::vector<ObjDraw>>> byMesh;
-            const auto bucketFor = [&]( Desert::StaticMesh* mesh,
+            std::vector<std::pair<std::pair<Desert::Mesh*, SubmeshMask>, std::vector<ObjDraw>>> byMesh;
+            const auto bucketFor = [&]( Desert::Mesh*      mesh,
                                         const SubmeshMask   hidden ) -> std::vector<ObjDraw>&
             {
                 for ( auto& [key, v] : byMesh )
@@ -1732,7 +1732,7 @@ namespace Desert::Graphic::System
             singles.clear();
             for ( auto& [meshKey, bucket] : byMesh )
             {
-                Desert::StaticMesh* const mesh   = meshKey.first;
+                Desert::Mesh* const       mesh   = meshKey.first;
                 const SubmeshMask         hidden = meshKey.second;
                 // Per-object state a shared batch entry can't carry: hidden submeshes, the
                 // shadow-receive opt-out, the contact-shadow cast opt-out (a batch pushes one
