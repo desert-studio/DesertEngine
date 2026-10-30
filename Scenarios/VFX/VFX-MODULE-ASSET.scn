@@ -1,0 +1,19 @@
+# VFX-MODULE-ASSET (+ VFX-10, VFX-MIGRATE): a VFX module is an asset (UE UNiagaraScript). Content -> New VFX Module
+# writes NewVFXModule.dfxmod into the folder open in the Assets window; its text reads back as the same module
+# (ValidateVFXModule: a float default states one number, the other components are 0 - the creator used to fill all
+# four with 1 and was refused). Spawn from Channel: VFX/Demo/Impact.dfx's ChannelSparks emitter reads the Impacts
+# data channel (MaxDistance 100 cm); Scripts/Examples/ImpactEvents.lua on ImpactEventSource (-150,80,0) writes an
+# impact every 0.75 s, so ImpactUp (-150,0,0) bursts sparks at the event point, ImpactPlusX (+150) does not.
+# The scenario CREATES a file: delete Projects/Desert/Content/VFX/NewVFXModule.dfxmod after a run. No scene save.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/VFX_Demo_Impacts.desce
+Дано run Assets "Open folder: VFX"
+Когда run Assets "New VFX Module"
+Когда run Open "VFX/NewVFXModule.dfxmod"
+Тогда 1_new_module the VFX module editor shows NewVFXModule (Category Custom, Input Scale float = 1, GLSL Module()), no refusal line; the Assets window lists NewVFXModule in VFX
+Когда run Action "Close All Documents"
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,30,500
+Дано --subject viewport set Camera.Direction 0,0,-1
+Когда run Action Simulate
+Когда advance 0.9
+Тогда 2_channel_spawn sparks burst from the event point 80 cm above ImpactUp (left) along its normal (up), besides the looping Impact bursts at both placements
