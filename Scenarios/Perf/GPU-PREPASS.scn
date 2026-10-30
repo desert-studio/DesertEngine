@@ -1,0 +1,18 @@
+# GPU-PREPASS: the FIELD_Barn per-pass GPU table after the deferred sky moved behind the G-buffer depth and the
+# scene copy became consumer-only (step 1 of GPU-PREPASS). Same project, scene, camera and still air as
+# FPS-FIELD-BARN's view A; played by the lead on int/fps fc979990b (before) and task/GPU-PREPASS (after), default
+# machine settings (no machine.json overrides), 120 warm frames each.
+# [log] PASS when the "SkyboxPass" gpu row of the [Profiler] table drops against the int/fps run (the sky shades
+# only the texels no geometry covers) and "Deferred: SceneCopy" is either absent (no screen trace, no water, no
+# translucent section in view) or unchanged (the screen trace's history still reads it); the opaque raster rows
+# ("Deferred: Masked Depth Prepass", "Deferred: GBuffer", "TerrainGBuffer", "Deferred: Forward Depth/Normal",
+# "Deferred: Generic") are reported, their sum compared with int/fps.
+# [frame] PASS when the 1_still shot differs from the int/fps shot of the same view by a mean <= 1/255.
+Проект Projects/Desert/Desert.deproj --scene Content/Scenes/FIELD_Barn.desce --gpu-profile
+Дано run View "View mode: Lit"
+Дано --subject viewport set Camera.Position 0,170,2500
+Дано --subject viewport set Camera.Direction 0.15,-0.03,-1
+Дано set 8180000000000004 WindSourceData.Speed 0
+Когда frames 120
+Когда profile-dump
+Тогда-вид 1_still FIELD_Barn at 1.7 m, still air: field, barn, trees and sky drawn, the sky only above the horizon line and between the crowns, no grey or black hole where the sky was; [Profiler] table follows in editor.log with SkyboxPass and Deferred: SceneCopy rows (or no SceneCopy row)

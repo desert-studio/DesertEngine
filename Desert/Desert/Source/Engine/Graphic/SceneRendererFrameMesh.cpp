@@ -174,12 +174,16 @@ namespace Desert::Graphic
 
     void SceneRenderer::AddFrameBasePass( RDG::Builder& graph, FrameTextures& textures )
     {
-        // The scene target's opaque raster, one clearing sequence: the sky first (it CLEARS colour - and the depth
-        // on the deferred path; the forward path's depth is its depth prepass's, LOADED), then the meshes, then the
-        // terrain, both LOADING and sharing the depth (forward: CloserOrEqual against the prepass, no write).
+        // The scene target's opaque raster, one clearing sequence: on the forward path the sky first (it CLEARS
+        // colour; the depth is its depth prepass's, LOADED), then the meshes, then the terrain, both LOADING and
+        // sharing the depth (CloserOrEqual against the prepass, no write). On the deferred path the first node
+        // CLEARS colour and depth and the sky is not here: it is drawn behind the G-buffer's depth once that
+        // reached the scene target (AddFrameSkyBehindScene), so no texel geometry covers is shaded by it.
+        const bool                    forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
         std::vector<SystemRasterPass> passes;
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
-        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
+        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] );
+             sky != nullptr && forward )
             passes.push_back( sky->SkyPass() );
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* mesh = UNIQUE_GET_AS( System::MeshRenderer, m_RenderSystems["MeshSystem"] ) )
@@ -187,8 +191,19 @@ namespace Desert::Graphic
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
         if ( auto* terrain = UNIQUE_GET_AS( System::TerrainRenderer, m_RenderSystems["TerrainSystem"] ) )
             passes.push_back( terrain->GeometryPass() );
-        const bool forward = m_RenderPath != Core::RenderPath::Deferred || !m_GBuffer;
         AddSystemRasters( graph, textures, passes, true, {}, /*clearDepth*/ !forward );
+    }
+
+    void SceneRenderer::AddFrameSkyBehindScene( RDG::Builder& graph, FrameTextures& textures )
+    {
+        // THE DEFERRED SKY (UE: the sky after the base pass, where the depth is the far plane): over the scene
+        // target LOADED - its depth is the G-buffer's (AddFrameDepthResolve: every opaque draw, the forward
+        // meshes' depth/normal prepass included) - at CloserOrEqual against depth 0, writing none. The composite
+        // discards the texels without geometry and the forward meshes are drawn at their own depth, so the sky
+        // and they never shade the same texel.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast): the key names this exact type
+        if ( auto* sky = UNIQUE_GET_AS( System::SkyboxRenderer, m_RenderSystems["SkyboxSystem"] ) )
+            AddSystemRaster( graph, textures, sky->SkyBehindScenePass() );
     }
 
     void SceneRenderer::AddFrameSilhouette( RDG::Builder& graph, FrameTextures& textures )

@@ -97,6 +97,20 @@ namespace Desert::Graphic::System
         if ( !pipeline )
             return Common::MakeError( pipeline.GetError() );
         m_Pipeline = pipeline.GetValue();
+        // SkyDepth::BehindScene: the same draw where the scene depth is the far plane (the shader rasterises at
+        // depth 0, so CloserOrEqual passes exactly on the cleared texels), never writing it.
+        const auto behindSceneSpec = []( Graphic::GraphicsPipelineSpecification spec )
+        {
+            spec.DebugName         = spec.DebugName + ".BehindScene";
+            spec.DepthTestEnabled  = true;
+            spec.DepthCompareOp    = DepthCompare::CloserOrEqual;
+            spec.DepthWriteEnabled = false;
+            return spec;
+        };
+        const auto behindPipeline = Graphic::GraphicsPipeline::Create( behindSceneSpec( pipeSpec ) );
+        if ( !behindPipeline )
+            return Common::MakeError( behindPipeline.GetError() );
+        m_BehindPipeline = behindPipeline.GetValue();
 
         // Procedural sky: same fullscreen-triangle pass/target, but the engine-generated atmosphere shader.
         m_ProceduralShader = Runtime::ResourceRegistry::GetShaderService()->GetByName( "ProceduralSky" );
@@ -112,6 +126,16 @@ namespace Desert::Graphic::System
             skySpec.DepthWriteEnabled = false;
 
             proceduralPipeline = Graphic::GraphicsPipeline::Create( skySpec );
+            if ( proceduralPipeline )
+            {
+                // Its BehindScene twin is part of the same pipeline: refused, the procedural sky is refused whole
+                // (a deferred view would otherwise have no sky draw it could make).
+                auto behind = Graphic::GraphicsPipeline::Create( behindSceneSpec( skySpec ) );
+                if ( behind )
+                    m_ProceduralBehindPipeline = behind.GetValue();
+                else
+                    proceduralPipeline = Common::MakeError( behind.GetError() );
+            }
             if ( !proceduralPipeline )
             {
                 // The procedural sky is optional (a scene on a cubemap never asks for it), so a refusal
@@ -1055,6 +1079,16 @@ namespace Desert::Graphic::System
 
     SystemRasterPass SkyboxRenderer::SkyPass()
     {
+        return SkyPassOf( SkyDepth::Fill );
+    }
+
+    SystemRasterPass SkyboxRenderer::SkyBehindScenePass()
+    {
+        return SkyPassOf( SkyDepth::BehindScene );
+    }
+
+    SystemRasterPass SkyboxRenderer::SkyPassOf( const SkyDepth depth )
+    {
         auto targetFb = m_TargetFramebuffer.lock();
         if ( !targetFb )
             return {};
@@ -1064,14 +1098,16 @@ namespace Desert::Graphic::System
              .ExecuteFunc = [this]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
              { return Render( context ); },
              .TargetFramebuffer = targetFb };
-        pass.Declare = [this]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
-        { DeclareSkyDraw( declared, refs ); };
+        pass.Declare = [this, depth]( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+        { DeclareSkyDraw( declared, refs, depth ); };
         return pass;
     }
 
-    void SkyboxRenderer::DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs )
+    void SkyboxRenderer::DeclareSkyDraw( RenderPassDeclaration& declared, const FrameGraphRefs& refs,
+                                         const SkyDepth depth )
     {
         m_SkyDraw = {};
+        const bool behind = depth == SkyDepth::BehindScene;
         if ( !m_BackdropVisible )
             return;
 
@@ -1103,7 +1139,8 @@ namespace Desert::Graphic::System
                  .Texture( SkyboxProceduralShaderParameters::SkyViewLut1Texture,
                            refs.Transients.SkyViewLut1.IsValid() ? refs.Transients.SkyViewLut1 : refs.System.Black,
                            RDG::Access::SampledGraphics, RDG::SubresourceRange::All() );
-            m_SkyDraw = { .Pipeline = m_ProceduralPipeline.get(), .Executor = executor };
+            m_SkyDraw = { .Pipeline = behind ? m_ProceduralBehindPipeline.get() : m_ProceduralPipeline.get(),
+                          .Executor = executor };
             return;
         }
 
@@ -1120,7 +1157,7 @@ namespace Desert::Graphic::System
             const MaterialExecutor* executor = material->GetMaterialExecutor();
             declared.Bindings( m_SkyLayout.Get( m_Pipeline->GetSpecification().Shader ),
                                executor->GetRouteFill() );
-            m_SkyDraw = { .Pipeline = m_Pipeline.get(), .Executor = executor };
+            m_SkyDraw = { .Pipeline = behind ? m_BehindPipeline.get() : m_Pipeline.get(), .Executor = executor };
         }
     }
 

@@ -220,7 +220,11 @@ Shader "ProceduralSky"
         void main()
         {
             vec4 position = vec4(FullscreenTriangleNdc(), 1.0, 1.0);
-            gl_Position = position;
+            // RASTERISED ON THE FAR PLANE (reversed-Z: depth 0, Core::kDepthClear), the ray still unprojected from
+            // the near-plane point above: the deferred path draws the sky after the G-buffer at CloserOrEqual
+            // against the scene depth, so only the texels no geometry covers are shaded (UE: the sky after the base
+            // pass); with the depth test off (the forward path, the captures) the depth is not read.
+            gl_Position = vec4(position.xy, 0.0, 1.0);
 
             // DIRECTION-ONLY world-space view ray (camera rotation only — NO far-plane-worldPos minus cameraPos).
             // That subtraction of two large world-space points loses float precision and, as the camera MOVES, makes
