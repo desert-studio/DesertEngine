@@ -723,6 +723,12 @@ namespace Desert::Graphic::System
             hash.Add( gpu.Still->Generation );
             hash.Add( gpu.Material.get() );
             hash.Add( gpu.HiddenSubmeshes );
+            // A blade's shadow LOD and thinning in this cascade (BladeShadowSet: the texel, the bias, the view's
+            // pixel): another set or another thinning draws other blades.
+            const BladeCasterLod shadow = BladeShadowSet( gpu, cascade );
+            hash.Add( shadow.Set );
+            hash.Add( shadow.ThinFrom );
+            hash.Add( gpu.ShadowLod.StartCull );
             const bool sways = gpu.Wind.Sways();
             hash.Add( sways );
             if ( !sways )

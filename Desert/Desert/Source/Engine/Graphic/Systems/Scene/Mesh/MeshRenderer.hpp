@@ -478,6 +478,9 @@ namespace Desert::Graphic::System
             // group of records (one per submesh, level L at record L x submesh count) per level, each drawn by a
             // draw of its own (UE grass HISM: the instance's LOD by screen size). 1: one bucket, level 0.
             uint32_t Levels = 1;
+            // GrassBlade only: what each cascade picks the strip's record set (its shadow LOD) and the caster's
+            // density by (BuildGpuInstancedShadowDraws, BladeShadowSet). Levels 0: the cascades draw set 0.
+            GpuInstanceBladeShadowLod ShadowLod{};
             // Stable per section across frames: the view-variant key (several cascade views: Key * kCascadeViews + v).
             uint32_t Key = 0;
             // GrassBlade only: the shared BLAS of each strip level (GrassBladeRayTracing.hpp), indexed by submesh;
@@ -854,6 +857,13 @@ namespace Desert::Graphic::System
         [[nodiscard]] float GetShadowWindDistance() const
         {
             return m_ShadowWindDistance;
+        }
+        // Scalability Shadows.FoliageShadowLodBias (SceneRenderer::BeginScene; UE r.Shadow LOD bias for the grass):
+        // each step draws a grass blade into every cascade as if the cascade's texel were twice as wide - one
+        // strip level coarser and thinned as the camera thins at twice the distance (BladeShadowSet). 0..3.
+        void SetFoliageShadowLodBias( const int steps )
+        {
+            m_FoliageShadowLodBias = steps;
         }
         // The rule's measure as a light camera carries it (ViewFrame::CasterWindOrigin): xyz the main camera's
         // origin - the point ShadowIsmInstances measures from - w the shadow wind distance.
@@ -2795,6 +2805,21 @@ namespace Desert::Graphic::System
         // camera. @p layer is the cascade cache's layer drawn (All: an uncached cascade). True when a still
         // section (GpuInstancedRenderData::Still) the layer draws was left out for a pending reason (its textures,
         // its caster pipeline compiling): a static layer drawn without it must not be kept.
+        // THE BLADE'S SHADOW LOD IN A CASCADE (GPU-COST-20; UE: a shadow view picks its own LOD by the caster's
+        // size in that view, r.Shadow.LODDistanceFactor / the shadow LOD bias): the record set a GrassBlade
+        // section draws into cascade view @p cascade (GpuInstances.hpp - the coarsest strip level that still gives
+        // a segment per kBladeShadowTexelsPerSegment texels of the blade's height, never finer than the camera's
+        // level), and the distance the caster thins the field as if it stood at (Vertex_GrassBlade.glslh: the
+        // generator's (S / d)^2 at max(d, ThinFrom) - where one of the view's pixels is as wide as the cascade's
+        // texel). Both read the texel widened by Shadows.FoliageShadowLodBias. Set 0 and ThinFrom 0 for a section
+        // without a shadow LOD (a mesh, a view without a fitted cascade): drawn as the camera draws it.
+        struct BladeCasterLod
+        {
+            uint32_t Set      = 0;
+            float    ThinFrom = 0.0f; // cm; 0: no thinning
+            [[nodiscard]] bool operator==( const BladeCasterLod& ) const = default;
+        };
+        [[nodiscard]] BladeCasterLod BladeShadowSet( const GpuInstancedRenderData& gpu, uint32_t cascade ) const;
         [[nodiscard]] bool BuildGpuInstancedShadowDraws( uint32_t cascade, uint32_t shadowView,
                                                          ShadowCasterLayer                 layer,
                                                          MeshRendererDetail::MeshDrawList& list );
@@ -3017,5 +3042,7 @@ namespace Desert::Graphic::System
         bool                        m_SkinCacheEnabled = true;
         // Shadows.WindAnimationDistance, set by SceneRenderer::BeginScene before every gather (cm).
         float m_ShadowWindDistance = 0.0f;
+        // Shadows.FoliageShadowLodBias, set by SceneRenderer::BeginScene (BladeShadowSet).
+        int m_FoliageShadowLodBias = 0;
     };
 } // namespace Desert::Graphic::System

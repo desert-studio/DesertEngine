@@ -1,7 +1,8 @@
 // DesertAsset {"Kind":"Shader","Guid":"9af5b17398544149b3546d72bc857b7b","Versions":{"SHDR":1},"Dependencies":[]}
 // After GrassGenerate: each bucket's appended count, clamped to its capacity, becomes the instanceCount of the
 // records that draw it and its first instance their firstInstance (GpuInstances.hpp: bucket L for the submeshes'
-// records of a mesh's level L - one bucket without a LOD chain - and bucket s for record s of a blade strip), the UNCLAMPED counts (the generator's atomic counts past the
+// records of a mesh's level L - one bucket without a LOD chain - and bucket s for record s of every set of a blade
+// strip's records, one set per shadow LOD, Mode.z), the UNCLAMPED counts (the generator's atomic counts past the
 // capacity) go to Feedback for the renderer to size the next capacities from (GrassRenderer, GPU-count feedback), and
 // the counters are reset for the next frame's generation. One thread.
 // The camera's list (GRASS-VIS, Mode.y): CameraArgs' records get its phase-1 counts the same way, and each bucket's
@@ -41,8 +42,18 @@ Shader "GrassFinalize"
         // Mirrors Graphic::System::GrassFinalizePush (GrassRenderer.cpp).
         PushConstant PushConstants
         {
-            uvec4 Mode; // x = 0 after the generation, 1 after phase 2; y = 1 when the camera's list was generated
+            uvec4 Mode; // x = 0 after the generation, 1 after phase 2; y = 1 when the camera's list was generated;
+                        // z = 1: a blade's records, sets of one record per bucket (record s draws bucket s % count)
         };
+
+        // The bucket record @p s of @p records draws: a mesh's records come in equal groups, one per bucket (its
+        // levels); a blade's in sets of one record per bucket (Mode.z), each set a shadow LOD of the same buckets.
+        uint BucketOfRecord( uint s, uint records, uint buckets )
+        {
+            if ( Mode.z != 0u )
+                return s % buckets;
+            return min( s / max( 1u, records / buckets ), buckets - 1u );
+        }
 
         // Phase 1's camera records, and the phase words frozen for phase 2.
         void FinalizeCamera()
@@ -51,10 +62,9 @@ Shader "GrassFinalize"
             uint records = CameraArguments[2];
             uint table   = 4u + records * 5u;
             uint phases  = table + buckets * 4u;
-            uint group   = max( 1u, records / buckets );
             for ( uint s = 0u; s < records; ++s )
             {
-                uint b  = min( s / group, buckets - 1u );
+                uint b  = BucketOfRecord( s, records, buckets );
                 uint at = table + b * 4u;
                 CameraArguments[4u + s * 5u + 1u] = min( CameraArguments[at], CameraArguments[at + 2u] );
                 CameraArguments[4u + s * 5u + 4u] = CameraArguments[at + 1u];
@@ -88,10 +98,9 @@ Shader "GrassFinalize"
             uint records = CameraArguments[2];
             uint table   = 4u + records * 5u;
             uint phases  = table + buckets * 4u;
-            uint group   = max( 1u, records / buckets );
             for ( uint s = 0u; s < records; ++s )
             {
-                uint b = min( s / group, buckets - 1u );
+                uint b = BucketOfRecord( s, records, buckets );
                 PostArguments[4u + s * 5u + 1u] = PostCount( table + b * 4u, phases + b * 4u );
                 PostArguments[4u + s * 5u + 4u] = CameraArguments[table + b * 4u + 1u] + CameraArguments[phases + b * 4u + 2u];
             }
@@ -114,11 +123,9 @@ Shader "GrassFinalize"
             uint buckets = Arguments[0];
             uint records = Arguments[2];
             uint table   = 4u + records * 5u;
-            // Records come in equal groups, one per bucket (a blade strip: groups of one).
-            uint group   = max( 1u, records / buckets );
             for ( uint s = 0u; s < records; ++s )
             {
-                uint b = min( s / group, buckets - 1u );
+                uint b = BucketOfRecord( s, records, buckets );
                 uint at = table + b * 4u;
                 Arguments[4u + s * 5u + 1u] = min( Arguments[at], Arguments[at + 2u] );
                 Arguments[4u + s * 5u + 4u] = Arguments[at + 1u];

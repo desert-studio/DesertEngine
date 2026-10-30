@@ -211,7 +211,9 @@ namespace Desert::Graphic::System
         // GrassFinalize's push block (Programs/Grass/GrassFinalize.shader PushConstants).
         struct GrassFinalizePush
         {
-            glm::uvec4 Mode{ 0u }; // x = 0 after the generation, 1 after phase 2; y = 1 with a camera list
+            // x = 0 after the generation, 1 after phase 2; y = 1 with a camera list; z = 1 for a blade's records
+            // (sets of one record per bucket, GpuInstances.hpp), 0 for a mesh's (a group of records per bucket)
+            glm::uvec4 Mode{ 0u };
         };
         static_assert( sizeof( GrassFinalizePush ) == 16 );
 
@@ -356,7 +358,11 @@ namespace Desert::Graphic::System
                                       : std::max( 1u, std::min( Geometry::MaxAvailableLOD( submeshes ) + 1u,
                                                                 static_cast<uint32_t>( screenSizes.size() ) ) );
         const uint32_t buckets     = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : levels;
-        const auto     records     = static_cast<uint32_t>( submeshes.size() ) * levels;
+        // A blade's records come in sets, one per strip level (GpuInstances.hpp): set k
+        // draws bucket s with level max(s, k) - set 0 is the camera's, a cascade draws the set its texel size asks
+        // for (MeshRenderer::BladeShadowSet). A mesh has one set of records per level of its LOD chain.
+        const uint32_t sets        = variety.Blade ? static_cast<uint32_t>( submeshes.size() ) : levels;
+        const auto     records     = static_cast<uint32_t>( submeshes.size() ) * sets;
         const float    lodDistance = variety.Blade ? variety.Blade->LodDistance * lens : 0.0f;
         // The instance's bounding sphere in its local space: a blade's from its shape (the upright blade's
         // middle, reaching the farthest leaning tip - its own curvature draw and its root's tilt - and the wind's
@@ -394,6 +400,21 @@ namespace Desert::Graphic::System
             // A blade's sphere already holds the sway; a mesh's is its bounds.
             gpu.Reach = ( std::abs( boundsHeight ) + boundsRadius ) * maxScale +
                         ( variety.Blade ? 0.0f : WindBoundsPad( variety.Wind ) );
+            // What a cascade picks a blade's shadow LOD and density by (GpuInstanceBladeShadowLod): the tallest
+            // blade, the strip, where the generator's thinning starts (GrassGenerate p.Cull.x) and the world size
+            // of one of this view's pixels per cm of distance (a cascade texel of size T is as fine as a pixel at
+            // T / PixelSpread).
+            gpu.ShadowLod = {};
+            if ( variety.Blade )
+            {
+                const float tanHalfY = 1.0f / std::max( 1.0e-6f, std::abs( frame.Projection[1][1] ) );
+                const auto  rows     = static_cast<float>( std::max( 1u, frame.Split.Render.Height ) );
+                gpu.ShadowLod        = { .Height      = variety.Blade->Height * maxScale,
+                                         .Segments    = variety.Blade->Segments,
+                                         .Levels      = static_cast<uint32_t>( submeshes.size() ),
+                                         .StartCull   = p.StartCullDistance * lens,
+                                         .PixelSpread = perspective ? 2.0f * tanHalfY / rows : 0.0f };
+            }
         }
         // What the GPU counted for each bucket FramesInFlight frames ago (GrassFinalize), when this frame's copy
         // has been written since the feedback buffer was made for this bucket count.
@@ -510,17 +531,18 @@ namespace Desert::Graphic::System
             const auto argBytes     = ( tableWord + buckets * kBucketWords ) * 4u;
             gpu.Args                = ShaderResources::StorageBuffer::Create( "GrassArgs", argBytes, 3, true );
             // The records' static half: record L x submeshCount + si draws submesh si at level L (a submesh with a
-            // shorter chain its coarsest level, one without a chain its base range; a blade has level 0 only);
-            // instanceCount and firstInstance are GrassFinalize's. The bucket table: each bucket's first instance,
-            // capacity and - a mesh level - half its screen size.
+            // shorter chain its coarsest level, one without a chain its base range); a blade's record k x
+            // submeshCount + s draws strip level max(s, k) for bucket s (set k, the shadow LOD). instanceCount and
+            // firstInstance are GrassFinalize's. The bucket table: each bucket's first instance, capacity and - a
+            // mesh level - half its screen size.
             std::vector<uint32_t> args( argBytes / 4u, 0u );
             args[0] = buckets;
             args[1] = capacity;
             args[2] = records;
-            for ( uint32_t level = 0; level < levels; ++level )
+            for ( uint32_t level = 0; level < sets; ++level )
                 for ( uint32_t si = 0; si < submeshCount; ++si )
                 {
-                    const auto& sm     = submeshes[si];
+                    const auto& sm     = submeshes[variety.Blade ? std::max( si, level ) : si];
                     uint32_t*   record = &args[GpuInstanceArgsOffset( level * submeshCount + si ) / 4u];
                     if ( sm.LODs.empty() )
                     {
@@ -847,6 +869,7 @@ namespace Desert::Graphic::System
                            .Capacity         = gpu->Capacity,
                            .BucketCapacities = gpu->BucketCapacities,
                            .Levels           = variety.Blade ? 1u : gpu->Buckets,
+                           .ShadowLod        = gpu->ShadowLod,
                            .Key              = gpu->Index * 64u + s,
                            // The grass stands still but for the wind: a cached cascade keeps its rest pose.
                            .Still = MeshRenderer::GpuInstancedRenderData::StillInstances{
@@ -960,7 +983,8 @@ namespace Desert::Graphic::System
                      for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
                      {
                          RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
-                         const GrassFinalizePush mode{ glm::uvec4( 0u, cameraList ? 1u : 0u, 0u, 0u ) };
+                         const GrassFinalizePush mode{ glm::uvec4(
+                              0u, cameraList ? 1u : 0u, m_FrameGenerate[i]->Shape ? 1u : 0u, 0u ) };
                          bindings.PushConstants( &mode, sizeof( mode ) );
                          if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 );
                               !dispatched )
@@ -1057,7 +1081,7 @@ namespace Desert::Graphic::System
                  for ( uint32_t i = 0; i < m_FrameGenerate.size(); ++i )
                  {
                      RDG::PassBindings       bindings( context, context.GetBindingBlock( i ) );
-                     const GrassFinalizePush mode{ glm::uvec4( 1u, 1u, 0u, 0u ) };
+                     const GrassFinalizePush mode{ glm::uvec4( 1u, 1u, m_FrameGenerate[i]->Shape ? 1u : 0u, 0u ) };
                      bindings.PushConstants( &mode, sizeof( mode ) );
                      if ( auto dispatched = renderer.DispatchCompute( bindings, *m_Finalize, 1, 1, 1 ); !dispatched )
                          return dispatched;

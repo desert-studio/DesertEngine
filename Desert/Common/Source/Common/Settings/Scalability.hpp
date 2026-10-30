@@ -381,6 +381,11 @@ namespace Common::Scalability
         // depth-only draw per opaque mesh and saves the G-buffer's overdraw), so only a machine override names it;
         // ViewDistance owns it for the selector's listing because the meshes it moves are the scene's geometry.
         EarlyZPass,
+        // The landscape grass blades' shadow LOD bias (GPU-COST-20; UE r.Shadow LOD bias / grass shadow LOD): each
+        // step draws a blade into every cascade as if the cascade's texel were twice as wide - a strip level
+        // coarser and thinned as the camera thins at twice the distance. Read by SceneRenderer::BeginScene ->
+        // MeshRenderer::SetFoliageShadowLodBias (MeshRenderer::BladeShadowSet). Steps, 0..3.
+        ShadowFoliageLodBias,
         Count
     };
     inline constexpr std::size_t kParameterCount = static_cast<std::size_t>( Parameter::Count );

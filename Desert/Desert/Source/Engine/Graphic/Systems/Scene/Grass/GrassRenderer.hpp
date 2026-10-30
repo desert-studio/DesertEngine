@@ -294,6 +294,8 @@ namespace Desert::Graphic::System
             float Reach = 0.0f;
             // GRASS-VIS: this frame's first raster-stream row (GrassBladeShapeGpu::Visibility.x), Blade only.
             uint32_t VisibilityRow = 0;
+            // Blade only: what each cascade picks this variety's shadow LOD and density by (GPU-COST-20).
+            GpuInstanceBladeShadowLod ShadowLod{};
         };
 
         [[nodiscard]] VarietyGpu* PrepareVariety( const GrassVarietyDraw& variety, class Desert::Mesh& mesh,

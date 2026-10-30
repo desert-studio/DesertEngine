@@ -440,6 +440,10 @@ namespace Common::Scalability
                "SceneRenderer::OnUpdate -> MeshRenderer::SetEarlyZPass (the deferred early-Z pass: no mesh, the "
                "masked ones, or every opaque and masked one; the G-buffer draws them EQUAL)",
                Of( EarlyZPassMode::All ), Vis::Advanced },
+             { P::ShadowFoliageLodBias, G::Shadows, "Shadows.FoliageShadowLodBias", 0, 3, CL::None,
+               "SceneRenderer::BeginScene -> MeshRenderer::SetFoliageShadowLodBias (a grass blade's strip level "
+               "and thinning per cascade, MeshRenderer::BladeShadowSet)",
+               0, Vis::Advanced },
         } };
 
         // Every Default is a value the loader would accept for its row (SCAL-UX contract §1).

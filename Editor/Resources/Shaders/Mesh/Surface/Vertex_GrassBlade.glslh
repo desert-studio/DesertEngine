@@ -69,7 +69,11 @@ void main()
 #ifdef DESERT_SURFACE_PASS_Visibility
     v_VisibilityRow = Blade.Visibility.x + uint( gl_InstanceIndex );
 #endif
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    mat4             model  = transforms[gl_InstanceIndex];
+#else
     const mat4       model  = transforms[gl_InstanceIndex];
+#endif
     const float      side   = a_Position.x;
     const float      t      = a_Position.y;
     vec4             windA  = m_PushConstants.WindA;
@@ -79,10 +83,68 @@ void main()
         gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 ); // the other layer's blade: a degenerate, clipped
         return;
     }
+    // THE CASCADE'S DENSITY (GPU-COST-20; MeshRenderer::BladeShadowSet): the cascade thins the field as the camera
+    // thins it (GrassGenerate's (S / d)^2 past StartCullDistance S) at max(d, ThinFrom) - the distance where one of
+    // the view's pixels is as wide as the cascade's texel - so a blade costs the cascade what it gives it in
+    // texels. The generator kept this blade at its own d, so the cascade keeps the ratio of the two shares, drawn
+    // by a hash of the blade's root (stable as the list reorders), and widens a survivor as the generator does
+    // (1 / sqrt(share)): the covered area stays the same. WindB.z: half x ThinFrom, half y S; 0 = every blade.
+    {
+        const vec2 thin = unpackHalf2x16( floatBitsToUint( m_PushConstants.WindB.z ) );
+        if ( thin.x > 0.0 && thin.y > 0.0 )
+        {
+            const float d     = max( length( model[3].xyz - cameraUB.CasterWindOrigin.xyz ), 1.0 );
+            const float at    = max( d, thin.x );
+            const float share = min( 1.0, thin.y * thin.y / ( at * at ) ) / min( 1.0, thin.y * thin.y / ( d * d ) );
+            if ( share < 1.0 )
+            {
+                uvec2 key = floatBitsToUint( model[3].xz );
+                uint  h   = key.x * 0x8DA6B343u ^ key.y * 0xD8163841u;
+                h         = ( h ^ ( h >> 16u ) ) * 0x7FEB352Du;
+                h         = ( h ^ ( h >> 15u ) ) * 0x846CA68Bu;
+                h ^= h >> 16u;
+                if ( float( h >> 8u ) * ( 1.0 / 16777216.0 ) >= share )
+                {
+                    gl_Position = vec4( 0.0, 0.0, -2.0, 1.0 ); // thinned out of this cascade: a degenerate, clipped
+                    return;
+                }
+                const float widen = inversesqrt( max( share, 0.05 ) );
+                model[0].xyz *= widen;
+                model[2].xyz *= widen;
+            }
+        }
+    }
 #endif
-    const BladePoint blade  = BladeAt( Blade, model, side, t, windA, m_PushConstants.WindB );
-    const vec3       along  = normalize( blade.Along );
-    const vec3       normal = BladeNormal( blade, side );
+    const BladePoint blade = BladeAt( Blade, model, side, t, windA, m_PushConstants.WindB );
+#if defined( DESERT_SURFACE_PASS_Depth ) || defined( DESERT_SURFACE_PASS_ShadowDepth )
+#define GRASS_BLADE_DEPTH_CELL 1
+#endif
+#if defined( GRASS_BLADE_DEPTH_CELL ) && defined( DESERT_SURFACE_HAS_VARYINGS ) && !defined( DESERT_SURFACE_PARALLAX )
+    // THE MASKED DEPTH CELLS - the view's depth prepass and a cascade's caster (UE's depth-only / shadow-depth vertex
+    // factory: position and the masked UV, no normal, tangent or velocity) - read one thing of the blade but its
+    // place: the opacity mask's UV (Pass_Depth.glslh / Pass_ShadowDepth.glslh: DESERT_SURFACE_CLIP, DShaderParser
+    // OpacityMaskFunction samples `i.UV<set>` and nothing else of SurfaceInput) - no shading frame, no velocity
+    // ("No velocity", Pass_Depth.glslh:11; a light view has no previous frame). The cells build only that; the frame
+    // and the previous wind step are the G-buffer cell's, the pass that reads them. The place itself is the one
+    // expression every cell evaluates, so gl_Position stays invariant against the base pass and a blade's shadow is
+    // the blade drawn. (A `.Parallax` depth cell evaluates the surface, so it takes the full set below.)
+    v_Surface.WorldPosition = blade.Position;
+    v_Surface.Normal        = vec3( 0.0, 1.0, 0.0 ); // not read by the depth cells' fragment stage
+    v_Surface.UV0           = BladeCardUV( BladeCard( Blade, model[0].w ), side, t );
+    v_Surface.UV1           = vec2( model[2].w, t );
+    v_Surface.VertexColor   = a_Color;
+    v_Surface.ObjectScaleUp = 1.0;
+    v_Surface.TBN           = mat3( 1.0 ); // not read by the depth cells' fragment stage
+    v_Surface.Clip          = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.PrevClip      = vec4( 0.0, 0.0, 0.0, 1.0 );
+    v_Surface.ObjectMoved   = 0.0;
+#ifdef DESERT_SURFACE_PASS_ShadowDepth
+    // The caster's slope bias reads the blade's normal - the vertex stage's own use, not a varying.
+    const vec3 normal = BladeNormal( blade, side );
+#endif
+#else
+    const vec3 along  = normalize( blade.Along );
+    const vec3 normal = BladeNormal( blade, side );
 #ifdef DESERT_SURFACE_HAS_VARYINGS
     // The blade's look is its material's: UV0 is the card's place on the scanned atlas (texture space, set
     // directly, not a stored mesh UV), UV1 carries the clump's draw and the height share for the material's clump
@@ -110,6 +172,7 @@ void main()
     v_Surface.PrevClip = vec4( 0.0, 0.0, 0.0, 1.0 );
     v_Surface.ObjectMoved = 0.0;
 #endif
+#endif // the masked depth cells
     gl_Position = cameraUB.JitteredViewProjection * vec4( blade.Position, 1.0 );
 #ifdef DESERT_SURFACE_PASS_ShadowDepth
     gl_Position = ShadowCasterSlopeBias( gl_Position, cameraUB.JitteredViewProjection, normal,
