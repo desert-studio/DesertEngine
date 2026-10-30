@@ -5,6 +5,9 @@
 #include <Engine/Graphic/View/ViewFrame.hpp>
 #include <Engine/Graphic/FrameGraphRefs.hpp>
 #include <Engine/Graphic/RDG/RDGBuilder.hpp>
+#include <Engine/Graphic/FallbackTextures.hpp>
+#include <Engine/Graphic/Pipeline.hpp>
+#include <Engine/Graphic/SceneRendererFrame.hpp>
 #include <Engine/Runtime/ResourceRegistry.hpp>
 #include <Engine/Graphic/Image.hpp>
 #include <Engine/Graphic/RenderPass.hpp>
@@ -17,6 +20,8 @@
 #include <Common/Core/Units.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -34,7 +39,24 @@ namespace
     {
         DESERT_SHADER_PARAMETER( UniformBuffer, TerrainUB );
         DESERT_SHADER_PARAMETER( StorageBuffer, TerrainInstances );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeVertexPool );
     };
+
+    // "Landscape: Dice Pool" (LandscapeDicePool.shader).
+    struct DicePoolShaderParameters
+    {
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDicePoolRows );
+        DESERT_SHADER_PARAMETER( Texture, HeightmapTexture );
+        DESERT_SHADER_PARAMETER( Texture, WeightmapTexture );
+        DESERT_SHADER_PARAMETER( Texture, LayerHeightTexture );
+        DESERT_SHADER_PARAMETER( Sampler, PointClampSampler );
+        DESERT_SHADER_PARAMETER( Sampler, LinearClampSampler );
+        DESERT_SHADER_PARAMETER( Sampler, LinearRepeatSampler );
+        DESERT_SHADER_PARAMETER( StorageBuffer, LandscapeDicePoolVertices );
+    };
+    constexpr std::string_view kDicePoolPass      = "Landscape: Dice Pool";
+    constexpr std::string_view kDicePoolShader    = "LandscapeDicePool";
+    constexpr uint32_t         kDicePoolLocalSize = 64; // LocalSize of the shader
 } // namespace
 
 namespace Desert::Graphic::System
@@ -466,6 +488,8 @@ namespace Desert::Graphic::System
         m_LocalLightDraws.clear();
         m_FrameInstances.clear();
         m_FrameMaterials.clear();
+        m_DicePoolJobs.clear();
+        m_DicePoolVertices = 0;
         if ( m_Queue.empty() )
             return;
 
@@ -574,13 +598,6 @@ namespace Desert::Graphic::System
                     if ( !layers.ArrayNames[kind].empty() && layers.Arrays[kind] &&
                          !surface->SetTexture( layers.ArrayNames[kind], layers.Arrays[kind].get() ) )
                         LogRefusedTextureOverride( surface->GetShaderName(), layers.ArrayNames[kind] );
-                // The displaced vertex reads the layer heights in the casters too (LandscapeDisplacement.glslh).
-                if ( !layers.ArrayNames[3].empty() && layers.Arrays[3] )
-                {
-                    materials.Shadow->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
-                    materials.VirtualShadow->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
-                    materials.Depth->SetTexture( layers.ArrayNames[3], layers.Arrays[3].get() );
-                }
                 surface->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.Shadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
                 materials.VirtualShadow->SetTexture( "HeightmapTexture", t.Heightmap.get() );
@@ -605,6 +622,24 @@ namespace Desert::Graphic::System
             ApplyLandscapeDisplacement( instance, t.Landscape, *surface, frame.CameraPosition, frame.Projection,
                                         m_SceneRenderer->GetViewExtent().Height,
                                         m_SceneRenderer->GetDisplacementDicingRate() );
+            // The tile's displaced sub-vertices, evaluated once this frame (AddDicePoolPass) for every view's
+            // draw.
+            if ( const uint32_t pooled = LandscapeDicePoolVertexCount(
+                      t.Landscape.QuadsPerTile, static_cast<uint32_t>( instance.Params.w ), instance );
+                 pooled > 0u )
+            {
+                instance.DicePool.x = static_cast<float>( m_DicePoolVertices );
+                m_DicePoolJobs.push_back(
+                     { .Row       = instance,
+                       .Heightmap = t.Heightmap,
+                       .Weightmap = t.Weights.Weightmap != nullptr ? std::shared_ptr<Image>( t.Weights.Weightmap )
+                                                                   : FallbackTextures::Get().GetFallbackTexture2D(
+                                                                          Core::Formats::ImageFormat::RGBA8F ),
+                       .HasWeightmap = t.Weights.Weightmap != nullptr,
+                       .LayerHeights = layers.Arrays[3] ? layers.Arrays[3] : m_EmptyLayerArray,
+                       .Vertices     = pooled } );
+                m_DicePoolVertices += pooled;
+            }
 
             FrameDraw draw;
             draw.Group       = it->second;
@@ -801,6 +836,105 @@ namespace Desert::Graphic::System
         }
     }
 
+    Common::BoolResultStr TerrainRenderer::AddDicePoolPass( RDG::Builder& graph, FrameTextures& textures )
+    {
+        m_DicePool = {};
+        if ( m_FrameDraws.empty() )
+            return BOOLSUCCESS;
+        // The row's first vertex rides as a float (TerrainInstance.DicePool.x): exact below 2^24 vertices (512
+        // MB).
+        if ( m_DicePoolVertices >= ( 1u << 24 ) )
+            return Common::MakeFormattedError<bool>( "{}: {} pooled vertices exceed the 2^24 a row can address",
+                                                     kDicePoolPass, m_DicePoolVertices );
+        const uint64_t vertices = std::max<uint32_t>( m_DicePoolVertices, 1u );
+        m_DicePool =
+             graph.CreateBuffer( RDG::BufferDesc{ vertices * 2u * sizeof( glm::vec4 ) }, "Landscape.DicePool" );
+        if ( m_DicePoolJobs.empty() )
+        {
+            // No tile is diced this frame: nothing reads the pool, but every terrain vertex stage binds it.
+            const std::array<std::byte, 2 * sizeof( glm::vec4 )> zero{};
+            graph.QueueBufferUpload( m_DicePool, zero );
+            return BOOLSUCCESS;
+        }
+
+        if ( !m_DicePoolPipeline )
+        {
+            const auto shaders = Runtime::ResourceRegistry::GetShaderService();
+            const auto shader  = shaders ? shaders->GetByName( std::string( kDicePoolShader ) ) : nullptr;
+            if ( !shader )
+                return Common::MakeFormattedError<bool>(
+                     "{}: compute shader '{}' is not registered (Programs/Terrain/{}.shader)", kDicePoolPass,
+                     kDicePoolShader, kDicePoolShader );
+            const auto pipeline =
+                 ComputePipeline::Create( { .Shader = shader, .DebugName = std::string( kDicePoolShader ) } );
+            if ( !pipeline )
+                return Common::MakeFormattedError<bool>( "{}: {}", kDicePoolPass, pipeline.GetError() );
+            m_DicePoolPipeline = pipeline.GetValue();
+        }
+
+        std::vector<std::byte> rowBytes( m_DicePoolJobs.size() * sizeof( TerrainInstance ) );
+        for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
+            std::memcpy( rowBytes.data() + i * sizeof( TerrainInstance ), &m_DicePoolJobs[i].Row,
+                         sizeof( TerrainInstance ) );
+        const RDG::BufferRef rows =
+             graph.CreateBuffer( RDG::BufferDesc{ rowBytes.size() }, "Landscape.DicePool.Rows" );
+        graph.QueueBufferUpload( rows, rowBytes );
+
+        // One binding block and one dispatch per diced tile, all writing their own range of the one pool.
+        ComputeNodeDeclaration node;
+        node.Name                      = std::string( kDicePoolPass );
+        const auto&             layout = m_DicePoolLayout.Get( m_DicePoolPipeline->GetSpecification().Shader );
+        std::vector<glm::uvec4> pushes;
+        std::vector<uint32_t>   groups;
+        for ( std::size_t i = 0; i < m_DicePoolJobs.size(); ++i )
+        {
+            const DicePoolJob& job = m_DicePoolJobs[i];
+            node.Access.Bindings( layout, Renderer::GetPipelineRouteFill( *m_DicePoolPipeline ) )
+                 .PushConstantBytes( static_cast<uint32_t>( sizeof( glm::uvec4 ) ) )
+                 .Storage( DicePoolShaderParameters::LandscapeDicePoolRows, rows, RDG::Access::StorageRead )
+                 .Texture(
+                      DicePoolShaderParameters::HeightmapTexture, job.Heightmap, RDG::Access::SampledCompute,
+                      std::format( "Landscape.Heightmap.{}", static_cast<const void*>( job.Heightmap.get() ) ) )
+                 .Texture( DicePoolShaderParameters::WeightmapTexture, job.Weightmap, RDG::Access::SampledCompute,
+                           job.HasWeightmap ? std::format( "Landscape.Weightmap.{}",
+                                                           static_cast<const void*>( job.Weightmap.get() ) )
+                                            : std::string( "Landscape.DicePool.WeightmapFallback" ) )
+                 .Texture( DicePoolShaderParameters::LayerHeightTexture, job.LayerHeights,
+                           RDG::Access::SampledCompute,
+                           std::format( "Landscape.LayerHeights.{}",
+                                        static_cast<const void*>( job.LayerHeights.get() ) ) )
+                 .Sampler( DicePoolShaderParameters::PointClampSampler, RDG::SamplerDesc::PointClamp() )
+                 .Sampler( DicePoolShaderParameters::LinearClampSampler, RDG::SamplerDesc::LinearClamp() )
+                 .Sampler( DicePoolShaderParameters::LinearRepeatSampler, RDG::SamplerDesc::LinearRepeat() )
+                 .Storage( DicePoolShaderParameters::LandscapeDicePoolVertices, m_DicePool,
+                           RDG::Access::StorageWrite );
+            pushes.emplace_back( static_cast<uint32_t>( i ), job.Vertices, 0u, 0u );
+            groups.push_back( ( job.Vertices + kDicePoolLocalSize - 1u ) / kDicePoolLocalSize );
+        }
+        node.Record = [pipeline = m_DicePoolPipeline, pushes,
+                       groups]( RDG::PassContext& context, const FrameGraphRefs& ) -> Common::BoolResultStr
+        {
+            for ( uint32_t block = 0; block < pushes.size(); ++block )
+            {
+                RDG::PassBindings bindings( context, context.GetBindingBlock( block ) );
+                bindings.PushConstants( &pushes[block], static_cast<uint32_t>( sizeof( glm::uvec4 ) ) );
+                if ( const Common::BoolResultStr dispatched =
+                          Renderer::DispatchCompute( bindings, *pipeline, groups[block], 1, 1 );
+                     !dispatched )
+                    return dispatched;
+            }
+            return BOOLSUCCESS;
+        };
+        std::vector<ComputeNodeDeclaration> nodes;
+        nodes.push_back( std::move( node ) );
+        if ( !AddComputeNodes( graph, textures, std::move( nodes ) ) )
+        {
+            m_DicePool = {};
+            return Common::MakeFormattedError<bool>( "{}: the node could not be declared", kDicePoolPass );
+        }
+        return BOOLSUCCESS;
+    }
+
     namespace
     {
         // SETUP of a node drawing the terrain: one binding block per executor (TerrainRenderer::GroupExecutors),
@@ -811,13 +945,15 @@ namespace Desert::Graphic::System
         uint32_t DeclareGroupBlocks( Declaration& declaration, const GraphicsPipeline* pipeline,
                                      ShaderBindingLayoutCache&                   layoutCache,
                                      const std::vector<const MaterialExecutor*>& executors,
-                                     const SceneViewInputs*                      view )
+                                     const SceneViewInputs* view, const RDG::BufferRef dicePool )
         {
             const std::shared_ptr<const RDG::ShaderBindingLayout>& layout =
                  layoutCache.Get( pipeline->GetSpecification().Shader );
             for ( const MaterialExecutor* executor : executors )
             {
                 auto block = declaration.Bindings( layout, executor->GetRouteFill() );
+                // Every terrain vertex stage reads the frame's dice pool (TerrainVertex.glslh).
+                block.Storage( TerrainShaderParameters::LandscapeVertexPool, dicePool, RDG::Access::StorageRead );
                 if ( view != nullptr && SamplesSceneViewInputs( *layout ) )
                 {
                     BindSceneViewInputs( block, *view, *layout );
@@ -919,7 +1055,7 @@ namespace Desert::Graphic::System
             const SceneViewInputs view = SceneViewInputsOf( refs );
             (void)DeclareGroupBlocks( declared, ForwardPipeline().get(),
                                       m_ForwardVirtual ? m_ForwardVsmLayout : m_ForwardLayout,
-                                      GroupExecutors( ForwardProgram() ), &view );
+                                      GroupExecutors( ForwardProgram() ), &view, m_DicePool );
         };
         return pass;
     }
@@ -947,7 +1083,7 @@ namespace Desert::Graphic::System
             return;
         }
         (void)DeclareGroupBlocks( pass, m_GBufferPipeline.get(), m_GBufferLayout,
-                                  GroupExecutors( &ProgramMaterials::GBuffer ), nullptr );
+                                  GroupExecutors( &ProgramMaterials::GBuffer ), nullptr, m_DicePool );
     }
 
     void TerrainRenderer::DeclareDepthDraws( RDG::PassBuilder& pass )
@@ -962,7 +1098,7 @@ namespace Desert::Graphic::System
             return;
         }
         (void)DeclareGroupBlocks( pass, m_DepthPipeline.get(), m_DepthLayout, GroupExecutors( &ProgramMaterials::Depth ),
-                                  nullptr );
+                                  nullptr, m_DicePool );
     }
 
     Common::BoolResultStr TerrainRenderer::RenderDepthManual( const RDG::PassContext& context )
@@ -1010,7 +1146,7 @@ namespace Desert::Graphic::System
             return 0;
         // A depth-only caster samples no scene/view input.
         return DeclareGroupBlocks( declared, m_ShadowPipeline.get(), m_ShadowLayout,
-                                   GroupExecutors( &ProgramMaterials::Shadow ), nullptr );
+                                   GroupExecutors( &ProgramMaterials::Shadow ), nullptr, m_DicePool );
     }
 
     Common::BoolResultStr TerrainRenderer::RecordShadowView( const RDG::PassContext& context, const uint32_t view,
@@ -1184,6 +1320,7 @@ namespace Desert::Graphic::System
         for ( const MaterialExecutor* executor : executors )
         {
             auto block = pass.Bindings( layout, executor->GetRouteFill() );
+            block.Storage( TerrainShaderParameters::LandscapeVertexPool, m_DicePool, RDG::Access::StorageRead );
             parameters( block, *layout );
         }
         return static_cast<uint32_t>( executors.size() );
