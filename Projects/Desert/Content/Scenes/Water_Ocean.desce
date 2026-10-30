@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 70,
+            "SCNE": 71,
             "UNIT": 1,
             "WPAR": 1
         },
@@ -149,7 +149,8 @@
                 "ContactShadowLength": 0.0,
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
             }
         },
         {

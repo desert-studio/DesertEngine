@@ -5,7 +5,7 @@
         "Versions": {
             "AREF": 1,
             "LGHT": 1,
-            "SCNE": 70,
+            "SCNE": 71,
             "UNIT": 1,
             "WPAR": 1
         },
@@ -44,7 +44,8 @@
                 "ContactShadowLength": 0.05000000074505806,
                 "ContactShadowLengthInWorldSpace": false,
                 "ContactShadowCastingIntensity": 1.0,
-                "ContactShadowNonCastingIntensity": 0.0
+                "ContactShadowNonCastingIntensity": 0.0,
+                "VolumetricScatteringIntensity": 1.0
             }
         },
         {
@@ -217,7 +218,9 @@
                     "LensFlareStreakIntensity": 8.0,
                     "LensFlareStreakLength": 0.3499999940395355,
                     "LensFlareStreakAngle": 0.0,
-                    "LensFlareChromaShift": 0.15000000596046448
+                    "LensFlareChromaShift": 0.15000000596046448,
+                    "SubsurfaceScattering": true,
+                    "SubsurfaceScale": 1.0
                 }
             }
         },
@@ -451,6 +454,20 @@
             }
         },
         {
+            "id": 8180000000000040,
+            "siblingIndex": 30,
+            "Tag": "Player Camera",
+            "Translation": [0.0, 900.0, 2500.0],
+            "Rotation": [-0.14800000190734863, -0.14800000190734863, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Camera": {
+                "AutoActivateForPlayer": true,
+                "FOV": 70.0,
+                "Near": 10.0,
+                "Far": 5000000.0
+            }
+        },
+        {
             "id": 8180000000000100,
             "siblingIndex": 5,
             "Tag": "Terrain Tile 0_0",
@@ -672,6 +689,137 @@
                 "TileX": 3,
                 "TileZ": 3,
                 "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000115.dlht"
+            }
+        },
+        {
+            "id": 8180000000000900,
+            "siblingIndex": 36,
+            "Tag": "Terrain Far",
+            "Translation": [-102000.0, 0.0, -102000.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "Landscape": {
+                "QuadsPerTile": 255,
+                "SpacingCm": 400.0,
+                "ZScale": 64.0,
+                "EditLayers": [
+                    {
+                        "Guid": "9182736455463728191",
+                        "Name": "Base",
+                        "Visible": true,
+                        "Locked": false,
+                        "HeightAlpha": 1.0,
+                        "WeightAlpha": 1.0
+                    }
+                ],
+                "Layers": [
+                    {
+                        "Guid": "f1310680ea846d17141c59441b901b55",
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
+                    },
+                    {
+                        "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
+                    },
+                    {
+                        "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
+                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
+                    }
+                ]
+            },
+            "LandscapeMaterial": {
+                "Material": {
+                    "Guid": "3484bb954b28686f2f2c225c75dd9798",
+                    "Path": "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat"
+                }
+            }
+        },
+        {
+            "id": 8180000000000901,
+            "siblingIndex": 37,
+            "Tag": "Height Fog",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "ExponentialHeightFog": {
+                "Enabled": true,
+                "FogDensity": 0.019999999552965164,
+                "FogHeightFalloff": 0.20000000298023224,
+                "FogInscatteringLuminance": [0.44699999690055847, 0.6380000114440918, 1.0],
+                "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
+                "FogMaxOpacity": 1.0,
+                "StartDistance": 0.0,
+                "FogCutoffDistance": 0.0,
+                "SecondFogDensity": 0.0,
+                "SecondFogHeightFalloff": 0.20000000298023224,
+                "SecondFogHeightOffset": 0.0,
+                "DirectionalInscatteringExponent": 4.0,
+                "DirectionalInscatteringStartDistance": 10000.0,
+                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5],
+                "VolumetricFog": false,
+                "VolumetricFogScatteringDistribution": 0.20000000298023224,
+                "VolumetricFogAlbedo": [1.0, 1.0, 1.0],
+                "VolumetricFogEmissive": [0.0, 0.0, 0.0],
+                "VolumetricFogExtinctionScale": 1.0,
+                "VolumetricFogDistance": 6000.0,
+                "VolumetricFogStartDistance": 0.0,
+                "VolumetricFogNearFadeInDistance": 0.0
+            }
+        },
+        {
+            "id": 8180000000000910,
+            "siblingIndex": 38,
+            "Tag": "Terrain Far Tile 0_0",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "8180000000000900",
+                "TileX": 0,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000910.dlht"
+            }
+        },
+        {
+            "id": 8180000000000911,
+            "siblingIndex": 39,
+            "Tag": "Terrain Far Tile 1_0",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "8180000000000900",
+                "TileX": 1,
+                "TileZ": 0,
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000911.dlht"
+            }
+        },
+        {
+            "id": 8180000000000912,
+            "siblingIndex": 40,
+            "Tag": "Terrain Far Tile 0_1",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "8180000000000900",
+                "TileX": 0,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000912.dlht"
+            }
+        },
+        {
+            "id": 8180000000000913,
+            "siblingIndex": 41,
+            "Tag": "Terrain Far Tile 1_1",
+            "Translation": [0.0, 0.0, 0.0],
+            "Rotation": [0.0, 0.0, 0.0],
+            "Scale": [1.0, 1.0, 1.0],
+            "LandscapeTile": {
+                "Landscape": "8180000000000900",
+                "TileX": 1,
+                "TileZ": 1,
+                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000913.dlht"
             }
         },
         {
@@ -1633,143 +1781,6 @@
             },
             "ProceduralFoliageField": {
                 "Owner": 8180000000000014
-            }
-        },
-        {
-            "id": 8180000000000040,
-            "siblingIndex": 30,
-            "Tag": "Player Camera",
-            "Translation": [0.0, 900.0, 2500.0],
-            "Rotation": [-0.148, -0.148, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Camera": {
-                "AutoActivateForPlayer": true,
-                "FOV": 70.0,
-                "Near": 10.0,
-                "Far": 5000000.0
-            }
-        },
-        {
-            "id": 8180000000000900,
-            "siblingIndex": 36,
-            "Tag": "Terrain Far",
-            "Translation": [-102000.0, 0.0, -102000.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "Landscape": {
-                "QuadsPerTile": 255,
-                "SpacingCm": 400.0,
-                "ZScale": 64.0,
-                "EditLayers": [
-                    {
-                        "Guid": "9182736455463728191",
-                        "Name": "Base",
-                        "Visible": true,
-                        "Locked": false,
-                        "HeightAlpha": 1.0,
-                        "WeightAlpha": 1.0
-                    }
-                ],
-                "Layers": [
-                    {
-                        "Guid": "f1310680ea846d17141c59441b901b55",
-                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDirt.delayerinfo"
-                    },
-                    {
-                        "Guid": "0e67a9bfdff1b3cd7ed50e27dadc465e",
-                        "Path": "assets:Landscape/Layers/FieldBarn/FieldGrass.delayerinfo"
-                    },
-                    {
-                        "Guid": "c39ddb7d5965f1c080b50b71c51a6db6",
-                        "Path": "assets:Landscape/Layers/FieldBarn/FieldDry.delayerinfo"
-                    }
-                ]
-            },
-            "LandscapeMaterial": {
-                "Material": {
-                    "Guid": "3484bb954b28686f2f2c225c75dd9798",
-                    "Path": "assets:Materials/FieldBarn/M_FieldBarn_Landscape.demat"
-                }
-            }
-        },
-        {
-            "id": 8180000000000901,
-            "siblingIndex": 37,
-            "Tag": "Height Fog",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "ExponentialHeightFog": {
-                "Enabled": true,
-                "FogDensity": 0.02,
-                "FogHeightFalloff": 0.2,
-                "FogInscatteringLuminance": [0.447, 0.638, 1.0],
-                "SkyAtmosphereAmbientContributionColorScale": [1.0, 1.0, 1.0],
-                "FogMaxOpacity": 1.0,
-                "StartDistance": 0.0,
-                "FogCutoffDistance": 0.0,
-                "SecondFogDensity": 0.0,
-                "SecondFogHeightFalloff": 0.2,
-                "SecondFogHeightOffset": 0.0,
-                "DirectionalInscatteringExponent": 4.0,
-                "DirectionalInscatteringStartDistance": 10000.0,
-                "DirectionalInscatteringLuminance": [10.0, 8.0, 5.5]
-            }
-        },
-        {
-            "id": 8180000000000910,
-            "siblingIndex": 38,
-            "Tag": "Terrain Far Tile 0_0",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "LandscapeTile": {
-                "Landscape": "8180000000000900",
-                "TileX": 0,
-                "TileZ": 0,
-                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000910.dlht"
-            }
-        },
-        {
-            "id": 8180000000000911,
-            "siblingIndex": 39,
-            "Tag": "Terrain Far Tile 1_0",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "LandscapeTile": {
-                "Landscape": "8180000000000900",
-                "TileX": 1,
-                "TileZ": 0,
-                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000911.dlht"
-            }
-        },
-        {
-            "id": 8180000000000912,
-            "siblingIndex": 40,
-            "Tag": "Terrain Far Tile 0_1",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "LandscapeTile": {
-                "Landscape": "8180000000000900",
-                "TileX": 0,
-                "TileZ": 1,
-                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000912.dlht"
-            }
-        },
-        {
-            "id": 8180000000000913,
-            "siblingIndex": 41,
-            "Tag": "Terrain Far Tile 1_1",
-            "Translation": [0.0, 0.0, 0.0],
-            "Rotation": [0.0, 0.0, 0.0],
-            "Scale": [1.0, 1.0, 1.0],
-            "LandscapeTile": {
-                "Landscape": "8180000000000900",
-                "TileX": 1,
-                "TileZ": 1,
-                "HeightFile": "assets:Scenes/FIELD_Barn_Landscape/8180000000000913.dlht"
             }
         }
     ],
