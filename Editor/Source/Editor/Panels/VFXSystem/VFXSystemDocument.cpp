@@ -667,12 +667,13 @@ namespace Desert::Editor
                     // Each input's unit is the module's own declaration (`Input ... Unit <unit>` of its .dfxmod),
                     // read through the registry as the stack compiler reads it: no second list of units here.
                     // Taken before the widgets run, since an edit may put back a whole earlier system.
-                    const std::size_t        inputs = use.Inputs.size();
-                    std::vector<std::string> units( inputs );
+                    const std::size_t                       inputs = use.Inputs.size();
+                    std::vector<std::string>                units( inputs );
                     const Assets::RegistryVFXModuleResolver modules;
-                    const auto described = VFX::DescribeModule( use.Module, modules );
+                    const auto                              described = VFX::DescribeModule( use.Module, modules );
                     if ( !described.IsSuccess() )
-                        ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s", described.GetError().c_str() );
+                        ImGui::TextColored( ImVec4( 1.0f, 0.45f, 0.35f, 1.0f ), "%s",
+                                            described.GetError().c_str() );
                     else
                         for ( std::size_t i = 0; i < inputs; ++i )
                             for ( const VFX::VFXModuleInputDecl& decl : described.GetValue().Inputs )

@@ -126,8 +126,8 @@ namespace Desert::Editor
         // Moves to @p seconds, clamped to the range; pauses, as a scrub does in UE.
         void ScrubTo( double seconds );
         void DrawStage( const char* title, std::size_t emitter, std::size_t stage );
-        /// @p unit is the input's VFXModuleInputDecl::Unit from the row's `.dfxmod` (empty: unitless): every widget
-        /// of the input shows its value in it (the value is stored in that unit, nothing converts).
+        /// @p unit is the input's VFXModuleInputDecl::Unit from the row's `.dfxmod` (empty: unitless): every
+        /// widget of the input shows its value in it (the value is stored in that unit, nothing converts).
         void DrawInputEditor( std::size_t emitter, std::size_t stage, std::size_t module, std::size_t input,
                               std::string_view unit );
         // Ends a gesture that began from @p before: one undo step labelled @p label, or - when the result is not a

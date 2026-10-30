@@ -90,7 +90,8 @@ namespace Desert::VFX
 
     /// Every unit an `Input` may state: the engine's world units (centimetres, seconds, degrees) and their rates.
     /// A unit outside this list is refused where the module is parsed, so a typo never reaches a slider label.
-    inline constexpr std::string_view kVFXInputUnits[] = { "cm", "cm/s", "cm/s2", "1/cm", "s", "1/s", "deg", "deg/s" };
+    inline constexpr std::string_view kVFXInputUnits[] = { "cm", "cm/s", "cm/s2", "1/cm",
+                                                           "s",  "1/s",  "deg",   "deg/s" };
 
     [[nodiscard]] constexpr bool IsVFXInputUnit( const std::string_view unit )
     {
@@ -105,10 +106,9 @@ namespace Desert::VFX
      *
      * The block opens with declaration lines — exactly one `Usage <Stage>...` (the groups the module may sit in:
      * ParticleSpawn and/or ParticleUpdate — UE's Module Usage), `Attribute <Name> <float|vec2|vec3|vec4|int|bool>`
-     * (a particle attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type> = <default>` (a value
-     * the stack row supplies, read as `i.<Name>`, optionally followed by `Unit <unit>`) — and the rest is GLSL
-     * defining
-     * `void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )`.
+     * (a particle attribute the module reads or writes as `p.<Name>`) and `Input <Name> <type> = <default>` (a
+     * value the stack row supplies, read as `i.<Name>`, optionally followed by `Unit <unit>`) — and the rest is
+     * GLSL defining `void Module( inout ParticleCtx p, inout VFXSim sim, in ModuleInputs i )`.
      */
     struct VFXParticleModule
     {
