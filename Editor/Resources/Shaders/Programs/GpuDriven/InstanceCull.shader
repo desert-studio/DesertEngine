@@ -140,7 +140,6 @@ Shader "InstanceCull"
 
         Uniform sampler PointClampSampler;
         Uniform(15) texture2D GpuCullHzbTexture; // the furthest HZB of the dispatch's HZB view (last frame's in step 1)
-        #define GpuCullHzb sampler2D(GpuCullHzbTexture, PointClampSampler)
 
         PushConstant PushConstants
         {
@@ -396,7 +395,7 @@ Shader "InstanceCull"
 
             if ( !empty && Params2.w != 0u && ( view.Flags & DESERT_GPU_CULL_VIEW_TEST_HZB ) != 0u &&
                  ( primitive.Flags & DESERT_GPU_PRIMITIVE_SKIP_OCCLUSION ) == 0u &&
-                 GpuCull_IsOccludedByHzb( GpuCullHzb, view, view.PrevViewProjection, boxMin, boxMax ) )
+                 GpuCull_IsOccludedByHzb( GpuCullHzbTexture, PointClampSampler, view, view.PrevViewProjection, boxMin, boxMax ) )
             {
                 const uint slot = atomicAdd( OccludedCount, 1u );
                 if ( slot < OccludedCapacity )
@@ -427,7 +426,7 @@ Shader "InstanceCull"
             vec3                    boxMin;
             vec3                    boxMax;
             WorldBox( primitive, instance, world, boxMin, boxMax );
-            if ( Params2.w != 0u && GpuCull_IsOccludedByHzb( GpuCullHzb, view, view.ViewProjection, boxMin, boxMax ) )
+            if ( Params2.w != 0u && GpuCull_IsOccludedByHzb( GpuCullHzbTexture, PointClampSampler, view, view.ViewProjection, boxMin, boxMax ) )
                 return;
             const uint cell = entry.View * Params.y + entry.Instance;
             const uint lod  = Visibility[cell] & DESERT_GPU_CULL_VISIBILITY_LOD_MASK;

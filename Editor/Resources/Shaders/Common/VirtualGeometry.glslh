@@ -96,7 +96,7 @@ struct VgMeshVertex
 
 VgMeshVertex VgFetchMeshVertex( VgClusterDag dag, uint ref )
 {
-    const VgFloats vertices = VgFloats( dag.VertexAddress );
+    VgFloats       vertices = VgFloats( dag.VertexAddress );
     const uint     first    = ref * ( dag.VertexStride / 4u );
     VgMeshVertex   v;
     v.Position     = VgFetchFloat3( vertices, first );
@@ -112,7 +112,7 @@ VgMeshVertex VgFetchMeshVertex( VgClusterDag dag, uint ref )
     }
     const uint stream = ref * VG_MESH_STREAM_STRIDE_WORDS;
     v.Color           = unpackUnorm4x8( VgWords( dag.StreamAddress ).Words[stream] );
-    const VgFloats streams = VgFloats( dag.StreamAddress );
+    VgFloats streams  = VgFloats( dag.StreamAddress );
     v.TexCoord1       = vec2( streams.Floats[stream + 1u], streams.Floats[stream + 2u] );
     return v;
 }

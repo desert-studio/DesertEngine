@@ -31,8 +31,11 @@ float ViewFogVolumetricDepthFromSlice(float slice)
 // @p viewUv          the point's position on the scene view, [0,1], top-left origin (the scene target's pixel grid)
 // @p worldPos        the point, world units (cm)
 // @p reachesGeometry false for a sky pixel (the sky already carries its own aerial perspective)
-vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D aerialPerspective,
-                     sampler2D distantSkyLight, sampler3D volumetricFog)
+// Each input comes as its image plus the sampler that reads it: Vulkan GLSL builds a combined sampler only at its
+// point of use, so the combination is made here, not by the caller.
+vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, texture3D aerialPerspective,
+                     sampler aerialPerspectiveSampler, texture2D distantSkyLight, sampler distantSkyLightSampler,
+                     texture3D volumetricFog, sampler volumetricFogSampler)
 {
     vec3 cameraPos = FogCamera.xyz;
     vec3 cameraKm = cameraPos * (1.0f / HEIGHT_FOG_WORLD_UNITS_PER_KM);
@@ -60,7 +63,7 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
         // The physical sky's ambient: the distant sky light's full-sphere texel, scaled by the artist's colour.
         if (FogAmbient.w > 0.5f)
         {
-            vec3 distantSky = texelFetch(distantSkyLight, ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
+            vec3 distantSky = texelFetch(sampler2D(distantSkyLight, distantSkyLightSampler), ivec2(SKY_DISTANT_LIGHT_SPHERE_TEXEL, 0), 0).rgb;
             params.Inscattering = params.Inscattering + FogAmbient.rgb * distantSky;
         }
 
@@ -75,7 +78,7 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
 
         vec2 gridUv = viewUv * FogView.xy / (FogVolumetric0.yz * FogVolumetric0.x);
         vec3 uvw    = vec3(gridUv, (clamp(slice, 1.0f, FogVolumetric1.w) - 0.5f) / FogVolumetric1.w);
-        vec4 volume = mix(vec4(0.0f, 0.0f, 0.0f, 1.0f), textureLod(volumetricFog, uvw, 0.0f), clamp(slice, 0.0f, 1.0f));
+        vec4 volume = mix(vec4(0.0f, 0.0f, 0.0f, 1.0f), textureLod(sampler3D(volumetricFog, volumetricFogSampler), uvw, 0.0f), clamp(slice, 0.0f, 1.0f));
 
         fog.Inscattering  = volume.rgb + fog.Inscattering * volume.a;
         fog.Transmittance = fog.Transmittance * clamp(volume.a, 0.0f, 1.0f);
@@ -90,7 +93,7 @@ vec4 ViewFogEvaluate(vec2 viewUv, vec3 worldPos, bool reachesGeometry, sampler3D
         vec3  uvw        = vec3(SkyUnitToTexelUv(viewUv.x, SKY_AP_VOLUME_WIDTH),
                                 SkyUnitToTexelUv(viewUv.y, SKY_AP_VOLUME_HEIGHT),
                                 SkyUnitToTexelUv(sliceUnit, SKY_AP_VOLUME_DEPTH));
-        ap = textureLod(aerialPerspective, uvw, 0.0f);
+        ap = textureLod(sampler3D(aerialPerspective, aerialPerspectiveSampler), uvw, 0.0f);
     }
 
     vec3  inscattering  = fog.Inscattering + ap.rgb * fog.Transmittance;

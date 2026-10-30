@@ -148,7 +148,6 @@ Shader "ClusterCut"
 
         Uniform sampler PointClampSampler;
         Uniform(16) texture2D ClusterCutHzbTexture; // the previous frame's furthest HZB of the views (neutral: none)
-        #define ClusterCutHzb sampler2D(ClusterCutHzbTexture, PointClampSampler)
 
         PushConstant PushConstants
         {
@@ -244,7 +243,7 @@ Shader "ClusterCut"
             if ( ( view.Flags & DESERT_GPU_CULL_VIEW_VSM_PAGE_MASK ) != 0u && !CoversDrawnVsmCell( view, boxMin, boxMax ) )
                 return false;
             const mat4 hzbViewProjection = Params2.z != 0u ? view.ViewProjection : view.PrevViewProjection;
-            if ( f.TestHzb && GpuCull_IsOccludedByHzb( ClusterCutHzb, view, hzbViewProjection, boxMin, boxMax ) )
+            if ( f.TestHzb && GpuCull_IsOccludedByHzb( ClusterCutHzbTexture, PointClampSampler, view, hzbViewProjection, boxMin, boxMax ) )
             {
                 atomicAdd( s_Occluded[occludedSlot], 1u );
                 CarryOccluded( f, entry );

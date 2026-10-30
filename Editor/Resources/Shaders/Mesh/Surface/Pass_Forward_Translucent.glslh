@@ -189,8 +189,8 @@ void main()
     // scaled.
     const float preExposure = cameraUB.PreExposure;
     const vec4  fog         = DesertSceneFog( v_Surface.WorldPosition );
-    const vec3  surface     = ( envRefl * fresnel + spec + localSpec + s.Emissive ) * preExposure;
-    oColor = vec4( refracted * ( 1.0 - fresnel ) + surface * fog.a + fog.rgb * fresnel, 1.0 );
+    const vec3  ownLight    = ( envRefl * fresnel + spec + localSpec + s.Emissive ) * preExposure;
+    oColor = vec4( refracted * ( 1.0 - fresnel ) + ownLight * fog.a + fog.rgb * fresnel, 1.0 );
 #ifdef DESERT_SURFACE_RESPONSIVE_AA
     oResponsiveAA = vec4( 1.0, 0.0, 0.0, 1.0 );
 #endif

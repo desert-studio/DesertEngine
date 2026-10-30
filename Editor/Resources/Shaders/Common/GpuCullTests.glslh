@@ -25,7 +25,8 @@ bool GpuCull_FrustumIntersects( GpuCullView view, vec3 boxMin, vec3 boxMax )
 // the mip at which it spans at most 2 x 2 texels, the furthest depth of those texels of @p hzb (view.HzbExtent:
 // its mip-0 size and mip count) against the box's nearest depth. Reversed-Z (1 = near): occluded when the box's
 // nearest is below every texel's furthest. A box crossing the near plane, or leaving the screen, is not occluded.
-bool GpuCull_IsOccludedByHzb( sampler2D hzb, GpuCullView view, mat4 viewProjection, vec3 boxMin, vec3 boxMax )
+// The HZB comes as its image plus the sampler that reads it: Vulkan GLSL combines them only at the point of use.
+bool GpuCull_IsOccludedByHzb( texture2D hzb, sampler hzbSampler, GpuCullView view, mat4 viewProjection, vec3 boxMin, vec3 boxMax )
 {
     vec2  rectMin = vec2( 1.0e30 );
     vec2  rectMax = vec2( -1.0e30 );
@@ -56,7 +57,7 @@ bool GpuCull_IsOccludedByHzb( sampler2D hzb, GpuCullView view, mat4 viewProjecti
     float       furthest = 1.0;
     for ( int y = t0.y; y <= t1.y; ++y )
         for ( int x = t0.x; x <= t1.x; ++x )
-            furthest = min( furthest, texelFetch( hzb, ivec2( x, y ), mip ).r );
+            furthest = min( furthest, texelFetch( sampler2D( hzb, hzbSampler ), ivec2( x, y ), mip ).r );
     return nearest < furthest;
 }
 

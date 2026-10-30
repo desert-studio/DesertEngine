@@ -80,7 +80,6 @@ Shader "HeightFog"
         // silhouette, and across z because that interpolation is what turns 16 slices into a smooth
         // distance ramp instead of 16 visible shells.
         Uniform(3) texture3D AerialPerspectiveTexture;
-        #define AerialPerspectiveTexture sampler3D(AerialPerspectiveTexture, LinearRepeatSampler)
 
         // The sky's DISTANT SKY LIGHT (Graphic::kFogDistantSkyLightBinding): one texel holding the
         // average radiance of the sky, marched this frame from 64 directions at 6 km
@@ -89,14 +88,12 @@ Shader "HeightFog"
         // separate ground term to double-count against. Bound on the same terms as the volume above:
         // always bound, read only when FogAmbient.w says the value is real.
         Uniform(4) texture2D DistantSkyLightTexture;
-        #define DistantSkyLightTexture sampler2D(DistantSkyLightTexture, GlobalFilterSampler)
 
         // The VOLUMETRIC FOG's integrated froxels (VolumetricFogRenderer, Programs/Fog/VolumetricFogIntegration.shader):
         // per froxel, the lit fog between the camera and that froxel's far edge, premultiplied, transmittance in
         // .a. Always bound (the engine's 3D fallback when the volume did not run); read only when
         // FogVolumetric0.w says it is real. Trilinear: the grid is coarse, and the filter is what hides it.
         Uniform(5) texture3D VolumetricFogTexture;
-        #define VolumetricFogTexture sampler3D(VolumetricFogTexture, LinearClampSampler)
 
         PushConstant FogPush
         {
@@ -135,7 +132,8 @@ Shader "HeightFog"
             // inscattering (FogGates.z = ViewFrame::PreExposure); the transmittance is a ratio.
             imageStore(FogApplyTexture, coord,
                        ViewFogEvaluate(uv, worldPos, deviceDepth > 0.0f, AerialPerspectiveTexture,
-                                       DistantSkyLightTexture, VolumetricFogTexture));
+                                       LinearRepeatSampler, DistantSkyLightTexture, GlobalFilterSampler,
+                                       VolumetricFogTexture, LinearClampSampler));
         }
     }
 }

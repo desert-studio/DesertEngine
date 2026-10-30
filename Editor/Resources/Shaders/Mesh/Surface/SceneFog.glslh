@@ -22,11 +22,8 @@
 // Separate textures read through the includer's `LinearClampSampler` (trilinear, clamped at the volumes' edges;
 // the binding side is BindSceneFogInputs), as Common/MegaLightsVolume.glslh does.
 layout( binding = kSceneFogAerialPerspectiveBinding ) uniform texture3D SceneFogAerialPerspectiveTexture;
-#define SceneFogAerialPerspectiveTexture sampler3D( SceneFogAerialPerspectiveTexture, LinearClampSampler )
 layout( binding = kSceneFogDistantSkyLightBinding ) uniform texture2D SceneFogDistantSkyLightTexture;
-#define SceneFogDistantSkyLightTexture sampler2D( SceneFogDistantSkyLightTexture, LinearClampSampler )
 layout( binding = kSceneFogVolumeBinding ) uniform texture3D SceneFogVolumeTexture;
-#define SceneFogVolumeTexture sampler3D( SceneFogVolumeTexture, LinearClampSampler )
 
 // The fog between the camera and this fragment (@p worldPosition, world units): premultiplied inscattering in .rgb,
 // transmittance in .a. An alpha-blended surface writes colour * a + rgb (its coverage multiplies both); an additive
@@ -34,8 +31,9 @@ layout( binding = kSceneFogVolumeBinding ) uniform texture3D SceneFogVolumeTextu
 vec4 DesertSceneFog( vec3 worldPosition )
 {
     const vec2 viewUv = gl_FragCoord.xy / max( FogView.xy, vec2( 1.0 ) );
-    return ViewFogEvaluate( viewUv, worldPosition, true, SceneFogAerialPerspectiveTexture,
-                            SceneFogDistantSkyLightTexture, SceneFogVolumeTexture );
+    return ViewFogEvaluate( viewUv, worldPosition, true, SceneFogAerialPerspectiveTexture, LinearClampSampler,
+                            SceneFogDistantSkyLightTexture, LinearClampSampler, SceneFogVolumeTexture,
+                            LinearClampSampler );
 }
 
 #endif // DESERT_SCENE_FOG_GLSLH
