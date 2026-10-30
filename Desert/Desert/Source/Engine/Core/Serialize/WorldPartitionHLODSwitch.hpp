@@ -30,7 +30,7 @@
 //
 // ── THE HOLES (the policy for WP10's NotInstanced) ──────────────────────────────────────────────────
 //
-// A record the builder could not batch (EditorMesh, HiddenSubmeshes, SkinnedMesh, PrefabInstance, Unreadable)
+// A record the builder could not batch (EditorMesh, HiddenSubmeshes, SkinnedMesh, Unreadable, ...)
 // has no stand-in: while its cell is not visible it is simply absent from the distant picture. That is UE's
 // policy too — its builder logs such a component and moves on — and nothing better exists without a new kind of
 // proxy. What this adds is that the hole is never silent: DescribeHLODHoles names them by reason, and the
@@ -163,7 +163,7 @@ namespace Desert::Core::Rules
     }
 
     // The holes, counted by reason in the enum's own spelling and in its alphabetical order:
-    // "1 PrefabInstance, 2 SkinnedMesh"; empty when there are none.
+    // "1 EditorMesh, 2 SkinnedMesh"; empty when there are none.
     [[nodiscard]] inline std::string DescribeHLODHoles( std::span<const HLODExclusion> reasons )
     {
         std::map<std::string, std::size_t> counts;
