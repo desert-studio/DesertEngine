@@ -152,10 +152,10 @@ namespace Desert::Graphic::System
         // A display-referred buffer view: no effect is composited over the stored value (UE buffer visualization).
         if ( m_VisualizeBuffer )
         {
-            params.VisualizeBuffer     = true;
-            params.BloomIntensity      = 0.0f;
-            params.LightShaftIntensity = 0.0f;
-            params.LensFlareIntensity  = 0.0f;
+            params.VisualizeBuffer      = true;
+            params.BloomIntensity       = 0.0f;
+            params.LightShaftIntensity  = 0.0f;
+            params.LensFlareIntensity   = 0.0f;
             params.LocalExposureSlice.w = 0.0f;
         }
         m_MaterialTonemap->BindValues( params );
